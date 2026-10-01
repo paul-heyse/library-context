@@ -35,6 +35,8 @@ pub mod projection;
 mod record;
 pub mod resources;
 pub mod selection;
+pub mod structural;
+pub mod synthesis;
 pub mod source;
 pub mod stages;
 pub mod symbols;
@@ -232,6 +234,7 @@ pub fn analysis_relations() -> Vec<Relation> {
     relations.extend(analysis::relations());
     relations.extend(catalog::relations());
     relations.extend(selection::relations());
+    relations.extend(structural::relations());
     relations.extend(embedding::relations());
     relations.extend(execution::relations());
     relations.extend(local_semantics::relations());

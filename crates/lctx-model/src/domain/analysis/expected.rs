@@ -25,42 +25,155 @@ pub(crate) struct Contract {
 impl Contract {
     fn needs_native(self)->bool {self.scopes.iter().any(|s|!s.native.is_empty())}
 }
-pub(crate) fn contract(method: AnalysisMethod,capability: AnalysisCapability)->Result<Contract,ModelError> {
-    use admission::{ArtifactClass::*,Grain::*};
-    let (scopes,behavioral):(&'static [ScopeContract],bool)=match (method,capability) {
-        (AnalysisMethod::LocalTransfers,AnalysisCapability::Transfers)=>(
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Flow],normalized:&[Capability::FlowLinks,Capability::FlowEvents,Capability::Bindings]}],true),
-        (AnalysisMethod::Execution,AnalysisCapability::Execution)
-        | (AnalysisMethod::Completion,AnalysisCapability::Completion)=>(
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures,FactFamily::Lexical,FactFamily::Flow],normalized:&[Capability::Symbols,Capability::Callables]}],true),
-        (AnalysisMethod::Catalog,AnalysisCapability::Catalog)=>(
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::PublicExposure,Capability::Symbols,Capability::Ancestry,Capability::Types,Capability::Callables]}],false),
-        (AnalysisMethod::CatalogEvidence,AnalysisCapability::CatalogEvidence)=>(
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax],normalized:&[Capability::Symbols,Capability::References,Capability::Callables,Capability::Calls,Capability::Bindings]},
-              ScopeContract {grain:Artifact(Document),native:&[FactFamily::Docs],normalized:&[Capability::Mentions]},
-              ScopeContract {grain:Input,native:&[FactFamily::Deployment],normalized:&[]}],false),
-        (AnalysisMethod::CatalogSelection,AnalysisCapability::CatalogSelection)=>(
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax],normalized:&[Capability::PublicExposure,Capability::Symbols,Capability::Ancestry,Capability::Types,Capability::References,Capability::Callables,Capability::Calls,Capability::Bindings]},
-              ScopeContract {grain:Artifact(Document),native:&[FactFamily::Docs],normalized:&[Capability::Mentions]},
-              ScopeContract {grain:Input,native:&[FactFamily::Deployment],normalized:&[]}],false),
-        (AnalysisMethod::AnalyticEmbedding,AnalysisCapability::AnalyticEmbedding)=>(
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures],normalized:&[Capability::Symbols,Capability::Callables]},
-              ScopeContract {grain:Artifact(Document),native:&[FactFamily::Docs],normalized:&[]}],false),
-        _=>return Err(invalid("analysis method/capability contract is not bound")),
+pub(crate) fn contract(
+    method: AnalysisMethod,
+    capability: AnalysisCapability,
+) -> Result<Contract, ModelError> {
+    use admission::{ArtifactClass::*, Grain::*};
+    let (scopes, behavioral): (&'static [ScopeContract], bool) = match (method, capability) {
+        (AnalysisMethod::LocalTransfers, AnalysisCapability::Transfers) => (
+            &[ScopeContract {
+                grain: Artifact(PythonSource),
+                native: &[FactFamily::Flow],
+                normalized: &[
+                    Capability::FlowLinks,
+                    Capability::FlowEvents,
+                    Capability::Bindings,
+                ],
+            }],
+            true,
+        ),
+        (AnalysisMethod::Execution, AnalysisCapability::Execution)
+        | (AnalysisMethod::Completion, AnalysisCapability::Completion) => (
+            &[ScopeContract {
+                grain: Artifact(PythonSource),
+                native: &[
+                    FactFamily::Syntax,
+                    FactFamily::Signatures,
+                    FactFamily::Lexical,
+                    FactFamily::Flow,
+                ],
+                normalized: &[Capability::Symbols, Capability::Callables],
+            }],
+            true,
+        ),
+        (AnalysisMethod::Delegation, AnalysisCapability::Delegation) => (
+            &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Symbols,Capability::PublicExposure,Capability::Callables]},ScopeContract {grain:Input,native:&[],normalized:&[Capability::InvocationProjection,Capability::DefinitionProjection]}],false,
+        ),
+        (AnalysisMethod::DirectUsage, AnalysisCapability::DirectUsage) => (
+            &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Calls,Capability::Callables,Capability::PublicExposure]}],false,
+        ),
+        (AnalysisMethod::Catalog, AnalysisCapability::Catalog) => (
+            &[ScopeContract {
+                grain: Artifact(PythonSource),
+                native: &[],
+                normalized: &[
+                    Capability::PublicExposure,
+                    Capability::Symbols,
+                    Capability::Ancestry,
+                    Capability::Types,
+                    Capability::Callables,
+                ],
+            }],
+            false,
+        ),
+        (AnalysisMethod::CatalogEvidence, AnalysisCapability::CatalogEvidence) => (
+            &[
+                ScopeContract {
+                    grain: Artifact(PythonSource),
+                    native: &[FactFamily::Syntax],
+                    normalized: &[
+                        Capability::Symbols,
+                        Capability::References,
+                        Capability::Callables,
+                        Capability::Calls,
+                        Capability::Bindings,
+                    ],
+                },
+                ScopeContract {
+                    grain: Artifact(Document),
+                    native: &[FactFamily::Docs],
+                    normalized: &[Capability::Mentions],
+                },
+                ScopeContract {
+                    grain: Input,
+                    native: &[FactFamily::Deployment],
+                    normalized: &[],
+                },
+            ],
+            false,
+        ),
+        (AnalysisMethod::CatalogSelection, AnalysisCapability::CatalogSelection) => (
+            &[
+                ScopeContract {
+                    grain: Artifact(PythonSource),
+                    native: &[FactFamily::Syntax],
+                    normalized: &[
+                        Capability::PublicExposure,
+                        Capability::Symbols,
+                        Capability::Ancestry,
+                        Capability::Types,
+                        Capability::References,
+                        Capability::Callables,
+                        Capability::Calls,
+                        Capability::Bindings,
+                    ],
+                },
+                ScopeContract {
+                    grain: Artifact(Document),
+                    native: &[FactFamily::Docs],
+                    normalized: &[Capability::Mentions],
+                },
+                ScopeContract {
+                    grain: Input,
+                    native: &[FactFamily::Deployment],
+                    normalized: &[],
+                },
+            ],
+            false,
+        ),
+        (AnalysisMethod::AnalyticEmbedding, AnalysisCapability::AnalyticEmbedding) => (
+            &[
+                ScopeContract {
+                    grain: Artifact(PythonSource),
+                    native: &[FactFamily::Syntax, FactFamily::Signatures],
+                    normalized: &[Capability::Symbols, Capability::Callables],
+                },
+                ScopeContract {
+                    grain: Artifact(Document),
+                    native: &[FactFamily::Docs],
+                    normalized: &[],
+                },
+            ],
+            false,
+        ),
+        _ => return Err(invalid("analysis method/capability contract is not bound")),
     };
-    Ok(Contract {capability,method,scopes,behavioral})
+    Ok(Contract {
+        capability,
+        method,
+        scopes,
+        behavioral,
+    })
 }
-pub(crate) fn method_contract(method:AnalysisMethod)->Result<Contract,ModelError> {
-    let capability=match method {
-        AnalysisMethod::LocalTransfers=>AnalysisCapability::Transfers,
-        AnalysisMethod::Execution=>AnalysisCapability::Execution,
-        AnalysisMethod::Completion=>AnalysisCapability::Completion,
-        AnalysisMethod::Catalog=>AnalysisCapability::Catalog,
-        AnalysisMethod::CatalogEvidence=>AnalysisCapability::CatalogEvidence,
-        AnalysisMethod::CatalogSelection=>AnalysisCapability::CatalogSelection,
-        AnalysisMethod::AnalyticEmbedding=>AnalysisCapability::AnalyticEmbedding,
-        _=>return Err(invalid("analysis method has no admitted capability contract")),
-    };contract(method,capability)
+pub(crate) fn method_contract(method: AnalysisMethod) -> Result<Contract, ModelError> {
+    let capability = match method {
+        AnalysisMethod::LocalTransfers => AnalysisCapability::Transfers,
+        AnalysisMethod::Execution => AnalysisCapability::Execution,
+        AnalysisMethod::Completion => AnalysisCapability::Completion,
+        AnalysisMethod::Catalog => AnalysisCapability::Catalog,
+        AnalysisMethod::Delegation => AnalysisCapability::Delegation,
+        AnalysisMethod::DirectUsage => AnalysisCapability::DirectUsage,
+        AnalysisMethod::CatalogEvidence => AnalysisCapability::CatalogEvidence,
+        AnalysisMethod::CatalogSelection => AnalysisCapability::CatalogSelection,
+        AnalysisMethod::AnalyticEmbedding => AnalysisCapability::AnalyticEmbedding,
+        _ => {
+            return Err(invalid(
+                "analysis method has no admitted capability contract",
+            ));
+        }
+    };
+    contract(method, capability)
 }
 pub(crate) fn inputs(method:AnalysisMethod)->Vec<ValidationInput> {
     let contract=method_contract(method).expect("bound method has a finite expected contract");

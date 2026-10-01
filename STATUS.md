@@ -34,7 +34,8 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   three actual PG controls across four availability cases; external effects used a contract fixture,
   so live-service behavior is not_run. A0 usage and A1 neighbour/rank/concept kernels passed; nominal
   publication, E0 and cross-consumer integration remain open. Delegation and projection-v3
-  source definitions passed 5 native + 9 model controls; A0 production remains pending.
+  source definitions passed 5 native + 9 model controls; A0 structural publication passed both
+  PG profiles + 2 pure and 12 regression controls. Pass B/C and synthesis conclusions remain open.
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both
   normalized PG profiles). C1/E1 per-grain coverage contracts passed two pure controls;
   C1 source/document/deployment evidence passed 10 pure, 2 integrated PG and 1 native control;
@@ -44,7 +45,6 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   precede scheduled review; integrated acceptance waits for all functional packages and retirement.
 
 ## Phase 3 implementation and qualification
-
 - **Implemented / focused-Tested:** R1–R3 and N1–N7/X in the
   [detailed execution plan](docs/plans/semantic-model-phase3-detailed-plan_2026-09-30.md).
   Its §11 owns package receipts and finding disposition; the
@@ -115,6 +115,6 @@ Reset initially refused absent old-installation control tables; its regression a
 ## Next
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting/catalog refresh; do not run them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
-Continue P4 with actual Local/B1 execution, exact C1/C2 runtime field links and analytics.
-Downstream producers, assembly, retirement and Q0 remain open; follow scheduled review boundaries.
+Continue P4 with B1–B3, exact C1/C2 runtime fields, Pass B/C and analytics; downstream assembly,
+retirement and Q0 remain open. Follow scheduled review boundaries.
 P5 owns serving/product qualification; PR6 remains paused.

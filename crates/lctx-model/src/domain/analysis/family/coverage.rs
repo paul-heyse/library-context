@@ -342,10 +342,18 @@ pub fn admit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,capab
     let reservation=budget.reserve("admitted_analysis_coverage",bytes)?;
     let scopes=domain.scopes.iter().map(|scope|admitted_scope(invocation.id(),capability,scope)).collect::<Result<Vec<_>,_>>()?;Ok(AdmittedCoverage {scopes,_reservation:reservation})
 }
-fn bound_method()->Option<AnalysisMethod> {match AnalysisCoverage::NAME {"local_analysis_coverage"=>Some(AnalysisMethod::LocalTransfers),"catalog_core_analysis_coverage"=>Some(AnalysisMethod::Catalog),"catalog_evidence_analysis_coverage"=>Some(AnalysisMethod::CatalogEvidence),"analytic_embedding_analysis_coverage"=>Some(AnalysisMethod::AnalyticEmbedding),"selection_analysis_coverage"=>Some(AnalysisMethod::CatalogSelection),_=>None}}
+fn bound_methods()->&'static [AnalysisMethod] {match AnalysisCoverage::NAME {
+"local_analysis_coverage"=>&[AnalysisMethod::LocalTransfers],
+"catalog_core_analysis_coverage"=>&[AnalysisMethod::Catalog],
+"catalog_evidence_analysis_coverage"=>&[AnalysisMethod::CatalogEvidence],
+"analytic_embedding_analysis_coverage"=>&[AnalysisMethod::AnalyticEmbedding],
+"selection_analysis_coverage"=>&[AnalysisMethod::CatalogSelection],
+"structural_analysis_coverage"=>&[AnalysisMethod::Delegation,AnalysisMethod::DirectUsage],
+_=>&[]}}
+
 pub(super) fn publication_checks()->Vec<PublicationInvariant> {
     let mut inputs=vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<super::AnalysisOutcome>(&["id"]),ValidationInput::of::<CoverageRequirement>(&["id"]),ValidationInput::of::<CoverageRequiredSource>(&["id"]),ValidationInput::of::<AnalysisCoverage>(&["id"]),ValidationInput::of::<AnalysisCoveragePremise>(&["id"]),ValidationInput::of::<CoverageSource>(&["id"])];
-    if let Some(method)=bound_method() {inputs.extend(crate::domain::analysis::expected::inputs(method));}
+    for method in bound_methods() {inputs.extend(crate::domain::analysis::expected::inputs(*method));}inputs.sort_by_key(|r|(r.name(),r.prefix()));inputs.dedup_by_key(|r|(r.name(),r.prefix()));
     vec![PublicationInvariant {name:owner_table!("coverage_frontier"),inputs,create:std::sync::Arc::new(|budget|Box::new(FrontierCheck {charge:charged::StateCharge::new(budget,"analysis_coverage_frontier"),frontier:crate::domain::analysis::expected::FrontierIndex::new(stages::Profile::Catalog,budget),invocations:Default::default(),definitions:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),premises:Default::default(),sources:Default::default()}))}]
 }
 struct FrontierCheck {charge:charged::StateCharge,frontier:crate::domain::analysis::expected::FrontierIndex,invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,definitions:charged::ChargedMap<Id<AnalysisDefinition>,AnalysisDefinition>,outcomes:charged::ChargedMap<Id<AnalysisInvocation>,super::AnalysisOutcome>,requirements:charged::ChargedMap<Id<CoverageRequirement>,CoverageRequirement>,required:charged::ChargedMap<Id<CoverageRequirement>,std::collections::BTreeSet<Id<CoverageSource>>>,coverage:charged::ChargedMap<Id<AnalysisCoverage>,AnalysisCoverage>,premises:charged::ChargedMap<Id<AnalysisCoverage>,std::collections::BTreeSet<Id<CoverageSource>>>,sources:charged::ChargedMap<Id<CoverageSource>,CoverageSource>}
@@ -355,13 +363,13 @@ impl PublicationCheck for FrontierCheck {
         insert!(AnalysisInvocation,invocations,|r:&AnalysisInvocation|r.id());insert!(AnalysisDefinition,definitions,|r:&AnalysisDefinition|r.id());insert!(super::AnalysisOutcome,outcomes,|r:&super::AnalysisOutcome|r.invocation);insert!(CoverageRequirement,requirements,|r:&CoverageRequirement|r.id());insert!(AnalysisCoverage,coverage,|r:&AnalysisCoverage|r.id());insert!(CoverageSource,sources,|r:&CoverageSource|r.id());
         if relation==CoverageRequiredSource::NAME {for row in CoverageRequiredSource::decode(batch)? {if !self.required.update(&mut self.charge,row.requirement,|v|v.insert(row.source))? {return Err(invalid("duplicate frontier requirement member"));}}return Ok(());}
         if relation==AnalysisCoveragePremise::NAME {for row in AnalysisCoveragePremise::decode(batch)? {if !self.premises.update(&mut self.charge,row.coverage,|v|v.insert(row.source))? {return Err(invalid("duplicate frontier coverage premise"));}}return Ok(());}
-        if bound_method().is_some() && self.frontier.visit(relation,batch)? {return Ok(());}Err(invalid("undeclared analysis frontier input"))
+        if !bound_methods().is_empty() && self.frontier.visit(relation,batch)? {return Ok(());}Err(invalid("undeclared analysis frontier input"))
     }
     fn finish(mut self:Box<Self>,actual:&[stages::CompletedRelation],profile:stages::Profile)->Result<(),ModelError> {
         self.frontier.set_profile(profile);let budget=self.charge.budget().ok_or_else(||invalid("frontier budget absent"))?;let mut charge=charged::StateCharge::new(budget,"analysis_expected_recheck");let mut expected_requirements=charged::ChargedSet::default();let mut expected_coverage=charged::ChargedSet::default();let mut expected_sources=charged::ChargedSet::default();let empty=std::collections::BTreeSet::new();
         for invocation in self.invocations.values() {
             let definition=self.definitions.get(&invocation.definition).ok_or_else(||invalid("admitted analysis definition absent"))?;
-            if bound_method()!=Some(definition.method) {return Err(invalid("publication owner has no bound method/capability contract"));}
+            if !bound_methods().contains(&definition.method) {return Err(invalid("publication owner has no bound method/capability contract"));}
             let contract=crate::domain::analysis::expected::method_contract(definition.method)?;
             for input in crate::domain::analysis::expected::inputs(definition.method) {if !actual.iter().any(|r|r.relation()==input.name()) {return Err(invalid("frontier input has no declared completed source"));}}
             let outcome=self.outcomes.get(&invocation.id()).ok_or_else(||invalid("admitted analysis computation outcome absent"))?;

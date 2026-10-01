@@ -13,6 +13,7 @@ pub mod catalog;
 pub mod catalog_core;
 pub mod catalog_evidence;
 pub mod catalog_selection;
+pub mod structural;
 pub mod embed;
 pub mod embedding_realization;
 pub mod embedding_service;

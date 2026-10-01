@@ -17,14 +17,15 @@ use crate::domain::*;
 pub use config::*;
 use family::analysis_family;
 analysis_family!(dispatch,"dispatch",[],[],[],[]);
-analysis_family!(local,"local",[Dispatch:4=>dispatch],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[LocalWitness:8=>crate::domain::local_semantics::LocalContribution,LocalGuard:9=>crate::domain::local_semantics::LocalGuardContribution]);
+// Local consumes normalized dispatch evidence; unused analysis predecessor code4 stays reserved.
+analysis_family!(local,"local",[],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[LocalWitness:8=>crate::domain::local_semantics::LocalContribution,LocalGuard:9=>crate::domain::local_semantics::LocalGuardContribution]);
 analysis_family!(base_evaluation,"base_evaluation",[Local:4=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[BaseExpression:8=>crate::domain::execution::records::ExpressionEvaluation]);
 analysis_family!(base_completion,"base_completion",[BaseEvaluation:4=>base_evaluation,Local:5=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[BaseStatement:8=>crate::domain::execution::completion_records::StatementCompletion]);
 analysis_family!(source_call,"source_call",[BaseCompletion:4=>base_completion,BaseEvaluation:5=>base_evaluation,Local:6=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(enriched_execution,"enriched_execution",[SourceCallAnalysis:4=>source_call,BaseCompletion:5=>base_completion,Local:6=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(model,"model",[EnrichedExecution:4=>enriched_execution,SourceCallAnalysis:5=>source_call,Local:6=>local],[crate::domain::transfer::local::TransferKey;ModelTransfer:10=>crate::domain::transfer::model::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(summary,"summary",[Model:4=>model,EnrichedExecution:5=>enriched_execution,SourceCallAnalysis:6=>source_call,Local:7=>local],[crate::domain::transfer::local::TransferKey;ModelTransfer:10=>crate::domain::transfer::model::TransferKey;SummaryTransfer:11=>crate::domain::transfer::summary::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[TransferWitness:8=>crate::domain::transfer::summary::SummaryWitness]);
-analysis_family!(structural,"structural",[Local:4=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
+analysis_family!(structural,"structural",[Local:4=>local,CatalogCore:5=>catalog_core],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(analytic_embedding,"analytic_embedding",[],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(analytic,"analytic",[Structural:4=>structural,AnalyticEmbedding:5=>analytic_embedding],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(catalog_core,"catalog_core",[],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);

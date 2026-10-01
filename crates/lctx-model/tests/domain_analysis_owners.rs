@@ -59,7 +59,7 @@ fn owners_are_distinct_and_early_manifest_excludes_future_results() {
     );
     let inputs = local::Invocation::invariants().remove(0).inputs;
     assert!(
-        inputs
+        !inputs
             .iter()
             .any(|i| i.name() == analysis::dispatch::Invocation::NAME)
     );
@@ -256,7 +256,8 @@ fn native_projection_feeds_shared_join_and_stored_lineage_refuses_strengthening(
 }
 #[test]
 fn generated_companion_refuses_predecessor_proof_as_direct_support() {
-    let foreign = SupportSource::Dispatch {
+    use analysis::base_evaluation::SupportSource;
+    let foreign = SupportSource::Local {
         derivation: nominal(9),
     };
     let mut index = <SupportSource as DerivedSupportSource>::index(&budget());

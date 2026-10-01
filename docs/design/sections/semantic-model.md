@@ -41,8 +41,10 @@ develops normalized relations and their runtime prerequisites. Its cumulative-ge
 The [Phase 4 detailed plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
 is an **Accepted target, 2026-09-30**. It specifies analysis/catalog reconstruction, required normalized
 corrections and the immutable vocabulary mechanism below; it does not establish P4 implementation.
-C0 and C1 original source/document/deployment evidence are **Implemented / focused-Tested**,
-2026-10-01; exact runtime field associations still require the Local/B1 producers.
+C0, C1 original source/document/deployment evidence and C2 declaration selection are
+**Implemented / focused-Tested, 2026-10-01**. Exact contextual domains retain typed defaults,
+signature variants, four outcome groups and predicate-specific closure. Runtime field/state
+associations still require the Local/B1 producers.
 R0/R1 are **Implemented / focused-Tested**, with an independent
 [Accept scoped foundation review, 2026-10-01](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
 The E1 shared specification, exact value codec, early stored configuration, original analytic text
@@ -605,10 +607,11 @@ proof families are nominal per producing owner, with one qualification and cover
 The generated index validates their combined DAG. Later discharge references earlier obligations
 without extending completed membership. S0 alone writes the shared finding family; earlier stages
 publish qualified conclusions for its emitter. A final read-only union does not become another
-writable authority or grant access to unfinished owners. Only LocalTransfers/Transfers and
-Catalog/Catalog currently have expected-domain selectors; other nonempty invocations refuse until
-their producer package binds an actual input universe. This foundation does not activate S0 or
-the remaining analysis producers.
+writable authority or grant access to unfinished owners. Bound selectors are declared once in
+`analysis::expected` and each producing family accepts only its implemented finite methods.
+Unbound nonempty invocations refuse activation. Local consumes normalized dispatch evidence
+directly; no unused Dispatch analysis parent or fabricated completion is required. This foundation
+does not activate S0 or the remaining analysis producers.
 
 **Witnesses** are selected at serve time from derivations, under response budgets. A smaller budget
 never removes an established conclusion.
@@ -656,6 +659,16 @@ Dispatch expansion precedes the graph build on every fresh collection.
 definitions their own role and arc identity from normalized declaration ownership. Ordinary
 containment retains occurrence endpoints; definition edges never become runtime calls. Bounded
 delegation borrows both projections, preserving canonical witness ties, open dispatch and limits.
+**Implemented / focused-Tested, 2026-10-01:** typed early analytics configuration retains authored
+roots, ordered configured seeds, bounds and the complete resolved technique set. The pure parser
+rejects contradictory flags and missing technique dependencies before effects. Final seed selection
+belongs to S0 after optional analytics; the mandatory C0 catalog owns public path expansion.
+Structural Pass A and direct usage are **Implemented / focused-Tested (2026-10-01)** through real
+PostgreSQL in both profiles. C0 owns public access candidates; selected settings and release/module
+membership define the structural scope. Prepared graphs are borrowed by production; publication
+replay recomputes exact path, boundary, usage and invocation inventories from completed inputs.
+Path steps retain their own conditions and phases: structural reachability does not establish
+execution or normal completion. Final brief seed selection remains S0 work; Pass B/C remain open.
 **Accepted target:** numeric conversions have explicit universe/weight/lineage contracts and share
 the attempt budget. Optional analytics retain their existing disabled defaults.
 
