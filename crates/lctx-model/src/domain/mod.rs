@@ -20,6 +20,8 @@ mod identity;
 pub mod input;
 pub mod lexical;
 pub mod memory;
+pub mod models;
+pub mod execution;
 mod model;
 pub mod normalized;
 pub mod obligation;

@@ -1,0 +1,335 @@
+version = 7
+
+# `typing.cast` returns its value unchanged at runtime. The annotated type is not a value source.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "cast" }
+coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "complete" }
+normal_body = { kind = "direct_return_parameter", name = "val" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "val" }
+to = { kind = "return_value" }
+transfer = "identity"
+modality = "definite"
+
+# Python 3.14 typing.assert_type is a static checker directive. At runtime it performs no
+# check and returns val unchanged (CPython Doc/library/typing.rst, pinned context binding).
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "assert_type" }
+coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "complete" }
+normal_body = { kind = "direct_return_parameter", name = "val" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "val" }
+to = { kind = "return_value" }
+transfer = "identity"
+modality = "definite"
+
+# Python 3.14 print() writes text to a stream (sys.stdout by default, or file.write).
+# The stream identity is call-dependent, so this model claims the I/O effect without a subject.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "print" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "io_write" }
+modality = "potential"
+
+# json.dumps serializes obj to a str. A custom encoder/default can add other effects, so
+# effect and callback coverage stay open. The output's dependence on obj is potential.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "dumps" }
+# Qualified CPython 3.14.7 runtime defaults; availability only (ADR-0061).
+call_defaults_available = true
+coverage = { transfers = "partial", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "obj" }
+to = { kind = "return_value" }
+transfer = "transform"
+modality = "potential"
+
+[[models.rules]]
+kind = "effect"
+exit = "normal"
+effect = { kind = "serialize", format = "json" }
+subject = { kind = "parameter", name = "obj" }
+modality = "potential"
+
+# json.dump may write chunks before later encoding or stream failure (CPython 3.14.7).
+# io_write is a potential partial action; serialize means completed serialization on Normal.
+# It neither owns nor closes the passed stream.
+# A custom encoder/default leaves the rest of its effects open.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "dump" }
+# Qualified CPython 3.14.7 runtime defaults; availability only (ADR-0061).
+call_defaults_available = true
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "normal"
+effect = { kind = "serialize", format = "json" }
+subject = { kind = "parameter", name = "obj" }
+modality = "potential"
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "io_write" }
+subject = { kind = "parameter", name = "fp" }
+modality = "potential"
+
+# json.loads can decode str/bytes/bytearray. Decoder classes and parse/object hooks are
+# caller-supplied, so this is a potential data dependence, not a total/pure result model.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "loads" }
+# Qualified CPython 3.14.7 runtime defaults; availability only (ADR-0061).
+call_defaults_available = true
+coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "s" }
+to = { kind = "return_value" }
+transfer = "transform"
+modality = "potential"
+
+# gzip.compress returns compressed bytes from data on a normal path. Type, level and memory
+# failures leave normal completion open; this effect is tied to the source data, not file I/O.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "gzip", callable = "compress" }
+# Qualified CPython 3.14.7 runtime defaults; availability only (ADR-0061).
+call_defaults_available = true
+coverage = { transfers = "partial", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "data" }
+to = { kind = "return_value" }
+transfer = "transform"
+modality = "potential"
+
+[[models.rules]]
+kind = "effect"
+exit = "normal"
+effect = { kind = "compress", format = "gzip" }
+subject = { kind = "parameter", name = "data" }
+modality = "potential"
+
+# gzip.decompress has a potential decoded output; malformed input can raise before return.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "gzip", callable = "decompress" }
+coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "data" }
+to = { kind = "return_value" }
+transfer = "transform"
+modality = "potential"
+
+# A configured Logger may suppress this level entirely or dispatch to user-defined handlers;
+# the message is still an exact source argument when a warning is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.warning" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.debug: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.debug" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.info: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.info" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.error: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.error" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.exception: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.exception" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.critical: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.critical" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.log: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.log" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# A successful open returns a newly acquired file object. Mode-dependent read/write behavior is
+# deliberately not asserted. The returned resource needs an independent close/with witness.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "open" }
+coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "unspecified", resources = "partial", exceptions = "partial" }
+
+[[models.rules]]
+kind = "resource"
+resource = { role = "output", path = { kind = "return_value" } }
+action = "acquire"
+exit = "normal"
+modality = "definite"
+
+[[models.rules]]
+kind = "exception"
+class = "builtins.OSError"
+action = "raise"
+modality = "potential"
+
+# Registration stores a callback for interpreter shutdown and returns that same callable.
+# It is not an invocation at the registration call site.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "atexit", callable = "register" }
+coverage = { transfers = "complete", effects = "unspecified", callbacks = "partial", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "callback"
+callback = { kind = "parameter", name = "func" }
+action = "registered"
+exit = "normal"
+modality = "definite"
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "func" }
+to = { kind = "return_value" }
+transfer = "identity"
+modality = "definite"
+
+# Pydantic 2.13.5 TypeAdapter validates against a schema selected by its instance. Successful
+# output may transform the object; custom validators may add effects or raise. The current
+# validate(schema) channel requires a named schema, so this model withholds that effect rather
+# than mislabeling the dynamic schema as TypeAdapter itself.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "dependency", distribution = "pydantic", version = "2.13.5", module = "pydantic.type_adapter", callable = "TypeAdapter.validate_python" }
+coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "object" }
+to = { kind = "return_value" }
+transfer = "transform"
+modality = "potential"
+
+# Synchronous class protocols, CPython 3.14.7 Lib/contextlib.py (ADR-0059).
+# These assert runtime behavior of the exact class after admitted constructor arguments;
+# they are not synthetic provider __enter__/__exit__ call observations.
+[[context_protocols]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "contextlib", callable = "nullcontext" }
+allocation = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "object.__new__" }
+initialization = { scope = "stdlib", python = "3.14.7", module = "contextlib", callable = "nullcontext.__init__" }
+entry = { kind = "argument_or_none", formal = "enter_result" }
+exit = { kind = "preserve" }
+
+[[context_protocols]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "contextlib", callable = "suppress" }
+allocation = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "object.__new__" }
+initialization = { scope = "stdlib", python = "3.14.7", module = "contextlib", callable = "suppress.__init__" }
+entry = { kind = "none_value" }
+exit = { kind = "suppress_classes", formal = "exceptions" }
