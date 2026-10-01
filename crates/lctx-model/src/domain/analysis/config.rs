@@ -1,8 +1,5 @@
 use super::invalid;
-use crate::domain::{
-    attribution::AnalysisContext, input::InputRevision, normalized::entities::EntityRef,
-    obligation::ObligationKind, *,
-};
+use crate::domain::*;
 use crate::{Domain, DomainCode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
@@ -28,6 +25,7 @@ pub enum AnalysisMethod {
     Retrieval = 17,
     Dispatch = 18,
     AnalyticEmbedding = 19,
+    CatalogEvidence = 20,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
@@ -89,9 +87,28 @@ pub struct AnalysisDefinition {
     #[model(key)]
     pub interpretation: Interpretation,
 }
-fn validate_definition(row:&AnalysisDefinition)->Result<(),ModelError> {
-    if matches!(row.method,AnalysisMethod::Communities|AnalysisMethod::PageRank|AnalysisMethod::Neighbours|AnalysisMethod::AnalyticEmbedding) && row.interpretation!=Interpretation::Heuristic {return Err(invalid("statistical method requires heuristic interpretation"));}
-    if matches!(row.method,AnalysisMethod::Concepts|AnalysisMethod::RelationalConcepts) && row.interpretation!=Interpretation::ExactUnderContext {return Err(invalid("concept method requires its exact declared context"));}
+fn validate_definition(row: &AnalysisDefinition) -> Result<(), ModelError> {
+    if matches!(
+        row.method,
+        AnalysisMethod::Communities
+            | AnalysisMethod::PageRank
+            | AnalysisMethod::Neighbours
+            | AnalysisMethod::AnalyticEmbedding
+    ) && row.interpretation != Interpretation::Heuristic
+    {
+        return Err(invalid(
+            "statistical method requires heuristic interpretation",
+        ));
+    }
+    if matches!(
+        row.method,
+        AnalysisMethod::Concepts | AnalysisMethod::RelationalConcepts
+    ) && row.interpretation != Interpretation::ExactUnderContext
+    {
+        return Err(invalid(
+            "concept method requires its exact declared context",
+        ));
+    }
     Ok(())
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
@@ -126,6 +143,7 @@ pub enum AnalysisCapability {
     Synthesis = 17,
     Retrieval = 18,
     AnalyticEmbedding = 19,
+    CatalogEvidence = 20,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
@@ -141,14 +159,39 @@ pub enum AnalysisChannel {
 }
 /// Early immutable reference to the existing projection owner's finite meaning. This contains no
 /// late assessment or snapshot target, so Dispatch can use it before the normalized checkpoint.
-#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="analysis_projection_definitions",validate=validate_projection_definition)]
 pub struct ProjectionDefinition {
-    #[model(key)] pub name:projection::ProjectionName,
-    #[model(key)] pub version:i32,
-    #[model(key)] pub policy:ContentHash,
+    #[model(key)]
+    pub name: projection::ProjectionName,
+    #[model(key)]
+    pub version: i32,
+    #[model(key)]
+    pub policy: ContentHash,
 }
 impl ProjectionDefinition {
-    pub fn builtin(name:projection::ProjectionName)->Self {let spec=projection::ProjectionSpec::builtin(name);let mut sink=KeySink::new("analysis-projection-definition");name.encode(&mut sink);projection::ProjectionSpec::VERSION.encode(&mut sink);format!("{:?}",spec.universe()).encode(&mut sink);format!("{:?}",spec.multiplicity()).encode(&mut sink);format!("{:?}",spec.availability()).encode(&mut sink);format!("{:?}",spec.roles()).encode(&mut sink);format!("{:?}",spec.call_policy()).encode(&mut sink);Self {name,version:projection::ProjectionSpec::VERSION,policy:sink.finish()}}
+    pub fn builtin(name: projection::ProjectionName) -> Self {
+        let spec = projection::ProjectionSpec::builtin(name);
+        let mut sink = KeySink::new("analysis-projection-definition");
+        name.encode(&mut sink);
+        projection::ProjectionSpec::VERSION.encode(&mut sink);
+        format!("{:?}", spec.universe()).encode(&mut sink);
+        format!("{:?}", spec.multiplicity()).encode(&mut sink);
+        format!("{:?}", spec.availability()).encode(&mut sink);
+        format!("{:?}", spec.roles()).encode(&mut sink);
+        format!("{:?}", spec.call_policy()).encode(&mut sink);
+        Self {
+            name,
+            version: projection::ProjectionSpec::VERSION,
+            policy: sink.finish(),
+        }
+    }
 }
-fn validate_projection_definition(row:&ProjectionDefinition)->Result<(),ModelError> {if *row!=ProjectionDefinition::builtin(row.name) {return Err(invalid("analysis projection differs from its authoritative built-in meaning"));}Ok(())}
+fn validate_projection_definition(row: &ProjectionDefinition) -> Result<(), ModelError> {
+    if *row != ProjectionDefinition::builtin(row.name) {
+        return Err(invalid(
+            "analysis projection differs from its authoritative built-in meaning",
+        ));
+    }
+    Ok(())
+}

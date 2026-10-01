@@ -5,6 +5,7 @@ pub mod bindings;
 mod callable_inventory;
 pub mod callable_normalization;
 pub mod callables;
+pub mod callable_aspects;
 pub mod coverage;
 pub mod dispatch;
 pub mod entities;
@@ -37,6 +38,7 @@ pub fn relations() -> Vec<Relation> {
     let mut relations = entities::relations();
     relations.extend(links::relations());
     relations.extend(callables::relations());
+    relations.extend(callable_aspects::relations());
     relations.extend(events::relations());
     relations.extend(receiver::relations());
     relations.extend(bindings::relations());

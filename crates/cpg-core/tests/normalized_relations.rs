@@ -102,6 +102,7 @@ async fn run(profile: Profile) {
     declarations.push(entity_normalization::stage());
     declarations.push(relation_normalization::stage(profile));
     declarations.push(callable_normalization::stage(profile));
+    declarations.push(normalized::callable_aspects::stage(profile));
     declarations.push(receiver::stage(profile));
     declarations.push(event_normalization::stage(profile));
     declarations.push(binding_normalization::stage(profile));
@@ -207,6 +208,8 @@ async fn run(profile: Profile) {
             )
             .await
             .unwrap();
+        } else if declaration.name == "normalize_callable_aspects" {
+            cpg_core::catalog_core::aspects(execution.begin(declaration.name).unwrap(), &attempt, &config, &runtime, &model).await.unwrap();
         } else if declaration.name == "normalize_relations" {
             cpg_core::stage_runtime::run_declared_stage(
                 &mut execution,

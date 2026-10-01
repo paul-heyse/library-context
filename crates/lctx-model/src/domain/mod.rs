@@ -7,6 +7,7 @@ pub mod attachment;
 pub mod attribution;
 pub mod batching;
 pub mod calls;
+pub mod catalog;
 pub mod charged;
 pub mod composition;
 pub mod conditions;
@@ -15,15 +16,15 @@ pub mod deployment;
 pub mod derivation;
 pub mod documents;
 pub mod embedding;
+pub mod execution;
 mod finite;
 pub mod flow;
 mod identity;
 pub mod input;
 pub mod lexical;
 pub mod memory;
-pub mod models;
-pub mod execution;
 mod model;
+pub mod models;
 pub mod normalized;
 pub mod obligation;
 pub mod occurrence_owner;
@@ -43,7 +44,8 @@ pub mod value;
 pub use finite::FiniteF64;
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink, Utf8Text};
 pub use model::{
-    Invariant, InvariantCheck, PublicationInvariant, PublicationCheck, Relation, RelationContent, ValidatedModel, ValidationInput,
+    Invariant, InvariantCheck, PublicationCheck, PublicationInvariant, Relation, RelationContent,
+    ValidatedModel, ValidationInput,
 };
 pub use record::{
     Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar, Sum,
@@ -219,6 +221,7 @@ pub fn analysis_relations() -> Vec<Relation> {
         Relation::of::<composition::CallCompositionStep>(),
     ];
     relations.extend(analysis::relations());
+    relations.extend(catalog::relations());
     relations.extend(embedding::relations());
     relations
 }

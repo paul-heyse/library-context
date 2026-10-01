@@ -1,47 +1,640 @@
-use lctx_model::domain::{analysis::{self,*,expected::CoverageAdmission,local, catalog_core,sources::CapturedSources},attribution::{ProviderCoverage,CoverageStatus,FactFamily},input::{InputRevision,ArtifactUse,SourceRole},source::{SourceArtifact,CoverageScope},normalized::coverage::{Capability,NormalizationComputation,NormalizationCoverage,EvidenceAvailability},memory::MemoryGeneration,stages::*,*};
-use std::{collections::BTreeMap,future::Future,task::{Context,Poll,Waker}};
-fn nominal<T>(v:u8)->Id<T> {serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([v;16].into_iter())).unwrap()}
-fn budget()->resources::ResourceBudget {resources::ResourceBudget::fixed(64<<20).unwrap()}
-fn ready<T>(f:impl Future<Output=T>)->T {match std::pin::pin!(f).as_mut().poll(&mut Context::from_waker(Waker::noop())) {Poll::Ready(v)=>v,Poll::Pending=>panic!("memory effect pending")}}
-fn stage(name:&'static str,inputs:Vec<RelationUse>,outputs:Vec<RelationUse>)->Stage {Stage {name,inputs,outputs,contributes:vec![],coverage:vec![],provider:None,profiles:vec![Profile::Catalog,Profile::Behavioral],effect:Effect::Pure,code:ContentHash::of(b"expected control"),configuration:ContentHash::of(b"expected control")}}
-fn frame<R:Record>(rows:&[R])->(&'static str,arrow_array::RecordBatch) {(R::NAME,R::encode(rows).unwrap())}
-struct Universe {input:InputRevision,artifacts:Vec<SourceArtifact>,uses:Vec<ArtifactUse>,scopes:Vec<CoverageScope>,computations:Vec<NormalizationComputation>,normalized:Vec<NormalizationCoverage>,native:Vec<ProviderCoverage>,definition:AnalysisDefinition}
-impl Universe {
-    fn new(profile:Profile,method:AnalysisMethod,count:usize)->Self {
-        let input=InputRevision::from_entries((0..count).map(|n|input::ManifestEntry {path:format!("{n}.py"),content:ContentHash::of(b"x=1\n"),byte_len:4}).collect()).unwrap();let artifacts=(0..count).map(|n|SourceArtifact::from_bytes(input.id(),format!("{n}.py"),b"x=1\n").unwrap()).collect::<Vec<_>>();let uses=artifacts.iter().map(|a|ArtifactUse {input:input.id(),artifact:a.id(),role:SourceRole::Release}).collect();let mut scopes=artifacts.iter().map(|a|CoverageScope::Artifact {artifact:a.id()}).collect::<Vec<_>>();scopes.push(CoverageScope::Input {input:input.id()});
-        let capabilities=if method==AnalysisMethod::LocalTransfers {vec![Capability::FlowLinks,Capability::FlowEvents,Capability::Bindings]} else {vec![Capability::PublicExposure,Capability::Callables]};let computations=capabilities.into_iter().map(|capability|NormalizationComputation {capability,policy:ContentHash::of(b"normalized policy"),producer:"normalized".into(),declaration:ContentHash::of(b"normalized control"),profile:profile.name().into(),availability:EvidenceAvailability::Complete}).collect::<Vec<_>>();let mut normalized=Vec::new();for (n,artifact) in artifacts.iter().enumerate() {for computation in &computations {normalized.push(NormalizationCoverage {computation:computation.id(),scope:CoverageScope::Artifact {artifact:artifact.id()}.id(),context:nominal(2),availability:if method==AnalysisMethod::LocalTransfers && profile==Profile::Catalog && matches!(computation.capability,Capability::FlowLinks|Capability::FlowEvents) {EvidenceAvailability::NotRequested} else if n==1 {EvidenceAvailability::Partial} else {EvidenceAvailability::Complete}});}}
-        let native=if method==AnalysisMethod::LocalTransfers {artifacts.iter().map(|a|ProviderCoverage {scope:CoverageScope::Artifact {artifact:a.id()}.id(),provider:(profile==Profile::Behavioral).then(||nominal(5)),context:nominal(2),family:FactFamily::Flow,run:(profile==Profile::Behavioral).then(||nominal(6)),status:if profile==Profile::Behavioral {CoverageStatus::CompleteUnderStatedModel} else {CoverageStatus::NotRequested},reason:None,diagnostic:None}).collect()} else {vec![]};let definition=AnalysisDefinition {method,semantic_version:ContentHash::of(b"contract control"),parameters:nominal(3),interpretation:Interpretation::Structural};Self {input,artifacts,uses,scopes,computations,normalized,native,definition}
+use lctx_model::domain::{
+    analysis::{catalog_core, expected::CoverageAdmission, local, sources::CapturedSources, *},
+    attribution::{CoverageStatus, FactFamily, ProviderCoverage},
+    input::{ArtifactUse, InputRevision, SourceRole},
+    memory::MemoryGeneration,
+    normalized::coverage::{
+        Capability, EvidenceAvailability, NormalizationComputation, NormalizationCoverage,
+    },
+    source::{CoverageScope, SourceArtifact},
+    stages::*,
+    *,
+};
+use std::{
+    collections::BTreeMap,
+    future::Future,
+    task::{Context, Poll, Waker},
+};
+fn nominal<T>(v: u8) -> Id<T> {
+    serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+        _,
+        serde::de::value::Error,
+    >::new([v; 16].into_iter()))
+    .unwrap()
+}
+fn budget() -> resources::ResourceBudget {
+    resources::ResourceBudget::fixed(64 << 20).unwrap()
+}
+fn ready<T>(f: impl Future<Output = T>) -> T {
+    match std::pin::pin!(f)
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+    {
+        Poll::Ready(v) => v,
+        Poll::Pending => panic!("memory effect pending"),
     }
-    fn frames(&self)->BTreeMap<&'static str,arrow_array::RecordBatch> {BTreeMap::from([frame(std::slice::from_ref(&self.input)),frame(&self.artifacts),frame(&self.uses),frame(&self.scopes),frame(&self.computations),frame(&self.normalized),frame(&self.native),frame(std::slice::from_ref(&self.definition))])}
 }
-fn with_capture<T>(universe:&Universe,profile:Profile,f:impl FnOnce(&CapturedSources,&CoverageAdmission<'_>,&[CompletedRelation],&ValidatedModel,&resources::ResourceBudget)->T)->T {
-    let model=model().unwrap();let budget=budget();let names=[RelationUse::of::<InputRevision>(),RelationUse::of::<SourceArtifact>(),RelationUse::of::<ArtifactUse>(),RelationUse::of::<CoverageScope>(),RelationUse::of::<NormalizationComputation>(),RelationUse::of::<NormalizationCoverage>(),RelationUse::of::<ProviderCoverage>(),RelationUse::of::<AnalysisDefinition>()];let readers=names.iter().cloned().map(|r|r.completed_store()).collect();let schedule=Schedule::build(&model,vec![stage("captured",vec![],names.into()),stage("consumer",readers,vec![RelationUse::of::<input::Release>()])],&[],profile).unwrap();let mut execution=schedule.execute();let sink=MemoryGeneration::bind(&model,&budget,&mut execution).unwrap();let mut producer=execution.begin("captured").unwrap();
-    macro_rules! write {($r:ty,$rows:expr)=>{let batch=Batch::<$r>::new(&model,$rows,&budget).unwrap();ready(producer.write::<$r,_>(async |permit|sink.copy(permit,&batch).await)).unwrap();};}
-    write!(InputRevision,vec![universe.input.clone()]);write!(SourceArtifact,universe.artifacts.clone());write!(ArtifactUse,universe.uses.clone());write!(CoverageScope,universe.scopes.clone());write!(NormalizationComputation,universe.computations.clone());write!(NormalizationCoverage,universe.normalized.clone());write!(ProviderCoverage,universe.native.clone());write!(AnalysisDefinition,vec![universe.definition.clone()]);ready(producer.complete(&sink,ProviderOutcome::Complete)).unwrap();let consumer=execution.begin("consumer").unwrap();let captured=CapturedSources::capture(&consumer,&budget).unwrap();let mut admission=CoverageAdmission::new(&captured,&budget).unwrap();
-    macro_rules! visit {($r:ty,$rows:expr)=>{admission.visit(&consumer.read::<$r>().unwrap(),&<$r as Record>::encode($rows).unwrap()).unwrap();};}
-    visit!(InputRevision,std::slice::from_ref(&universe.input));visit!(SourceArtifact,&universe.artifacts);visit!(ArtifactUse,&universe.uses);visit!(CoverageScope,&universe.scopes);visit!(NormalizationComputation,&universe.computations);visit!(NormalizationCoverage,&universe.normalized);visit!(ProviderCoverage,&universe.native);
-    f(&captured,&admission,&consumer.completed_sources().unwrap(),&model,&budget)
+fn stage(name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>) -> Stage {
+    Stage {
+        name,
+        inputs,
+        outputs,
+        contributes: vec![],
+        coverage: vec![],
+        provider: None,
+        profiles: vec![Profile::Catalog, Profile::Behavioral],
+        effect: Effect::Pure,
+        code: ContentHash::of(b"expected control"),
+        configuration: ContentHash::of(b"expected control"),
+    }
 }
-fn publication<R:Record>(mut frames:BTreeMap<&'static str,arrow_array::RecordBatch>,sources:&[CompletedRelation],profile:Profile,model:&ValidatedModel,budget:&resources::ResourceBudget)->Result<(),ModelError> {let descriptor=R::publication_checks().into_iter().find(|c|c.name.ends_with("coverage_frontier")).unwrap();let mut check=(descriptor.create)(budget);for input in descriptor.inputs {let batch=frames.remove(input.name()).unwrap_or_else(||arrow_array::RecordBatch::new_empty(model.relations().iter().find(|r|r.name()==input.name()).unwrap().schema().clone()));check.visit(input.name(),&batch)?;}check.finish(sources,profile)}
+fn frame<R: Record>(rows: &[R]) -> (&'static str, arrow_array::RecordBatch) {
+    (R::NAME, R::encode(rows).unwrap())
+}
+struct Universe {
+    input: InputRevision,
+    artifacts: Vec<SourceArtifact>,
+    uses: Vec<ArtifactUse>,
+    scopes: Vec<CoverageScope>,
+    computations: Vec<NormalizationComputation>,
+    normalized: Vec<NormalizationCoverage>,
+    native: Vec<ProviderCoverage>,
+    definition: AnalysisDefinition,
+}
+impl Universe {
+    fn new(profile: Profile, method: AnalysisMethod, count: usize) -> Self {
+        let input = InputRevision::from_entries(
+            (0..count)
+                .map(|n| input::ManifestEntry {
+                    path: format!("{n}.py"),
+                    content: ContentHash::of(b"x=1\n"),
+                    byte_len: 4,
+                })
+                .collect(),
+        )
+        .unwrap();
+        let artifacts = (0..count)
+            .map(|n| SourceArtifact::from_bytes(input.id(), format!("{n}.py"), b"x=1\n").unwrap())
+            .collect::<Vec<_>>();
+        let uses = artifacts
+            .iter()
+            .map(|a| ArtifactUse {
+                input: input.id(),
+                artifact: a.id(),
+                role: SourceRole::Release,
+            })
+            .collect();
+        let mut scopes = artifacts
+            .iter()
+            .map(|a| CoverageScope::Artifact { artifact: a.id() })
+            .collect::<Vec<_>>();
+        scopes.push(CoverageScope::Input { input: input.id() });
+        let capabilities = if method == AnalysisMethod::LocalTransfers {
+            vec![
+                Capability::FlowLinks,
+                Capability::FlowEvents,
+                Capability::Bindings,
+            ]
+        } else {
+            vec![Capability::PublicExposure, Capability::Symbols, Capability::Ancestry, Capability::Types, Capability::Callables]
+        };
+        let computations = capabilities
+            .into_iter()
+            .map(|capability| NormalizationComputation {
+                capability,
+                policy: ContentHash::of(b"normalized policy"),
+                producer: "normalized".into(),
+                declaration: ContentHash::of(b"normalized control"),
+                profile: profile.name().into(),
+                availability: EvidenceAvailability::Complete,
+            })
+            .collect::<Vec<_>>();
+        let mut normalized = Vec::new();
+        for (n, artifact) in artifacts.iter().enumerate() {
+            for computation in &computations {
+                normalized.push(NormalizationCoverage {
+                    computation: computation.id(),
+                    scope: CoverageScope::Artifact {
+                        artifact: artifact.id(),
+                    }
+                    .id(),
+                    context: nominal(2),
+                    availability: if method == AnalysisMethod::LocalTransfers
+                        && profile == Profile::Catalog
+                        && matches!(
+                            computation.capability,
+                            Capability::FlowLinks | Capability::FlowEvents
+                        ) {
+                        EvidenceAvailability::NotRequested
+                    } else if n == 1 {
+                        EvidenceAvailability::Partial
+                    } else {
+                        EvidenceAvailability::Complete
+                    },
+                });
+            }
+        }
+        let native = if method == AnalysisMethod::LocalTransfers {
+            artifacts
+                .iter()
+                .map(|a| ProviderCoverage {
+                    scope: CoverageScope::Artifact { artifact: a.id() }.id(),
+                    provider: (profile == Profile::Behavioral).then(|| nominal(5)),
+                    context: nominal(2),
+                    family: FactFamily::Flow,
+                    run: (profile == Profile::Behavioral).then(|| nominal(6)),
+                    status: if profile == Profile::Behavioral {
+                        CoverageStatus::CompleteUnderStatedModel
+                    } else {
+                        CoverageStatus::NotRequested
+                    },
+                    reason: None,
+                    diagnostic: None,
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        let definition = AnalysisDefinition {
+            method,
+            semantic_version: ContentHash::of(b"contract control"),
+            parameters: nominal(3),
+            interpretation: Interpretation::Structural,
+        };
+        Self {
+            input,
+            artifacts,
+            uses,
+            scopes,
+            computations,
+            normalized,
+            native,
+            definition,
+        }
+    }
+    fn frames(&self) -> BTreeMap<&'static str, arrow_array::RecordBatch> {
+        BTreeMap::from([
+            frame(std::slice::from_ref(&self.input)),
+            frame(&self.artifacts),
+            frame(&self.uses),
+            frame(&self.scopes),
+            frame(&self.computations),
+            frame(&self.normalized),
+            frame(&self.native),
+            frame(std::slice::from_ref(&self.definition)),
+        ])
+    }
+}
+fn with_capture<T>(
+    universe: &Universe,
+    profile: Profile,
+    f: impl FnOnce(
+        &CapturedSources,
+        &CoverageAdmission<'_>,
+        &[CompletedRelation],
+        &ValidatedModel,
+        &resources::ResourceBudget,
+    ) -> T,
+) -> T {
+    let model = model().unwrap();
+    let budget = budget();
+    let names = [
+        RelationUse::of::<InputRevision>(),
+        RelationUse::of::<SourceArtifact>(),
+        RelationUse::of::<ArtifactUse>(),
+        RelationUse::of::<CoverageScope>(),
+        RelationUse::of::<NormalizationComputation>(),
+        RelationUse::of::<NormalizationCoverage>(),
+        RelationUse::of::<ProviderCoverage>(),
+        RelationUse::of::<AnalysisDefinition>(),
+    ];
+    let readers = names.iter().cloned().map(|r| r.completed_store()).collect();
+    let schedule = Schedule::build(
+        &model,
+        vec![
+            stage("captured", vec![], names.into()),
+            stage(
+                "consumer",
+                readers,
+                vec![RelationUse::of::<input::Release>()],
+            ),
+        ],
+        &[],
+        profile,
+    )
+    .unwrap();
+    let mut execution = schedule.execute();
+    let sink = MemoryGeneration::bind(&model, &budget, &mut execution).unwrap();
+    let mut producer = execution.begin("captured").unwrap();
+    macro_rules! write {
+        ($r:ty,$rows:expr) => {
+            let batch = Batch::<$r>::new(&model, $rows, &budget).unwrap();
+            ready(producer.write::<$r, _>(async |permit| sink.copy(permit, &batch).await)).unwrap();
+        };
+    }
+    write!(InputRevision, vec![universe.input.clone()]);
+    write!(SourceArtifact, universe.artifacts.clone());
+    write!(ArtifactUse, universe.uses.clone());
+    write!(CoverageScope, universe.scopes.clone());
+    write!(NormalizationComputation, universe.computations.clone());
+    write!(NormalizationCoverage, universe.normalized.clone());
+    write!(ProviderCoverage, universe.native.clone());
+    write!(AnalysisDefinition, vec![universe.definition.clone()]);
+    ready(producer.complete(&sink, ProviderOutcome::Complete)).unwrap();
+    let consumer = execution.begin("consumer").unwrap();
+    let captured = CapturedSources::capture(&consumer, &budget).unwrap();
+    let mut admission = CoverageAdmission::new(&captured, &budget).unwrap();
+    macro_rules! visit {
+        ($r:ty,$rows:expr) => {
+            admission
+                .visit(
+                    &consumer.read::<$r>().unwrap(),
+                    &<$r as Record>::encode($rows).unwrap(),
+                )
+                .unwrap();
+        };
+    }
+    visit!(InputRevision, std::slice::from_ref(&universe.input));
+    visit!(SourceArtifact, &universe.artifacts);
+    visit!(ArtifactUse, &universe.uses);
+    visit!(CoverageScope, &universe.scopes);
+    visit!(NormalizationComputation, &universe.computations);
+    visit!(NormalizationCoverage, &universe.normalized);
+    visit!(ProviderCoverage, &universe.native);
+    f(
+        &captured,
+        &admission,
+        &consumer.completed_sources().unwrap(),
+        &model,
+        &budget,
+    )
+}
+fn publication<R: Record>(
+    mut frames: BTreeMap<&'static str, arrow_array::RecordBatch>,
+    sources: &[CompletedRelation],
+    profile: Profile,
+    model: &ValidatedModel,
+    budget: &resources::ResourceBudget,
+) -> Result<(), ModelError> {
+    let descriptor = R::publication_checks()
+        .into_iter()
+        .find(|c| c.name.ends_with("coverage_frontier"))
+        .unwrap();
+    let mut check = (descriptor.create)(budget);
+    for input in descriptor.inputs {
+        let batch = frames.remove(input.name()).unwrap_or_else(|| {
+            arrow_array::RecordBatch::new_empty(
+                model
+                    .relations()
+                    .iter()
+                    .find(|r| r.name() == input.name())
+                    .unwrap()
+                    .schema()
+                    .clone(),
+            )
+        });
+        check.visit(input.name(), &batch)?;
+    }
+    check.finish(sources, profile)
+}
 #[test]
 fn local_frontier_derives_every_scope_and_refuses_coupled_shrink() {
-    let universe=Universe::new(Profile::Behavioral,AnalysisMethod::LocalTransfers,2);with_capture(&universe,Profile::Behavioral,|captured,admission,sources,model,budget| {
-        use local::coverage::*;let (inv,_,_,_)=local::Invocation::admitted(universe.input.id(),nominal(2),universe.definition.id(),None,[],captured,[],budget).unwrap();let admitted=admit(&inv,&universe.definition,AnalysisCapability::Transfers,admission,budget).unwrap();assert_eq!(admitted.scopes().len(),2);let mut requirements=Vec::new();let mut required=Vec::new();let mut coverage=Vec::new();let mut premises=Vec::new();let mut lower=Vec::new();for scope in admitted.scopes() {let (r,m)=scope.expectation().records().unwrap();requirements.push(r);required.extend(m);let (c,p)=assess(scope.expectation(),scope.observations(),AnalysisStatus::Completed,None,budget).unwrap();coverage.push(c);premises.extend(p);lower.extend(scope.observations().iter().map(|r|r.source().clone()));}assert!(coverage.iter().any(|r|r.availability==EvidenceAvailability::Partial));let outcome=local::Outcome {invocation:inv.id(),status:AnalysisStatus::Completed,reason:None};let mut frames=universe.frames();frames.extend([frame(&[inv.clone()]),frame(&[outcome]),frame(&requirements),frame(&required),frame(&coverage),frame(&premises),frame(&lower)]);publication::<local::Invocation>(frames.clone(),sources,Profile::Behavioral,model,budget).unwrap();
-        let removed=coverage.iter().find(|r|r.availability==EvidenceAvailability::Partial).unwrap();let scope=removed.scope;let removed_id=removed.id();let ids=requirements.iter().filter(|r|r.scope==scope).map(Record::id).collect::<Vec<_>>();let cut_sources=required.iter().filter(|r|ids.contains(&r.requirement)).map(|r|r.source).collect::<Vec<_>>();lower.retain(|r|!cut_sources.contains(&r.id()));requirements.retain(|r|r.scope!=scope);required.retain(|r|!ids.contains(&r.requirement));coverage.retain(|r|r.scope!=scope);premises.retain(|r|r.coverage!=removed_id);let mut changed=frames;changed.extend([frame(&requirements),frame(&required),frame(&coverage),frame(&premises),frame(&lower)]);assert!(publication::<local::Invocation>(changed,sources,Profile::Behavioral,model,budget).is_err());
-        assert!(admit(&inv,&universe.definition,AnalysisCapability::ControlInfluence,admission,budget).is_err());
-    });
+    let universe = Universe::new(Profile::Behavioral, AnalysisMethod::LocalTransfers, 2);
+    with_capture(
+        &universe,
+        Profile::Behavioral,
+        |captured, admission, sources, model, budget| {
+            use local::coverage::*;
+            let (inv, _, _, _) = local::Invocation::admitted(
+                universe.input.id(),
+                nominal(2),
+                universe.definition.id(),
+                None,
+                [],
+                captured,
+                [],
+                budget,
+            )
+            .unwrap();
+            let admitted = admit(
+                &inv,
+                &universe.definition,
+                AnalysisCapability::Transfers,
+                admission,
+                budget,
+            )
+            .unwrap();
+            assert_eq!(admitted.scopes().len(), 2);
+            let mut requirements = Vec::new();
+            let mut required = Vec::new();
+            let mut coverage = Vec::new();
+            let mut premises = Vec::new();
+            let mut lower = Vec::new();
+            for scope in admitted.scopes() {
+                let (r, m) = scope.expectation().records().unwrap();
+                requirements.push(r);
+                required.extend(m);
+                let (c, p) = assess(
+                    scope.expectation(),
+                    scope.observations(),
+                    AnalysisStatus::Completed,
+                    None,
+                    budget,
+                )
+                .unwrap();
+                coverage.push(c);
+                premises.extend(p);
+                lower.extend(scope.observations().iter().map(|r| r.source().clone()));
+            }
+            assert!(
+                coverage
+                    .iter()
+                    .any(|r| r.availability == EvidenceAvailability::Partial)
+            );
+            let outcome = local::Outcome {
+                invocation: inv.id(),
+                status: AnalysisStatus::Completed,
+                reason: None,
+            };
+            let mut frames = universe.frames();
+            frames.extend([
+                frame(std::slice::from_ref(&inv)),
+                frame(&[outcome]),
+                frame(&requirements),
+                frame(&required),
+                frame(&coverage),
+                frame(&premises),
+                frame(&lower),
+            ]);
+            publication::<local::Invocation>(
+                frames.clone(),
+                sources,
+                Profile::Behavioral,
+                model,
+                budget,
+            )
+            .unwrap();
+            let removed = coverage
+                .iter()
+                .find(|r| r.availability == EvidenceAvailability::Partial)
+                .unwrap();
+            let scope = removed.scope;
+            let removed_id = removed.id();
+            let ids = requirements
+                .iter()
+                .filter(|r| r.scope == scope)
+                .map(Record::id)
+                .collect::<Vec<_>>();
+            let cut_sources = required
+                .iter()
+                .filter(|r| ids.contains(&r.requirement))
+                .map(|r| r.source)
+                .collect::<Vec<_>>();
+            lower.retain(|r| !cut_sources.contains(&r.id()));
+            requirements.retain(|r| r.scope != scope);
+            required.retain(|r| !ids.contains(&r.requirement));
+            coverage.retain(|r| r.scope != scope);
+            premises.retain(|r| r.coverage != removed_id);
+            let mut changed = frames;
+            changed.extend([
+                frame(&requirements),
+                frame(&required),
+                frame(&coverage),
+                frame(&premises),
+                frame(&lower),
+            ]);
+            assert!(
+                publication::<local::Invocation>(
+                    changed,
+                    sources,
+                    Profile::Behavioral,
+                    model,
+                    budget
+                )
+                .is_err()
+            );
+            assert!(
+                admit(
+                    &inv,
+                    &universe.definition,
+                    AnalysisCapability::ControlInfluence,
+                    admission,
+                    budget
+                )
+                .is_err()
+            );
+        },
+    );
 }
 #[test]
 fn catalog_profile_request_and_empty_domain_are_not_observation_choices() {
-    let local_universe=Universe::new(Profile::Catalog,AnalysisMethod::LocalTransfers,1);with_capture(&local_universe,Profile::Catalog,|captured,admission,_,_,budget| {let (inv,_,_,_)=local::Invocation::admitted(local_universe.input.id(),nominal(2),local_universe.definition.id(),None,[],captured,[],budget).unwrap();let admitted=local::coverage::admit(&inv,&local_universe.definition,AnalysisCapability::Transfers,admission,budget).unwrap();assert!(!admitted.scopes()[0].expectation().requested);let (row,_)=local::coverage::assess(admitted.scopes()[0].expectation(),admitted.scopes()[0].observations(),AnalysisStatus::NotRequested,Some(obligation::ObligationKind::NotRequested),budget).unwrap();assert_eq!(row.availability,EvidenceAvailability::NotRequested);});
-    let catalog=Universe::new(Profile::Catalog,AnalysisMethod::Catalog,0);with_capture(&catalog,Profile::Catalog,|captured,admission,sources,model,budget| {let (inv,_,_,_)=catalog_core::Invocation::admitted(catalog.input.id(),nominal(2),catalog.definition.id(),None,[],captured,[],budget).unwrap();let admitted=catalog_core::coverage::admit(&inv,&catalog.definition,AnalysisCapability::Catalog,admission,budget).unwrap();let scope=&admitted.scopes()[0];assert!(scope.expectation().no_scope);let (requirement,required)=scope.expectation().records().unwrap();let (coverage,premises)=catalog_core::coverage::assess(scope.expectation(),scope.observations(),AnalysisStatus::Completed,None,budget).unwrap();assert_eq!(coverage.availability,EvidenceAvailability::NoScope);let mut frames=catalog.frames();frames.extend([frame(&[inv.clone()]),frame(&[catalog_core::Outcome {invocation:inv.id(),status:AnalysisStatus::Completed,reason:None}]),frame(&[requirement]),frame(&required),frame(&[coverage]),frame(&premises)]);publication::<catalog_core::Invocation>(frames,sources,Profile::Catalog,model,budget).unwrap();});
-    assert!(CoverageAdmission::new(&CapturedSources::new(&budget()),&budget()).is_err());
+    let local_universe = Universe::new(Profile::Catalog, AnalysisMethod::LocalTransfers, 1);
+    with_capture(
+        &local_universe,
+        Profile::Catalog,
+        |captured, admission, _, _, budget| {
+            let (inv, _, _, _) = local::Invocation::admitted(
+                local_universe.input.id(),
+                nominal(2),
+                local_universe.definition.id(),
+                None,
+                [],
+                captured,
+                [],
+                budget,
+            )
+            .unwrap();
+            let admitted = local::coverage::admit(
+                &inv,
+                &local_universe.definition,
+                AnalysisCapability::Transfers,
+                admission,
+                budget,
+            )
+            .unwrap();
+            assert!(!admitted.scopes()[0].expectation().requested);
+            let (row, _) = local::coverage::assess(
+                admitted.scopes()[0].expectation(),
+                admitted.scopes()[0].observations(),
+                AnalysisStatus::NotRequested,
+                Some(obligation::ObligationKind::NotRequested),
+                budget,
+            )
+            .unwrap();
+            assert_eq!(row.availability, EvidenceAvailability::NotRequested);
+        },
+    );
+    let catalog = Universe::new(Profile::Catalog, AnalysisMethod::Catalog, 0);
+    with_capture(
+        &catalog,
+        Profile::Catalog,
+        |captured, admission, sources, model, budget| {
+            let (inv, _, _, _) = catalog_core::Invocation::admitted(
+                catalog.input.id(),
+                nominal(2),
+                catalog.definition.id(),
+                None,
+                [],
+                captured,
+                [],
+                budget,
+            )
+            .unwrap();
+            let admitted = catalog_core::coverage::admit(
+                &inv,
+                &catalog.definition,
+                AnalysisCapability::Catalog,
+                admission,
+                budget,
+            )
+            .unwrap();
+            let scope = &admitted.scopes()[0];
+            assert!(scope.expectation().no_scope);
+            let (requirement, required) = scope.expectation().records().unwrap();
+            let (coverage, premises) = catalog_core::coverage::assess(
+                scope.expectation(),
+                scope.observations(),
+                AnalysisStatus::Completed,
+                None,
+                budget,
+            )
+            .unwrap();
+            assert_eq!(coverage.availability, EvidenceAvailability::NoScope);
+            let mut frames = catalog.frames();
+            frames.extend([
+                frame(std::slice::from_ref(&inv)),
+                frame(&[catalog_core::Outcome {
+                    invocation: inv.id(),
+                    status: AnalysisStatus::Completed,
+                    reason: None,
+                }]),
+                frame(&[requirement]),
+                frame(&required),
+                frame(&[coverage]),
+                frame(&premises),
+            ]);
+            publication::<catalog_core::Invocation>(
+                frames,
+                sources,
+                Profile::Catalog,
+                model,
+                budget,
+            )
+            .unwrap();
+        },
+    );
+    assert!(CoverageAdmission::new(&CapturedSources::new(&budget()), &budget()).is_err());
 }
 
 #[test]
 fn catalog_python_domain_keeps_partiality_without_flow_and_missing_lower_refuses() {
-    let universe=Universe::new(Profile::Catalog,AnalysisMethod::Catalog,2);with_capture(&universe,Profile::Catalog,|captured,admission,sources,model,budget| {
-        use catalog_core::coverage::*;let (inv,_,_,_)=catalog_core::Invocation::admitted(universe.input.id(),nominal(2),universe.definition.id(),None,[],captured,[],budget).unwrap();let admitted=admit(&inv,&universe.definition,AnalysisCapability::Catalog,admission,budget).unwrap();assert_eq!(admitted.scopes().len(),2);let mut requirements=Vec::new();let mut required=Vec::new();let mut coverage=Vec::new();let mut premises=Vec::new();let mut lower=Vec::new();for scope in admitted.scopes() {assert!(scope.observations().iter().all(|r|matches!(r.source(),catalog_core::CoverageSource::Normalized {..})));let (r,m)=scope.expectation().records().unwrap();requirements.push(r);required.extend(m);let (c,p)=assess(scope.expectation(),scope.observations(),AnalysisStatus::Completed,None,budget).unwrap();coverage.push(c);premises.extend(p);lower.extend(scope.observations().iter().map(|r|r.source().clone()));}assert!(coverage.iter().any(|r|r.availability==EvidenceAvailability::Partial));let mut frames=universe.frames();frames.extend([frame(&[inv.clone()]),frame(&[catalog_core::Outcome {invocation:inv.id(),status:AnalysisStatus::Completed,reason:None}]),frame(&requirements),frame(&required),frame(&coverage),frame(&premises),frame(&lower)]);publication::<catalog_core::Invocation>(frames,sources,Profile::Catalog,model,budget).unwrap();
-    });
-    let mut missing=Universe::new(Profile::Catalog,AnalysisMethod::Catalog,1);missing.normalized.remove(0);with_capture(&missing,Profile::Catalog,|captured,admission,_,_,budget| {let (inv,_,_,_)=catalog_core::Invocation::admitted(missing.input.id(),nominal(2),missing.definition.id(),None,[],captured,[],budget).unwrap();assert!(catalog_core::coverage::admit(&inv,&missing.definition,AnalysisCapability::Catalog,admission,budget).is_err());});
+    let universe = Universe::new(Profile::Catalog, AnalysisMethod::Catalog, 2);
+    with_capture(
+        &universe,
+        Profile::Catalog,
+        |captured, admission, sources, model, budget| {
+            use catalog_core::coverage::*;
+            let (inv, _, _, _) = catalog_core::Invocation::admitted(
+                universe.input.id(),
+                nominal(2),
+                universe.definition.id(),
+                None,
+                [],
+                captured,
+                [],
+                budget,
+            )
+            .unwrap();
+            let admitted = admit(
+                &inv,
+                &universe.definition,
+                AnalysisCapability::Catalog,
+                admission,
+                budget,
+            )
+            .unwrap();
+            assert_eq!(admitted.scopes().len(), 2);
+            let mut requirements = Vec::new();
+            let mut required = Vec::new();
+            let mut coverage = Vec::new();
+            let mut premises = Vec::new();
+            let mut lower = Vec::new();
+            for scope in admitted.scopes() {
+                assert!(scope.observations().iter().all(|r| matches!(
+                    r.source(),
+                    catalog_core::CoverageSource::Normalized { .. }
+                )));
+                let (r, m) = scope.expectation().records().unwrap();
+                requirements.push(r);
+                required.extend(m);
+                let (c, p) = assess(
+                    scope.expectation(),
+                    scope.observations(),
+                    AnalysisStatus::Completed,
+                    None,
+                    budget,
+                )
+                .unwrap();
+                coverage.push(c);
+                premises.extend(p);
+                lower.extend(scope.observations().iter().map(|r| r.source().clone()));
+            }
+            assert!(
+                coverage
+                    .iter()
+                    .any(|r| r.availability == EvidenceAvailability::Partial)
+            );
+            let mut frames = universe.frames();
+            frames.extend([
+                frame(std::slice::from_ref(&inv)),
+                frame(&[catalog_core::Outcome {
+                    invocation: inv.id(),
+                    status: AnalysisStatus::Completed,
+                    reason: None,
+                }]),
+                frame(&requirements),
+                frame(&required),
+                frame(&coverage),
+                frame(&premises),
+                frame(&lower),
+            ]);
+            publication::<catalog_core::Invocation>(
+                frames,
+                sources,
+                Profile::Catalog,
+                model,
+                budget,
+            )
+            .unwrap();
+        },
+    );
+    let mut missing = Universe::new(Profile::Catalog, AnalysisMethod::Catalog, 1);
+    missing.normalized.remove(0);
+    with_capture(
+        &missing,
+        Profile::Catalog,
+        |captured, admission, _, _, budget| {
+            let (inv, _, _, _) = catalog_core::Invocation::admitted(
+                missing.input.id(),
+                nominal(2),
+                missing.definition.id(),
+                None,
+                [],
+                captured,
+                [],
+                budget,
+            )
+            .unwrap();
+            assert!(
+                catalog_core::coverage::admit(
+                    &inv,
+                    &missing.definition,
+                    AnalysisCapability::Catalog,
+                    admission,
+                    budget
+                )
+                .is_err()
+            );
+        },
+    );
 }

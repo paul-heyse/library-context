@@ -295,7 +295,7 @@ impl InvariantCheck for CoverageCheck {
         let empty=std::collections::BTreeSet::new();
         let mut matched=charged::ChargedSet::default();
         let mut charge=charged::StateCharge::new(budget,"analysis_coverage_recheck");
-        for (_,requirement) in self.requirements.iter() {
+        for requirement in self.requirements.values() {
             let members=self.required.get(&requirement.id()).unwrap_or(&empty);
             if membership_digest(members)!=requirement.sources { return Err(invalid("required coverage membership digest differs")); }
             let invocation=self.invocations.get(&requirement.invocation).ok_or_else(||invalid("coverage invocation absent"))?;
@@ -309,6 +309,7 @@ impl InvariantCheck for CoverageCheck {
                 observations.push(match source {
                     CoverageSource::Native { coverage }=>CoverageObservation::native(self.native.get(coverage).ok_or_else(||invalid("native coverage absent"))?)?,
                     CoverageSource::Analysis { coverage }=>CoverageObservation::analysis(self.coverage.get(coverage).ok_or_else(||invalid("lower analysis coverage absent"))?)?,
+                    #[allow(unreachable_patterns,reason="Owners without final normalization coverage or predecessors have no other source variants")]
                     other=>{if let Some(id)=normalized_reference(other) {CoverageObservation::normalized(self.normalized.get(&id).ok_or_else(||invalid("normalization coverage absent"))?)?} else {let (scope,context,availability)=*self.predecessors.get(&other.reference()).ok_or_else(||invalid("predecessor coverage absent"))?;CoverageObservation {source:other.clone(),scope,context,availability}}},
                 });
             }
@@ -320,8 +321,8 @@ impl InvariantCheck for CoverageCheck {
             if !matched.insert(&mut charge,actual.id())? { return Err(invalid("ambiguous coverage requirements")); }
         }
         if matched.len()!=self.coverage.len() { return Err(invalid("analysis coverage has no admitted expected domain")); }
-        for (id,_) in self.members.iter() { if !self.coverage.contains_key(id) { return Err(invalid("orphan analysis coverage premise")); } }
-        for (id,_) in self.required.iter() { if !self.requirements.contains_key(id) { return Err(invalid("orphan required analysis coverage source")); } }
+        for id in self.members.keys() { if !self.coverage.contains_key(id) { return Err(invalid("orphan analysis coverage premise")); } }
+        for id in self.required.keys() { if !self.requirements.contains_key(id) { return Err(invalid("orphan required analysis coverage source")); } }
         Ok(())
     }
 }
@@ -344,7 +345,7 @@ pub fn admit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,capab
 fn bound_method()->Option<AnalysisMethod> {match AnalysisCoverage::NAME {"local_analysis_coverage"=>Some(AnalysisMethod::LocalTransfers),"catalog_core_analysis_coverage"=>Some(AnalysisMethod::Catalog),_=>None}}
 pub(super) fn publication_checks()->Vec<PublicationInvariant> {
     let mut inputs=vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<super::AnalysisOutcome>(&["id"]),ValidationInput::of::<CoverageRequirement>(&["id"]),ValidationInput::of::<CoverageRequiredSource>(&["id"]),ValidationInput::of::<AnalysisCoverage>(&["id"]),ValidationInput::of::<AnalysisCoveragePremise>(&["id"]),ValidationInput::of::<CoverageSource>(&["id"])];
-    if let Some(method)=bound_method() {inputs.extend(crate::domain::analysis::expected::inputs(method==AnalysisMethod::LocalTransfers));}
+    if let Some(method)=bound_method() {inputs.extend(crate::domain::analysis::expected::inputs(method));}
     vec![PublicationInvariant {name:owner_table!("coverage_frontier"),inputs,create:std::sync::Arc::new(|budget|Box::new(FrontierCheck {charge:charged::StateCharge::new(budget,"analysis_coverage_frontier"),frontier:crate::domain::analysis::expected::FrontierIndex::new(stages::Profile::Catalog,budget),invocations:Default::default(),definitions:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),premises:Default::default(),sources:Default::default()}))}]
 }
 struct FrontierCheck {charge:charged::StateCharge,frontier:crate::domain::analysis::expected::FrontierIndex,invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,definitions:charged::ChargedMap<Id<AnalysisDefinition>,AnalysisDefinition>,outcomes:charged::ChargedMap<Id<AnalysisInvocation>,super::AnalysisOutcome>,requirements:charged::ChargedMap<Id<CoverageRequirement>,CoverageRequirement>,required:charged::ChargedMap<Id<CoverageRequirement>,std::collections::BTreeSet<Id<CoverageSource>>>,coverage:charged::ChargedMap<Id<AnalysisCoverage>,AnalysisCoverage>,premises:charged::ChargedMap<Id<AnalysisCoverage>,std::collections::BTreeSet<Id<CoverageSource>>>,sources:charged::ChargedMap<Id<CoverageSource>,CoverageSource>}
@@ -358,11 +359,11 @@ impl PublicationCheck for FrontierCheck {
     }
     fn finish(mut self:Box<Self>,actual:&[stages::CompletedRelation],profile:stages::Profile)->Result<(),ModelError> {
         self.frontier.set_profile(profile);let budget=self.charge.budget().ok_or_else(||invalid("frontier budget absent"))?;let mut charge=charged::StateCharge::new(budget,"analysis_expected_recheck");let mut expected_requirements=charged::ChargedSet::default();let mut expected_coverage=charged::ChargedSet::default();let mut expected_sources=charged::ChargedSet::default();let empty=std::collections::BTreeSet::new();
-        for (_,invocation) in self.invocations.iter() {
+        for invocation in self.invocations.values() {
             let definition=self.definitions.get(&invocation.definition).ok_or_else(||invalid("admitted analysis definition absent"))?;
             if bound_method()!=Some(definition.method) {return Err(invalid("publication owner has no bound method/capability contract"));}
             let contract=crate::domain::analysis::expected::method_contract(definition.method)?;
-            for input in crate::domain::analysis::expected::inputs(!contract.native.is_empty()) {if !actual.iter().any(|r|r.relation()==input.name()) {return Err(invalid("frontier input has no declared completed source"));}}
+            for input in crate::domain::analysis::expected::inputs(definition.method) {if !actual.iter().any(|r|r.relation()==input.name()) {return Err(invalid("frontier input has no declared completed source"));}}
             let outcome=self.outcomes.get(&invocation.id()).ok_or_else(||invalid("admitted analysis computation outcome absent"))?;
             let domain=self.frontier.domain(invocation.input,invocation.context,contract)?;
             for scope in &domain.scopes {
@@ -376,7 +377,7 @@ impl PublicationCheck for FrontierCheck {
             }
         }
         if expected_requirements.len()!=self.requirements.len() || expected_coverage.len()!=self.coverage.len() || expected_sources.len()!=self.sources.len() || self.outcomes.len()!=self.invocations.len() {return Err(invalid("analysis frontier has unexpected rows"));}
-        for (id,_) in self.required.iter() {if !expected_requirements.contains(id) {return Err(invalid("orphan expected-domain member"));}}
-        for (id,_) in self.premises.iter() {if !expected_coverage.contains(id) {return Err(invalid("orphan admitted coverage premise"));}}Ok(())
+        for id in self.required.keys() {if !expected_requirements.contains(id) {return Err(invalid("orphan expected-domain member"));}}
+        for id in self.premises.keys() {if !expected_coverage.contains(id) {return Err(invalid("orphan admitted coverage premise"));}}Ok(())
     }
 }
