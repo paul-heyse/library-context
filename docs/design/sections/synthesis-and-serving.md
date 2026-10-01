@@ -29,6 +29,13 @@ Phase 5 owns request loading, generated wire schemas, leases, ranking and served
 Conditional operator review replaces the unconditional per-brief review target. Until the
 forward plan selects its operator workflow, grounded briefs remain explicitly unreviewed.
 
+**Implemented / focused-Tested, 2026-10-01:** the model-owned documentary/assertion kernel
+retains native source qualification separately from the release association, and reproduces
+extractive Outcome text from original bytes. `StaticUsageObservation` names observed calls in
+captured sources at `StructurallyObserved`; the existing `UsagePattern` assertion still requires
+`Documented` or `FixtureChecked`. These are separate kinds under the shared policy. Final S0
+producer, seed/brief publication and assembled acceptance remain open in the detailed plan.
+
 > Decision: ADR-0106
 
 **Label.** Programmatic synthesis is accepted (ADR-0106): there is no generative model in the

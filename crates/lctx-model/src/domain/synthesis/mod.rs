@@ -2,4 +2,5 @@
 pub mod build;
 
 pub mod documentary;
-pub fn relations()->Vec<crate::domain::Relation>{documentary::relations()}
+pub mod assertions;
+pub fn relations()->Vec<crate::domain::Relation>{let mut rows=documentary::relations();rows.extend(assertions::relations());rows}

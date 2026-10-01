@@ -74,6 +74,8 @@ pub enum AssertionKind {
     DocLink = 14,
     SharedSignature = 15,
     DocumentedWarning = 16,
+    /// Observed calls in captured sources; never an execution or fixture claim.
+    StaticUsageObservation = 17,
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
 #[repr(i16)]
@@ -94,6 +96,7 @@ pub enum SupportRole {
     Scope = 1,
 }
 pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] = &[
+    (AssertionKind::StaticUsageObservation, BriefSection::UsagePattern, &[EvidenceStatus::StructurallyObserved]),
     (
         AssertionKind::Outcome,
         BriefSection::Outcome,
