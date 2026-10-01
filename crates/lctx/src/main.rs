@@ -22,6 +22,7 @@
 //! (default `build/sources`). Exit status: 0 ok, 1 error, 2 refused, 3 unavailable.
 
 mod compile;
+mod compile_options;
 mod database;
 mod generation;
 mod model;

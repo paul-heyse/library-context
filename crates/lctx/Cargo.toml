@@ -11,6 +11,8 @@ cpg-schema = { path = "../cpg-schema" }
 cpg-extract = { path = "../cpg-extract" }
 cpg-core = { path = "../cpg-core" }
 lctx-model = { path = "../lctx-model" }
+lctx-embed = { path = "../lctx-embed" }
+url.workspace = true
 datafusion.workspace = true
 sqlx.workspace = true
 clap.workspace = true

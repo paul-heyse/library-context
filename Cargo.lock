@@ -4042,6 +4042,7 @@ dependencies = [
  "datafusion",
  "fs-err",
  "insta",
+ "lctx-embed",
  "lctx-model",
  "lctx-postgres",
  "lctx-workspace-hack",
@@ -4052,6 +4053,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tikv-jemallocator",
  "tokio",
+ "url",
 ]
 
 [[package]]
