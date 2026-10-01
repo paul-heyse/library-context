@@ -422,6 +422,24 @@ async fn native_delegation_preserves_parallel_paths_boundaries_dispatch_and_limi
             .unwrap()
             .witnesses_omitted
     );
+    // Retained Pass A expectations now run on the actual stored native projection.
+    for reached in capped.reached() {
+        assert_eq!(reached.kind, result.reached().iter().find(|r| r.target == reached.target).unwrap().kind);
+    }
+    assert!(result.reached().iter().all(|r| r.target != entity("a")));
+    {
+        let recursion = inputs.traverse(entity("recursive"), &selected, bounds, &budget).unwrap();
+        assert!(recursion.reached().is_empty());
+        let shortest = inputs.traverse(entity("shortest_entry"), &selected, bounds, &budget).unwrap();
+        let target = shortest.reached().iter().find(|r| r.target == entity("shortest_target")).unwrap();
+        assert_eq!((target.kind, target.depth, target.witnesses_omitted), (Kind::Direct, 1, false));
+        assert_eq!(target.paths.len(), 1);
+        assert_eq!(target.paths[0].len(), 1);
+        let frontier = inputs.traverse(entity("frontier_entry"), &selected, Bounds {depth: 1, ..bounds}, &budget).unwrap();
+        assert_eq!(frontier.stop(), Some(Stop::Depth));
+        let closed = inputs.traverse(entity("closed_entry"), &selected, Bounds {depth: 1, ..bounds}, &budget).unwrap();
+        assert_eq!(closed.stop(), None);
+    }
     for (limited, stop) in [
         (Bounds { depth: 1, ..bounds }, Stop::Depth),
         (

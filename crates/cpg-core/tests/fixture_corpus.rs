@@ -41,6 +41,7 @@ const CASES: &[&str] = &[
     "native_model_context",
     "normalized_relations",
     "normalized_projections",
+    "phase4_context_constructors",
     "normalized_entities",
     "normalized_bindings",
     "effective_callables",

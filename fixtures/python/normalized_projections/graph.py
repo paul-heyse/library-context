@@ -61,3 +61,28 @@ def factory():
         return 1
 
     return nested
+
+
+def shortest_entry():
+    shortest_helper()
+    shortest_target()
+
+
+def shortest_helper():
+    shortest_target()
+
+
+def shortest_target():
+    return 1
+
+
+def frontier_entry(callback):
+    frontier_child(callback)
+
+
+def frontier_child(callback):
+    callback()
+
+
+def closed_entry():
+    shortest_target()
