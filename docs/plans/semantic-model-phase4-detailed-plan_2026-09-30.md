@@ -928,7 +928,7 @@ its open obligations to packages and closure evidence; it does not close them by
 | semantic-data-model F02/F09; core C04 | N1/G0/A0/B3 | One normalized policy/admission owner through stored graph and real composition |
 | semantic-data-model F04/F05/F07/F08 | R1/B0/B3/S0 | Transfer algebra, one condition owner, typed obligations, emitter/invocation/proof closure |
 | semantic-data-model F13 | N0/C1/E0; P5 remainder | Named registration/model applicability and policy/spec identity |
-| C4/C5 F02/F04/F06–F09; R1/R4; P0 exit F03 | R0/B0/B3 | Entry witness, private admission, finite recursion residuals, subject-specific outcomes, influence and two-variant guard controls |
+| C4/C5 F02/F04/F06–F09; R1/R4; P0 exit F03 | R0/B0/B3 | Entry witness, private admission, finite recursion residuals, subject-specific outcomes and influence; current ambiguity-refusal controls. R4 positive two-variant restatement remains open outside unique-binding Summary admission |
 | A6–A8 F02/F04/F07 | N1/B0 | Complete dispatch membership, symbolic class-of binding and structural type/refutation coverage |
 | core C13 | R1/S0; P5 explanation remainder | Nominal derivation graph and generated index, then bounded serving lookup |
 | P3 exit O2 | G0 | Algorithms borrow hydrated native graphs without reconstruction |
@@ -979,6 +979,14 @@ retain exact spec, bytes and separate nominal analytic/retrieval uses. Cold/warm
 use fake external effects; live embedding and quality remain unqualified. X0 removed obsolete P4
 authorities after replacement controls and preserved named P5 source, wire, serving and service
 obligations. §11's applied maps own the exact retirement boundary.
+
+**R4 qualification boundary.** Historical C4/C5 R4's operand-distinct restatement correction is
+Implemented, but its positive simultaneous two-variant Summary generation is not_run. Current
+admission requires complete uniquely Bound variants; native controls preserve multiple attempts
+without composition and Summary remains Partial. Independent bounded source clarification confirms
+this lies outside the assembled review's accepted finite envelope. Parent §8 retains R4 open:
+revisit before broadening admission, with one native site/source guard, distinct actuals, real PG
+replay and wrong-operand/substitution refusals. Do not mint test-only admission to close it.
 
 Earlier integration failures and slice receipts are preserved in the dated qualification/restart
 bundles and Git. They do not override §13.3's current state or establish an initially clean full gate.
