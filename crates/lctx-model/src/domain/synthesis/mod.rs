@@ -4,6 +4,7 @@ pub mod frames;
 pub mod production;
 pub mod observations;
 pub mod summary;
+pub mod patterns;
 
 pub mod documentary;
 pub mod source_code;
@@ -12,4 +13,4 @@ pub mod assertions;
 pub mod seeds;
 pub mod automatic;
 pub mod briefs;
-pub fn relations()->Vec<crate::domain::Relation>{let mut rows=documentary::relations();rows.extend(assertions::relations());rows.extend(seeds::relations());rows.extend(briefs::relations());rows.push(crate::domain::Relation::of::<frames::Frame>());rows.push(crate::domain::Relation::of::<summary::SummaryFacet>());rows}
+pub fn relations()->Vec<crate::domain::Relation>{let mut rows=documentary::relations();rows.extend(patterns::relations());rows.extend(assertions::relations());rows.extend(seeds::relations());rows.extend(briefs::relations());rows.push(crate::domain::Relation::of::<frames::Frame>());rows.push(crate::domain::Relation::of::<summary::SummaryFacet>());rows}
