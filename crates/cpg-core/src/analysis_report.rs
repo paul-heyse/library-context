@@ -89,12 +89,18 @@ async fn collect(session:&InspectionSession,held:&BTreeSet<&str>)->Result<Analys
                 report.admit()?;
                 report.capabilities.push(CapabilityReport {owner:stringify!($owner),invocation:row.invocation.hex(),capability:format!("{:?}",row.capability),scope:row.scope.hex(),context:row.context.hex(),availability:format!("{:?}",row.availability),reason:row.reason.map(|r|format!("{r:?}"))});
             }
-            for row in rows::<owner::AnalysisDiagnostic>(session).await?.iter() {
+            if held.contains(owner::AnalysisDiagnostic::NAME) { for row in rows::<owner::AnalysisDiagnostic>(session).await?.iter() {
                 report.admit()?;
                 report.diagnostics.push(DiagnosticReport {owner:stringify!($owner),invocation:row.invocation.hex(),elapsed_micros:row.elapsed_micros,iterations:row.iterations,examined_members:row.examined_members,residual:row.residual,converged:row.converged});
-            }
+            }}
         }
     }};}
     owner!(local);owner!(base_evaluation);owner!(base_completion);owner!(source_call);owner!(enriched_execution);owner!(model);owner!(summary);owner!(structural);owner!(analytic_embedding);owner!(analytic);owner!(catalog_core);owner!(catalog_evidence);owner!(selection);owner!(synthesis);owner!(retrieval);
+    if held.contains(analytics::TechniqueResult::NAME) {
+        for row in rows::<analytics::TechniqueResult>(session).await?.iter().filter(|row|row.selected) {
+            report.admit()?;
+            report.diagnostics.push(DiagnosticReport {owner:"analytic",invocation:row.invocation.hex(),elapsed_micros:None,iterations:Some(row.iterations),examined_members:Some(row.examined),residual:row.residual,converged:match row.stop {analytics::Stop::Converged=>Some(true),analytics::Stop::IterationLimit=>Some(false),_=>None}});
+        }
+    }
     Ok(report)
 }
