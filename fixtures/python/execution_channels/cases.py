@@ -43,3 +43,12 @@ def handler_name_cleanup():
 
 def complex_value():
     return 1j
+
+
+def body_pass():
+    pass
+
+
+def body_stops():
+    return 1
+    effect()

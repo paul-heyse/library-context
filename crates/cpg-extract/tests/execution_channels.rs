@@ -48,81 +48,29 @@ async fn native_closed_expressions_skip_unentered_operands_and_preserve_limits()
 #[tokio::test]
 async fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance() {
     use lctx_model::domain::{conditions::entry::*, normalized::entities::*};
-    let (data, entries, budget) = data().await;
-    let read = data
-        .occurrences
-        .iter()
-        .find(|o| {
-            o.syntax_kind == SyntaxKind::ExprName && o.role == OccurrenceRole::Read && {
-                let source = data.artifacts.get(o.source).unwrap();
-                files("execution_channels")[&source.path][o.start as usize..o.end as usize]
-                    == *b"value"
-            }
-        })
-        .unwrap();
-    let owner = entries
-        .owners
-        .iter()
-        .find(|o| o.occurrence == read.id())
-        .unwrap();
+    let (data,entries,budget)=data().await;
+    let read=data.occurrences.iter().find(|o|o.syntax_kind==SyntaxKind::ExprName && o.role==OccurrenceRole::Read && {
+        let source=data.artifacts.get(o.source).unwrap();files("execution_channels")[&source.path][o.start as usize..o.end as usize]==*b"value"
+    }).unwrap();
+    let owner=entries.owners.iter().find(|o|o.occurrence==read.id()).unwrap();
     let formal=entries.formals.iter().find(|formal|matches!(formal,ParameterEntity::Source{declaration} if entries.occurrences.get(*declaration).is_some_and(|o|o.structural_path.starts_with(&entries.occurrences.get(owner.owner).unwrap().structural_path)))).unwrap();
-    let use_ = entries
-        .uses
-        .iter()
-        .find(|u| u.occurrence == read.id())
-        .unwrap();
-    let observation = entries
-        .use_observations
-        .iter()
-        .find(|o| o.use_ == use_.id())
-        .unwrap();
-    let run = entries
-        .use_supports
-        .iter()
-        .find(|s| s.assertion == observation.id())
-        .unwrap()
-        .run;
-    let context = entries.runs.get(run).unwrap().context;
-    let request = ExpressionRequest {
-        input: data.artifacts.get(read.source).unwrap().input,
-        context,
-        owner: owner.entity,
-        expression: read.id(),
-    };
-    assert!(evaluate(&data, request, &budget).unwrap().is_err());
-    let entry = EntryValueWitness::derive(
-        &entries,
-        EntryRequest {
-            owner: owner.entity,
-            formal: formal.id(),
-            access: read.id(),
-            context,
-            run,
-        },
-        &budget,
-    )
-    .unwrap()
-    .unwrap();
-    // A valid value-domain witness cannot substitute for an exact Use-domain proof.
-    let value = entries.values.iter().find(|value| value.use_ == use_.id()).unwrap();
-    let value_support = entries.value_supports.iter().find(|s| s.assertion == value.id()).unwrap();
-    let entry_request = EntryRequest {
-        owner: owner.entity, formal: formal.id(), access: read.id(), context, run,
-    };
-    let value_source = EntryAccessSource::value(&entries, entry_request, value.id(), value_support.id()).unwrap();
-    let value_entry = EntryValueWitness::derive_for(&entries, entry_request, &value_source, &budget).unwrap().unwrap();
-    assert!(evaluate_with_entries(&data, request, &[&value_entry], &budget).unwrap().is_err());
+    let use_=entries.uses.iter().find(|u|u.occurrence==read.id()).unwrap();
+    let observation=entries.use_observations.iter().find(|o|o.use_==use_.id()).unwrap();
+    let run=entries.use_supports.iter().find(|s|s.assertion==observation.id()).unwrap().run;
+    let context=entries.runs.get(run).unwrap().context;
+    let request=ExpressionRequest {input:data.artifacts.get(read.source).unwrap().input,context,owner:owner.entity,expression:read.id()};
+    assert!(evaluate(&data,request,&budget).unwrap().is_err());
+    let entry=EntryValueWitness::derive(&entries,EntryRequest{owner:owner.entity,formal:formal.id(),access:read.id(),context,run},&budget).unwrap().unwrap();
+    let result=evaluate_with_entries(&data,request,&[&entry],&budget).unwrap().unwrap();
+    assert_eq!(result.release(),ReleaseSafety::CallerRetained);assert_eq!(result.entry_premises(),&[entry.witness().id()]);
+    assert_eq!(result.status(),entry.evidence_status());
+    let value=entries.values.iter().find(|row|row.use_==use_.id()).unwrap();let value_support=entries.value_supports.iter().find(|row|row.assertion==value.id()).unwrap();
+    let access_source=EntryAccessSource::value(&entries,entry.witness().request(),value.id(),value_support.id()).unwrap();
+    let value_entry=EntryValueWitness::derive_for(&entries,entry.witness().request(),&access_source,&budget).unwrap().unwrap();
+    assert!(matches!(evaluate_with_entries(&data,request,&[&value_entry],&budget).unwrap(),Err(ObligationKind::EntryValueUnknown)));
     drop(value_entry);
-    let result = evaluate_with_entries(&data, request, &[&entry], &budget)
-        .unwrap()
-        .unwrap();
-    assert_eq!(result.release(), ReleaseSafety::CallerRetained);
-    assert_eq!(result.entry_premises(), &[entry.witness().id()]);
-    let reservation = budget.reserved();
-    drop(entry);
-    assert_eq!(budget.reserved(), reservation);
-    drop(result);
-    assert!(budget.reserved() < reservation);
+
+    let reservation=budget.reserved();drop(entry);assert_eq!(budget.reserved(),reservation);drop(result);assert!(budget.reserved()<reservation);
 }
 
 #[tokio::test]
@@ -156,9 +104,12 @@ async fn base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled
     let (data,entry,budget)=data().await;
     let req=request(&data,"1 + 2");
     let parameters=MethodParameters {depth:None,proof_steps:None,work:None,members:None,seed:None,iterations:None,threshold:None,resolution:None,damping:None,model_catalog:None};
-    let definition=AnalysisDefinition{method:AnalysisMethod::Execution,semantic_version:ContentHash::of(b"native-base-execution/v1"),parameters:parameters.id(),interpretation:Interpretation::Structural};
+    let (_,definition)=lctx_model::domain::execution::configuration::base_evaluation();
     let (invocation,_)=AnalysisInvocation::new(req.input,req.context,definition.id(),Some(req.owner),[]);
     let checked=evaluate(&data,req,&budget).unwrap().unwrap();
+    let mut wrong_version=definition.clone();wrong_version.semantic_version=ContentHash::of(b"unbound-base-version");assert!(checked.emit_base(&invocation,&wrong_version,&budget).is_err());
+    let mut changed_parameters=parameters.clone();changed_parameters.work=Some(1);let mut wrong_limits=definition.clone();wrong_limits.parameters=changed_parameters.id();let (wrong_invocation,_)=AnalysisInvocation::new(req.input,req.context,wrong_limits.id(),Some(req.owner),[]);assert!(checked.emit_base(&wrong_invocation,&wrong_limits,&budget).is_err());
+
     for mutation in 0..6 {
         let mut output=checked.emit_base(&invocation,&definition,&budget).unwrap();
         match mutation {
@@ -198,8 +149,8 @@ async fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_f
     let context=data.placements.iter().find(|p|p.occurrence==statement.id()).map(|p|data.qualifications.get(p.qualification).unwrap().context).unwrap();
     let input=data.artifacts.get(statement.source).unwrap().input;
     let parameters=MethodParameters {depth:None,proof_steps:None,work:None,members:None,seed:None,iterations:None,threshold:None,resolution:None,damping:None,model_catalog:None};
-    let definition=AnalysisDefinition{method:AnalysisMethod::Execution,semantic_version:ContentHash::of(b"native-base-execution/v1"),parameters:parameters.id(),interpretation:Interpretation::Structural};
-    let completion_definition=AnalysisDefinition{method:AnalysisMethod::Completion,semantic_version:ContentHash::of(b"native-base-completion/v1"),parameters:parameters.id(),interpretation:Interpretation::Structural};
+    let (_,definition)=lctx_model::domain::execution::configuration::base_evaluation();
+    let (_,completion_definition)=lctx_model::domain::execution::configuration::base_completion();
     let (eval_invocation,_)=analysis::base_evaluation::AnalysisInvocation::new(input,context,definition.id(),Some(owner),[]);
     let (invocation,_)=analysis::base_completion::AnalysisInvocation::new(input,context,completion_definition.id(),Some(owner),[]);
     let mut checked=Vec::new();let mut earlier=Vec::new();
@@ -245,3 +196,28 @@ async fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_f
     }
 }
 
+
+
+
+
+
+#[tokio::test]
+async fn source_body_is_under_entry_and_preserves_required_frame_cleanup() {
+    use lctx_model::domain::{execution::{body::*,completion::*,outcome::PendingOutcome},normalized::entities::CallableEntity};
+    let (data,_,budget)=data().await;let source_files=files("execution_channels");
+    for function in ["body_pass","body_stops"] {
+        let callable=data.callables.iter().find(|c|matches!(c,CallableEntity::Source{declaration,..} if {let o=data.occurrences.get(*declaration).unwrap();let source=data.artifacts.get(o.source).unwrap();source_files[&source.path][o.start as usize..o.end as usize].starts_with(format!("def {function}(").as_bytes())})).unwrap();
+        let CallableEntity::Source{declaration,..}=callable else{unreachable!()};
+        let owner=lctx_model::domain::normalized::entities::EntityRef::Callable{callable:callable.id()}.id();
+        let q=data.placements.iter().find(|p|p.occurrence==*declaration).map(|p|data.qualifications.get(p.qualification).unwrap()).unwrap();let context=q.context;
+        let input=data.artifacts.get(data.occurrences.get(*declaration).unwrap().source).unwrap().input;
+        let first=data.placements.iter().find(|p|p.parent==Some(*declaration) && p.field==lctx_model::domain::lexical::SyntaxField::Body && p.ordinal==0).unwrap().occurrence;
+        let mut evaluations=Vec::new();for o in data.occurrences.iter().filter(|o|o.syntax_kind==SyntaxKind::ExprNumberLiteral && data.owners.iter().any(|r|r.occurrence==o.id() && r.entity==owner)){evaluations.push(evaluate(&data,ExpressionRequest{input,context,owner,expression:o.id()},&budget).unwrap().unwrap());}
+        let refs=evaluations.iter().collect::<Vec<_>>();let statement=complete(&data,CompletionRequest{input,context,owner,statement:first},&refs,&budget).unwrap().unwrap();
+        let request=SourceBodyRequest{input,context,callee:owner};let body=complete_body(&data,request,&[&statement],&budget).unwrap().unwrap();
+        assert_eq!(body.frame_obligation(),ObligationKind::FrameExitCleanup);assert_eq!(body.entered_statements(),&[first]);
+        assert_eq!(body.outcome().is_normal(),function=="body_pass");if function=="body_stops"{assert!(matches!(body.outcome(),PendingOutcome::Return{..}));}
+        assert!(complete_body(&data,request,&[],&budget).unwrap().is_err());
+        let tiny=ResourceBudget::fixed(1).unwrap();assert!(matches!(complete_body(&data,request,&[&statement],&tiny),Err(ModelError::Resource{..})));
+    }
+}

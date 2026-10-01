@@ -47,7 +47,7 @@ pub(crate) fn ordered_digest<R:Record>(name:&str,rows:impl IntoIterator<Item=Id<
 impl CheckedEvaluation {
     pub fn emit_base(&self,invocation:&AnalysisInvocation,definition:&AnalysisDefinition,budget:&ResourceBudget)->Result<BaseEvaluationRecords,ModelError> {
         let request=self.request();
-        if invocation.input!=request.input || invocation.context!=request.context || invocation.subject.is_some_and(|owner|owner!=request.owner) || invocation.definition!=definition.id() || definition.method!=AnalysisMethod::Execution || definition.interpretation==Interpretation::Heuristic {return Err(ModelError::Invalid("base evaluation invocation changes admitted frame or method".into()));}
+        if invocation.input!=request.input || invocation.context!=request.context || invocation.subject.is_some_and(|owner|owner!=request.owner) || invocation.definition!=definition.id() || *definition!=super::configuration::base_evaluation().1 {return Err(ModelError::Invalid("base evaluation invocation changes admitted frame or method".into()));}
         let source_count=self.native_premises().len().checked_add(self.entry_premises().len()).ok_or_else(||ModelError::Invalid("base evaluation source count overflow".into()))?;
         let allowance=source_count.checked_mul(size_of::<EvaluationSource>()+size_of::<EvaluationMember>()).and_then(|n|n.checked_add(self.evaluated_operands().len().checked_mul(size_of::<EvaluationOperand>())?)).and_then(|n|n.checked_mul(2)).and_then(|n|n.checked_add(size_of::<BaseEvaluationRecords>())).ok_or_else(||ModelError::Invalid("base evaluation output allowance overflow".into()))?;
         let charge=budget.reserve("base_evaluation_records",allowance)?;
@@ -75,192 +75,52 @@ impl EvaluationFacts {
 }
 
 pub fn relations()->Vec<Relation> {vec![Relation::of::<EvaluationSource>(),Relation::of::<ExpressionEvaluation>(),Relation::of::<EvaluationMember>(),Relation::of::<EvaluationOperand>()]}
-pub fn base_invariants() -> Vec<Invariant> {
-    let mut inputs = EvaluationData::validation_inputs();
-    inputs.extend(EntryData::validation_inputs().into_iter().map(|input| {
-        if stages::is_vocabulary(input.name()) {
-            input.at_epoch(stages::PublicationBoundary::Facts)
-        } else {
-            input
-        }
-    }));
-    inputs.extend([
-        ValidationInput::of::<EntryValueWitness>(&["id"]),
-        ValidationInput::of::<EntryAccessSource>(&["id"]),
-        ValidationInput::of::<AnalysisInvocation>(&["id"]),
-        ValidationInput::of::<AnalysisDefinition>(&["id"]),
-        ValidationInput::of::<ExpressionEvaluation>(&["id"]),
-        ValidationInput::of::<EvaluationSource>(&["id"]),
-        ValidationInput::of::<EvaluationMember>(&["id"]),
-        ValidationInput::of::<EvaluationOperand>(&["id"]),
-    ]);
-    inputs.sort_by_key(|input| (input.name(), input.prefix()));
-    inputs.dedup_by_key(|input| (input.name(), input.prefix()));
-    vec![Invariant {
-        name: "base_closed_expression_replay",
-        inputs,
-        create: std::sync::Arc::new(|budget| Box::new(BaseCheck::new(budget))),
-    }]
+pub fn base_invariants()->Vec<Invariant> {
+    let mut inputs=EvaluationData::validation_inputs();inputs.extend(EntryData::validation_inputs().into_iter().map(|input|if stages::is_vocabulary(input.name()){input.at_epoch(stages::PublicationBoundary::Facts)}else{input}));
+    inputs.extend([ValidationInput::of::<EntryValueWitness>(&["id"]),ValidationInput::of::<EntryAccessSource>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<ExpressionEvaluation>(&["id"]),ValidationInput::of::<EvaluationSource>(&["id"]),ValidationInput::of::<EvaluationMember>(&["id"]),ValidationInput::of::<EvaluationOperand>(&["id"])]);
+    inputs.sort_by_key(|input|(input.name(),input.prefix()));inputs.dedup_by_key(|input|(input.name(),input.prefix()));
+    vec![Invariant{name:"base_closed_expression_replay",inputs,create:std::sync::Arc::new(|budget|Box::new(BaseCheck::new(budget)))}]
 }
-pub(crate) struct BaseCheck {
-    pub(crate) data: EvaluationData,
-    entry: EntryData,
-    invocations: Rows<AnalysisInvocation>,
-    definitions: Rows<AnalysisDefinition>,
-    pub(crate) evaluations: Rows<ExpressionEvaluation>,
-    sources: Rows<EvaluationSource>,
-    members: Rows<EvaluationMember>,
-    operands: Rows<EvaluationOperand>,
-    entries: Rows<EntryValueWitness>,
-    entry_sources: Rows<EntryAccessSource>,
-    budget: ResourceBudget,
-}
+pub(crate) struct BaseCheck {pub(crate) data:EvaluationData,entry:EntryData,invocations:Rows<AnalysisInvocation>,definitions:Rows<AnalysisDefinition>,pub(crate) evaluations:Rows<ExpressionEvaluation>,sources:Rows<EvaluationSource>,members:Rows<EvaluationMember>,operands:Rows<EvaluationOperand>,entries:Rows<EntryValueWitness>,entry_sources:Rows<EntryAccessSource>,budget:ResourceBudget}
 impl BaseCheck {
     pub(crate) fn new(budget:&ResourceBudget)->Self {Self{data:EvaluationData::new(budget),entry:EntryData::new(budget),invocations:Rows::new(budget),definitions:Rows::new(budget),evaluations:Rows::new(budget),sources:Rows::new(budget),members:Rows::new(budget),operands:Rows::new(budget),entries:Rows::new(budget),budget:budget.clone()}}
 }
 impl InvariantCheck for BaseCheck {
-    fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        self.data.visit(name, batch)?;
-        self.entry.visit(name, batch)?;
+    fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
+        self.data.visit(name,batch)?;self.entry.visit(name,batch)?;
         macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(if name==<$ty>::NAME {self.$field.decode(batch)?;})*};}
-        rows! {invocations:AnalysisInvocation,definitions:AnalysisDefinition,evaluations:ExpressionEvaluation,sources:EvaluationSource,members:EvaluationMember,operands:EvaluationOperand,entries:EntryValueWitness,entry_sources:EntryAccessSource,}
-        Ok(())
+        rows!{invocations:AnalysisInvocation,definitions:AnalysisDefinition,evaluations:ExpressionEvaluation,sources:EvaluationSource,members:EvaluationMember,operands:EvaluationOperand,entries:EntryValueWitness,entry_sources:EntryAccessSource,}Ok(())
     }
-    fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        for row in self.evaluations.iter() {
-            let _ = self.replay(row)?;
-        }
-        Ok(())
+    fn finish(self:Box<Self>)->Result<(),ModelError> {
+        for row in self.evaluations.iter() {let _=self.replay(row)?;}Ok(())
     }
 }
 impl BaseCheck {
-    pub(crate) fn replay(
-        &self,
-        row: &ExpressionEvaluation,
-    ) -> Result<CheckedEvaluation, ModelError> {
-        let invalid = |message: &str| ModelError::Invalid(message.into());
-        let invocation = self
-            .invocations
-            .get(row.invocation)
-            .ok_or_else(|| invalid("base evaluation invocation missing"))?;
-        let definition = self
-            .definitions
-            .get(invocation.definition)
-            .ok_or_else(|| invalid("base evaluation definition missing"))?;
-        let members_count = self
-            .members
-            .iter()
-            .filter(|member| member.evaluation == row.id())
-            .count();
-        let operands_count = self
-            .operands
-            .iter()
-            .filter(|operand| operand.evaluation == row.id())
-            .count();
-        if members_count > 128 || operands_count > 64 {
-            return Err(invalid(
-                "base evaluation proof inventory exceeds finite limit",
-            ));
-        }
-        let _scratch = self.budget.reserve(
-            "base_evaluation_replay_scratch",
-            members_count
-                .checked_mul(
-                    size_of::<EvaluationMember>()
-                        + size_of::<conditions::entry::DerivedEntryValue>() * 2
-                        + size_of::<&conditions::entry::DerivedEntryValue>() * 2,
-                )
-                .and_then(|n| n.checked_add(operands_count * size_of::<EvaluationOperand>()))
-                .ok_or_else(|| invalid("base evaluation replay allowance overflow"))?,
-        )?;
-        let mut entries = Vec::with_capacity(members_count);
-        for member in self
-            .members
-            .iter()
-            .filter(|member| member.evaluation == row.id())
-        {
-            let source = self
-                .sources
-                .get(member.source)
-                .ok_or_else(|| invalid("base evaluation source missing"))?;
-            if let EvaluationSource::Entry { witness } = source {
-                let witness = self
-                    .entries
-                    .get(*witness)
-                    .ok_or_else(|| invalid("base evaluation entry premise missing"))?;
-                let access_source = self.entry_sources.get(witness.access_source)
-                    .ok_or_else(|| invalid("base evaluation entry access source missing"))?;
-                if !matches!(access_source, EntryAccessSource::Use { .. }) {
-                    return Err(invalid("base name evaluation requires an exact Use source"));
-                }
-                let proof = EntryValueWitness::derive_for(
-                    &self.entry,
-                    EntryRequest {
-                        owner: witness.owner,
-                        formal: witness.formal,
-                        access: witness.access,
-                        context: witness.context,
-                        run: witness.run,
-                    },
-                    access_source,
-                    &self.budget,
-                )?
-                .map_err(|_| invalid("base evaluation entry premise refused"))?;
-                if proof.witness() != witness {
-                    return Err(invalid("base evaluation entry premise changed"));
-                }
-                entries.push(proof);
-            }
-        }
-        let refs = entries.iter().collect::<Vec<_>>();
-        let checked = evaluate_with_entries(
-            &self.data,
-            ExpressionRequest {
-                input: invocation.input,
-                context: invocation.context,
-                owner: row.owner,
-                expression: row.expression,
-            },
-            &refs,
-            &self.budget,
-        )?
-        .map_err(|_| invalid("base evaluation replay refused"))?;
-        let expected = checked.emit_base(invocation, definition, &self.budget)?;
-        if *row != expected.evaluation {
-            return Err(invalid(
-                "base evaluation changes qualification, value, disposal or evidence",
-            ));
-        }
-        let mut members = self
-            .members
-            .iter()
-            .filter(|member| member.evaluation == row.id())
-            .collect::<Vec<_>>();
-        members.sort_by_key(|member| member.ordinal);
-        if members.len() != expected.members.len()
-            || members
-                .iter()
-                .zip(&expected.members)
-                .any(|(actual, expected)| *actual != expected)
-        {
-            return Err(invalid("base evaluation omitted or reordered a source"));
-        }
-        let mut operands = self
-            .operands
-            .iter()
-            .filter(|operand| operand.evaluation == row.id())
-            .collect::<Vec<_>>();
-        operands.sort_by_key(|operand| operand.ordinal);
-        if operands.len() != expected.operands.len()
-            || operands
-                .iter()
-                .zip(&expected.operands)
-                .any(|(actual, expected)| *actual != expected)
-        {
-            return Err(invalid(
-                "base evaluation omitted or reordered an entered operand",
-            ));
-        }
+    pub(crate) fn replay(&self,row:&ExpressionEvaluation)->Result<CheckedEvaluation,ModelError> {
+        let invalid=|message:&str|ModelError::Invalid(message.into());
+        let invocation=self.invocations.get(row.invocation).ok_or_else(||invalid("base evaluation invocation missing"))?;
+        let definition=self.definitions.get(invocation.definition).ok_or_else(||invalid("base evaluation definition missing"))?;
+        let members_count=self.members.iter().filter(|member|member.evaluation==row.id()).count();
+        let operands_count=self.operands.iter().filter(|operand|operand.evaluation==row.id()).count();
+        if members_count>128 || operands_count>64 {return Err(invalid("base evaluation proof inventory exceeds finite limit"));}
+        let _scratch=self.budget.reserve("base_evaluation_replay_scratch",members_count.checked_mul(size_of::<EvaluationMember>()+size_of::<conditions::entry::DerivedEntryValue>()*2+size_of::<&conditions::entry::DerivedEntryValue>()*2).and_then(|n|n.checked_add(operands_count*size_of::<EvaluationOperand>())).ok_or_else(||invalid("base evaluation replay allowance overflow"))?)?;
+        let mut entries=Vec::with_capacity(members_count);
+        for member in self.members.iter().filter(|member|member.evaluation==row.id()) {let source=self.sources.get(member.source).ok_or_else(||invalid("base evaluation source missing"))?;if let EvaluationSource::Entry{witness}=source {
+            let witness=self.entries.get(*witness).ok_or_else(||invalid("base evaluation entry premise missing"))?;
+            let source=self.entry_sources.get(witness.access_source).ok_or_else(||invalid("base evaluation entry source missing"))?;
+            if !matches!(source,EntryAccessSource::Use{..}) {return Err(invalid("base evaluation name read requires Use entry source"));}
+            let proof=EntryValueWitness::derive_for(&self.entry,witness.request(),source,&self.budget)?.map_err(|_|invalid("base evaluation entry premise refused"))?;
+            if proof.witness()!=witness {return Err(invalid("base evaluation entry premise changed"));}
+            entries.push(proof);
+        }}
+        let refs=entries.iter().collect::<Vec<_>>();
+        let checked=evaluate_with_entries(&self.data,ExpressionRequest{input:invocation.input,context:invocation.context,owner:row.owner,expression:row.expression},&refs,&self.budget)?.map_err(|_|invalid("base evaluation replay refused"))?;
+        let expected=checked.emit_base(invocation,definition,&self.budget)?;
+        if *row!=expected.evaluation {return Err(invalid("base evaluation changes qualification, value, disposal or evidence"));}
+        let mut members=self.members.iter().filter(|member|member.evaluation==row.id()).collect::<Vec<_>>();members.sort_by_key(|member|member.ordinal);
+        if members.len()!=expected.members.len() || members.iter().zip(&expected.members).any(|(actual,expected)|*actual!=expected) {return Err(invalid("base evaluation omitted or reordered a source"));}
+        let mut operands=self.operands.iter().filter(|operand|operand.evaluation==row.id()).collect::<Vec<_>>();operands.sort_by_key(|operand|operand.ordinal);
+        if operands.len()!=expected.operands.len() || operands.iter().zip(&expected.operands).any(|(actual,expected)|*actual!=expected){return Err(invalid("base evaluation omitted or reordered an entered operand"));}
         Ok(checked)
     }
 }
@@ -281,3 +141,4 @@ use crate::domain::{
     source::Occurrence,
     *,
 };
+
