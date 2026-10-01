@@ -3,6 +3,7 @@
 
 pub mod analyze;
 pub mod analysis_prepare;
+pub mod analysis_graphs;
 pub mod arrow_types;
 pub mod behavior;
 pub mod bundle;
