@@ -1,0 +1,101 @@
+//! Declared source-class reachability for dynamic access. This inspection operation grants no
+//! exact runtime class, allocation, mutable-state stability or complete member universe.
+use crate::domain::{*,analysis::{base_evaluation as publication,native::NativeAssertionPremise,policy::{self,EvidenceStatus}},assertion::*,attribution::*,calls::*,conditions::entry::EntryData,flow::*,lexical::*,normalized::{Rows,entities::*},source::*,syntax::*,value::*};
+use crate::{Domain,DomainCode};
+use super::{evaluation::EvaluationData,read_channels::{Work,native,selected}};
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]#[repr(i16)]
+pub enum DynamicKind {GetAttr=0,Dictionary=1}
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]#[repr(i16)]
+pub enum ClassInspection {DeclaredReachableClass=0,Unknown=1}
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]#[repr(i16)]
+pub enum DeclaredClassOrigin {ReceiverDeclaration=0,UniqueGlobalInitializer=1}
+#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[model(name="base_dynamic_access_observations")]
+pub struct DynamicAccessObservation {
+ #[model(key)]pub invocation:Id<publication::AnalysisInvocation>,#[model(key)]pub site:Id<Occurrence>,#[model(key)]pub kind:DynamicKind,
+ pub owner:Id<EntityRef>,pub receiver:Option<Id<Occurrence>>,pub qualification:Id<AssertionQualification>,pub status:EvidenceStatus,
+ pub inspection:ClassInspection,pub declared_class:Option<Id<ClassEntity>>,pub origin:Option<DeclaredClassOrigin>,pub reason:Option<obligation::ObligationKind>,pub sources:ContentHash,
+}
+#[derive(Debug,Clone,PartialEq,Eq,Domain)]#[model(name="base_dynamic_access_premises")]
+pub struct DynamicAccessPremise {#[model(key)]pub access:Id<DynamicAccessObservation>,#[model(key)]pub premise:Id<NativeAssertionPremise>}
+pub fn relations()->Vec<Relation>{vec![Relation::of::<DynamicAccessObservation>(),Relation::of::<DynamicAccessPremise>()]}
+pub fn validation_inputs()->Vec<ValidationInput>{vec![ValidationInput::of::<DynamicAccessObservation>(&["id"]),ValidationInput::of::<DynamicAccessPremise>(&["id"])]}
+const DEPTH_LIMIT:usize=64;
+struct Inspect<'a>{data:&'a EvaluationData,entry:&'a EntryData,invocation:&'a publication::AnalysisInvocation,work:&'a mut Work,budget:&'a resources::ResourceBudget,premises:Rows<NativeAssertionPremise>}
+impl Inspect<'_>{
+ fn observe<S:Support>(&mut self,supports:&Rows<S>,assertion:Id<S::Assertion>,q:Id<AssertionQualification>,site:Id<Occurrence>)->Result<bool,ModelError>{let selected=native(self.data,self.entry,supports,assertion,q,site,self.invocation,self.work)?;if let Some((id,_,_))=selected{self.premises.insert(self.data.premises.get(id).ok_or_else(||ModelError::Invalid("dynamic native pair missing".into()))?.clone())?;Ok(true)}else{Ok(false)}}
+ fn always(&self,q:Id<AssertionQualification>)->bool{self.entry.qualifications.get(q).is_some_and(|q|q.context==self.invocation.context&&q.modality==Modality::Definite&&q.approximation==Approximation::Exact&&q.condition==conditions::Diagram::always().id())}
+ fn class_symbol(&mut self,symbol:Id<ProviderSymbol>)->Result<Option<Id<ClassEntity>>,ModelError>{
+  let mut declarations=self.entry.symbol_declarations.iter().filter(|d|d.symbol==symbol&&self.always(d.qualification));let Some(d)=declarations.next()else{return Ok(None)};if declarations.next().is_some(){return Ok(None)};
+  let class=ClassEntity::Source{declaration:d.declaration};if self.data.classes.get(class.id())!=Some(&class)||!self.observe(&self.entry.symbol_declaration_supports,d.id(),d.qualification,d.declaration)?{return Ok(None)};Ok(Some(class.id()))
+ }
+ fn receiver_parameter(&mut self,declaration:Id<Occurrence>,scope:Id<LexicalScope>,site:Id<Occurrence>)->Result<Option<Id<ClassEntity>>,ModelError>{
+  let Some(function)=self.entry.lexical_scopes.get(scope).map(|s|s.owner)else{return Ok(None)};
+  let Some(owner)=self.work.owner(site)else{return Ok(None)};
+  let mut selected=None;
+  for formal in self.entry.formals.iter(){self.work.tick()?;let ParameterEntity::Source{declaration:parameter}=formal else{continue};
+   let matches=*parameter==declaration||self.entry.placements.iter().any(|p|p.occurrence==declaration&&p.parent==Some(*parameter)&&p.field==SyntaxField::Child&&p.ordinal==0);
+   if !matches{continue;}let mut runs=self.entry.use_observations.iter().filter(|o|self.entry.uses.get(o.use_).is_some_and(|u|u.occurrence==site)).flat_map(|o|self.entry.use_supports.iter().filter(move|s|s.assertion==o.id())).filter_map(|s|s.attribution()).filter(|a|self.entry.runs.get(a.run).is_some_and(|r|r.input==self.invocation.input&&r.context==self.invocation.context));let Some(run)=runs.next()else{continue};if runs.next().is_some(){return Ok(None)};
+   let request=conditions::entry::EntryRequest{owner,formal:formal.id(),access:site,context:self.invocation.context,run:run.run};
+   let Ok(proof)=conditions::entry::EntryValueWitness::derive(self.entry,request,self.budget)? else{continue};if selected.is_some(){return Ok(None)};
+   let witness=proof.witness();let link=self.entry.links.get(witness.link).ok_or_else(||ModelError::Invalid("dynamic entry link missing".into()))?;
+   let parameter=self.entry.parameters.get(link.parameter).ok_or_else(||ModelError::Invalid("dynamic entry parameter missing".into()))?;let signature=self.entry.signatures.get(parameter.signature).ok_or_else(||ModelError::Invalid("dynamic signature missing".into()))?;
+   let declared=self.entry.declarations.get(link.declaration.ok_or_else(||ModelError::Invalid("dynamic parameter declaration missing".into()))?).ok_or_else(||ModelError::Invalid("dynamic parameter declaration missing".into()))?;
+   if !self.observe(&self.entry.declaration_supports,declared.id(),declared.qualification,site)?{return Ok(None)};
+   if let Some(placement)=witness.parameter_placement{let p=self.entry.placements.get(placement).unwrap();if !self.observe(&self.entry.placement_supports,p.id(),p.qualification,p.occurrence)?{return Ok(None)}}
+   selected=Some((parameter,signature));
+  }
+  let Some((parameter,signature))=selected else{return Ok(None)};
+  // Native instance receiver shape, rather than a spelling such as self or an annotation.
+  if self.entry.parameters.iter().filter(|p|p.signature==signature.id()).any(|p|p.ordinal<parameter.ordinal){return Ok(None)};
+  let mut owners=self.entry.symbol_declarations.iter().filter(|d|d.symbol==signature.symbol&&d.declaration==function&&self.always(d.qualification));let Some(owner)=owners.next()else{return Ok(None)};if owners.next().is_some()||!self.observe(&self.entry.symbol_declaration_supports,owner.id(),owner.qualification,function)?{return Ok(None)};
+  let mut trait_rows=self.data.function_traits.iter().filter(|t|t.symbol==signature.symbol&&self.always(t.qualification));let Some(traits)=trait_rows.next()else{return Ok(None)};if trait_rows.next().is_some()||traits.staticmethod||traits.classmethod||traits.property_getter||traits.property_setter||!self.observe(&self.data.function_trait_supports,traits.id(),traits.qualification,function)?{return Ok(None)};
+  let Some(class)=traits.defining_class else{return Ok(None)};self.class_symbol(class)
+ }
+ fn lexical_target(&mut self,site:Id<Occurrence>)->Result<Option<Id<LexicalTarget>>,ModelError>{
+  let mut rows=self.data.lexical_resolutions.iter().filter(|r|r.read==site&&self.always(r.qualification));let Some(row)=rows.next()else{return Ok(None)};if rows.next().is_some()||!self.observe(&self.data.lexical_resolution_supports,row.id(),row.qualification,site)?{return Ok(None)};Ok(Some(row.target))
+ }
+ fn builtin(&mut self,site:Id<Occurrence>,name:&str)->Result<bool,ModelError>{let Some(target)=self.lexical_target(site)?else{return Ok(false)};Ok(matches!(self.data.lexical_targets.get(target),Some(LexicalTarget::Builtin{name:actual,..})if actual==name))}
+ fn global(&mut self,site:Id<Occurrence>,depth:usize)->Result<Option<(Id<ClassEntity>,DeclaredClassOrigin)>,ModelError>{
+  let Some(target)=self.lexical_target(site)?else{return Ok(None)};let Some(LexicalTarget::Binding{event})=self.data.lexical_targets.get(target)else{return Ok(None)};let Some(event)=self.data.binding_events.get(*event)else{return Ok(None)};
+  let mut rows=self.data.bindings.iter().filter(|b|b.event==event.id()&&self.always(b.qualification));let Some(binding)=rows.next()else{return Ok(None)};if rows.next().is_some()||binding.kind!=BindingEventKind::Assignment||binding.static_branch.is_some()||self.entry.lexical_scopes.get(binding.scope).is_none_or(|s|s.kind!=LexicalScopeKind::Module){return Ok(None)};
+  // Every declaration of this module binding is retained; a selected final definition cannot
+  // hide an earlier assignment or conditional branch.
+  let mut count=0;for row in self.data.bindings.iter(){self.work.tick()?;if row.scope==binding.scope&&self.data.binding_events.get(row.event).is_some_and(|e|e.name==event.name)&&self.entry.qualifications.get(row.qualification).is_some_and(|q|q.context==self.invocation.context){count+=1;}}
+  if count!=1||!self.observe(&self.data.binding_supports,binding.id(),binding.qualification,event.site)?{return Ok(None)};
+  let Some(value)=binding.value else{return Ok(None)};self.constructed_class(value,depth)
+ }
+ fn constructed_class(&mut self,site:Id<Occurrence>,depth:usize)->Result<Option<(Id<ClassEntity>,DeclaredClassOrigin)>,ModelError>{
+  if depth>=DEPTH_LIMIT{return Ok(None)};let mut calls=self.data.call_syntax.iter().filter(|c|c.site==site&&self.always(c.qualification));let Some(call)=calls.next()else{return Ok(None)};if calls.next().is_some()||!self.observe(&self.data.call_syntax_supports,call.id(),call.qualification,site)?{return Ok(None)};
+  let Some(target)=self.lexical_target(call.callee)?else{return Ok(None)};let Some(LexicalTarget::Binding{event})=self.data.lexical_targets.get(target)else{return Ok(None)};let Some(event)=self.data.binding_events.get(*event)else{return Ok(None)};
+  let mut rows=self.data.bindings.iter().filter(|b|b.event==event.id()&&b.kind==BindingEventKind::ClassDef&&self.always(b.qualification));let Some(row)=rows.next()else{return Ok(None)};if rows.next().is_some()||!self.observe(&self.data.binding_supports,row.id(),row.qualification,event.site)?{return Ok(None)};
+  let class=ClassEntity::Source{declaration:event.site};if self.data.classes.get(class.id())!=Some(&class){return Ok(None)};Ok(Some((class.id(),DeclaredClassOrigin::UniqueGlobalInitializer)))
+ }
+ fn trace(&mut self,site:Id<Occurrence>,scope:Id<LexicalScope>,depth:usize)->Result<Option<(Id<ClassEntity>,DeclaredClassOrigin)>,ModelError>{
+  self.work.tick()?;if depth>=DEPTH_LIMIT||self.entry.occurrences.get(site).is_none_or(|o|o.syntax_kind!=SyntaxKind::ExprName){return Ok(None)};
+  let mut uses=self.entry.uses.iter().filter(|u|u.occurrence==site);let Some(use_)=uses.next()else{return Ok(None)};if uses.next().is_some(){return Ok(None)};
+  let mut observations=self.entry.use_observations.iter().filter(|o|o.use_==use_.id()&&o.scope==scope&&self.always(o.qualification));let Some(observation)=observations.next()else{return Ok(None)};if observations.next().is_some()||observation.annotation||!self.observe(&self.entry.use_supports,observation.id(),observation.qualification,site)?{return Ok(None)};
+  let module_binding=self.data.lexical_resolutions.iter().filter(|r|r.read==site&&self.always(r.qualification)).any(|r|matches!(self.data.lexical_targets.get(r.target),Some(LexicalTarget::Binding{event})if self.data.bindings.iter().any(|b|b.event==*event&&self.entry.lexical_scopes.get(b.scope).is_some_and(|s|s.kind==LexicalScopeKind::Module))));
+  if module_binding{return self.global(site,depth+1)}
+  let mut reach_rows=self.entry.reaching.iter().filter(|r|r.use_==use_.id()&&self.entry.qualifications.get(r.qualification).is_some_and(|q|q.context==self.invocation.context));let Some(reach)=reach_rows.next()else{return Ok(None)};if reach_rows.next().is_some()||reach.loop_carried||!self.always(reach.qualification)||!self.observe(&self.entry.reaching_supports,reach.id(),reach.qualification,site)?{return Ok(None)};
+  let Some(ReachingDefinition::Bound{definition})=self.entry.targets.get(reach.target)else{return Ok(None)};let Some(definition)=self.entry.definitions.get(*definition)else{return Ok(None)};
+  let mut definitions=self.entry.definition_observations.iter().filter(|d|d.definition==definition.id()&&d.scope==scope&&self.always(d.qualification));let Some(observed)=definitions.next()else{return Ok(None)};if definitions.next().is_some()||!self.observe(&self.entry.definition_supports,observed.id(),observed.qualification,definition.occurrence)?{return Ok(None)};
+  if observed.kind==BindingEventKind::Parameter {return Ok(self.receiver_parameter(definition.occurrence,scope,site)?.map(|c|(c,DeclaredClassOrigin::ReceiverDeclaration)))};
+  if observed.kind!=BindingEventKind::Assignment{return Ok(None)};let Some(value)=observed.value else{return Ok(None)};self.trace(value,scope,depth+1)
+ }
+ fn emit(&mut self,records:&mut super::read_channels::ReadRecords,site:Id<Occurrence>,kind:DynamicKind,owner:Id<EntityRef>,receiver:Option<Id<Occurrence>>,q:Id<AssertionQualification>,scope:Option<Id<LexicalScope>>,admitted:bool)->Result<(),ModelError>{
+  let class=if admitted{if let(Some(receiver),Some(scope))=(receiver,scope){self.trace(receiver,scope,0)?}else{None}}else{None};
+  let mut digest=KeySink::new("dynamic-declared-class-native-premises");let mut status=EvidenceStatus::StructurallyObserved;
+  for premise in self.premises.iter(){premise.id().encode(&mut digest);let native=self.work.qualification(self.data,premise.id()).ok_or_else(||ModelError::Invalid("dynamic native qualification missing".into()))?;status=policy::derive_status(&[(policy::SupportRole::Support,status),(policy::SupportRole::Support,native.status)]);}
+  if self.premises.is_empty(){status=EvidenceStatus::Unresolved;}
+  let row=DynamicAccessObservation{invocation:self.invocation.id(),site,kind,owner,receiver,qualification:q,status,inspection:if class.is_some(){ClassInspection::DeclaredReachableClass}else{ClassInspection::Unknown},declared_class:class.map(|c|c.0),origin:class.map(|c|c.1),reason:class.is_none().then_some(obligation::ObligationKind::DynamicAccess),sources:digest.finish()};let id=records.dynamic.insert(row)?;
+  for premise in self.premises.iter(){records.dynamic_premises.insert(DynamicAccessPremise{access:id,premise:premise.id()})?;}Ok(())
+ }
+}
+pub(super) fn produce(data:&EvaluationData,entry:&EntryData,invocation:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,records:&mut super::read_channels::ReadRecords,budget:&resources::ResourceBudget,work:&mut Work)->Result<(),ModelError>{
+ for call in data.call_syntax.iter(){work.tick()?;if !selected(entry,invocation,call.site,roots)||entry.qualifications.get(call.qualification).is_none_or(|q|q.context!=invocation.context){continue;}if !data.references.iter().any(|r|r.read==call.callee&&r.name=="getattr"&&entry.qualifications.get(r.qualification).is_some_and(|q|q.context==invocation.context)){continue;}let Some(owner)=work.owner(call.site)else{continue};let mut inspect=Inspect{data,entry,invocation,work,budget,premises:Rows::new(budget)};let native=inspect.observe(&data.call_syntax_supports,call.id(),call.qualification,call.site)?;let builtin=inspect.builtin(call.callee,"getattr")?;
+  let mut args=data.call_arguments.iter().filter(|a|a.call==call.id());let receiver=args.find(|a|a.ordinal==0&&a.kind==ArgumentKind::Positional).map(|a|a.value);let scope=receiver.and_then(|receiver|entry.use_observations.iter().find(|o|entry.uses.get(o.use_).is_some_and(|u|u.occurrence==receiver)&&entry.qualifications.get(o.qualification).is_some_and(|q|q.context==invocation.context)).map(|o|o.scope));inspect.emit(records,call.site,DynamicKind::GetAttr,owner,receiver,call.qualification,scope,native&&builtin)?;
+ }
+ for attribute in data.attribute_loads.iter(){work.tick()?;if attribute.name!="__dict__"||!selected(entry,invocation,attribute.occurrence,roots)||entry.qualifications.get(attribute.qualification).is_none_or(|q|q.context!=invocation.context){continue;}let Some(owner)=work.owner(attribute.occurrence)else{continue};let mut inspect=Inspect{data,entry,invocation,work,budget,premises:Rows::new(budget)};let native=inspect.observe(&data.attribute_load_supports,attribute.id(),attribute.qualification,attribute.occurrence)?;let mut children=data.placements.iter().filter(|p|p.parent==Some(attribute.occurrence)&&p.field==SyntaxField::Value&&inspect.always(p.qualification));let receiver=children.next().filter(|_|children.next().is_none()).map(|p|p.occurrence);let scope=receiver.and_then(|receiver|entry.use_observations.iter().find(|o|entry.uses.get(o.use_).is_some_and(|u|u.occurrence==receiver)&&inspect.always(o.qualification)).map(|o|o.scope));inspect.emit(records,attribute.occurrence,DynamicKind::Dictionary,owner,receiver,attribute.qualification,scope,native)?;
+ }Ok(())
+}

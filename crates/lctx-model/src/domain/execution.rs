@@ -34,6 +34,8 @@ pub mod enriched_records;
 pub mod enriched_production;
 pub mod configuration;
 pub mod production;
+pub mod read_channels;
+pub mod read_dynamic;
 pub mod completion_production;
 
 pub mod model_application;

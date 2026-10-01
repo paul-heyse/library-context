@@ -109,7 +109,11 @@ impl DerivedEntryValue {
 }
 fn need<R:Record>(rows:&Rows<R>,id:Id<R>)->Result<&R,ObligationKind> {rows.get(id).ok_or(ObligationKind::MissingEvidence)}
 fn inside(child:&Occurrence,parent:&Occurrence)->bool {child.source==parent.source && child.structural_path.len()>parent.structural_path.len() && child.structural_path.starts_with(&parent.structural_path) && child.start>=parent.start && child.end<=parent.end}
-fn exact(data:&EntryData,id:Id<AssertionQualification>,request:EntryRequest)->Result<&AssertionQualification,ObligationKind> {
+#[derive(Clone,Copy)]
+struct AccessFrame {owner:Id<EntityRef>,access:Id<Occurrence>,context:Id<AnalysisContext>,run:Id<ProviderRun>}
+impl From<EntryRequest> for AccessFrame {fn from(request:EntryRequest)->Self{Self{owner:request.owner,access:request.access,context:request.context,run:request.run}}}
+fn exact(data:&EntryData,id:Id<AssertionQualification>,request:impl Into<AccessFrame>)->Result<&AssertionQualification,ObligationKind> {
+let request=request.into();
     let q=need(&data.qualifications,id)?;
     if q.context!=request.context {return Err(ObligationKind::IncompatibleContexts);}
     if q.modality!=Modality::Definite || q.approximation!=Approximation::Exact {return Err(ObligationKind::Approximation);}
@@ -119,7 +123,8 @@ fn exact(data:&EntryData,id:Id<AssertionQualification>,request:EntryRequest)->Re
     let covered=match need(&data.scopes,q.scope)? {CoverageScope::Input{input:owner}=>*owner==input && artifact.input==input,CoverageScope::Artifact{artifact:owner}=>*owner==source && artifact.input==input,CoverageScope::Module{module}=>need(&data.modules,*module)?.source==source && artifact.input==input,_=>false};
     if !covered {return Err(ObligationKind::MissingEvidence);}Ok(q)
 }
-fn supported<S:Support>(data:&EntryData,support:&S,request:EntryRequest)->Result<bool,ObligationKind> {
+fn supported<S:Support>(data:&EntryData,support:&S,request:impl Into<AccessFrame>)->Result<bool,ObligationKind> {
+let request=request.into();
     let a=support.attribution().ok_or(ObligationKind::MissingEvidence)?;
     if a.run!=request.run {return Ok(false);}
     let run=need(&data.runs,a.run)?;let surface=need(&data.surfaces,a.surface)?;
@@ -251,7 +256,11 @@ impl EntryAccessSource {
  pub fn value(data:&EntryData,request:EntryRequest,observation:Id<FlowValueObservation>,support:Id<FlowValueSupport>)->Result<Self,ObligationKind>{let(region,region_support)=region_for(data,request)?;Ok(Self::Value{observation,support,region,region_support})}
  pub fn guard(data:&EntryData,request:EntryRequest,observation:Id<FlowTestLeafObservation>,support:Id<FlowTestLeafSupport>)->Result<Self,ObligationKind>{let(region,region_support)=region_for(data,request)?;Ok(Self::Guard{observation,support,region,region_support})}
 }
-fn region_for(data:&EntryData,request:EntryRequest)->Result<(Id<FlowRegionObservation>,Id<FlowRegionSupport>),ObligationKind>{
+fn region_for(data:&EntryData,request:EntryRequest)->Result<(Id<FlowRegionObservation>,Id<FlowRegionSupport>),ObligationKind>{region_for_access(data,request.owner,request.access,request.context,request.run)}
+/// Exact containing native execution region; parameter identity remains a separate Entry operation.
+pub(crate) fn region_for_access(data:&EntryData,owner:Id<EntityRef>,access:Id<Occurrence>,context:Id<AnalysisContext>,run:Id<ProviderRun>)->Result<(Id<FlowRegionObservation>,Id<FlowRegionSupport>),ObligationKind>{
+let request=AccessFrame{owner,access,context,run};
+
  let read=need(&data.occurrences,request.access)?;
  let mut selected=None;
  for row in data.use_observations.iter().filter(|o|data.uses.get(o.use_).is_some_and(|u|u.occurrence==request.access)&&data.qualifications.get(o.qualification).is_some_and(|q|q.context==request.context)){for support in data.use_supports.iter().filter(|s|s.assertion==row.id()){if supported(data,support,request)?{if selected.is_some(){return Err(ObligationKind::MissingEvidence);}selected=Some(row);}}}

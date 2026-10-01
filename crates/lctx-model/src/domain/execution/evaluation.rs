@@ -38,6 +38,17 @@ macro_rules! execution_evaluation_inputs {($apply:ident)=>{$apply! {
     lexical_scopes:$crate::domain::lexical::LexicalScope,
     premises:$crate::domain::analysis::native::NativeAssertionPremise,
     native:$crate::domain::analysis::native::NativeQualification,
+    attribute_loads:$crate::domain::flow::FlowAttributeLoadObservation,
+    attribute_load_supports:$crate::domain::flow::FlowAttributeLoadSupport,
+    classes:$crate::domain::normalized::entities::ClassEntity,
+    function_traits:$crate::domain::symbols::FunctionTraitObservation,
+    function_trait_supports:$crate::domain::symbols::FunctionTraitSupport,
+    call_syntax:$crate::domain::calls::CallSyntax,
+    call_syntax_supports:$crate::domain::calls::CallSyntaxSupport,
+    call_arguments:$crate::domain::calls::CallArgument,
+    binding_events:$crate::domain::lexical::BindingEvent,
+    bindings:$crate::domain::lexical::BindingObservation,
+    binding_supports:$crate::domain::lexical::BindingSupport,
 }};}
 crate::execution_evaluation_inputs!(inputs);
 
