@@ -1,35 +1,6 @@
-//! Nominal subjects retain the precise unanswered question; discharge never follows from absence.
-use super::{AnalysisInvocation, AnalysisMethod, invalid, coverage::AnalysisCoverage, support::{AnalysisDerivation,AnalysisProposition}};
-use crate::domain::{
-    assertion::AssertionQualification, calls::CallPhase, normalized::entities::EntityRef,
-    obligation::ObligationKind, source::Occurrence, transfer::TransferKey, *,
-};
-use crate::{Domain, DomainCode, DomainSum};
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
-#[repr(i16)]
-pub enum AnalysisChannel {
-    Value = 0,
-    Effect = 1,
-    Exception = 2,
-    Role = 3,
-    Execution = 4,
-    Completion = 5,
-    Catalog = 6,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
-#[model(name = "obligation_subjects")]
-pub enum ObligationSubject {
-    #[model(code = 0)]
-    Entity { entity: Id<EntityRef> },
-    #[model(code = 1)]
-    SourceCall { occurrence: Id<Occurrence> },
-    #[model(code = 2)]
-    Transfer { transfer: Id<TransferKey> },
-    #[model(code = 3)]
-    Computation { invocation: Id<AnalysisInvocation> },
-}
+use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "analysis_obligations", validate = validate_obligation)]
+#[model(name=owner_table!("analysis_obligations"), validate = validate_obligation)]
 pub struct AnalysisObligation {
     #[model(key)]
     pub invocation: Id<AnalysisInvocation>,
@@ -53,7 +24,6 @@ fn validate_obligation(row: &AnalysisObligation) -> Result<(), ModelError> {
 }
 pub fn relations() -> Vec<Relation> {
     vec![
-        Relation::of::<ObligationSubject>(),
         Relation::of::<AnalysisObligation>(),
         Relation::of::<DischargeEvidence>(),
     ]
@@ -62,7 +32,7 @@ pub fn relations() -> Vec<Relation> {
 /// A persisted discharge cites an exact subject proof. There is no producer-selected verdict;
 /// publication reconstructs it with the shared conservative verdict operation.
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
-#[model(name="analysis_discharge_evidence",rule="analysis_discharge",conclusion=obligation,invariants=discharge_invariants)]
+#[model(name=owner_table!("analysis_discharge_evidence"),rule="analysis_discharge",conclusion=obligation,invariants=discharge_invariants)]
 pub struct DischargeEvidence {
     #[model(key)] pub obligation:Id<AnalysisObligation>,
     #[model(key,premise)] pub derivation:Id<AnalysisDerivation>,
@@ -79,7 +49,7 @@ pub fn admissible_discharge(obligation:&AnalysisObligation,proposition:&Analysis
     Ok(result)
 }
 fn discharge_invariants()->Vec<Invariant> {
-    vec![Invariant {name:"analysis_discharge",inputs:vec![ValidationInput::of::<AnalysisObligation>(&["id"]),ValidationInput::of::<DischargeEvidence>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"]),ValidationInput::of::<AnalysisProposition>(&["id"]),ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<AnalysisCoverage>(&["id"]),ValidationInput::of::<conditions::Condition>(&["id"]),ValidationInput::of::<conditions::ConditionNode>(&["id"])],create:std::sync::Arc::new(|budget|Box::new(DischargeCheck {charge:charged::StateCharge::new(budget,"analysis_discharge"),obligations:Default::default(),evidence:Default::default(),derivations:Default::default(),propositions:Default::default(),qualifications:Default::default(),coverage:Default::default(),conditions:Default::default(),nodes:Default::default()})) }]
+    vec![Invariant {name:owner_table!("analysis_discharge"),inputs:vec![ValidationInput::of::<AnalysisObligation>(&["id"]),ValidationInput::of::<DischargeEvidence>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"]),ValidationInput::of::<AnalysisProposition>(&["id"]),ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<AnalysisCoverage>(&["id"]),ValidationInput::of::<conditions::Condition>(&["id"]),ValidationInput::of::<conditions::ConditionNode>(&["id"])],create:std::sync::Arc::new(|budget|Box::new(DischargeCheck {charge:charged::StateCharge::new(budget,"analysis_discharge"),obligations:Default::default(),evidence:Default::default(),derivations:Default::default(),propositions:Default::default(),qualifications:Default::default(),coverage:Default::default(),conditions:Default::default(),nodes:Default::default()})) }]
 }
 struct DischargeCheck {
     charge:charged::StateCharge,

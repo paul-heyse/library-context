@@ -1,100 +1,6 @@
-use super::invalid;
-use crate::domain::{
-    attribution::AnalysisContext, input::InputRevision, normalized::entities::EntityRef,
-    obligation::ObligationKind, *,
-};
-use crate::{Domain, DomainCode};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
-#[repr(i16)]
-pub enum AnalysisMethod {
-    LocalTransfers = 0,
-    Execution = 1,
-    Completion = 2,
-    Models = 3,
-    Summaries = 4,
-    Delegation = 5,
-    Controls = 6,
-    Handoffs = 7,
-    DirectUsage = 8,
-    SeedSelection = 9,
-    Communities = 10,
-    PageRank = 11,
-    Concepts = 12,
-    RelationalConcepts = 13,
-    Neighbours = 14,
-    Catalog = 15,
-    Synthesis = 16,
-    Retrieval = 17,
-    Dispatch = 18,
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
-#[repr(i16)]
-pub enum Interpretation {
-    Structural = 0,
-    ExactUnderContext = 1,
-    Heuristic = 2,
-}
-/// All parameters are typed, identity-bearing inputs. Diagnostics never feed this definition.
+use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "method_parameters", validate = validate_parameters)]
-pub struct MethodParameters {
-    #[model(key)]
-    pub depth: Option<i64>,
-    #[model(key)]
-    pub proof_steps: Option<i64>,
-    #[model(key)]
-    pub work: Option<i64>,
-    #[model(key)]
-    pub members: Option<i64>,
-    #[model(key)]
-    pub seed: Option<i64>,
-    #[model(key)]
-    pub iterations: Option<i64>,
-    #[model(key)]
-    pub threshold: Option<FiniteF64>,
-    #[model(key)]
-    pub resolution: Option<FiniteF64>,
-    #[model(key)]
-    pub damping: Option<FiniteF64>,
-    #[model(key)]
-    pub model_catalog: Option<ContentHash>,
-}
-fn validate_parameters(row: &MethodParameters) -> Result<(), ModelError> {
-    if [
-        row.depth,
-        row.proof_steps,
-        row.work,
-        row.members,
-        row.iterations,
-    ]
-    .into_iter()
-    .flatten()
-    .any(|v| v < 0)
-    {
-        return Err(invalid("analysis limits must be nonnegative"));
-    }
-    Ok(())
-}
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "analysis_definitions", validate = validate_definition)]
-pub struct AnalysisDefinition {
-    #[model(key)]
-    pub method: AnalysisMethod,
-    #[model(key)]
-    pub semantic_version: ContentHash,
-    #[model(key)]
-    pub parameters: Id<MethodParameters>,
-    #[model(key)]
-    pub interpretation: Interpretation,
-}
-fn validate_definition(row:&AnalysisDefinition)->Result<(),ModelError> {
-    if matches!(row.method,AnalysisMethod::Communities|AnalysisMethod::PageRank|AnalysisMethod::Neighbours) && row.interpretation!=Interpretation::Heuristic {return Err(invalid("statistical method requires heuristic interpretation"));}
-    if matches!(row.method,AnalysisMethod::Concepts|AnalysisMethod::RelationalConcepts) && row.interpretation!=Interpretation::ExactUnderContext {return Err(invalid("concept method requires its exact declared context"));}
-    Ok(())
-}
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "analysis_invocations", invariants = invocation_invariants)]
+#[model(name = owner_table!("analysis_invocations"), invariants = invocation_invariants)]
 pub struct AnalysisInvocation {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -109,12 +15,12 @@ pub struct AnalysisInvocation {
     pub inputs: ContentHash,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "analysis_inputs", rule = "analysis_input", conclusion = invocation)]
+#[model(name = owner_table!("analysis_inputs"), rule = "analysis_input", conclusion = invocation)]
 pub struct AnalysisInput {
     #[model(key)]
     pub invocation: Id<AnalysisInvocation>,
     #[model(key, premise)]
-    pub parent: Id<AnalysisInvocation>,
+    pub parent: Id<InvocationSource>,
 }
 impl AnalysisInvocation {
     pub fn new(
@@ -122,7 +28,7 @@ impl AnalysisInvocation {
         context: Id<AnalysisContext>,
         definition: Id<AnalysisDefinition>,
         subject: Option<Id<EntityRef>>,
-        parents: impl IntoIterator<Item = Id<Self>>,
+        parents: impl IntoIterator<Item = Id<InvocationSource>>,
     ) -> (Self, Vec<AnalysisInput>) {
         let parents = parents
             .into_iter()
@@ -144,23 +50,15 @@ impl AnalysisInvocation {
         (row, inputs)
     }
 }
-fn parent_digest(parents: &std::collections::BTreeSet<Id<AnalysisInvocation>>) -> ContentHash {
+fn parent_digest(parents: &std::collections::BTreeSet<Id<InvocationSource>>) -> ContentHash {
     let mut sink = KeySink::new("analysis-invocation-inputs");
     for parent in parents {
         parent.encode(&mut sink);
     }
     sink.finish()
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
-#[repr(i16)]
-pub enum AnalysisStatus {
-    Completed = 0,
-    Partial = 1,
-    Unavailable = 2,
-    NotRequested = 3,
-}
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "analysis_outcomes", validate = validate_outcome)]
+#[model(name = owner_table!("analysis_outcomes"), validate = validate_outcome)]
 pub struct AnalysisOutcome {
     #[model(key)]
     pub invocation: Id<AnalysisInvocation>,
@@ -181,7 +79,7 @@ fn validate_outcome(row: &AnalysisOutcome) -> Result<(), ModelError> {
 }
 /// Measurement payloads never distinguish the semantic invocation or outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "analysis_diagnostics", validate = validate_diagnostic)]
+#[model(name = owner_table!("analysis_diagnostics"), validate = validate_diagnostic)]
 pub struct AnalysisDiagnostic {
     #[model(key)]
     pub invocation: Id<AnalysisInvocation>,
@@ -203,26 +101,27 @@ fn validate_diagnostic(row: &AnalysisDiagnostic) -> Result<(), ModelError> {
 }
 fn invocation_invariants() -> Vec<Invariant> {
     vec![Invariant {
-        name: "analysis_invocation_inputs",
-        inputs: vec![
-            ValidationInput::of::<AnalysisInvocation>(&["id"]),
-            ValidationInput::of::<AnalysisInput>(&["id"]),
-        ],
+        name: owner_table!("analysis_invocation_inputs"),
+        inputs: invocation_inputs(),
         create: std::sync::Arc::new(|budget| {
             Box::new(InvocationCheck {
                 charge: charged::StateCharge::new(budget, "analysis_invocation_inputs"),
                 rows: Default::default(),
                 edges: Default::default(),
+                sources: Default::default(),frames:Default::default(),
             })
         }),
     }]
 }
+fn invocation_inputs()->Vec<ValidationInput> { let mut inputs=vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisInput>(&["id"]),ValidationInput::of::<InvocationSource>(&["id"])]; predecessor_invocation_inputs(&mut inputs); inputs }
 struct InvocationCheck {
+    sources:charged::ChargedMap<Id<InvocationSource>,InvocationSource>,
+    frames:charged::ChargedMap<derivation::RowRef,(Id<input::InputRevision>,Id<attribution::AnalysisContext>)>,
     charge: charged::StateCharge,
     rows: charged::ChargedMap<Id<AnalysisInvocation>, AnalysisInvocation>,
     edges: charged::ChargedMap<
         Id<AnalysisInvocation>,
-        std::collections::BTreeSet<Id<AnalysisInvocation>>,
+        std::collections::BTreeSet<Id<InvocationSource>>,
     >,
 }
 impl InvariantCheck for InvocationCheck {
@@ -239,19 +138,6 @@ impl InvariantCheck for InvocationCheck {
             }
         } else if relation == AnalysisInput::NAME {
             for row in AnalysisInput::decode(batch)? {
-                let invocation = self
-                    .rows
-                    .get(&row.invocation)
-                    .ok_or_else(|| invalid("analysis input invocation absent"))?;
-                let parent = self
-                    .rows
-                    .get(&row.parent)
-                    .ok_or_else(|| invalid("analysis parent absent"))?;
-                if row.invocation == row.parent
-                    || (invocation.input, invocation.context) != (parent.input, parent.context)
-                {
-                    return Err(invalid("analysis parent crosses input/context or self"));
-                }
                 if !self
                     .edges
                     .update(&mut self.charge, row.invocation, |edges| {
@@ -261,13 +147,15 @@ impl InvariantCheck for InvocationCheck {
                     return Err(invalid("duplicate analysis parent"));
                 }
             }
-        } else {
+        } else if relation==InvocationSource::NAME { for row in InvocationSource::decode(batch)? { self.sources.insert(&mut self.charge,row.id(),row)?; }
+        } else if !visit_predecessor_invocation(relation,batch,&mut self.frames,&mut self.charge)? {
             return Err(invalid("undeclared analysis invocation input"));
         }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         let empty = std::collections::BTreeSet::new();
+        for (id,edges) in self.edges.iter() { let invocation=self.rows.get(id).ok_or_else(||invalid("analysis input invocation absent"))?; for parent in edges {let source=self.sources.get(parent).ok_or_else(||invalid("analysis parent source absent"))?; let reference=source.reference(); let frame=if reference.relation()==AnalysisInvocation::NAME {let row=self.rows.get(&source.current().ok_or_else(||invalid("parent is not current"))?).ok_or_else(||invalid("analysis parent absent"))?; (row.input,row.context)} else {*self.frames.get(&reference).ok_or_else(||invalid("predecessor invocation absent"))?}; if reference==derivation::RowRef::of(*id) || frame!=(invocation.input,invocation.context) {return Err(invalid("analysis parent crosses input/context or self"));} } }
         for (id, row) in self.rows.iter() {
             if parent_digest(self.edges.get(id).unwrap_or(&empty)) != row.inputs {
                 return Err(invalid(

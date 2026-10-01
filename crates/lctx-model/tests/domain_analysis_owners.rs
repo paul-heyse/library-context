@@ -1,0 +1,83 @@
+use lctx_model::domain::{analysis::{self,*,local::{self,*,support::*,coverage::*},native::NativeQualification,policy::EvidenceStatus},assertion::{AssertionQualification,Approximation,DerivedSupportSource},attribution::{FactFamily,Fidelity,Modality},conditions::{Diagram,Condition,ConditionNode},source::CoverageScope,normalized::coverage::{EvidenceAvailability,NormalizationCoverage},obligation::ObligationKind,*};
+use std::collections::BTreeMap;
+fn nominal<T>(v:u8)->Id<T> {serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([v;16].into_iter())).unwrap()}
+fn budget()->resources::ResourceBudget {resources::ResourceBudget::fixed(32<<20).unwrap()}
+fn frame<R:Record>(rows:&[R])->(&'static str,arrow_array::RecordBatch) {(R::NAME,R::encode(rows).unwrap())}
+fn definition(method:AnalysisMethod,interpretation:Interpretation)->AnalysisDefinition {AnalysisDefinition {method,interpretation,semantic_version:ContentHash::of(b"test-version"),parameters:nominal(3)}}
+fn invocation(definition:&AnalysisDefinition)->local::Invocation {local::Invocation::new(nominal(1),nominal(2),definition.id(),None,[]).0}
+fn check<R:Record>(frames:Vec<(&str,arrow_array::RecordBatch)>)->Result<(),ModelError> {let invariant=R::invariants().remove(0);let rows=frames.into_iter().collect::<BTreeMap<_,_>>();let mut check=(invariant.create)(&budget());for input in invariant.inputs {if let Some(batch)=rows.get(input.name()) {check.visit(input.name(),batch)?;}}check.finish()}
+#[test]
+fn owners_are_distinct_and_early_manifest_excludes_future_results() {
+    assert_ne!(local::Invocation::NAME,analysis::summary::Invocation::NAME);
+    assert_ne!(local::SupportSource::NAME,analysis::synthesis::SupportSource::NAME);
+    let inputs=local::Invocation::invariants().remove(0).inputs;
+    assert!(inputs.iter().any(|i|i.name()==analysis::dispatch::Invocation::NAME));
+    assert!(!inputs.iter().any(|i|i.name()==analysis::summary::Invocation::NAME));
+    assert!(!analysis::early_relations().iter().any(|r|r.name()==local::Invocation::NAME));
+    lctx_model::domain::model().unwrap();
+}
+#[test]
+fn typed_parent_membership_and_global_proof_edges_preserve_owner_frame() {
+    let def=definition(AnalysisMethod::LocalTransfers,Interpretation::Structural);let parent=invocation(&def);
+    let source=InvocationSource::Current {invocation:parent.id()};
+    let (child,members)=Invocation::new(parent.input,parent.context,parent.definition,None,[source.id()]);
+    let frames=vec![frame(&[parent.clone(),child.clone()]),frame(&[source.clone()]),frame(&members)];
+    check::<Invocation>(frames.clone()).unwrap();
+    assert!(check::<Invocation>(frames[..2].to_vec()).is_err());
+    let mut foreign=parent.clone();foreign.context=nominal(9);let foreign_source=InvocationSource::Current {invocation:foreign.id()};
+    let (bad,edges)=Invocation::new(parent.input,parent.context,parent.definition,None,[foreign_source.id()]);
+    assert!(check::<Invocation>(vec![frame(&[foreign,bad]),frame(&[foreign_source]),frame(&edges)]).is_err());
+    let proof=members[0].proof().unwrap();assert_eq!(proof.premises[0],derivation::RowRef::of(source.id()));
+    let diagnostic=Diagnostic {invocation:child.id(),elapsed_micros:Some(1),iterations:None,examined_members:None,residual:None,converged:None};
+    assert_eq!(diagnostic.id(),Diagnostic {elapsed_micros:Some(99),..diagnostic}.id());
+}
+#[test]
+fn coverage_rechecks_exact_membership_and_lower_uncertainty() {
+    let inv=invocation(&definition(AnalysisMethod::LocalTransfers,Interpretation::Structural));let scope=CoverageScope::Input {input:inv.input};
+    let normalized=NormalizationCoverage {computation:nominal(8),scope:scope.id(),context:inv.context,availability:EvidenceAvailability::Partial};
+    let observed=CoverageObservation::normalized(&normalized);
+    let expected=CoverageExpectation {invocation:inv.id(),capability:AnalysisCapability::Transfers,scope:scope.id(),context:inv.context,requested:true,no_scope:false,sources:vec![observed.source().id()]};
+    let (coverage,members)=assess(&expected,std::slice::from_ref(&observed),AnalysisStatus::Completed,None,&budget()).unwrap();
+    assert_eq!(coverage.availability,EvidenceAvailability::Partial);
+    assert!(assess(&expected,&[],AnalysisStatus::Completed,None,&budget()).is_err());
+    let (requirement,required)=expected.records().unwrap();
+    let outcome=Outcome {invocation:inv.id(),status:AnalysisStatus::Completed,reason:None};
+    let frames=vec![frame(&[inv]),frame(&[normalized]),frame(&[observed.source().clone()]),frame(&[requirement]),frame(&required),frame(&[coverage.clone()]),frame(&members),frame(&[outcome])];
+    check::<Coverage>(frames.clone()).unwrap();
+    let mut forged=coverage;forged.availability=EvidenceAvailability::Complete;forged.reason=None;
+    let mut changed=frames;changed[5]=frame(&[forged]);assert!(check::<Coverage>(changed).is_err());
+}
+#[test]
+fn native_projection_feeds_shared_join_and_stored_lineage_refuses_strengthening() {
+    let def=definition(AnalysisMethod::LocalTransfers,Interpretation::Structural);let inv=invocation(&def);let scope=CoverageScope::Input {input:inv.input};let condition=Diagram::always();
+    let q=AssertionQualification {context:inv.context,scope:scope.id(),condition:condition.id(),modality:Modality::Candidate,approximation:Approximation::Over};
+    let native=NativeQualification {premise:nominal(5),qualification:q.id(),family:FactFamily::Docs,fidelity:Fidelity::NativeStructural,status:EvidenceStatus::Documented};
+    let source=SupportSource::NativeAssertion {premise:native.premise};let evidence=EvidencePremise::native(&source,&native,&q,&condition).unwrap();
+    let subject=ObligationSubject::SourceCall {occurrence:nominal(8)};
+    let (derivation,proposition,members,result)=Derivation::emit(&inv,&def,subject.id(),AnalysisChannel::Catalog,calls::CallPhase::Call,QualificationOperation::Conjunction,&[evidence],&budget()).unwrap();
+    assert_eq!(derivation.status,EvidenceStatus::Documented);assert!(!derivation.heuristic);assert_eq!(result.qualification,q);
+    let (stored_condition,nodes)=condition.records();
+    let frames=vec![frame(&[def]),frame(&[inv]),frame(&[scope]),frame(&[native]),frame(&[source]),frame(&[proposition]),frame(&[derivation.clone()]),frame(&members),frame(&[q]),frame(&[stored_condition]),frame(&nodes)];
+    check::<Derivation>(frames.clone()).unwrap();
+    let mut forged=derivation;forged.status=EvidenceStatus::StructurallyObserved;let mut changed=frames;changed[6]=frame(&[forged]);assert!(check::<Derivation>(changed).is_err());
+}
+#[test]
+fn generated_companion_refuses_predecessor_proof_as_direct_support() {
+    let foreign=SupportSource::Dispatch {derivation:nominal(9)};let mut index=<SupportSource as DerivedSupportSource>::index(&budget());index.visit(SupportSource::NAME,&<SupportSource as Record>::encode(&[foreign.clone()]).unwrap()).unwrap();assert!(index.frame(foreign.id()).is_err());
+}
+#[test]
+fn heuristic_methods_are_pinned_and_scope_cannot_strengthen_findings() {
+    assert!(definition(AnalysisMethod::AnalyticEmbedding,Interpretation::Structural).validate().is_err());
+    definition(AnalysisMethod::AnalyticEmbedding,Interpretation::Heuristic).validate().unwrap();
+    use analysis::policy::*;
+    assert_eq!(derive_status(&[(SupportRole::Support,EvidenceStatus::StructurallyObserved),(SupportRole::Scope,EvidenceStatus::StatisticallyDerived)]),EvidenceStatus::StatisticallyDerived);
+    assert!(finding_policy(FindingKind::Forwarding,EvidenceStatus::StatisticallyDerived).is_err());
+    assert!(finding_policy(FindingKind::Forwarding,EvidenceStatus::Documented).is_err());
+}
+#[test]
+fn bdd_qualification_refuses_budget_and_keeps_shared_weakest_policy() {
+    let a=Diagram::from_atom(nominal(1));let b=a.not().unwrap();let q=AssertionQualification {context:nominal(2),scope:nominal(3),condition:a.id(),modality:Modality::Candidate,approximation:Approximation::Over};let qb=AssertionQualification {condition:b.id(),modality:Modality::Potential,approximation:Approximation::Under,..q.clone()};let sa=SupportSource::AnalysisDerivation {derivation:nominal(4)};let sb=SupportSource::AnalysisDerivation {derivation:nominal(5)};
+    let premises=[QualifiedPremise {source:&sa,qualification:&q,condition:&a},QualifiedPremise {source:&sb,qualification:&qb,condition:&b}];
+    let result=qualify(QualificationOperation::Conjunction,&premises,&budget()).unwrap();assert!(result.condition.is_false());assert_eq!(result.qualification.modality,Modality::Potential);assert_eq!(result.qualification.approximation,Approximation::Mixed);
+    let tiny=resources::ResourceBudget::fixed(1).unwrap();assert!(qualify(QualificationOperation::Conjunction,&premises,&tiny).is_err());assert_eq!(tiny.reserved(),0);
+}

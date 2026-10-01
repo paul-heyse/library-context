@@ -58,6 +58,7 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut fidelity: Option<syn::Path> = None;
     let mut referents: Vec<syn::Ident> = Vec::new();
     let mut derived = false;
+    let mut source:Option<syn::Path>=None;
     for attr in &input.attrs {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
@@ -69,6 +70,8 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     family = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("fidelity") {
                     fidelity = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("source") {
+                    source=Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("derived") {
                     derived = true;
                 } else if meta.path.is_ident("referents") {
@@ -129,10 +132,11 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let name = &input.ident;
     let vis = &input.vis;
     let fidelity = fidelity.map(|fidelity| quote! { const FIDELITY: Option<::lctx_model::domain::attribution::Fidelity> = Some(#fidelity); });
+    let source=if derived {source.ok_or_else(||syn::Error::new_spanned(name,"derived assertion requires its nominal source type"))?} else {syn::parse_quote!(::lctx_model::domain::assertion::NoDerivedSource)};
     let support_model = if derived { quote! { #[model(name = #table, rule = "derived_assertion_support", conclusion = assertion, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] } } else { quote! { #[model(name = #table, family = #family, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] } };
     let support_fields = if derived {
         quote! {
-            #[model(key, premise)] pub source: ::lctx_model::domain::Id<::lctx_model::domain::analysis::support::SupportSource>,
+            #[model(key, premise)] pub source: ::lctx_model::domain::Id<#source>,
         }
     } else {
         quote! {
@@ -147,11 +151,13 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let support_attribution = if derived {
         quote! {
             const DERIVED: bool = true;
+            type Source=#source;
             fn attribution(&self) -> Option<::lctx_model::domain::assertion::SupportAttribution> { None }
-            fn source(&self) -> Option<::lctx_model::domain::Id<::lctx_model::domain::analysis::support::SupportSource>> { Some(self.source) }
+            fn source(&self) -> Option<::lctx_model::domain::Id<#source>> { Some(self.source) }
         }
     } else {
         quote! {
+            type Source=::lctx_model::domain::assertion::NoDerivedSource;
             fn attribution(&self) -> Option<::lctx_model::domain::assertion::SupportAttribution> {
                 Some(::lctx_model::domain::assertion::SupportAttribution { run: self.run, surface: self.surface, evidence: self.evidence, fidelity: self.fidelity })
             }
@@ -236,7 +242,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("name") {
-                    table = Some(meta.value()?.parse::<LitStr>()?);
+                    table = Some(meta.value()?.parse::<syn::Expr>()?);
                 } else if meta.path.is_ident("rule") {
                     rule = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("conclusion") {
@@ -590,7 +596,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("name") {
-                    table = Some(meta.value()?.parse::<LitStr>()?);
+                    table = Some(meta.value()?.parse::<syn::Expr>()?);
                     Ok(())
                 } else if meta.path.is_ident("rule") {
                     rule = Some(meta.value()?.parse()?);

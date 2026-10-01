@@ -51,7 +51,7 @@ pub struct TransferKey {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "transfer_alternatives")]
-#[assertion(support = TransferSupport, name = "transfer_supports", family = FactFamily::Flow, derived, subjects(scope, transfer))]
+#[assertion(support = TransferSupport, name = "transfer_supports", family = FactFamily::Flow, derived, source = crate::domain::analysis::local::SupportSource, subjects(scope, transfer))]
 pub struct TransferAlternative {
     #[model(key)]
     pub transfer: Id<TransferKey>,
@@ -62,7 +62,7 @@ pub struct TransferAlternative {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "control_influences")]
-#[assertion(support = ControlSupport, name = "control_supports", family = FactFamily::Flow, derived, subjects(evaluation, input))]
+#[assertion(support = ControlSupport, name = "control_supports", family = FactFamily::Flow, derived, source = crate::domain::analysis::local::SupportSource, subjects(evaluation, input))]
 pub struct ControlInfluence {
     #[model(key)]
     pub qualification: Id<AssertionQualification>,
