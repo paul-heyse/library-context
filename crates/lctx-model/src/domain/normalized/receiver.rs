@@ -90,7 +90,8 @@ fn known_descriptor<'a>(data:&'a ReceiverData,target:&CallTarget,q:&AssertionQua
     if !data.callable_variants.iter().any(|v|v.assessment==Some(a.id()) && v.context==q.context && v.adjustment==SignatureAdjustment::BindClassReceiver) {return None;}
     Some(a)
 }
-fn support_frame(data:&ReceiverData,s:SupportAttribution,q:&AssertionQualification,family:FactFamily,subject:Id<Occurrence>,premises:&mut Vec<ReceiverPremise>)->Result<Id<ProviderRun>,ReceiverReason> {
+fn support_frame(data:&ReceiverData,s:Option<SupportAttribution>,q:&AssertionQualification,family:FactFamily,subject:Id<Occurrence>,premises:&mut Vec<ReceiverPremise>)->Result<Id<ProviderRun>,ReceiverReason> {
+    let s=s.ok_or(ReceiverReason::SupportDisagreement)?;
     let run=data.runs.get(s.run).ok_or(ReceiverReason::MissingSupport)?;
     let surface=data.surfaces.get(s.surface).ok_or(ReceiverReason::MissingSupport)?;
     if run.context!=q.context || Some(run.input)!=scopes(data).input(q.scope) || surface.provider!=run.provider || surface.family!=family || s.fidelity!=Fidelity::NativeStructural {return Err(ReceiverReason::SupportDisagreement);}
