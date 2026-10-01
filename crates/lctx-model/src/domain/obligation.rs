@@ -106,6 +106,8 @@ pub enum ObligationKind {
     EmbeddingServiceUnavailable = 55,
     EmbeddingTokenLimit = 56,
     AnalyticTextUnavailable = 57,
+    /// Field location is known but allocation, alias and mutation state is not proven.
+    HeapFieldStateUnavailable = 58,
 }
 
 /// The class of an obligation, which orders it before its code.
@@ -172,6 +174,7 @@ impl ObligationKind {
             | K::ResourceIdentityUnavailable
             | K::FrameExitCleanup
             | K::Approximation
+            | K::HeapFieldStateUnavailable
             | K::CapturedStateUnavailable
             | K::EmbeddingServiceUnavailable => C::Model,
             K::MissingEvidence

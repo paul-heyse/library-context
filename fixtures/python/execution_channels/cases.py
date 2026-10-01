@@ -52,3 +52,7 @@ def body_pass():
 def body_stops():
     return 1
     effect()
+
+
+def field_read(value):
+    return value.field

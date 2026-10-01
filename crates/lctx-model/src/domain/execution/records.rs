@@ -95,7 +95,7 @@ pub fn base_invariants()->Vec<Invariant> {
     inputs.sort_by_key(|input|(input.name(),input.prefix()));inputs.dedup_by_key(|input|(input.name(),input.prefix()));
     vec![Invariant{name:"base_closed_expression_replay",inputs,create:std::sync::Arc::new(|budget|Box::new(BaseCheck::new(budget)))}]
 }
-pub(crate) struct BaseCheck {pub(crate) data:EvaluationData,entry:EntryData,invocations:Rows<AnalysisInvocation>,definitions:Rows<AnalysisDefinition>,pub(crate) evaluations:Rows<ExpressionEvaluation>,sources:Rows<EvaluationSource>,members:Rows<EvaluationMember>,operands:Rows<EvaluationOperand>,entries:Rows<EntryValueWitness>,entry_sources:Rows<EntryAccessSource>,budget:ResourceBudget}
+pub(crate) struct BaseCheck {pub(crate) data:EvaluationData,entry:EntryData,pub(crate) invocations:Rows<AnalysisInvocation>,definitions:Rows<AnalysisDefinition>,pub(crate) evaluations:Rows<ExpressionEvaluation>,sources:Rows<EvaluationSource>,members:Rows<EvaluationMember>,operands:Rows<EvaluationOperand>,entries:Rows<EntryValueWitness>,entry_sources:Rows<EntryAccessSource>,budget:ResourceBudget}
 impl BaseCheck {
     pub(crate) fn new(budget:&ResourceBudget)->Self {Self{data:EvaluationData::new(budget),entry:EntryData::new(budget),invocations:Rows::new(budget),definitions:Rows::new(budget),evaluations:Rows::new(budget),sources:Rows::new(budget),members:Rows::new(budget),operands:Rows::new(budget),entries:Rows::new(budget),entry_sources:Rows::new(budget),budget:budget.clone()}}
 }

@@ -203,6 +203,7 @@ impl Evaluator<'_> {
                 match need(&self.data.literals,literal).map_err(boundary)? {Literal::None=>Value::None,Literal::Bool{value}=>Value::Bool(*value),Literal::Integer{decimal}=>decimal.parse::<i64>().map(Value::Int).unwrap_or(Value::Literal),Literal::Float{bits}=>Value::Float(f64::from_bits(*bits as u64)),Literal::String{..}|Literal::Bytes{..}=>Value::Literal}
             }
             SyntaxKind::ExprEllipsisLiteral if children.is_empty()=>Value::Literal,
+            SyntaxKind::ExprAttribute=>return Err(boundary(ObligationKind::HeapFieldStateUnavailable)),
             SyntaxKind::ExprName if children.is_empty()=>{
                 self.tick(self.available_entries.len()).map_err(boundary)?;
                 let mut entries=self.available_entries.iter().filter(|entry|entry.witness().access==id);

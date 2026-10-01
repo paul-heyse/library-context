@@ -6,7 +6,7 @@ pub mod completion;
 pub mod records;
 pub mod completion_records;
 
-pub fn relations()->Vec<crate::domain::Relation> {let mut relations=records::relations();relations.extend(completion_records::relations());relations.extend(production::relations());relations}
+pub fn relations()->Vec<crate::domain::Relation> {let mut relations=records::relations();relations.extend(completion_records::relations());relations.extend(production::relations());relations.extend(completion_production::relations());relations}
 
 /// Adding an exact runtime exception also declares its required native hierarchy evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
@@ -27,3 +27,4 @@ impl ExactRuntimeException {
 pub mod body;
 pub mod configuration;
 pub mod production;
+pub mod completion_production;

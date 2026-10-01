@@ -32,3 +32,32 @@ pub async fn evaluate_base(access:StageAccess<'_,'_>,attempt:&GenerationAttempt,
  }
  drop(data);drop(entry);drop(entries);drop(entry_sources);drop(local);output.finish(ProviderOutcome::Complete).await
 }
+
+use lctx_model::domain::{analysis::base_completion as completion_publication,execution::{completion_production::{CompletionRun,CompletionBoundary},completion_records::*}};
+pub async fn complete_base(access:StageAccess<'_,'_>,attempt:&GenerationAttempt,config:&RoleConfig,runtime:&AttemptRuntime,model:&Arc<ValidatedModel>,definition:&analysis::AnalysisDefinition)->Result<(),ModelError>{
+ if *definition!=execution::configuration::base_completion().1{return Err(ModelError::Invalid("base completion definition is not bound".into()));}
+ let profile=access.profile();let budget=runtime.budget();let sources=CapturedSources::capture(&access,budget)?;let mut admission=CoverageAdmission::new(&sources,budget)?;
+ let reader=AttemptSession::open(config,attempt,&access,model.clone(),ProviderOptions::default()).await.map_err(ModelError::codec)?;let session=runtime.session(&access);let mut registered=charged::ChargedSet::default();let mut registration=charged::StateCharge::new(budget,"base_completion_registration");let mut data=execution::completion_production::CompletedEvaluations::new(budget);
+ macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|{data.visit(<$ty>::NAME,batch)}).await?;}})*};}if profile==Profile::Behavioral{lctx_model::execution_evaluation_inputs!(inputs);lctx_model::entry_value_inputs!(inputs);}
+ let mut base=Rows::<analysis::base_evaluation::AnalysisInvocation>::new(budget);let mut definitions=Rows::<analysis::AnalysisDefinition>::new(budget);
+ macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}if profile==Profile::Behavioral{read!(EntryValueWitness,EntryAccessSource,ExpressionEvaluation,EvaluationSource,EvaluationMember,EvaluationOperand);}
+ load::<analysis::base_evaluation::AnalysisInvocation>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|{base.decode(batch)?;data.visit(analysis::base_evaluation::AnalysisInvocation::NAME,batch)}).await?;
+ load::<analysis::AnalysisDefinition>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|{definitions.decode(batch)?;data.visit(analysis::AnalysisDefinition::NAME,batch)}).await?;
+ if definitions.get(definition.id())!=Some(definition){return Err(ModelError::Invalid("base completion definition absent from confirmed configuration".into()));}
+ macro_rules! expected {($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|permit,batch|admission.visit(permit,batch)).await?;)*};}expected!(input::InputRevision,source::SourceArtifact,input::ArtifactUse,source::CoverageScope,normalized::coverage::NormalizationComputation,normalized::coverage::NormalizationCoverage,attribution::ProviderCoverage);
+ drop(session);reader.close().await.map_err(ModelError::codec)?;
+ let mut output=StageOutput::new(access,attempt,model,budget.clone(),Default::default())?;
+ macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
+ declare!(completion_publication::AnalysisInvocation,completion_publication::AnalysisInput,completion_publication::SourceReceipt,completion_publication::ProjectionInput,completion_publication::AnalysisOutcome,completion_publication::InvocationSource,completion_publication::AnalysisCoverage,completion_publication::CoverageRequirement,completion_publication::CoverageRequiredSource,completion_publication::AnalysisCoveragePremise,completion_publication::CoverageSource,CompletionRun,CompletionBoundary,StatementCompletion,CompletionOutcome,CompletionSource,CompletionMember,EnteredStatement);
+ let mut frames=charged::ChargedSet::default();let mut frame_charge=charged::StateCharge::new(budget,"base_completion_frames");
+ for frame in base.iter(){if !frames.insert(&mut frame_charge,(frame.input,frame.context))?{continue;}
+  let mut parents=Rows::<completion_publication::InvocationSource>::new(budget);for row in base.iter().filter(|row|(row.input,row.context)==(frame.input,frame.context)){parents.insert(completion_publication::InvocationSource::BaseEvaluation{invocation:row.id()})?;}
+  let (invocation,inputs,receipts,projections)=completion_publication::AnalysisInvocation::admitted(frame.input,frame.context,definition.id(),None,parents.iter().map(Record::id),&sources,[],budget)?;
+  let bytes=receipts.iter().try_fold(0usize,|n,row|n.checked_add(size_of::<completion_publication::SourceReceipt>())?.checked_add(row.heap_bytes())).and_then(|n|n.checked_add(inputs.len().checked_mul(size_of::<completion_publication::AnalysisInput>())?)).and_then(|n|n.checked_add(projections.len().checked_mul(size_of::<completion_publication::ProjectionInput>())?)).ok_or_else(||ModelError::Invalid("base invocation lowering allowance overflow".into()))?;let _buffers=budget.reserve("completion_invocation_lowering",bytes)?;
+  let coverage=completion_publication::coverage::admit(&invocation,definition,analysis::AnalysisCapability::Completion,&admission,budget)?;let records=execution::completion_production::complete_all(&data,&invocation,definition,profile,budget)?;
+  macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}write!{completions:StatementCompletion,outcomes:CompletionOutcome,sources:CompletionSource,members:CompletionMember,entered:EnteredStatement,boundaries:CompletionBoundary,}
+  for scope in coverage.scopes(){let (requirement,required)=scope.expectation().records()?;output.push(requirement).await?;for row in required{output.push(row).await?;}for row in scope.observations(){output.push(row.source().clone()).await?;}let(row,premises)=completion_publication::coverage::assess(scope.expectation(),scope.observations(),records.outcome.status,records.outcome.reason,budget)?;output.push(row).await?;for row in premises{output.push(row).await?;}}
+  output.push(records.run).await?;output.push(records.outcome).await?;output.push(invocation).await?;for row in parents.iter(){output.push(row.clone()).await?;}for row in inputs{output.push(row).await?;}for row in receipts{output.push(row).await?;}for row in projections{output.push(row).await?;}
+ }
+ drop(data);drop(base);output.finish(ProviderOutcome::Complete).await
+}

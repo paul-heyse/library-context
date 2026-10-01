@@ -251,3 +251,41 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
  verify_profile(Profile::Catalog).unwrap();assert!(verify_profile(Profile::Behavioral).is_err());
  let tiny=ResourceBudget::fixed(1).unwrap();assert!(matches!(evaluate_all(&data,&entry,&entries,&sources,&invocation,&definition,Profile::Behavioral,&tiny),Err(ModelError::Resource{..})));
 }
+
+
+#[tokio::test]
+async fn completion_producer_reconciles_statement_inventory_and_finalizer_order() {
+ use lctx_model::domain::{execution::{production,completion_production::*,records::*,completion_records::*},analysis::{self,base_evaluation as earlier,base_completion as publication},conditions::entry::{EntryValueWitness,EntryAccessSource},normalized::Rows,stages::Profile};
+ let (data,entry,budget)=data().await;let req=request(&data,"1 + 2");let (_,eval_definition)=lctx_model::domain::execution::configuration::base_evaluation();let (_,definition)=lctx_model::domain::execution::configuration::base_completion();
+ let (base,_)=earlier::AnalysisInvocation::new(req.input,req.context,eval_definition.id(),None,[]);let parent=publication::InvocationSource::BaseEvaluation{invocation:base.id()};let (invocation,_)=publication::AnalysisInvocation::new(req.input,req.context,definition.id(),None,[parent.id()]);
+ let evaluations=production::evaluate_all(&data,&entry,&Rows::<EntryValueWitness>::new(&budget),&Rows::<EntryAccessSource>::new(&budget),&base,&eval_definition,Profile::Behavioral,&budget).unwrap();
+ let mut captured=CompletedEvaluations::new(&budget);
+ macro_rules! put_captured {($ty:ty,$rows:expr)=>{captured.visit(<$ty>::NAME,&<$ty as Record>::encode(&$rows).unwrap()).unwrap();};}
+ macro_rules! facts {($($field:ident:$ty:ty,)*)=>{$(put_captured!($ty,data.$field.iter().cloned().collect::<Vec<_>>());)*};}lctx_model::execution_evaluation_inputs!(facts);
+ macro_rules! entry_facts {($($field:ident:$ty:ty,)*)=>{$(put_captured!($ty,entry.$field.iter().cloned().collect::<Vec<_>>());)*};}lctx_model::entry_value_inputs!(entry_facts);
+ put_captured!(analysis::AnalysisDefinition,vec![eval_definition.clone(),definition.clone()]);put_captured!(earlier::AnalysisInvocation,vec![base.clone()]);
+ put_captured!(ExpressionEvaluation,evaluations.evaluations.iter().cloned().collect::<Vec<_>>());put_captured!(EvaluationSource,evaluations.sources.iter().cloned().collect::<Vec<_>>());put_captured!(EvaluationMember,evaluations.members.iter().cloned().collect::<Vec<_>>());put_captured!(EvaluationOperand,evaluations.operands.iter().cloned().collect::<Vec<_>>());
+ let output=complete_all(&captured,&invocation,&definition,Profile::Behavioral,&budget).unwrap();assert!(output.run.completed>0&&output.run.refused>0);assert_eq!(output.outcome.status,analysis::AnalysisStatus::Partial);
+ let source_files=files("execution_channels");
+ for (name,returns) in [("finally_returns",true),("finally_raises",false)] {
+  let callable=data.callables.iter().find(|row|matches!(row,lctx_model::domain::normalized::entities::CallableEntity::Source{declaration,..} if {let o=data.occurrences.get(*declaration).unwrap();let artifact=data.artifacts.get(o.source).unwrap();source_files[&artifact.path][o.start as usize..o.end as usize].starts_with(format!("def {name}(").as_bytes())})).unwrap();let owner=lctx_model::domain::normalized::entities::EntityRef::Callable{callable:callable.id()}.id();let row=output.completions.iter().find(|row|row.owner==owner&&data.occurrences.get(row.statement).unwrap().syntax_kind==SyntaxKind::StmtTry).unwrap();let outcome=output.outcomes.get(row.outcome).unwrap();assert_eq!(matches!(outcome,CompletionOutcome::Return{..}),returns);if !returns {assert!(matches!(outcome,CompletionOutcome::Raise{exception:lctx_model::domain::execution::ExactRuntimeException::TypeError,..}));}
+ }
+ let invariant=Relation::of::<CompletionRun>().invariants().iter().find(|i|i.name=="base_completion_inventory").unwrap().clone();
+ let verify=|shrink:bool,omit_frame:bool| {let mut check=(invariant.create)(&budget);
+  macro_rules! put {($ty:ty,$rows:expr)=>{check.visit(<$ty>::NAME,&<$ty as Record>::encode(&$rows).unwrap()).unwrap();};}
+  macro_rules! facts {($($field:ident:$ty:ty,)*)=>{$(put!($ty,data.$field.iter().cloned().collect::<Vec<_>>());)*};}lctx_model::execution_evaluation_inputs!(facts);
+  macro_rules! entry_facts {($($field:ident:$ty:ty,)*)=>{$(put!($ty,entry.$field.iter().cloned().collect::<Vec<_>>());)*};}lctx_model::entry_value_inputs!(entry_facts);
+  put!(analysis::AnalysisDefinition,vec![eval_definition.clone(),definition.clone()]);put!(earlier::AnalysisInvocation,vec![base.clone()]);put!(publication::AnalysisInvocation,if omit_frame{vec![]}else{vec![invocation.clone()]});
+  put!(ExpressionEvaluation,evaluations.evaluations.iter().cloned().collect::<Vec<_>>());put!(EvaluationSource,evaluations.sources.iter().cloned().collect::<Vec<_>>());put!(EvaluationMember,evaluations.members.iter().cloned().collect::<Vec<_>>());put!(EvaluationOperand,evaluations.operands.iter().cloned().collect::<Vec<_>>());
+  let mut run=output.run.clone();let mut boundaries=output.boundaries.iter().cloned().collect::<Vec<_>>();if shrink{boundaries.pop();run.refused-=1;}
+  put!(CompletionRun,if omit_frame{vec![]}else{vec![run]});put!(CompletionBoundary,if omit_frame{vec![]}else{boundaries});put!(publication::AnalysisOutcome,if omit_frame{vec![]}else{vec![output.outcome.clone()]});
+  macro_rules! output {($($field:ident:$ty:ty,)*)=>{$(put!($ty,if omit_frame{vec![]}else{output.$field.iter().cloned().collect::<Vec<_>>()});)*};}output!{completions:StatementCompletion,outcomes:CompletionOutcome,sources:CompletionSource,members:CompletionMember,entered:EnteredStatement,}check.finish()};
+ verify(false,false).unwrap();assert!(verify(true,false).is_err());assert!(verify(false,true).is_err());
+ let unrequested=complete_all(&captured,&invocation,&definition,Profile::Catalog,&budget).unwrap();assert!(!unrequested.run.requested);assert_eq!(unrequested.outcome.status,analysis::AnalysisStatus::NotRequested);assert!(unrequested.completions.is_empty()&&unrequested.boundaries.is_empty());
+ let profile_check=Relation::of::<CompletionRun>().publication_checks()[0].clone();let verify_profile=|profile|{let mut check=(profile_check.create)(&budget);check.visit(CompletionRun::NAME,&CompletionRun::encode(&[unrequested.run.clone()]).unwrap()).unwrap();check.visit(publication::AnalysisInvocation::NAME,&publication::AnalysisInvocation::encode(&[invocation.clone()]).unwrap()).unwrap();check.finish(&[],profile)};verify_profile(Profile::Catalog).unwrap();assert!(verify_profile(Profile::Behavioral).is_err());
+}
+
+#[tokio::test]
+async fn field_location_does_not_establish_exact_attribute_readiness() {
+ let (data,_,budget)=data().await;assert!(matches!(evaluate(&data,request(&data,"value.field"),&budget).unwrap(),Err(ObligationKind::HeapFieldStateUnavailable)));
+}

@@ -478,8 +478,11 @@ a field location does not establish allocation, alias or mutation stability. **F
 2026-10-01:** BaseEvaluation publishes a complete recomputed expression/refusal inventory from
 completed Local/native frames, reuses a charged syntax index, and checks the actual profile before
 acknowledgment. Catalog produces NotRequested; behavioral refusals remain explicit. Completion,
-source-call certification and enriched execution are separate later owners. The detailed plan owns
-the 70-check combined receipt; this is not assembled Phase 4 acceptance.
+source-call certification and enriched execution are separate later owners. BaseCompletion now
+publishes a separately replayed statement/refusal inventory from earlier BaseEvaluation outcomes,
+including finalizer replacement order and profile-bound NotRequested results (**focused-Tested,
+2026-10-01**, 4 actual PG + 9 native + 3 outcome controls). Exact attribute evaluation retains the
+explicit heap-state prerequisite. The detailed plan owns these receipts; assembled acceptance remains open.
 
 **Open calls and alternatives**
 - **A value crossing an unresolved or unsummarized call** is not a transfer kind. It is an obligation
