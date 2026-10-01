@@ -296,7 +296,7 @@ parameters, authored catalogs/policies and embedding specifications have early o
 Late invocation/input/outcome/coverage/proposition/derivation/support/obligation records are concrete
 nominal owner instances generated from common declarations, with common semantic operations.
 The initial owner set is Dispatch, Local, BaseEvaluation, BaseCompletion, SourceCall,
-EnrichedExecution, Model, Summary, Structural, Analytic, CatalogCore, CatalogEvidence, Selection,
+EnrichedExecution, Model, Summary, Structural, AnalyticEmbedding, Analytic, CatalogCore, CatalogEvidence, Selection,
 Synthesis and Retrieval. Each has a narrow predecessor set and invariant inputs; no earlier owner
 references a later owner. Native assertion/support pairs may have one early immutable inventory
 derived entirely from facts. Result-dependent subjects and source receipts cannot be predeclared.
@@ -305,7 +305,9 @@ The actual stored-read order is facts → normalized preparation → Dispatch �
 Local → BaseEvaluation → BaseCompletion → SourceCall → EnrichedExecution → Model → Summary;
 Local → Structural → optional Analytic; and CatalogCore → CatalogEvidence → Selection → Synthesis
 → Retrieval. CatalogCore depends on the normalized checkpoint, independently of behavior. Analytic
-depends on E1 only when vectors are selected. Synthesis also consumes Structural, Summary outcomes
+depends on the separate E1 AnalyticEmbedding owner only when vectors are selected. Its dynamic
+invocation/coverage cannot share A1's later writer; the shared static embedding specification stays
+with its early one-shot owner. Synthesis also consumes Structural, Summary outcomes
 and selected Analytic conclusions; Retrieval consumes C1/Synthesis plus E1's shared foundation.
 Split Model or Analytic further only for a concrete internal stored-read dependency; bounded pure
 handoffs remain permitted. Later discharge records reference earlier immutable obligations.
@@ -941,6 +943,8 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | R0 source-bound provider and normalized regression controls | composite passed: wrapped `cargo test -p cpg-core --release --test vocabulary_read --test normalized_generation --test stage_checkpoint --quiet` passed normalized (4), checkpoint (1) and old-prefix read; its new canonical-condition fixture initially expected zero native True nodes incorrectly. Corrected fixture and wrapped `cargo test -p cpg-core --release --test vocabulary_read --quiet` passed (2), including shared orphan-node refusal. |
 | R0 independent implementation review and wrapper correction | Original three findings corrected and reinspected: inherited receipts, same-epoch writer uniqueness and inactive-profile filtering. Follow-up found an existing extraction test sink lacked new group forwarding; corrected and wrapped `cargo test -p cpg-extract --release --test typed_calls variants_keep_channels_phases_and_native_owners --quiet` passed (1). Foundation acceptance still awaits R1. |
 | Initial R1 semantic slice | passed in isolated derived checkout at `7b04bcf`: wrapped Cargo with `--config 'build.build-dir="/home/paul/.cache/library-context-phase4-derived/build"' test -p lctx-model --release --test domain_analysis --test domain_assertions --test domain_derivation --test domain_transfer --test domain_composition` (8+3+3+7+11). Composite after fixture/condition/diagnostic corrections; producer ownership and bounded BDD allocation corrections remain pending. |
+| R1 native inventory model controls | passed in isolated native-inventory checkout at `478ddf7`: wrapped Cargo with `--config 'build.build-dir="/home/paul/.cache/library-context-phase4-native-inventory/build"' test -p lctx-model --release --test native_inventory` (6), after a test-only ambiguous trait method was qualified. Exact native pairs, shared status/qualification projection, missing/extra/forged evidence, permutation stability and retained reservations; early stage wiring remains pending. |
+| R1 native inventory store controls | passed at isolated `b3528fa`: same wrapped Cargo `test -p lctx-postgres --features testing --release --test native_inventory` (1 real PG18 test). Valid native fixture projection roundtrip; omitted pair/companion and forged status refuse through the generation store with original native support validators. This is not a native extraction or complete R1 qualification. |
 | Finite metric model controls | passed: `python3 scripts/build_environment.py -- cargo test --release -p lctx-model --test finite_metrics` (2 tests); canonical signed zero, finite extremes, Arrow refusal and normalization |
 | Finite metric store controls | passed: `python3 scripts/build_environment.py -- cargo test --release -p lctx-postgres --features testing --test finite_metrics` (1 real PG18 test); roundtrip and raw invalid-value refusal |
 | Finite metric independent implementation review | no material findings against isolated commit `882f86a`, whose patch is integrated as `a44e3f8`; this is a bounded review, not R1 acceptance |
