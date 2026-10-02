@@ -408,13 +408,15 @@ verdicts. No source/library execution occurs on the query path.
 
 ## 8. Dependency-ordered execution packages
 
-Each row is **Proposed / not_run**. Contract agreement enables dependent drafting; only implemented
-and focused-verified contracts enable production integration. No whole-document barrier is implied.
+Broader serving packages remain **Proposed / not_run**. The companion foundation scope implements
+F1–F3 separately; its current acceptance boundary is recorded there. Contract agreement enables
+dependent drafting; only implemented and focused-verified contracts enable production integration.
+No whole-document barrier is implied.
 
 | Package / owner | Required input | Delivered capability and local acceptance |
 |---|---|---|
 | D0 — root / model and store owners | This plan, ADR-0114 disposition | Settle mapping/policy/identity/resource contracts; update architecture and accept or revise the proposal before production implementation |
-| F1 — model classifier owner | D0 shared identities | Companion F1 narrow indexed classifier and strict replay route; unchanged outcomes/witnesses plus missing/corrupt input refusal |
+| F1 — model classifier owner | Companion §5 settled foundation admission | Companion F1 narrow indexed classifier, strict replay and minimal canonical consumer; broader C0 reuses these foundations |
 | M0 — model/store declaration owner | D0 | Finite serving mappings, DTOs/tool inventory, generated views/grants/indexes and physical inspection; field-addition and wrong-null/tag/type controls |
 | L0 — store/runtime owner | M0 admission contract | Serving-role process guard, bounded same-generation query readers and shutdown/cancellation/loss state; real PG18 lease/retirement tests |
 | N0 — model native owner | D0 and current P4 finite owners | Pure exact-input assessment and native inventory contract; independent literal/unsupported/context/budget controls |
@@ -511,7 +513,10 @@ accepting a plan closes none of them. Product findings remain at forward-plan §
 F1–F3 are scoped enhancement package identifiers, not new source-review finding IDs. Any material
 formal review findings keep their review-prefixed IDs and get one linked disposition owner.
 
-**Current state, 2026-10-01:** documents/proposed contracts only; every production package is not_run.
-The scoped target review accepts the proposed direction; ADR-0114 still needs acceptance or revision
-through D0 before production implementation. Begin D0 contract integration, then ready M0/F1/N0 work; parallel F2/F3 need not delay
+**Current state, 2026-10-02:** companion F1–F3 are implemented with composite focused
+acceptance, including both-profile real Catalog admission for the minimal canonical consumer.
+Their separate scope-end foundation qualification is in progress. Broader serving packages remain
+Proposed / not_run. The scoped target review accepts the proposed direction; ADR-0114 still needs
+acceptance or revision through D0 before broader serving implementation. Begin D0 contract
+integration, then ready M0/N0 work; C0 reuses qualified F1 preparation. Parallel foundation work need not delay
 Phase 5. Record future package progress here and in the companion only for its own packages.

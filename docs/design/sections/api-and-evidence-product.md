@@ -234,11 +234,21 @@ pinned disposable environment, without a generic shell semantics engine or manda
 
 > Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0077, ADR-0081, ADR-0085; proposed refinement ADR-0114
 
-**Proposed refinement, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
-and the [Phase 5 plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
-separate classification inputs from broad publication replay, prepare an admitted indexed
-classifier per generation and preserve the model-owned finite predicate/conjunction operations.
-This does not activate serving or establish new predicate semantics.
+**Implemented / focused-Tested foundation, 2026-10-02:** the
+[foundation enhancement scope](../../plans/semantic-model-foundation-enhancements_2026-10-01.md)
+separates the 45-relation classification inventory and six C2 output relations from broad
+publication replay. Owned preparation retains charged indexes and uses the same finite predicate
+and conjunction operations; standalone preparation still performs the authoritative broad replay.
+The opaque canonical PostgreSQL consumer verifies content, captured source/epoch identity,
+applicable selection availability and matching C2 validator receipts, retaining the original
+serving-role generation lease. Actual Catalog admission, strict replay parity, corruption refusal
+and lifetime controls passed in both profiles on 2026-10-02; scope-end qualification is in progress.
+These foundations do not activate catalog routes or MCP serving.
+
+**Proposed serving integration, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
+and the [Phase 5 plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md) develop
+process-wide preparation and the remaining request, lifecycle and representation contracts.
+They establish no new predicate semantics.
 
 Phase 4 C2 owns pure typed selection and contextual witnesses. Phase 5 must adapt those contracts
 to PostgreSQL selection/hydration and MCP requests. Rust owns decoding/classification; Python

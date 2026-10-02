@@ -849,7 +849,20 @@ Semantic shapes remain generated views. A narrow disposable vector-only PostgreS
 proposed for the existing exact profile, derived through the canonical byte codec and explicitly
 prepared outside read-only startup; it is not a copied semantic serving schema. Its validation,
 atomic preparation and generation cleanup are required. No new semantic frontier or readiness
-registry is proposed. These refinements and all Phase 5 implementation remain Proposed / not_run.
+registry is proposed. Broader Phase 5 serving integration remains Proposed / not_run.
+
+**Implemented foundations, 2026-10-02:** the
+[foundation enhancement scope](../../plans/semantic-model-foundation-enhancements_2026-10-01.md)
+provides one model-owned expected-domain dispatch and owned Local/Summary consumed inventories
+with epoch-aware typed streaming; their composite focused controls passed on 2026-10-01.
+Selection now owns narrow classification data and charged indexes while retaining strict broad
+C2 replay. A serving-role canonical reader shares the existing generation lease protocol without
+provisioning credentials. Its opaque selection owner verifies consumed content and producer
+source/epoch receipts on the original leased connection, retains the lease and memory through
+shared ownership, and terminally refuses classification after guard loss. Pure selection controls
+and both-profile actual Catalog admission controls passed on 2026-10-02; integrated foundation
+qualification is in progress. This is the minimal reusable foundation consumer; process admission, route mappings,
+ranking, native reconstruction and MCP remain Phase 5 scope.
 
 > Decision: ADR-0086; proposed refinement ADR-0114
 

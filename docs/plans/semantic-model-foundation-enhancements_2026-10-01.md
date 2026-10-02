@@ -364,7 +364,7 @@ loss is terminal. Source capture metadata is read and content-verified before in
   schedule, physical, stage-receipt and payload checks. Explicit group outputs still require exact
   `publication_outputs` epoch identity; vocabulary sources receive no ordinary fallback. This
   closes the source defect identified as
-  `semantic-foundations-assembled#F01` only after the real-generation controls below pass.
+  [semantic-foundations-assembled#F01](../design_review/reviews/design_review_semantic-foundations-assembled_2026-10-02.md#F01) only after the real-generation controls below pass.
 - **failed, fixture corrected:** run `601be203-0670-4735-bb16-e246cc8f5e14` passed all 23 model
   controls and reached successful Catalog admission, strict parity and corruption checks, then
   failed a new negative control's assumption that an explicit non-vocabulary group source also
@@ -406,6 +406,12 @@ loss is terminal. Source capture metadata is read and content-verified before in
 The final twelve-file SHA256 manifest hash is
 `4cdf231af277d83745e8c78667660b92240861ea09638dc55181a52252000e14`; all entries were rechecked
 before integration. Independent source review approved the repaired admission path. Review
-`semantic-foundations-assembled#F01` is **Closed / Tested, 2026-10-02** within these both-profile
+[semantic-foundations-assembled#F01](../design_review/reviews/design_review_semantic-foundations-assembled_2026-10-02.md#F01) is **Closed / Tested, 2026-10-02** within these both-profile
 real-generation controls. No performance, total-RSS, live embedding or broader serving claim is
 established. Scope-end qualification follows in §5.4.
+
+
+The [assembled Design/Target review](../design_review/reviews/design_review_semantic-foundations-assembled_2026-10-02.md)
+is **Accept scoped, 2026-10-02**, with a separate bounded F1 implementation assessment and no
+remaining material foundation finding. Its static judgment and named focused Tested evidence do
+not qualify broader Phase 5 serving; final foundation gates remain the integrator's obligation.
