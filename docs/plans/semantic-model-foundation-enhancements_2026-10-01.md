@@ -259,5 +259,34 @@ for external rows and diagnosis. Initial production preparation uses the propose
 through an explicit injected budget. The remaining ADR-0114 serving proposals are not accepted or
 implemented by settling this foundation-only contract.
 
-**Current package state, 2026-10-01:** F2 in progress; F1/F3 not_run. No runtime qualification is
-claimed until the targeted controls and scope-end functional/hygiene gates pass for the integrated tree.
+**Current package state, 2026-10-01:** F2 local implementation and focused acceptance passed;
+F3 next, F1 not_run. Scope-end functional/hygiene qualification remains not_run.
+
+### 5.1 F2 focused receipt — 2026-10-01
+
+The model-owned `expected_domain_inputs!` inventory drives both typed decoder dispatch and all twelve
+assigned canonical adapter families. `visit_if_expected` checks recognized captured sources before
+decoding or mutation, and preserves strict required-input checks. Ordinary structural reads remain
+strict; unrelated vocabulary epochs are skipped without establishing evidence or completeness.
+
+- **passed:** `python3 scripts/build_environment.py -- cargo check -p lctx-model -p cpg-core`,
+  including the final corrected source.
+- **passed:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
+  nextest run --release -p lctx-model -p cpg-core --test analysis_expected --test structural --test
+  analytic --test catalog_core --test catalog_evidence --test catalog_selection --test
+  analytic_embedding --test local_semantics --test base_execution --test model_publication --test
+  summary_publication --test synthesis_documentary --test synthesis_refutation --test
+  retrieval_preparation`, 43 tests across 15 binaries at the earlier implementation tree.
+- **failed, corrected:** the subsequent final-cleanup rerun of `analysis_expected`, `catalog_core`,
+  `local_semantics`, `structural` and `analytic` passed eight controls and failed nine adapter controls.
+  A lower callable-aspects macro retained its query guard into the next read; each typed stream is
+  now scoped and released before the next source. The mandatory structural loader's strict read
+  was also restored, with filtering confined to admission-only inputs.
+- **passed:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
+  nextest run --release -p cpg-core --test catalog_core --test local_semantics --test structural
+  --test analytic`, all nine corrected controls (run `b48fa2c5-0140-45a6-9dc3-295773961c87`).
+
+Independent implementation review found no material F2 findings at `b3a511c2` plus the preserved
+baseline and F2 delta (assigned-source SHA256
+`dc83c33c55489ece948a33849fb114171da1b087e2c571f805a3cc1eb1af630f`). This is bounded source approval
+and composite focused acceptance; it does not qualify F1/F3, assembled foundations or Phase 5.

@@ -67,14 +67,14 @@ pub async fn produce(
     let mut data = SummaryData::new(budget);
     let mut seen = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(budget, "summary-input-registration");
-    macro_rules! inputs{($($f:ident:$t:ty,)*)=>{$(for input in SummaryData::inputs().iter().filter(|i|i.name()==<$t>::NAME){if seen.insert(&mut charge,(input.name(),input.prefix().map(|e|e as u8)))?{load::<$t>(&access,&reader,runtime,input.prefix(),|_,batch|data.visit_input(input,batch)).await?;}})*};}
+    macro_rules! inputs{($($f:ident:$t:ty,)*)=>{$(for input in SummaryData::inputs().iter().filter(|i|i.name()==<$t>::NAME){if seen.insert(&mut charge,(input.name(),input.prefix().map(|e|e as u8)))?{load::<$t>(&access,&reader,runtime,input.prefix(),|permit,batch|{coverage.visit_if_expected(permit,batch)?;data.visit_input(input,batch)}).await?;}})*};}
     lctx_model::normalized_binding_inputs!(inputs);
     lctx_model::normalized_binding_outputs!(inputs);
     lctx_model::entry_value_inputs!(inputs);
     lctx_model::summary_path_inputs!(inputs);
     lctx_model::summary_owned_inputs!(inputs);
     lctx_model::summary_vocabulary!(inputs);
-    macro_rules! extra{($($t:ty),*)=>{$(let input=ValidationInput::of::<$t>(&["id"]);if seen.insert(&mut charge,(input.name(),input.prefix().map(|e|e as u8)))?{load::<$t>(&access,&reader,runtime,None,|_,batch|data.visit_input(&input,batch)).await?;})*};}
+    macro_rules! extra{($($t:ty),*)=>{$(let input=ValidationInput::of::<$t>(&["id"]);if seen.insert(&mut charge,(input.name(),input.prefix().map(|e|e as u8)))?{load::<$t>(&access,&reader,runtime,None,|permit,batch|{coverage.visit_if_expected(permit,batch)?;data.visit_input(&input,batch)}).await?;})*};}
     extra!(
         analysis::local::SupportSource,
         analysis::local::AnalysisDerivation,
@@ -92,16 +92,8 @@ pub async fn produce(
         projection::ProjectionSnapshot,
         projection::ProjectionSnapshotChunk
     );
-    macro_rules! expected{($($t:ty),*)=>{$(load::<$t>(&access,&reader,runtime,None,|permit,batch|coverage.visit(permit,batch)).await?;)*};}
-    expected!(
-        input::InputRevision,
-        source::SourceArtifact,
-        input::ArtifactUse,
-        source::CoverageScope,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage,
-        attribution::ProviderCoverage
-    );
+    macro_rules! expected{($($field:ident:$t:ty,)*)=>{$(if access.stage().reads::<$t>() && seen.insert(&mut charge,(<$t>::NAME,None))?{load::<$t>(&access,&reader,runtime,None,|permit,batch|{coverage.visit_if_expected(permit,batch)?;Ok(())}).await?;})*};}
+    lctx_model::expected_domain_inputs!(expected);
     reader.close().await.map_err(ModelError::codec)?;
     let mut records = Vec::new();
     let mut frames = charged::ChargedSet::default();

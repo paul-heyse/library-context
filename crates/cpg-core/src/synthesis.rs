@@ -18,18 +18,15 @@ async fn load<R: Record>(
     session: &StageSession,
     data: &mut Data,
     permit: &ReadPermit<'_, R>,
-    admission: Option<&mut analysis::expected::CoverageAdmission<'_>>,
+    admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
     let query = session
         .query(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    let mut admission = admission;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        if let Some(admission) = admission.as_deref_mut() {
-            admission.visit(permit, &batch)?;
-        }
+        admission.visit_if_expected(permit, &batch)?;
         data.visit(R::NAME, &batch)?;
     }
     Ok(())
@@ -56,7 +53,7 @@ pub async fn produce(
     let mut data = Data::new(runtime.budget());
     let mut read = BTreeSet::new();
     let mut read_charge = charged::StateCharge::new(runtime.budget(), "synthesis-read-registry");
-    macro_rules! read{($($f:ident:$ty:ty,)*)=>{$(if !read.contains(<$ty>::NAME){read_charge.grow(size_of::<&str>()+64)?;read.insert(<$ty>::NAME);let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;let expected=[input::InputRevision::NAME,source::SourceArtifact::NAME,input::ArtifactUse::NAME,source::CoverageScope::NAME,attribution::ProviderCoverage::NAME,normalized::coverage::NormalizationComputation::NAME,normalized::coverage::NormalizationCoverage::NAME].contains(&<$ty>::NAME);load(&session,&mut data,&permit,if expected{Some(&mut admission)}else{None}).await?;})*};}
+    macro_rules! read{($($f:ident:$ty:ty,)*)=>{$(if !read.contains(<$ty>::NAME){read_charge.grow(size_of::<&str>()+64)?;read.insert(<$ty>::NAME);let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data,&permit,&mut admission).await?;})*};}
     lctx_model::synthesis_frame_inputs!(read);
     lctx_model::synthesis_documentary_inputs!(read);
     lctx_model::synthesis_automatic_inputs!(read);
@@ -68,7 +65,8 @@ pub async fn produce(
     macro_rules! named_read{($($f:ident:$ty:ty,)*)=>{$(if access.stage().inputs.iter().any(|r|r.name()==<$ty>::NAME){read!{$f:$ty,}})*};}
     lctx_model::synthesis_pattern_named_inputs!(named_read);
     lctx_model::synthesis_control_text_inputs!(named_read);
-    read! {public:structural::PublicCandidate,inputs:input::InputRevision,uses:input::ArtifactUse,scopes:source::CoverageScope,coverage:attribution::ProviderCoverage,computations:normalized::coverage::NormalizationComputation,normalized_coverage:normalized::coverage::NormalizationCoverage,}
+    read! {public:structural::PublicCandidate,}
+    lctx_model::expected_domain_inputs!(named_read);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     drop(read);

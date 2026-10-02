@@ -27,16 +27,6 @@ async fn load<R: Record>(
     }
     let permit = access.read::<R>()?;
     session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
-    let expected = [
-        input::InputRevision::NAME,
-        input::ArtifactUse::NAME,
-        source::SourceArtifact::NAME,
-        source::CoverageScope::NAME,
-        attribution::ProviderCoverage::NAME,
-        normalized::coverage::NormalizationComputation::NAME,
-        normalized::coverage::NormalizationCoverage::NAME,
-    ]
-    .contains(&R::NAME);
     let query = session
         .query(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
@@ -45,9 +35,7 @@ async fn load<R: Record>(
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
         data.visit(R::NAME, &batch)?;
         context.visit(R::NAME, &batch)?;
-        if expected {
-            admission.visit(&permit, &batch)?;
-        }
+        admission.visit_if_expected(&permit, &batch)?;
     }
     Ok(())
 }
@@ -96,11 +84,10 @@ pub async fn produce(
         analysis::AnalysisDefinition,
         analysis::MethodParameters,
         analysis::local::Invocation,
-        analysis::local::AnalysisOutcome,
-        input::InputRevision,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage
+        analysis::local::AnalysisOutcome
     );
+    macro_rules! expected_inputs {($($field:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>(){read!($ty);})*};}
+    lctx_model::expected_domain_inputs!(expected_inputs);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let settings = context.configuration()?.clone();

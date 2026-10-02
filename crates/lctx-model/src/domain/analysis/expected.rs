@@ -9,6 +9,19 @@ use crate::domain::{
     stages::{Profile, ReadPermit},
     *,
 };
+/// The recognized expected-domain row inventory and typed decoder dispatch share this owner.
+#[macro_export]
+macro_rules! expected_domain_inputs {($apply:ident)=>{$apply!{
+ inputs:$crate::domain::input::InputRevision,
+ artifacts:$crate::domain::source::SourceArtifact,
+ uses:$crate::domain::input::ArtifactUse,
+ scopes:$crate::domain::source::CoverageScope,
+ computations:$crate::domain::normalized::coverage::NormalizationComputation,
+ normalized:$crate::domain::normalized::coverage::NormalizationCoverage,
+ native:$crate::domain::attribution::ProviderCoverage,
+ text:$crate::domain::embedding::text::TextDefinition,
+ analytics:$crate::domain::analysis::settings::AnalyticsConfiguration,
+}};}
 #[derive(Clone, Copy)]
 struct ScopeContract {
     grain: admission::Grain,
@@ -396,9 +409,18 @@ impl FrontierIndex {
         relation: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<bool, ModelError> {
+        self.visit_with_check(relation, batch, || Ok(()))
+    }
+    fn visit_with_check(
+        &mut self,
+        relation: &str,
+        batch: &arrow_array::RecordBatch,
+        check: impl FnOnce() -> Result<(), ModelError>,
+    ) -> Result<bool, ModelError> {
         macro_rules! insert {
             ($r:ty,$field:ident) => {
                 if relation == <$r>::NAME {
+                    check()?;
                     for row in <$r>::decode(batch)? {
                         if self
                             .$field
@@ -412,18 +434,8 @@ impl FrontierIndex {
                 }
             };
         }
-        insert!(InputRevision, inputs);
-        insert!(SourceArtifact, artifacts);
-        insert!(ArtifactUse, uses);
-        insert!(CoverageScope, scopes);
-        insert!(NormalizationComputation, computations);
-        insert!(NormalizationCoverage, normalized);
-        insert!(ProviderCoverage, native);
-        insert!(embedding::text::TextDefinition, text);
-        insert!(
-            crate::domain::analysis::settings::AnalyticsConfiguration,
-            analytics
-        );
+        macro_rules! dispatch {($($field:ident:$ty:ty,)*)=>{$(insert!($ty,$field);)*};}
+        crate::expected_domain_inputs!(dispatch);
         Ok(false)
     }
     pub(crate) fn domain(
@@ -649,6 +661,12 @@ pub(crate) struct ExpectedScope {
     pub native: Vec<ProviderCoverage>,
     pub normalized: Vec<NormalizationCoverage>,
 }
+/// Conditional expected-domain routing never treats an unrelated relation as evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VisitResult {
+    Handled,
+    Skipped,
+}
 /// Capture binds the expected-domain operation to actual R0 inputs. Batch membership is independently
 /// rechecked from effect-owner physical inputs before publication; this is not a new read authority.
 pub struct CoverageAdmission<'a> {
@@ -668,16 +686,30 @@ impl<'a> CoverageAdmission<'a> {
             index: FrontierIndex::new(profile, budget),
         })
     }
+    /// Route expected-domain rows through the owned dispatch. A skipped relation does not
+    /// establish completeness; required method inputs are checked against the capture in domain.
+    pub fn visit_if_expected<R: Record>(
+        &mut self,
+        permit: &ReadPermit<'_, R>,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<VisitResult, ModelError> {
+        // The dispatch checks source identity for handled inputs before decoding or mutation.
+        Ok(if self.index.visit_with_check(R::NAME, batch, || self.sources.accepts(permit))? {
+            VisitResult::Handled
+        } else {
+            VisitResult::Skipped
+        })
+    }
     pub fn visit<R: Record>(
         &mut self,
         permit: &ReadPermit<'_, R>,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
         self.sources.accepts(permit)?;
-        if !self.index.visit(R::NAME, batch)? {
-            return Err(invalid("relation is not an expected-domain input"));
+        match self.visit_if_expected(permit, batch)? {
+            VisitResult::Handled => Ok(()),
+            VisitResult::Skipped => Err(invalid("relation is not an expected-domain input")),
         }
-        Ok(())
     }
     pub(crate) fn domain(
         &self,
@@ -912,7 +944,11 @@ mod tests {
                 assert_eq!(scope.requested, profile == Profile::Behavioral);
                 assert_eq!(
                     scope.native.len(),
-                    if method == AnalysisMethod::Execution { 5 } else { 4 }
+                    if method == AnalysisMethod::Execution {
+                        5
+                    } else {
+                        4
+                    }
                 );
                 assert_eq!(scope.normalized.len(), 2);
                 assert!(scope.normalized.iter().all(|r| matches!(

@@ -19,6 +19,7 @@ async fn load<R: Record>(
     session: &StageSession,
     registered: &mut charged::ChargedSet<&'static str>,
     charge: &mut charged::StateCharge,
+    admission: &mut CoverageAdmission<'_>,
     mut visit: impl FnMut(&ReadPermit<'_, R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     let permit = access.read::<R>()?;
@@ -31,6 +32,7 @@ async fn load<R: Record>(
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        admission.visit_if_expected(&permit, &batch)?;
         visit(&permit, &batch)?;
     }
     Ok(())
@@ -60,7 +62,7 @@ pub async fn apply(
     let mut registered = charged::ChargedSet::default();
     let mut registration = charged::StateCharge::new(budget, "model_registration");
     let mut data = ModelData::new(budget);
-    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
     if profile == Profile::Behavioral {
         lctx_model::normalized_binding_inputs!(inputs);
         lctx_model::normalized_binding_outputs!(inputs);
@@ -68,7 +70,7 @@ pub async fn apply(
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
     }
-    macro_rules! read{($($ty:ty),*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    macro_rules! read{($($ty:ty),*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
     read!(
         models::ModelCatalog,
         analysis::MethodParameters,
@@ -124,16 +126,8 @@ pub async fn apply(
             "Model definition absent from confirmed configuration".into(),
         ));
     }
-    macro_rules! expected{($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|permit,batch|admission.visit(permit,batch)).await?;)*};}
-    expected!(
-        input::InputRevision,
-        source::SourceArtifact,
-        input::ArtifactUse,
-        source::CoverageScope,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage,
-        attribution::ProviderCoverage
-    );
+    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    lctx_model::expected_domain_inputs!(expected);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
@@ -262,7 +256,38 @@ pub async fn apply(
         )?;
         let records = apply_all(&data, &invocation, definition, profile, budget)?;
         macro_rules! write{($($field:ident,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
-        write!(applications,application_premises,boundaries,targets,rules,channels,operations,resources,paths,action_assessments,action_sources,postconditions,context_transfers,context_resources,context_values,context_postconditions,transfer_witnesses,transfer_keys,transfer_alternatives,transfer_supports,transfer_roots,transfer_places,qualifications,conditions,condition_nodes,subjects,support_sources,derivations,propositions,derivation_premises,);
+        write!(
+            applications,
+            application_premises,
+            boundaries,
+            targets,
+            rules,
+            channels,
+            operations,
+            resources,
+            paths,
+            action_assessments,
+            action_sources,
+            postconditions,
+            context_transfers,
+            context_resources,
+            context_values,
+            context_postconditions,
+            transfer_witnesses,
+            transfer_keys,
+            transfer_alternatives,
+            transfer_supports,
+            transfer_roots,
+            transfer_places,
+            qualifications,
+            conditions,
+            condition_nodes,
+            subjects,
+            support_sources,
+            derivations,
+            propositions,
+            derivation_premises,
+        );
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
             output.push(requirement).await?;

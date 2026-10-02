@@ -20,18 +20,15 @@ async fn load<R: Record>(
     session: &StageSession,
     rows: &mut Rows<R>,
     permit: &ReadPermit<'_, R>,
-    admission: Option<&mut analysis::expected::CoverageAdmission<'_>>,
+    admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
     let query = session
         .query(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    let mut admission = admission;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        if let Some(admission) = admission.as_deref_mut() {
-            admission.visit(permit, &batch)?;
-        }
+        admission.visit_if_expected(permit, &batch)?;
         rows.decode(&batch)?;
     }
     Ok(())
@@ -55,14 +52,16 @@ pub async fn produce(
     .await
     .map_err(ModelError::codec)?;
     let session = runtime.session(&access);
+    let mut registered = charged::ChargedSet::default();
+    let mut registration = charged::StateCharge::new(runtime.budget(), "expected-input-registration");
     let mut data = EvidenceData::new(runtime.budget());
-    macro_rules! core {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.core.$f,&permit,if <$ty>::NAME==source::SourceArtifact::NAME || <$ty>::NAME==attribution::ProviderCoverage::NAME {Some(&mut admission)}else{None}).await?;)*};}
+    macro_rules! core {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.core.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_inputs!(core);
-    macro_rules! catalog {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.catalog.$f,&permit,None).await?;)*};}
+    macro_rules! catalog {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.catalog.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_outputs!(catalog);
-    macro_rules! facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.facts.$f,&permit,if <$ty>::NAME==input::ArtifactUse::NAME {Some(&mut admission)}else{None}).await?;)*};}
+    macro_rules! facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.facts.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_evidence_inputs!(facts);
-    macro_rules! lower {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.runtime.$f,&permit,None).await?;)*};}
+    macro_rules! lower {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.runtime.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_runtime_inputs!(lower);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
     let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());
@@ -70,18 +69,14 @@ pub async fn produce(
         ($ty:ty,$rows:ident,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
             session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            registered.insert(&mut registration,<$ty>::NAME)?;
             load(&session, &mut $rows, &permit, $admit).await?;
         }};
     }
-    meta!(analysis::AnalysisDefinition, definitions, None);
-    meta!(analysis::MethodParameters, parameters, None);
-    macro_rules! expected {($($ty:ty),*)=>{$({let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,Some(&mut admission));})*};}
-    expected!(
-        input::InputRevision,
-        source::CoverageScope,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage
-    );
+    meta!(analysis::AnalysisDefinition, definitions, &mut admission);
+    meta!(analysis::MethodParameters, parameters, &mut admission);
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,&mut admission);}})*};}
+    lctx_model::expected_domain_inputs!(expected);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let budget = runtime.budget().clone();

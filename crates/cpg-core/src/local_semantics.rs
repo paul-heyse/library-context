@@ -39,13 +39,13 @@ pub async fn run(
     let mut data = LocalData::new(budget);
     let mut registered = charged::ChargedSet::default();
     let mut registered_charge = charged::StateCharge::new(budget, "local_registered_inputs");
-    macro_rules! load {($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.visit(<$ty>::NAME,&batch)?;}})*};}
+    macro_rules! load {($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{admission.visit_if_expected(&permit,&batch)?;data.visit(<$ty>::NAME,&batch)?;}})*};}
     if profile == Profile::Behavioral {
         lctx_model::entry_value_inputs!(load);
         lctx_model::local_semantic_inputs!(load);
-        macro_rules! theory_load{($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.theory.visit(<$ty>::NAME,&batch)?;}})*};}
+        macro_rules! theory_load{($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{admission.visit_if_expected(&permit,&batch)?;data.theory.visit(<$ty>::NAME,&batch)?;}})*};}
         lctx_model::local_theory_inputs!(theory_load);
-        macro_rules! fields_load{($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.fields.visit(<$ty>::NAME,&batch)?;}})*};}
+        macro_rules! fields_load{($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{admission.visit_if_expected(&permit,&batch)?;data.fields.visit(<$ty>::NAME,&batch)?;}})*};}
         lctx_model::local_field_inputs!(fields_load);
     } else {
         macro_rules! common {
@@ -56,16 +56,8 @@ pub async fn run(
         common!();
     }
     let mut inputs = lctx_model::domain::normalized::Rows::<input::InputRevision>::new(budget);
-    macro_rules! expected {($($ty:ty),*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{admission.visit(&permit,&batch)?;if <$ty>::NAME==input::InputRevision::NAME{inputs.decode(&batch)?;}}})*};}
-    expected!(
-        input::InputRevision,
-        source::SourceArtifact,
-        input::ArtifactUse,
-        source::CoverageScope,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage,
-        attribution::ProviderCoverage
-    );
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let permit=access.read::<$ty>()?;registered.insert(&mut registered_charge,permit.relation())?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{admission.visit_if_expected(&permit,&batch)?;if <$ty>::NAME==input::InputRevision::NAME{inputs.decode(&batch)?;}}}})*};}
+    lctx_model::expected_domain_inputs!(expected);
     let permit = access.read::<analysis::AnalysisDefinition>()?;
     if registered.insert(&mut registered_charge, permit.relation())? {
         session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;

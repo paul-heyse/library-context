@@ -24,18 +24,15 @@ async fn load<R: Record>(
     session: &StageSession,
     rows: &mut Rows<R>,
     permit: &ReadPermit<'_, R>,
-    admission: Option<&mut analysis::expected::CoverageAdmission<'_>>,
+    admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
     let query = session
         .query(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    let mut admission = admission;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        if let Some(admission) = admission.as_deref_mut() {
-            admission.visit(permit, &batch)?;
-        }
+        admission.visit_if_expected(permit, &batch)?;
         rows.decode(&batch)?;
     }
     Ok(())
@@ -67,37 +64,32 @@ pub async fn produce(
     .await
     .map_err(ModelError::codec)?;
     let session = runtime.session(&access);
-    macro_rules! synthesis{($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.render.synthesis.$f,&permit,None).await?;)*};}
+    let mut registered = charged::ChargedSet::default();
+    let mut registration = charged::StateCharge::new(runtime.budget(), "expected-input-registration");
+    macro_rules! synthesis{($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.render.synthesis.$f,&permit,&mut admission).await?;)*};}
     lctx_model::retrieval_synthesis_inputs!(synthesis);
     macro_rules! meta {
         ($ty:ty,$rows:expr,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
             session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            registered.insert(&mut registration,<$ty>::NAME)?;
             load(&session, $rows, &permit, $admit).await?;
         }};
     }
-    meta!(embedding::EmbeddingSpec, &mut data.specifications, None);
+    meta!(embedding::EmbeddingSpec, &mut data.specifications, &mut admission);
     meta!(
         embedding::configuration::ServiceConfiguration,
         &mut data.services,
-        None
+        &mut admission
     );
     meta!(
         embedding::analytic::AnalysisEmbeddingUse,
         &mut data.analytic_uses,
-        None
+        &mut admission
     );
-    meta!(embedding::text::TextWindow, &mut data.windows, None);
-    macro_rules! expected{($($ty:ty),*)=>{$({let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,&mut rows,Some(&mut admission));})*};}
-    expected!(
-        input::InputRevision,
-        input::ArtifactUse,
-        source::SourceArtifact,
-        source::CoverageScope,
-        attribution::ProviderCoverage,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage
-    );
+    meta!(embedding::text::TextWindow, &mut data.windows, &mut admission);
+    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,&mut rows,&mut admission);}})*};}
+    lctx_model::expected_domain_inputs!(expected);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     data.output = build::build(&data.render, runtime.budget())?;

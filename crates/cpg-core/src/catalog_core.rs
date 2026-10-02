@@ -20,18 +20,15 @@ async fn load<R: Record>(
     session: &StageSession,
     rows: &mut Rows<R>,
     permit: &ReadPermit<'_, R>,
-    admission: Option<&mut analysis::expected::CoverageAdmission<'_>>,
+    admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
     let query = session
         .query(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    let mut admission = admission;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        if let Some(admission) = admission.as_deref_mut() {
-            admission.visit(permit, &batch)?;
-        }
+        admission.visit_if_expected(permit, &batch)?;
         rows.decode(&batch)?;
     }
     Ok(())
@@ -56,11 +53,13 @@ pub async fn produce(
     .await
     .map_err(ModelError::codec)?;
     let session = runtime.session(&access);
+    let mut registered = charged::ChargedSet::default();
+    let mut registration = charged::StateCharge::new(runtime.budget(), "expected-input-registration");
     let mut data = CatalogData::new(runtime.budget());
     macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(
         let permit=access.read::<$ty>()?;
-        session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;
-        load(&session,&mut data.$field,&permit,if <$ty>::NAME==source::SourceArtifact::NAME {Some(&mut admission)}else {None}).await?;
+        session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;
+        load(&session,&mut data.$field,&permit,&mut admission).await?;
     )*};}
     lctx_model::catalog_inputs!(read);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
@@ -70,20 +69,15 @@ pub async fn produce(
         ($ty:ty,$rows:ident,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
             session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            registered.insert(&mut registration,<$ty>::NAME)?;
             load(&session, &mut $rows, &permit, $admit).await?;
         }};
     }
-    meta!(analysis::AnalysisDefinition, definitions, None);
-    meta!(analysis::MethodParameters, parameters, None);
-    meta!(attribution::ProviderRun, runs, None);
-    macro_rules! expected {($($ty:ty),*)=>{$({let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,Some(&mut admission));})*};}
-    expected!(
-        input::InputRevision,
-        input::ArtifactUse,
-        source::CoverageScope,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage
-    );
+    meta!(analysis::AnalysisDefinition, definitions, &mut admission);
+    meta!(analysis::MethodParameters, parameters, &mut admission);
+    meta!(attribution::ProviderRun, runs, &mut admission);
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,&mut admission);}})*};}
+    lctx_model::expected_domain_inputs!(expected);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let budget = runtime.budget().clone();
@@ -222,7 +216,7 @@ pub async fn aspects(
     .map_err(ModelError::codec)?;
     let session = runtime.session(&access);
     let mut data = AspectData::new(runtime.budget());
-    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.$field,&permit,None).await?;)*};}
+    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.$field.decode(&batch)?;}})*};}
     lctx_model::callable_aspect_inputs!(read);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;

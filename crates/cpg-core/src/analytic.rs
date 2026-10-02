@@ -26,17 +26,6 @@ async fn load<R: Record>(
     }
     let permit = access.read::<R>()?;
     session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
-    let expected = [
-        analysis::settings::AnalyticsConfiguration::NAME,
-        input::InputRevision::NAME,
-        input::ArtifactUse::NAME,
-        source::SourceArtifact::NAME,
-        source::CoverageScope::NAME,
-        attribution::ProviderCoverage::NAME,
-        normalized::coverage::NormalizationComputation::NAME,
-        normalized::coverage::NormalizationCoverage::NAME,
-    ]
-    .contains(&R::NAME);
     let query = session
         .query(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
@@ -44,9 +33,7 @@ async fn load<R: Record>(
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
         data.visit(R::NAME, &batch)?;
-        if expected {
-            admission.visit(&permit, &batch)?;
-        }
+        admission.visit_if_expected(&permit, &batch)?;
     }
     Ok(())
 }
@@ -79,11 +66,9 @@ pub async fn produce(
     lctx_model::analytic_extra_inputs!(inventory);
     lctx_model::analytic_consumption_inputs!(inventory);
     read!(
-        projection::ProjectionSourceAssessment,
-        input::InputRevision,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage
+        projection::ProjectionSourceAssessment
     );
+    lctx_model::expected_domain_inputs!(inventory);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let settings = data.configuration()?.clone();

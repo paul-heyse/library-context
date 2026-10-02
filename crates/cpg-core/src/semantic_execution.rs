@@ -26,6 +26,7 @@ async fn load<R: Record>(
     session: &StageSession,
     registered: &mut charged::ChargedSet<&'static str>,
     charge: &mut charged::StateCharge,
+    admission: &mut CoverageAdmission<'_>,
     mut visit: impl FnMut(&ReadPermit<'_, R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     let permit = access.read::<R>()?;
@@ -38,6 +39,7 @@ async fn load<R: Record>(
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        admission.visit_if_expected(&permit, &batch)?;
         visit(&permit, &batch)?;
     }
     Ok(())
@@ -73,7 +75,7 @@ pub async fn evaluate_base(
     let mut registration = charged::StateCharge::new(budget, "base_execution_registration");
     let mut data = EvaluationData::new(budget);
     let mut entry = EntryData::new(budget);
-    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|{data.visit(<$ty>::NAME,batch)?;entry.visit(<$ty>::NAME,batch)?;Ok(())}).await?;}})*};}
+    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|{data.visit(<$ty>::NAME,batch)?;entry.visit(<$ty>::NAME,batch)?;Ok(())}).await?;}})*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
@@ -82,7 +84,7 @@ pub async fn evaluate_base(
     let mut entry_sources = Rows::<EntryAccessSource>::new(budget);
     let mut local = Rows::<analysis::local::AnalysisInvocation>::new(budget);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(budget);
-    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|$field.decode(batch)).await?;)*};}
+    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|$field.decode(batch)).await?;)*};}
     if profile == Profile::Behavioral {
         read! {entries:EntryValueWitness,entry_sources:EntryAccessSource,}
     }
@@ -92,16 +94,8 @@ pub async fn evaluate_base(
             "base execution definition absent from confirmed configuration".into(),
         ));
     }
-    macro_rules! expected {($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|permit,batch|admission.visit(permit,batch)).await?;)*};}
-    expected!(
-        input::InputRevision,
-        source::SourceArtifact,
-        input::ArtifactUse,
-        source::CoverageScope,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage,
-        attribution::ProviderCoverage
-    );
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    lctx_model::expected_domain_inputs!(expected);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
@@ -317,14 +311,14 @@ pub async fn complete_base(
     let mut registered = charged::ChargedSet::default();
     let mut registration = charged::StateCharge::new(budget, "base_completion_registration");
     let mut data = execution::completion_production::CompletedEvaluations::new(budget);
-    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|{data.visit(<$ty>::NAME,batch)}).await?;}})*};}
+    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|{data.visit(<$ty>::NAME,batch)}).await?;}})*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
     }
     let mut base = Rows::<analysis::base_evaluation::AnalysisInvocation>::new(budget);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(budget);
-    macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}
+    macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}
     if profile == Profile::Behavioral {
         read!(
             EntryValueWitness,
@@ -341,6 +335,7 @@ pub async fn complete_base(
         &session,
         &mut registered,
         &mut registration,
+        &mut admission,
         |_, batch| {
             base.decode(batch)?;
             data.visit(analysis::base_evaluation::AnalysisInvocation::NAME, batch)
@@ -353,6 +348,7 @@ pub async fn complete_base(
         &session,
         &mut registered,
         &mut registration,
+        &mut admission,
         |_, batch| {
             definitions.decode(batch)?;
             data.visit(analysis::AnalysisDefinition::NAME, batch)
@@ -364,16 +360,8 @@ pub async fn complete_base(
             "base completion definition absent from confirmed configuration".into(),
         ));
     }
-    macro_rules! expected {($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|permit,batch|admission.visit(permit,batch)).await?;)*};}
-    expected!(
-        input::InputRevision,
-        source::SourceArtifact,
-        input::ArtifactUse,
-        source::CoverageScope,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage,
-        attribution::ProviderCoverage
-    );
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    lctx_model::expected_domain_inputs!(expected);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
@@ -544,7 +532,7 @@ pub async fn prepare_source_calls(
     let mut registered = charged::ChargedSet::default();
     let mut registration = charged::StateCharge::new(budget, "source_call_registration");
     let mut data = SourceCallData::new(budget);
-    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
@@ -552,7 +540,7 @@ pub async fn prepare_source_calls(
         lctx_model::normalized_binding_outputs!(inputs);
     }
     if profile == Profile::Behavioral {
-        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}
+        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}
         earlier!(
             syntax::ParameterSyntaxObservation,
             EntryValueWitness,
@@ -573,6 +561,7 @@ pub async fn prepare_source_calls(
         &session,
         &mut registered,
         &mut registration,
+        &mut admission,
         |_, batch| {
             base.decode(batch)?;
             data.visit(analysis::base_completion::AnalysisInvocation::NAME, batch)
@@ -585,6 +574,7 @@ pub async fn prepare_source_calls(
         &session,
         &mut registered,
         &mut registration,
+        &mut admission,
         |_, batch| {
             definitions.decode(batch)?;
             data.visit(analysis::AnalysisDefinition::NAME, batch)
@@ -596,16 +586,8 @@ pub async fn prepare_source_calls(
             "source call definition absent from captured configuration".into(),
         ));
     }
-    macro_rules! expected{($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|permit,batch|admission.visit(permit,batch)).await?;)*};}
-    expected!(
-        input::InputRevision,
-        source::SourceArtifact,
-        input::ArtifactUse,
-        source::CoverageScope,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage,
-        attribution::ProviderCoverage
-    );
+    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    lctx_model::expected_domain_inputs!(expected);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
@@ -804,7 +786,7 @@ pub async fn enrich(
     let mut registered = charged::ChargedSet::default();
     let mut registration = charged::StateCharge::new(budget, "enriched_execution_registration");
     let mut data = EnrichedData::new(budget);
-    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
@@ -813,7 +795,7 @@ pub async fn enrich(
         lctx_model::model_pin_inputs!(inputs);
     }
     if profile == Profile::Behavioral {
-        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}
+        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}
         earlier!(
             syntax::ParameterSyntaxObservation,
             EntryValueWitness,
@@ -843,6 +825,7 @@ pub async fn enrich(
         &session,
         &mut registered,
         &mut registration,
+        &mut admission,
         |_, batch| data.visit(analysis::MethodParameters::NAME, batch),
     )
     .await?;
@@ -852,6 +835,7 @@ pub async fn enrich(
         &session,
         &mut registered,
         &mut registration,
+        &mut admission,
         |_, batch| data.visit(models::ModelCatalog::NAME, batch),
     )
     .await?;
@@ -863,6 +847,7 @@ pub async fn enrich(
         &session,
         &mut registered,
         &mut registration,
+        &mut admission,
         |_, batch| {
             base.decode(batch)?;
             data.visit(analysis::source_call::AnalysisInvocation::NAME, batch)
@@ -875,6 +860,7 @@ pub async fn enrich(
         &session,
         &mut registered,
         &mut registration,
+        &mut admission,
         |_, batch| {
             definitions.decode(batch)?;
             data.visit(analysis::AnalysisDefinition::NAME, batch)
@@ -886,16 +872,8 @@ pub async fn enrich(
             "enriched execution definition absent from captured configuration".into(),
         ));
     }
-    macro_rules! expected{($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,|permit,batch|admission.visit(permit,batch)).await?;)*};}
-    expected!(
-        input::InputRevision,
-        source::SourceArtifact,
-        input::ArtifactUse,
-        source::CoverageScope,
-        normalized::coverage::NormalizationComputation,
-        normalized::coverage::NormalizationCoverage,
-        attribution::ProviderCoverage
-    );
+    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    lctx_model::expected_domain_inputs!(expected);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
