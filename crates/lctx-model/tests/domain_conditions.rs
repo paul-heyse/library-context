@@ -376,3 +376,40 @@ fn graph_approximation_and_refusal_survive_truth_simplification() {
         );
     }
 }
+
+#[test]
+fn admitted_substitution_small_finite_cases_fit_serving_preparation_and_release() {
+    use lctx_model::domain::resources::ResourceBudget;
+    let budget=ResourceBudget::fixed(128<<20).unwrap();
+    let a=atom(0).id();let b=atom(1).id();let c=atom(2).id();
+    let da=Diagram::from_atom(a);let db=Diagram::from_atom(b);let dc=Diagram::from_atom(c);
+    let shared=da.and(&db).unwrap().or(&da.not().unwrap().and(&dc).unwrap()).unwrap();
+    for (source,replacements) in [
+        (da.clone(),vec![(a,&db)]),
+        (Diagram::always(),vec![]),
+        (Diagram::never(),vec![]),
+        (shared.clone(),vec![(a,&dc),(b,&da)]),
+        (shared,vec![(a,&Diagram::never())]),
+    ] {
+        let expected=source.substitute_atoms(&replacements).unwrap();
+        let admitted=source.admitted_substitution(&replacements,&budget).unwrap();
+        assert_eq!(admitted.id(),expected.id());
+        assert!(budget.reserved()>0 && budget.reserved()<128<<20);
+        drop(admitted);assert_eq!(budget.reserved(),0);
+    }
+}
+#[test]
+fn admitted_substitution_refuses_before_large_apply_and_releases_preflight() {
+    use lctx_model::domain::resources::ResourceBudget;
+    use lctx_model::domain::conditions::DiagramAdmissionError;
+    let budget=ResourceBudget::fixed(128<<20).unwrap();
+    let source=(0..11).map(|index|Diagram::from_atom(atom(index).id())).fold(Diagram::always(),|a,b|a.and(&b).unwrap());
+    assert!(matches!(source.admitted_substitution(&[],&budget),Err(DiagramAdmissionError::Resource(_))));
+    assert_eq!(budget.reserved(),0);
+    let tiny=ResourceBudget::fixed(1).unwrap();
+    assert!(matches!(source.admitted_substitution(&[],&tiny),Err(DiagramAdmissionError::Resource(_))));
+    assert_eq!(tiny.reserved(),0);
+    let a=atom(0).id();let replacement=Diagram::always();
+    assert!(matches!(source.admitted_substitution(&[(a,&replacement),(a,&replacement)],&tiny),Err(DiagramAdmissionError::Boundary(_))));
+    assert_eq!(tiny.reserved(),0,"malformed bindings are rejected before preflight allocation");
+}
