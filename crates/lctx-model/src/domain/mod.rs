@@ -467,3 +467,7 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<ProviderCoverage>(),
     ]
 }
+
+pub mod serving;
+
+pub mod native_requests;

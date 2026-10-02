@@ -4079,6 +4079,7 @@ dependencies = [
  "blake3",
  "fixedbitset",
  "insta",
+ "jsonschema",
  "lctx-model-macros",
  "leiden-rs",
  "petgraph",

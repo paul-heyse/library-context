@@ -105,6 +105,30 @@ pub struct PathEmission {
     pub place: Place,
     pub(super) _charge: Box<dyn Reservation>,
 }
+impl PathEmission {
+    /// Assemble canonical recorded continuation rows after the declared Summary replay has
+    /// admitted them. The earlier finite operand remains opaque; IDs alone grant no source.
+    #[expect(clippy::too_many_arguments, reason = "Canonical continuation keeps witness, route, source, branch frame and output vocabulary explicit")]
+    pub fn from_records(
+        witness: &SummaryPathWitness, route: &SummaryPathRoute, source: &SummaryPremise,
+        predecessor: &dyn CompositionOperand, key: TransferKey, q: AssertionQualification,
+        condition: Diagram, root: PlaceRoot, place: Place, budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let earlier = predecessor.descriptor();
+        if witness.transfer != key.id() || witness.qualification != q.id()
+            || witness.route != route.id() || witness.source != source.id()
+            || predecessor.premise() != *source || key.kind != TransferKind::Derived
+            || (earlier.owner, earlier.input, earlier.context, earlier.scope)
+                != (key.owner, key.input, key.context, key.scope)
+            || key.output != place.id() || place.root != root.id() || q.condition != condition.id() {
+            return Err(invalid("recorded continuation differs from its finite source/frame"));
+        }
+        let charge = budget.reserve("recorded-summary-path", condition.allocation_allowance().saturating_add(8192))?;
+        let branch = TransferBranch::new(key, q, condition, budget)?;
+        Ok(Self { witness: witness.clone(), route: route.clone(), source: source.clone(),
+            branch, root, place, _charge: charge })
+    }
+}
 impl CompositionOperand for PathEmission {
     fn descriptor(&self) -> TransferDescriptor {
         self.branch.descriptor()
