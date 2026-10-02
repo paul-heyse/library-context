@@ -415,3 +415,36 @@ The [assembled Design/Target review](../design_review/reviews/design_review_sema
 is **Accept scoped, 2026-10-02**, with a separate bounded F1 implementation assessment and no
 remaining material foundation finding. Its static judgment and named focused Tested evidence do
 not qualify broader Phase 5 serving; final foundation gates remain the integrator's obligation.
+
+
+### 5.4 Scope qualification — 2026-10-02
+
+The assembled tree contains the three foundation commits and owners/review in `62918320`, with
+its preserved initial dirty baseline. The accepted model snapshot migration below changes only
+its digest; no relation, column, reference, sum or codebook declaration changed.
+
+- **failed:** `NEXTEST_TEST_THREADS=8 just test-all`, workspace Nextest run
+  `93e42487-4ff9-4653-bde5-18e6f2bb7b2b`: release build 22m 36s, 1,000 tests run, 972 passed,
+  28 failed and 12 skipped. Twenty-seven failures were disposable PostgreSQL startup, transport,
+  rollback/commit or pool failures during concurrent container cleanup; one was the model digest
+  snapshot. Python/oracles, the separate PostgreSQL gate and doctests were **not_run** in that
+  attempt because the failed Rust recipe stopped `test-all`.
+- **identified prerequisite, resolved by operator:** the active external Python PostgreSQL probe
+  harness's cleanup considered every new testcontainers-labelled or pinned-image container
+  eligible for force removal, including unrelated tests created during its six-second grace
+  period. Its matcher explains the observed interference; Docker events alone do not identify
+  each API caller. The operator stopped that runner before the complete retry. Foundation code,
+  test expectations and external probe code were not altered to mask transport failures.
+- **snapshot migration reviewed and accepted:** the scoped `INSTA_UPDATE=new` release
+  `model_describe` rerun produced the pending diff. Only the model digest changed from
+  `1d93a1a8808ddf31711497051f5774efc5d2f6aed282d4988a2765560d84b3b6` to
+  `f78eaf504fad7da139d048fcdbdb52bbb9d4846d7bb76b4c7190fe331e12012f`.
+  After reading that diff, `python3 scripts/build_environment.py -- cargo insta accept --snapshot
+  model_describe__model_describe.snap` accepted this snapshot alone.
+- **passed:** `INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py --
+  cargo nextest run --release -p lctx --test model_describe`, one corrected control, run
+  `fc761336-a5bb-465a-a720-461018cd4111`.
+
+The complete same-source `NEXTEST_TEST_THREADS=8 just test-all` retry is executing. `just hygiene`
+remains **not_run** until that functional gate completes. Final results and any named corrected
+checks will be recorded here; focused or diagnostic passes do not replace these obligations.
