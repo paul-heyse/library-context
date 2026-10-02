@@ -1,9 +1,11 @@
 # Phase 4 qualification — 2026-10-01
 
-**Qualification in progress.** The [Phase 4 plan](../../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
+**Qualification complete within the accepted Phase 4 scope, 2026-10-01.** The [Phase 4 plan](../../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
 owns the execution scope and acceptance. The [parent cutover plan §8](../../../plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
 owns cross-phase finding disposition. This receipt bounds implementation claims; it creates no new gate.
 Raw logs use Git LFS. Earlier restart receipts retain their original scope and date.
+The final Q0 completion section owns current acceptance; earlier entries retain their dated
+failures, pending states and corrections as historical command receipts.
 
 Commands use `python3 scripts/build_environment.py --` before Cargo.
 
@@ -24,7 +26,8 @@ Commands use `python3 scripts/build_environment.py --` before Cargo.
 | `cargo check -p cpg-core -p lctx-analytics -p lctx --tests`, [X0 check1](raw/phase4-x0-final-check1.log), [X0 check2](raw/phase4-x0-final-check2.log) | **composite passed**. Initial check **failed** because dependency trimming omitted leiden-rs needed by the retained independent native ranking oracle. Restored it as a dev dependency; complete rerun **passed**, 41.30s. No oracle was removed. |
 
 All functional scope and retirement are integrated. The [assembled Design/Target review](../../reviews/design_review_phase4-assembled_2026-10-01.md)
-is **Accept scoped**, 2026-10-01, at72ba0413. Full Q0 remains incomplete.
+is **Accept scoped**, 2026-10-01, at72ba0413. Q0 was incomplete at that frozen review baseline;
+the final completion section records the subsequent passing gates.
 
 | Assembled command | Outcome and correction boundary |
 |---|---|
