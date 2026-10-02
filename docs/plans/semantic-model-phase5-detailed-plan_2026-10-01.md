@@ -529,5 +529,19 @@ lowering, manifests, query metadata and final acceptance. No formatting/generato
 | Package | Current implementation / acceptance |
 |---|---|
 | D0 | Accepted target, 2026-10-02; ADR-0114 and architecture updated. No serving qualification claimed. |
-| M0–X0 | Authorized; implementation follows working dependencies. |
+| M0 | Implemented pure contracts; initial `cargo test -p lctx-model --release --test serving_contracts` passed 11 controls. Later original-address/claim/optional-packet changes await a fresh scoped receipt. |
+| L0 | Scoped shared/preparation/request reservations passed `cargo nextest run --release -p lctx-model --test resource_scopes` (run `40cee834-b77c-4ae5-b73e-f35fe296bd40`); committed `5223cf73`. Generated view/index/ACL control passed `cargo nextest run --release -p lctx-postgres --test serving_shapes` (run `d1ecb540-7f9f-41af-b43e-e889c02b467b`) after extension provisioning and view-normalization repairs. Actual compiler cancellation control failed at retained-state reservation during physical admission; guard reservation repaired, rerun interrupted by Cargo lock cycle and remains not_run. |
+| C0/E0 | Catalog discovery control passed `cargo test -p lctx --release --test serving_catalog`; oversized mandatory signature control passed. Ordinary packet control failed a literal-default expectation, being corrected to the actual expression owner. Access-artifact ownership and subsequent optional/original-byte/proof hydration changes remain under targeted integration; release compile checks passed, no enclosing packet qualification. |
+| R0 | Initial pure ranking passed 14 controls via `cargo nextest run --release -p lctx-model --test ranking_policy` (run `cbbff93b-e8d6-4d03-907e-9ea73d22a825`). Shared Unit/member lexical corpus projection and effectful search integration added later; fresh controls pending. |
+| V0 | Explicit preparation, read-only artifact admission, exact cosine and cleanup implemented. Release compile passed. `cargo nextest run --release -p lctx --test serving_vectors` failed at initial CLI artifact preparation (`Contract`), run `b5f84f69-364e-4ca3-ace7-434ff836ecb6`; cache physical admission is being diagnosed, not qualified. |
+| N0/N1 | Initial pure native requests passed 13 controls; Syntax-to-Read producer link, retained proof/resource boundaries and known-path Unknown changes require a fresh scoped receipt. Native canonical loader release compile passed; actual compiler/native controls were interrupted by infrastructure and remain not_run. |
+| T0/X0 | Implementing the coarse current-model bridge and canonical transport; old serving/IPC authorities remain pending consumer migration and mapped independent controls. |
 | Q0 | not_run until all functional packages and retirement complete. |
+
+**Build coordination, 2026-10-02:** simultaneous release builds in isolated production worktrees
+formed a verified fine-grain Cargo artifact lock cycle: vector build held shared `allocative` and
+workspace-feature locks while waiting for the model lock; native build held the model lock while
+waiting for those dependencies. Scoped interrupted commands establish no test result. Rust builds
+are now serialized while independent implementation continues; shared paths, optimization policy,
+frontend threads and caches remain unchanged. Neither test parallelism nor the earlier operator
+cleanup is established as the cause of this lock cycle.

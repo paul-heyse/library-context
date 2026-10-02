@@ -2,7 +2,7 @@
 
 _Updated 2026-10-02 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Foundation F1–F3: Implemented / focused-Tested; scope qualification in progress.**
+**Phase 5 execution in progress; foundation F1–F3 qualified within their recorded source boundary.**
 The [foundation plan §5](docs/plans/semantic-model-foundation-enhancements_2026-10-01.md#5-coordination-verification-and-current-state)
 owns package completion and composite receipts. Production slices are committed as `7778b217`
 (F2), `ac5a52bf` (F3) and `658ae94a` (F1); owners and review landed in `62918320`.
@@ -18,7 +18,8 @@ The [assembled Design/Target review](docs/design_review/reviews/design_review_se
 is **Accept scoped**, with separate bounded F1 implementation assessment and no remaining material
 foundation finding. Its F01 inherited-prefix correction is **Closed / Tested** within the recorded
 both-profile actual Catalog controls. Broader [Phase 5](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
-remains **Proposed / not_run**; [ADR-0114](docs/adr/0114-generation-serving-contracts.md) remains proposed.
+is authorized and partially implemented; [ADR-0114](docs/adr/0114-generation-serving-contracts.md) is accepted.
+The Phase 5 plan §10 owns current package receipts and unfinished scope; serving activation remains not_run.
 
 ## Current verification
 
@@ -29,7 +30,8 @@ The cached retry passed all 1,000 workspace Rust tests, then failed one Python o
 600-second CLI build limit (237 passed, 56 skipped). The completed build is cached; its timeout
 and expectations remain unchanged. The bounded Clippy corrections, reviewed digest-only snapshot
 and 24 model controls passed. Hygiene is **composite passed**, including corrected Clippy and
-store checks. A fresh final-source `just test-all` is executing; integrated acceptance is pending.
+store checks. The final foundation `NEXTEST_TEST_THREADS=8 just test-all` subsequently passed; companion §5.4
+owns its exact receipts and the later hook-formatting boundary. This is not Phase 5 qualification.
 
 | Command / scope | Outcome |
 |---|---|
@@ -51,11 +53,16 @@ The empty, quiescent local store was reset to model `e66cccc2…` after the old 
 Cargo retains the pinned toolchain, release profile, stable shared intermediates and 16 build jobs.
 Nextest8 caps simultaneous test processes; it does not request eight threads per process. Earlier
 compiler SIGTERM remains an unconfirmed build interruption, not a proven test/threading cause.
+Current parallel-worktree builds formed a separately verified Cargo fine-grain artifact lock cycle;
+scoped interrupted builds retain no test result. Rust builds are now serialized without cache cleanup.
 
 ## Next and standing limits
 
-Full Phase 5 execution is authorized, 2026-10-02. D0 accepts ADR-0114; ready M0/N0 implementation
-starts from preserved snapshot `bd22f66c`. Foundation `NEXTEST_TEST_THREADS=8 just test-all` completed
+Full Phase 5 execution is authorized, 2026-10-02. D0 accepts ADR-0114; implementation
+uses preserved snapshot `bd22f66c`. Pure contracts/native/ranking and the generated physical-view
+control have bounded passing receipts; shared runtime, packets, retrieval, transport and retirement
+are being integrated. L0 resource scopes are committed as `5223cf73`. V0 actual preparation
+currently fails physical admission; native and packet updates await targeted reruns. Foundation `NEXTEST_TEST_THREADS=8 just test-all` completed
 with exit 0: workspace 1,000 passed / 12 skipped, Python 238 passed / 56 skipped, separate PG
 376 passed / two skipped, doctests 34 passed / two ignored. Composite hygiene passed. Companion
 §5.4 owns receipts and source boundaries: subsequent hook formatting awaits Phase 5 qualification.
