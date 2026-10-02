@@ -661,7 +661,7 @@ fn release_declarations_require_exact_ownership_and_passed_interpretation() {
         ordinal: 0,
         distribution: Some("pkg".into()),
         version: Some("1".into()),
-        field: "requires_dist".into(),
+        field: "requires-dist".into(),
         original: "dependency>=1".into(),
         name: Some("dependency".into()),
         extras: vec![],

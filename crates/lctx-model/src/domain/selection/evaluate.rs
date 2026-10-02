@@ -925,10 +925,10 @@ fn evaluate(
         }
         Predicate::DeploymentDeclaration { field, name } => {
             let expected = match field {
-                DeploymentField::RequiresDist => "requires_dist",
-                DeploymentField::ProvidesExtra => "provides_extra",
-                DeploymentField::RequiresPython => "requires_python",
-                DeploymentField::EntryPoint => "entry_point",
+                DeploymentField::RequiresDist => "requires-dist",
+                DeploymentField::ProvidesExtra => "provides-extra",
+                DeploymentField::RequiresPython => "requires-python",
+                DeploymentField::EntryPoint => "entry-point",
                 DeploymentField::Launch => "launch",
                 DeploymentField::Configuration => "configuration",
             };

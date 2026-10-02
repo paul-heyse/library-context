@@ -810,7 +810,7 @@ fn release_requirements_are_owned_once_and_never_matched_by_distribution_spellin
                 ordinal,
                 distribution: Some("pkg".into()),
                 version: Some("1".into()),
-                field: "requires_dist".into(),
+                field: "requires-dist".into(),
                 original: "dependency[extra]>=1".into(),
                 name: Some("dependency".into()),
                 extras: vec!["extra".into()],
