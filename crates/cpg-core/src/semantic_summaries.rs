@@ -4,7 +4,6 @@ use crate::{
     generation_read::{AttemptSession, ProviderOptions},
     model_runtime::AttemptRuntime,
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, sources::CapturedSources, summary as owner},
     execution::{summary_production::*, summary_replay},
@@ -13,36 +12,6 @@ use lctx_model::domain::{
 };
 use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
-async fn load<R: Record>(
-    access: &StageAccess<'_, '_>,
-    reader: &AttemptSession,
-    runtime: &AttemptRuntime,
-    epoch: Option<PublicationBoundary>,
-    mut visit: impl FnMut(&ReadPermit<'_, R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
-) -> Result<(), ModelError> {
-    if access.profile() == Profile::Catalog
-        && !access.stage().inputs.iter().any(|i| i.name() == R::NAME)
-    {
-        return Ok(());
-    }
-    let permit = match epoch {
-        Some(e) => access.read_at_epoch::<R>(e)?,
-        None => access.read::<R>()?,
-    };
-    let session = runtime.session(access);
-    session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
-    let mut stream = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        visit(&permit, &batch)?;
-    }
-    Ok(())
-}
 pub async fn produce(
     access: StageAccess<'_, '_>,
     attempt: &GenerationAttempt,
@@ -65,35 +34,25 @@ pub async fn produce(
     .await
     .map_err(ModelError::codec)?;
     let mut data = SummaryData::new(budget);
-    let mut seen = charged::ChargedSet::default();
-    let mut charge = charged::StateCharge::new(budget, "summary-input-registration");
-    macro_rules! inputs{($($f:ident:$t:ty,)*)=>{$(for input in SummaryData::inputs().iter().filter(|i|i.name()==<$t>::NAME){if seen.insert(&mut charge,(input.name(),input.prefix().map(|e|e as u8)))?{load::<$t>(&access,&reader,runtime,input.prefix(),|permit,batch|{coverage.visit_if_expected(permit,batch)?;data.visit_input(input,batch)}).await?;}})*};}
+    let mut consumed=crate::consumed_rows::ConsumedInputs::new(SummaryData::consumed_inputs(access.profile()),budget)?;
+    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
+        // Distinct epoch sources have the same nominal table name, so each gets its own session.
+        let session=runtime.session(&access);
+        crate::consumed_rows::stream(&permit,&reader,&session,|permit,batch|{
+            coverage.visit_if_expected(permit,batch)?;
+            data.visit_input(&input,batch)
+        }).await?;
+    })*};}
     lctx_model::normalized_binding_inputs!(inputs);
     lctx_model::normalized_binding_outputs!(inputs);
     lctx_model::entry_value_inputs!(inputs);
     lctx_model::summary_path_inputs!(inputs);
     lctx_model::summary_owned_inputs!(inputs);
     lctx_model::summary_vocabulary!(inputs);
-    macro_rules! extra{($($t:ty),*)=>{$(let input=ValidationInput::of::<$t>(&["id"]);if seen.insert(&mut charge,(input.name(),input.prefix().map(|e|e as u8)))?{load::<$t>(&access,&reader,runtime,None,|permit,batch|{coverage.visit_if_expected(permit,batch)?;data.visit_input(&input,batch)}).await?;})*};}
-    extra!(
-        analysis::local::SupportSource,
-        analysis::local::AnalysisDerivation,
-        analysis::local::AnalysisProposition,
-        analysis::local::AnalysisInvocation,
-        analysis::model::SupportSource,
-        analysis::model::AnalysisDerivation,
-        analysis::model::AnalysisProposition,
-        analysis::model::AnalysisInvocation,
-        local_theory::TheoryWitness,
-        execution::model_production::ModelApplication,
-        execution::model_transfer::ModelTransferWitness,
-        execution::model_context_transfer::ContextTransferWitness,
-        projection::ProjectionSourceAssessment,
-        projection::ProjectionSnapshot,
-        projection::ProjectionSnapshotChunk
-    );
-    macro_rules! expected{($($field:ident:$t:ty,)*)=>{$(if access.stage().reads::<$t>() && seen.insert(&mut charge,(<$t>::NAME,None))?{load::<$t>(&access,&reader,runtime,None,|permit,batch|{coverage.visit_if_expected(permit,batch)?;Ok(())}).await?;})*};}
-    lctx_model::expected_domain_inputs!(expected);
+    lctx_model::summary_evidence_inputs!(inputs);
+    lctx_model::summary_projection_inputs!(inputs);
+    lctx_model::expected_domain_inputs!(inputs);
+    consumed.finish()?;
     reader.close().await.map_err(ModelError::codec)?;
     let mut records = Vec::new();
     let mut frames = charged::ChargedSet::default();

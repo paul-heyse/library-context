@@ -3,7 +3,6 @@ use crate::{
     generation_read::{AttemptSession, ProviderOptions},
     model_runtime::AttemptRuntime,
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, local as publication, sources::CapturedSources},
     local_semantics::{self, LocalData},
@@ -35,50 +34,31 @@ pub async fn run(
     )
     .await
     .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(LocalData::consumed_inputs(profile), budget)?;
     let mut data = LocalData::new(budget);
-    let mut registered = charged::ChargedSet::default();
-    let mut registered_charge = charged::StateCharge::new(budget, "local_registered_inputs");
-    macro_rules! load {($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{admission.visit_if_expected(&permit,&batch)?;data.visit(<$ty>::NAME,&batch)?;}})*};}
-    if profile == Profile::Behavioral {
-        lctx_model::entry_value_inputs!(load);
-        lctx_model::local_semantic_inputs!(load);
-        macro_rules! theory_load{($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{admission.visit_if_expected(&permit,&batch)?;data.theory.visit(<$ty>::NAME,&batch)?;}})*};}
-        lctx_model::local_theory_inputs!(theory_load);
-        macro_rules! fields_load{($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;if registered.insert(&mut registered_charge,permit.relation())?{session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;}let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{admission.visit_if_expected(&permit,&batch)?;data.fields.visit(<$ty>::NAME,&batch)?;}})*};}
-        lctx_model::local_field_inputs!(fields_load);
-    } else {
-        macro_rules! common {
-            () => {
-                load! {runs:attribution::ProviderRun,providers:attribution::Provider,}
-            };
-        }
-        common!();
-    }
-    let mut inputs = lctx_model::domain::normalized::Rows::<input::InputRevision>::new(budget);
-    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let permit=access.read::<$ty>()?;registered.insert(&mut registered_charge,permit.relation())?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{admission.visit_if_expected(&permit,&batch)?;if <$ty>::NAME==input::InputRevision::NAME{inputs.decode(&batch)?;}}}})*};}
-    lctx_model::expected_domain_inputs!(expected);
-    let permit = access.read::<analysis::AnalysisDefinition>()?;
-    if registered.insert(&mut registered_charge, permit.relation())? {
-        session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
-    }
-    let query = session
-        .query("SELECT * FROM analysis_definitions")
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
+    let mut inputs = normalized::Rows::<input::InputRevision>::new(budget);
     let mut definitions = normalized::Rows::<analysis::AnalysisDefinition>::new(budget);
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        definitions.decode(&batch)?;
-    }
-    drop(stream);
+    macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(while let Some((_,permit))=consumed.next::<$ty>(&access)?{
+        let session=runtime.session(&access);
+        crate::consumed_rows::stream(&permit,&reader,&session,|permit,batch|{
+            admission.visit_if_expected(permit,batch)?;
+            data.visit_consumed(profile,<$ty>::NAME,batch)?;
+            if <$ty>::NAME==input::InputRevision::NAME{inputs.decode(batch)?;}
+            if <$ty>::NAME==analysis::AnalysisDefinition::NAME{definitions.decode(batch)?;}
+            Ok(())
+        }).await?;
+    })*};}
+    lctx_model::entry_value_inputs!(load);
+    lctx_model::local_semantic_inputs!(load);
+    lctx_model::local_theory_inputs!(load);
+    lctx_model::local_field_inputs!(load);
+    lctx_model::expected_domain_inputs!(load);
+    load! {definitions:analysis::AnalysisDefinition,}
+    consumed.finish()?;
     if definitions.get(definition.id()) != Some(definition) {
-        return Err(ModelError::Invalid(
-            "Local selected definition is absent from confirmed configuration".into(),
-        ));
+        return Err(ModelError::Invalid("Local selected definition is absent from confirmed configuration".into()));
     }
     drop(definitions);
-    drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! declare_publication {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}

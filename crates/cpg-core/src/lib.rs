@@ -16,6 +16,7 @@ pub mod embedding_service;
 pub mod facts;
 pub mod final_coverage;
 pub mod generation_read;
+pub mod consumed_rows;
 pub mod model_runtime;
 pub mod postgres;
 pub mod retrieval_preparation;

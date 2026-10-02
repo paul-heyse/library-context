@@ -1,8 +1,10 @@
 //! Real provider registration uses its receipt's literal epoch view, after later vocabulary closes.
 use cpg_core::{
+    consumed_rows::{ConsumedInputs, stream},
     generation_read::{AttemptSession, ProviderOptions},
     model_runtime::{AttemptRuntime, RuntimeOptions},
 };
+use datafusion_table_providers_postgres::{bounded::ChunkLimits, pool::PoolHealth};
 use lctx_model::domain::{input::Package, stages::*, value::Literal, *};
 use lctx_postgres::{generations::GenerationStore, roles::RoleConfig, testing::DisposableDatabase};
 use std::sync::Arc;
@@ -13,7 +15,7 @@ async fn source_bound_provider_reads_the_old_literal_prefix_after_later_publicat
     db.write_configs(directory.path()).unwrap();
     let importer = RoleConfig::load(&directory.path().join("postgres-importer.json")).unwrap();
     let model = Arc::new(
-        ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+        ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>(), Relation::of::<input::Release>()])
             .unwrap(),
     );
     let store = GenerationStore::install(db.owner.clone(), model.clone())
@@ -41,6 +43,7 @@ async fn source_bound_provider_reads_the_old_literal_prefix_after_later_publicat
                 vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
                 vec![RelationUse::of::<Package>()],
             ),
+            stage("both_reader", vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Dispatch), RelationUse::stored::<Package>()], vec![RelationUse::of::<input::Release>()]),
         ],
         &[],
         Profile::Catalog,
@@ -117,6 +120,72 @@ async fn source_bound_provider_reads_the_old_literal_prefix_after_later_publicat
     )
     .unwrap();
     output.declare::<Package>().unwrap();
+    for index in 0..512 {output.push(Package {name: format!("cancel-{index}")}).await.unwrap();}
+    output.finish(ProviderOutcome::Complete).await.unwrap();
+    let both = execution.begin("both_reader").unwrap();
+    let read = AttemptSession::open(&importer, &attempt, &both, model.clone(), ProviderOptions {chunks: ChunkLimits {rows:1, ..Default::default()}, ..Default::default()}).await.unwrap();
+    let mut consumed = ConsumedInputs::new(vec![
+        ValidationInput::of::<Literal>(&["id"]),
+        ValidationInput::of::<Literal>(&["id"]).at_epoch(PublicationBoundary::Facts),
+        ValidationInput::of::<Literal>(&["id"]).at_epoch(PublicationBoundary::Dispatch),
+    ], runtime.budget()).unwrap();
+    let mut values = std::collections::BTreeMap::new();
+    let mut identities = std::collections::BTreeMap::new();
+    while let Some((input, permit)) = consumed.next::<Literal>(&both).unwrap() {
+        let epoch = input.prefix().unwrap();
+        let session = runtime.session(&both);
+        stream(&permit, &read, &session, |_, batch| {
+            let rows = Literal::decode(batch)?;
+            values.entry(epoch).or_insert_with(Vec::new).extend(rows.clone());
+            identities.entry(epoch).or_insert_with(Vec::new).extend(rows.into_iter().map(|row| row.id()));
+            Ok(())
+        }).await.unwrap();
+    }
+    consumed.finish().unwrap();
+    assert_eq!(values.len(), 2, "default and explicit latest alias must share one source");
+    assert_eq!(values[&PublicationBoundary::Facts], vec![Literal::None]);
+    let mut latest = values[&PublicationBoundary::Dispatch].clone();
+    latest.sort_by_key(Record::id);
+    let mut expected = vec![Literal::None, Literal::Bool { value: true }];
+    expected.sort_by_key(Record::id);
+    assert_eq!(latest, expected);
+    for (epoch, rows) in &values {
+        assert_eq!(identities[epoch], rows.iter().map(Record::id).collect::<Vec<_>>(), "each resolved batch broadcasts once to both consumers");
+    }
+    let permit = both.read::<Literal>().unwrap();
+    let session = runtime.session(&both);
+    let error = stream(&permit, &read, &session, |_, _| Err(ModelError::Invalid("callback sentinel".into()))).await.unwrap_err();
+    assert!(matches!(error, ModelError::Invalid(ref message) if message == "callback sentinel"));
+    assert!(stream(&permit, &read, &session, |_, _| Ok(())).await.is_err(), "same session refuses duplicate registration");
+    drop(session);
+    let mut recovered = 0;
+    stream(&permit, &read, &runtime.session(&both), |_, batch| {recovered += batch.num_rows(); Ok(())}).await.unwrap();
+    assert_eq!(recovered, 2, "callback failure drops the query and drains without poisoning the reader");
+    let mut undeclared = ConsumedInputs::new(vec![ValidationInput::of::<input::Release>(&["id"])], runtime.budget()).unwrap();
+    assert!(undeclared.next::<input::Release>(&both).is_err(), "owned consumption cannot bypass its stage grant");
+    drop(undeclared);
+    let permit = both.read::<Package>().unwrap();
+    let session = runtime.session(&both);
+    let cancel = tokio::sync::Notify::new();
+    let mut observed = 0;
+    tokio::select! {
+        biased;
+        _ = cancel.notified() => {},
+        result = stream(&permit, &read, &session, |_, batch| {observed += batch.num_rows(); cancel.notify_one(); Ok(())}) => panic!("helper completed instead of cancelling mid-stream: {result:?}"),
+    }
+    assert!(observed > 0 && observed < 512, "cancellation occurs after consumption starts and before it completes");
+    drop(session);
+    for _ in 0..50 {
+        if matches!(read.health(), PoolHealth::Ready {connections,idle} if connections == importer.provider_connections && idle == connections) {break;}
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(matches!(read.health(), PoolHealth::Ready {connections,idle} if connections == importer.provider_connections && idle == connections), "cancelled helper returns all configured provider connections after draining: {:?}", read.health());
+    let mut recovered = 0;
+    stream(&permit, &read, &runtime.session(&both), |_, batch| {recovered += batch.num_rows(); Ok(())}).await.unwrap();
+    assert_eq!(recovered, 512);
+    read.close().await.unwrap();
+    let mut output=StageOutput::new(both, &attempt, &model, runtime.budget().clone(), Default::default()).unwrap();
+    output.declare::<input::Release>().unwrap();
     output.finish(ProviderOutcome::Complete).await.unwrap();
     let g = attempt
         .seal(execution.finish().unwrap())
@@ -285,4 +354,17 @@ async fn native_facts_then_condition_groups_enforce_the_shared_canonical_catalog
     assert_eq!(count, 1);
     assert!(execution.finish().is_err());
     attempt.abort().await.unwrap();
+}
+
+#[test]
+fn consumed_inventory_refuses_unloaded_rows_and_releases_its_reservation() {
+    use lctx_model::domain::resources::ResourceBudget;
+    let small = ResourceBudget::fixed(1).unwrap();
+    assert!(matches!(ConsumedInputs::new(vec![ValidationInput::of::<Literal>(&["id"])], &small), Err(ModelError::Resource { .. })));
+    assert_eq!(small.reserved(), 0);
+    let budget = ResourceBudget::fixed(1 << 20).unwrap();
+    let inputs = ConsumedInputs::new(vec![ValidationInput::of::<Literal>(&["id"])], &budget).unwrap();
+    assert!(budget.reserved() > 0);
+    assert!(inputs.finish().is_err(), "a missing typed loader must refuse instead of silently omitting consumption");
+    assert_eq!(budget.reserved(), 0);
 }

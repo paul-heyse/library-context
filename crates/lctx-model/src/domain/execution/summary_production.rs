@@ -184,6 +184,26 @@ macro_rules! summary_owned_inputs{($apply:ident)=>{$apply!{
  native:$crate::domain::analysis::native::NativeQualification,headers:$crate::domain::execution::source_call_records::SourceCallHeader,parameters:$crate::domain::analysis::MethodParameters,definitions:$crate::domain::analysis::AnalysisDefinition,
  entries:$crate::domain::conditions::entry::EntryValueWitness,entry_sources:$crate::domain::conditions::entry::EntryAccessSource,stability:$crate::domain::conditions::stability::StabilityWitness,
 }};}
+/// Typed dispatch inventory for the finite predecessor evidence consumed by Summary.
+#[macro_export]
+macro_rules! summary_evidence_inputs {($apply:ident)=>{$apply!{
+ local_sources:$crate::domain::analysis::local::SupportSource,
+ local_derivations:$crate::domain::analysis::local::AnalysisDerivation,
+ model_sources:$crate::domain::analysis::model::SupportSource,
+ model_derivations:$crate::domain::analysis::model::AnalysisDerivation,
+ theory_witnesses:$crate::domain::local_theory::TheoryWitness,
+ model_applications:$crate::domain::execution::model_production::ModelApplication,
+ model_transfer_witnesses:$crate::domain::execution::model_transfer::ModelTransferWitness,
+ context_transfer_witnesses:$crate::domain::execution::model_context_transfer::ContextTransferWitness,
+}};}
+#[macro_export]
+macro_rules! summary_projection_inputs {($apply:ident)=>{$apply!{
+ graph_assessments:$crate::domain::projection::ProjectionSourceAssessment,
+ graph_snapshots:$crate::domain::projection::ProjectionSnapshot,
+ graph_chunks:$crate::domain::projection::ProjectionSnapshotChunk,
+}};}
+macro_rules! projection_inventory {($($f:ident:$t:ty,)*)=>{fn projection_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]}};}
+crate::summary_projection_inputs!(projection_inventory);
 #[macro_export]
 macro_rules! summary_vocabulary{($apply:ident)=>{$apply!{
  roots:$crate::domain::value::PlaceRoot,places:$crate::domain::value::Place,paths:$crate::domain::value::AccessPath,segments:$crate::domain::value::PathSegment,literals:$crate::domain::value::Literal,predicates:$crate::domain::value::Predicate,atoms:$crate::domain::conditions::EvaluationAtom,qualifications:$crate::domain::assertion::AssertionQualification,conditions:$crate::domain::conditions::Condition,nodes:$crate::domain::conditions::ConditionNode,
@@ -194,7 +214,8 @@ macro_rules! data{($($field:ident:$ty:ty,)*)=>{pub struct SummaryData{pub graphs
 impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{graphs:projection::normalization::ProjectionOutput::new(b),entry:EntryData::new(b),bindings:BindingData::new(b),binding_output:BindingOutput::new(b),path:PathData::new(b),vocabulary:Vocabulary::new(b),local_evidence:analysis::local::support::EvidenceIndex::new(b),model_evidence:analysis::model::support::EvidenceIndex::new(b),$($field:Rows::new(b),)*}}
  pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{let n=input.name();if stages::is_vocabulary(n){return match input.prefix(){Some(stages::PublicationBoundary::Facts)=>{self.entry.visit(n,b)?;self.bindings.visit(n,b)?;Ok(())},Some(stages::PublicationBoundary::Model)=>self.vocabulary.visit(n,b),_=>Err(invalid("Summary input changes vocabulary prefix"))}}self.visit(n,b)}
  pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{self.graphs.visit(n,b)?;self.entry.visit(n,b)?;self.bindings.visit(n,b)?;self.binding_output.visit(n,b)?;self.path.visit(n,b)?;self.local_evidence.visit(n,b)?;self.model_evidence.visit(n,b)?;$(if n==<$ty>::NAME{self.$field.decode(b)?;})*Ok(())}
- pub fn inputs()->Vec<ValidationInput>{let mut inputs=BindingData::validation_inputs();inputs.extend(BindingOutput::validation_inputs());inputs.extend(EntryData::validation_inputs().into_iter().map(|i|if stages::is_vocabulary(i.name()){i.at_epoch(stages::PublicationBoundary::Facts)}else{i}));inputs.extend(PathData::inputs());inputs.extend([ValidationInput::of::<projection::ProjectionSourceAssessment>(&["id"]),ValidationInput::of::<projection::ProjectionSnapshot>(&["id"]),ValidationInput::of::<projection::ProjectionSnapshotChunk>(&["id"])]);inputs.extend(Vocabulary::inputs());inputs.extend(analysis::local::support::EvidenceIndex::inputs());inputs.extend(analysis::model::support::EvidenceIndex::inputs());inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
+ pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{let mut inputs=super::summary_replay::production_inputs(profile);inputs.extend(analysis::expected::inputs(analysis::AnalysisMethod::Summaries));inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
+ pub fn inputs()->Vec<ValidationInput>{let mut inputs=BindingData::validation_inputs();inputs.extend(BindingOutput::validation_inputs());inputs.extend(EntryData::validation_inputs().into_iter().map(|i|if stages::is_vocabulary(i.name()){i.at_epoch(stages::PublicationBoundary::Facts)}else{i}));inputs.extend(PathData::inputs());inputs.extend(projection_inputs());inputs.extend(Vocabulary::inputs());inputs.extend(analysis::local::support::EvidenceIndex::inputs());inputs.extend(analysis::model::support::EvidenceIndex::inputs());inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
 }};}
 crate::summary_owned_inputs!(data);
 #[macro_export]

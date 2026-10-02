@@ -259,8 +259,8 @@ for external rows and diagnosis. Initial production preparation uses the propose
 through an explicit injected budget. The remaining ADR-0114 serving proposals are not accepted or
 implemented by settling this foundation-only contract.
 
-**Current package state, 2026-10-01:** F2 local implementation and focused acceptance passed;
-F3 next, F1 not_run. Scope-end functional/hygiene qualification remains not_run.
+**Current package state, 2026-10-01:** F2/F3 local implementation and focused acceptance passed;
+F1 in progress. Scope-end functional/hygiene qualification remains not_run.
 
 ### 5.1 F2 focused receipt — 2026-10-01
 
@@ -290,3 +290,40 @@ Independent implementation review found no material F2 findings at `b3a511c2` pl
 baseline and F2 delta (assigned-source SHA256
 `dc83c33c55489ece948a33849fb114171da1b087e2c571f805a3cc1eb1af630f`). This is bounded source approval
 and composite focused acceptance; it does not qualify F1/F3, assembled foundations or Phase 5.
+
+### 5.2 F3 focused receipt — 2026-10-01
+
+Local and Summary now resolve their model-owned consumed inventories once per invocation through
+`ConsumedInputs`, which coalesces aliases only after comparing acknowledged source identity and
+keeps distinct vocabulary epochs. The thin typed stream helper registers the admitted source,
+propagates callback errors and yields between batches for cooperative cancellation. Local broadcasts
+Behavioral batches to every matching consumer; Catalog retains only its actual Provider/ProviderRun
+domain inputs alongside separate admission and configuration consumers. Summary retains its Facts/
+Model vocabulary split. Replaced loops and handwritten extras were removed from both adapters.
+
+- **passed:** normalized `cargo check -p lctx-model -p cpg-core --tests`, final Local/vocabulary
+  compile checks, and `python3 scripts/build_environment.py -- cargo check -p lctx-model -p cpg-core
+  --test vocabulary_read` after the final helper repair and F1 model checkpoint.
+- **failed, corrected:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3
+  scripts/build_environment.py -- cargo nextest run --release -p lctx-model -p cpg-core --test
+  analysis_expected --test analysis_schedule --test summary_schedule --test local_semantics --test
+  summary_publication --test generation_read --test vocabulary_read` passed 24 controls and failed
+  one new fixture whose reader stage lacked a declared output. The fixture now declares an explicit
+  empty Release output under the existing schedule contract.
+- **failed, corrected:** the subsequent release rerun of `local_semantics` and `vocabulary_read`
+  passed five controls, including all three final Local controls, and failed one drain assertion.
+  That assertion expected two connections although its importer configuration provisions eight;
+  it now checks that every configured connection is idle. Independent review also identified the
+  new Local Catalog retention regression and a potentially nondeterministic cancellation boundary;
+  both were repaired without changing the classifier, budgets or provider drain contract.
+- **passed:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
+  nextest run --release -p cpg-core --test vocabulary_read`, all three controls on the final helper
+  (run `45efffcc-0105-4f24-bfc1-50fa5863bb68`). This exercises two real epochs, default/explicit
+  source aliases, composed consumers, undeclared/unloaded inputs, duplicate registration, callback
+  failure/recovery, mid-stream cancellation/full configured pool drain/reread and resource refusal.
+
+Independent implementation review approved the final eight-file F3 source with no remaining material
+finding (SHA256 `43d6dde006d133c6a8214de9d388c3dd133cf9676384c64339fd8ad3c10425a5`). The Local
+resource control proves no admission-only Entry retention for Catalog under a one-byte budget,
+while Behavioral still reaches Entry, theory and field inventories. This is composite focused
+acceptance; final scope qualification and the assembled target review remain pending.
