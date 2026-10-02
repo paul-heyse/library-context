@@ -1,7 +1,7 @@
 //! Predicate evaluation follows typed earlier identities; unknown evidence stays unknown.
 use super::{
     algebra::{self, ClaimContext, Classified, Domain, Observation},
-    build::{Data, Output, invalid, need},
+    build::{Data, Output, need},
     *,
 };
 use crate::domain::{
@@ -9,15 +9,23 @@ use crate::domain::{
     normalized::{callables::*, entities::*},
     resources::ResourceBudget,
 };
-pub struct Prepared<'a> {
-    data: &'a Data,
-    output: &'a Output,
+pub struct Prepared {
+    data: classification::ClassificationData,
+    output: Output,
+    index: preparation::Index,
 }
-impl<'a> Prepared<'a> {
-    pub fn new(data: &'a Data, output: &'a Output, b: &ResourceBudget) -> Result<Self, ModelError> {
+impl Prepared {
+    pub fn new(data: &Data, output: &Output, b: &ResourceBudget) -> Result<Self, ModelError> {
         output.matches(&build::build(data, b)?)?;
-        Ok(Self { data, output })
+        Self::from_local_rows(classification::ClassificationData::project(data,b)?, classification::copy_output(output,b)?, b)
     }
+    /// Checks local finite integrity only. This grants no publication or repository admission.
+    pub fn from_local_rows(data: classification::ClassificationData, output: Output, b: &ResourceBudget) -> Result<Self,ModelError> {
+        let index = preparation::Index::new(&data,&output,b)?;
+        Ok(Self { data,output,index })
+    }
+    pub fn data(&self) -> &classification::ClassificationData { &self.data }
+    pub fn output(&self) -> &Output { &self.output }
     pub fn classify(
         &self,
         member: Id<catalog::CatalogMember>,
@@ -26,40 +34,13 @@ impl<'a> Prepared<'a> {
         b: &ResourceBudget,
     ) -> Result<Classified, ModelError> {
         requirement.predicate.validate()?;
-        let mut domains = self.output.domains.iter().filter(|r| {
-            r.member == member && r.analysis == analysis && r.kind == requirement.predicate.domain()
-        });
-        let stored = domains
-            .next()
-            .ok_or_else(|| invalid("selection has no admitted member/context domain"))?;
-        if domains.next().is_some() {
-            return Err(invalid("duplicate finite selection domain"));
-        }
-        let count = self
-            .output
-            .members
-            .iter()
-            .filter(|r| r.domain == stored.id())
-            .count();
-        let evidence_count = self
-            .output
-            .evidence
-            .iter()
-            .filter(|r| r.domain == stored.id())
-            .count();
-        let closure_count = self
-            .output
-            .closure
-            .iter()
-            .filter(|r| r.domain == stored.id())
-            .count();
-        let expanded = count.saturating_add(
-            self.output
-                .evidence
-                .iter()
-                .filter(|r| r.domain == stored.id())
-                .count(),
-        );
+        let id = self.index.domain(member, analysis, requirement.predicate.domain())?;
+        let stored = need(&self.output.domains,id)?;
+        let members = self.index.members(id);
+        let count = members.len();
+        let evidence_count = members.iter().map(|link| self.index.evidence(id,need(&self.output.members,*link).expect("indexed membership").context).len()).sum::<usize>();
+        let closure_count = self.index.closure(id).len();
+        let expanded = count.saturating_add(evidence_count);
         let retained = expanded
             .saturating_mul(
                 size_of::<Observation>() + size_of::<Context>() + size_of::<ClaimContext>(),
@@ -67,12 +48,8 @@ impl<'a> Prepared<'a> {
             .saturating_add((evidence_count + closure_count).saturating_mul(size_of::<Witness>()));
         let _reservation = b.reserve("selection-domain-observations", retained)?;
         let mut observations = Vec::new();
-        for link in self
-            .output
-            .members
-            .iter()
-            .filter(|r| r.domain == stored.id())
-        {
+        for link in members {
+            let link = need(&self.output.members,*link)?;
             let c = need(&self.output.contexts, link.context)?;
             if matches!(
                 requirement.predicate,
@@ -91,13 +68,9 @@ impl<'a> Prepared<'a> {
                 continue;
             }
             let mut evidence = Vec::new();
-            for r in self
-                .output
-                .evidence
-                .iter()
-                .filter(|r| r.domain == stored.id() && r.context == link.context)
-            {
-                evidence.push(need(&self.output.witnesses, r.witness)?.clone());
+            for id in self.index.evidence(stored.id(),link.context) {
+                let r = need(&self.output.evidence,*id)?;
+                evidence.push(need(&self.output.witnesses,r.witness)?.clone());
             }
             if let Predicate::ParameterType { name, r#type } = &requirement.predicate {
                 let mut emitted = false;
@@ -106,11 +79,11 @@ impl<'a> Prepared<'a> {
                         continue;
                     };
                     let raw = need(&self.data.facts.type_observations, *observation)?;
-                    if !type_applies(self.data, c, name, raw.subject)? {
+                    if !type_applies(&self.data, c, name, raw.subject)? {
                         continue;
                     }
                     emitted = true;
-                    let value = type_match(self.data, raw.term, r#type, c.analysis())?;
+                    let value = type_match(&self.data, raw.term, r#type, c.analysis())?;
                     let context = ClaimContext::Declaration(c.clone());
                     observations.push(Observation {
                         context: context.clone(),
@@ -129,7 +102,7 @@ impl<'a> Prepared<'a> {
                 }
             }
             let value = evaluate(
-                self.data,
+                &self.data,
                 &requirement.predicate,
                 c,
                 &evidence,
@@ -155,13 +128,9 @@ impl<'a> Prepared<'a> {
             });
         }
         let mut closure = Vec::new();
-        for r in self
-            .output
-            .closure
-            .iter()
-            .filter(|r| r.domain == stored.id())
-        {
-            closure.push(need(&self.output.witnesses, r.evidence)?.clone());
+        for id in self.index.closure(stored.id()) {
+            let r = need(&self.output.closure,*id)?;
+            closure.push(need(&self.output.witnesses,r.evidence)?.clone());
         }
         let domain = Domain {
             corpus_complete: stored.corpus_complete,
@@ -205,7 +174,7 @@ impl Selected {
         })
     }
 }
-impl Prepared<'_> {
+impl Prepared {
     pub fn select(
         &self,
         selection: &Selection,
@@ -253,7 +222,7 @@ impl Prepared<'_> {
             candidates.push(CandidateSelection {
                 member: domain.member,
                 analysis: domain.analysis,
-                path: public_path(self.data, member)?,
+                path: public_path(&self.data, member)?,
                 requirements,
                 joint,
                 outcome,
@@ -267,7 +236,7 @@ impl Prepared<'_> {
         })
     }
 }
-fn public_path(d: &Data, m: &catalog::CatalogMember) -> Result<Vec<String>, ModelError> {
+fn public_path(d: &classification::ClassificationData, m: &catalog::CatalogMember) -> Result<Vec<String>, ModelError> {
     let module = need(&d.source.core.modules, m.access)?;
     let mut path = module
         .qualified_name
@@ -289,14 +258,14 @@ fn consensus(values: impl IntoIterator<Item = Option<bool>>) -> Option<bool> {
     found
 }
 fn member_of<'a>(
-    d: &'a Data,
+    d: &'a classification::ClassificationData,
     c: &Context,
 ) -> Result<Option<&'a catalog::CatalogMember>, ModelError> {
     c.member()
         .map(|id| need(&d.source.catalog.members, id))
         .transpose()
 }
-fn option_name<'a>(d: &'a Data, o: &catalog::CatalogOption) -> Result<Option<&'a str>, ModelError> {
+fn option_name<'a>(d: &'a classification::ClassificationData, o: &catalog::CatalogOption) -> Result<Option<&'a str>, ModelError> {
     Ok(match need(&d.source.catalog.subjects, o.subject)? {
         catalog::CatalogOptionSubject::Parameter { slot } => {
             let slot = need(&d.source.core.slots, *slot)?;
@@ -312,7 +281,7 @@ fn option_name<'a>(d: &'a Data, o: &catalog::CatalogOption) -> Result<Option<&'a
         catalog::CatalogOptionSubject::SourceParameter { .. } => None,
     })
 }
-fn default_state(d: &Data, o: &catalog::CatalogOption) -> Result<DefaultState, ModelError> {
+fn default_state(d: &classification::ClassificationData, o: &catalog::CatalogOption) -> Result<DefaultState, ModelError> {
     Ok(match need(&d.source.catalog.defaults, o.default)? {
         catalog::CatalogDefault::Absent {} => DefaultState::Absent,
         catalog::CatalogDefault::Unavailable {} => DefaultState::OptionalExpressionUnavailable,
@@ -329,7 +298,7 @@ fn default_state(d: &Data, o: &catalog::CatalogOption) -> Result<DefaultState, M
     })
 }
 fn type_match(
-    d: &Data,
+    d: &classification::ClassificationData,
     term: Id<types::TypeTerm>,
     query: &StructuralType,
     analysis: Id<attribution::AnalysisContext>,
@@ -388,7 +357,7 @@ fn type_match(
     })
 }
 fn type_applies(
-    d: &Data,
+    d: &classification::ClassificationData,
     c: &Context,
     name: &str,
     subject: Id<source::Occurrence>,
@@ -426,7 +395,7 @@ fn type_applies(
     Ok(false)
 }
 fn literal_domain(
-    d: &Data,
+    d: &classification::ClassificationData,
     term: Id<types::TypeTerm>,
     literal: Id<value::Literal>,
 ) -> Result<Option<bool>, ModelError> {
@@ -463,7 +432,7 @@ fn literal_domain(
     })
 }
 fn field_literal(
-    d: &Data,
+    d: &classification::ClassificationData,
     o: &catalog::CatalogOption,
     literal: Id<value::Literal>,
     context: Id<attribution::AnalysisContext>,
@@ -494,7 +463,7 @@ fn field_literal(
     }
     Ok(consensus(values))
 }
-fn parameter(d: &Data, p: &Predicate, c: &Context) -> Result<Option<bool>, ModelError> {
+fn parameter(d: &classification::ClassificationData, p: &Predicate, c: &Context) -> Result<Option<bool>, ModelError> {
     let Context::Signature { invocation, .. } = c else {
         return Ok(None);
     };
@@ -587,7 +556,7 @@ fn parameter(d: &Data, p: &Predicate, c: &Context) -> Result<Option<bool>, Model
     }
 }
 fn candidate_entity(
-    d: &Data,
+    d: &classification::ClassificationData,
     candidate: Id<catalog::CatalogCandidate>,
 ) -> Result<Option<Id<EntityRef>>, ModelError> {
     let r = need(&d.source.catalog.candidates, candidate)?;
@@ -602,7 +571,7 @@ fn candidate_entity(
         .transpose()
 }
 fn evaluate(
-    d: &Data,
+    d: &classification::ClassificationData,
     p: &Predicate,
     c: &Context,
     w: &[Witness],

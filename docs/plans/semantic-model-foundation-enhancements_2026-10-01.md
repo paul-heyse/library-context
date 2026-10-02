@@ -259,8 +259,8 @@ for external rows and diagnosis. Initial production preparation uses the propose
 through an explicit injected budget. The remaining ADR-0114 serving proposals are not accepted or
 implemented by settling this foundation-only contract.
 
-**Current package state, 2026-10-01:** F2/F3 local implementation and focused acceptance passed;
-F1 in progress. Scope-end functional/hygiene qualification remains not_run.
+**Current package state, 2026-10-02:** F1–F3 local implementation and composite focused acceptance passed.
+Scope-end functional/hygiene qualification is next; broader Phase 5 remains outside this scope.
 
 ### 5.1 F2 focused receipt — 2026-10-01
 
@@ -327,3 +327,85 @@ finding (SHA256 `43d6dde006d133c6a8214de9d388c3dd133cf9676384c64339fd8ad3c10425a
 resource control proves no admission-only Entry retention for Catalog under a one-byte budget,
 while Behavioral still reaches Entry, theory and field inventories. This is composite focused
 acceptance; final scope qualification and the assembled target review remain pending.
+
+
+### 5.3 F1 implementation and focused receipt — 2026-10-02
+
+The model owns one explicit 45-relation classification inventory, six C2 output relations and
+charged private domain/membership/evidence/closure indexes. Strict preparation still performs broad
+C2 replay before projecting owned metadata. Both constructors use the same finite classifier and
+conjunction operations; local-row preparation grants no canonical store capability.
+
+The serving-role `GenerationReader` shares canonical lease acquisition without provisioning
+credentials. Its opaque admitted owner verifies the Catalog envelope, applicable C2 availability,
+matching validator receipts, current consumed content and captured producer/source/epoch receipts
+on the original leased connection. Shared ownership retains one reservation and lease; detected
+loss is terminal. Source capture metadata is read and content-verified before interpretation.
+
+- **passed:** normalized model/core and PostgreSQL compile checks, followed by `python3
+  scripts/build_environment.py -- cargo check -p lctx --test compile_facts -p lctx-model --test
+  domain_selection_catalog` on the corrected source.
+- **failed, corrected:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3
+  scripts/build_environment.py -- cargo nextest run --release -p lctx-model --test
+  domain_selection_catalog --test domain_selection` initially passed 21 controls and failed
+  the retained unknown receiver-location case. Local reference checking now requires access
+  ownership only when receiver knowledge is Known, and a scenario alternative only for
+  ResolvedTarget, matching the existing evaluator's dereferences. The corrected rerun passed
+  all 22 controls; the subsequent added positive shuffled-input control passed in the 23-control
+  model runs below. No exact receiver-state promotion was introduced.
+- **failed, corrected:** actual Catalog admission runs `18f72abd-ce57-4e4a-a2c8-735bcd18c57b`,
+  `87fb9b9b-18d3-412f-8f2e-0909c65da4d7` and `80ddd5dc-247c-4cb8-a750-4b012eec318d`
+  refused at the captured-source boundary. Error-only diagnostics isolated the discrepancy and
+  were removed before the final source: ordinary `normalize_relations` outputs legitimately
+  inherit Facts authority but have no explicit `publication_outputs` group row.
+- **Interface-checked correction:** the already content-verified canonical C2 capture and matching
+  invocation-input validator establish inherited ordinary completion metadata. Admission resolves
+  that boundary against the generation's finite registered order and closed groups, retaining
+  schedule, physical, stage-receipt and payload checks. Explicit group outputs still require exact
+  `publication_outputs` epoch identity; vocabulary sources receive no ordinary fallback. This
+  closes the source defect identified as
+  `semantic-foundations-assembled#F01` only after the real-generation controls below pass.
+- **failed, fixture corrected:** run `601be203-0670-4735-bb16-e246cc8f5e14` passed all 23 model
+  controls and reached successful Catalog admission, strict parity and corruption checks, then
+  failed a new negative control's assumption that an explicit non-vocabulary group source also
+  belonged to the narrow classifier inventory. The control now requires an actual explicitly
+  grouped C2-captured source, whose identity is independently required by admission; it does not
+  silently skip when absent.
+- **failed, infrastructure:** run `a1781ae8-7701-47f2-9f8c-12b1fd3105d2` passed all 23 model
+  controls, but the CLI control lost its disposable PostgreSQL transport and could not confirm
+  rollback, before selection admission. No production change or global cleanup followed. This
+  failed receipt remains distinct from the source and fixture corrections.
+
+- **failed, infrastructure:** unchanged-source normal-cleanup retries
+  `14f87ff6-c3e7-40a6-96c3-4b9eb85a04b2` and `838be72f-50ff-4e98-a619-6ee33414fc69`
+  again passed 23 model controls and lost the disposable database before admission. Scoped Docker
+  events recorded SIGKILL/exit 137 and removal within seven seconds; no OOM event was found.
+  Concurrent external probes were observed, but the API caller and causal attribution remain
+  unconfirmed. No external container or project state was changed.
+- **passed, diagnostic configuration:** with `TESTCONTAINERS_COMMAND=keep`, the unchanged actual
+  Catalog control passed both profiles and all controls in 259.510 seconds, run
+  `9580e4d1-0932-4c8a-bce2-0b1abc0133be`. Only this task's retained disposable container was
+  removed after its logs/state were captured. This diagnostic alone was not scope qualification.
+- **passed, normal cleanup:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3
+  scripts/build_environment.py -- cargo nextest run --release -p lctx --test compile_facts -E
+  'test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'`, run
+  `f8872936-a8cd-4d1d-80fb-8945b13dad95`, one actual CLI control passed in 292.459 seconds.
+  It covers canonical Catalog in both profiles, repeated narrow/strict classification and
+  conjunction parity, validly encoded changed-row refusal, missing evidence/validator refusal,
+  exact foreign group identity with unchanged payload/receipts, schedule/epoch receipt refusal,
+  budget/Arc retention/release, retirement exclusion, cancellation at a blocked real relation
+  read with cleanup, original guard loss and refusal despite an independent replacement lease.
+- **passed, composite focused model receipt:** the final-source command `NEXTEST_TEST_THREADS=8
+  INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run --release -p lctx-model
+  --test domain_selection_catalog --test domain_selection -p lctx --test compile_facts -E
+  'package(lctx-model) | test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'`
+  passed all 23 pure model controls in run `838be72f-50ff-4e98-a619-6ee33414fc69`; its failed CLI
+  control is covered by the normal-cleanup rerun above. Hand-expected outcomes remain the oracle;
+  narrow/strict parity uses the same classifier and is not an independent semantic oracle.
+
+The final twelve-file SHA256 manifest hash is
+`4cdf231af277d83745e8c78667660b92240861ea09638dc55181a52252000e14`; all entries were rechecked
+before integration. Independent source review approved the repaired admission path. Review
+`semantic-foundations-assembled#F01` is **Closed / Tested, 2026-10-02** within these both-profile
+real-generation controls. No performance, total-RSS, live embedding or broader serving claim is
+established. Scope-end qualification follows in §5.4.

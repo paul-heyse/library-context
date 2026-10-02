@@ -40,6 +40,10 @@ impl SourceSnapshot {
             prefix: source.prefix().map(|prefix| format!("{prefix:?}")),
         })
     }
+    pub fn producer(&self) -> &str { &self.producer }
+    pub fn schedule(&self) -> ContentHash { self.schedule }
+    pub fn physical(&self) -> &str { &self.physical }
+    pub fn prefix(&self) -> Option<&str> { self.prefix.as_deref() }
     pub fn relation(&self) -> &str {
         &self.relation
     }

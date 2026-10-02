@@ -286,6 +286,7 @@ async fn binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_out
                 .unwrap();
             assert!(members > 0);
             if through == "catalog" {
+                qualify_admitted_selection(&db,&store,generation.id,&dir.path().join("postgres-serving.json")).await;
                 for owner in ["selection", "synthesis", "retrieval"] {
                     assert!(outcomes.iter().any(|row| row["owner"] == owner));
                 }
@@ -508,4 +509,121 @@ class RecordHolder:
             .unwrap()
             .clean()
     );
+}
+
+/// F1 qualification stays on actual binary-produced canonical Catalog generations.
+async fn qualify_admitted_selection(db:&DisposableDatabase,store:&GenerationStore,g:lctx_postgres::generations::GenerationId,config:&Path) {
+    use lctx_model::domain::{*, selection::{self,Mode,JointPolicy,Predicate,Quantifier,Requirement},resources::ResourceBudget,normalized::callables::{EffectiveCallableAssessment,DescriptorKind}};
+    use lctx_postgres::generations::{GenerationReader,SELECTION_PREPARATION_BYTES,Error};
+    let hex=g.hex();let generation_bytes=(0..16).map(|i|u8::from_str_radix(&hex[2*i..2*i+2],16).unwrap()).collect::<Vec<_>>();
+    let role=lctx_postgres::roles::RoleConfig::load(config).unwrap();
+    let reader=GenerationReader::connect(Arc::new(lctx_model::domain::model().unwrap()),&role).await.unwrap();
+    let budget=ResourceBudget::fixed(SELECTION_PREPARATION_BYTES).unwrap();
+    let admitted=reader.prepare_selection(g,budget.clone()).await.unwrap();
+    assert_eq!(admitted.generation().await,g);
+    assert!(budget.reserved()>0);
+    let diagnostic=ResourceBudget::fixed(512<<20).unwrap();
+    let mut lease=store.pin(&db.reader,g,diagnostic.clone()).await.unwrap();
+    let strict=lease.prepare_selection_strict().await.unwrap();
+    let request=ResourceBudget::fixed(32<<20).unwrap();
+    for predicate in [Predicate::PublicModule{module:"demo".into()},Predicate::DeclaresParameter{name:"x".into()},Predicate::ParameterRequired{name:"x".into(),required:true},Predicate::InvocationForm{form:selection::InvocationForm::Function}] {
+        let query=selection::Selection{requirements:vec![Requirement{predicate,quantifier:Quantifier::AnyApplicable}],mode:Mode::Discovery,joint:JointPolicy::RequireCompatible};
+        let expected=strict.select(&query,&request).unwrap();
+        for _ in 0..2 {
+            let actual=admitted.select(&query,&request).await.unwrap();
+            assert_eq!(actual.mode,expected.mode);assert_eq!(actual.candidates.len(),expected.candidates.len());
+            for (left,right) in actual.candidates.iter().zip(&expected.candidates) {
+                assert_eq!((left.member,left.analysis,&left.path,left.outcome,left.joint),(right.member,right.analysis,&right.path,right.outcome,right.joint));
+                assert_eq!(left.requirements.len(),right.requirements.len());
+                for (left,right) in left.requirements.iter().zip(&right.requirements) {
+                    assert_eq!((&left.requirement,left.outcome,left.reason,left.examined,left.total,left.corpus_complete,left.analyzer_complete,&left.closure),(&right.requirement,right.outcome,right.reason,right.examined,right.total,right.corpus_complete,right.analyzer_complete,&right.closure));
+                    assert_eq!(format!("{:?}",left.witnesses),format!("{:?}",right.witnesses));
+                    assert_eq!(left.admissible().collect::<Vec<_>>(),right.admissible().collect::<Vec<_>>());
+                }
+            }
+        }
+    }
+    let assessments=lease.read::<EffectiveCallableAssessment>().await.unwrap();
+    let original=assessments.rows().iter().find(|r|r.descriptor_kind==Some(DescriptorKind::Function)).unwrap().clone();
+    let mut changed=original.clone();changed.descriptor_kind=Some(DescriptorKind::StaticMethod);changed.validate().unwrap();assert_eq!(changed.id(),original.id());
+    drop(assessments);drop(strict);lease.release().await.unwrap();assert_eq!(diagnostic.reserved(),0);
+    let clone=admitted.clone();drop(admitted);assert!(budget.reserved()>0);
+    assert!(matches!(store.retire(g).await,Err(Error::Busy)));
+    clone.release().await.unwrap();assert_eq!(budget.reserved(),0);
+    let small=ResourceBudget::fixed(1).unwrap();assert!(reader.prepare_selection(g,small.clone()).await.is_err());assert_eq!(small.reserved(),0);
+    let mut admin=db.owner.pool().acquire().await.unwrap();admin.close_on_drop();
+    let table=format!("{}.{}",g.schema(),EffectiveCallableAssessment::NAME);
+    sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {table} SET descriptor_kind=$1 WHERE id=$2"))).bind(changed.descriptor_kind.unwrap().code()).bind(original.id().bytes().to_vec()).execute(&mut *admin).await.unwrap();
+    // The typed codec confirms a valid encoded semantic change, while its old receipt remains.
+    let mut control=store.pin(&db.reader,g,ResourceBudget::fixed(32<<20).unwrap()).await.unwrap();
+    let encoded=control.read::<EffectiveCallableAssessment>().await.unwrap();assert!(encoded.rows().contains(&changed));drop(encoded);control.release().await.unwrap();
+    assert!(matches!(reader.prepare_selection(g,budget.clone()).await,Err(Error::Contract)));assert_eq!(budget.reserved(),0);
+    sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {table} SET descriptor_kind=$1 WHERE id=$2"))).bind(original.descriptor_kind.unwrap().code()).bind(original.id().bytes().to_vec()).execute(&mut *admin).await.unwrap();
+    let evidence=format!("{}.{}",g.schema(),selection::DomainEvidence::NAME);
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE TEMP TABLE removed_selection_evidence AS SELECT * FROM {evidence} LIMIT 1"))).execute(&mut *admin).await.unwrap();
+    let deleted=sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {evidence} WHERE id IN (SELECT id FROM removed_selection_evidence)"))).execute(&mut *admin).await.unwrap();assert_eq!(deleted.rows_affected(),1);
+    assert!(reader.prepare_selection(g,budget.clone()).await.is_err());assert_eq!(budget.reserved(),0);
+    sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {evidence} SELECT * FROM removed_selection_evidence"))).execute(&mut *admin).await.unwrap();
+    sqlx::query("CREATE TEMP TABLE removed_selection_validation AS SELECT * FROM lctx_model_store.validation_receipts WHERE generation_id=$1 AND validator_name='catalog_selection_declaration_closure'").bind(generation_bytes.clone()).execute(&mut *admin).await.unwrap();
+    sqlx::query("DELETE FROM lctx_model_store.validation_receipts WHERE generation_id=$1 AND validator_name='catalog_selection_declaration_closure'").bind(generation_bytes.clone()).execute(&mut *admin).await.unwrap();
+    assert!(reader.prepare_selection(g,budget.clone()).await.is_err());assert_eq!(budget.reserved(),0);
+    sqlx::query("INSERT INTO lctx_model_store.validation_receipts SELECT * FROM removed_selection_validation").execute(&mut *admin).await.unwrap();
+    // Control metadata identity changes leave canonical relation hashes intact, exercising the
+    // producer source/epoch resolver rather than merely the generic row hash mismatch.
+    let mut audit=store.pin(&db.reader,g,ResourceBudget::fixed(32<<20).unwrap()).await.unwrap();
+    let sources=audit.read::<analysis::selection::SourceReceipt>().await.unwrap();let source=sources.rows().iter().find(|r|stages::is_vocabulary(r.source().relation()) && r.source().prefix().is_some()).unwrap().source();
+    let mut nominal=None;
+    for row in sources.rows().iter() {
+        let candidate=row.source();
+        if !stages::is_vocabulary(candidate.relation()) && candidate.prefix().is_some() {
+            let grouped:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.publication_outputs WHERE generation_id=$1 AND stage_name=$2 AND relation_name=$3)").bind(generation_bytes.clone()).bind(candidate.producer()).bind(candidate.relation()).fetch_one(&mut *admin).await.unwrap();
+            if grouped {nominal=Some(candidate);break;}
+        }
+    }
+    let nominal=nominal.expect("C2 captures a non-vocabulary explicit producer group");
+    drop(sources);audit.release().await.unwrap();
+    // This control covers C2's captured source identity, including metadata beyond the narrow
+    // classifier inputs. A different closed, FK-valid producer group cannot authorize an
+    // unchanged capture hash: all canonical row and receipt payloads remain preserved.
+    let original_epoch:i16=sqlx::query_scalar("SELECT epoch FROM lctx_model_store.publication_outputs WHERE generation_id=$1 AND stage_name=$2 AND relation_name=$3").bind(generation_bytes.clone()).bind(nominal.producer()).bind(nominal.relation()).fetch_one(&mut *admin).await.unwrap();
+    let foreign_epoch:i16=sqlx::query_scalar("SELECT epoch FROM lctx_model_store.publication_groups WHERE generation_id=$1 AND closed AND epoch<>$2 ORDER BY epoch LIMIT 1").bind(generation_bytes.clone()).bind(original_epoch).fetch_one(&mut *admin).await.unwrap();
+    let swapped=sqlx::query("UPDATE lctx_model_store.publication_outputs SET epoch=$4 WHERE generation_id=$1 AND stage_name=$2 AND relation_name=$3").bind(generation_bytes.clone()).bind(nominal.producer()).bind(nominal.relation()).bind(foreign_epoch).execute(&mut *admin).await.unwrap();assert_eq!(swapped.rows_affected(),1);
+    assert!(matches!(reader.prepare_selection(g,budget.clone()).await,Err(Error::Contract)));assert_eq!(budget.reserved(),0);
+    sqlx::query("UPDATE lctx_model_store.publication_outputs SET epoch=$4 WHERE generation_id=$1 AND stage_name=$2 AND relation_name=$3").bind(generation_bytes.clone()).bind(nominal.producer()).bind(nominal.relation()).bind(original_epoch).execute(&mut *admin).await.unwrap();
+    sqlx::query("UPDATE lctx_model_store.stage_receipts SET schedule_digest=$4 WHERE generation_id=$1 AND stage_name=$2 AND relation_name=$3").bind(generation_bytes.clone()).bind(source.producer()).bind(source.relation()).bind(vec![1u8;32]).execute(&mut *admin).await.unwrap();
+    assert!(reader.prepare_selection(g,budget.clone()).await.is_err());assert_eq!(budget.reserved(),0);
+    sqlx::query("UPDATE lctx_model_store.stage_receipts SET schedule_digest=$4 WHERE generation_id=$1 AND stage_name=$2 AND relation_name=$3").bind(generation_bytes.clone()).bind(source.producer()).bind(source.relation()).bind(source.schedule().0.to_vec()).execute(&mut *admin).await.unwrap();
+    sqlx::query("UPDATE lctx_model_store.publication_groups SET schedule_digest=$2 WHERE generation_id=$1 AND boundary=0").bind(generation_bytes.clone()).bind(vec![2u8;32]).execute(&mut *admin).await.unwrap();
+    assert!(reader.prepare_selection(g,budget.clone()).await.is_err());assert_eq!(budget.reserved(),0);
+    sqlx::query("UPDATE lctx_model_store.publication_groups SET schedule_digest=$2 WHERE generation_id=$1 AND boundary=0").bind(generation_bytes.clone()).bind(source.schedule().0.to_vec()).execute(&mut *admin).await.unwrap();
+    // An epoch receipt for a foreign payload cannot authorize the declared producer prefix.
+    sqlx::query("CREATE TEMP TABLE original_selection_epochs AS SELECT * FROM lctx_model_store.epoch_receipts WHERE generation_id=$1 AND relation_name=$2").bind(generation_bytes.clone()).bind(source.relation()).execute(&mut *admin).await.unwrap();
+    sqlx::query("UPDATE lctx_model_store.epoch_receipts SET content_digest=$3 WHERE generation_id=$1 AND relation_name=$2").bind(generation_bytes.clone()).bind(source.relation()).bind(vec![3u8;32]).execute(&mut *admin).await.unwrap();
+    assert!(reader.prepare_selection(g,budget.clone()).await.is_err());assert_eq!(budget.reserved(),0);
+    sqlx::query("UPDATE lctx_model_store.epoch_receipts r SET content_digest=o.content_digest FROM original_selection_epochs o WHERE r.generation_id=o.generation_id AND r.epoch=o.epoch AND r.relation_name=o.relation_name").execute(&mut *admin).await.unwrap();
+    drop(admin);
+    // Suspend at a real canonical table read, then cancel. No arbitrary callback or mock provider.
+    let mut blocked=db.owner.pool().begin().await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!("LOCK TABLE {}.{} IN ACCESS EXCLUSIVE MODE",g.schema(),catalog::CatalogMember::NAME))).execute(&mut *blocked).await.unwrap();
+    let read=reader.clone();let held=budget.clone();let task=tokio::spawn(async move{read.prepare_selection(g,held).await});
+    let catalog=lctx_postgres::generations::GenerationCatalog::new(db.reader.clone());
+    tokio::time::timeout(std::time::Duration::from_secs(10),async {loop{
+        let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='relation' AND NOT granted AND mode='AccessShareLock' AND relation=$1::regclass)").bind(format!("{}.{}",g.schema(),catalog::CatalogMember::NAME)).fetch_one(&db.superuser).await.unwrap();
+        if waiting && catalog.show(g).await.unwrap().unwrap().summary.readers>0 {break;}
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }}).await.unwrap();
+    assert!(budget.reserved()>0,"preparation must be suspended with retained state");
+    task.abort();assert!(task.await.is_err_and(|e|e.is_cancelled()));blocked.rollback().await.unwrap();
+    assert_eq!(budget.reserved(),0);
+    tokio::time::timeout(std::time::Duration::from_secs(10),async {loop{if catalog.show(g).await.unwrap().unwrap().summary.readers==0 {break;}tokio::time::sleep(std::time::Duration::from_millis(10)).await;}}).await.unwrap();
+    let admitted=reader.prepare_selection(g,budget.clone()).await.unwrap();
+    let key=i64::from_le_bytes(generation_bytes[..8].try_into().unwrap());let high=(key as u64>>32) as i64;let low=(key as u64&0xffff_ffff) as i64;
+    let pid:i32=sqlx::query_scalar("SELECT pid FROM pg_locks WHERE locktype='advisory' AND granted AND mode='ShareLock' AND objsubid=1 AND classid::bigint=$1 AND objid::bigint=$2").bind(high).bind(low).fetch_one(&db.superuser).await.unwrap();
+    sqlx::query("SELECT pg_terminate_backend($1)").bind(pid).execute(&db.superuser).await.unwrap();
+    let query=selection::Selection{requirements:vec![],mode:Mode::Discovery,joint:JointPolicy::RequireCompatible};
+    assert!(admitted.select(&query,&request).await.is_err());
+    // A new independent generation lease cannot revive the lost original capability.
+    let replacement=store.pin(&db.reader,g,ResourceBudget::fixed(32<<20).unwrap()).await.unwrap();
+    assert!(matches!(admitted.select(&query,&request).await,Err(Error::State)));drop(admitted);assert_eq!(budget.reserved(),0);replacement.release().await.unwrap();
+    reader.close().await;
 }

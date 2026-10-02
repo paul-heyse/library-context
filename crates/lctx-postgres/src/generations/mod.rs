@@ -9,6 +9,10 @@ mod lifecycle;
 pub(crate) mod locks;
 mod publication_validation;
 mod receipts;
+mod reader;
+mod selection;
+pub use reader::GenerationReader;
+pub use selection::{AdmittedSelection,SELECTION_PREPARATION_BYTES};
 mod stage_validation;
 mod validation_views;
 mod verify;
@@ -515,18 +519,7 @@ impl GenerationStore {
         g: GenerationId,
         budget: ResourceBudget,
     ) -> Result<GenerationLease, Error> {
-        // Keep the pool permit; closing on drop releases both the advisory lock and pool capacity.
-        let mut connection = reader.acquire().await?;
-        connection.close_on_drop();
-        let contract = self.lease_contract(g);
-        let held = contract.acquire(&mut lease::Sqlx(&mut connection)).await?;
-        Ok(GenerationLease {
-            connection,
-            contract,
-            model: self.model.clone(),
-            budget,
-            relations: held.relations,
-        })
+        GenerationLease::acquire(reader,self.model.clone(),self.lease_contract(g),budget).await
     }
     /// The lease protocol for one generation of this store's model.
     pub fn lease_contract(&self, g: GenerationId) -> LeaseContract {
@@ -729,6 +722,7 @@ async fn check_schedule(
 }
 
 pub struct GenerationLease {
+    frontier: Frontier,
     connection: sqlx::pool::PoolConnection<sqlx::Postgres>,
     contract: LeaseContract,
     model: Arc<ValidatedModel>,
@@ -737,6 +731,12 @@ pub struct GenerationLease {
     relations: BTreeSet<&'static str>,
 }
 impl GenerationLease {
+    async fn acquire(reader:&PgPool,model:Arc<ValidatedModel>,contract:LeaseContract,budget:ResourceBudget)->Result<Self,Error> {
+        // A single leased session owns both its pool permit and generation lock until release.
+        let mut connection=reader.acquire().await?;connection.close_on_drop();
+        let held=contract.acquire(&mut lease::Sqlx(&mut connection)).await?;
+        Ok(Self {connection,contract,model,budget,relations:held.relations,frontier:held.frontier})
+    }
     pub fn generation(&self) -> GenerationId {
         self.contract.generation()
     }

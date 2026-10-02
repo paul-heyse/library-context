@@ -1,6 +1,9 @@
 //! Finite catalog requirements and evidence selection; serving only lowers this contract.
 pub mod algebra;
 pub mod build;
+pub mod classification;
+pub mod admission;
+mod preparation;
 pub mod evaluate;
 pub mod frames;
 mod inventory;
