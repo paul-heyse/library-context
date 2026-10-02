@@ -1,13 +1,14 @@
 # Phase 5: generation-bound serving — detailed design and execution plan
 
-**Proposed execution target, 2026-10-01.** This plan reconstructs serving after the semantic model
+**Execution authorized, 2026-10-02; implementation in progress.** This plan reconstructs serving after the semantic model
 cutover. It is subordinate to the [cutover plan](semantic-model-cutover-plan_2026-09-29.md), which
 owns cross-phase sequence and finding disposition. [DESIGN §15.12](../design/sections/semantic-model.md#section-15-12)
 and [§11](../design/sections/synthesis-and-serving.md#section-11) own accepted architecture;
-[ADR-0114](../adr/0114-generation-serving-contracts.md) proposes the refinements below.
+[ADR-0114](../adr/0114-generation-serving-contracts.md) accepts the refinements below.
 The [foundation enhancements plan](semantic-model-foundation-enhancements_2026-10-01.md) develops
 the reusable classifier prerequisite and independently executable adapter improvements. This
-document owns Phase 5 packages and assembled completion; it does not authorize production execution.
+document owns Phase 5 packages and assembled completion. The operator authorized full execution
+on 2026-10-02 using bounded parallel work after foundation acceptance.
 
 **Interface-checked, 2026-10-01:** source inspection against main at 16ffb9e4 plus the existing dirty
 tree. Earlier Phase 4 qualification applies only to its recorded source and finite envelope.
@@ -298,7 +299,7 @@ The pinned SQLx/pgvector boundary binds decoded f32 arrays through pgvector::Vec
 contracts offer no built-in canonical bytea-to-vector cast. Do not claim an unimplemented
 vector_from_bytes view function or author an independent SQL float decoder.
 
-**Proposed ADR-0114 choice:** a narrow disposable PostgreSQL vector artifact, containing only the
+**Accepted ADR-0114 choice:** a narrow disposable PostgreSQL vector artifact, containing only the
 generation-qualified retrieval-use key and numerical vector representation, plus its artifact
 manifest. All member/context/spec/text/support semantics remain canonical views. The artifact is
 derived through domain::embedding::value decode/validation and is never manually authoritative.
@@ -408,7 +409,7 @@ verdicts. No source/library execution occurs on the query path.
 
 ## 8. Dependency-ordered execution packages
 
-Broader serving packages remain **Proposed / not_run**. The companion foundation scope implements
+Broader serving packages are **authorized / not_run** until their implementation receipts below. The companion foundation scope implements
 F1–F3 separately; its current acceptance boundary is recorded there. Contract agreement enables
 dependent drafting; only implemented and focused-verified contracts enable production integration.
 No whole-document barrier is implied.
@@ -513,10 +514,20 @@ accepting a plan closes none of them. Product findings remain at forward-plan §
 F1–F3 are scoped enhancement package identifiers, not new source-review finding IDs. Any material
 formal review findings keep their review-prefixed IDs and get one linked disposition owner.
 
-**Current state, 2026-10-02:** companion F1–F3 are implemented with composite focused
-acceptance, including both-profile real Catalog admission for the minimal canonical consumer.
-Their separate scope-end foundation qualification is in progress. Broader serving packages remain
-Proposed / not_run. The scoped target review accepts the proposed direction; ADR-0114 still needs
-acceptance or revision through D0 before broader serving implementation. Begin D0 contract
-integration, then ready M0/N0 work; C0 reuses qualified F1 preparation. Parallel foundation work need not delay
-Phase 5. Record future package progress here and in the companion only for its own packages.
+**Current state, 2026-10-02:** foundation F1–F3 are implemented with completed functional
+qualification and composite hygiene; the companion §5.4 owns exact receipts and the post-hook
+source boundary. D0 accepts ADR-0114 and the resource/identity contracts in §§3–4. Broader serving
+is authorized but remains unavailable. Production packages integrate only after working contracts;
+C0 reuses the existing admitted F1 classifier and shares one process guard across consumers.
+
+Execution baseline: main `7ec3e3c6` plus 118 preserved dirty tracked paths, frozen as temporary
+snapshot `bd22f66c71023cf7ca642eea8e82689941e5ac44`. Preservation copies and binary diff are at
+`/tmp/lctx-phase5-baseline-2026-10-02/`. This snapshot isolates concurrent production work;
+it is not a broad commit of unrelated changes on main. One root owns integration, declarations,
+lowering, manifests, query metadata and final acceptance. No formatting/generator exception is assumed.
+
+| Package | Current implementation / acceptance |
+|---|---|
+| D0 | Accepted target, 2026-10-02; ADR-0114 and architecture updated. No serving qualification claimed. |
+| M0–X0 | Authorized; implementation follows working dependencies. |
+| Q0 | not_run until all functional packages and retirement complete. |

@@ -232,7 +232,7 @@ pinned disposable environment, without a generic shell semantics engine or manda
 
 ## §14.7 Query semantics and customizable requirements
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0077, ADR-0081, ADR-0085; proposed refinement ADR-0114
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0077, ADR-0081, ADR-0085; ADR-0114
 
 **Implemented / focused-Tested foundation, 2026-10-02:** the
 [foundation enhancement scope](../../plans/semantic-model-foundation-enhancements_2026-10-01.md)
@@ -242,10 +242,10 @@ and conjunction operations; standalone preparation still performs the authoritat
 The opaque canonical PostgreSQL consumer verifies content, captured source/epoch identity,
 applicable selection availability and matching C2 validator receipts, retaining the original
 serving-role generation lease. Actual Catalog admission, strict replay parity, corruption refusal
-and lifetime controls passed in both profiles on 2026-10-02; scope-end qualification is in progress.
+and lifetime controls passed in both profiles on 2026-10-02; foundation qualification passed within companion §5.4’s recorded source boundary.
 These foundations do not activate catalog routes or MCP serving.
 
-**Proposed serving integration, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
+**Accepted serving target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
 and the [Phase 5 plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md) develop
 process-wide preparation and the remaining request, lifecycle and representation contracts.
 They establish no new predicate semantics.
@@ -305,9 +305,9 @@ its final limit; bounded ranking never claims exhaustiveness.
 
 ## §14.8 Retrieval units, witnesses and ranking
 
-> Decision: ADR-0077, ADR-0085; proposed refinement ADR-0114
+> Decision: ADR-0077, ADR-0085; ADR-0114
 
-**Proposed refinement, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
+**Accepted target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
 places fusion and winning-witness decisions in one model operation over library numerical scores.
 Its narrow disposable exact-vector artifact derives from canonical embedding-use bytes/specs;
 semantic units, contextual membership and evidence remain canonical. Physical admission, cleanup
@@ -340,9 +340,9 @@ are derived from typed generations rather than another canonical bundle/import s
 
 ## §14.9 Agent interface and bounded implementation packet
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081; proposed refinement ADR-0114
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081; ADR-0114
 
-**Proposed refinement, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
+**Accepted target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
 and [Phase 5 packages](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md#8-dependency-ordered-execution-packages)
 specify a process generation guard distinct from request SQL occupancy, one CPU admission owner,
 current model-derived wire mappings and bounded native exact-input reconstruction. The ten retained

@@ -1,6 +1,6 @@
 # Semantic-model foundations: focused enhancement plan
 
-**Execution authorized, 2026-10-01; implementation and acceptance in progress.** Companion to the
+**Implemented / Tested within foundation scope, 2026-10-02.** Companion to the
 [Phase 5 plan](semantic-model-phase5-detailed-plan_2026-10-01.md), which owns the combined serving
 target, shared contracts and assembled acceptance. The [cutover plan](semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
 continues to own cross-phase findings. This document owns only F1–F3 enhancement packages and their
@@ -478,7 +478,20 @@ its digest; no relation, column, reference, sum or codebook declaration changed.
 All hygiene components have passed through the initial run plus corrected `just clippy` and
 `just store-check`: this is a **composite hygiene receipt**, not an initially clean run.
 
-A fresh final-source `NEXTEST_TEST_THREADS=8 just test-all` is executing with the reviewed snapshot
-and cached oracle CLI build. Final results will be recorded here; focused or diagnostic passes do not replace these
-obligations. The independent review's original source manifest remains a dated baseline; only
-these two non-behavioral Clippy corrections follow it.
+**passed, final functional receipt:** `NEXTEST_TEST_THREADS=8 just test-all`, log
+`/tmp/lctx-foundations-test-all_final_2026-10-02.log`, completed with exit 0. Workspace Nextest
+`8a8d7c00-de63-4745-844f-ff399f0b880a`: 1,000 passed, 12 skipped (814.353 seconds).
+Python/oracles: 238 passed, 56 skipped. Separate PostgreSQL Nextest
+`9b20ef93-0c13-4d94-934f-a934eccde9d7`: 376 passed, two skipped, one binary excluded
+(867.853 seconds). Release CLI build and workspace doctests passed; doctests total 34 passed,
+two ignored. Both-profile canonical admission controls passed in both Rust runs.
+
+The final pre-hook twelve-file source manifest is
+`/tmp/lctx-f1-qualified-owned_2026-10-02.sha256`, manifest SHA256
+`7f8da4ec958ce28bd6d1e2e3dfa36920a9379ae4415b306118ae4553fd938e64`.
+The independent review's original manifest remains its dated baseline; only the two non-behavioral
+Clippy corrections preceded this final gate. The later end-of-turn hook added formatting changes,
+including producer-identity source bytes. This receipt does not claim the post-hook tree already
+passed: the operator accepted this foundation qualification as sufficient before Phase 5's detailed
+assembled testing. Phase 5 starts from the preserved current tree and qualifies its own final source.
+No live embedding, retrieval quality, speed or total-RSS claim is established.

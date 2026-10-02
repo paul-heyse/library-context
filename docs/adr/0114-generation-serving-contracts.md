@@ -1,8 +1,8 @@
 ---
 id: ADR-0114
 title: Derive serving from canonical generations and prepare bounded consumers
-status: proposed
-date: 2026-10-01
+status: accepted
+date: 2026-10-02
 supersedes: []
 superseded-by: null
 design: [§15.12, §11, §14.7, §14.8, §14.9]
@@ -26,7 +26,7 @@ without restoring a copied semantic serving schema.
 1. **Direct generated views and request-local reconstruction.** Smallest storage transition, but
    repeats stable catalog/native preparation and leaves vector-byte conversion unresolved.
 2. **Generated semantic views, admitted generation preparation and a narrow disposable vector
-   artifact (proposed choice).** Reuses model operations, keeps one lifecycle and canonical store,
+   artifact (selected choice).** Reuses model operations, keeps one lifecycle and canonical store,
    and localizes numerical conversion to the shared codec. Costs preparation memory, cache
    publication/cleanup and qualification of its link to canonical content.
 3. **Restore old bundle/import/projection tables.** Operationally familiar, but retains a second
@@ -37,7 +37,7 @@ without restoring a copied semantic serving schema.
 
 ## Decision
 
-This is a proposed refinement, not yet a decision in force.
+Accepted on 2026-10-02 for the authorized Phase 5 execution. Implementation and qualification remain separate from acceptance.
 
 Keep serving meanings, DTO mappings, request decoding, classification, finite native operations
 and ranking/fusion policy in lctx-model. Generate semantic views/grants/indexes through the canonical
@@ -63,6 +63,20 @@ Ranking/display policy and wire representation have separate identities, allowin
 rebuild and cursor invalidation without re-extracting unchanged canonical facts. Unit rendering
 and embedding-spec changes retain their canonical invalidation boundaries.
 
+The process guard and every prepared consumer share the original canonical lease. Two short-lived
+query connections and two admitted CPU jobs have separate bounded capacity; no Python admission
+pool duplicates it. One total request deadline is 30 seconds, including a maximum one-second worker
+admission wait. Shared reservations start at 256 MiB, preparation at 128 MiB and retained input or
+hydration at 64 MiB per request. These are admission budgets, not measured RSS. Query cleanup and
+actual worker completion precede guard release. Guard checks do not hold a mutex during pure CPU
+work; detected loss is terminal and prevents successful delivery.
+
+The selected vector policy is exact 1,024-dimensional scoring and requires an explicitly prepared
+admitted artifact. Explicit lexical-only configuration requires no vector artifact. Disclosed query
+embedding degradation changes channel identity and invalidates continuation. The finite limits are
+20 default / 100 maximum page rows, 16 requirements, one to five comparison candidates and 32 KiB
+default / 256 KiB expanded final MCP bytes, including duplicated text and structured content.
+
 ## Consequences
 
 The target removes duplicate classification/fusion and limits representation changes to owned
@@ -75,9 +89,10 @@ checked Entry/proof links; existing structural typing does not establish that in
 model compatibility and path-local refutation do not establish feasible execution or whole-operation
 absence.
 
-[DESIGN §15.12](../design/sections/semantic-model.md#section-15-12) identifies this proposed refinement;
+[DESIGN §15.12](../design/sections/semantic-model.md#section-15-12) owns this accepted target;
 the plan owns implementation/verification and the parent cutover §8 owns existing finding disposition.
-Acceptance of this record requires the scoped target decision; implementation, native/MCP journeys
-and functional/hygiene qualification remain not_run. Revisit if complete metadata preparation exceeds
+The scoped target review accepted this direction at Proposed maturity on 2026-10-01. The operator
+authorized execution on 2026-10-02; implementation, native/MCP journeys and Phase 5 functional/hygiene
+qualification remain not_run. Revisit if complete metadata preparation exceeds
 the admitted envelope, the selected exact vector profile cannot be faithfully derived, or a new
 consumer requires stronger native semantics. No new product/ANN scope is authorized by this record.

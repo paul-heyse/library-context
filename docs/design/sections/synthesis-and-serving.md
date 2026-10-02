@@ -166,14 +166,14 @@ adapter or second Python semantics engine is restored. [§14](api-and-evidence-p
 retains the product contracts and comparative qualification boundary.
 
 The [Phase 5 detailed plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
-and [foundation enhancements](../../plans/semantic-model-foundation-enhancements_2026-10-01.md)
-are **Proposed, 2026-10-01**. They specify declaration-derived wire/views, a separate process guard
-and request-connection lifetime, narrow prepared selection, bounded exact-input native reconstruction
-and model-owned fusion over library numerical scores. [ADR-0114](../../adr/0114-generation-serving-contracts.md)
-proposes the bounded serving refinements, including a disposable exact-vector artifact; it does not
-activate serving or qualify live retrieval.
+is **authorized, 2026-10-02**. [ADR-0114](../../adr/0114-generation-serving-contracts.md) accepts
+model-derived wire/views, one shared process guard with separate request connections, bounded
+prepared selection/native execution and Rust fusion over library numerical scores. The disposable
+exact-vector artifact is explicitly prepared outside read-only startup. Serving remains unavailable
+until implementation and qualification. The [foundation enhancements](../../plans/semantic-model-foundation-enhancements_2026-10-01.md#54-scope-qualification--2026-10-02)
+are Implemented / Tested within their recorded source boundary; Phase 5 qualifies the current tree.
 
-> Decision: ADR-0046, ADR-0071, ADR-0078, ADR-0080, ADR-0086; proposed refinement ADR-0114
+> Decision: ADR-0046, ADR-0071, ADR-0078, ADR-0080, ADR-0086; ADR-0114
 
 <a id="section-11-1"></a>
 

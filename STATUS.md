@@ -54,9 +54,12 @@ compiler SIGTERM remains an unconfirmed build interruption, not a proven test/th
 
 ## Next and standing limits
 
-Finish the final-source functional gate and record qualification in companion §5.4;
-recheck publication after the final documentation update. Then D0 settles ADR-0114 and integrates shared serving contracts;
-ready M0/N0 follow, and C0 reuses F1 preparation. No broader serving package is complete here.
+Full Phase 5 execution is authorized, 2026-10-02. D0 accepts ADR-0114; ready M0/N0 implementation
+starts from preserved snapshot `bd22f66c`. Foundation `NEXTEST_TEST_THREADS=8 just test-all` completed
+with exit 0: workspace 1,000 passed / 12 skipped, Python 238 passed / 56 skipped, separate PG
+376 passed / two skipped, doctests 34 passed / two ignored. Composite hygiene passed. Companion
+§5.4 owns receipts and source boundaries: subsequent hook formatting awaits Phase 5 qualification.
+Serving remains unavailable; Q0 full gates wait for complete functional scope and retirement.
 PR6 remains paused. R4's simultaneous two-variant Summary qualification remains **not_run / open**;
 current admission requires complete uniquely Bound variants. Revisit R4 before broadening it.
 Product quality/comparisons, preparation speed, hydration and total RSS remain unmeasured.

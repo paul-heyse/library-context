@@ -842,14 +842,14 @@ The same scoped operation is available over the private facts checkpoint before 
 - A missing or corrupt required relation or artifact is a refusal, never an empty answer.
 - Explanations traverse the derivation index with bounded recursive queries.
 
-**Proposed refinement, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
+**Accepted target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
 and the [Phase 5 detailed plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
 develop a serving-role process guard, generation-prepared classification and one ranking owner.
 Semantic shapes remain generated views. A narrow disposable vector-only PostgreSQL artifact is
-proposed for the existing exact profile, derived through the canonical byte codec and explicitly
+accepted for the existing exact profile, derived through the canonical byte codec and explicitly
 prepared outside read-only startup; it is not a copied semantic serving schema. Its validation,
 atomic preparation and generation cleanup are required. No new semantic frontier or readiness
-registry is proposed. Broader Phase 5 serving integration remains Proposed / not_run.
+registry is added. Broader Phase 5 serving integration is authorized / not_run.
 
 **Implemented foundations, 2026-10-02:** the
 [foundation enhancement scope](../../plans/semantic-model-foundation-enhancements_2026-10-01.md)
@@ -860,11 +860,11 @@ C2 replay. A serving-role canonical reader shares the existing generation lease 
 provisioning credentials. Its opaque selection owner verifies consumed content and producer
 source/epoch receipts on the original leased connection, retains the lease and memory through
 shared ownership, and terminally refuses classification after guard loss. Pure selection controls
-and both-profile actual Catalog admission controls passed on 2026-10-02; integrated foundation
-qualification is in progress. This is the minimal reusable foundation consumer; process admission, route mappings,
+and both-profile actual Catalog admission controls passed on 2026-10-02; foundation qualification passed with the composite receipt in companion §5.4. The later hook
+formatting belongs to Phase 5’s fresh current-tree qualification. This is the minimal reusable foundation consumer; process admission, route mappings,
 ranking, native reconstruction and MCP remain Phase 5 scope.
 
-> Decision: ADR-0086; proposed refinement ADR-0114
+> Decision: ADR-0086; ADR-0114
 
 <a id="section-15-13"></a>
 
