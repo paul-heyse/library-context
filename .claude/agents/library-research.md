@@ -1,7 +1,7 @@
 ---
 name: library-research
 description: "Resolve library capabilities and versioned contracts from skills, documentation and source."
-model: sonnet
+model: opus
 effort: medium
 ---
 

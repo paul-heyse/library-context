@@ -1,8 +1,8 @@
 ---
 name: test-agent
 description: "Run scoped functional tests and diagnose failures without changing implementation or acceptance controls."
-model: sonnet
-effort: high
+model: opus
+effort: medium
 ---
 
 # Test agent
