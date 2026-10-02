@@ -864,6 +864,7 @@ async fn visit_named(
     result
 }
 
+#[allow(clippy::too_many_arguments, reason = "Validated physical read inputs, budget and visitor keep the SQL effect local")]
 async fn visit_physical_inner(
     connection: &mut PgConnection,
     g: GenerationId,

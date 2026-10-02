@@ -20,7 +20,14 @@ from fastmcp.exceptions import ToolError
 from lctx_semantics import wire_resources, wire_tool, wire_tools
 from lctx_storage import StorageError
 from mcp.shared.exceptions import MCPError
-from mcp_types import CLIENT_CAPABILITIES_META_KEY, PROTOCOL_VERSION_META_KEY, CallToolResult, Implementation, SERVER_INFO_META_KEY
+from mcp_types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
+    CallToolResult,
+    Implementation,
+    TextResourceContents,
+)
 
 from lctx_mcp.generation import open_generation
 from lctx_mcp.server import build_server
@@ -58,11 +65,13 @@ async def test_real_list_call_original_evidence_and_resource_template(current_fi
         assert [{"uri_template": t.uri_template, "name": t.name, "mime_type": t.mime_type} for t in templates] == json.loads(wire_resources())
         found = await client.call_tool("find_operations", {"library": fixture["library"]})
         dto = found.structured_content
+        assert dto is not None
         assert dto["generation"] == generation_bytes(fixture)
         candidates = dto["supported"]["items"] + dto["unresolved"]["items"]
         api = next(item for item in candidates if item["name"].endswith("api"))
         result = await client.call_tool("get_operation", {"library": fixture["library"], "operation": {"kind": "member", "member": api["member"]}})
         packet = result.structured_content
+        assert packet is not None
         assert packet["generation"] == generation_bytes(fixture)
         assert packet["operation"]["resolution"] == "unique"
         assert packet["operation"]["packet"]["core"]["member"] == api["member"]
@@ -71,10 +80,12 @@ async def test_real_list_call_original_evidence_and_resource_template(current_fi
             with pytest.raises(ToolError):
                 await client.call_tool("find_operations", {"library": fixture["library"], **extra})
         ranked = await client.call_tool("search_operations", {"library": fixture["library"], "query": "api"})
+        assert ranked.structured_content is not None
         assert ranked.structured_content["generation"] == generation_bytes(fixture)
         assert ranked.structured_content["channels"]["vector"]["status"] == "disabled"
         if fixture["artifact"] is not None:
             evidence = await client.call_tool("get_evidence", {"source": {"kind": "artifact", "artifact": fixture["artifact"]}, "page": {"expanded": True}})
+            assert evidence.structured_content is not None
             body = bytes(evidence.structured_content["evidence"]["body"]["bytes"])
             assert b"def api(value):" in body
             assert evidence.structured_content["evidence"]["original"]["artifact"] == fixture["artifact"]
@@ -86,7 +97,9 @@ async def test_real_list_call_original_evidence_and_resource_template(current_fi
             capability = await client.call_tool("get_capability", {"capability": identity, "page": {"expanded": True}})
             contents = await client.read_resource("lctx://capability/" + fixture["capability"])
             assert len(contents) == 1
+            assert isinstance(contents[0], TextResourceContents)
             assert contents[0].mime_type == "text/markdown"
+            assert capability.structured_content is not None
             packet = capability.structured_content["capability"]
             assert contents[0].text.startswith(packet["rendered"])
             assert "## Assertion evidence" in contents[0].text
@@ -101,25 +114,30 @@ async def test_real_list_call_original_evidence_and_resource_template(current_fi
 async def test_modern_http_emits_exact_admitted_serializer(current_fixture):
     configured = server(current_fixture)
     app = configured.http_app(path="/mcp", json_response=True)
-    async with app.lifespan(app):
-        async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="http://localhost") as client:
-            request_id = "current-λ"
-            payload = {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": {
-                "name": "find_operations", "arguments": {"library": current_fixture["library"]},
-                "_meta": {PROTOCOL_VERSION_META_KEY: "2026-07-28", CLIENT_CAPABILITIES_META_KEY: {}}}}
-            response = await client.post("/mcp", json=payload, headers={"accept": "application/json, text/event-stream",
-                "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "find_operations"})
-            assert response.status_code == 200, response.text
-            envelope = response.json()
-            assert envelope["id"] == request_id
-            assert envelope["result"]["structuredContent"]["generation"] == generation_bytes(current_fixture)
-            identity = Implementation(name=configured.name, version=configured.version,
-                website_url=configured.website_url, icons=configured.icons or None).model_dump(by_alias=True, mode="json", exclude_none=True)
-            assert envelope["result"]["_meta"] == {SERVER_INFO_META_KEY: identity}
-            result = CallToolResult.model_validate({**envelope["result"], "_meta": None})
-            _, expected_http = response_encodings(result, request_id, protocol_version="2026-07-28", server_info=identity)
-            assert response.content == expected_http
-
+    async with (
+        app.lifespan(app),
+        httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app), base_url="http://localhost"
+        ) as client,
+    ):
+        request_id = "current-λ"
+        payload = {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": {
+            "name": "find_operations", "arguments": {"library": current_fixture["library"]},
+            "_meta": {PROTOCOL_VERSION_META_KEY: "2026-07-28", CLIENT_CAPABILITIES_META_KEY: {}}}}
+        response = await client.post("/mcp", json=payload, headers={"accept": "application/json, text/event-stream",
+            "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "find_operations"})
+        assert response.status_code == 200, response.text
+        envelope = response.json()
+        assert envelope["id"] == request_id
+        assert envelope["result"]["structuredContent"]["generation"] == generation_bytes(current_fixture)
+        sdk_version = configured.version
+        assert sdk_version is not None
+        identity = Implementation(name=configured.name, version=sdk_version,
+            website_url=configured.website_url, icons=configured.icons or None).model_dump(by_alias=True, mode="json", exclude_none=True)
+        assert envelope["result"]["_meta"] == {SERVER_INFO_META_KEY: identity}
+        result = CallToolResult.model_validate({**envelope["result"], "_meta": None})
+        _, expected_http = response_encodings(result, request_id, protocol_version="2026-07-28", server_info=identity)
+        assert response.content == expected_http
 
 async def stdio_exchange(fixture, *, noisy=False):
     args = ["-m", "lctx_mcp", "--config", str(fixture["config"]), "--generation", fixture["generation"]]
@@ -380,6 +398,7 @@ async def test_live_native_assessment_keeps_original_proofs_and_path_local_outco
     async with Client(server(current_fixture)) as client:
         response = await client.call_tool("inspect_value_paths", request)
         dto = response.structured_content
+        assert dto is not None
         assert dto["generation"] == generation_bytes(current_fixture)
         assert dto["member"] == native["member"]
         paths = dto["paths"]

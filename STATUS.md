@@ -46,8 +46,12 @@ canonical; resources append attributed assertion status/kind/qualification/text/
 | Normalized `cargo check --release -p lctx-postgres`, ordering repair | **passed**, 39.63s |
 | CPython 3.14 `cargo build --release -p lctx-storage`, ordering repair | **passed**, 19.18s; rebuilt ABI installed |
 | Current ordering-discriminator native fixture | **passed**, 1 / zero skipped, 200.266s; both profiles and all original transport/tamper controls |
-| Original generated CPython oracle after ordering repair | **in progress / not yet passed** |
-| Full Phase 5 `NEXTEST_TEST_THREADS=8 just test-all` and `just hygiene` | **not_run**, pending completed functional repair |
+| Original generated CPython oracle after ordering repair | **passed**, 1 / zero skipped, 795.987s; unchanged original assertions |
+| First Phase 5 `NEXTEST_TEST_THREADS=8 just test-all` | **failed at compile**, duplicate service-test import; no workspace test result |
+| Corrected `NEXTEST_TEST_THREADS=8 just test-all` | **failed**, Rust 916 passed / eight failed / two skipped; downstream Python, separate PG and doctests not_run |
+| Current model/native/wire repair controls | **passed**, 51 selected; signed-cursor and final cache envelope covered |
+| CLI exact attempt-ID parser | **passed**, original one selected control |
+| Phase 5 `just hygiene` | **failed**, stale ADR index; named repairs: Clippy and types passed, fixture/gold/rule checks passed; formatting/generators pending |
 | Both-profile fresh pinned FastMCP Catalog journeys and activation | **in progress / not qualified** |
 | Live query embedding | **blocked**, configured endpoint absent; controlled seams establish no live quality |
 
@@ -65,9 +69,13 @@ one read-only repeatable-read transaction on the original leased connection. Bot
 bounded. No product budget, deadline, guard or oracle assertion was weakened. The actual native
 fixture now has two eight-argument calls demonstrating the order difference before preparation.
 
-The first real pinned FastMCP 4.0.5 Catalog compile is still CPU-active with a staging,
-unselected generation. It uses an earlier compiled producer fingerprint. Its eventual receipt
-must retain that source boundary; it cannot establish final-tree Q0 by implication.
+The earlier pinned FastMCP 4.0.5 Catalog compile was quiesced with a scoped SIGINT after source
+and model changed. It stopped after 2h50 elapsed / 2h36 CPU in callable normalization, with 204
+receipts preserved in an unselected staging generation. Its backend and locks are gone. This
+is an interrupted obsolete-source preliminary journey, not a stage failure or final-tree Q0.
+A charged, byte-preserving inventory cache and span candidate index now have scoped controls
+and static integration acceptance; original native symbolic/summary controls passed six, and
+exact PostgreSQL service/installation controls passed 17. No speedup is claimed.
 
 ## Prior qualification and standing limits
 
@@ -92,8 +100,10 @@ frontend thread. Nextest8 caps test processes; it does not request eight threads
 A verified cross-worktree Cargo artifact lock cycle is avoided by serializing builds, with no
 cache cleanup. Earlier compiler SIGTERM remains unexplained, not a proven threading failure.
 
-Next: qualify the original native and CPython controls after the ordering repair, then run complete
-functional/hygiene gates and both-profile fresh-generation Q0 journeys, explicit vector artifact
+Next: repair the eight full-gate failures and validate the byte-preserving, charged callable
+normalization prerequisite exposed by the real pilot; then finish complete functional/hygiene
+gates and both-profile fresh-generation Q0 journeys,
+explicit vector artifact
 preparation and reviewed activation. Shared main preserves the initial 118 dirty tracked paths
 against snapshot `bd22f66c`; semantic-only staging keeps unrelated formatting unstaged.
 The end-of-turn hook owns formatting and generators. Its future results are not claimed here.

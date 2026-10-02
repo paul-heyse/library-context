@@ -159,9 +159,8 @@ impl Case {
         let context = self.context(&entry).unwrap();
         let path = NativePath::guard(&entry, &self.f.data, &self.f.budget).unwrap();
         let mut atoms = vec![];
-        if bridge {
-            if let Ok(atom) = CheckedAtom::derive(&entry, &TheoryData { entry: &self.f.data, inventory: &self.theory }, &self.invocation, &self.f.budget).unwrap() { atoms.push(atom); }
-        }
+        if bridge
+            && let Ok(atom) = CheckedAtom::derive(&entry, &TheoryData { entry: &self.f.data, inventory: &self.theory }, &self.invocation, &self.f.budget).unwrap() { atoms.push(atom); }
         let result = assess(&ExactRequest { generation: serving::GenerationKey([1; 16]), owner: self.f.request.owner,
             formal: self.f.request.formal, value, assumptions }, &context, &path, &atoms, coverage, &[], limits, budget).unwrap();
         self.assert_proof_resolves(&result);

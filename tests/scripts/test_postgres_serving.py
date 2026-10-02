@@ -65,6 +65,7 @@ def test_current_bootstrap_split_credentials_and_existing_database_refusal(datab
 
 def test_retained_service_backup_roundtrip_and_corrupt_receipt_refusal(database, tmp_path):
     import sys
+
     from postgres_backup import TABLES
 
     archive = tmp_path / "services.dump"

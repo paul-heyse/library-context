@@ -19,10 +19,9 @@ pub enum OperationSelector { Member {member:Id<catalog::CatalogMember>}, PublicP
 #[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
 pub enum BrowseScope { Library {}, Module {module:Id<source::Module>}, Class {member:Id<catalog::CatalogMember>} }
 impl Default for BrowseScope{fn default()->Self{Self::Library {}}}
-#[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize,JsonSchema,Default)]
 #[serde(rename_all="snake_case")]
-pub enum BrowseView { Members, Modules, Classes, Vocabulary }
-impl Default for BrowseView{fn default()->Self{Self::Members}}
+pub enum BrowseView { #[default] Members, Modules, Classes, Vocabulary }
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
 #[serde(rename_all="snake_case")]
 pub enum OperationSection { Scenarios, Deployment, Relationships, Conflicts, Briefs, Behavior }

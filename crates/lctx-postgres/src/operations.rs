@@ -12,9 +12,9 @@ pub struct AttemptId([u8;16]);
 impl AttemptId {
     pub const fn from_bytes(bytes:[u8;16])->Self{Self(bytes)}
     pub fn from_hex(text:&str)->Option<Self>{
-        if text.len()!=32||!text.is_ascii(){return None;}
+        if text.len()!=32||!text.bytes().all(|byte| byte.is_ascii_hexdigit()){return None;}
         let mut bytes=[0;16];
-        for (slot,pair) in bytes.iter_mut().zip(text.as_bytes().chunks_exact(2)){
+        for (slot,pair) in bytes.iter_mut().zip(text.as_bytes().as_chunks::<2>().0.iter()){
             *slot=u8::from_str_radix(std::str::from_utf8(pair).ok()?,16).ok()?;
         }
         Some(Self(bytes))

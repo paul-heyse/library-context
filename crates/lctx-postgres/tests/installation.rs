@@ -349,8 +349,8 @@ async fn check_detects_each_drift() {
     // Store-wide drifts: applied, detected, then reverted.
     let state_check: String = sqlx::query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'generations_state_check'")
         .fetch_one(&owner).await.unwrap();
-    let checksum: Vec<u8> = sqlx::query_scalar("SELECT checksum FROM public._sqlx_migrations")
-        .fetch_one(&owner)
+    let checksums: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT version, checksum FROM public._sqlx_migrations ORDER BY version")
+        .fetch_all(&owner)
         .await
         .unwrap();
     let global = [
@@ -385,13 +385,10 @@ async fn check_detects_each_drift() {
             "service history",
             &owner,
             "UPDATE public._sqlx_migrations SET checksum = '\\x00'".into(),
-            format!(
-                "UPDATE public._sqlx_migrations SET checksum = '\\x{}'",
-                checksum
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect::<String>()
-            ),
+            checksums.iter().map(|(version, checksum)| format!(
+                "UPDATE public._sqlx_migrations SET checksum = '\\x{}' WHERE version = {version}",
+                checksum.iter().map(|b| format!("{b:02x}")).collect::<String>()
+            )).collect::<Vec<_>>().join(";"),
             FindingKind::Installation,
             "service baseline",
         ),
@@ -530,6 +527,7 @@ async fn reset_drops_only_inventoried_objects() {
         schemas(&db.superuser).await,
         [
             "lctx_cache",
+            "lctx_ext",
             foreign,
             "lctx_gfoo",
             "lctx_model_store",

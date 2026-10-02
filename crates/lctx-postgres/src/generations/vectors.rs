@@ -8,6 +8,8 @@ use lctx_model::domain::{
 };
 use pgvector::Vector;
 use std::{collections::BTreeMap, sync::Arc};
+type ArtifactManifestRow = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i16, Vec<u8>, i64);
+type PhysicalColumnRow = (String, String, String, String, i32, bool, bool, String, String);
 const DIMENSIONS: u32 = 1024;
 const CACHE_DDL: &str = include_str!("../../migrations/202610020015_serving_vector_artifact.sql");
 pub struct ScoredVectors {
@@ -152,7 +154,7 @@ impl VectorArtifact {
         Ok(())
     }
     async fn check_manifest(&self, connection:&mut sqlx::PgConnection) -> Result<(),Error> {
-        let manifest: Option<(Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,i16,Vec<u8>,i64)> = sqlx::query_as("SELECT generation_id,model_digest,source_content,spec_hash,codec,physical_digest,row_count FROM lctx_cache.serving_vector_artifacts WHERE artifact_key=$1")
+        let manifest: Option<ArtifactManifestRow> = sqlx::query_as("SELECT generation_id,model_digest,source_content,spec_hash,codec,physical_digest,row_count FROM lctx_cache.serving_vector_artifacts WHERE artifact_key=$1")
             .bind(self.key.0.to_vec()).fetch_optional(connection).await?;
         if manifest != Some((self.generation.0.to_vec(),self.model.0.to_vec(),self.source.0.to_vec(),self.specification.hash().0.to_vec(),value::VALUE_CODEC,self.physical.0.to_vec(),i64::try_from(self.rows.len()).map_err(|_|Error::Contract)?)) { return Err(Error::Contract); }
         Ok(())
@@ -218,7 +220,7 @@ async fn inspect_cache(connection:&mut sqlx::PgConnection,budget:&ResourceBudget
         ("serving_vector_artifacts".into(),"lctx_migrator".into(),"r".into(),"p".into(),false,false,false),
         ("serving_vectors".into(),"lctx_migrator".into(),"r".into(),"p".into(),false,false,false)];
     if tables!=expected_tables {return Err(Error::Codec("serving vector cache table ownership/flags differs".into()));}
-    let columns:Vec<(String,String,String,String,i32,bool,bool,String,String)>=sqlx::query_as("SELECT c.relname::text,a.attname::text,tn.nspname::text,t.typname::text,a.atttypmod,a.attnotnull,a.atthasdef,a.attgenerated::text,a.attidentity::text FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_type t ON t.oid=a.atttypid JOIN pg_namespace tn ON tn.oid=t.typnamespace WHERE n.nspname='lctx_cache' AND c.relname IN ('serving_vector_artifacts','serving_vectors') AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum LIMIT 13")
+    let columns:Vec<PhysicalColumnRow>=sqlx::query_as("SELECT c.relname::text,a.attname::text,tn.nspname::text,t.typname::text,a.atttypmod,a.attnotnull,a.atthasdef,a.attgenerated::text,a.attidentity::text FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_type t ON t.oid=a.atttypid JOIN pg_namespace tn ON tn.oid=t.typnamespace WHERE n.nspname='lctx_cache' AND c.relname IN ('serving_vector_artifacts','serving_vectors') AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum LIMIT 13")
         .fetch_all(&mut *connection).await?;
     let fields=[
         ("serving_vector_artifacts","artifact_key","pg_catalog","bytea",-1),

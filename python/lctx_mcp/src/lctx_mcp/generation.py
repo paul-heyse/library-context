@@ -51,9 +51,12 @@ async def open_generation(config: Path, embedder: Embedder | None, *, generation
         grant = await service.admit()
         try:
             raw_spec = await service.embedding_spec(grant)
-            if raw_spec is not None and embedder is not None:
-                if Spec.from_json(raw_spec).canonical != embedder.spec.canonical:
-                    raise GenerationError("query embedding spec differs from the selected artifact")
+            if (
+                raw_spec is not None
+                and embedder is not None
+                and Spec.from_json(raw_spec).canonical != embedder.spec.canonical
+            ):
+                raise GenerationError("query embedding spec differs from the selected artifact")
             await service.initialize_numerical(grant, numerical.initialize)
         finally:
             grant.release()

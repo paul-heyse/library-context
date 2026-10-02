@@ -253,6 +253,64 @@ fn same_span(
     let r = need(&data.occurrences, right)?;
     Ok((l.source, l.start, l.end) == (r.source, r.start, r.end))
 }
+type TargetSpan = (Id<source::SourceArtifact>, i64, i64);
+struct TargetSpanIndex<'a> {
+    spans: std::collections::BTreeMap<TargetSpan, Vec<&'a CallTarget>>,
+    missing: Vec<&'a CallTarget>,
+    first: Option<&'a CallTarget>,
+    _reservation: Box<dyn resources::Reservation>,
+}
+struct SpanCandidates<'a> {
+    matched: std::slice::Iter<'a, &'a CallTarget>,
+    missing: std::slice::Iter<'a, &'a CallTarget>,
+}
+impl<'a> Iterator for SpanCandidates<'a> {
+    type Item = &'a CallTarget;
+    fn next(&mut self) -> Option<Self::Item> {
+        match (self.matched.as_slice().first(), self.missing.as_slice().first()) {
+            (Some(left), Some(right)) if left.id() < right.id() => self.matched.next().copied(),
+            (_, Some(_)) => self.missing.next().copied(),
+            (Some(_), None) => self.matched.next().copied(),
+            (None, None) => None,
+        }
+    }
+}
+impl<'a> TargetSpanIndex<'a> {
+    fn new(data: &'a AspectData, budget: &ResourceBudget) -> Result<Self, ModelError> {
+        // Per-target envelope includes the worst case of one B-tree key/node allowance and
+        // one small vector per target, plus doubled reference-vector capacity. The fixed
+        // envelope also covers the root node when it has very few entries. Reserve first.
+        let allowance = data.targets.len().checked_mul(256)
+            .and_then(|n| n.checked_add(size_of::<Self>() + 1024))
+            .ok_or_else(|| invalid("target span index size overflow"))?;
+        let reservation = budget.reserve("callable-target-span-index", allowance)?;
+        let mut index = Self { spans: Default::default(), missing: Vec::new(),
+            first: data.targets.iter().next(), _reservation: reservation };
+        for target in data.targets.iter() {
+            if let Some(site) = data.occurrences.get(target.site) {
+                index.spans.entry((site.source, site.start, site.end)).or_default().push(target);
+            } else {
+                // Keep absent premises at their original position in every candidate scan.
+                // Construction must not introduce an eager error or silently omit them.
+                index.missing.push(target);
+            }
+        }
+        Ok(index)
+    }
+    fn candidates(&self, data: &AspectData, expression: Id<source::Occurrence>)
+        -> Result<SpanCandidates<'_>, ModelError> {
+        let matched = if let Some(first) = self.first {
+            // Original same_span validates the first target before the expression. With no
+            // targets it never validates the expression; preserve both failure boundaries.
+            need(&data.occurrences, first.site)?;
+            let occurrence = need(&data.occurrences, expression)?;
+            self.spans.get(&(occurrence.source, occurrence.start, occurrence.end))
+                .map_or(&[][..], Vec::as_slice)
+        } else { &[][..] };
+        Ok(SpanCandidates { matched: matched.iter(), missing: self.missing.iter() })
+    }
+}
+
 fn root(
     data: &AspectData,
     decorator: &DeclarationDecorator,
@@ -636,6 +694,7 @@ fn accessors(
 }
 pub fn normalize(data: &AspectData, budget: &ResourceBudget) -> Result<AspectOutput, ModelError> {
     let mut out = AspectOutput::new(budget);
+    let mut target_index = None;
     for evidence in data.evidence.iter() {
         let EffectiveCallablePremise::Traits { observation } =
             need(&data.premises, evidence.premise)?
@@ -666,7 +725,8 @@ pub fn normalize(data: &AspectData, budget: &ResourceBudget) -> Result<AspectOut
         let decorator = need(&data.decorators, member.observation)?;
         let expression = root(data, decorator)?;
         let mut found = false;
-        for target in data.targets.iter() {
+        if target_index.is_none() { target_index = Some(TargetSpanIndex::new(data, budget)?); }
+        for target in target_index.as_ref().expect("target index").candidates(data, expression)? {
             if !same_span(data, target.site, expression)? {
                 continue;
             }
@@ -794,7 +854,8 @@ pub fn normalize(data: &AspectData, budget: &ResourceBudget) -> Result<AspectOut
                     };
                 }
             }
-            for target in data.targets.iter() {
+            if target_index.is_none() { target_index = Some(TargetSpanIndex::new(data, budget)?); }
+            for target in target_index.as_ref().expect("target index").candidates(data, expression)? {
                 if !same_span(data, target.site, expression)? {
                     continue;
                 }
@@ -927,5 +988,60 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
             k.finish()
         },
         configuration: ContentHash::of(b"metadata-only/v1"),
+    }
+}
+
+#[cfg(test)]
+mod span_index_controls {
+    use super::*;
+    fn nominal<T>(value: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([value; 16].into_iter())).unwrap()
+    }
+    fn occurrence(data: &mut AspectData, start: i64, kind: source::SyntaxKind, role: source::OccurrenceRole) -> Id<source::Occurrence> {
+        data.occurrences.insert(source::Occurrence { source: nominal(1), start, end: start + 2,
+            syntax_kind: kind, structural_path: vec![kind as i32], role }).unwrap()
+    }
+    fn target(data: &mut AspectData, site: Id<source::Occurrence>, context: u8) -> Id<CallTarget> {
+        data.targets.insert(CallTarget { qualification: nominal(context), site, origin: nominal(4),
+            destination: nominal(5), channel: nominal(6), phase: CallPhase::Call, receiver: nominal(7),
+            implicit: false, receiver_class: None, passing: None, class_method: None, static_method: None }).unwrap()
+    }
+    fn scan(index: &TargetSpanIndex<'_>, data: &AspectData, expression: Id<source::Occurrence>) -> Result<Vec<Id<CallTarget>>, ModelError> {
+        index.candidates(data, expression)?.filter_map(|target| match same_span(data, target.site, expression) {
+            Ok(true) => Some(Ok(target.id())), Ok(false) => None, Err(error) => Some(Err(error)),
+        }).collect()
+    }
+    #[test]
+    fn exact_span_candidates_keep_duplicates_contexts_and_missing_premises() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut data = AspectData::new(&budget);
+        let expression = occurrence(&mut data, 10, source::SyntaxKind::ExprCall, source::OccurrenceRole::Syntax);
+        let alias = occurrence(&mut data, 10, source::SyntaxKind::ExprName, source::OccurrenceRole::Call);
+        let other = occurrence(&mut data, 12, source::SyntaxKind::ExprCall, source::OccurrenceRole::Syntax);
+        let mut expected = vec![target(&mut data, expression, 2), target(&mut data, alias, 2), target(&mut data, alias, 3)];
+        target(&mut data, other, 2);
+        expected.sort();
+        let retained = budget.reserved();
+        let index = TargetSpanIndex::new(&data, &budget).unwrap();
+        assert_eq!(scan(&index, &data, expression).unwrap(), expected);
+        assert!(scan(&index, &data, nominal(99)).is_err());
+        drop(index); assert_eq!(budget.reserved(), retained);
+        // An absent target premise is retained, including when it cannot be bucketed.
+        target(&mut data, nominal(99), 2);
+        let index = TargetSpanIndex::new(&data, &budget).unwrap();
+        assert!(scan(&index, &data, expression).is_err());
+        let actual = index.candidates(&data, expression);
+        if let Ok(actual) = actual {
+            let ids = actual.map(Record::id).collect::<Vec<_>>();
+            assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+            assert!(ids.iter().any(|id| data.targets.get(*id).unwrap().site == nominal(99)));
+        }
+        drop(index);
+        let tiny = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(TargetSpanIndex::new(&data, &tiny), Err(ModelError::Resource { .. })));
+        assert_eq!(tiny.reserved(), 0);
+        let empty = AspectData::new(&budget);
+        let index = TargetSpanIndex::new(&empty, &budget).unwrap();
+        assert!(scan(&index, &empty, nominal(99)).unwrap().is_empty());
     }
 }

@@ -53,7 +53,7 @@ fn preflight_json<'py>(execution:&RequestExecution,budget:&lctx_model::domain::r
     let mut scratch=budget.reserve("python-json-traversal",4096).map_err(|e|error(e.into()))?;
     let mut pending=vec![(value,false)];let mut active=BTreeSet::new();let mut bytes=1usize;let mut work=0usize;
     while let Some((value,leave))=pending.pop(){
-        work+=1;if work%256==0{execution.remaining().map_err(error)?;}
+        work+=1;if work.is_multiple_of(256){execution.remaining().map_err(error)?;}
         let identity=value.as_ptr() as usize;
         if leave{active.remove(&identity);continue;}
         if value.is_none(){json_lower_add(&mut bytes,3,maximum)?;continue;}
@@ -205,6 +205,7 @@ impl Service {
             }).await.map_err(error)?
         })
     }
+    #[allow(clippy::too_many_arguments, reason = "The Python call boundary keeps explicit tool, vector and numerical parameters")]
     #[pyo3(signature=(grant,tool,raw,query_vector=None,degradation=None,numerical_callback=None))]
     fn dispatch<'py>(&self,py:Python<'py>,grant:&RequestGrant,tool:Py<PyString>,raw:Py<PyString>,query_vector:Option<Py<PyAny>>,degradation:Option<String>,numerical_callback:Option<Py<PyAny>>)->PyResult<Bound<'py,PyAny>>{
         let execution=grant.execution(&self.state)?;let state=self.state.clone();

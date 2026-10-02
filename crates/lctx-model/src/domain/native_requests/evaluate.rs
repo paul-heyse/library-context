@@ -127,7 +127,7 @@ pub fn assess(
         assignment_proofs.entry(atom.atom).or_insert(&atom.proof);
     }
     let mut fixed = assignments.iter().map(|(atom, truth)| (*atom, *truth)).collect::<Vec<_>>();
-    let cost = path.condition.node_count().checked_mul(fixed.len()).unwrap_or(usize::MAX);
+    let cost = path.condition.node_count().saturating_mul(fixed.len());
     if out.work.bdd_preflight_pairs.saturating_add(cost) > limits.bdd_pairs { out.reason = Some(ObligationKind::ConditionWorkLimit); return Ok(out); }
     out.work.bdd_preflight_pairs += cost;
     let reduced = match path.condition.restrict_atoms(&fixed) {

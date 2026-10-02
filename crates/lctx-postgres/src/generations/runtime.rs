@@ -166,7 +166,7 @@ impl RequestExecution {
 }
 impl GenerationLease {
     async fn request_deadline(&mut self, remaining: Duration) -> Result<(), Error> {
-        let millis = remaining.as_millis().max(1).min(30_000).to_string();
+        let millis = remaining.as_millis().clamp(1, 30_000).to_string();
         sqlx::query("SELECT set_config('statement_timeout',$1,false)").bind(millis).execute(&mut *self.connection).await?;
         Ok(())
     }

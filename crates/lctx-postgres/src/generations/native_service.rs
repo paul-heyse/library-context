@@ -23,6 +23,7 @@ struct Context {
     atoms: Vec<CheckedAtom>,
     paths: Vec<NativePath>,
 }
+#[allow(clippy::large_enum_variant, reason = "Inline refusal frames are included in charged native context preparation")]
 enum ContextState {Admitted(NativeContext),Unexamined(DerivedEntryValue)}
 struct State {
     guard: GenerationGuard,

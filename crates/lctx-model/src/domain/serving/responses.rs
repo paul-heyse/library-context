@@ -11,6 +11,7 @@ response!(SearchOperationsResponse {results:SectionPage<OperationCandidate>,exte
 response!(FindOperationsResponse {supported:SectionPage<OperationCandidate>,unresolved:SectionPage<OperationCandidate>,conflicting:SectionPage<OperationCandidate>,extent:SelectionExtent});
 #[derive(Debug,Clone,PartialEq,Serialize,Deserialize,JsonSchema)]
 #[serde(tag="resolution",rename_all="snake_case",deny_unknown_fields)]
+#[allow(clippy::large_enum_variant, reason = "Inline finite packets retain the value-size accounting used by request reservations")]
 pub enum OperationResolution {Unique {packet:OperationPacket},Ambiguous {candidates:Vec<OperationCandidate>},Missing {coverage:Availability}}
 response!(GetOperationResponse {operation:OperationResolution});
 response!(BrowseLibraryResponse {scope:BrowseScope,view:BrowseView,entries:SectionPage<BrowseEntry>,extent:SelectionExtent,unknown_ownership:u64});

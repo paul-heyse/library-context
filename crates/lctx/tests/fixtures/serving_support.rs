@@ -1,4 +1,5 @@
 //! Real compiler + disposable PG18 fixture; acquisition command is a bounded no-op.
+#![allow(dead_code, reason = "Shared fixture targets exercise different subsets of these helpers and keepalive fields")]
 use std::{path::Path,process::Command,sync::Arc};
 use lctx_model::domain::{self,serving::*};
 use lctx_postgres::{generations::{GenerationStore,GenerationService,CatalogService,GenerationId},testing::DisposableDatabase};

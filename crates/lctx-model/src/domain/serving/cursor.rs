@@ -34,8 +34,8 @@ impl Cursor {
     }
     pub fn decode(token:&CursorToken,expected:&CursorBinding)->Result<Self,WireError> {
         let text=token.as_str();
-        if text.len()%2!=0 {return Err(WireError::Invalid("cursor encoding".into()));}
-        let bytes:Result<Vec<_>,_>=text.as_bytes().chunks_exact(2).map(|c|std::str::from_utf8(c).ok().and_then(|s|u8::from_str_radix(s,16).ok()).ok_or_else(||WireError::Invalid("cursor encoding".into()))).collect();
+        if !text.len().is_multiple_of(2) || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {return Err(WireError::Invalid("cursor encoding".into()));}
+        let bytes:Result<Vec<_>,_>=text.as_bytes().as_chunks::<2>().0.iter().map(|c|std::str::from_utf8(c).ok().and_then(|s|u8::from_str_radix(s,16).ok()).ok_or_else(||WireError::Invalid("cursor encoding".into()))).collect();
         let cursor:Self=serde_json::from_slice(&bytes?)?;
         if &cursor.binding!=expected {return Err(WireError::Continuation("generation, request, policy, representation, group, section, member, ordering or channel changed".into()));}
         Ok(cursor)

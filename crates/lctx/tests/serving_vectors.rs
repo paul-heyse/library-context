@@ -20,7 +20,7 @@ fn input(root:&Path) {
     write(&root.join("bin/uv"),"#!/bin/sh\nexit 0\n");
     use std::os::unix::fs::PermissionsExt;std::fs::set_permissions(root.join("bin/uv"),std::fs::Permissions::from_mode(0o700)).unwrap();
 }
-fn numerical_vector(dimensions:usize)->Vec<f32> {let mut v=vec![0.0;dimensions];v[0]=1.0;v[1]=-0.0;v}
+fn numerical_vector(dimensions:usize)->Vec<f32> {let mut v=vec![0.0;dimensions];v[0]=1.0;v[1] = -0.0;v}
 struct Scorer {address:String,stop:Arc<AtomicBool>,calls:Arc<AtomicUsize>,thread:Option<std::thread::JoinHandle<()>>}
 impl Scorer {
     fn start()->Self {
@@ -30,7 +30,8 @@ impl Scorer {
             let (mut stream,_)=match listener.accept(){Ok(v)=>v,Err(e) if e.kind()==std::io::ErrorKind::WouldBlock=>{std::thread::sleep(Duration::from_millis(5));continue;},Err(e)=>panic!("{e}")};
             stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
             let mut reader=std::io::BufReader::new(stream.try_clone().unwrap());let mut line=String::new();reader.read_line(&mut line).unwrap();let path=line.split_whitespace().nth(1).unwrap().to_owned();
-            let mut length=None;loop {line.clear();assert!(reader.read_line(&mut line).unwrap()>0);if line=="\r\n" {break;}if let Some(v)=line.to_ascii_lowercase().strip_prefix("content-length:"){length=Some(v.trim().parse::<usize>().unwrap());}}
+            let mut length=None;loop {line.clear();assert!(reader.read_line(&mut line).unwrap()>0);if line=="\r\n" {break;}
+    if let Some(v)=line.to_ascii_lowercase().strip_prefix("content-length:"){length=Some(v.trim().parse::<usize>().unwrap());}}
             let length=length.unwrap();assert!(length<1<<20);let mut body=vec![0;length];reader.read_exact(&mut body).unwrap();let request:serde_json::Value=serde_json::from_slice(&body).unwrap();
             observed.fetch_add(1,Ordering::AcqRel);
             let response=match path.as_str(){
@@ -88,7 +89,7 @@ async fn explicit_preparation_admits_exact_canonical_vectors_refuses_corruption_
     assert_eq!(vector_count(&db).await,uses.len() as i64,"resource refusal must not replace an existing artifact");
     let execution=service.execution().await.unwrap();let mut eligible:Vec<_>=uses.iter().map(Record::id).collect();eligible.reverse();
     let scores=artifact.score(&execution,eligible.clone(),numerical_vector(1024)).await.unwrap();assert_eq!(scores.values().len(),eligible.len());assert!(scores.values().iter().all(|(_,score)|(*score-1.0).abs()<1e-12));assert!(scores.values().windows(2).all(|w|w[0].0<w[1].0));drop(scores);
-    let mut opposite=numerical_vector(1024);opposite[0]=-1.0;assert!(artifact.score(&execution,eligible.clone(),opposite).await.unwrap().values().iter().all(|(_,score)|(*score+1.0).abs()<1e-12));
+    let mut opposite=numerical_vector(1024);opposite[0] = -1.0;assert!(artifact.score(&execution,eligible.clone(),opposite).await.unwrap().values().iter().all(|(_,score)|(*score+1.0).abs()<1e-12));
     let mut orthogonal=numerical_vector(1024);orthogonal[0]=0.0;orthogonal[1]=1.0;assert!(artifact.score(&execution,eligible.clone(),orthogonal).await.unwrap().values().iter().all(|(_,score)|score.abs()<1e-12));
     assert!(artifact.score(&execution,vec![eligible[0],eligible[0]],numerical_vector(1024)).await.is_err());
     let foreign:Id<RetrievalEmbeddingUse>=serde_json::from_value(serde_json::to_value([255u8;16]).unwrap()).unwrap();assert!(artifact.score(&execution,vec![foreign],numerical_vector(1024)).await.is_err());

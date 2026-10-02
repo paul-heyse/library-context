@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gold_match import MATCHER_VERSION, hits, jaccard, node_of, resolve, roots, status
-from gold_match import span_recall
+from gold_match import MATCHER_VERSION, hits, jaccard, node_of, resolve, roots, span_recall, status
 
 C, M, OTHER, T = b"C" * 16, b"M" * 16, b"O" * 16, b"T" * 16
 

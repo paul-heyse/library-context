@@ -85,7 +85,7 @@ impl CatalogService {
                 let ClaimContext::Declaration(context)=context else{return Err(Error::Contract);};contexts.insert(context.id());claims.push(RequirementWitnessPacket{context:context.id(),basis,positive:p.iter().map(Record::id).collect(),negative:n.iter().map(Record::id).collect()});for w in p{positive.insert(w.id());}for w in n{negative.insert(w.id());}}
             requirements.push(RequirementResult{claims,closure:r.closure.iter().map(Record::id).collect(),requirement:r.requirement.clone(),outcome:r.outcome,reason:r.reason,contexts:contexts.into_iter().collect(),positive:positive.into_iter().collect(),negative:negative.into_iter().collect(),corpus_complete:r.corpus_complete,analyzer_complete:r.analyzer_complete,examined:r.examined as u64,total:Nullable(r.total.map(|n|n as u64))});}
         let knowledge=d.source.catalog.callables.iter().filter(|r|r.member==member.id()).map(|r|d.source.core.assessments.get(r.assessment).map(|a|a.signatures).ok_or(Error::Contract)).collect::<Result<Vec<_>,_>>()?;
-        let signature_knowledge=if knowledge.iter().any(|k|*k==Knowledge::Conflicting){Knowledge::Conflicting}else if !knowledge.is_empty()&&knowledge.iter().all(|k|*k==Knowledge::Known){Knowledge::Known}else{Knowledge::Unknown};
+        let signature_knowledge=if knowledge.contains(&Knowledge::Conflicting){Knowledge::Conflicting}else if !knowledge.is_empty()&&knowledge.iter().all(|k|*k==Knowledge::Known){Knowledge::Known}else{Knowledge::Unknown};
         Ok(OperationCandidate{member:c.member,analysis:c.analysis,name:name(self.path(member)?.join("."))?,requirements,joint:c.joint,signature_knowledge})
     }
     pub(super) fn page<T>(&self,request:&Request,group:&str,section:&str,rows:Vec<T>)->Result<SectionPage<T>,Error>{
@@ -128,7 +128,8 @@ impl CatalogService {
     }
     pub(super) fn class_owner(&self,m:&CatalogMember)->Option<Id<ClassEntity>>{self.ownership(m).flatten()}
     pub async fn browse(&self,e:&RequestExecution,r:&BrowseLibraryRequest)->Result<BrowseLibraryResponse,Error>{self.check_execution(e)?;let this=self.clone();let r=r.clone();let retained=e.clone();e.cpu(move|b|{
-        let d=this.prepared().data();match r.scope{BrowseScope::Module{module}=>{if d.source.core.modules.get(module).is_none(){return Err(Error::Absent);}},BrowseScope::Class{member}=>{let m=d.source.catalog.members.get(member).ok_or(Error::Absent)?;if !this.belongs(m,&r.library){return Err(Error::Absent);}if !d.source.catalog.classes.iter().any(|c|c.member==member){return Err(Error::Codec("requested class scope is not established".into()));}},_=>{}}
+        let d=this.prepared().data();match r.scope{BrowseScope::Module{module}=>{if d.source.core.modules.get(module).is_none(){return Err(Error::Absent);}},BrowseScope::Class{member}=>{let m=d.source.catalog.members.get(member).ok_or(Error::Absent)?;if !this.belongs(m,&r.library){return Err(Error::Absent);}
+        if !d.source.catalog.classes.iter().any(|c|c.member==member){return Err(Error::Codec("requested class scope is not established".into()));}},_=>{}}
         let eligible=this.candidates(&r.selection.0,&r.library,b)?.into_iter().filter(|(_,o,_)|*o==selection::Outcome::Supported||(r.selection.0.mode==selection::Mode::Discovery&&*o!=selection::Outcome::Contradicted)).map(|(c,_,_)|c).collect::<Vec<_>>();
         let class_ids=match r.scope{BrowseScope::Class{member}=>d.source.catalog.classes.iter().filter(|c|c.member==member).map(|c|c.class).collect::<BTreeSet<_>>(),_=>BTreeSet::new()};
         let scoped=eligible.into_iter().filter(|candidate|{let Some(m)=d.source.catalog.members.get(candidate.member)else{return false;};match r.scope{BrowseScope::Library{}=>true,BrowseScope::Module{module}=>m.access==module,BrowseScope::Class{..}=>match this.ownership(m){Some(Some(owner))=>class_ids.contains(&owner),Some(None)=>false,None=>true}}}).collect::<Vec<_>>();
@@ -142,7 +143,8 @@ impl CatalogService {
             let mut add=|facet:selection::Facet,value:String,member:Id<CatalogMember>|{let entry=facets.entry(facet as i16).or_insert_with(||(facet,BTreeSet::new(),BTreeSet::new()));entry.1.insert(value);entry.2.insert(member);};
             for member in &scoped_members{let m=d.source.catalog.members.get(*member).ok_or(Error::Contract)?;let module=d.source.core.modules.get(m.access).ok_or(Error::Contract)?;add(selection::Facet::Module,module.qualified_name.clone(),*member);
                 if d.source.catalog.classes.iter().any(|c|c.member==*member){add(selection::Facet::Kind,"class".into(),*member);}
-                for callable in d.source.catalog.callables.iter().filter(|c|c.member==*member){let assessment=d.source.core.assessments.get(callable.assessment).ok_or(Error::Contract)?;if let Some(kind)=assessment.descriptor_kind{add(selection::Facet::Kind,match kind{normalized::callables::DescriptorKind::Function=>"function",normalized::callables::DescriptorKind::Property=>"property",_=>"method"}.into(),*member);}if let Some(value)=assessment.asynchronous{add(selection::Facet::Async,value.to_string(),*member);}
+                for callable in d.source.catalog.callables.iter().filter(|c|c.member==*member){let assessment=d.source.core.assessments.get(callable.assessment).ok_or(Error::Contract)?;if let Some(kind)=assessment.descriptor_kind{add(selection::Facet::Kind,match kind{normalized::callables::DescriptorKind::Function=>"function",normalized::callables::DescriptorKind::Property=>"property",_=>"method"}.into(),*member);}
+        if let Some(value)=assessment.asynchronous{add(selection::Facet::Async,value.to_string(),*member);}
                     for invocation in d.source.catalog.invocations.iter().filter(|i|i.callable==callable.id()){for slot in d.source.core.slots.iter().filter(|s|s.variant==invocation.variant){let p=d.facts.signature_parameters.get(slot.parameter).ok_or(Error::Contract)?;let shape=d.facts.shapes.get(p.shape).ok_or(Error::Contract)?;if let Some(value)=&shape.name{add(selection::Facet::Parameter,value.as_str().to_owned(),*member);}}}
                 }
             }
@@ -151,8 +153,13 @@ impl CatalogService {
         let total=entries.len() as u64;let page=this.page(&Request::BrowseLibrary(r.clone()),"browse","entries",entries)?;let response=BrowseLibraryResponse{generation:this.generation(),scope:r.scope,view:r.view,entries:page,extent:SelectionExtent::CompleteDomain{total},unknown_ownership:unknown_members.len() as u64};retain(&retained,&response)?;Ok(response)
     }).await}
 }
-fn clear_other_cursor(mut request:Request,group:&str)->Result<Request,Error>{if let Request::FindOperations(r)=&mut request{if let Some(token)=&r.page.cursor.0{ // Decode only enough to choose the group; full binding is checked by page.
-    let cursor=peek_cursor(token)?;if cursor.binding.group.as_str()!=group{r.page.cursor=Optional::default();}}
-}Ok(request)}
+fn clear_other_cursor(mut request:Request,group:&str)->Result<Request,Error>{
+    if let Request::FindOperations(r)=&mut request && let Some(token)=&r.page.cursor.0 {
+        // Decode only enough to choose the group; full binding is checked by page.
+        let cursor=peek_cursor(token)?;
+        if cursor.binding.group.as_str()!=group{r.page.cursor=Optional::default();}
+    }
+    Ok(request)
+}
 
-fn peek_cursor(token:&CursorToken)->Result<Cursor,Error>{let text=token.as_str();if text.len()%2!=0{return Err(Error::Codec("cursor encoding".into()));}let bytes=text.as_bytes().chunks_exact(2).map(|c|std::str::from_utf8(c).ok().and_then(|s|u8::from_str_radix(s,16).ok()).ok_or_else(||Error::Codec("cursor encoding".into()))).collect::<Result<Vec<_>,_>>()?;serde_json::from_slice(&bytes).map_err(|e|Error::Codec(e.to_string()))}
+fn peek_cursor(token:&CursorToken)->Result<Cursor,Error>{let text=token.as_str();if !text.len().is_multiple_of(2) || !text.bytes().all(|byte| byte.is_ascii_hexdigit()){return Err(Error::Codec("cursor encoding".into()));}let bytes=text.as_bytes().as_chunks::<2>().0.iter().map(|c|std::str::from_utf8(c).ok().and_then(|s|u8::from_str_radix(s,16).ok()).ok_or_else(||Error::Codec("cursor encoding".into()))).collect::<Result<Vec<_>,_>>()?;serde_json::from_slice(&bytes).map_err(|e|Error::Codec(e.to_string()))}

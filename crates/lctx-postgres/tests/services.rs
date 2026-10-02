@@ -1,6 +1,5 @@
 //! The service baseline and the verified service owner against a disposable real PostgreSQL 18
 //! (cutover plan P1.5, T11/T12). Each control states its answer before running it.
-use lctx_model::domain::ContentHash;
 use lctx_postgres::operations::AttemptId;
 use lctx_model::domain::{
     ContentHash,
@@ -72,13 +71,18 @@ async fn fresh_baseline_installs_only_services() {
     migrator.check().await.unwrap();
     assert_eq!(
         schemas(&s.db.superuser).await,
-        ["lctx_cache", "lctx_ops", "public"]
+        ["lctx_cache", "lctx_ext", "lctx_ops", "public"]
     );
     assert_eq!(
         inventory(&s.db.superuser).await,
         [
             "lctx_cache.embedding_values:r@lctx_migrator",
             "lctx_cache.embedding_values_pkey:i@lctx_migrator",
+            "lctx_cache.serving_vector_artifacts:r@lctx_migrator",
+            "lctx_cache.serving_vector_artifacts_pkey:i@lctx_migrator",
+            "lctx_cache.serving_vector_generation:i@lctx_migrator",
+            "lctx_cache.serving_vectors:r@lctx_migrator",
+            "lctx_cache.serving_vectors_pkey:i@lctx_migrator",
             "lctx_cache.specs:r@lctx_migrator",
             "lctx_cache.specs_pkey:i@lctx_migrator",
             "lctx_ops.attempts:r@lctx_migrator",
@@ -97,8 +101,8 @@ async fn fresh_baseline_installs_only_services() {
             .unwrap();
     assert_eq!(
         extensions,
-        ["plpgsql"],
-        "the baseline requires no extension"
+        ["plpgsql", "vector"],
+        "the serving baseline requires the pinned vector extension"
     );
     // Twin: the generation store is installed from the typed model, never by a migration.
     GenerationStore::install(migrator.owner().await.unwrap(), Arc::new(model().unwrap()))
@@ -106,7 +110,7 @@ async fn fresh_baseline_installs_only_services() {
         .unwrap();
     assert_eq!(
         schemas(&s.db.superuser).await,
-        ["lctx_cache", "lctx_model_store", "lctx_ops", "public"]
+        ["lctx_cache", "lctx_ext", "lctx_model_store", "lctx_ops", "public"]
     );
     migrator.check().await.unwrap();
 }
@@ -122,7 +126,8 @@ async fn repeated_migrate_is_noop() {
         inventory(&s.db.superuser).await,
         history(&s.db.superuser).await,
     );
-    assert_eq!(before.1.len(), 1, "one baseline migration");
+    assert_eq!(before.1.iter().map(|(version, _)| *version).collect::<Vec<_>>(),
+        [202609300014, 202610020015], "the exact current service migrations");
     migrator.migrate().await.unwrap();
     assert_eq!(
         (
@@ -433,7 +438,7 @@ async fn service_grant_matrix() {
             );
         }
     }
-    for schema in ["lctx_cache", "lctx_ops", "public"] {
+    for schema in ["lctx_cache", "lctx_ext", "lctx_ops", "public"] {
         assert_eq!(
             code(
                 sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -491,6 +496,7 @@ async fn service_grant_matrix() {
 #[tokio::test]
 async fn superuser_and_elevated_owners_refused() {
     let s = services().await;
+    let before = (schemas(&s.db.superuser).await, inventory(&s.db.superuser).await);
     assert!(matches!(
         OwnerPool::verify(s.db.superuser.clone()).await,
         Err(Error::Owner("a superuser may not own the store"))
@@ -502,8 +508,8 @@ async fn superuser_and_elevated_owners_refused() {
     let migrator = superuser.connect_migrator().await.unwrap();
     assert!(matches!(migrator.migrate().await, Err(Error::Owner(_))));
     assert_eq!(
-        schemas(&s.db.superuser).await,
-        ["public"],
+        (schemas(&s.db.superuser).await, inventory(&s.db.superuser).await),
+        before,
         "a refused install changes nothing"
     );
     assert!(inventory(&s.db.superuser).await.is_empty());

@@ -291,7 +291,7 @@ fn preparation_fusion_and_conversion_reservations_refuse_and_release() {
     let prepared_bytes=budget.reserved();assert!(prepared_bytes>0);
     let row=score(&p,o,Channel::Vector,Some(0.5));
     let held=budget.reserve("test competing work",budget.limit()-budget.reserved()).unwrap();
-    assert!(matches!(p.rank(&[row.clone()],&[]),Err(ModelError::Resource {..})));
+    assert!(matches!(p.rank(std::slice::from_ref(&row),&[]),Err(ModelError::Resource {..})));
     assert!(matches!(p.prepare_lexical(&[TextOccurrence {occurrence:o,text:"tool".into()}]),Err(ModelError::Resource {..})));
     drop(held);assert_eq!(budget.reserved(),prepared_bytes);
     let result=p.rank(&[row],&[]).unwrap();assert!(budget.reserved()>prepared_bytes);

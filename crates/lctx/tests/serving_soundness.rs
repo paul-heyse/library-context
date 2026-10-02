@@ -66,7 +66,7 @@ async fn generated_cpython_observations_challenge_original_served_paths(){
     let fixture=ServingFixture::start_profile(bundle.source.as_bytes(),"behavioral").await;let native=fixture.service.prepare_native().await.unwrap();
     let mut identity_challenges=0;let mut refuted_guard_challenges=0;let mut refuted_return_challenges=0;let mut composition_paths=0;
     for function in &bundle.functions{
-        let observed=&bundle.observed[&function.name];assert!(observed.iter().all(|run|run.raised.is_none()));
+        let observed=&bundle.observed[&function.name];assert!(observed.iter().all(|run|run.raised.is_none()));assert!(observed.iter().all(|run|run.flag.is_some()==function.flagged),"captured flag inputs must match the generated function signature");
         let execution=fixture.service.execution().await.unwrap();let response=fixture.catalog.operation(&execution,&GetOperationRequest{library:Name::new("demo").unwrap(),operation:path(&format!("demo.{}",function.name)),sections:vec![],page:PageRequest::default()}).await.unwrap();drop(execution);
         let OperationResolution::Unique{packet:operation}=response.operation else{panic!("generated public function is ambiguous: {}",function.name)};
         let mut requests=BTreeSet::new();

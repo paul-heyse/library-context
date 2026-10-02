@@ -9,14 +9,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
+import bm25s
+import numpy as np
 from fastmcp import FastMCP
 
-from lctx_mcp.retrieval import Lexical
-
 SUFFIXES = {".py", ".pyi", ".md", ".mdx", ".rst", ".toml", ".yaml", ".yml", ".json", ".txt"}
+TOKEN = re.compile(r"[a-z0-9]+")
 
 
 def git(source: Path, *args: str) -> bytes:
@@ -55,7 +57,15 @@ class Evidence:
             lines = text.splitlines()
             for offset in range(0, len(lines), 60):
                 self.chunks.append((path, offset + 1, "\n".join(lines[offset : offset + 80])))
-        self.index = Lexical([path + "\n" + text for path, _, text in self.chunks])
+        tokens = [TOKEN.findall((path + "\n" + text).lower()) for path, _, text in self.chunks]
+        self.df: dict[str, int] = {}
+        for document in tokens:
+            for token in set(document):
+                self.df[token] = self.df.get(token, 0) + 1
+        self.index: bm25s.BM25 | None = None
+        if any(tokens):
+            self.index = bm25s.BM25(k1=1.5, b=0.75, method="lucene", backend="numpy")
+            self.index.index(tokens, show_progress=False)
 
     def inventory(self) -> dict:
         files = {p: hashlib.sha256(t.encode()).hexdigest() for p, t in self.files.items()}
@@ -69,7 +79,15 @@ class Evidence:
     def search(self, query: str, limit: int = 8) -> dict:
         if not 1 <= limit <= 20 or not query.strip() or len(query) > 4096:
             raise ValueError("query/limit outside bounds")
-        scores = self.index.scores(query)
+        tokens = [
+            token for token in TOKEN.findall(query.lower())
+            if 0 < self.df.get(token, 0) < len(self.chunks)
+        ]
+        scores = (
+            np.asarray(self.index.get_scores(tokens), dtype=np.float32)
+            if tokens and self.index is not None
+            else np.zeros(len(self.chunks), dtype=np.float32)
+        )
         ranked = sorted(
             range(len(scores)),
             key=lambda i: (-float(scores[i]), self.chunks[i][0], self.chunks[i][1]),

@@ -373,24 +373,50 @@ fn covered(d: &AspectData, class: Id<Occurrence>, context: Id<AnalysisContext>) 
                 }
         })
 }
-fn class_inventory(
-    d: &AspectData,
-    class: Id<Occurrence>,
-    context: Id<AnalysisContext>,
-    symbol: Id<ProviderSymbol>,
-) -> ContentHash {
-    let mut k = KeySink::new("source-field-class-full-inventory");
-    class.encode(&mut k);
-    context.encode(&mut k);
-    // Membership is part of the premise, including refusals and otherwise unused siblings.
-    // Replay must not keep a positive when an option/default/support row disappears or changes.
-    macro_rules! rows { ($($field:ident:$ty:ty,)*) => {$(
-        for row in d.$field.iter() { row.content_digest().encode(&mut k); }
-    )*}; }
-    crate::callable_aspect_inputs!(rows);
-    symbol.encode(&mut k);
-    k.finish()
+struct ClassInventory {
+    hashes: crate::domain::identity::PreparedContentHashes,
+    _reservation: Box<dyn crate::domain::resources::Reservation>,
 }
+impl ClassInventory {
+    fn prepare(d: &AspectData, budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let mut count = 0_usize;
+        macro_rules! count_rows { ($($field:ident:$ty:ty,)*) => {$(
+            count = count.checked_add(d.$field.len())
+                .ok_or_else(|| ModelError::Invalid("class inventory size overflow".into()))?;
+        )*}; }
+        crate::callable_aspect_inputs!(count_rows);
+        use crate::domain::identity::PreparedContentHashes;
+        let size = PreparedContentHashes::encoded_size(count)
+            .ok_or_else(|| ModelError::Invalid("class inventory size overflow".into()))?;
+        // Reserve an allocation envelope before allocation, then retain the exact capacity.
+        let capacity = size.checked_next_power_of_two()
+            .ok_or_else(|| ModelError::Invalid("class inventory capacity overflow".into()))?;
+        let metadata = size_of::<Self>();
+        let allowance = capacity.checked_add(metadata)
+            .ok_or_else(|| ModelError::Invalid("class inventory allowance overflow".into()))?;
+        let mut reservation = budget.reserve("source-class-inventory", allowance)?;
+        let mut hashes = PreparedContentHashes::try_new(count)?;
+        if hashes.capacity() > capacity {
+            return Err(ModelError::Invalid("class inventory allocation exceeds reserved capacity".into()));
+        }
+        reservation.try_resize(hashes.capacity() + metadata)?;
+        // Original macro order and original ID order, including otherwise unused siblings.
+        macro_rules! rows { ($($field:ident:$ty:ty,)*) => {$(
+            for row in d.$field.iter() { hashes.push(row.content_digest())?; }
+        )*}; }
+        crate::callable_aspect_inputs!(rows);
+        Ok(Self { hashes, _reservation: reservation })
+    }
+    fn for_class(&self, class: Id<Occurrence>, context: Id<AnalysisContext>, symbol: Id<ProviderSymbol>) -> ContentHash {
+        let mut k = KeySink::new("source-field-class-full-inventory");
+        class.encode(&mut k);
+        context.encode(&mut k);
+        self.hashes.encode(&mut k);
+        symbol.encode(&mut k);
+        k.finish()
+    }
+}
+
 fn plain_init(
     d: &AspectData,
     function: Id<Occurrence>,
@@ -759,6 +785,7 @@ pub(super) fn normalize(
         "source-symbolic-field-check",
         allowance.saturating_add(1024),
     )?;
+    let mut full_inventory = None;
     for declaration in d
         .declarations
         .iter()
@@ -792,7 +819,11 @@ pub(super) fn normalize(
         else {
             continue;
         };
-        let inventory = class_inventory(d, class, q.context, symbol);
+        if full_inventory.is_none() {
+            full_inventory = Some(ClassInventory::prepare(d, b)?);
+        }
+        let inventory = full_inventory.as_ref().expect("prepared inventory")
+            .for_class(class, q.context, symbol);
         let reason = if traits.dataclass && !traits.synthesized {
             record_gate(d, class, symbol, q.context, out)
         } else {
@@ -960,4 +991,43 @@ pub(super) fn normalize(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod inventory_controls {
+    use super::*;
+    fn nominal<T>(value: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([value; 16].into_iter())).unwrap()
+    }
+    #[test]
+    fn full_inventory_matches_replay_and_unused_sibling_changes_invalidate() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut data = AspectData::new(&budget);
+        let original_usage = budget.reserved();
+        let class = nominal(1); let context = nominal(2); let symbol = nominal(3);
+        let original = ClassInventory::prepare(&data, &budget).unwrap();
+        let before = original.for_class(class, context, symbol);
+        drop(original);
+        assert_eq!(budget.reserved(), original_usage);
+        // This occurrence is not a class or a member. It remains an inventory premise.
+        data.occurrences.insert(Occurrence { source: nominal(4), start: 7, end: 9,
+            syntax_kind: SyntaxKind::ExprName, structural_path: vec![7], role: OccurrenceRole::Syntax }).unwrap();
+        let rows_usage = budget.reserved();
+        let prepared = ClassInventory::prepare(&data, &budget).unwrap();
+        let after = prepared.for_class(class, context, symbol);
+        assert_ne!(before, after);
+        let mut old = KeySink::new("source-field-class-full-inventory");
+        class.encode(&mut old); context.encode(&mut old);
+        macro_rules! rows { ($($field:ident:$ty:ty,)*) => {$(
+            for row in data.$field.iter() { row.content_digest().encode(&mut old); }
+        )*}; }
+        crate::callable_aspect_inputs!(rows);
+        symbol.encode(&mut old);
+        assert_eq!(after, old.finish());
+        drop(prepared);
+        assert_eq!(budget.reserved(), rows_usage);
+        let tiny = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(ClassInventory::prepare(&data, &tiny), Err(ModelError::Resource { .. })));
+        assert_eq!(tiny.reserved(), 0);
+    }
 }

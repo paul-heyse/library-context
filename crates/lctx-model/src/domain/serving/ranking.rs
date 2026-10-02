@@ -227,9 +227,8 @@ impl PreparedRanking {
                 return Err(invalid("nonfinite or negative lexical numerical score"));
             }
             let normalized = row.score.map(|value| if value == 0.0 { 0.0 } else { value });
-            if let Some(previous) = numerical.insert((row.occurrence, row.channel), normalized) {
-                if previous != normalized { return Err(invalid("conflicting duplicate numerical score")); }
-            }
+            if let Some(previous) = numerical.insert((row.occurrence, row.channel), normalized)
+                && previous != normalized { return Err(invalid("conflicting duplicate numerical score")); }
         }
         let mut statistics: Vec<_> = self.channels.keys().map(|channel| ChannelStatistics {
             channel: *channel, missing: self.occurrences.len(), lexical_zero: 0, contributing_occurrences: 0,
@@ -331,9 +330,8 @@ impl PreparedRanking {
         let mut covered = BTreeSet::new();
         for input in inputs {
             if !self.occurrences.contains(&input.occurrence) { return Err(invalid("lexical input outside admitted closure")); }
-            if let Some(previous) = fragment_text.insert(input.occurrence.fragment, &input.text) {
-                if previous != input.text { return Err(invalid("one fragment has conflicting lexical text")); }
-            }
+            if let Some(previous) = fragment_text.insert(input.occurrence.fragment, &input.text)
+                && previous != input.text { return Err(invalid("one fragment has conflicting lexical text")); }
             let mut sink = KeySink::new("serving-lexical-document/v1");
             sink.part(b"family", &(input.occurrence.family as i16).to_le_bytes()); sink.part(b"text", input.text.as_bytes());
             let id = sink.finish();
@@ -393,9 +391,8 @@ impl LexicalCorpus {
             if !self.occurrences.contains_key(&row.document) { return Err(invalid("numerical document outside admitted lexical corpus")); }
             if row.score.is_some_and(|score| !score.is_finite() || score < 0.0) { return Err(invalid("invalid lexical document score")); }
             let normalized = row.score.map(|score| if score == 0.0 { 0.0 } else { score });
-            if let Some(previous) = numerical.insert(row.document, normalized) {
-                if previous != normalized { return Err(invalid("conflicting duplicate lexical document score")); }
-            }
+            if let Some(previous) = numerical.insert(row.document, normalized)
+                && previous != normalized { return Err(invalid("conflicting duplicate lexical document score")); }
         }
         let mut rows = Vec::with_capacity(count);
         for (document, occurrences) in &self.occurrences {
@@ -472,7 +469,7 @@ impl MemberLexicalCorpus {
         for row in scores {
             if !self.source.occurrences.contains_key(&row.document)||row.score.is_some_and(|v|!v.is_finite()||v<0.0){return Err(invalid("member lexical score outside numerical corpus"));}
             let value=row.score.map(|v|if v==0.0{0.0}else{v});
-            if let Some(previous)=numerical.insert(row.document,value){if previous!=value{return Err(invalid("conflicting member lexical document score"));}}
+            if let Some(previous)=numerical.insert(row.document,value)&&previous!=value{return Err(invalid("conflicting member lexical document score"));}
         }
         let mut rows=Vec::with_capacity(request.occurrences.len());
         for (document,occurrences) in &self.occurrences {for occurrence in occurrences {

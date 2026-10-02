@@ -8,7 +8,14 @@ from fastmcp.exceptions import ResourceError, ToolError, ValidationError
 from fastmcp.resources import Resource, ResourceContent, ResourceResult, ResourceTemplate
 from fastmcp.server.dependencies import get_context
 from fastmcp.tools import Tool, ToolResult
-from mcp_types import CallToolResult, Implementation, JSONRPCResponse, ReadResourceResult, SERVER_INFO_META_KEY, ToolAnnotations
+from mcp_types import (
+    SERVER_INFO_META_KEY,
+    CallToolResult,
+    Implementation,
+    JSONRPCResponse,
+    ReadResourceResult,
+    ToolAnnotations,
+)
 from mcp_types.methods import serialize_server_result
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import PrivateAttr
@@ -45,10 +52,7 @@ def negotiated_encodings(result: CallToolResult | ReadResourceResult, request_id
     return response_encodings(result, request_id, protocol_version=protocol_version, server_info=identity)
 
 
-async def admit_request_id(service, grant, ctx, expanded: bool, byte_limits: dict[str, int]) -> int | str:
-    request_context = ctx.request_context
-    if request_context is None:
-        raise ToolError("MCP request context unavailable")
+async def admit_request_id(service, grant, request_context, expanded: bool, byte_limits: dict[str, int]) -> int | str:
     request_id = request_context.request_id
     bound = byte_limits["expanded" if expanded else "default"]
     # An ID alone is a lower bound on both envelopes. Avoid an unbounded copy before
@@ -69,6 +73,11 @@ class SchemaTool(Tool):
         from lctx_storage import StorageError
 
         ctx = get_context()
+        request_context = ctx.request_context
+        if request_context is None:
+            raise ToolError("MCP request context unavailable")
+        # Capture plain values before serialization runs in the original Rust CPU worker.
+        protocol_version, server = request_context.protocol_version, ctx.fastmcp
         served = ctx.lifespan_context["served"]
         try:
             grant = await served.service.admit()
@@ -81,10 +90,7 @@ class SchemaTool(Tool):
             )
             info = json.loads(await served.service.request_info(grant, self.name, raw))
             expanded = info["expanded"]
-            request_id = await admit_request_id(served.service, grant, ctx, expanded, self._byte_limits)
-            # FastMCP request_context is a ContextVar; capture plain values before
-            # serialization runs in the original Rust CPU worker.
-            protocol_version, server = ctx.request_context.protocol_version, ctx.fastmcp
+            request_id = await admit_request_id(served.service, grant, request_context, expanded, self._byte_limits)
             vector, degradation = await served.query_vector(grant, info["query"])
             response = await served.service.dispatch(
                 grant, self.name, raw, query_vector=vector, degradation=degradation,
@@ -119,14 +125,17 @@ class CapabilityResource(Resource):
         from lctx_storage import StorageError
 
         ctx = get_context()
+        request_context = ctx.request_context
+        if request_context is None:
+            raise ResourceError("MCP request context unavailable")
+        protocol_version, server = request_context.protocol_version, ctx.fastmcp
         served = ctx.lifespan_context["served"]
         try:
             grant = await served.service.admit()
         except StorageError as exc:
             raise ResourceError(str(exc)) from exc
         try:
-            request_id = await admit_request_id(served.service, grant, ctx, True, self._byte_limits)
-            protocol_version, server = ctx.request_context.protocol_version, ctx.fastmcp
+            request_id = await admit_request_id(served.service, grant, request_context, True, self._byte_limits)
             uri, mime_type = self.uri, self.mime_type
             text = await served.service.capability_resource(grant, self._capability)
             result = None

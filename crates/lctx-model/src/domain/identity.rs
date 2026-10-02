@@ -173,15 +173,52 @@ impl KeySink {
         sink
     }
     pub fn part(&mut self, tag: &[u8], bytes: &[u8]) {
-        self.0.update(&(tag.len() as u64).to_le_bytes());
-        self.0.update(tag);
-        self.0.update(&(bytes.len() as u64).to_le_bytes());
-        self.0.update(bytes);
+        framed_part(tag, bytes, |fragment| { self.0.update(fragment); });
     }
     pub fn finish(self) -> ContentHash {
         ContentHash(*self.0.finalize().as_bytes())
     }
 }
+// Both direct hashing and prepared replay use this sole scalar framing recipe.
+fn framed_part(tag: &[u8], bytes: &[u8], mut emit: impl FnMut(&[u8])) {
+    emit(&(tag.len() as u64).to_le_bytes());
+    emit(tag);
+    emit(&(bytes.len() as u64).to_le_bytes());
+    emit(bytes);
+}
+
+/// Opaque, already framed sequence of content hashes. No list or aggregate-hash frame is added.
+/// The invoking owner reserves capacity before construction and retains that reservation.
+pub(crate) struct PreparedContentHashes {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+impl PreparedContentHashes {
+    pub(crate) fn encoded_size(count: usize) -> Option<usize> {
+        count.checked_mul(8 + b"digest".len() + 8 + 32)
+    }
+    pub(crate) fn try_new(count: usize) -> Result<Self, super::ModelError> {
+        let limit = Self::encoded_size(count)
+            .ok_or_else(|| super::ModelError::Invalid("content hash sequence size overflow".into()))?;
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(limit)
+            .map_err(|_| super::ModelError::Invalid("content hash sequence allocation failed".into()))?;
+        Ok(Self { bytes, limit })
+    }
+    pub(crate) fn capacity(&self) -> usize { self.bytes.capacity() }
+    pub(crate) fn push(&mut self, hash: ContentHash) -> Result<(), super::ModelError> {
+        if self.bytes.len().checked_add(Self::encoded_size(1).expect("one frame"))
+            .is_none_or(|end| end > self.limit) {
+            return Err(super::ModelError::Invalid("content hash sequence exceeds reserved size".into()));
+        }
+        framed_part(b"digest", &hash.0, |fragment| self.bytes.extend_from_slice(fragment));
+        Ok(())
+    }
+}
+impl Key for PreparedContentHashes {
+    fn encode(&self, sink: &mut KeySink) { sink.0.update(&self.bytes); }
+}
+
 pub trait Key {
     fn encode(&self, sink: &mut KeySink);
 }
@@ -382,5 +419,50 @@ impl<'de> Deserialize<'de> for Utf8Text {
         String::from_utf8(bytes.0)
             .map(Self)
             .map_err(serde::de::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod prepared_hash_tests {
+    use super::*;
+    #[test]
+    fn prepared_hashes_preserve_original_framing_and_order() {
+        // Independent, explicit byte framing fixes the v3 contract, including empty sequences.
+        for hashes in [vec![], vec![ContentHash([0; 32])],
+            vec![ContentHash([1; 32]), ContentHash([2; 32]), ContentHash([1; 32])]] {
+            let mut expected = Vec::new();
+            for (tag, value) in [(b"domain".as_slice(), b"lctx-semantic/v3".as_slice()),
+                (b"type".as_slice(), b"inventory-control".as_slice()),
+                (b"text".as_slice(), b"class/context".as_slice())] {
+                expected.extend_from_slice(&(tag.len() as u64).to_le_bytes());
+                expected.extend_from_slice(tag);
+                expected.extend_from_slice(&(value.len() as u64).to_le_bytes());
+                expected.extend_from_slice(value);
+            }
+            for hash in &hashes {
+                expected.extend_from_slice(&6_u64.to_le_bytes());
+                expected.extend_from_slice(b"digest");
+                expected.extend_from_slice(&32_u64.to_le_bytes());
+                expected.extend_from_slice(&hash.0);
+            }
+            expected.extend_from_slice(&4_u64.to_le_bytes());
+            expected.extend_from_slice(b"text");
+            expected.extend_from_slice(&6_u64.to_le_bytes());
+            expected.extend_from_slice(b"symbol");
+            let mut direct = KeySink::new("inventory-control");
+            "class/context".to_owned().encode(&mut direct);
+            let mut prepared = PreparedContentHashes::try_new(hashes.len()).unwrap();
+            for hash in &hashes { hash.encode(&mut direct); prepared.push(*hash).unwrap(); }
+            "symbol".to_owned().encode(&mut direct);
+            let mut replay = KeySink::new("inventory-control");
+            "class/context".to_owned().encode(&mut replay);
+            prepared.encode(&mut replay);
+            "symbol".to_owned().encode(&mut replay);
+            let expected = ContentHash::of(&expected);
+            assert_eq!(direct.finish(), expected);
+            assert_eq!(replay.finish(), expected);
+            assert!(prepared.push(ContentHash([3; 32])).is_err());
+        }
+        assert!(PreparedContentHashes::encoded_size(usize::MAX).is_none());
     }
 }

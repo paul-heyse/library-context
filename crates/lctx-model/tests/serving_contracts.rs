@@ -85,6 +85,8 @@ fn binding()->CursorBinding{
 fn continuation_rejects_each_invalidated_boundary(){
     let original=binding();let cursor=Cursor{binding:original.clone(),offset:20};let token=cursor.encode().unwrap();
     assert_eq!(Cursor::decode(&token,&original).unwrap(),cursor);
+    let signed=CursorToken::new(format!("+9{}",token.as_str())).unwrap();
+    assert!(Cursor::decode(&signed,&original).is_err(),"signed byte pairs cannot encode cursor whitespace");
     let mut changed=original.clone();changed.generation=GenerationKey([2;16]);assert!(Cursor::decode(&token,&changed).is_err());
     let mut changed=original.clone();changed.request=RequestIdentity(ContentHash::of(b"changed"));assert!(Cursor::decode(&token,&changed).is_err());
     let mut changed=original.clone();changed.policy=PolicyIdentity(ContentHash::of(b"changed"));assert!(Cursor::decode(&token,&changed).is_err());
@@ -126,7 +128,7 @@ fn mapping_field_propagation_and_safe_lookup_indexes(){
 fn policy_wire_and_consumer_change_without_reextracting_canonical_facts(){
     let canonical=Basic{name:"canonical".into()};let before=canonical.content_digest();
     let policy_a=policy_identity(&ResourceLimits::default()).unwrap();
-    let mut limits=ResourceLimits::default();limits.cpu_jobs=3;let policy_b=policy_identity(&limits).unwrap();
+    let limits=ResourceLimits{cpu_jobs:3,..ResourceLimits::default()};let policy_b=policy_identity(&limits).unwrap();
     assert_ne!(policy_a,policy_b);assert_eq!(canonical.content_digest(),before);
     let consumed=vec![ConsumedRelation{relation:"catalog_members".into(),epoch:ContentHash::of(b"epoch"),content:ContentHash::of(b"content")}];
     let generation=GenerationKey([1;16]);let mapping=mappings::identity();let wire=wire_identity();

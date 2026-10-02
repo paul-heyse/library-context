@@ -528,15 +528,15 @@ lowering, manifests, query metadata and final acceptance. No formatting/generato
 
 | Package | Current implementation / acceptance |
 |---|---|
-| D0 | Accepted target, 2026-10-02; ADR-0114 and architecture updated. No serving qualification claimed. |
-| M0 | Implemented. Closed wire contracts passed 15 focused controls before the attributed-assertion evolution. Catalog/packet fixtures have a composite prior receipt; latest preallocation, set-based behavior and status/resource changes require fresh focused qualification. |
-| L0 | Implemented. Resource scopes and generated view/index/ACL controls passed within their recorded boundary. Original-guard loss, cancellation/drain and the cumulative 30-second control require the current actual compiler fixture. |
-| C0/E0 | Implemented. Prior catalog and packet controls passed as scoped composite receipts. Latest original byte paging, canonical receipt-bound DAG hydration, source-view independence, winner-to-byte mapping and assertion status controls await current focused qualification. |
-| R0 | Implemented. Current pure ranking controls passed 16, including shared full-family corpus projection and retained tokenizer known answers. Python numerical/transport controls passed 9; actual eligibility/winner hydration requires the current focused fixtures. No retrieval-quality claim. |
-| V0 | Implemented / scoped Tested. Full original corrected actual fixture passed 1 / 0 skipped, 120.119 seconds, run `ee4c8c95-37b3-45c2-9d3e-3fb002ef230f`; controlled numerical HTTP seam only. Composite receipt retains the physical constraint inventory failure and isolated dependency-sync compile failure. Later serving mapping/status changes require the assembled gate. |
-| N0/N1 | Implemented / scoped Tested. Pure native/condition/selection/evidence controls passed 50. Final actual native fixture passed both profiles and all ten transport controls per profile, 177.59 seconds, including same-observation distinct sibling paths. Earlier serializer failures remain part of the composite receipt. |
-| T0/X0 | Implemented current bridges and ten-tool/resource adapter; 375 inventoried obsolete source files and 21 metadata entries retired. Independent controls are re-homed; real retained-service backup/restore and matcher/preregistration controls passed as scoped composite receipts. CPython generated-program controls passed 2; its actual native driver and final transport codecs remain pending. |
-| Q0 | not_run until all functional packages and retirement complete. |
+| D0 | Accepted target, 2026-10-02; ADR-0114 and architecture updated. |
+| M0 | Implemented / scoped Tested. Current closed wire controls passed 16; all five actual packet controls passed, including direct mixed-status canonical comparison. The assembled gate covers later ordering integration. |
+| L0 | Implemented / scoped Tested. Original guard, view/index/ACL controls, cancellation/drain and cumulative 30-second deadline passed within their recorded actual compiler scope. Current both-profile native/transport fixture also passed after the ordering repair. |
+| C0/E0 | Implemented / scoped Tested. Actual catalog/packet controls, eligibility and ranked-winner original bytes passed. Corrected actual BaseEvaluation receipt-bound DAG, Unicode paging and damaged-view/captured-byte control passed 1 / zero skipped, 92.778s. Full gate covers the latest shared read snapshot. |
+| R0 | Implemented / scoped Tested. Pure ranking controls passed 16, including shared complete-family corpus projection and retained tokenizer known answers. Actual retrieval fixture passed; Python numerical/transport controls passed within their scopes. No retrieval-quality claim. |
+| V0 | Implemented / scoped Tested. Full original corrected actual fixture passed 1 / zero skipped, 120.119s, run `ee4c8c95-37b3-45c2-9d3e-3fb002ef230f`; controlled numerical HTTP seam only. Composite receipt retains physical inventory and isolated dependency-sync failures. Later integration is covered by the assembled gate. |
+| N0/N1 | Implemented / scoped Tested. Pure native/condition/selection/evidence controls passed 50. Current ordering-discriminator actual fixture passed 1 / zero skipped, 200.266s; both profiles passed all ten transport controls. The unchanged generated CPython original-path oracle passed 1 / zero skipped, 795.987s after the production ordering repair. |
+| T0/X0 | Implemented / scoped Tested. Current ten-tool/resource bridges and exact final codecs passed in actual transport. 375 inventoried obsolete source files, 21 metadata entries and three obsolete wire assets retired. Independent expectations are re-homed; real retained-service and matcher/preregistration controls passed as scoped composite receipts. Generated-program controls passed 2; actual native oracle now passed. |
+| Q0 | Corrected complete Rust gate failed: 916 passed / eight failed / two skipped; repairs implemented, final functional qualification pending. Hygiene is composite in progress; named Clippy/types/fixture/gold/rule checks passed. Original and corrected logs retained in §10. The preliminary pinned FastMCP Catalog compile was interrupted for changed source/model; its unselected staging receipts are preserved. Final-source both-profile journeys, explicit vector preparation and activation remain pending. Live embedding is separately blocked by the absent configured endpoint. |
 
 **Build coordination, 2026-10-02:** simultaneous release builds in isolated production worktrees
 formed a verified fine-grain Cargo artifact lock cycle: vector build held shared `allocative` and
@@ -724,8 +724,12 @@ its original transport, guard, path and tamper controls passed on the repaired s
 --release -p lctx --test serving_native`, 1 passed / zero skipped, 200.266 seconds, build 7m37,
 run `e6db33d6-e0d8-4197-860d-23515c7e774e`, log
 `/tmp/lctx-phase5-native-ordering_2026-10-02.log`. Both profiles passed all ten actual transport
-controls and the original changed-operand refusal. The unchanged original CPython oracle is now
-rerunning separately. Product limits and every oracle assertion remain unchanged. Appendix B independently closes F02
+controls and the original changed-operand refusal. The unchanged original CPython oracle subsequently **passed** 1 / zero skipped in 795.987
+seconds (build 10.34s), run `3cf0ff2a-18ef-4745-8188-4b7aa56145d8`, command
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+--release -p lctx --test serving_soundness`, log
+`/tmp/lctx-phase5-soundness-ordering_2026-10-02.log`. Its original nonvacuous identity, guard,
+return and composition assertions remain. Product limits and every oracle assertion are unchanged. Appendix B independently closes F02
 within its scoped Tested evidence.
 
 Additive pure model contracts are committed as `4acf8551`; the preserved initial dirty formatting
@@ -734,5 +738,124 @@ remains unstaged. This commit establishes no full Phase 5 gate or serving activa
 Canonical serving/store/CLI/bridge integration and the coupled ownership-boundary retirement
 are committed as `91751d1c`. Semantic-only index copies preserve the initial dirty baseline rather
 than folding its unrelated formatting into the cutover. This establishes implemented scope with
-bounded current native evidence; the original CPython rerun, complete functional/hygiene gates,
-final-source real FastMCP journeys and activation remain pending.
+bounded current native and generated CPython evidence. All functional packages and X0 are now
+implemented and focused-qualified; `NEXTEST_TEST_THREADS=8 just test-all` is running
+(`/tmp/lctx-phase5-test-all_2026-10-02.log`). Complete functional/hygiene gates, final-source real
+FastMCP journeys and activation remain pending.
+
+**Complete-gate compile repair, 2026-10-02:** the first Phase 5
+`NEXTEST_TEST_THREADS=8 just test-all` stopped during workspace compilation with duplicate
+`ContentHash` imports in `lctx-postgres/tests/services.rs` (E0252). It establishes no workspace
+test result. The redundant direct import was removed, retaining the existing grouped model
+import and all service assertions. Original log: `/tmp/lctx-phase5-test-all_2026-10-02.log`.
+The corrected full gate **failed** at the Rust boundary: 924 run, 916 passed (25 slow), eight
+failed, two skipped, 1226.441 seconds; run `2b4edd1e-4ca8-4ade-8f7e-b2213fde4576`, log
+`/tmp/lctx-phase5-test-all-corrected_2026-10-02.log`. Downstream Python, separate PostgreSQL
+and doctests were not_run. Failures were the exact AttemptId hex parser, model digest snapshot,
+three stale service baseline expectations, reset schema inventory, per-migration checksum
+restoration, and the one-member summary fixture's assumption that a call pair is admitted.
+The repairs retain original strict grants/drift/reset/identity/conditional/open-sibling controls;
+the summary fixture adds an independently source-selected work-limit pair rather than inventing
+closure for rejected source states. Complete Q0 remains pending.
+
+**Bounded Q0 prerequisite, Proposed, 2026-10-02:** the preliminary real FastMCP Catalog compile
+spent more than two hours CPU-active in callable normalization. Static current input counts are
+78 relations / 7,251,684 rows, 4,087 decorator members and 142,032 call targets. Each admitted
+class re-hashes the entire input inventory; each decorator scans all targets. This identifies
+repeated work, not a measured speedup or a new Phase 0–4 review. Root owns a mechanical model
+refactor: prepare the exact framed ContentHash stream once per invocation, lazily at the first
+existing class inventory point, including unsupported classes and otherwise unused siblings;
+index target candidates solely by source/start/end, retaining duplicate targets, ID order,
+context/resolution checks and original missing-premise error order. Both caches reserve their
+allocation envelope before allocation and return it on drop/error. Identity framing stays in
+its current owner with no new aggregate hash or list tag. Independent scoped advice accepts
+this approach at Proposed maturity and requires byte equivalence, unused-sibling invalidation,
+span/duplicate/context/missing-premise and budget controls. No new semantic authority, persisted
+cache, budget increase or ADR is introduced. Fresh model/producer/generation and full gate
+receipts are required after these source changes; the old preliminary generation cannot qualify
+the final ABI by implication.
+
+
+**Bounded prerequisite controls, passed, 2026-10-02:** normalized
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx-model --lib
+--test domain_callable_aspects -E 'test(prepared_hashes) | test(full_inventory) |
+test(exact_span) | binary(domain_callable_aspects)' --no-fail-fast` passed nine / zero selected
+skipped (90 outside the filter), run `f5b18abb-d581-4b33-baff-92d145926e5b`, log
+`/tmp/lctx-phase5-normalization-controls_2026-10-02.log`. Original independent callable/default
+controls, explicit byte framing, original inventory replay, unused-sibling invalidation,
+duplicate/context/span candidates, absent premises, empty targets and allocation refusal/drop
+are exercised. Compile check of `lctx-model` and `lctx-postgres` passed in 36.77 seconds,
+`/tmp/lctx-phase5-qualification-repairs-check_2026-10-02.log`. The target-index reservation then
+added a fixed root-node envelope for small cardinalities; final assembled controls must cover
+that source. No speedup is measured or claimed.
+
+
+**Original symbolic/summary controls, passed, 2026-10-02:** normalized
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p cpg-extract
+--test symbolic_fields --test summary_consequences --no-fail-fast` passed six / zero skipped,
+4.480 seconds, build 1m52, run `eae8a153-1817-457e-aaca-464ca1dab4f6`, log
+`/tmp/lctx-phase5-symbolic-summary-repairs_2026-10-02.log`. This covers actual native extraction,
+exact/unsupported source fields, the revised global one-member premise and the independently
+source-selected open call pair. Full gate remains pending; no performance claim is established.
+
+
+**Exact store controls, passed, 2026-10-02:** normalized
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx-postgres
+--test services --test installation --no-fail-fast` passed 17 / zero skipped, 122.228 seconds,
+build 9.70 seconds, run `30e527fd-2cdf-4c5c-8f54-78f63fb63120`, log
+`/tmp/lctx-phase5-store-expectation-repairs_2026-10-02.log`. Exact schemas, service migration
+versions, vector artifact objects, extension and grant matrix are retained. The drift challenge
+now restores each original migration checksum to its own version; final clean inspection,
+phased reset and untouched foreign objects remain mandatory.
+
+
+**Preliminary Q0 source transition, interrupted, 2026-10-02:** the original N0 CLI
+PID 1693662 received a scoped SIGINT only after verification of its owned executable and after
+the new normalization controls passed. It exited 130; its backend, locks and other local lctx
+sessions are absent. The original unselected staging generation
+`aed6c594573c68b317428c1212383869`, 204 receipts and unchanged log are preserved. It had spent
+2h50 elapsed / 2h36 CPU before stopping in callable normalization. Receipt:
+`/tmp/lctx-phase5-q0-preliminary-interruption_2026-10-02.json`. Reason is changed source/model,
+not stage failure. Its Model/producer hashes remain original; fresh final-source both-profile
+journeys are required. No store reset, abort, drop or new compile occurred at quiescence.
+
+**Hygiene, composite in progress, 2026-10-02:** `just hygiene` stopped at the stale ADR index,
+`/tmp/lctx-phase5-hygiene_2026-10-02.log`. Named `just fixtures-check`, `just gold`,
+`just rules-scan` and `just rules-test` passed. Type repairs preserve actual SDK/content/optional
+checks, original context capture, numerical-library typing and the independent original-evidence
+baseline's tokenizer/DF/settings; `just types` passed and the original focused Python command
+passed 11 tests. Logs: `/tmp/lctx-phase5-hygiene-types-python-repair_2026-10-02.log` and
+`/tmp/lctx-phase5-hygiene-python-focused-corrected_2026-10-02.log`; initial wrong test-path
+invocation is retained as no collected result. `just clippy` passed after named mechanical
+repairs, `/tmp/lctx-phase5-hygiene-clippy-final_2026-10-02.log`. Inline finite packets/refusal
+frames retain existing allocation accounting rather than introducing uncharged heap indirection.
+The exact ID parser also refuses signed byte pairs; cursor/control hex readers now reject them
+explicitly. Existing cursor controls add signed-tab framing rejection. `just deps` now passes
+family/license/fork/shear and stops at the expected Hakari union diff after dependency retirement;
+`/tmp/lctx-phase5-hygiene-deps-repaired_2026-10-02.log`. An unchanged unlinked store fixture was
+inventoried and retired: `/tmp/lctx-phase5-unlinked-fixture-retirement_2026-10-02.json`; its live
+control uses the current model fixture. ADR/docs and feature-union refreshes, remaining Ruff
+line-length/SIM117 repairs, live store check and final functional qualification remain pending.
+The requested scoped formatter/generator exception is not presumed approved.
+
+
+**Current model/native/wire repairs, passed, 2026-10-02:** normalized
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx-model --lib
+--test serving_contracts --test ranking_policy --test native_requests -E 'test(prepared_hashes) |
+test(full_inventory) | test(exact_span) | binary(serving_contracts) | binary(ranking_policy) |
+binary(native_requests)' --no-fail-fast` passed 51 selected tests (90 outside the filter),
+0.028 seconds, build 2m39, run `fe0fd80f-b598-4790-ad40-62cb2df3c0fa`, log
+`/tmp/lctx-phase5-final-model-repair-controls_2026-10-02.log`. This covers the final root-node
+allocation envelope and signed-cursor byte rejection while retaining all original assertions.
+After the explicit HTTP context composition repair, `just types` passed and the scoped SIM117
+check passed; actual transport is deferred to the rebuilt ABI/full gate, not claimed by a
+mocked provider. Complete Q0 and generated-file refreshes remain pending.
+
+
+**Exact attempt-ID parser, passed, 2026-10-02:** normalized
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx --bin lctx
+-E 'test(an_attempt_id_is_exactly_32_hex_digits)'` passed one selected test (six outside the
+filter), 0.002 seconds, build 6m03, run `14d92c69-661a-43f5-9da2-a858e9783d4c`, log
+`/tmp/lctx-phase5-attempt-id-parser_2026-10-02.log`. The original control keeps uppercase legal
+hex and rejects signed byte pairs, malformed/Unicode and incorrect widths. Complete Q0 remains
+pending the scoped source stabilization and final ABI/gates/journeys.

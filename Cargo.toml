@@ -121,7 +121,6 @@ testcontainers-modules = { version = "=0.15.0", default-features = false, featur
 
 # dev
 insta = "=1.48.0"
-proptest = "=1.11.0"
 tempfile = "=3.27.0"
 
 [workspace.lints.rust]

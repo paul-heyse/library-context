@@ -37,6 +37,7 @@ macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:i
         }
     }
     #[derive(Debug,Clone,PartialEq,Serialize,Deserialize)]
+    #[allow(clippy::large_enum_variant, reason = "Inline finite packets retain the value-size accounting used by request reservations")]
     pub enum Response {$($variant($response)),*}
     impl Response {
         pub fn tool(&self)->Tool{match self{$(Self::$variant(_)=>Tool::$variant),*}}
@@ -145,9 +146,9 @@ fn validate_selection(selection:&selection::Selection,limits:&ResourceLimits)->R
     Ok(())
 }
 fn validate_selector(selector:&OperationSelector)->Result<(),WireError>{
-    if let OperationSelector::PublicPath{path}=selector {
-        if path.is_empty() || path.len()>128{return Err(WireError::Invalid("public path extent".into()));}
-    }Ok(())
+    if let OperationSelector::PublicPath{path}=selector
+        && (path.is_empty() || path.len()>128){return Err(WireError::Invalid("public path extent".into()));}
+    Ok(())
 }
 fn validate_request(request:&Request,limits:&ResourceLimits)->Result<(),WireError>{
     if request.page().size==0 || request.page().size>limits.maximum_page_rows{return Err(WireError::ResourceRefused("page rows".into()));}

@@ -18,6 +18,7 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+
 @dataclass(frozen=True)
 class Function:
     name: str
@@ -177,7 +178,7 @@ def challenge_bundle() -> dict:
     for index, group in enumerate(groups):
         names = {f.name: f"p{index}_{f.name}" for f in group}
         for f in group:
-            body = re.sub(r"\bf\d+\b", lambda match: names[match.group()], f.body)
+            body = re.sub(r"\bf\d+\b", lambda match, names=names: names[match.group()], f.body)
             functions.append(Function(names[f.name], f.flagged, body, f.decorated))
     source = _source(functions)
     return {"source": source, "functions": [asdict(f) for f in functions],

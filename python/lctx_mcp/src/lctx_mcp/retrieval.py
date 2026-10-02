@@ -17,7 +17,7 @@ class NumericalScorer:
     """One library index per nonempty family; no Python semantic or ranking state."""
 
     def __init__(self) -> None:
-        self._families: dict[object, tuple[object, list[list[int]]]] = {}
+        self._families: dict[object, tuple[bm25s.BM25 | None, list[list[int]]]] = {}
         self._initialized = False
 
     def initialize(self, corpus_json: str) -> None:
@@ -28,16 +28,16 @@ class NumericalScorer:
         grouped: dict[object, list[dict]] = {}
         for document in corpus["documents"]:
             grouped.setdefault(document["family"], []).append(document)
-        families = {}
+        families: dict[object, tuple[bm25s.BM25 | None, list[list[int]]]] = {}
         for family, documents in grouped.items():
-            index = bm25s.BM25(
-                k1=settings["k1"], b=settings["b"],
-                method=settings["method"], backend=settings["backend"],
-            )
             supplied = [document["tokens"] for document in documents]
             # BM25S0.3.11 cannot index an entirely empty vocabulary. There is no numerical
             # term work in that family; retain its document identities and explicit zero scores.
             if any(supplied):
+                index = bm25s.BM25(
+                    k1=settings["k1"], b=settings["b"],
+                    method=settings["method"], backend=settings["backend"],
+                )
                 index.index(supplied, show_progress=False)
             else:
                 index = None
