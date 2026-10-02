@@ -2,10 +2,21 @@
 
 _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Implemented, 2026-10-01:** Shared planning, review and execution guidance updated (uncommitted),
-including [review preparation](.claude/skills/plan-design-review/SKILL.md) and [plan preparation](.claude/skills/plan-creation/SKILL.md).
-For these two preparation skills, `just lint-agents`, skill validation and focused link/alias
-and cross-repository consistency checks passed; product checks `not_run` for this documentation-only work.
+**Plan documents created, 2026-10-01:** The [Phase 5 detailed plan](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
+and [foundation enhancements plan](docs/plans/semantic-model-foundation-enhancements_2026-10-01.md)
+are **Proposed**. The [focused target review](docs/design_review/reviews/design_review_phase5-target_2026-10-01.md)
+is **Accept scoped** at its documented baseline, with no new blocking finding; this accepts the
+target direction, not implemented serving. [ADR-0114](docs/adr/0114-generation-serving-contracts.md)
+remains proposed. Shared planning/review guidance previously landed in `2b581ab5`.
+
+## Document checks — 2026-10-01
+
+| Command / scope | Outcome |
+|---|---|
+| `uv run --no-project --offline --no-python-downloads python scripts/docs.py build` | **passed**, canonical publication and internal links |
+| `just lint-agents` | **passed** |
+| `just docs-check` | **failed**, generated ADR index is stale; end-of-turn hook owns its refresh |
+| Product checks, pilots and measurements for this document scope | **not_run**, no production or publisher/resolver changes |
 
 ## Phase 4 — completed within the accepted scope
 
@@ -28,7 +39,7 @@ remain **Accept scoped** at their recorded baselines. Their historical gate boun
 The [parent finding register](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
 owns current closure and deferrals.
 
-## Last verified — 2026-10-01
+## Historical Phase 4 verification — 2026-10-01
 
 | Command / scope | Outcome |
 |---|---|
@@ -44,7 +55,10 @@ per test process. Earlier compiler SIGTERM remains an unconfirmed build interrup
 
 ## Next scope and standing limits
 
-Phase 5 serving/MCP and PR6 remain **Proposed / unavailable**, outside this execution.
+Next: D0 settles ADR-0114 and integrates the shared serving contracts, followed by ready M0/F1/N0
+work under the detailed plan. F1 enables prepared classification; F2 coverage dispatch and F3
+consumed-input streaming can proceed independently. Every production package remains **not_run**.
+Phase 5 serving/MCP and PR6 remain **Proposed / unavailable**. This document work changes no runtime.
 R4's positive simultaneous two-variant Summary qualification remains **not_run / open**;
 current admission requires complete uniquely Bound variants. Revisit R4 before broadening admission.
 Live embedding, product quality/comparisons, performance/hydration and total-RSS are unmeasured.
@@ -58,7 +72,9 @@ X0 removed92 mapped obsolete source/snapshot paths and preserved named P5 bundle
 Python/cursor/hydration and service obligations. Retained P5 services compile legacy contracts
 transitively; no active P4 authority, old-ID bridge, compatibility reader or dual store uses them.
 
-Preserve unrelated dirty agent/instruction/catalog work, dirty or unproven-integration worktrees,
+The current dirty source (including apparent hook formatting) was not requalified by this document
+work; the Phase 4 receipt above retains its original tree boundary. Preserve unrelated dirty
+agent/instruction/catalog/test work, dirty or unproven-integration worktrees,
 caches and protected assets. Eleven clean integrated task worktrees were removed under the
 current cleanup instruction. The automatic end-of-turn hook owns formatting and generators;
 its future results are not claimed by this receipt.

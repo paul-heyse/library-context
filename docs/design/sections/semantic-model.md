@@ -842,7 +842,16 @@ The same scoped operation is available over the private facts checkpoint before 
 - A missing or corrupt required relation or artifact is a refusal, never an empty answer.
 - Explanations traverse the derivation index with bounded recursive queries.
 
-> Decision: ADR-0086
+**Proposed refinement, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
+and the [Phase 5 detailed plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
+develop a serving-role process guard, generation-prepared classification and one ranking owner.
+Semantic shapes remain generated views. A narrow disposable vector-only PostgreSQL artifact is
+proposed for the existing exact profile, derived through the canonical byte codec and explicitly
+prepared outside read-only startup; it is not a copied semantic serving schema. Its validation,
+atomic preparation and generation cleanup are required. No new semantic frontier or readiness
+registry is proposed. These refinements and all Phase 5 implementation remain Proposed / not_run.
+
+> Decision: ADR-0086; proposed refinement ADR-0114
 
 <a id="section-15-13"></a>
 

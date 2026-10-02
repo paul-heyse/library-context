@@ -9,7 +9,7 @@ and the disposition of known defects.
 
 | Responsibility | Owner | Source entry / adjacent consumer |
 |---|---|---|
-| **Accepted target:** the semantic relation model, PostgreSQL single store and layered cutover | [Semantic relation model (§15)](sections/semantic-model.md) | `lctx-model` contracts and `lctx-postgres` generations; `cpg-core` orchestrates cumulative stages. ADR-0085/0083/0084; the [cutover plan](../plans/semantic-model-cutover-plan_2026-09-29.md) owns execution and qualification; Phase 5 serving remains unavailable |
+| **Accepted target:** the semantic relation model, PostgreSQL single store and layered cutover | [Semantic relation model (§15)](sections/semantic-model.md) | `lctx-model` contracts and `lctx-postgres` generations; `cpg-core` orchestrates cumulative stages. ADR-0085/0083/0084; the [cutover plan](../plans/semantic-model-cutover-plan_2026-09-29.md) owns execution and qualification; Phase 5 serving remains unavailable; [proposed detailed plan](../plans/semantic-model-phase5-detailed-plan_2026-10-01.md) |
 | API/evidence product target and Context7 differentiation | [Product target (§14)](sections/api-and-evidence-product.md) | Model-owned catalog, source/effective options, original evidence and declaration selection; product comparison and Phase 5 tool serving remain open |
 | Scope, binding decisions, dependency family, deferrals | [DESIGN §1, §2, §7, §13](DESIGN.md) | Every owner below; ADRs govern its §B sections |
 | Fact authority, identity, codebooks, coverage, graph catalog | [Facts and identity (§3–§3.8)](sections/facts-and-identity.md) | [lctx-model](../../crates/lctx-model/src/lib.rs); native extraction produces these contracts, codebooks stay append-only |

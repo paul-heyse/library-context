@@ -232,7 +232,13 @@ pinned disposable environment, without a generic shell semantics engine or manda
 
 ## §14.7 Query semantics and customizable requirements
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0077, ADR-0081, ADR-0085
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0077, ADR-0081, ADR-0085; proposed refinement ADR-0114
+
+**Proposed refinement, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
+and the [Phase 5 plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
+separate classification inputs from broad publication replay, prepare an admitted indexed
+classifier per generation and preserve the model-owned finite predicate/conjunction operations.
+This does not activate serving or establish new predicate semantics.
 
 Phase 4 C2 owns pure typed selection and contextual witnesses. Phase 5 must adapt those contracts
 to PostgreSQL selection/hydration and MCP requests. Rust owns decoding/classification; Python
@@ -289,7 +295,13 @@ its final limit; bounded ranking never claims exhaustiveness.
 
 ## §14.8 Retrieval units, witnesses and ranking
 
-> Decision: ADR-0077, ADR-0085
+> Decision: ADR-0077, ADR-0085; proposed refinement ADR-0114
+
+**Proposed refinement, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
+places fusion and winning-witness decisions in one model operation over library numerical scores.
+Its narrow disposable exact-vector artifact derives from canonical embedding-use bytes/specs;
+semantic units, contextual membership and evidence remain canonical. Physical admission, cleanup
+and actual retrieval journeys remain Phase 5 implementation/qualification.
 
 Phase 4 retrieval constructs addressable units with typed subjects, evidence origins, family,
 rendering/input identity and source context. The four families are API/options,
@@ -318,7 +330,13 @@ are derived from typed generations rather than another canonical bundle/import s
 
 ## §14.9 Agent interface and bounded implementation packet
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081; proposed refinement ADR-0114
+
+**Proposed refinement, 2026-10-01:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
+and [Phase 5 packages](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md#8-dependency-ordered-execution-packages)
+specify a process generation guard distinct from request SQL occupancy, one CPU admission owner,
+current model-derived wire mappings and bounded native exact-input reconstruction. The ten retained
+routes and indivisible mandatory packet contract remain the target; implementation is not_run.
 
 **Accepted Phase 5 contract; serving unavailable.** Ten retained routes are `search_operations`,
 `find_operations`, `get_operation`, `browse_library`, `get_evidence`, `search_evidence`,

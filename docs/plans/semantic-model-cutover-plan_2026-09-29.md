@@ -173,6 +173,17 @@ Generate views and inventories from the model; restore native executor/MCP again
 published generation. No bundle import or copied serving schema. Qualify end-to-end journeys before
 resuming PR6 or new features.
 
+The [Phase 5 detailed design and execution plan](semantic-model-phase5-detailed-plan_2026-10-01.md)
+is **Proposed, 2026-10-01**; [ADR-0114](../adr/0114-generation-serving-contracts.md) proposes the
+bounded serving refinements. It owns shared serving contracts, dependency-ordered packages,
+legacy reconstruction/retirement and assembled acceptance. The companion
+[foundation enhancements plan](semantic-model-foundation-enhancements_2026-10-01.md)
+owns F1 reusable classification inputs/preparation and independent F2/F3 coverage routing/input loading.
+F1 enables serving; F2/F3 can proceed alongside it without an invented phase-wide barrier.
+The [focused target review](../design_review/reviews/design_review_phase5-target_2026-10-01.md) is
+**Accept scoped, 2026-10-01**, at Proposed maturity, with no new blocking finding. ADR-0114 remains
+proposed. This parent retains cross-phase findings. Plan creation is not implementation or qualification.
+
 ### 4.1 Execution decisions
 
 ADR-0085–0087 supersede the earlier execution decisions. No compatibility, parity-to-bug requirement,
@@ -1439,15 +1450,15 @@ phase named, and only on its closure evidence.
 | [F02](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F02) call relation has no owner; origin hidden | closed scoped, 2026-10-01; Q0 passed within recorded scope | 3.1, 3.5, 4.5 | N1 normalized policy/admission owns target alternatives and origins; native binding and actual Summary/structural/CLI controls retain open or unresolved alternatives |
 | [F03](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F03) association basis dropped | closed scoped, 2026-10-01; Q0 passed within recorded scope | 4.5 | C1 typed association basis, original artifacts and exact parent links; candidate/runtime facets remain Unresolved/Unknown; actual C1 projection-mutation controls |
 | [F04](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F04) no transfer algebra; identity served as computed | closed scoped, 2026-10-01; Q0 passed within recorded scope | 0.4, 4.2 | B0–B3 typed transfer/place algebra distinguishes identity, derived values and unavailable origins; native and actual PG finite Summary controls |
-| [F05](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F05) two condition representations | P4 condition ownership closed scoped, 2026-10-01; P5 response remainder open | 2.2, 4.1, 5.2 | One occurrence-keyed condition vocabulary with closed epochs and checked rebasing; actual Summary GuardSubstitution/permutation/corruption controls. Served condition response identity remains P5 |
+| [F05](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F05) two condition representations | P4 condition ownership closed scoped, 2026-10-01; P5 response remainder open | 2.2, 4.1; P5 D0/N0/N1/T0 | One occurrence-keyed condition vocabulary with closed epochs and checked rebasing; actual Summary GuardSubstitution/permutation/corruption controls. Served condition response identity remains P5 |
 | [F06](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F06) no place/transfer vocabulary | supported standard-record source association closed scoped, 2026-10-01; broader runtime identity unsupported | 0.4, 3.1, 4.3, 4.5 | One normalized source association supplies exact Local and qualified Unknown Summary/C1/S0 alternatives; native/store nonleakage and independent F01 reinspection. General plain-class heap, alias, mutation and temporal value identity remain unsupported; revisit when a consumer requires that stronger claim |
 | [F07](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F07) distributed refusal/obligation; silent cost cap | closed scoped to finite P4 engine, 2026-10-01; Q0 passed within recorded scope | 0.4, 0.6, 4.3, 4.5 | Typed obligation/discharge owner and explicit depth/proof/pair-work/resource residuals; actual finite Summary and budget/corruption controls. No unbounded-recursion or total-RSS completeness claim |
 | [F08](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F08) no derived-result contract; lineage gaps | closed scoped, 2026-10-01; Q0 passed within recorded scope | 4.6, 4.7 | Nominal producing owners, shared emitter, invocation lineage and finite proof DAGs; actual Summary, synthesis, final assessment and upper CLI consumers with replay refusal controls |
 | [F09](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F09) nominal projection layer | closed scoped, 2026-10-01; Q0 passed within recorded scope | 3.2, 4.6 | N1/G0 declaration-owned normalized projections and invariant-branded borrowed graphs; independent assembled source review plus native/analytic controls |
-| [F10](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F10) serving is a second hand authority | open → phases 0, 5 | 0.2, 5.1, 5.5 | generated DDL, views and inventories; no hand serving file |
+| [F10](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F10) serving is a second hand authority | open → phases 0, 5 | 0.2; P5 M0/X0 | generated DDL, views and inventories; no hand serving file |
 | [F11](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F11) implicit stage composition; producer identity mislabelled | closed scoped (2026-09-30): one framed shared production-source fingerprint covers every canonical producer and excludes ambient bytecode; native providers execute exactly their scheduled declarations | 0.7, 1.2 | `producer_fingerprint`, shared admission/stage-table refusal tests, `facts_generation`; foundation reinspection Accept scoped |
-| [F12](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F12) per-request rebuilds and round trips | open → phase 5 | 5.1 | generation-scoped prepared catalog; set-based hydration |
-| [F13](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F13) pilot recognizer; lexical parameters outside the digest | P4 portion implemented/focused-Tested, 2026-10-01; P5 serving remainder open | 4.4, 5.4 | N0/C1/E0 named authored model registration/applicability and policy/spec identity; actual native/PG and fake-effect cache replay controls. Serving/wire realization and product journeys remain P5 |
+| [F12](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F12) per-request rebuilds and round trips | open → phase 5 | P5 F1/C0/E0 | generation-scoped prepared catalog; set-based hydration |
+| [F13](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F13) pilot recognizer; lexical parameters outside the digest | P4 portion implemented/focused-Tested, 2026-10-01; P5 serving remainder open | 4.4; P5 R0/T0/Q0 | N0/C1/E0 named authored model registration/applicability and policy/spec identity; actual native/PG and fake-effect cache replay controls. Serving/wire realization and product journeys remain P5 |
 | Review observations: browse unknown ownership, `EmptyUnderCoverage`, lexical-only reason | open → phase 5 | 5.1 | disclosed in responses |
 
 **Operator decision (2026-09-29).** Do not repair these in the legacy code. The new contracts must
