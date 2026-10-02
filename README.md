@@ -2,7 +2,8 @@
 
 Target: compile pinned Python libraries into an API and evidence catalog that helps coding agents
 find, configure and use built-in features with precise, inspectable support. Existing Rust facts and
-bounded behavioral analyses, Arrow/DataFusion/Delta and PostgreSQL serving provide the foundation.
+bounded behavioral analyses provide enrichment. The typed Rust model owns semantic contracts,
+PostgreSQL owns canonical generations, and Arrow/DataFusion supplies in-process compute.
 The [replacement product design](docs/design/sections/api-and-evidence-product.md) is an accepted
 target. Catalog compilation and ordered API contracts are implemented, with behavioral enrichment
 available explicitly. Surface/configuration, contextual evidence and typed selection remain in
@@ -28,7 +29,8 @@ Source Markdown remains usable without a site. CI produces a downloadable site a
 hosting is not configured. See [publishing operations](docs/publishing.md) for details.
 
 PostgreSQL-backed compiles use the [local PostgreSQL setup and recovery commands](docs/postgresql.md).
-SQLx owns cache, operational services and immutable serving projections in Rust; Delta retains
-canonical publication and offline replay. MCP serves an explicitly pinned ready PostgreSQL
-generation. Portable bundles remain export/reference/recovery inputs. See the runbook for
-`lctx serving import/select` and `lctx-mcp --library NAME`.
+SQLx owns generation storage, cache and operational services in Rust. Compilation publishes a
+generation without selecting it; `lctx generation select` is an explicit operator action.
+Phase 5 generation-bound MCP serving is implemented, with integrated qualification and activation
+pending in [the current plan](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md).
+There is no bundle import or second serving schema.

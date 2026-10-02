@@ -307,3 +307,77 @@ Receipt: `/tmp/lctx-phase5-model-final-corrected_2026-10-02.log`. This includes 
 Together with Appendix A’s source assessment and transported packet/resource controls, these results establish F02’s required direct canonical comparison. A2, G2 and CI-G2 now have scoped Tested support for this correction. F01’s assessment is unchanged.
 
 The enclosing focused run **failed overall**: nine tests passed, one failed and one timed out. This appendix does not reassess those other results or promote that run to a passing gate. Full Q0 qualification and pinned FastMCP pilots remain pending. Current finding disposition remains owned by [Phase 5 plan §10](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md).
+
+## Appendix C. Final Q0 assembled target assessment — 2026-10-02
+
+**Decision: Accept scoped, at Implemented maturity with the bounded Tested evidence below.** The current assembled Phase 5 design retains one semantic owner and one generation-bound effect/runtime owner. F01 and F02 remain corrected. No new material source defect was found in the inspected assembly. This decision does **not** establish Q0 completion, passing final-source FastMCP journeys or operator activation.
+
+### Baseline and review boundary
+
+This is the scheduled final assembled Design/Target assessment under the principal review's core 3.2, code-intelligence 1.3 and repository binding. The baseline is MAIN `8e10d256cf1f742dad18673f2257a7b894715821` plus the preserved initial dirty source tree. Apparent formatting is not treated as new semantic scope. The current model identity is `dac961ba186c11b01144120a749e0be4d3c7aec8fe7bd908a052850955fbf025`, recorded in the accepted model-description snapshot and current plan.
+
+The scope remains the ten retained tools, capability resource, canonical Catalog admission, classification, retrieval, optional packets/native enrichment, original evidence and service resource/lifecycle boundaries. The assessment includes the normalization optimization only where its identity and preparation behavior affect this assembly. It is not a retrospective Phase 0–4 review or foundation recertification. PR6, ANN, broader native admission, live embedding qualification, product-quality comparisons, total RSS and performance measurement remain outside this decision.
+
+The reviewer inspected current owners, production paths, integration changes and the cited receipts. No builds, tests, probes, formatters or generators were launched. This appendix is the only reviewer edit; the root retains acceptance, plan and disposition ownership.
+
+Decisive current SHA-256 values:
+
+| File | SHA-256 |
+|---|---|
+| `python/lctx_storage/src/serving.rs` | `3e1341b8656fa87b3606e4c970d775ab4e3728d7c2e216b0e9823aaeecf7d2f3` |
+| `python/lctx_mcp/src/lctx_mcp/wire.py` | `587fd2f917c7c851ebbd4c5ca469a4aa61dbd175b216ae1be09c2a8679c51c19` |
+| `crates/lctx-model/src/domain/serving/packets.rs` | `d07c8fc39b0dcfbdb16d9e7ee4d0cedd1c8a86dfdbeba9f4ba06e4dc74b61f58` |
+| `crates/lctx-postgres/src/generations/capability_service.rs` | `a2cef54dee86a81ae9047cd0eb01dc5caa61ce028ff1600f02113aac8dc5717d` |
+| `crates/lctx-postgres/src/generations/runtime.rs` | `f7281e629370529f4055f5cfbde111ed39d408fbef36d63ae037c8713bb94cdb` |
+| `crates/lctx-postgres/src/generations/selection.rs` | `12aba9bc42d4fbbe80063e99a8430b76358d1728e1428a2d69c17cdabae249ed` |
+| `crates/lctx-postgres/src/generations/native_service.rs` | `f58b79c4a45b96c0fdf38db7a94d35aeb8429ded285c5a56cc07a588a8c2bd58` |
+| `crates/lctx-model/src/domain/identity.rs` | `005eb77f424f5a202662caea5100f94eda180b325f40d65bbee6503c01d59728` |
+
+### Assembled ownership, fidelity and composition
+
+The model continues to own request/schema contracts, classifications, ranking, cursors and finite native assessment. `ServingService` composes catalog, retrieval and native preparation over one admitted runtime, and shuts it down if preparation fails ([service.rs:20](../../../crates/lctx-postgres/src/generations/service.rs#L20)). Views remain generated from declared mappings rather than a copied semantic store ([serving_shape.rs:19](../../../crates/lctx-postgres/src/generations/serving_shape.rs#L19)). The disposable vector artifact remains a separate derived effect with explicit preparation; it is not a source of semantic authority.
+
+Python still receives model-produced lexical tokens/document identities and supplies pinned BM25S numerical scores ([retrieval.py:24](../../../python/lctx_mcp/src/lctx_mcp/retrieval.py#L24)). Rust retains eligibility, grouping, fusion and continuation decisions. Capability search hydrates the same capability service used by direct reads and optional brief packets ([retrieval_service.rs:811](../../../crates/lctx-postgres/src/generations/retrieval_service.rs#L811)). Unknown, unavailable and NotRequested remain explicit distinctions rather than inferred negative behavior.
+
+F01's correction survives integration: borrowed generic preflight and trusted request/envelope callbacks execute under the original charged CPU grant ([serving.rs:429](../../../python/lctx_storage/src/serving.rs#L429), [serving.rs:484](../../../python/lctx_storage/src/serving.rs#L484)). Resource construction reserves before materialization and checks actual output bytes ([serving.rs:974](../../../python/lctx_storage/src/serving.rs#L974)). The Python bridge captures the actual request context before worker execution and uses public SDK result serialization ([wire.py:96](../../../python/lctx_mcp/src/lctx_mcp/wire.py#L96)).
+
+F02's correction also survives: canonical status, kind, section, qualification and text are copied into model-owned assertion packets with actual support/source/target references ([capability_service.rs:218](../../../crates/lctx-postgres/src/generations/capability_service.rs#L218)). Resource presentation preserves authored bytes and appends that packet's evidence metadata ([packets.rs:240](../../../crates/lctx-model/src/domain/serving/packets.rs#L240)); its presentation revision participates in wire identity ([dispatch.rs:181](../../../crates/lctx-model/src/domain/serving/dispatch.rs#L181)). Appendix B's direct mixed-status evidence remains scoped evidence, not an assertion that the current whole gate passed.
+
+The original guard and shared execution own cancellation, deadlines and memory. Defaults remain 256 MiB shared, 128 MiB preparation and 64 MiB per request, with two CPU grants, two query connections and a cumulative 30-second deadline ([resources.rs:25](../../../crates/lctx-model/src/domain/serving/resources.rs#L25)). Blocking work and query cleanup retain their execution ownership after caller cancellation ([runtime.rs:228](../../../crates/lctx-postgres/src/generations/runtime.rs#L228), [runtime.rs:250](../../../crates/lctx-postgres/src/generations/runtime.rs#L250)).
+
+The ordering repair checks content receipts in ID order and streams declared validator grouping order inside one read-only repeatable-read transaction on the original connection ([selection.rs:206](../../../crates/lctx-postgres/src/generations/selection.rs#L206)). Native preparation uses those reads for actual model-owned invariant checks, including their vocabulary epochs ([native_service.rs:179](../../../crates/lctx-postgres/src/generations/native_service.rs#L179)). It does not replace proof authority with receipt presence.
+
+The normalization caches remain invocation-local execution mechanisms. Shared scalar framing preserves the old digest stream; `ClassInventory` preserves macro/ID ordering and owns its allocation reservation ([identity.rs:185](../../../crates/lctx-model/src/domain/identity.rs#L185), [symbolic_fields.rs:398](../../../crates/lctx-model/src/domain/normalized/symbolic_fields.rs#L398)). `TargetSpanIndex` retains duplicates, original ID order, missing targets and first-target-before-expression checking ([callable_aspects.rs:257](../../../crates/lctx-model/src/domain/normalized/callable_aspects.rs#L257)). No persisted authority, semantic codebook change or performance claim follows.
+
+### Judgments and evidence strength
+
+| Judgment | Current assessment |
+|---|---|
+| A1 Localize change | satisfied: route semantics, storage effects and codec policy have bounded owners |
+| A2 Encode domain meaning explicitly | satisfied: canonical distinctions and assertion evidence survive serving |
+| A3 Compose through contracts | satisfied: model operations, generation effects and numerical callbacks compose without a parallel semantic interpreter |
+| G1 Authority | pass within scope: model declarations and original generation remain authoritative |
+| G2 Semantic fidelity | pass at Implemented maturity; F02 has the scoped direct Tested evidence in Appendix B |
+| G3 Validity | pass for inspected mechanisms: closed decoding, canonical hydration, receipts and numerical validation; final qualification pending |
+| G4 Hidden behavior | pass: explicit preparation, read-only startup and no analyzed-library execution on the query path |
+| G5 Consistency and recovery | pass for inspected ownership: admitted codecs, original guard, snapshot reads and cancellation-safe cleanup |
+| G6 Transformation and reuse | pass: shared framing/codecs, canonical artifact identity and bound continuations |
+| G7 Truthful capability claims | pass within the owners' stated Implemented/scoped-Tested boundary; Q0 and activation remain pending |
+| G8 Library leverage | pass: SQLx/PostgreSQL, BLAKE3, schema libraries, BM25S/NumPy and FastMCP/SDK retain their mechanical responsibilities |
+| CI-G1 Fidelity | pass within selection/native/ranking scope; no promotion of may-model results to execution facts |
+| CI-G2 Evidence closure | pass within inspected representations and the recorded F02 controls |
+| CI-G3 Evaluation integrity | pass within scope; no quality result or new reference/gold authority is introduced |
+
+FP-01–FP-06 are satisfied within this assembly. The cache/index additions and snapshot repair retain existing owners and contracts; no alternative architecture, new dependency or ADR is warranted by these internal corrections. Retaining the old copied schema or moving semantic interpretation into Python would reintroduce duplicate authority without resolving the present target.
+
+Independently inspected receipts include the native ordering control (1 passed, 200.266s; `/tmp/lctx-phase5-native-ordering_2026-10-02.log`), original generated CPython oracle (1 passed, 795.987s; `/tmp/lctx-phase5-soundness-ordering_2026-10-02.log`) and corrected canonical evidence control (1 passed, 92.778s; `/tmp/lctx-phase5-evidence-parent-corrected_2026-10-02.log`). Their commands and retained failures are recorded in [plan §10](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md). These precede the final automatic source-formatting/model transition and are not relabelled as a clean final-tree gate.
+
+The current `lctx-model` repair run passed 51 selected controls, including the final index allocation envelope; 90 tests were outside its filter (`/tmp/lctx-phase5-final-model-repair-controls_2026-10-02.log`). Hygiene is a composite receipt: `/tmp/lctx-phase5-hygiene-final_2026-10-02.log` passed source/policy checks including all-target Clippy but failed its obsolete-store inspection; after the authorized reset, named `just store-check` passed with zero generations/zero findings (`/tmp/lctx-phase5-hygiene-store-final_2026-10-02.log`). It is not an initially clean hygiene run.
+
+At this assessment boundary, `/tmp/lctx-phase5-test-all-final_2026-10-02.log` was still running and established no complete final functional result. Final-source both-profile pinned FastMCP journeys likewise had no passing receipt. Their completion is required for Q0/product acceptance and activation, including evidence that the actual library can be admitted under the declared preparation limits. A failure there must be diagnosed on its own facts; this source judgment does not pre-accept it.
+
+### Disposition and enclosing status
+
+No new material finding is opened. F01/F02 retain their stable identities and the correction/closure evidence in Appendices A/B. The accepted authority remains ADR-0114 and the current semantic-model/synthesis-serving owners; legacy wording in operator documentation is a documentation reconciliation obligation, not evidence that the removed runtime architecture survives. Root owns those existing-document updates.
+
+The assembled architecture is **Accept scoped** within the finite, generation-bound serving contracts at the stated evidence strength. The enclosing Phase 5 qualification and operator activation remain **pending**. Root owns the final gate/journey assessment and existing plan/STATUS updates; this appendix creates no competing acceptance or disposition ledger.

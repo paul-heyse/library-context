@@ -174,7 +174,8 @@ published generation. No bundle import or copied serving schema. Qualify end-to-
 resuming PR6 or new features.
 
 The [Phase 5 detailed design and execution plan](semantic-model-phase5-detailed-plan_2026-10-01.md)
-is **Proposed, 2026-10-01**; [ADR-0114](../adr/0114-generation-serving-contracts.md) proposes the
+is **authorized and implemented, qualification pending, 2026-10-02**;
+[ADR-0114](../adr/0114-generation-serving-contracts.md) accepts the
 bounded serving refinements. It owns shared serving contracts, dependency-ordered packages,
 legacy reconstruction/retirement and assembled acceptance. The companion
 [foundation enhancements plan](semantic-model-foundation-enhancements_2026-10-01.md)
@@ -182,7 +183,8 @@ owns F1 reusable classification inputs/preparation and independent F2/F3 coverag
 F1 enables serving; F2/F3 can proceed alongside it without an invented phase-wide barrier.
 The [focused target review](../design_review/reviews/design_review_phase5-target_2026-10-01.md) is
 **Accept scoped, 2026-10-01**, at Proposed maturity, with no new blocking finding. ADR-0114 remains
-proposed. This parent retains cross-phase findings. Plan creation is not implementation or qualification.
+accepted, 2026-10-02. This parent retains cross-phase findings. The detailed plan's §10 owns
+current implementation and verification receipts; serving activation remains unqualified.
 
 ### 4.1 Execution decisions
 

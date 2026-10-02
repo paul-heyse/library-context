@@ -90,13 +90,13 @@ disposable-store controls retain their own server configurations.
 **Busy refusals.** Install, check and reset try the installation lock and refuse `Busy` (exit 2)
 rather than waiting behind work in flight.
 
-Every generation belongs to the attempt that registers it. `lctx compile --through facts|normalized`
+Every generation belongs to the attempt that registers it. `lctx compile --through facts|normalized|analysis|catalog`
 drives attempts; nothing else advances a generation. Operators see and steer generations with:
 
 ```sh
 target/release/lctx generation list [--state published] [--frontier facts]
 target/release/lctx generation show GENERATION_HEX
-target/release/lctx generation select GENERATION_HEX      # facts or normalized; compile never selects
+target/release/lctx generation select GENERATION_HEX      # published frontier; compile never selects
 target/release/lctx generation clear-selection
 target/release/lctx generation retire GENERATION_HEX      # unselected, unleased, published
 target/release/lctx generation abort GENERATION_HEX       # failed or interrupted
