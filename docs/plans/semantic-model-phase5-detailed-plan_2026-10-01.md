@@ -529,13 +529,13 @@ lowering, manifests, query metadata and final acceptance. No formatting/generato
 | Package | Current implementation / acceptance |
 |---|---|
 | D0 | Accepted target, 2026-10-02; ADR-0114 and architecture updated. No serving qualification claimed. |
-| M0 | Implemented pure contracts; initial `cargo test -p lctx-model --release --test serving_contracts` passed 11 controls. Later original-address/claim/optional-packet changes await a fresh scoped receipt. |
-| L0 | Scoped shared/preparation/request reservations passed `cargo nextest run --release -p lctx-model --test resource_scopes` (run `40cee834-b77c-4ae5-b73e-f35fe296bd40`); committed `5223cf73`. Generated view/index/ACL control passed `cargo nextest run --release -p lctx-postgres --test serving_shapes` (run `d1ecb540-7f9f-41af-b43e-e889c02b467b`) after extension provisioning and view-normalization repairs. Actual compiler cancellation control failed at retained-state reservation during physical admission; guard reservation repaired, rerun interrupted by Cargo lock cycle and remains not_run. |
-| C0/E0 | Catalog discovery control passed `cargo test -p lctx --release --test serving_catalog`; oversized mandatory signature control passed. Ordinary packet control failed a literal-default expectation, being corrected to the actual expression owner. Access-artifact ownership and subsequent optional/original-byte/proof hydration changes remain under targeted integration; release compile checks passed, no enclosing packet qualification. |
-| R0 | Initial pure ranking passed 14 controls via `cargo nextest run --release -p lctx-model --test ranking_policy` (run `cbbff93b-e8d6-4d03-907e-9ea73d22a825`). Shared Unit/member lexical corpus projection and effectful search integration added later; fresh controls pending. |
-| V0 | Explicit preparation, read-only artifact admission, exact cosine and cleanup implemented. Release compile passed. `cargo nextest run --release -p lctx --test serving_vectors` failed at initial CLI artifact preparation (`Contract`), run `b5f84f69-364e-4ca3-ace7-434ff836ecb6`; cache physical admission is being diagnosed, not qualified. |
-| N0/N1 | Initial pure native requests passed 13 controls; Syntax-to-Read producer link, retained proof/resource boundaries and known-path Unknown changes require a fresh scoped receipt. Native canonical loader release compile passed; actual compiler/native controls were interrupted by infrastructure and remain not_run. |
-| T0/X0 | Implementing the coarse current-model bridge and canonical transport; old serving/IPC authorities remain pending consumer migration and mapped independent controls. |
+| M0 | Implemented. Closed wire contracts passed 15 focused controls before the attributed-assertion evolution. Catalog/packet fixtures have a composite prior receipt; latest preallocation, set-based behavior and status/resource changes require fresh focused qualification. |
+| L0 | Implemented. Resource scopes and generated view/index/ACL controls passed within their recorded boundary. Original-guard loss, cancellation/drain and the cumulative 30-second control require the current actual compiler fixture. |
+| C0/E0 | Implemented. Prior catalog and packet controls passed as scoped composite receipts. Latest original byte paging, canonical receipt-bound DAG hydration, source-view independence, winner-to-byte mapping and assertion status controls await current focused qualification. |
+| R0 | Implemented. Current pure ranking controls passed 16, including shared full-family corpus projection and retained tokenizer known answers. Python numerical/transport controls passed 9; actual eligibility/winner hydration requires the current focused fixtures. No retrieval-quality claim. |
+| V0 | Implemented / scoped Tested. Full original corrected actual fixture passed 1 / 0 skipped, 120.119 seconds, run `ee4c8c95-37b3-45c2-9d3e-3fb002ef230f`; controlled numerical HTTP seam only. Composite receipt retains the physical constraint inventory failure and isolated dependency-sync compile failure. Later serving mapping/status changes require the assembled gate. |
+| N0/N1 | Implemented / scoped Tested. Pure native/condition/selection/evidence controls passed 50. Final actual native fixture passed both profiles and all ten transport controls per profile, 177.59 seconds, including same-observation distinct sibling paths. Earlier serializer failures remain part of the composite receipt. |
+| T0/X0 | Implemented current bridges and ten-tool/resource adapter; 375 inventoried obsolete source files and 21 metadata entries retired. Independent controls are re-homed; real retained-service backup/restore and matcher/preregistration controls passed as scoped composite receipts. CPython generated-program controls passed 2; its actual native driver and final transport codecs remain pending. |
 | Q0 | not_run until all functional packages and retirement complete. |
 
 **Build coordination, 2026-10-02:** simultaneous release builds in isolated production worktrees
@@ -545,3 +545,194 @@ waiting for those dependencies. Scoped interrupted commands establish no test re
 are now serialized while independent implementation continues; shared paths, optimization policy,
 frontend threads and caches remain unchanged. Neither test parallelism nor the earlier operator
 cleanup is established as the cause of this lock cycle.
+
+**Retirement control routes (X0), 2026-10-02, pending migration acceptance:** legacy bundle/IPC
+encodings, format numbers and frozen projection parity have no target consumer. Their independent
+expectations have moved to current owners before deleting the obsolete tests and producers:
+
+| Independent expectation | Current control owner / remaining qualification |
+|---|---|
+| Schema closure, structural rejection, final UTF-8 MCP bytes, model/wire identities | `lctx-model/tests/serving_contracts.rs`; latest 14-control receipt pending; actual serializers at T0 |
+| Finite literal restrictions, five verdicts, work refusal, exact original condition/proof, formal and context rejection | `lctx-model/tests/native_requests.rs` (16 passed), actual `lctx/tests/serving_native.rs` (both-profile rerun pending); retained SummaryRun replay owns stored discharge/finalizer proofs |
+| Explicit selection, reader retirement protection, atomic generation publication and corrupt/missing canonical rows | Existing real generation-store controls plus L0 cancellation/loss and `serving_shapes.rs`; later integrated gate remains pending |
+| Spec/domain isolation, exact vector values, negative/zero cosine, tampered physical cache and cleanup | `lctx/tests/serving_vectors.rs`; repaired full original fixture rerun pending |
+| Eligibility before ranking, complete family DF, contiguous ranks, exact-path promotion, channel/cursor identity | `lctx-model/tests/ranking_policy.rs`, actual `serving_retrieval.rs`, Python numerical arithmetic; latest integrated controls pending |
+| Canonical catalog specificity, whole required signatures, source ranges and grounded optional packets | `serving_catalog.rs`, `serving_packets.rs`, `serving_evidence.rs`; original capture/proof controls pending |
+
+These routes retain qualification obligations after source retirement; deletion does not
+establish that their replacement expectations passed. Legacy cancellation/import-resume controls for the removed Arrow-bundle importer
+are replaced by the generation store's transaction/lifecycle controls; no compatibility importer
+is retained. Q0 must include the new serving binaries and remove the blanket Phase 5 skips.
+
+**Integration check, 2026-10-02:** normalized `cargo check --release -p lctx --test
+serving_evidence --test serving_retrieval --test serving_packets -p lctx-semantics` is composite
+passed (14.52 seconds on corrected source). Initial errors were the SQLx Connection trait import,
+a non-serializable intermediate ScenarioAssociation page, the Catalog distribution accessor,
+and the migrated embedding schema helper's missing model dependency. Actual CLI test compilation
+subsequently exposed an AttemptId import through a dev-only dependency; it now uses the existing
+`cpg_core::postgres` owner re-export and the actual test command is rerunning. Later receipt-bound
+canonical proof-stream and bridge argument-allocation changes still require their scoped compile.
+
+
+**Focused integration updates, 2026-10-02:** M0 closed wire contracts passed 15/15. Catalog and
+packet actual fixtures form a composite receipt: catalog 1 passed and packet 4 passed / 1 failed;
+that optional-section failure was corrected by preserving the producer's exact deployment field
+names, and its original test passed on the named rerun (65.84 seconds). Terminal body pages omit
+absent continuations and reject explicit null. Set-based behavior hydration is implemented after
+that receipt; its compile and affected behavioral rerun remain not_run. The selector's four
+metadata field spellings now match the actual hyphenated producer output; focused selector
+controls and subsequent fresh generations remain pending.
+
+X0's independent inspection identified four expectations to preserve before old test deletion:
+a live native MCP structured roundtrip, a cumulative deadline across individually short phases,
+distinct same-observation sibling origins, and a ranked evidence winner resolving to original
+bytes. Current controls have been added to `current_transport.py`, `serving_native.rs`,
+`compile_facts.rs` and `serving_retrieval.rs`; their actual qualification is pending. Old bundle
+encoding and IPC parity have no current consumer and do not require reproducing their format.
+
+
+**X0 source retirement, implemented / not yet qualified, 2026-10-02:** scoped unchanged-input
+inventory `/tmp/lctx-phase5-x0-source-inventory_2026-10-02.json` records 375 file hashes. Current
+replacements own the independent expectations before deletion of `cpg-schema`, its old
+model declaration/identity machinery, dormant bundle tests/runtime, legacy PostgreSQL
+import/projection/readiness/query consumers, old native IPC and Python semantic owners. The 21
+fixed-query metadata entries were matched to the retired SQL text; no current macro consumer
+exists, so an empty metadata generator is not an acceptance gate. New serving binaries are
+included in `test-postgres`, and the blanket Python serving skip is removed.
+
+Retained-service backup now uses an explicit format-4 scope over the five original cache/operation
+service tables. Canonical generation state and disposable vector artifacts are rebuilt from
+pinned inputs, with no old ready-state, manifest, locator, bundle recovery or compatibility reader.
+The old bundle-dependent evaluation/workload runners are retired. Preregistered question/request
+sets, heldout inputs, gold matcher/source-span arithmetic and captured evaluation evidence remain;
+current-model product comparison runners are activated with that independent scope, not Q0.
+The independent CPython served-claim oracle is being migrated separately and remains pending.
+
+
+**Retained-service/evaluation controls, composite passed, 2026-10-02:** normalized
+`uv run --no-sync pytest tests/scripts/test_postgres_serving.py -q` passed split credentials and
+existing-database refusal, but backup initially failed its closed inventory because the disposable
+vector tables were included. The first repair excluded them; the restore then exposed pg_dump's
+`--table` filter overriding the mixed schema selection. The exact named backup test passed after
+using the five fixed table arguments and explicitly creating their two namespaces in the
+ disposable restore. Logs retain both failures and the final pass:
+`/tmp/lctx-phase5-retained-services_2026-10-02.log`,
+`/tmp/lctx-phase5-retained-services_corrected_2026-10-02.log`,
+`/tmp/lctx-phase5-retained-services_table-selection_2026-10-02.log`.
+`uv run --no-sync pytest tests/scripts/test_gold_match.py tests/scripts/test_structured_eval_guard.py -q`
+passed 9 retained preregistration/matcher/source-span controls; no live product quality claim.
+
+
+**Assembled review, 2026-10-02:** the independent
+[Design/Target review](../design_review/reviews/design_review_phase5-assembled_2026-10-02.md)
+was **Revise** at its initial inspected boundary; Appendix A accepts both corrections at Implemented maturity, with scoped actual transport evidence. Its findings have this one disposition owner:
+
+| Stable source finding | Owner / current disposition | Required closure evidence |
+|---|---|---|
+| phase5-assembled F01 | T0/runtime codec integration; Closed / scoped Tested, 2026-10-02 | Borrowed JSON admission and pinned final SDK serialization under the original CPU/deadline/reservation, oversized/Unicode/cancellation and exact writer controls; bounded reviewer follow-up |
+| phase5-assembled F02 | M0/E0/T0 capability representation; Closed / scoped Tested, 2026-10-02; Appendix B | Original per-assertion status/kind/qualification/text/support in structured packets and resource presentation, mixed-status canonical comparison, final byte bounds and presentation identity; bounded reviewer follow-up |
+
+The original authored BriefDocument bytes and digest remain canonical. Capability resources append
+model-owned assertion evidence metadata from the same hydrated packet; ranking cannot supply or
+promote status. This is a wire/presentation evolution, not a canonical codebook or relation migration.
+
+Actual native fixture on the final pre-review transport source failed two Catalog serializer
+controls and passed seven. Both writers exposed the SDK's negotiated-version reshaping and modern
+serverInfo metadata occurring after the former byte check. The complete failure log is
+`/tmp/lctx-phase5-native-transport_2026-10-02.log`; both CPython 3.14 ABIs compiled and were installed
+(`/tmp/lctx-phase5-native-abi-final_2026-10-02.log`). Behavioral/sibling controls were not_run at that
+failure boundary. The fixture now collects both-profile transport failures through independent
+native checks and teardown, without weakening its final all-required-controls assertion.
+The public SDK version serializer correction passed nine pure transport/numerical controls
+(`/tmp/lctx-phase5-t0-public_version_serializer_2026-10-02.log`); actual full qualification is pending.
+
+
+**V0 original fixture, composite passed, 2026-10-02:**
+`NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run
+--release -p lctx --test serving_vectors` passed 1 / 0 skipped, runtime 120.119 seconds, release
+build 7m18. Run `ee4c8c95-37b3-45c2-9d3e-3fb002ef230f`; complete log
+`/tmp/lctx-phase5-v0-serving_vectors_corrected_final_2026-10-02.log`. The fixture covers both
+canonical vector owners, signed-zero bytes, exact positive/negative/orthogonal cosine, read-only
+startup, foreign/duplicate/nonfinite/width refusal, physical metadata/content/ACL tamper,
+explicit rebuild, original-guard binding, cancellation/drain and retirement cleanup. The earlier
+inventory failure and missing isolated `lctx-embed` source sync remain retained failures. This
+is a controlled HTTP numerical seam, not live query embedding or retrieval-quality evidence.
+The later assertion-status representation changes were not in this package's dependency snapshot;
+full assembled qualification will exercise the current mappings.
+
+**Final codec/native receipt, passed, 2026-10-02:** the complete original
+`cargo nextest run --release -p lctx --test serving_native` fixture on the final source passed
+1 / 0 skipped, runtime 177.59 seconds. Catalog and Behavioral each passed all ten actual MCP
+transport controls. The final native ABI build passed in 10.94 seconds. Logs:
+`/tmp/lctx-phase5-native-final-transport_2026-10-02.log` and
+`/tmp/lctx-phase5-native-resource-final-abi_2026-10-02.log`. Reservations, exact builtin admission,
+valid Unicode, cancellation retention, final writer bytes, same-original distinct path identity and
+canonical assertion/resource presentation were exercised. Appendix A independently accepts the
+F01/F02 source corrections; full Q0 and direct mixed-status comparison remain pending.
+
+**Current pure model controls, composite passed, 2026-10-02:**
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+--release -p lctx-model --test serving_contracts --test ranking_policy` passed 32 / 0 skipped
+(16 per binary), 0.026 seconds, build 1m28, run `a5da448b-2003-43e8-956f-74ce144d0f02`.
+The initial compile failed because the new schema-validation control omitted the existing pinned
+jsonschema dev dependency. The missing dependency was added; the unchanged control passed. Logs:
+`/tmp/lctx-phase5-model-final_2026-10-02.log` and
+`/tmp/lctx-phase5-model-final-corrected_2026-10-02.log`. This includes numeric assertion status
+fidelity, resource labels, full-family document frequency and retained tokenizer known answers.
+
+**Current serving fixtures, composite in progress, 2026-10-02:** the complete focused command
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+--release -p lctx --test compile_facts --test serving_evidence --test serving_packets
+--test serving_retrieval --test serving_soundness --no-fail-fast` finished 9 passed, 1 failed,
+1 timed out, 0 skipped, 540.059 seconds (run `3278b8f1-1d44-4ac2-a6e5-ff7f668a24fd`).
+The nine passes include all packet controls, the nonvacuous mixed-status canonical comparison
+(73.223 seconds), actual eligibility and ranked-winner original bytes, both-profile canonical
+admission/loss/cancellation and the cumulative deadline. Complete receipt:
+`/tmp/lctx-phase5-serving-focused-original-artifact_2026-10-02.log`. Earlier test compile
+failures (missing Serde dependency/module import and incomplete/wrong-owner typed query arguments)
+remain in `/tmp/lctx-phase5-serving-focused_2026-10-02.log` and
+`/tmp/lctx-phase5-serving-focused-corrected_2026-10-02.log`; production behavior and assertions
+were not relaxed to repair them.
+
+The original evidence fixture incorrectly required Local AnalysisInput parents, although Local
+declares no earlier analysis parents. Selecting Behavioral alone did not repair that assumption;
+this retained failure is `/tmp/lctx-phase5-evidence-soundness-corrected_2026-10-02.log`. The corrected
+control uses an actual admitted BaseEvaluation parent, keeps the same canonical receipt-bound DAG
+and damaged-view/captured-byte challenges, and **passed** 1 / 0 skipped in 92.778 seconds:
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+--release -p lctx --test serving_evidence`, log
+`/tmp/lctx-phase5-evidence-parent-corrected_2026-10-02.log`, run
+`989dc486-972a-48ea-a837-31a03a3965d8`. The Unicode paging portion had already passed before the
+wrong-parent assertion. The generated CPython driver exceeded the generic 300-second harness limit. Its scoped
+900-second retry completed compilation of the same nine grouped programs / 52 functions, then
+failed native preparation after 833.640 seconds: canonical receipt hashing rejected call arguments
+read in validator grouping order instead of strictly increasing ID order. This is a production
+ordering defect, not a passing oracle or solely a harness timeout. The retained failure is
+`/tmp/lctx-phase5-evidence-soundness-corrected_2026-10-02.log`, run
+`f58ce200-0596-4a03-b654-53becf6ce080`.
+
+The correction verifies receipt content in ID order, then streams declared validator grouping
+order when different. Both bounded passes use one read-only repeatable-read transaction on the
+original leased connection; no relation-wide sort, replacement guard or larger product resource
+limit is introduced. SQLx owns rollback on error/cancellation. Normalized
+`cargo check --release -p lctx-postgres` passed in 39.63 seconds
+(`/tmp/lctx-phase5-ordering-check_2026-10-02.log`), and the current CPython 3.14 storage ABI build
+passed in 19.18 seconds (`/tmp/lctx-phase5-ordering-abi_2026-10-02.log`). The actual native fixture
+now independently demonstrates differing ID and call/ordinal order with two eight-argument calls;
+its original transport, guard, path and tamper controls passed on the repaired source:
+`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+--release -p lctx --test serving_native`, 1 passed / zero skipped, 200.266 seconds, build 7m37,
+run `e6db33d6-e0d8-4197-860d-23515c7e774e`, log
+`/tmp/lctx-phase5-native-ordering_2026-10-02.log`. Both profiles passed all ten actual transport
+controls and the original changed-operand refusal. The unchanged original CPython oracle is now
+rerunning separately. Product limits and every oracle assertion remain unchanged. Appendix B independently closes F02
+within its scoped Tested evidence.
+
+Additive pure model contracts are committed as `4acf8551`; the preserved initial dirty formatting
+remains unstaged. This commit establishes no full Phase 5 gate or serving activation.
+
+Canonical serving/store/CLI/bridge integration and the coupled ownership-boundary retirement
+are committed as `91751d1c`. Semantic-only index copies preserve the initial dirty baseline rather
+than folding its unrelated formatting into the cutover. This establishes implemented scope with
+bounded current native evidence; the original CPython rerun, complete functional/hygiene gates,
+final-source real FastMCP journeys and activation remain pending.
