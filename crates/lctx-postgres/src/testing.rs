@@ -66,6 +66,12 @@ impl DisposableDatabase {
         sqlx::raw_sql("REVOKE ALL ON DATABASE lctx FROM PUBLIC; GRANT CONNECT ON DATABASE lctx TO lctx_app, lctx_importer, lctx_serving;
             GRANT TEMP ON DATABASE lctx TO lctx_importer; ALTER ROLE lctx_serving SET default_transaction_read_only = on")
             .execute(&superuser).await.expect("runtime grants");
+        // The numerical cache migration uses the same externally provisioned extension as the
+        // operator bootstrap. Installing it remains a superuser effect, never a runtime effect.
+        sqlx::raw_sql("CREATE SCHEMA lctx_ext; REVOKE ALL ON SCHEMA lctx_ext FROM PUBLIC;
+            CREATE EXTENSION vector WITH SCHEMA lctx_ext VERSION '0.8.6';
+            GRANT USAGE ON SCHEMA lctx_ext TO lctx_migrator,lctx_app,lctx_importer,lctx_serving")
+            .execute(&superuser).await.expect("pinned vector extension");
         // The runtime pools carry production's session limits, so a control that would stall a
         // real store times out here too (store-lifecycle review F03).
         let limited = |role: &str| {

@@ -12,6 +12,7 @@
 //! lctx model describe [--format text|json]                       the typed model, with no database
 //! lctx store install|check|reset [--confirm DB]                  the generation store (service owner)
 //! lctx generation list|show|select|clear-selection|retire|abort  generations (reader; owner changes)
+//! lctx serving prepare --generation ID                         explicitly prepare exact vectors; no selection
 //! lctx query --generation ID SQL                                 read-only SQL over one leased generation
 //! lctx runs list|show|mark-interrupted                           operational compile-attempt history
 //! lctx flow FILE                                                 one file's flow facts (oracle input)
@@ -29,6 +30,7 @@ mod model;
 mod propose;
 mod query;
 mod runs;
+mod serving;
 mod store;
 
 /// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a
@@ -44,7 +46,7 @@ use std::process::{Command, ExitCode};
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use cpg_extract::library;
-use cpg_schema::id::Id;
+use cpg_core::postgres::operations::AttemptId;
 use lctx_workspace_hack as _; // Contributes Cargo features, not callable APIs (ADR-0079).
 
 /// The command line (H1 C4: clap derive; each command takes only its own options).
@@ -88,6 +90,11 @@ enum Cmd {
     Generation {
         #[command(subcommand)]
         command: generation::GenerationCommand,
+    },
+    /// Explicit preparation of disposable serving artifacts; publication does not select.
+    Serving {
+        #[command(subcommand)]
+        command: serving::ServingCommand,
     },
     /// Read-only SQL over one leased generation.
     Query {
@@ -180,6 +187,7 @@ fn refused(error: &anyhow::Error) -> bool {
                 | Store::Frontier(_)
                 | Store::Confirmation
                 | Store::Orphaned
+                | Store::ResourceRefused(_)
         )
     };
     error.chain().any(|cause| {
@@ -193,8 +201,8 @@ fn refused(error: &anyhow::Error) -> bool {
     })
 }
 
-fn parse_id(s: &str) -> Result<Id, String> {
-    Id::from_hex(s).ok_or_else(|| format!("{s:?} is not 32 hex digits"))
+fn parse_id(s: &str) -> Result<AttemptId, String> {
+    AttemptId::from_hex(s).ok_or_else(|| format!("{s:?} is not 32 hex digits"))
 }
 
 fn absolute(p: &Path) -> anyhow::Result<PathBuf> {
@@ -594,6 +602,10 @@ fn run() -> anyhow::Result<()> {
         Cmd::Generation { command } => {
             let database = database::Database::discover(cli.database.as_deref())?;
             runtime()?.block_on(generation::generation(command, &database))
+        }
+        Cmd::Serving { command } => {
+            let database = database::Database::discover(cli.database.as_deref())?;
+            runtime()?.block_on(serving::serving(command, &database))
         }
         Cmd::Query { generation, sql } => {
             let database = database::Database::discover(cli.database.as_deref())?;

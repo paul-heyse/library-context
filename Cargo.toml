@@ -27,10 +27,7 @@ bytes = "=1.12.1"
 pyo3-async-runtimes = { version = "=0.29.0", default-features = false, features = ["tokio-runtime"] }
 arrow-array = "=59.3.0"
 arrow-schema = "=59.3.0"
-arrow-ipc = "=59.3.0"
 arrow-select = "=59.3.0"
-arrow-cast = "=59.3.0"
-arrow-ord = "=59.3.0"
 arrow-row = "=59.3.0"
 datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "parquet", "nested_expressions"] }
 petgraph = { version = "=0.8.3", features = ["serde-1"] }
@@ -63,7 +60,6 @@ pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7bae
 pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7baead9e0c7b496346d879b88e2fff9cbda7" }
 ruff_python_ast = "=0.0.11"
 ruff_python_parser = "=0.0.11"
-ruff_python_stdlib = "=0.0.11"
 ruff_source_file = "=0.0.11"
 ruff_text_size = "=0.0.11"
 # The flow provider (ADR-0022 §The flow provider, ADR-0012 amendment; docs/pins.md): ty's

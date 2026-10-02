@@ -48,12 +48,12 @@ resolve the remaining semantic summaries, models or unknown-answer obligations.
 
 | Component | Responsibility and contract | Evidence / expected reason for change |
 |---|---|---|
-| `cpg-schema` | Arrow contracts, semantic IDs, append-only codebooks, rules, projection specifications | [Table contracts](../../../crates/cpg-schema/src/table.rs), [embedding contract](../../../crates/cpg-schema/src/embedding.rs); changes when domain meaning changes |
+| `cpg-schema` | Arrow contracts, semantic IDs, append-only codebooks, rules, projection specifications | [Table contracts](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/table.rs), [embedding contract](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/embedding.rs); changes when domain meaning changes |
 | `cpg-core::attempt` / DataFusion | Construct relations, run shared semantic validation, publish only a valid attempt | attempt.rs (`f6562d3^:crates/cpg-core/src/attempt.rs`, recover through Git), lines 1342–1409; changes for new compiler stages or publication protocol |
 | `cpg-core::delta` / `snapshot` | Physical Delta writes, strict schema checks, exact-version and commit-owned reads | delta.rs (`f6562d3^:crates/cpg-core/src/delta.rs`, recover through Git), snapshot.rs (`f6562d3^:crates/cpg-core/src/snapshot.rs`, recover through Git), lines 93–159; owns storage mechanics |
 | `cpg-core::embed` | Token admission, batching, vector validation, shared cache admission and committed readback | `crates/cpg-core/src/embed.rs`, lines 240–432; both entry points now use one `fill_cache` |
 | `lctx-analytics` | Graph/program analysis over declared Arrow input and output | [analytics owner](../../design/sections/analytics.md); no PostgreSQL dependency belongs in these kernels |
-| `cpg-core::bundle` | Derive normalized IPC files and manifest from one published snapshot | [bundle.rs](../../../crates/cpg-core/src/bundle.rs), lines 1015–1048; rebuildability, not another writable fact source |
+| `cpg-core::bundle` | Derive normalized IPC files and manifest from one published snapshot | [bundle.rs](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-core/src/bundle.rs), lines 1015–1048; rebuildability, not another writable fact source |
 | `lctx_mcp` | Validate/load one generation, retrieve and render typed answers | [generation.py](../../../python/lctx_mcp/src/lctx_mcp/generation.py), lines 932–989; [server.py](../../../python/lctx_mcp/src/lctx_mcp/server.py), lines 522–528 |
 | `lctx_semantics` | Bounded native semantic interpretation of the pinned generation | [native executor](../../../python/lctx_semantics/src/lib.rs); database selection does not replace its condition/model semantics |
 

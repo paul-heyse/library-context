@@ -1,112 +1,63 @@
-"""Pinned PostgreSQL identity with only native and lexical state resident in Python."""
-
+"""Lifespan state for the Rust generation service and numerical callback."""
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-import numpy as np
-import pyarrow as pa
-import pyarrow.ipc as ipc
-from lctx_semantics import SemanticExecutor, native_files, wire_versions
-from lctx_storage import PinnedRepository
+from lctx_mcp.embedder import Embedder, EmbedderError, Spec
+from lctx_mcp.retrieval import NumericalScorer
 
-from lctx_mcp.embedder import Spec
-
-_, _, FORMAT, KERNEL_FORMAT = wire_versions()
-_CONDITION_FILES, _SURFACE_FILES, _SUMMARY_FILES, _LIMITS = native_files()
-NATIVE_IPC_FILES = (
-    frozenset(_CONDITION_FILES) | frozenset(_SURFACE_FILES) | frozenset(_SUMMARY_FILES)
-)
+if TYPE_CHECKING:
+    from lctx_storage import RequestGrant, Service
 
 
 class GenerationError(RuntimeError):
-    """A generation this server must not serve; startup fails."""
-
-
-@dataclass(frozen=True)
-class LexicalState:
-    brief_ids: np.ndarray
-    brief_text: list[str]
-    unit_fragments: pa.Table
-    unit_subjects: pa.Table
+    """The configured query client cannot serve the selected vector artifact."""
 
 
 @dataclass(frozen=True)
 class Generation:
-    repository: PinnedRepository
-    descriptor: dict
-    lexical_state: LexicalState
-    condition_graph: SemanticExecutor | None
+    service: Service
+    numerical: NumericalScorer
+    embedder: Embedder | None
 
-    @property
-    def manifest(self) -> dict:
-        return self.descriptor["manifest"]
-
-    @property
-    def key(self) -> str:
-        return self.descriptor["generation"]
-
-    @property
-    def snapshot_id(self) -> str:
-        return self.manifest["snapshot_id"]
-
-    @property
-    def library(self) -> str:
-        return self.manifest["context"]["library"]
-
-    @property
-    def spec_hash(self) -> str | None:
-        return self.manifest["spec_hash"]
-
-    @property
-    def summary(self) -> dict:
-        return self.manifest["context"]["summary"]
+    async def query_vector(self, grant: RequestGrant, query: str | None) -> tuple[list[float] | None, str | None]:
+        if query is None:
+            return None, None
+        raw_spec = await self.service.embedding_spec(grant)
+        if raw_spec is None:
+            return None, None
+        if self.embedder is None:
+            return None, "query_embedder_unconfigured"
+        actual = Spec.from_json(raw_spec)
+        if actual.canonical != self.embedder.spec.canonical:
+            raise GenerationError("query embedding spec differs from the selected artifact")
+        try:
+            async with asyncio.timeout(grant.remaining_seconds()):
+                vectors = await self.embedder.embed([actual.query_text(query)])
+        except (EmbedderError, TimeoutError):
+            return None, "query_embedding_unavailable"
+        return vectors[0].tolist(), None
 
 
-def load(
-    repository: PinnedRepository,
-    descriptor: dict,
-    inputs: dict[str, bytes],
-    client_spec: Spec | None,
-) -> Generation:
-    """Build only native and lexical consumers of Rust-verified immutable artifacts."""
-    manifest = descriptor["manifest"]
-    if manifest["bundle_format"] != FORMAT:
-        raise GenerationError("incompatible bundle format")
-    specs = ipc.open_file(pa.BufferReader(inputs["embedding_spec"])).read_all()
-    if manifest["spec_hash"] is not None:
-        if specs.num_rows != 1:
-            raise GenerationError("embedding spec missing")
-        spec = Spec.from_json(specs.column("spec")[0].as_py())
-        if spec.hash != manifest["spec_hash"] or (
-            client_spec is not None and spec.hash != client_spec.hash
-        ):
-            raise GenerationError("query embedding spec differs from the pinned generation")
-    native = (
-        SemanticExecutor.from_ipc(
-            KERNEL_FORMAT,
-            manifest["snapshot_id"],
-            manifest["entry_value_effect_digest"],
-            [(name, inputs[name]) for name in sorted(NATIVE_IPC_FILES)],
-        )
-        if manifest["capabilities"]["native_value_paths"]
-        else None
-    )
+async def open_generation(config: Path, embedder: Embedder | None, *, generation: str | None = None, vectors: bool = False) -> Generation:
+    from lctx_storage import open_service
 
-    def lexical(name: str, key: str) -> tuple[np.ndarray, list[str]]:
-        table = ipc.open_file(pa.BufferReader(inputs[name])).read_all()
-        ids = np.frombuffer(b"".join(table.column(key).to_pylist()), dtype="V16").copy()
-        return ids, table.column("text").to_pylist()
-
-    briefs, brief_text = lexical("lexical_text", "brief_id")
-    return Generation(
-        repository,
-        descriptor,
-        LexicalState(
-            briefs,
-            brief_text,
-            ipc.open_file(pa.BufferReader(inputs["retrieval_fragments"])).read_all(),
-            ipc.open_file(pa.BufferReader(inputs["retrieval_subjects"])).read_all(),
-        ),
-        native,
-    )
+    service = await open_service(str(config), generation=generation, vectors=vectors)
+    try:
+        numerical = NumericalScorer()
+        grant = await service.admit()
+        try:
+            raw_spec = await service.embedding_spec(grant)
+            if raw_spec is not None and embedder is not None:
+                if Spec.from_json(raw_spec).canonical != embedder.spec.canonical:
+                    raise GenerationError("query embedding spec differs from the selected artifact")
+            await service.initialize_numerical(grant, numerical.initialize)
+        finally:
+            grant.release()
+        return Generation(service, numerical, embedder)
+    except BaseException:
+        await service.shutdown()
+        raise

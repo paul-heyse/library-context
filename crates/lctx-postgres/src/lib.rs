@@ -2,23 +2,9 @@
 
 pub mod bootstrap;
 mod cache;
-pub mod diagnostics;
-mod evidence;
-mod evidence_search;
 pub mod generations;
-mod hydration;
-pub mod import;
-mod journey_cursor;
-mod journeys;
 pub mod operations;
-mod packet;
-pub mod profiles;
-pub mod projection;
-pub mod report;
-pub mod repository;
-pub mod retrieval;
 pub mod roles;
-pub mod serving;
 #[cfg(feature = "testing")]
 pub mod testing;
 
@@ -65,8 +51,6 @@ pub enum Error {
     Owner(&'static str),
     #[error("the installed canonical schema differs from this binary; run `lctx store reset`")]
     CanonicalSchema,
-    #[error("{0}")]
-    Projection(#[from] cpg_schema::serving_projection::ProjectionError),
 }
 
 impl From<sqlx::Error> for Error {
@@ -446,14 +430,12 @@ pub(crate) fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Res
 
 /// Shared generated schemas for the existing PostgreSQL format owners.
 pub fn contract_schema(name: &str, output: bool) -> Result<serde_json::Value, Error> {
-    use cpg_schema::wire::schema_for;
+    use lctx_model::domain::serving::schema_for;
     Ok(match name {
         "PostgresConfig" if !output => schema_for::<Config>(false),
         "MigrationConfig" if !output => schema_for::<MigrationConfig>(false),
-        "PostgresRoleConfig" => schema_for::<serving::RoleConfig>(output),
-        "RetrievalPolicy" => schema_for::<profiles::Policy>(output),
-        "Diagnostics" if output => schema_for::<diagnostics::Diagnostics>(true),
-        "LiveDiagnostics" if output => schema_for::<diagnostics::LiveDiagnostics>(true),
+        "PostgresRoleConfig" => schema_for::<roles::RoleConfig>(output),
+        "RankingPolicy" => schema_for::<lctx_model::domain::serving::ranking::RankingPolicy>(output),
         _ => return Err(Error::Config("unknown schema or unsupported direction")),
     })
 }
@@ -467,9 +449,7 @@ mod schema_tests {
             ("PostgresConfig", &[false][..]),
             ("MigrationConfig", &[false][..]),
             ("PostgresRoleConfig", &[false, true][..]),
-            ("RetrievalPolicy", &[false, true][..]),
-            ("Diagnostics", &[true][..]),
-            ("LiveDiagnostics", &[true][..]),
+            ("RankingPolicy", &[false, true][..]),
         ] {
             for output in directions {
                 assert!(
@@ -489,18 +469,17 @@ mod schema_tests {
         assert!(validator.is_valid(&synthetic));
         assert!(serde_json::from_value::<MigrationConfig>(synthetic).is_ok());
         assert!(!validator.is_valid(&serde_json::json!({"migration_url":3})));
-        let policy = profiles::Policy::exact();
-        let before = policy.canonical().unwrap();
-        let digest = policy.digest().unwrap();
+        let policy = lctx_model::domain::serving::ranking::RankingPolicy::default();
+        let before = serde_json::to_string(&policy).unwrap();
+        let digest = policy.identity().unwrap();
         let validator = jsonschema::options()
             .offline()
-            .build(&contract_schema("RetrievalPolicy", false).unwrap())
+            .build(&contract_schema("RankingPolicy", false).unwrap())
             .unwrap();
         assert!(validator.is_valid(&serde_json::from_str(&before).unwrap()));
-        let after: profiles::Policy = serde_json::from_str(&before).unwrap();
-        assert_eq!(after.canonical().unwrap(), before);
-        assert_eq!(after.digest().unwrap(), digest);
+        let after: lctx_model::domain::serving::ranking::RankingPolicy = serde_json::from_str(&before).unwrap();
+        assert_eq!(serde_json::to_string(&after).unwrap(), before);
+        assert_eq!(after.identity().unwrap(), digest);
     }
 }
 
-pub mod selection;

@@ -2,60 +2,100 @@
 use super::{Error,GenerationId,GenerationLease,GenerationReader,validation_views,visit_named};
 use lctx_model::domain::{*,admission::Frontier, resources::ResourceBudget, selection::{self, admission::AdmissionData,build::{Data,Output},classification::ClassificationData,evaluate::{Prepared,Selected},algebra::Classified}, stages::{Profile,is_vocabulary}};
 use futures::TryStreamExt;
-use sqlx::Row;
+use sqlx::{Connection, Row};
 use std::sync::Arc;
 /// Initial envelope, injected explicitly by the caller; never increased or pruned automatically.
-pub const SELECTION_PREPARATION_BYTES:usize=128*1024*1024;
-struct Guard {lease:GenerationLease, lost:bool}
-struct State {prepared:Prepared, guard:tokio::sync::Mutex<Guard>, _charge:Box<dyn resources::Reservation>}
-/// Only canonical receipt admission constructs this capability. Clones retain one original guard
-/// and the same charged rows/indexes until the last consumer releases them.
+pub const SELECTION_PREPARATION_BYTES: usize = 128 * 1024 * 1024;
+struct State {
+    prepared: Prepared,
+    guard: super::GenerationGuard,
+    _charge: Box<dyn resources::Reservation>,
+}
+/// Canonical receipt admission creates this owner. Every consumer shares one original guard.
 #[derive(Clone)]
 pub struct AdmittedSelection {state:Arc<State>}
 impl GenerationReader {
-    pub async fn prepare_selection(&self,g:GenerationId,budget:ResourceBudget)->Result<AdmittedSelection,Error> {
-        let charge=budget.reserve("selection-admitted-owner",size_of::<State>()+64)?;
-        let mut lease=self.pin(g,budget).await?;
-        let profile=lease.selection_envelope().await?;
-        let mut data=ClassificationData::new(&lease.budget);let mut output=Output::new(&lease.budget);let mut admission=AdmissionData::new(&lease.budget);
-        for input in ClassificationData::inputs() {lease.selection_read(&input,|batch|{if !data.visit(input.name(),&batch)? {return Err(Error::Contract);}Ok(())}).await?;}
-        for input in Output::inputs() {lease.selection_read(&input,|batch|{if !output.visit(input.name(),&batch)? {return Err(Error::Contract);}Ok(())}).await?;}
-        for input in AdmissionData::inputs() {lease.selection_read(&input,|batch|{if !admission.visit(input.name(),&batch)? {return Err(Error::Contract);}Ok(())}).await?;}
-        admission.validate(&data,&output,&lease.budget)?;
-        lease.verify_selection_sources(&admission,profile).await?;
-        let prepared=Prepared::from_local_rows(data,output,&lease.budget)?;
-        lease.selection_live().await?;
-        Ok(AdmittedSelection{state:Arc::new(State{prepared,guard:tokio::sync::Mutex::new(Guard{lease,lost:false}),_charge:charge})})
+    pub async fn prepare_selection(
+        &self, g: GenerationId, budget: ResourceBudget,
+    ) -> Result<AdmittedSelection, Error> {
+        let guard = self.guard(g, budget).await?;
+        guard.prepare_selection().await
     }
 }
-impl Guard {
-    async fn check(&mut self)->Result<(),Error> {
-        if self.lost {return Err(Error::State);}
-        if let Err(error)=self.lease.selection_live().await {self.lost=true;return Err(error);}
-        Ok(())
+impl super::GenerationGuard {
+    /// Loads the once-per-generation inventory on the original canonical guarded connection.
+    pub async fn prepare_selection(&self) -> Result<AdmittedSelection, Error> {
+        self.check().await?;
+        let mut locked = self.state.lease.lock().await;
+        let lease = locked.as_mut().ok_or(Error::State)?;
+        let charge = lease.budget.reserve("selection-admitted-owner", size_of::<State>() + 64)?;
+        let profile = lease.selection_envelope().await?;
+        let mut data = ClassificationData::new(&lease.budget);
+        let mut output = Output::new(&lease.budget);
+        let mut admission = AdmissionData::new(&lease.budget);
+        for input in ClassificationData::inputs() {
+            lease.selection_read(&input, |batch| {
+                if !data.visit(input.name(), &batch)? { return Err(Error::Contract); }
+                Ok(())
+            }).await?;
+        }
+        for input in Output::inputs() {
+            lease.selection_read(&input, |batch| {
+                if !output.visit(input.name(), &batch)? { return Err(Error::Contract); }
+                Ok(())
+            }).await?;
+        }
+        for input in AdmissionData::inputs() {
+            lease.selection_read(&input, |batch| {
+                if !admission.visit(input.name(), &batch)? { return Err(Error::Contract); }
+                Ok(())
+            }).await?;
+        }
+        admission.validate(&data, &output, &lease.budget)?;
+        lease.verify_selection_sources(&admission, profile).await?;
+        let prepared = Prepared::from_local_rows(data, output, &lease.budget)?;
+        drop(locked);
+        self.check().await?;
+        Ok(AdmittedSelection { state: Arc::new(State { prepared, guard: self.clone(), _charge: charge }) })
     }
 }
 impl AdmittedSelection {
-    pub async fn generation(&self)->GenerationId {self.state.guard.lock().await.lease.generation()}
-    pub async fn classify(&self,member:Id<catalog::CatalogMember>,analysis:Id<attribution::AnalysisContext>,requirement:&selection::Requirement,budget:&ResourceBudget)->Result<Classified,Error> {
-        let mut guard=self.state.guard.lock().await;guard.check().await?;
-        let result=self.state.prepared.classify(member,analysis,requirement,budget);
-        guard.check().await?;Ok(result?)
+    pub async fn generation(&self) -> GenerationId { self.state.guard.generation() }
+    pub fn guard(&self) -> super::GenerationGuard { self.state.guard.clone() }
+    pub(crate) fn prepared(&self) -> &Prepared { &self.state.prepared }
+    pub async fn classify(
+        &self, member: Id<catalog::CatalogMember>, analysis: Id<attribution::AnalysisContext>,
+        requirement: &selection::Requirement, budget: &ResourceBudget,
+    ) -> Result<Classified, Error> {
+        self.state.guard.check().await?;
+        let result = self.state.prepared.classify(member, analysis, requirement, budget);
+        self.state.guard.check().await?;
+        Ok(result?)
     }
-    pub async fn select(&self,selection:&selection::Selection,budget:&ResourceBudget)->Result<Selected,Error> {
-        let mut guard=self.state.guard.lock().await;guard.check().await?;
-        let result=self.state.prepared.select(selection,budget);
-        guard.check().await?;Ok(result?)
+    pub async fn select(&self, selection: &selection::Selection, budget: &ResourceBudget) -> Result<Selected, Error> {
+        self.state.guard.check().await?;
+        let result = self.state.prepared.select(selection, budget);
+        self.state.guard.check().await?;
+        Ok(result?)
     }
-    /// Acknowledged release requires sole ownership. Shared consumers keep the original lease.
-    pub async fn release(self)->Result<(),Error> {
-        let state=Arc::try_unwrap(self.state).map_err(|_|Error::Busy)?;
-        state.guard.into_inner().lease.release().await
+    pub async fn release(self) -> Result<(), Error> {
+        let state = Arc::try_unwrap(self.state).map_err(|_| Error::Busy)?;
+        state.guard.release().await
     }
 }
 impl GenerationLease {
-    async fn selection_live(&mut self)->Result<(),Error> {
-        let (high,low)=super::locks::halves(self.generation().lock());
+    /// Receipt-bound typed preparation over canonical rows, shared by all serving consumers.
+    pub async fn visit_verified<R: Record>(
+        &mut self, mut consume: impl FnMut(Batch<R>) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let model = self.model.clone();
+        let budget = self.budget.clone();
+        self.selection_read(&ValidationInput::of::<R>(&["id"]), |batch| {
+            consume(Batch::read(&model, &batch, &budget)?)
+        }).await
+    }
+    pub(super) async fn selection_live(&mut self) -> Result<(), Error> {
+        let (high, low) = super::locks::halves(self.generation().lock());
         let live:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND granted AND mode='ShareLock' AND pid=pg_backend_pid() AND objsubid=1 AND classid::bigint=$1 AND objid::bigint=$2) AND EXISTS(SELECT 1 FROM lctx_model_store.generations WHERE id=$3 AND state='published')")
             .bind(high).bind(low).bind(self.generation().0.to_vec()).fetch_one(&mut *self.connection).await?;
         if !live {return Err(Error::State);}Ok(())
@@ -69,20 +109,87 @@ impl GenerationLease {
         let prepared=Prepared::new(&data,&output,&self.budget)?;
         self.selection_live().await?;Ok(prepared)
     }
-    async fn selection_read(&mut self,input:&ValidationInput,mut consume:impl FnMut(arrow_array::RecordBatch)->Result<(),Error>)->Result<(),Error> {
-        if !self.relations.contains(input.name()) {return Err(Error::Frontier("selection input outside canonical frontier".into()));}
-        let relation=self.model.relations().iter().find(|r|r.name()==input.name() && r.type_id()==input.type_id()).ok_or(Error::Contract)?;
-        let physical=validation_views::physical(&mut self.connection,self.contract.generation(),input,relation,relation.name(),validation_views::Scope{upper:None,candidate:None},&self.budget).await?;
-        let expected:Option<(i64,Vec<u8>)>=if input.prefix().is_none() {
-            sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.receipts WHERE generation_id=$1 AND relation_name=$2").bind(self.contract.generation().0.to_vec()).bind(input.name()).fetch_optional(&mut *self.connection).await?
-        }else{
-            let order=super::vocabulary::publication_order(&mut self.connection,self.contract.generation()).await?;let prefix=order.resolve(input.prefix().expect("declared prefix"))?;
-            sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.epoch_receipts WHERE generation_id=$1 AND epoch=$2 AND relation_name=$3").bind(self.contract.generation().0.to_vec()).bind(i16::try_from(prefix.ordinal()).map_err(|_|Error::Contract)?).bind(input.name()).fetch_optional(&mut *self.connection).await?
+    pub(super) async fn selection_read(
+        &mut self,
+        input: &ValidationInput,
+        mut consume: impl FnMut(arrow_array::RecordBatch) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if !self.relations.contains(input.name()) {
+            return Err(Error::Frontier(
+                "selection input outside canonical frontier".into(),
+            ));
+        }
+        let relation = self
+            .model
+            .relations()
+            .iter()
+            .find(|r| r.name() == input.name() && r.type_id() == input.type_id())
+            .ok_or(Error::Contract)?;
+        // The two orderings must observe exactly the same rows and receipt. SQLx owns
+        // rollback on error/cancellation; the session and its generation lock stay original.
+        let mut snapshot = self.connection.begin_with(
+            "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
+        ).await?;
+        let physical = validation_views::physical(
+            &mut snapshot,
+            self.contract.generation(),
+            input,
+            relation,
+            relation.name(),
+            validation_views::Scope {
+                upper: None,
+                candidate: None,
+            },
+            &self.budget,
+        )
+        .await?;
+        let expected: Option<(i64, Vec<u8>)> = if input.prefix().is_none() {
+            sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.receipts WHERE generation_id=$1 AND relation_name=$2").bind(self.contract.generation().0.to_vec()).bind(input.name()).fetch_optional(&mut *snapshot).await?
+        } else {
+            let order = super::vocabulary::publication_order(
+                &mut snapshot,
+                self.contract.generation(),
+            )
+            .await?;
+            let prefix = order.resolve(input.prefix().expect("declared prefix"))?;
+            sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.epoch_receipts WHERE generation_id=$1 AND epoch=$2 AND relation_name=$3").bind(self.contract.generation().0.to_vec()).bind(i16::try_from(prefix.ordinal()).map_err(|_|Error::Contract)?).bind(input.name()).fetch_optional(&mut *snapshot).await?
         };
-        let expected=expected.ok_or(Error::Contract)?;
-        let mut hash=relation.content();
-        visit_named(&mut self.connection,self.contract.generation(),relation,&physical,input.order(),&self.budget,|batch|{relation.hash_rows(&batch,&mut hash)?;consume(batch)}).await?;
-        let (rows,hash)=hash.finish();if u64::try_from(expected.0).ok()!=Some(rows) || expected.1!=hash.0 {return Err(Error::Contract);}Ok(())
+        let expected = expected.ok_or(Error::Contract)?;
+        let mut hash = relation.content();
+        let grouped_order = input.order() != ["id"];
+        // Sealed content always uses canonical ID order. Some shared validators require a
+        // different grouped order; verify first, then stream that order on this same lease.
+        // Keep both passes bounded instead of retaining and sorting the relation in memory.
+        visit_named(
+            &mut snapshot,
+            self.contract.generation(),
+            relation,
+            &physical,
+            &["id"],
+            &self.budget,
+            |batch| {
+                relation.hash_rows(&batch, &mut hash)?;
+                if grouped_order { Ok(()) } else { consume(batch) }
+            },
+        )
+        .await?;
+        let (rows, hash) = hash.finish();
+        if u64::try_from(expected.0).ok() != Some(rows) || expected.1 != hash.0 {
+            return Err(Error::Contract);
+        }
+        if grouped_order {
+            visit_named(
+                &mut snapshot,
+                self.contract.generation(),
+                relation,
+                &physical,
+                input.order(),
+                &self.budget,
+                consume,
+            ).await?;
+        }
+        snapshot.commit().await?;
+        Ok(())
     }
     async fn selection_envelope(&mut self)->Result<Profile,Error> {
         if self.frontier!=Frontier::Catalog {return Err(Error::Frontier("selection admission requires canonical Catalog".into()));}

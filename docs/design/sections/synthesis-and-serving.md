@@ -1,6 +1,7 @@
 # Synthesis and serving
 
-**Phase 4 Implemented; qualification in progress, 2026-10-01. Phase 5 serving unavailable.**
+**Phase 4 Implemented / Tested within its recorded receipt, 2026-10-01. Phase 5 is implemented
+in the working tree; qualification and activation pending, 2026-10-02.**
 `lctx-model::domain::synthesis`, `selection`, `retrieval` and `embedding` own the current catalog
 outputs and their replay. `cpg-core` runs the declared stages over completed PostgreSQL inputs.
 Producing a canonical brief or retrieval unit does not activate a query/MCP service. The
@@ -159,7 +160,7 @@ retain separate execution status.
 
 ## §11 Serving and agent interface
 
-**Accepted Phase 5 contracts; unavailable during Phase 4 qualification.** A server process will
+**Implemented in the Phase 5 working tree; qualification pending, 2026-10-02.** A server process retains
 pin one published generation and read canonical relations through derived views/indexes and
 bounded native operations. No copied semantic tables, legacy bundle importer, historical-ID
 adapter or second Python semantics engine is restored. [§14](api-and-evidence-product.md)
@@ -169,8 +170,8 @@ The [Phase 5 detailed plan](../../plans/semantic-model-phase5-detailed-plan_2026
 is **authorized, 2026-10-02**. [ADR-0114](../../adr/0114-generation-serving-contracts.md) accepts
 model-derived wire/views, one shared process guard with separate request connections, bounded
 prepared selection/native execution and Rust fusion over library numerical scores. The disposable
-exact-vector artifact is explicitly prepared outside read-only startup. Serving remains unavailable
-until implementation and qualification. The [foundation enhancements](../../plans/semantic-model-foundation-enhancements_2026-10-01.md#54-scope-qualification--2026-10-02)
+exact-vector artifact is explicitly prepared outside read-only startup. Operator activation
+awaits complete functional qualification and the assembled review disposition. The [foundation enhancements](../../plans/semantic-model-foundation-enhancements_2026-10-01.md#54-scope-qualification--2026-10-02)
 are Implemented / Tested within their recorded source boundary; Phase 5 qualifies the current tree.
 
 > Decision: ADR-0046, ADR-0071, ADR-0078, ADR-0080, ADR-0086; ADR-0114
@@ -223,7 +224,7 @@ constitute a usable ranked service.
 
 ### §11.3 FastMCP contract
 
-**Accepted Phase 5 interface; unavailable in the current cutover.** Rust owns request decoding,
+**Implemented in the Phase 5 working tree; qualification pending, 2026-10-02.** Rust owns request decoding,
 semantic classification, complete nested packets and schemas derived from declared contracts.
 Python FastMCP is a thin bounded transport/presentation adapter. It validates generated contracts
 before effects and after final result assembly; no independently authored semantic Pydantic model
@@ -245,7 +246,11 @@ lifetimes are separately bounded. Cancellation retains an admitted native slot u
 Tools return schema-backed object packets and structured ToolResult output. Read-only,
 idempotent annotations and protocol-only stdout remain required. Domain validation errors are
 explicit tool/resource errors; internal details remain masked. The capability resource hydrates
-the same support closure as the structured capability packet. Response limiting middleware cannot
+the same support closure as the structured capability packet. Each assertion exposes its original
+status, kind, qualification, text and nominal supports. Canonical BriefDocument bytes/digest remain
+unchanged; resource presentation appends that model-owned assertion metadata, with its own wire
+invalidation identity. Request and final SDK codecs execute with precharged scratch under the
+original Rust execution grant and cumulative deadline. Response limiting middleware cannot
 drop semantic structured output, and response caching cannot conceal degraded availability.
 
 Discovery returns supported, unresolved and conflicting groups separately; strict mode returns
@@ -260,7 +265,7 @@ continuations or resource refusal; they do not silently shorten a signature. Cur
 generation, canonical request, section/group, policy and representation. Python lexical fusion
 and Markdown presentation cannot change requirement outcome or evidence status.
 
-> Decision: ADR-0025, ADR-0049, ADR-0071, ADR-0073, ADR-0077, ADR-0078, ADR-0081, ADR-0086, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063
+> Decision: ADR-0114, ADR-0025, ADR-0049, ADR-0071, ADR-0073, ADR-0077, ADR-0078, ADR-0081, ADR-0086, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063
 
 <a id="section-11-4"></a>
 

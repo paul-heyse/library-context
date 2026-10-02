@@ -25,8 +25,8 @@ Controls comprise the shared
 
 Adjacent inspection covered source occurrences and qualification/support validation, plus the old
 [`lexical producer`](../../../crates/cpg-extract/src/lexical.rs),
-[`lexical tables`](../../../crates/cpg-schema/src/tables.rs) and
-[`codebooks`](../../../crates/cpg-schema/src/codebook.rs). The old implementation supplies
+[`lexical tables`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/tables.rs) and
+[`codebooks`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/codebook.rs). The old implementation supplies
 field-shape evidence, not authority over the accepted target. This review does not cover every
 dirty file in the shared tree.
 

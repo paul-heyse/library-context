@@ -24,8 +24,8 @@ check: test py-test
 # Everything functional: check + real PostgreSQL + compile-fail and doc contracts
 test-all: check test-postgres test-doc
 
-# The SQLx offline check returns with serving (cutover phase 5, T12); the dormant serving queries
-# are frozen in `.sqlx`. Agents run this once at scope end, beside `test-all`, and fix what fails
+# Canonical serving uses model-derived identifiers and bound runtime queries; no frozen SQLx
+# metadata remains. Agents run hygiene once at scope end, beside `test-all`, and fix what fails
 # (`just <id>` re-runs one); the end-of-turn hook does not run it.
 # Every non-functional check, one check id per dependency
 hygiene: lint-agents adr-lint fixtures-check gold rules-scan rules-test ruff types docs-check deps clippy store-check
@@ -73,7 +73,7 @@ store-check:
 test *args:
     INSTA_UPDATE=no cargo nextest run --release --workspace --no-fail-fast --no-tests=pass {{args}}
 
-# Python tests (scripts and lctx_mcp over the fixture generation)
+# Python unit/oracle controls; live MCP fixtures are driven by the Rust serving tests
 py-test:
     uv run pytest
 
@@ -213,15 +213,9 @@ images-ready:
       docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
     done
 
-# The serving suites are dormant until cutover phase 5.
 # Real PostgreSQL 18 (disposable containers): generation store, provider sessions, CLI
 test-postgres:
     @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
-    INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract -p cpg-core -p lctx --no-fail-fast -E 'not binary(serving)'
+    INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract -p cpg-core -p lctx --no-fail-fast
     cargo build --release -p lctx
 
-sqlx-check:
-    uv run python scripts/postgres_check.py
-
-sqlx-prepare:
-    uv run python scripts/postgres_check.py --prepare

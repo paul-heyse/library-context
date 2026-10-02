@@ -1,190 +1,185 @@
-"""Thin views and FastMCP transport for the Rust-owned wire contracts.
-
-No field definitions, coercion rules or domain schemas live here. Packet attribute access is
-only a rendering convenience over the JSON returned by the native decoder.
-"""
-
+"""Closed Rust schemas, opaque grants and actual MCP envelope serialization."""
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
-from fastmcp.exceptions import ToolError, ValidationError
+from fastmcp.exceptions import ResourceError, ToolError, ValidationError
+from fastmcp.resources import Resource, ResourceContent, ResourceResult, ResourceTemplate
 from fastmcp.server.dependencies import get_context
 from fastmcp.tools import Tool, ToolResult
-from lctx_semantics import wire_decode, wire_schema, wire_tool, wire_tool_result
-from mcp_types import CallToolResult
+from mcp_types import CallToolResult, Implementation, JSONRPCResponse, ReadResourceResult, SERVER_INFO_META_KEY, ToolAnnotations
+from mcp_types.methods import serialize_server_result
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import PrivateAttr
 
-REQUEST_SECONDS = 30.0
+
+def response_encodings(result: CallToolResult | ReadResourceResult, request_id: int | str, *, protocol_version: str | None = None, server_info: dict | None = None) -> tuple[bytes, bytes]:
+    """Pinned SDK stdio and modern HTTP writers, including the actual JSON-RPC ID."""
+    shaped = result.model_dump(by_alias=True, mode="json", exclude_none=True)
+    if protocol_version is not None:
+        method = "tools/call" if isinstance(result, CallToolResult) else "resources/read"
+        # The pinned SDK owns version field omission and order. Its runner stamps
+        # modern serverInfo after this public surface serializer has shaped the result.
+        shaped = serialize_server_result(method, protocol_version, shaped)
+        if protocol_version in MODERN_PROTOCOL_VERSIONS and server_info is not None:
+            meta = shaped.get("_meta")
+            if meta is None:
+                shaped["_meta"] = {SERVER_INFO_META_KEY: server_info}
+            elif isinstance(meta, dict) and meta.get(SERVER_INFO_META_KEY) is None:
+                shaped["_meta"] = {**meta, SERVER_INFO_META_KEY: server_info}
+    envelope = JSONRPCResponse(jsonrpc="2.0", id=request_id, result=shaped)
+    stdio = (envelope.model_dump_json(by_alias=True, exclude_unset=True) + "\n").encode("utf-8")
+    http = json.dumps(
+        envelope.model_dump(by_alias=True, mode="json", exclude_none=True),
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return stdio, http
 
 
-def plain(value):
-    if isinstance(value, Packet):
-        return {key: plain(item) for key, item in value._data.items()}
-    if isinstance(value, dict):
-        return {key: plain(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [plain(item) for item in value]
-    return value
+def negotiated_encodings(result: CallToolResult | ReadResourceResult, request_id: int | str, protocol_version: str, server) -> tuple[bytes, bytes]:
+    identity = Implementation(
+        name=server.name, version=server.version,
+        website_url=server.website_url, icons=server.icons or None,
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    return response_encodings(result, request_id, protocol_version=protocol_version, server_info=identity)
 
 
-def view(value):
-    if isinstance(value, dict):
-        return Packet(value)
-    if isinstance(value, list):
-        return [view(item) for item in value]
-    return value
-
-
-class Packet:
-    """Read-only presentation access; values have already passed the Rust contract."""
-
-    def __init__(self, value: dict):
-        self._data = value
-
-    def __getattr__(self, name: str) -> Any:
-        try:
-            return view(self._data[name])
-        except KeyError as exc:
-            raise AttributeError(name) from exc
-
-    def __getitem__(self, name: str) -> Any:
-        return view(self._data[name])
-
-    def __iter__(self):
-        return iter(self._data)
-
-    def __eq__(self, other):
-        return plain(self) == plain(other)
-
-    def __len__(self):
-        return len(self._data)
-
-    def items(self):
-        return ((key, view(value)) for key, value in self._data.items())
-
-    def model_dump(self, *, mode=None):
-        return plain(self)
-
-    def model_dump_json(self):
-        return json.dumps(self._data, ensure_ascii=False, separators=(",", ":"))
-
-
-class Contract:
-    """Names an exported native contract, without reproducing its definition."""
-
-    def __init__(self, name: str):
-        self.name = name
-
-    def __call__(self, **values) -> Packet:
-        return self.model_validate(values)
-
-    def model_validate(self, value) -> Packet:
-        return self.model_validate_json(json.dumps(plain(value), ensure_ascii=False))
-
-    def model_validate_json(self, raw: str) -> Packet:
-        try:
-            return Packet(json.loads(wire_decode(self.name, raw)))
-        except ValueError as exc:
-            if str(exc).startswith("resource_refused:"):
-                raise ToolError(str(exc)) from exc
-            raise
-
-    def model_json_schema(self):
-        return json.loads(wire_schema(self.name, True))
+async def admit_request_id(service, grant, ctx, expanded: bool, byte_limits: dict[str, int]) -> int | str:
+    request_context = ctx.request_context
+    if request_context is None:
+        raise ToolError("MCP request context unavailable")
+    request_id = request_context.request_id
+    bound = byte_limits["expanded" if expanded else "default"]
+    # An ID alone is a lower bound on both envelopes. Avoid an unbounded copy before
+    # checking the Rust-declared limit; native admission checks both full encodings.
+    if isinstance(request_id, str) and len(request_id) > bound:
+        raise ToolError("resource_refused: final MCP request ID bytes")
+    def encode_id():
+        encoded = json.dumps(request_id).encode("utf-8")
+        return encoded, encoded
+    await service.encode_envelope(grant, encode_id, expanded)
+    return request_id
 
 
 class SchemaTool(Tool):
-    _callback: Any = PrivateAttr()
-    _request: str = PrivateAttr()
     _byte_limits: dict[str, int] = PrivateAttr()
 
     async def run(self, arguments: dict[str, Any]) -> ToolResult:
+        from lctx_storage import StorageError
+
         ctx = get_context()
         served = ctx.lifespan_context["served"]
-
-        def decode():
-            try:
-                decoded = json.loads(wire_decode(self._request, json.dumps(arguments)))
-            except ValueError as exc:
-                raise ValidationError(str(exc)) from exc
-            for key in ("exact_input", "selection"):
-                if isinstance(decoded.get(key), dict):
-                    decoded[key] = Packet(decoded[key])
-            return decoded
-
         try:
-            async with asyncio.timeout(REQUEST_SECONDS):
-                decoded = await served.workers.run(decode)
-                result = await self._callback(**decoded, ctx=ctx)
-
-                def finish():
-                    payload = (
-                        result.structured_content
-                        if isinstance(result, ToolResult)
-                        else plain(result)
-                    )
-                    try:
-                        raw = wire_tool_result(
-                            self.name,
-                            json.dumps(payload, ensure_ascii=False),
-                            decoded.get("expanded", False),
-                        )
-                    except ValueError as exc:
-                        if str(exc).startswith("resource_refused:"):
-                            raise ToolError(str(exc)) from exc
-                        raise
-                    tool_result = ToolResult(
-                        content=(
-                            f"{self.name}: structured result; "
-                            "inspect structuredContent for the complete contract and evidence."
-                        ),
-                        structured_content=json.loads(raw),
-                    )
-                    # Measure the SDK's actual MCP result, including content/metadata/escaping.
-                    encoded = (
-                        CallToolResult(
-                            content=tool_result.content,
-                            structured_content=tool_result.structured_content,
-                            is_error=False,
-                        )
-                        .model_dump_json(by_alias=True, exclude_none=True)
-                        .encode("utf-8")
-                    )
-                    limit = self._byte_limits[
-                        "expanded" if decoded.get("expanded", False) else "default"
-                    ]
-                    if len(encoded) > limit:
-                        raise ToolError(
-                            "resource_refused: final MCP result byte budget; "
-                            "request expanded=true or a smaller page"
-                        )
-                    return tool_result
-
-                return await served.workers.run(finish)
-        except TimeoutError as exc:
-            raise ToolError("resource_refused: request deadline") from exc
+            grant = await served.service.admit()
+        except StorageError as exc:
+            raise ToolError(str(exc)) from exc
+        try:
+            raw = await served.service.encode_request(
+                grant, arguments,
+                lambda args: json.dumps(args, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+            )
+            info = json.loads(await served.service.request_info(grant, self.name, raw))
+            expanded = info["expanded"]
+            request_id = await admit_request_id(served.service, grant, ctx, expanded, self._byte_limits)
+            # FastMCP request_context is a ContextVar; capture plain values before
+            # serialization runs in the original Rust CPU worker.
+            protocol_version, server = ctx.request_context.protocol_version, ctx.fastmcp
+            vector, degradation = await served.query_vector(grant, info["query"])
+            response = await served.service.dispatch(
+                grant, self.name, raw, query_vector=vector, degradation=degradation,
+                numerical_callback=served.numerical if info["query"] is not None else None,
+            )
+            rendered = await served.service.tool_result(grant, self.name, response, expanded)
+            wrapped = None
+            def encode_result():
+                nonlocal wrapped
+                protocol_result = CallToolResult.model_validate_json(rendered)
+                wrapped = ToolResult.from_mcp_result(protocol_result)
+                return negotiated_encodings(protocol_result, request_id, protocol_version, server)
+            await served.service.encode_envelope(grant, encode_result, expanded)
+            assert wrapped is not None
+            return wrapped
+        except StorageError as exc:
+            raise ToolError(str(exc)) from exc
+        except ValueError as exc:
+            if str(exc).startswith("resource_refused:"):
+                raise ToolError(str(exc)) from exc
+            raise ValidationError(str(exc)) from exc
+        finally:
+            # Native in-flight work retains its own handle until actual completion.
+            grant.release()
 
 
-def register(mcp, annotations):
-    """Register callbacks without FunctionTool/Pydantic reinterpreting the domain contract."""
+class CapabilityResource(Resource):
+    _capability: str = PrivateAttr()
+    _byte_limits: dict[str, int] = PrivateAttr()
 
-    def add(callback):
-        contract = json.loads(wire_tool(callback.__name__))
+    async def read(self) -> ResourceResult:
+        from lctx_storage import StorageError
+
+        ctx = get_context()
+        served = ctx.lifespan_context["served"]
+        try:
+            grant = await served.service.admit()
+        except StorageError as exc:
+            raise ResourceError(str(exc)) from exc
+        try:
+            request_id = await admit_request_id(served.service, grant, ctx, True, self._byte_limits)
+            protocol_version, server = ctx.request_context.protocol_version, ctx.fastmcp
+            uri, mime_type = self.uri, self.mime_type
+            text = await served.service.capability_resource(grant, self._capability)
+            result = None
+            def encode_result():
+                nonlocal result
+                result = ResourceResult([ResourceContent(text, mime_type=mime_type)])
+                return negotiated_encodings(result.to_mcp_result(uri), request_id, protocol_version, server)
+            await served.service.encode_envelope(grant, encode_result, True)
+            assert result is not None
+            return result
+        except StorageError as exc:
+            raise ResourceError(str(exc)) from exc
+        except ToolError as exc:
+            raise ResourceError(str(exc)) from exc
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        finally:
+            grant.release()
+
+
+class CapabilityTemplate(ResourceTemplate):
+    _byte_limits: dict[str, int] = PrivateAttr()
+
+    async def create_resource(self, uri: str, params: dict[str, Any]) -> Resource:
+        resource = CapabilityResource(uri=uri, name=self.name, mime_type=self.mime_type)
+        resource._capability = params["capability"]
+        resource._byte_limits = self._byte_limits
+        return resource
+
+
+def register(server) -> None:
+    """Register the sole Rust inventory without Python domain field definitions."""
+    from lctx_semantics import wire_resources, wire_tool, wire_tools
+
+    for declaration in json.loads(wire_tools()):
+        name = declaration["name"]
+        contract = json.loads(wire_tool(name))
         tool = SchemaTool(
-            name=callback.__name__,
-            description=callback.__doc__,
-            parameters=contract["parameters"],
-            output_schema=contract["output_schema"],
-            annotations=annotations,
-            meta={"lctx_wire_format": contract["format"]},
+            name=name,
+            description=f"{name}: generation-bound API and original evidence result.",
+            parameters=declaration["request_schema"], output_schema=declaration["response_schema"],
+            annotations=ToolAnnotations(
+                read_only_hint=declaration["read_only"], idempotent_hint=declaration["idempotent"], open_world_hint=False,
+            ),
+            meta={"lctx_wire_identity": contract["wire_identity"]},
         )
-        tool._callback = callback
-        tool._request = contract["request"]
         tool._byte_limits = contract["byte_limits"]
-        mcp.add_tool(tool)
-        return callback
-
-    return add
+        server.add_tool(tool)
+    for declaration in json.loads(wire_resources()):
+        template = CapabilityTemplate(
+            uri_template=declaration["uri_template"], name=declaration["name"],
+            mime_type=declaration["mime_type"],
+            parameters={"type": "object", "properties": {"capability": {"type": "string"}}, "required": ["capability"]},
+        )
+        template._byte_limits = json.loads(wire_tool("get_capability"))["byte_limits"]
+        server.add_template(template)

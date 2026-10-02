@@ -425,6 +425,28 @@ pub(super) fn lower(
             ));
         }
     }
+    // Identity-row mappings derive every column and nominal tag from the canonical declaration.
+    // Only a complete Catalog scope installs these views; lower frontiers never expose empties.
+    if lctx_model::domain::admission::Frontier::Catalog.descriptor().relations(model)
+        .is_ok_and(|catalog| catalog.is_subset(relations))
+    {
+        for mapping in lctx_model::domain::serving::mappings::inventory() {
+            if !mapping.dependencies.iter().all(|name| relations.contains(name)) { continue; }
+            let mut columns = vec![quoted("generation_id"), quoted("id")];
+            if lctx_model::domain::stages::is_vocabulary(mapping.source.name()) { columns.push(quoted("introduced_epoch")); }
+            for field in mapping.fields() {
+                columns.push(quoted(field.name()));
+                if field.target().is_some() && field.subtype().is_some() { columns.push(quoted(&format!("__{}_tag", field.name()))); }
+            }
+            views.push(format!("CREATE VIEW {s}.{} AS SELECT {} FROM {s}.{}", quoted(mapping.name), columns.join(","), quoted(mapping.source.name())));
+            // The primary generation/id key already exists. Additional lookups are declared,
+            // generation-local indexes installed before any reader is granted access.
+            for key in mapping.lookup_keys.iter().filter(|key| **key != "id") {
+                let name = format!("serving_{}", &ContentHash::of(format!("{}/{}",mapping.source.name(),key).as_bytes()).hex()[..24]);
+                tables.push(format!("CREATE INDEX {} ON {s}.{} (generation_id,{})", quoted(&name), quoted(mapping.source.name()), quoted(key)));
+            }
+        }
+    }
     Lowering {
         views,
         grant_staging: vec![format!("GRANT USAGE ON SCHEMA {s} TO lctx_importer")]

@@ -21,7 +21,7 @@ support in [`assertion.rs`](../../../crates/lctx-model/src/domain/assertion.rs),
 [`PG tests`](../../../crates/lctx-postgres/tests/domain_documents.rs) and
 `fixtures/python/semantic_documents/guide.mdx`.
 Adjacent evidence was the old document producer (`9efce30:crates/cpg-extract/src/docs.rs`, recover through Git)
-and [`tables`](../../../crates/cpg-schema/src/tables.rs), plus existing source/evidence validation.
+and [`tables`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/tables.rs), plus existing source/evidence validation.
 Line references below identify the inspected version; concurrent changes can move them.
 
 **Responsibilities and fidelity — Interface-checked, 2026-09-29.** The document domain owns

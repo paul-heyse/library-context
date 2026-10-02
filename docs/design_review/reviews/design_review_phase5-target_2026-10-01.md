@@ -59,7 +59,7 @@ The provider reconstruction itself is outside this review. The target consumes i
 
 ## 3. Contracts, admission and failure behavior
 
-The process-lifetime guard is a material correction to the retained `PinnedGeneration`, which currently contains legacy descriptors and artifacts rather than a canonical lock-holding lease ([repository.rs](../../../crates/lctx-postgres/src/repository.rs), `PinnedGeneration` and `ServingStore::pin`).
+The process-lifetime guard is a material correction to the retained `PinnedGeneration`, which currently contains legacy descriptors and artifacts rather than a canonical lock-holding lease ([repository.rs](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/repository.rs), `PinnedGeneration` and `ServingStore::pin`).
 
 The canonical protocol already supplies a useful foundation: [lease.rs](../../../crates/lctx-postgres/src/generations/lease.rs) checks publication state, model/physical compatibility and live columns before taking a session-level shared generation lock. [GenerationStore::cleanup_on](../../../crates/lctx-postgres/src/generations/mod.rs) requires exclusive generation access before deletion. The proposed serving-role route extends this ownership without requiring migration credentials.
 

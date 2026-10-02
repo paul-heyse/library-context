@@ -153,9 +153,9 @@ discarded its recursively loaded types/configuration, and passed no singleton cl
 packet resolved one. A singleton could therefore have invocation signatures in one journey but
 not the other; unrelated type closure could exhaust a comparison's hydration budget. Shared
 `singleton_class` and `catalog_invocation` now live in
-[`hydration.rs`](../../../crates/lctx-postgres/src/hydration.rs). Both
-[`packet.rs`](../../../crates/lctx-postgres/src/packet.rs) and
-[`journeys.rs`](../../../crates/lctx-postgres/src/journeys.rs) consume them; only full catalog
+[`hydration.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/hydration.rs). Both
+[`packet.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/packet.rs) and
+[`journeys.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/journeys.rs) consume them; only full catalog
 hydration adds configuration/type closure. **Correction source-inspected, 2026-09-29.**
 
 <a id="F04"></a>

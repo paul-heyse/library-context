@@ -21,7 +21,7 @@ Reviewed [`flow.rs`](../../../crates/lctx-model/src/domain/flow.rs), composite s
 [`PG test`](../../../crates/lctx-postgres/tests/domain_flow.rs).
 Adjacent inspection covered shared ownership, lexical/place contracts, the old
 [`ty flow producer`](../../../crates/cpg-flow/src/lib.rs) and
-[`raw tables`](../../../crates/cpg-schema/src/tables.rs). Line references describe the inspected
+[`raw tables`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/tables.rs). Line references describe the inspected
 working-tree snapshot and may move with concurrent changes.
 
 **Responsibilities and fidelity — Interface-checked, 2026-09-29.** Flow owns nominal occurrence/

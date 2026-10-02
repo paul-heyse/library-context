@@ -247,6 +247,64 @@ pub struct BuiltinOperandWitness {
     #[model(key)]
     pub class: Id<ProviderSymbol>,
 }
+/// A replayed builtin syntax/resolution proof, usable without assuming a finite typing domain.
+/// Request values remain outside the typing observations and the canonical relation inventory.
+pub struct CheckedBuiltinOperand {
+    witness: BuiltinOperandWitness,
+    class_name: String,
+    operand_premises: [derivation::RowRef; 3],
+}
+impl CheckedBuiltinOperand {
+    pub fn witness(&self) -> &BuiltinOperandWitness { &self.witness }
+    pub fn class_name(&self) -> &str { &self.class_name }
+    pub fn operand_premises(&self) -> &[derivation::RowRef; 3] { &self.operand_premises }
+    pub fn derive(
+        data: &TheoryData,
+        invocation: &publication::AnalysisInvocation,
+        leaf: Id<FlowTestLeafObservation>,
+        native_support: Id<FlowTestLeafSupport>,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Result<Self, TheoryReason>, ModelError> {
+        let result = (|| -> Result<Self, Refusal> {
+            let leaf = need(&data.entry.leaves, leaf)?;
+            let native = need(&data.entry.leaf_supports, native_support)?;
+            if native.assertion != leaf.id() || native.origin != Origin::AnalyzerAssertion
+                || native.mode != ExtractionMode::NativeTraversal {
+                return Err(TheoryReason::MissingEvidence.into());
+            }
+            let q = need(&data.entry.qualifications, leaf.qualification)?;
+            support(data, native, q, invocation, FactFamily::Flow)?;
+            let mut assessments = data.operand_assessments.iter().filter(|a| a.leaf == leaf.id());
+            let assessment = assessments.next().ok_or(TheoryReason::MissingEvidence)?;
+            if assessments.next().is_some() || assessment.status != ResolutionStatus::Resolved {
+                return Err(TheoryReason::AmbiguousOperand.into());
+            }
+            let mut links = data.operand_links.iter().filter(|l| l.assessment == assessment.id());
+            let link = links.next().ok_or(TheoryReason::MissingEvidence)?;
+            if links.next().is_some() { return Err(TheoryReason::AmbiguousOperand.into()); }
+            let observation = need(&data.type_observations, link.observation)?;
+            if observation.role != TypeRole::TestOperand || Some(observation.subject) != leaf.operand {
+                return Err(TheoryReason::IncompatibleFrame.into());
+            }
+            frame(data, need(&data.entry.qualifications, observation.qualification)?, invocation)?;
+            let atom = need(&data.entry.atoms, leaf.atom)?;
+            if atom.context != invocation.context { return Err(TheoryReason::IncompatibleFrame.into()); }
+            let predicate = need(&data.entry.predicates, atom.predicate)?;
+            if !matches!(predicate, Predicate::TypeIs { .. } | Predicate::IsInstance { .. }) {
+                return Err(TheoryReason::UnsupportedPredicate.into());
+            }
+            let witness = builtin_operand(data, invocation, leaf, predicate, budget)?;
+            let class_name = need(&data.entry.symbols, witness.class)?.name.clone();
+            Ok(Self { witness, class_name, operand_premises: [derivation::RowRef::of(assessment.id()),
+                derivation::RowRef::of(link.id()), derivation::RowRef::of(observation.id())] })
+        })();
+        match result {
+            Ok(proof) => Ok(Ok(proof)),
+            Err(Refusal::Boundary(reason)) => Ok(Err(reason)),
+            Err(Refusal::Resource(error)) => Err(error),
+        }
+    }
+}
 fn same_node(data: &TheoryData, a: Id<source::Occurrence>, b: Id<source::Occurrence>) -> bool {
     match (data.entry.occurrences.get(a), data.entry.occurrences.get(b)) {
         (Some(a), Some(b)) => {

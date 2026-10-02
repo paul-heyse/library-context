@@ -1,5 +1,4 @@
-"""Explicit, lifespan-owned Rust PostgreSQL services; importing does not connect."""
+"""Opaque Rust serving services and request grants; importing does not connect."""
+from ._storage import RequestGrant, Service, StorageError, open_service
 
-from ._storage import PinnedRepository, Repository, StorageError, open_repository
-
-__all__ = ["PinnedRepository", "Repository", "StorageError", "open_repository"]
+__all__ = ["Service", "RequestGrant", "StorageError", "open_service"]

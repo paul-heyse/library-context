@@ -9,8 +9,9 @@ the single relational store ([ADR-0086](adr/0086-immutable-postgresql-generation
 [cutover plan](plans/semantic-model-cutover-plan_2026-09-29.md) owns sequencing, receipts (§4.2) and
 finding dispositions (§8). These instructions concern one operator's local database.
 
-Serving (`lctx_serving`, projections and the MCP server) is dormant until cutover phase 5. Git holds
-its former operations.
+Current generation serving is implemented in the Phase 5 working tree; qualification and operator
+activation are pending, 2026-10-02. The [Phase 5 plan](plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
+owns those receipts. The former copied projections/importer have been retired; Git holds their history.
 
 ## Local deployment and configuration
 
@@ -127,7 +128,10 @@ text, vectors or connection strings.
 This is the design-phase policy ([ADR-0078](adr/0078-current-design-cutover.md)). Generations are
 rebuilt from pinned inputs, never restored across formats.
 
-- `scripts/postgres_backup.py backup|restore-drill` fingerprints the retained service tables.
+- `scripts/postgres_backup.py backup|restore-drill` uses a format-4, retained-service-only archive
+  and fingerprints the five retained service tables. Semantic generation schemas, original-byte
+  captures and vector artifacts are rebuilt from pinned inputs; no bundle, locator, or ready-state
+  inventory is read or restored.
 - A model change is a `store reset` followed by a rebuild.
 - An old-format database moves through [the transition](#the-transition).
 
@@ -146,6 +150,7 @@ Old-format stores are refused; reconstruct semantic state from pinned inputs.
   the CLI. Missing Docker or a missing image is `blocked`.
 - The `testing` feature of `lctx-postgres` provides `DisposableDatabase`, which is provisioned like
   production with production session limits, and the attempt-semantics test harness.
-- `just sqlx-check` and `just sqlx-prepare` cover the dormant serving queries frozen in `.sqlx`. They
-  leave `test-all` until serving returns (plan T12).
+- Canonical serving binds values and derives relation identifiers from the validated model. Its
+  runtime queries have no fixed SQLx macros or metadata to regenerate. The 21 obsolete fixed-query
+  entries were retired with their consumers; no empty metadata check is treated as store qualification.
 - Keep this repository's Cargo target and build cache; never clean them.

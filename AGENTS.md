@@ -19,7 +19,7 @@ the single relational store, and DataFusion as in-process compute (DESIGN §15).
 5. serving.
 
 Legacy code is removed at the ownership boundary; no compatibility adapters, legacy IDs or dual stores.
-Phases 0–3 are implemented within their recorded qualification boundaries. Phase 4 typed analysis/catalog and cumulative compilation are implemented; mapped legacy retirement and Q0 acceptance are complete within the recorded scope, 2026-10-01. Phase 5 serving remains unavailable. Product work (PR6, new features) pauses until phase 5. STATUS and the current Phase 4 plan own acceptance, not an implementation label alone.
+Phases 0–3 are implemented within their recorded qualification boundaries. Phase 4 typed analysis/catalog and cumulative compilation are implemented; mapped legacy retirement and Q0 acceptance are complete within the recorded scope, 2026-10-01. Phase 5 current serving is implemented in the working tree; qualification and operator activation are pending. Product work (PR6, new features) pauses until phase 5. STATUS and the current Phase 5 plan own acceptance, not an implementation label alone.
 
 The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
@@ -67,7 +67,7 @@ preservation and testing rules still apply.
    - the section's `> Decision:` line names the ADR that holds the reason and rejected
      alternatives (`docs/adr/README.md` lists accepted records and open proposals);
    - known defects and deferred choices affecting the section are forward-plan §6 items, linked
-     from the owner. Executable declarations (`cpg-schema`) own column-level detail.
+     from the owner. Executable declarations (`lctx-model::domain`) own column-level detail.
 5. Retired plans, reviews, evidence and ADRs are not reading context; recover one from Git only
    when a current owner is insufficient (`docs/README.md`, Historical recovery).
 

@@ -12,17 +12,11 @@ getrandom.workspace = true
 schemars.workspace = true
 arrow-array.workspace = true
 arrow-schema.workspace = true
-arrow-ipc.workspace = true
-sha2.workspace = true
 futures.workspace = true
-fs-err.workspace = true
-tempfile.workspace = true
 pgvector.workspace = true
 pgpq.workspace = true
 bytes.workspace = true
-base64.workspace = true
 url.workspace = true
-cpg-schema = { path = "../cpg-schema" }
 lctx-model = { path = "../lctx-model" }
 serde.workspace = true
 serde_json.workspace = true
@@ -37,8 +31,8 @@ testcontainers-modules = { workspace = true, optional = true }
 testing = ["dep:testcontainers-modules"]
 
 [dev-dependencies]
+tempfile.workspace = true
 jsonschema.workspace = true
-arrow-select.workspace = true
 testcontainers-modules.workspace = true
 lctx-postgres = { path = ".", features = ["testing"] }
 

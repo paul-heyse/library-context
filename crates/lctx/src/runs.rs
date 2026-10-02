@@ -2,7 +2,7 @@
 use crate::database::Database;
 use anyhow::{Context, bail};
 use clap::Subcommand;
-use cpg_schema::id::Id;
+use cpg_core::postgres::operations::AttemptId;
 
 #[derive(Debug, Subcommand)]
 pub enum Runs {
@@ -14,7 +14,7 @@ pub enum Runs {
     },
     Show {
         #[arg(value_parser=crate::parse_id)]
-        attempt: Id,
+        attempt: AttemptId,
         #[arg(long, default_value = "100")]
         limit: u32,
         #[arg(long, default_value = "0")]
@@ -23,7 +23,7 @@ pub enum Runs {
     /// Explicit operator reconciliation after confirming the process was interrupted.
     MarkInterrupted {
         #[arg(value_parser=crate::parse_id)]
-        attempt: Id,
+        attempt: AttemptId,
     },
 }
 

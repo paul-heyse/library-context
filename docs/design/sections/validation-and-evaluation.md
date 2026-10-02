@@ -1,6 +1,9 @@
 # Validation and evaluation
 
-**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 1 moves publication validation onto database constraints plus DataFusion semantic validators (§15.11). Until that phase exits, this page describes the implemented legacy pipeline.
+**Implemented for canonical publication; Phase 5 serving qualification pending, 2026-10-02.**
+[§15](semantic-model.md) owns the typed model, PostgreSQL generation store and declared stage
+validation. The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) records
+completed layer receipts and the remaining serving boundary.
 
 This owner states what the system checks and how its answers are judged. **§8** covers
 publication validation: the rules every snapshot passes before it becomes visible, and the
@@ -9,21 +12,18 @@ whether published answers are useful and correct on registered questions. Valida
 the Arrow contracts and derived tables of [facts and identity](facts-and-identity.md) and runs
 inside publication ([§6.1](storage-and-publication.md#section-6-1)); evaluation consumes a
 published generation through the serving tools ([§11.3](synthesis-and-serving.md#section-11-3)).
-Neither writes facts. Declarations live in `cpg_schema::rules` (rule generation and edit guards),
-`cpg-core` (`validate`, shared by tests and publication), `tests/scripts/test_flow_soundness.py`
-(runtime oracle), `eval/behavior/` (question sets) and `scripts/structured_eval.py`,
-`scripts/score_gold.py`, `scripts/gold_match.py` (packets and gold scoring). Stage exit rules and
+Neither writes facts. Declarations and shared validators live in `lctx-model::domain`;
+`lctx-postgres` enforces their physical lowerings and publication receipts. `cpg-core` invokes
+model-owned validation and replay before publication. Independent generated runtime controls live
+in `tests/scripts/test_flow_soundness.py` and `tests/scripts/test_semantic_soundness.py`, `eval/behavior/` (question sets) and `scripts/gold_match.py` (retained preregistered matcher and source-span arithmetic). Stage exit rules and
 open validation work are in the [forward plan](../../plans/behavioral-model-forward-plan_2026-09-24.md).
 
 ## §8 Validation
 
-**Implemented and Tested** for the local, per-row and cross-table rules below: every hand-written
-rule rejects an injected violation or is a declared edit guard, and every generated template
-(`key`, `ref`, `fact`, `fact-payload`, `codebook`, `endpoint`, `evidence`, `one-per-evidence`,
-`no-parallel`, `lineage`, `id`) has at least one case;
-`every_rule_is_exercised_or_declared_an_edit_guard` fails when a rule is added without either.
-Rules for the behavioral, condition and summary tables are generated or hand-written the same
-way and land with their tables.
+**Implemented / Tested within the recorded canonical-layer receipts.** Model declarations own
+structural checks; pure validators and strict stage replay own semantic agreement. Independent
+known-answer and invalid-row controls challenge each supported layer. A new serving consumer
+requires its own acceptance evidence; prior publication tests do not establish served fidelity.
 
 **Accepted wire/catalog verification target, implementation Proposed (ADR-0073).** Rust
 `jsonschema` validators independently challenge Schemars schemas against typed request decoding
@@ -45,42 +45,27 @@ owns timing and CLF closure. These controls do not replace PR6's independent pro
 widths (`RecordBatch::try_new` against the declared schema); codebook membership; numeric bounds;
 finite floats and unit-norm vectors.
 
-**Per-row, at every Delta write.** Invariants that never change (span order, non-negative
-offsets) are also Delta CHECK constraints generated from the `cpg-schema` declarations and
-enforced by `DeltaTable::write`; the open-time verify keeps them identical to the declarations, so
-they are enforcement at the storage boundary, not a second definition. Codebook membership is
-**not** a CHECK: codebooks grow append-only, and a stored range would reject the next code.
+**Physical publication** (PostgreSQL) enforces generated nominal keys, references, nullability,
+codebooks and declared checks. The lowering and physical admission inspect the same model;
+there is no Delta write path or independent rule registry.
 
-**Cross-table** (DataFusion), **one query per rule**, generated in `cpg_schema::rules` from the
-contracts and snapshot-tested. Rules read the session's tables cached once in memory, run
-concurrently and report violations in rule order (`violations_come_back_in_rule_order`;
-`every_table_is_read_by_some_rule` walks every rule's plan):
-- `key`: uniqueness of every table's declared total key;
-- `ref`: each declared reference, as a `LEFT ANTI JOIN` returning zero rows;
-- `fact`: every raw row has its `facts` row and every `facts` row its raw row;
-- `codebook`: every codebook column holds a code of its codebook;
-- `coverage`: a row for every declared family × module of the run's release;
-- **graph**, generated from the registry
-  ([§3.8](facts-and-identity.md#section-3-8)), so references and the mapping have one
-  authority: endpoint kinds; node-valued references; evidence and support exist; `nodes`/`edges`
-  keys; lineage from raw rows (each source row yields its declared edges, or its derived row
-  carries a provider's reason); the `pysa_calls` partition; typed targets (a null target carries
-  a provider reason, never a catch-all); and each Rust id recipe equals its SQL form;
-- `semantic` (hand-written, one query each): provider/derivation agreement, injectivity of the
-  Stage C mapping, producer and model attribution, stored source text and role, finding-status
-  policy, witness chains, negative premises inside complete coverage
-  (`semantic:refuted-needs-complete-region`), and the brief rules (every assertion cites
-  findings and evidence of the same snapshot; every public symbol in a brief exists in `exports`).
+**Cross-relation validation and replay** use shared pure model validators, with DataFusion where
+relational construction is appropriate. Completed runs retain the declared source relations,
+epochs, content digests and qualification boundary. Publication verifies the exact closure;
+strict consumers reconstruct meaning from those records. Missing coverage, mismatched receipt
+content or an undeclared source refuses admission rather than becoming an empty result. Tests
+challenge injected invalid rows and independent hand-known semantics separately from generated
+structural checks.
 
 **Edit guards.** A lineage rule that re-reads its edge kind's own unfiltered source cannot fail on
-today's SQL: it guards an edit of that derivation, not a data condition. Such rules are declared
-in `cpg_schema::rules::EDIT_GUARDS` and counted apart from falsifiable rules. A reference whose
-target is built from its own source column is never generated.
+the current derivation: it guards an edit, not a data condition. Such rules are declared
+apart from falsifiable data checks. Current typed derivations and their retained source rows
+are validated through their declared model owner.
 
 **What validation cannot prove.** A validator that reconstructs a producer's output with the same
 semantic input agrees with that producer, including its defects: equivalent-spelling access
 defects ([plan W4](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition))
-and lossy serving projections (W2, W3) pass today's rules. Independent semantic controls (§8.1,
+and historical lossy serving projections (W2, W3) illustrate that limitation. Independent semantic controls (§8.1,
 real-provider fixtures, served round trips) are kept separate from derived validators.
 
 **Rules of use**
@@ -113,9 +98,10 @@ Each instrument challenges one kind of claim and never writes facts or tunes the
 **Boundaries.** Only generated programs execute; the analyzed library and `fixtures/python/`
 never do, and nothing runs with network access. Oracles stay out of compiler inputs; the gold
 stays out of analysis. The current runtime oracle checks raw flow over a small generated corpus;
-it does not yet challenge ignored predecessors, raise escapes or refutations, and kernel tests
-are example-based (plan W11: truth-table kernel tests, Python-lowering controls and served
-round trips).
+its broader exclusions remain separate. The Phase 5 generated CPython oracle challenges
+original served path-local refutations and exact identity transfers using independently observed
+guards and returns. Its driver is `crates/lctx/tests/serving_soundness.rs`; actual qualification
+is pending. May-compatible answers are never interpreted as established identity.
 
 **Implemented and focused Tested (2026-09-27):** the raw-flow runtime oracle builds and drives
 this checkout's release `lctx` binary, overriding an inherited target directory. `uv run --no-sync
@@ -142,8 +128,7 @@ research progress, with its existing unanswered targets and truth criteria.
 - **Pre-registration.** A set is written from the library's own source and docs **before** any
   output of the stage it judges is read, and committed first. It is append-only: a changed item is
   a new item that `supersedes` the old one.
-- **Assessment.** Each stage produces a packet (`scripts/structured_eval.py`; its recipe returns with
-  serving at cutover phase 5) with
+- **Assessment.** When the retained research evaluation is activated, it produces a packet with
   the targets, the tools' answers, the brief if any, and mechanical marks where a check is
   mechanical. The author assesses each item as present / partial / absent / incorrect /
   misleading, per item and never as a percentage, and the operator reviews it. No API agents
@@ -156,15 +141,15 @@ research progress, with its existing unanswered targets and truth criteria.
 **Gold scoring** ([§1.4](../DESIGN.md#section-1-4)) records brief retrieval against the
 `fastmcp` skill's reviewed families, which are evaluation-only and never tune parameters. The
 extract `eval/gold/fastmcp-4.0.5.json` records each family's operations, task aliases and static
-evidence spans. Matcher version 2 (`scripts/gold_match.py`, shared by `score_gold.py` and
-`ranking_check.py`) resolves identity to the declaration node: a gold operation resolves by exact
+evidence spans. Matcher version 2 (`scripts/gold_match.py`) resolves identity to the declaration node: a gold operation resolves by exact
 path equality against served `public_paths`, with no fuzzy fallback; a class operation matches
 only a brief seeded by that class; unresolved operations stay in the union as strings. Scores,
 counted over all gold units: (a) node Jaccard per family; (b) hit@5 over every task alias, where a
 hit is a returned brief whose seed is in the family's node set; (c) recall of gold evidence spans.
 Every score records `matcher_version` and each alias's mode; a live run with a degraded alias is
-`blocked`. `scripts/ranking_check.py` is the §1.5 retrieval check (its recipe returns with serving
-at cutover phase 5). The matcher, fusion
+`blocked`. The retired bundle-based packet/scoring/workload runners have no current consumer.
+Current-model evaluation runners are deferred until the product/research evaluation is activated;
+Phase 5 qualifies serving behavior and does not run those comparisons. The matcher, fusion
 rule and brief-document template were registered before any rescore; none changes on the strength
 of gold scores, only with a rationale independent of the gold. **Tested** over constructed rows (`tests/scripts/test_gold_match.py`).
 

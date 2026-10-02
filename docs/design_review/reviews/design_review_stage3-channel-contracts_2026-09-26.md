@@ -772,7 +772,7 @@ FCA features, registry membership or Stage 5 execution. The
 [forward plan §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)
 owns W10's current disposition; this section supplies bounded review evidence.
 
-**Implemented, source-inspected:** [the schema contract](../../../crates/cpg-schema/src/concept_attributes.rs)
+**Implemented, source-inspected:** [the schema contract](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/concept_attributes.rs)
 owns typed identity, rendering and retained-support selectors. Analytics maps sorted attribute
 IDs into the existing FCA kernel; core reconstructs observations; Python checks projected
 closure. The FCA algorithm and limits remain unchanged. This is domain-contract repair using
@@ -1000,7 +1000,7 @@ is the explicit modeled entry argument, and a bare return reads the unique `With
 that exact active body. General aliases and returns after a completed context remain outside
 this slice. ADR-0059's owner/authority split is unchanged.
 
-Schema [`context_value.rs`](../../../crates/cpg-schema/src/context_value.rs) owns identity and
+Schema [`context_value.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/context_value.rs) owns identity and
 shared admission; analytics' corresponding producer proves both lexical reference/resolution/
 binding chains and return ancestry. Core reconstructs the source certificate at publication;
 native loading checks its hash, scope, exact argument expression and lifecycle references.
@@ -1080,7 +1080,7 @@ call and source-ordered callee/argument evaluation. Normal-expression evaluation
 requires the pinned `normal_return` promise and retains `PrecedingCallNormal`; invocation
 ends in `ModelInvocation` without that promise. Completion's existing entry walker proves
 the independent preceding-statement group. Schema
-[`call_execution.rs`](../../../crates/cpg-schema/src/call_execution.rs) owns both ordered
+[`call_execution.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/call_execution.rs) owns both ordered
 commitments and structural admission; core acquires, persists and reconstructs the exact
 rows/steps at publication. A reached call before a later raise therefore remains represented,
 while its return, effects and callback invocation are not invented. These are conditional

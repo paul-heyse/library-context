@@ -200,16 +200,16 @@ Existing AP findings retain their own identities and completion criteria.
 ### F01 — Wire contracts repeat semantic decisions across Rust and Python
 
 **Interface-checked; priority: before extending the PR4 query contract.**
-[Rust `Where::validate`](../../../crates/lctx-postgres/src/repository.rs) at lines 60–94 independently
+[Rust `Where::validate`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/repository.rs) at lines 60–94 independently
 defines request shape, facet acceptance and a 2,000-byte limit.
-[Python `FacetTerm`/`Where`](../../../python/lctx_mcp/src/lctx_mcp/operations.py) at lines 23–71 repeat
+[Python `FacetTerm`/`Where`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/python/lctx_mcp/src/lctx_mcp/operations.py) at lines 23–71 repeat
 names, kinds and 500-character limits. Rust denies unknown fields; these Python models do not
 declare that policy. For example, a 501-character ASCII value is permitted by the Rust length
 check and rejected by the Python field constraint, independently of whether that facet exists.
 The current facet-name parity test covers names, not the whole contract.
 
 Hydration returns generic JSON maps while Python separately declares catalog packet records
-(`operations.py:153–283`; [hydration.rs](../../../crates/lctx-postgres/src/hydration.rs):18–57).
+(`operations.py:153–283`; [hydration.rs](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/hydration.rs):18–57).
 Adding Schemars only to `Where` leaves that larger ownership problem in place. Extending a
 requirement or packet currently requires repeated semantic edits and knowledge of both validators.
 
@@ -252,7 +252,7 @@ to the retained end-to-end path. Measure before claiming speed or adding more re
 
 **Interface-checked; priority: before any dependency-based catalog reuse.**
 `catalog.rs:440–449` builds `Relation { deps: &[], sql: SELECT * FROM T::NAME, ... }`.
-[`Relation`](../../../crates/cpg-schema/src/query.rs):22–29 defines `deps` as the tables scanned.
+[`Relation`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/query.rs):22–29 defines `deps` as the tables scanned.
 [`sql::fetch`](../../../crates/cpg-core/src/sql.rs):120–139 currently does not use that field, so
 this is **not evidence of a present stale-cache failure**. It is an untruthful declaration that
 cannot safely become a dependency contract for the planned rebuild path.

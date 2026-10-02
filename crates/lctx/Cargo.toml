@@ -7,7 +7,6 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-cpg-schema = { path = "../cpg-schema" }
 cpg-extract = { path = "../cpg-extract" }
 cpg-core = { path = "../cpg-core" }
 lctx-model = { path = "../lctx-model" }
@@ -27,6 +26,7 @@ lctx-workspace-hack = { version = "0.1", path = "../lctx-workspace-hack" }
 tikv-jemallocator.workspace = true
 
 [dev-dependencies]
+serde.workspace = true
 base64.workspace = true
 sha2.workspace = true
 tempfile.workspace = true

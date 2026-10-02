@@ -626,4 +626,125 @@ async fn qualify_admitted_selection(db:&DisposableDatabase,store:&GenerationStor
     let replacement=store.pin(&db.reader,g,ResourceBudget::fixed(32<<20).unwrap()).await.unwrap();
     assert!(matches!(admitted.select(&query,&request).await,Err(Error::State)));drop(admitted);assert_eq!(budget.reserved(),0);replacement.release().await.unwrap();
     reader.close().await;
+    qualify_generation_runtime(db, store, g, config).await;
 }
+
+async fn qualify_generation_runtime(
+    db: &DisposableDatabase,
+    store: &GenerationStore,
+    generation: lctx_postgres::generations::GenerationId,
+    config: &Path,
+) {
+    use lctx_postgres::generations::{Error, GenerationService};
+    use std::{sync::Arc, time::Duration};
+    let model = Arc::new(lctx_model::domain::model().unwrap());
+    let mut role = lctx_postgres::roles::RoleConfig::load(config).unwrap();
+    role.provider_connections = 0; // No compile provider capacity in a canonical serving process.
+    store.select(generation).await.unwrap();
+    let service = GenerationService::admit(model.clone(), &role, None).await.unwrap();
+    assert_eq!(service.generation(), generation);
+    store.clear_selection().await.unwrap();
+    assert_eq!(service.generation(), generation, "selection is resolved only once");
+    assert!(matches!(store.retire(generation).await, Err(Error::Busy)));
+    // A cancelled SQL waiter retains its execution/query grant until the original task drains.
+    let mut blocker = db.owner.pool().begin().await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!("LOCK TABLE {}.catalog_members IN ACCESS EXCLUSIVE MODE",generation.schema())))
+        .execute(&mut *blocker).await.unwrap();
+    let reading = service.execution().await.unwrap();
+    let request = tokio::spawn(async move { reading.read::<lctx_model::domain::catalog::CatalogMember>().await });
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='lctx_serving' AND state='active' AND wait_event_type='Lock' AND query LIKE '%catalog_members%')")
+                .fetch_one(&db.superuser).await.unwrap();
+            if blocked { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    request.abort();
+    let held = service.execution().await.unwrap();
+    assert!(service.execution().await.is_err(), "cancelled SQL retains the first CPU grant until cleanup");
+    assert!(matches!(store.retire(generation).await,Err(Error::Busy)));
+    blocker.rollback().await.unwrap();
+    drop(held);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let one = service.execution().await.unwrap();
+            if let Ok(two) = service.execution().await {
+                assert!(!two.read::<lctx_model::domain::catalog::CatalogMember>().await.unwrap().rows().is_empty());
+                drop((one,two));
+                break;
+            }
+            drop(one);
+        }
+    }).await.unwrap();
+    // Individually short phases share one deadline; later phases cannot restart its clock.
+    let cumulative = service.execution().await.unwrap();
+    let began = std::time::Instant::now();
+    for _ in 0..2 {
+        cumulative.cpu(|_| { std::thread::sleep(Duration::from_secs(11)); Ok(()) }).await.unwrap();
+    }
+    let final_phase = cumulative.cpu(|_| { std::thread::sleep(Duration::from_secs(11)); Ok(()) }).await;
+    assert!(matches!(final_phase, Err(Error::ResourceRefused("request deadline"))));
+    assert!(began.elapsed() >= Duration::from_secs(30));
+    assert!(cumulative.remaining().is_err());
+    drop(cumulative);
+    // The last timed-out CPU job keeps its grant until its actual completion.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let first = service.execution().await.unwrap();
+    let second = service.execution().await.unwrap();
+    let (started, running) = tokio::sync::oneshot::channel();
+    let (finish, blocked) = std::sync::mpsc::channel();
+    let worker = first.clone();
+    let waiting = tokio::spawn(async move {
+        worker.cpu(move |budget| {
+            let _charge = budget.reserve("runtime-cancel-control", 1024)?;
+            started.send(()).unwrap();
+            blocked.recv().unwrap();
+            Ok(())
+        }).await
+    });
+    drop(first);
+    running.await.unwrap();
+    waiting.abort(); // Only the wait is cancelled; actual CPU work retains its grant.
+    assert!(service.execution().await.is_err(), "two slots remain retained");
+    tokio::time::timeout(Duration::from_secs(3), service.guard().check()).await.unwrap().unwrap();
+    assert!(matches!(store.retire(generation).await, Err(Error::Busy)));
+    let close = service.clone();
+    let shutdown = tokio::spawn(async move { close.shutdown().await });
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert!(!shutdown.is_finished());
+    assert!(service.execution().await.is_err());
+    drop(second);
+    finish.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), shutdown).await.unwrap().unwrap().unwrap();
+    assert!(service.guard().is_lost());
+    assert!(service.execution().await.is_err());
+
+    // A valid-width replacement view cannot masquerade as the generated identity projection.
+    let view = format!("{}.serving_members", generation.schema());
+    let original: String = sqlx::query_scalar("SELECT pg_get_viewdef(to_regclass($1),false)")
+        .bind(&view).fetch_one(&db.superuser).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE OR REPLACE VIEW {view} AS SELECT * FROM {}.catalog_members WHERE false",generation.schema())))
+        .execute(&db.superuser).await.unwrap();
+    assert!(GenerationService::admit(model.clone(), &role, Some(generation)).await.is_err());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE OR REPLACE VIEW {view} AS {original}")))
+        .execute(&db.superuser).await.unwrap();
+    let healthy = GenerationService::admit(model, &role, Some(generation)).await.unwrap();
+    let guard = healthy.guard();
+    let (high,low) = {
+        let bytes = (0..16).map(|i|u8::from_str_radix(&generation.hex()[2*i..2*i+2],16).unwrap()).collect::<Vec<_>>();
+        let key = u64::from_le_bytes(bytes[..8].try_into().unwrap());
+        ((key >> 32) as i64, (key & 0xffff_ffff) as i64)
+    };
+    let pid: i32 = sqlx::query_scalar("SELECT pid FROM pg_locks WHERE locktype='advisory' AND granted AND mode='ShareLock' AND objsubid=1 AND classid::bigint=$1 AND objid::bigint=$2")
+        .bind(high).bind(low).fetch_one(&db.superuser).await.unwrap();
+    sqlx::query("SELECT pg_terminate_backend($1)").bind(pid).execute(&db.superuser).await.unwrap();
+    assert!(guard.check().await.is_err());
+    assert!(healthy.execution().await.is_err());
+    // Even another independent canonical lease cannot revive this process's guard.
+    let replacement = store.pin(&db.reader,generation,lctx_model::domain::resources::ResourceBudget::fixed(32<<20).unwrap()).await.unwrap();
+    assert!(healthy.execution().await.is_err());
+    replacement.release().await.unwrap();
+    let _ = healthy.shutdown().await;
+}
+

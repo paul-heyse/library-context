@@ -1,1 +1,0 @@
-SELECT DISTINCT evidence_kind,evidence_id FROM lctx_serving.catalog_associations WHERE generation_digest=$1 AND member_id=$2 AND evidence_kind='scenario' AND intent='demonstration' AND basis='resolved_target' ORDER BY evidence_kind,evidence_id LIMIT 2

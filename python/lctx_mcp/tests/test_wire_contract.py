@@ -1,181 +1,80 @@
-"""Actual native decoder and FastMCP transport controls; no storage provider involved."""
-
+"""Current Rust decoder and actual FastMCP schema listing; no stored fixture required."""
 import json
-from contextlib import asynccontextmanager
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from fastmcp import Client, FastMCP
-from fastmcp.exceptions import ToolError
-from lctx_semantics import wire_decode, wire_tool
-from mcp_types import TextContent, ToolAnnotations
+from lctx_semantics import wire_decode, wire_resources, wire_schema, wire_tool, wire_tool_result, wire_tools
+from mcp_types import CallToolResult
 
-from lctx_mcp.server import NativeWorkers
 from lctx_mcp.wire import register
 
 
-def test_nested_contracts_preserve_required_nulls_and_closed_vocabulary():
-    evidence = {
-        "evidence_id": "11" * 16,
-        "kind": "source",
-        "path": None,
-        "start_byte": None,
-        "end_byte": None,
-        "text": None,
-    }
-    assert json.loads(wire_decode("Evidence", json.dumps(evidence))) == evidence
-    del evidence["text"]
-    with pytest.raises(ValueError):
-        wire_decode("Evidence", json.dumps(evidence))
-    assert json.loads(wire_decode("ExactPrimitive", '{"kind":"none","value":null}')) == {
-        "kind": "none",
-        "value": None,
-    }
-    for invalid in ['{"kind":"int","value":true}', '{"kind":"bool","value":1}', '{"unexpected":1}']:
+def test_closed_nested_requests_keep_nominal_ids_and_refuse_coercion():
+    request = {"library": "control", "operation": {"kind": "member", "member": [7] * 16}}
+    decoded = json.loads(wire_decode("get_operation", json.dumps(request)))
+    assert decoded["operation"] == request["operation"]
+    assert decoded["page"] == {"size": 20, "expanded": False}
+    invalid = [
+        {**request, "ignored": True},
+        {**request, "operation": {"kind": "member", "member": [7] * 16, "ignored": True}},
+        {**request, "operation": {"kind": "member", "member": "07" * 16}},
+        {**request, "operation": {"kind": "member", "member": [7] * 15}},
+        {**request, "operation": {"kind": "member", "member": [True] * 16}},
+        {**request, "page": {"expanded": 1}},
+        {**request, "page": {"size": True}},
+        {**request, "page": {"cursor": None}},
+    ]
+    for value in invalid:
         with pytest.raises(ValueError):
-            wire_decode("ExactPrimitive", invalid)
+            wire_decode("get_operation", json.dumps(value))
+
+
+def test_exact_scalars_use_current_transient_input_owner():
+    request = {"member": [1] * 16, "analysis": [2] * 16,
+        "inputs": [{"formal": [3] * 16, "value": {"kind": "integer", "decimal": "10000000000000000000000000000000000000000"}}],
+        "assumptions": {"builtin_namespace": "unknown"}}
+    decoded = json.loads(wire_decode("inspect_value_paths", json.dumps(request)))
+    assert decoded["inputs"] == request["inputs"]
+    for value in [{"kind": "bool", "value": 1}, {"kind": "integer", "decimal": "+1"},
+                  {"kind": "none", "value": None}, {"kind": "invented"}]:
+        request["inputs"][0]["value"] = value
+        with pytest.raises(ValueError):
+            wire_decode("inspect_value_paths", json.dumps(request))
 
 
 @pytest.mark.anyio
-async def test_real_mcp_listing_and_call_use_native_contracts():
-    @asynccontextmanager
-    async def lifespan(_):
-        workers = NativeWorkers()
-        try:
-            yield {"served": SimpleNamespace(workers=workers)}
-        finally:
-            await workers.close()
-
-    mcp = FastMCP("contract control", lifespan=lifespan, dereference_schemas=False)
-    annotations = ToolAnnotations(read_only_hint=True)
-    received = []
-
-    @register(mcp, annotations)
-    async def get_operation(snapshot_id, operation, expanded, view, ctx):
-        """Contract transport control."""
-        received.append((snapshot_id, operation, expanded, view))
-        return {
-            "snapshot_id": snapshot_id,
-            "generation": "11" * 32,
-            "resolution": "ambiguous",
-            "requested": operation,
-            "choices": [],
-        }
-
-    async with Client(mcp) as client:
-        listed = (await client.list_tools())[0]
-        expected = json.loads(wire_tool("get_operation"))
-        assert listed.input_schema == expected["parameters"]
-        assert listed.output_schema == expected["output_schema"]
-        result = await client.call_tool(
-            "get_operation", {"snapshot_id": "AB" * 16, "operation": "pkg.member"}
-        )
-        assert received == [("ab" * 16, "pkg.member", False, {"kind": "packet"})]
-        assert result.structured_content is not None
-        assert result.structured_content["result_kind"] == "ambiguous"
-        for extra in [{"unexpected": True}, {"expanded": 1}]:
-            with pytest.raises(ToolError):
-                await client.call_tool(
-                    "get_operation", {"snapshot_id": "ab" * 16, "operation": "pkg.member", **extra}
-                )
-
-
-def test_shared_native_request_fixtures():
-    path = Path(__file__).resolve().parents[3] / "specs/wire/requests.json"
-    for case in json.loads(path.read_text()):
-        if case["valid"]:
-            assert json.loads(wire_decode(case["contract"], json.dumps(case["input"])))
-        else:
-            with pytest.raises(ValueError):
-                wire_decode(case["contract"], json.dumps(case["input"]))
-
-
-@pytest.mark.anyio
-async def test_native_wire_work_retains_cancelled_lease_and_event_loop_progress():
-    import asyncio
-    import threading
-
-    workers = NativeWorkers()
-    started = threading.Event()
-    finished = threading.Event()
-    raw = json.dumps(
-        {
-            "evidence_id": "11" * 16,
-            "kind": "source",
-            "path": None,
-            "start_byte": None,
-            "end_byte": None,
-            "text": "x" * 2_000_000,
-        }
-    )
-
-    def normalize_many():
-        started.set()
-        try:
-            for _ in range(80):
-                wire_decode("Evidence", raw)
-        finally:
-            finished.set()
-
-    task = asyncio.create_task(workers.run(normalize_many))
-    try:
-        while not started.is_set():
-            await asyncio.sleep(0.001)
-        assert not finished.is_set()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        # Cancellation belongs to the caller; the admitted native work still owns its slot.
-        assert workers.slots._value == 1
-        ticks = 0
-        while not finished.is_set():
-            ticks += 1
-            await asyncio.sleep(0.001)
-        assert ticks > 1
-    finally:
-        await workers.close()
-    assert workers.slots._value == 2
-
-
-@pytest.mark.anyio
-async def test_final_mcp_bytes_include_content_and_unicode():
-    from lctx_semantics import wire_tool_result
-    from mcp_types import CallToolResult
-
-    @asynccontextmanager
-    async def lifespan(_):
-        workers = NativeWorkers()
-        try:
-            yield {"served": SimpleNamespace(workers=workers)}
-        finally:
-            await workers.close()
-
-    server = FastMCP("final byte control", lifespan=lifespan, dereference_schemas=False)
-    payload = {
-        "snapshot_id": "11" * 16,
-        "generation": "22" * 32,
-        "resolution": "ambiguous",
-        "requested": "",
-        "choices": [],
-    }
-    overhead = len(wire_tool_result("get_operation", json.dumps(payload), False).encode())
-    payload["requested"] = "🦀" * ((32768 - overhead - 50) // 4)
-    assert len(wire_tool_result("get_operation", json.dumps(payload), False).encode()) < 32768
-
-    @register(server, ToolAnnotations(read_only_hint=True))
-    async def get_operation(snapshot_id, operation, expanded, view, ctx):
-        """Final transport budget control."""
-        return payload
-
+async def test_real_mcp_listing_preserves_the_sole_native_inventory():
+    server = FastMCP("current schema control", dereference_schemas=False)
+    register(server)
+    declarations = json.loads(wire_tools())
     async with Client(server) as client:
-        args = {"snapshot_id": "11" * 16, "operation": "member"}
-        with pytest.raises(ToolError, match="final MCP result byte budget"):
-            await client.call_tool("get_operation", args)
-        result = await client.call_tool("get_operation", {**args, "expanded": True})
-        actual = CallToolResult(
-            content=result.content, structured_content=result.structured_content, is_error=False
-        )
-        assert len(actual.model_dump_json(by_alias=True, exclude_none=True).encode()) <= 256 * 1024
-        assert len(result.content) == 1 and isinstance(result.content[0], TextContent)
-        assert "🦀" not in result.content[0].text
+        listed = await client.list_tools()
+        assert {tool.name for tool in listed} == {row["name"] for row in declarations}
+        assert len(listed) == 10
+        for tool in listed:
+            declared = next(row for row in declarations if row["name"] == tool.name)
+            metadata = json.loads(wire_tool(tool.name))
+            assert tool.input_schema == declared["request_schema"] == metadata["parameters"]
+            assert tool.output_schema == declared["response_schema"] == metadata["output_schema"]
+            assert tool.annotations.read_only_hint is True
+            assert tool.annotations.idempotent_hint is True
+            assert tool.meta["lctx_wire_identity"] == metadata["wire_identity"]
+            assert tool.input_schema["additionalProperties"] is False
+        assert await client.list_resources() == []
+        templates = await client.list_resource_templates()
+        assert [{"uri_template": t.uri_template, "name": t.name, "mime_type": t.mime_type} for t in templates] == json.loads(wire_resources())
+
+
+def test_current_response_wraps_complete_dto_and_actual_generation_key():
+    response = {"generation": [5] * 16, "operation": {"resolution": "ambiguous", "candidates": []}}
+    protocol = CallToolResult.model_validate_json(wire_tool_result("get_operation", json.dumps(response), False))
+    assert protocol.structured_content == response
+    assert protocol.is_error is False
+    assert len(protocol.content) == 1
+    assert protocol.content[0].text == "get_operation: generation-bound result"
+    for invalid in [{**response, "generation": [5] * 32}, {**response, "generation": "05" * 16},
+                    {**response, "legacy_snapshot": "05" * 16}, {"generation": [5] * 16}]:
+        with pytest.raises(ValueError):
+            wire_tool_result("get_operation", json.dumps(invalid), False)
+    schema = json.loads(wire_schema("get_operation", True))
+    assert schema["additionalProperties"] is False

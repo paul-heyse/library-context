@@ -28,7 +28,7 @@ The [foundation review](../../design_review/reviews/design_review_phase4-foundat
 is **Accept scoped**. The [P4B3-F01 corrective reinspection](../../design_review/reviews/design_review_phase4-symbolic-reinspection_2026-10-01.md)
 and [assembled Design/Target review](../../design_review/reviews/design_review_phase4-assembled_2026-10-01.md)
 are **Accept scoped**, 2026-10-01; Q0 passed within the recorded finite envelope.
-Phase 5 serving remains **Proposed / unavailable**. No live embedding, real-library upper-frontier
+Phase 5 current serving is **Implemented in the working tree / qualification pending**, 2026-10-02. No live embedding, real-library upper-frontier
 pilot, comparative product, hydration-cost or total-RSS measurement is claimed.
 
 **Current state.** PostgreSQL is the sole canonical relational store; DataFusion supplies in-process
@@ -36,8 +36,7 @@ compute. `lctx compile --through facts|normalized|analysis|catalog` is implement
 and never selects the generation. Upper-frontier runtime controls passed within the recorded scope, 2026-10-01. Catalog Flow
 is `NotRequested`; behavioral uncertainty remains explicit. `lctx-model` owns all semantic contracts;
 extraction/native flow have no `cpg-schema` dependency. Legacy Phase 4 engine retirement is complete within the exact mapped scope after independent
-replacement controls; Q0 passed within the recorded scope, 2026-10-01. Remaining `cpg-schema` wire/serving and dormant
-`cpg-core::bundle` sources are named Phase 5 inputs, not active P4 authorities.
+replacement controls; Q0 passed within the recorded scope, 2026-10-01. Phase 5 has retired `cpg-schema`, the dormant `cpg-core::bundle` and their obsolete serving/IPC consumers; current qualification is pending.
 
 **Execution owner.** The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
 owns layer sequencing, cross-phase finding disposition and deletion obligations. The Phase 4 plan
@@ -103,7 +102,7 @@ only native evidence, completed predecessors and their own finite proof occurren
   does not link the compute engine.
 - **`cpg-core`** orchestrates stages and runs DataFusion derivations and semantic validators.
 - **`lctx-analytics`** keeps pure native concept, ranking, neighbour and SCC kernels; model-owned contracts govern their inputs and results.
-- **`cpg-schema`** retains named Phase 5 wire/serving recovery contracts. It has no active fact, normalized or P4 semantic authority; reconstructed serving contracts must derive from `lctx-model`.
+- **Python** is a thin validated transport and numerical library adapter. `lctx-model::domain::serving` owns wire mappings, cursors and ranking; `native_requests` owns finite exact-input semantics. `lctx-postgres::generations` owns their generation-bound effects.
 
 **Phase 3 generation closure (Implemented / focused-Tested, 2026-09-30; automated gate passed; pilot measurements unqualified).** Facts contains L0; Normalized contains
 L0+L1 in one self-contained generation. A model-owned frontier descriptor declares relation
@@ -840,7 +839,8 @@ The same scoped operation is available over the private facts checkpoint before 
 **Integrity rules**
 - There is no second schema authority and no import pipeline.
 - A missing or corrupt required relation or artifact is a refusal, never an empty answer.
-- Explanations traverse the derivation index with bounded recursive queries.
+- Explanations follow model-declared canonical derivation sources with bounded node/edge/depth budgets.
+  Source receipts are verified; damaged browsing views cannot hide canonical proof premises.
 
 **Accepted target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
 and the [Phase 5 detailed plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
@@ -849,7 +849,8 @@ Semantic shapes remain generated views. A narrow disposable vector-only PostgreS
 accepted for the existing exact profile, derived through the canonical byte codec and explicitly
 prepared outside read-only startup; it is not a copied semantic serving schema. Its validation,
 atomic preparation and generation cleanup are required. No new semantic frontier or readiness
-registry is added. Broader Phase 5 serving integration is authorized / not_run.
+registry is added. These contracts are implemented in the current tree; Phase 5 composite
+qualification and operator activation remain pending.
 
 **Implemented foundations, 2026-10-02:** the
 [foundation enhancement scope](../../plans/semantic-model-foundation-enhancements_2026-10-01.md)
@@ -882,7 +883,7 @@ A layer is complete only when it contains no legacy code.
 
 **Clean reconstruction.** No adapters, legacy-ID side relations, compatibility flags or dual
 stores are retained. Phases 0–2 restore model/store/facts; phases 3–5 reconstruct normalized,
-analysis/catalog and serving layers in order. The Phase 4 driver passed its scoped cumulative publication controls, 2026-10-01; Phase 5 MCP remains unavailable. Availability is recorded per generation; missing capabilities never become empty
+analysis/catalog and serving layers in order. The Phase 4 driver passed its scoped cumulative publication controls, 2026-10-01; Phase 5 current MCP is implemented, with qualification pending. Availability is recorded per generation; missing capabilities never become empty
 answers. Independent semantic expectations and protected evidence survive implementation deletion.
 Deleting an engine does not retire its capability obligation; that needs a separate consumer decision.
 

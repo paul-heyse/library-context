@@ -185,7 +185,7 @@ impl Embedder for VllmEmbedder {
 
 /// Exact vendor-facing DTO schemas; input is a response received from the service.
 pub fn vendor_schema(name: &str) -> Option<serde_json::Value> {
-    use cpg_schema::wire::schema_for;
+    use lctx_model::domain::serving::schema_for;
     Some(match name {
         "EmbeddingsRequest" => schema_for::<EmbeddingsRequest<'static>>(true),
         "TokenizeRequest" => schema_for::<TokenizeRequest<'static>>(true),

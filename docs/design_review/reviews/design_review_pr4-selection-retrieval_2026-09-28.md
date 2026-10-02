@@ -40,7 +40,7 @@ serving and operator-cutover acceptance. The embedding waiver does not establish
 Canonical domain reconstruction is enforced by
 `crates/cpg-core/src/catalog.rs`, lines 1410–1443.
 Projected domain validation is owned by
-[`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs), lines 413–465.
+[`selection/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection/catalog.rs), lines 413–465.
 The latter consumes already published canonical assertions; it is not a second source analyzer.
 
 | Fact or derived result | Fidelity, identity and absence boundary | Consumer |
@@ -139,9 +139,9 @@ depend on the quantifier.
 **Correction inspected:**
 `crates/cpg-core/src/catalog_domains.rs`, lines 26–57, separately
 requires Exports and Signatures coverage for signature closure and derives public-exposure closure
-from its own domain. [`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs),
+from its own domain. [`selection/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection/catalog.rs),
 lines 230–239, emits declared type observations as separate claims.
-[`selection.rs`](../../../crates/cpg-schema/src/selection.rs), lines 37–80, classifies comparable
+[`selection.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection.rs), lines 37–80, classifies comparable
 context/basis claims before quantification, retains conflicts and requires nonvacuous closed support.
 
 **Closure evidence:** Pure controls cover incomplete domains, same-context disagreement,
@@ -161,9 +161,9 @@ claim the newly rebound public name as its configuration owner. A node-only rela
 also could not name a generated constructor parameter without a source formal node.
 
 **Correction inspected:**
-[`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs), lines 254–279,
+[`selection/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection/catalog.rs), lines 254–279,
 filters active declaration ownership and distinguishes reader nodes from formal/parameter targets.
-[`wire/requirements.rs`](../../../crates/cpg-schema/src/wire/requirements.rs), lines 44–49 and
+[`wire/requirements.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/wire/requirements.rs), lines 44–49 and
 175, supplies the tagged parameter endpoint and keeps ordinal in the field-link witness.
 
 **Closure evidence:** The active-class plus injected-shadowed-binding control,
@@ -184,7 +184,7 @@ unrelated release artifacts. Deployment and relationship predicates also require
 declared field, interpretation and support semantics, rather than a text-shaped approximation.
 
 **Correction inspected:**
-[`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs), lines 395–410,
+[`selection/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection/catalog.rs), lines 395–410,
 follows member associations through their exact span/scenario/deployment references. Core uses
 this shared function at `crates/cpg-core/src/catalog_domains.rs`,
 lines 8 and 53; projection validation checks the association at adapter lines 420 and 454.
@@ -210,12 +210,12 @@ causing final assembly failure. Counting contradictions after retaining only ran
 members erased the prepared selection's contradicted count.
 
 **Correction inspected:**
-[`lctx-postgres/src/selection.rs`](../../../crates/lctx-postgres/src/selection.rs), line 74,
+[`lctx-postgres/src/selection.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/selection.rs), line 74,
 uses the same mode/outcome admission for promotion. Lines 130–137 preserve the original
 contradicted count when assembling the ranked page.
 
 **Closure evidence:** Strict unresolved exact-symbol and contradicted-count controls
-in [`tests/serving/pr4.rs`](../../../crates/lctx-postgres/tests/serving/pr4.rs), lines 13–17 and
+in [`tests/serving/pr4.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/tests/serving/pr4.rs), lines 13–17 and
 88–92 at their initial definition, passed in [current real-PG continuation](../evidence/2026-09-28_pr4/raw/gate-continuation.log). Owner: native prepared
 selection/final assembly; ongoing disposition: forward-plan §6.2.
 
@@ -230,9 +230,9 @@ second interpretation of the catalog. Sorting alternative fields only by field i
 their rendering depend on input order.
 
 **Correction inspected:** One pure renderer now lives in
-[`retrieval/catalog.rs`](../../../crates/cpg-schema/src/retrieval/catalog.rs), lines 7–76. It sorts
+[`retrieval/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/retrieval/catalog.rs), lines 7–76. It sorts
 fields by the full `(field_id, source_fact_id)` key at line 19. Shared validation reconstructs and
-compares full expected units in [`retrieval.rs`](../../../crates/cpg-schema/src/retrieval.rs),
+compares full expected units in [`retrieval.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/retrieval.rs),
 lines 167–168, in addition to subject, fragment, vector and receipt closure. Core retains effectful
 load/prepare/save/restore responsibilities.
 
@@ -255,15 +255,15 @@ only as an operation identity. API/options units also had declaration-fact ancho
 expandable original anchor, so a winning unit could return rendered text without its source.
 
 **Correction inspected:**
-[`hydration.rs`](../../../crates/lctx-postgres/src/hydration.rs), lines 245–249, resolves the
-returned member identity. [`retrieval/catalog.rs`](../../../crates/cpg-schema/src/retrieval/catalog.rs),
+[`hydration.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/hydration.rs), lines 245–249, resolves the
+returned member identity. [`retrieval/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/retrieval/catalog.rs),
 lines 37 and 44, adds catalog original anchors; their expansion is implemented in
-[`evidence.rs`](../../../crates/lctx-postgres/src/evidence.rs), lines 418–457, using the pinned
+[`evidence.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/evidence.rs), lines 418–457, using the pinned
 generation and typed continuation.
 
 **Closure evidence:** Returned-member-to-record and winner-unit-to-original round trips, including
 API/options original continuation, passed in [current real-PG continuation](../evidence/2026-09-28_pr4/raw/gate-continuation.log) through the real serving
-control in [`tests/serving/pr4.rs`](../../../crates/lctx-postgres/tests/serving/pr4.rs). F13's later
+control in [`tests/serving/pr4.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/tests/serving/pr4.rs). F13's later
 header correction has its separate source/verification boundary.
 Owner: retrieval renderer and PostgreSQL hydration/evidence;
 ongoing disposition: forward-plan §6.2.
@@ -278,16 +278,16 @@ channel ranks. Such ranks could change the advertised family policy while produc
 self-consistent supplied final score.
 
 **Correction inspected:**
-[`lctx-postgres/src/selection.rs`](../../../crates/lctx-postgres/src/selection.rs), lines 107–117,
+[`lctx-postgres/src/selection.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/selection.rs), lines 107–117,
 reconstructs channel winners, compares rank/unit/fragment identities, then checks family fusion and
-order. [`cpg-schema/src/retrieval.rs`](../../../crates/cpg-schema/src/retrieval.rs), lines 73–92,
+order. [`cpg-schema/src/retrieval.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/retrieval.rs), lines 73–92,
 owns deterministic channel ranking, RRF60 within families and equal family-rank fusion; exact
 promotion is a primary sort key.
 
 **Focused receipts:** Python's independent family arithmetic and
 duplicate-before-BM25 controls **passed** among the seven tests in
 [current Python continuation](../evidence/2026-09-28_pr4/raw/gate-continuation.log), 2026-09-28. The actual PostgreSQL vector score/winner/rank oracle
-and malformed-rank controls in [`tests/serving/pr4.rs`](../../../crates/lctx-postgres/tests/serving/pr4.rs)
+and malformed-rank controls in [`tests/serving/pr4.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/tests/serving/pr4.rs)
 passed in [current real-PG continuation](../evidence/2026-09-28_pr4/raw/gate-continuation.log). Its earlier fixture lacked unit vectors; the corrected fixture
 uses synthetic vectors and does not qualify a live embedder. Owner: schema rank policy, native assembly and query;
 ongoing disposition: forward-plan §6.2.
@@ -302,9 +302,9 @@ membership, before applying the requested page. Aggregate body size could theref
 small valid page and duplicate readback work.
 
 **Correction inspected:**
-[`winner_membership.sql`](../../../crates/lctx-postgres/queries/winner_membership.sql) validates
+[`winner_membership.sql`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/queries/winner_membership.sql) validates
 generation/member/family/unit/fragment tuples without bodies. Native assembly calls it at
-[`selection.rs`](../../../crates/lctx-postgres/src/selection.rs), lines 120–128. Original expansion
+[`selection.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/selection.rs), lines 120–128. Original expansion
 retains its separate bounded owner.
 
 **Closure evidence:** Inspection of the tuple query establishes that winner validation reads no
@@ -322,14 +322,14 @@ preparation under the Python interpreter lock. Repeated unindexed catalog scans 
 budget checks could consume substantial work before refusal.
 
 **Correction inspected:**
-[`serving.rs`](../../../crates/lctx-postgres/src/serving.rs), lines 284–288, owns two-slot CPU
+[`serving.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/serving.rs), lines 284–288, owns two-slot CPU
 admission retained until the blocking job ends. Preparation/final assembly use that owner at
-[`selection.rs`](../../../crates/lctx-postgres/src/selection.rs), lines 71–73, 105 and 130.
+[`selection.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/selection.rs), lines 71–73, 105 and 130.
 [`lctx_storage/src/lib.rs`](../../../python/lctx_storage/src/lib.rs), lines 381–398, detaches
 prepared scope/page work and admits ranked parsing. The schema catalog adapter constructs indexes,
 preflights input size and charges indexed visits before evaluation at
-[`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs), lines 67–159.
-Fusion groups witnesses by member at [`retrieval.rs`](../../../crates/cpg-schema/src/retrieval.rs),
+[`selection/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection/catalog.rs), lines 67–159.
+Fusion groups witnesses by member at [`retrieval.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/retrieval.rs),
 lines 83–92.
 
 **Closure evidence:** The oversized input control passed in the current code-gate account (§10). Actual PG CPU cancellation,
@@ -351,7 +351,7 @@ receipt/snapshot equality until later verify/import, allowing it to return an in
 **Correction inspected:** [`retrieval.rs`](../../../crates/cpg-core/src/retrieval.rs), lines
 98–136, keys the leaf by a hash of the complete file-digest receipt and atomically selects CURRENT
 only after all files are written. Restore verifies that selected receipt, file hashes and schemas.
-[`bundle.rs`](../../../crates/cpg-core/src/bundle.rs), line 986, binds the receipt snapshot;
+[`bundle.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-core/src/bundle.rs), line 986, binds the receipt snapshot;
 `bundle_with_embedding`, lines 1103–1108, validates/builds the generation before save/selection.
 The correction preserves immutable artifacts and the current-only runtime policy without a new
 general rebuild framework.
@@ -374,10 +374,10 @@ compared as a mismatch and could yield Contradicted over a complete signature. T
 slots and relationship member/evidence/declaration operands also lacked membership admission.
 Nominal syntax alone did not establish the precondition assumed by their comparisons.
 
-**Correction inspected:** [`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs),
+**Correction inspected:** [`selection/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection/catalog.rs),
 lines 123 and 144–162, performs one operand-admission pass before member classification. It checks
 term IDs, declared node inputs, member/evidence identity and exact `(signature, ordinal)` parameter
-slots. [`Requirement::dependencies`](../../../crates/cpg-schema/src/wire/requirements.rs) now
+slots. [`Requirement::dependencies`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/wire/requirements.rs) now
 includes the typed parameter and evidence relations needed by those checks. Pure and PG callers
 therefore share the same admission meaning.
 
@@ -395,7 +395,7 @@ compared against stored `function` and ordinary `InvocationForm::Method` fell ba
 category when there was no decorator surface. An ordinary class method could therefore fail both
 accepted predicates.
 
-**Correction inspected:** [`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs),
+**Correction inspected:** [`selection/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection/catalog.rs),
 lines 164–169 and 226–235, derives the public category from canonical class ownership and active
 property surfaces and uses it for undecorated invocation fallback. The catalog's source
 declaration category is preserved. This is a single predicate-owner correction, not a second
@@ -414,9 +414,9 @@ controls passed in the current code-gate account (§10). Owner: schema catalog a
 have a header larger than every response budget, making all requests refuse even when the next
 content fragment was small.
 
-**Correction inspected:** [`RetrievalUnitHeader`](../../../crates/cpg-schema/src/wire/evidence.rs)
+**Correction inspected:** [`RetrievalUnitHeader`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/wire/evidence.rs)
 now bounds title to 500 Unicode scalars and displayed subjects/anchors to 16 each, with explicit
-`metadata_omitted`. [`get_retrieval_unit`](../../../crates/lctx-postgres/src/evidence.rs), lines
+`metadata_omitted`. [`get_retrieval_unit`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/evidence.rs), lines
 429–455, uses that display header while walking the complete unit's anchors and original-content
 cursors. Metadata omission does not truncate source bytes or replace the winning original.
 
@@ -442,7 +442,7 @@ domain requirement couple an empty request to the largest unrelated evidence fam
 64 MiB budget would preserve that coupling.
 
 **Correction inspected — Implemented:** the distinct `DomainInput` in
-[`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs), lines 42–69,
+[`selection/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection/catalog.rs), lines 42–69,
 represents a request projection of an already validated canonical row. Its original `domain_id`
 remains the full canonical domain's witness reference. Narrowed JSON is not represented as a
 `CatalogSelectionDomainsRow` and is not checked against that full record's hash. Canonical
@@ -450,7 +450,7 @@ conversion/publication both use `canonical_domain` to validate the full digest, 
 inventory and context ownership. One `PreparedCatalog` and one classifier consume canonical
 conversions and projected inputs; no second semantic evaluator was introduced.
 
-[`selection_domains.sql`](../../../crates/lctx-postgres/queries/selection_domains.sql) projects
+[`selection_domains.sql`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/queries/selection_domains.sql) projects
 module, class owner, release metadata and only declared input-domain kinds before transferring and
 parsing their JSON. It retains complete selected JSON domain records, including completeness flags
 and original evidence, and preserves their ordinal ordering. PostgreSQL preparation streams with
@@ -459,7 +459,7 @@ own projected domain record. `PreparedCatalog::new` validates projected context 
 closure; `classify` refuses missing requested domains before iterating candidates. An omitted
 unrequested domain means **not loaded**, not empty, incomplete or absent in the canonical corpus.
 
-[`Requirement::input_domain`](../../../crates/cpg-schema/src/wire/requirements.rs), lines 353–363,
+[`Requirement::input_domain`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/wire/requirements.rs), lines 353–363,
 owns the finite input dependency separately from the result domain. `FacetMembership` and
 `DeploymentDeclaration` with `Launch` or `Configuration` return before consulting a `ScopedDomain`
 and therefore require no canonical domain contexts. Both preparation and classifier admission use
@@ -481,7 +481,7 @@ was identified in that reduced dependency set. The relation projection shares th
 declaration used by production hydration and the focused equivalence control.
 
 The remaining generic hydration ledger also accumulated JSON-map/column overhead across relations
-after selection had consumed those maps into typed rows. [`selection::typed` and `charge_input`](../../../crates/lctx-postgres/src/selection.rs),
+after selection had consumed those maps into typed rows. [`selection::typed` and `charge_input`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/selection.rs),
 lines 160–199, now distinguish those lifetimes: each relation retains the existing transient
 hydration bound, while all retained typed inputs share a 64 MiB estimate charged before each typed
 record is accumulated. The estimate is three times encoded bytes plus the fixed typed-row size and

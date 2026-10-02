@@ -132,17 +132,17 @@ alone owns current status. `AP/Fxx` identifies this review; R01–R08 remain ext
 Source owners:
 attempt (`f6562d3^:crates/cpg-core/src/attempt.rs`, recover through Git),
 [generation](../../../python/lctx_mcp/src/lctx_mcp/generation.py),
-[projection](../../../crates/cpg-schema/src/serving_projection.rs),
-[hydration](../../../crates/lctx-postgres/src/hydration.rs),
+[projection](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/serving_projection.rs),
+[hydration](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/hydration.rs),
 synthesis (`crates/cpg-core/src/synth.rs`),
 flow admission (`crates/cpg-core/src/flow_model.rs`),
 types (`9efce30:crates/cpg-extract/src/types.rs`, recover through Git),
 usage (`crates/cpg-core/src/usage.rs`),
-[evidence closure](../../../crates/cpg-schema/src/bundle.rs),
+[evidence closure](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/bundle.rs),
 [acquisition](../../../crates/cpg-extract/src/library.rs),
-[repository](../../../crates/lctx-postgres/src/repository.rs),
+[repository](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/repository.rs),
 behavior (`crates/cpg-core/src/behavior.rs`),
-[ranking](../../../crates/lctx-postgres/src/retrieval.rs).
+[ranking](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/retrieval.rs).
 
 **Applicability:** FP-01–FP-06 are satisfied by the proposed ownership/contract/composition routes;
 the baseline violations above prevent claiming that property of the present product. Applicable

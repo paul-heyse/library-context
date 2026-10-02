@@ -10,8 +10,7 @@ name = "_storage"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cpg-schema = { path = "../../crates/cpg-schema" }
-serde.workspace = true
+lctx-model = { path = "../../crates/lctx-model" }
 lctx-postgres = { path = "../../crates/lctx-postgres" }
 pyo3.workspace = true
 pyo3-async-runtimes.workspace = true

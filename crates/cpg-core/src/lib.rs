@@ -46,8 +46,6 @@ pub enum CoreError {
     Embed(String),
     #[error("embedding service: {0}")]
     EmbeddingService(String),
-    #[error("bundle: {0}")]
-    Bundle(String),
 }
 
 

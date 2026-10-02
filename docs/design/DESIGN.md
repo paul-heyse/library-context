@@ -269,14 +269,14 @@ constraints and indexes. No independent row DSL or schema inventory supplies sem
   are never renumbered or reordered.
 - **Pure contract ownership:** effectful loading, SQLx codecs, COPY and transport stay outside
   domain policy. Handwritten computations/validators express behavior against the same types.
-- **Accepted Phase 5 target, unavailable:** wire DTOs and serving views derive from declarations
+- **Implemented in the Phase 5 working tree; qualification pending, 2026-10-02:** wire DTOs and serving views derive from declarations
   or explicit mappings; Rust owns request classification and contextual validation. Schemars
   derives wire schemas, with independent offline conformance tests. Schema validity does not
   establish evidence closure. [§14.7/§14.11](sections/api-and-evidence-product.md#section-14-7)
   own the retained query/library contract.
 
-Retained `cpg-schema` wire controls are Phase 5 reconstruction inputs; they have no active fact,
-normalized or Phase 4 semantic authority.
+Phase 5 has retired the `cpg-schema` wire owner and re-homed independent controls under
+`lctx-model` and the real canonical-generation serving fixtures. No compatibility reader remains.
 
 > Decision: ADR-0085, ADR-0086, ADR-0073
 
@@ -495,9 +495,10 @@ templates and extractive selection; the generative-model trigger remains **Propo
 **Implemented / Tested for facts and normalized storage; Phase 4 qualification in progress,
 2026-10-01.** PostgreSQL is the single canonical relational store. Typed declarations generate
 generation tables and validation; immutable vocabulary prefixes and completed receipts bound reads.
-There is no Delta store, bundle import or canonical serving copy. Arrow IPC is a derived cache form.
+There is no Delta store, bundle import or canonical serving copy. Numerical caches are disposable
+physical derivatives of canonical exact vector values.
 
-**Accepted Phase 5 target, unavailable:** serving reads the same pinned canonical generation through
+**Implemented in the Phase 5 working tree; qualification pending, 2026-10-02:** serving reads the same pinned canonical generation through
 generated views, grants and indexes ([§15.12](sections/semantic-model.md#section-15-12)). Missing or
 corrupt required relations refuse admission; derived caches cannot replace semantic authority.
 
@@ -507,18 +508,18 @@ corrupt required relations refuse admission; derived caches cannot replace seman
 
 ### §B13 FastMCP pins one immutable generation; Rust owns PostgreSQL effects
 
-**Accepted Phase 5 target; unavailable after cutover, 2026-10-01.** The pinned generation is the
+**Implemented in the Phase 5 working tree; qualification pending, 2026-10-02.** The pinned generation is the
 canonical PostgreSQL generation. Wire DTOs derive from declarations; Rust validates requests,
 evaluates bounded semantic queries and hydrates complete evidence. Python is the thin validated
 FastMCP adapter and repeats no selection, condition, verdict or discharge policy.
 
-The retained `cpg-schema` wire contracts, native/Python executor and adapter controls, dormant
-`cpg-core::bundle` controls and PostgreSQL service lifetimes are named Phase 5 reconstruction inputs.
-They do not expose an active post-cutover serving route. Row, node, pair-work, depth and response
+The old schema, bundle and native IPC authorities are retired. Current model contracts and real
+store/native/MCP controls retain their independent expectations. Activation follows the
+[Phase 5 qualification](../plans/semantic-model-phase5-detailed-plan_2026-10-01.md). Row, node, pair-work, depth and response
 budgets retain explicit refusal/truncation semantics. [§11.3](sections/synthesis-and-serving.md#section-11-3)
 and [§14.9](sections/api-and-evidence-product.md#section-14-9) own that serving boundary.
 
-> Decision: ADR-0078, ADR-0025, ADR-0073, ADR-0086
+> Decision: ADR-0114, ADR-0078, ADR-0025, ADR-0073, ADR-0086
 
 <a id="section-b14"></a>
 

@@ -1,6 +1,7 @@
 //! The service baseline and the verified service owner against a disposable real PostgreSQL 18
 //! (cutover plan P1.5, T11/T12). Each control states its answer before running it.
-use cpg_schema::id::{Digest, Id};
+use lctx_model::domain::ContentHash;
+use lctx_postgres::operations::AttemptId;
 use lctx_model::domain::{
     ContentHash,
     embedding::{Spec, value::encode_vector},
@@ -287,15 +288,15 @@ async fn attempts_events_runs_mark_interrupted() {
         .await
         .unwrap();
     let app = s.config.connect_application().await.unwrap();
-    let (first, second) = (Id([1; 16]), Id([2; 16]));
-    app.start_attempt(first, Digest([7; 32]), "fastmcp", "build/store")
+    let (first, second) = (AttemptId::from_bytes([1; 16]), AttemptId::from_bytes([2; 16]));
+    app.start_attempt(first, ContentHash([7; 32]), "fastmcp", "build/store")
         .await
         .unwrap();
-    app.start_attempt(first, Digest([7; 32]), "fastmcp", "build/store")
+    app.start_attempt(first, ContentHash([7; 32]), "fastmcp", "build/store")
         .await
         .unwrap();
     assert!(matches!(
-        app.start_attempt(first, Digest([7; 32]), "other", "build/store")
+        app.start_attempt(first, ContentHash([7; 32]), "other", "build/store")
             .await,
         Err(Error::Integrity(_))
     ));
@@ -357,7 +358,7 @@ async fn attempts_events_runs_mark_interrupted() {
         ]
     );
     // Twin: a published attempt reports published, and an attempt without events is not invented.
-    app.start_attempt(second, Digest([7; 32]), "fastmcp", "build/store")
+    app.start_attempt(second, ContentHash([7; 32]), "fastmcp", "build/store")
         .await
         .unwrap();
     app.event(second, "publish", "published", "").await.unwrap();
@@ -365,10 +366,10 @@ async fn attempts_events_runs_mark_interrupted() {
         app.runs(Some(second), 10, 0).await.unwrap()[0].outcome,
         "published"
     );
-    assert!(app.runs(Some(Id([3; 16])), 10, 0).await.unwrap().is_empty());
+    assert!(app.runs(Some(AttemptId::from_bytes([3; 16])), 10, 0).await.unwrap().is_empty());
     assert!(
         matches!(
-            app.event(Id([3; 16]), "started", "started", "").await,
+            app.event(AttemptId::from_bytes([3; 16]), "started", "started", "").await,
             Err(Error::Database { .. })
         ),
         "an event needs its attempt"

@@ -33,4 +33,5 @@ unqualified form of this convention; it applies as written from Stage 3 on.
 packet renders for a question: callees an agent would follow, and semantic queries. Requests
 are never targets and are never scored; they carry no `claim` or `polarity`, and they cannot
 alter a question, item or exit rule. The file is append-only in the same way as the question
-set. `scripts/structured_eval.py --requests` renders them under each question.
+set. A current-model packet runner is activated with the retained evaluation scope; the obsolete
+bundle-based runner was retired during the semantic model cutover.
