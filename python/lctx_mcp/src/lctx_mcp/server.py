@@ -1,4 +1,5 @@
 """FastMCP transport over the Rust generation service and closed tool inventory."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -20,7 +21,14 @@ INSTRUCTIONS = (
 )
 
 
-def build_server(config: Path, embedder: Embedder | None = None, *, generation: str | None = None, vectors: bool = False, library: str | None = None) -> FastMCP:
+def build_server(
+    config: Path,
+    embedder: Embedder | None = None,
+    *,
+    generation: str | None = None,
+    vectors: bool = False,
+    library: str | None = None,
+) -> FastMCP:
     @asynccontextmanager
     async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         served = await open_generation(config, embedder, generation=generation, vectors=vectors)
@@ -32,6 +40,12 @@ def build_server(config: Path, embedder: Embedder | None = None, *, generation: 
     instructions = INSTRUCTIONS
     if library is not None:
         instructions += f" The operator's default library is {library!r}."
-    server = FastMCP("library-context", instructions=instructions, lifespan=lifespan, mask_error_details=True, dereference_schemas=False)
+    server = FastMCP(
+        "library-context",
+        instructions=instructions,
+        lifespan=lifespan,
+        mask_error_details=True,
+        dereference_schemas=False,
+    )
     register(server)
     return server

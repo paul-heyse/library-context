@@ -1,4 +1,5 @@
 """Current Rust decoder and actual FastMCP schema listing; no stored fixture required."""
+
 import json
 from typing import Any
 
@@ -38,13 +39,28 @@ def test_closed_nested_requests_keep_nominal_ids_and_refuse_coercion():
 
 
 def test_exact_scalars_use_current_transient_input_owner():
-    request: dict[str, Any] = {"member": [1] * 16, "analysis": [2] * 16,
-        "inputs": [{"formal": [3] * 16, "value": {"kind": "integer", "decimal": "10000000000000000000000000000000000000000"}}],
-        "assumptions": {"builtin_namespace": "unknown"}}
+    request: dict[str, Any] = {
+        "member": [1] * 16,
+        "analysis": [2] * 16,
+        "inputs": [
+            {
+                "formal": [3] * 16,
+                "value": {
+                    "kind": "integer",
+                    "decimal": "10000000000000000000000000000000000000000",
+                },
+            }
+        ],
+        "assumptions": {"builtin_namespace": "unknown"},
+    }
     decoded = json.loads(wire_decode("inspect_value_paths", json.dumps(request)))
     assert decoded["inputs"] == request["inputs"]
-    for value in [{"kind": "bool", "value": 1}, {"kind": "integer", "decimal": "+1"},
-                  {"kind": "none", "value": None}, {"kind": "invented"}]:
+    for value in [
+        {"kind": "bool", "value": 1},
+        {"kind": "integer", "decimal": "+1"},
+        {"kind": "none", "value": None},
+        {"kind": "invented"},
+    ]:
         request["inputs"][0]["value"] = value
         with pytest.raises(ValueError):
             wire_decode("inspect_value_paths", json.dumps(request))
@@ -72,19 +88,28 @@ async def test_real_mcp_listing_preserves_the_sole_native_inventory():
             assert tool.input_schema["additionalProperties"] is False
         assert await client.list_resources() == []
         templates = await client.list_resource_templates()
-        assert [{"uri_template": t.uri_template, "name": t.name, "mime_type": t.mime_type} for t in templates] == json.loads(wire_resources())
+        assert [
+            {"uri_template": t.uri_template, "name": t.name, "mime_type": t.mime_type}
+            for t in templates
+        ] == json.loads(wire_resources())
 
 
 def test_current_response_wraps_complete_dto_and_actual_generation_key():
     response = {"generation": [5] * 16, "operation": {"resolution": "ambiguous", "candidates": []}}
-    protocol = CallToolResult.model_validate_json(wire_tool_result("get_operation", json.dumps(response), False))
+    protocol = CallToolResult.model_validate_json(
+        wire_tool_result("get_operation", json.dumps(response), False)
+    )
     assert protocol.structured_content == response
     assert protocol.is_error is False
     assert len(protocol.content) == 1
     assert isinstance(protocol.content[0], TextContent)
     assert protocol.content[0].text == "get_operation: generation-bound result"
-    for invalid in [{**response, "generation": [5] * 32}, {**response, "generation": "05" * 16},
-                    {**response, "legacy_snapshot": "05" * 16}, {"generation": [5] * 16}]:
+    for invalid in [
+        {**response, "generation": [5] * 32},
+        {**response, "generation": "05" * 16},
+        {**response, "legacy_snapshot": "05" * 16},
+        {"generation": [5] * 16},
+    ]:
         with pytest.raises(ValueError):
             wire_tool_result("get_operation", json.dumps(invalid), False)
     schema = json.loads(wire_schema("get_operation", True))

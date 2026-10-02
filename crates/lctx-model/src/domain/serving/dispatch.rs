@@ -1,9 +1,9 @@
 //! One finite route inventory supplies Rust decoding, schemas and Python registration.
+use super::identity::{RequestIdentity, WireIdentity};
 use super::*;
-use super::identity::{RequestIdentity,WireIdentity};
-use crate::domain::{KeySink,selection};
+use crate::domain::{KeySink, selection};
 use schemars::JsonSchema;
-use serde::{Deserialize,Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:ident),*$(,)?)=>{
     #[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
@@ -76,8 +76,16 @@ macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:i
 };}
 struct CountBytes(usize);
 impl std::io::Write for CountBytes {
-    fn write(&mut self,bytes:&[u8])->std::io::Result<usize>{self.0=self.0.checked_add(bytes.len()).ok_or_else(||std::io::Error::other("response byte count overflow"))?;Ok(bytes.len())}
-    fn flush(&mut self)->std::io::Result<()>{Ok(())}
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 = self
+            .0
+            .checked_add(bytes.len())
+            .ok_or_else(|| std::io::Error::other("response byte count overflow"))?;
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 routes! {
     SearchOperations:"search_operations"=>SearchOperationsRequest,SearchOperationsResponse,
@@ -91,82 +99,180 @@ routes! {
     GetCapability:"get_capability"=>GetCapabilityRequest,GetCapabilityResponse,
     InspectValuePaths:"inspect_value_paths"=>InspectValuePathsRequest,InspectValuePathsResponse,
 }
-pub fn schema_for<T:JsonSchema>(output:bool)->Value {
-    let settings=schemars::generate::SchemaSettings::draft2020_12();
-    let settings=if output{settings.for_serialize()}else{settings.for_deserialize()};
-    serde_json::to_value(settings.into_generator().into_root_schema_for::<T>()).expect("schema JSON")
+pub fn schema_for<T: JsonSchema>(output: bool) -> Value {
+    let settings = schemars::generate::SchemaSettings::draft2020_12();
+    let settings = if output {
+        settings.for_serialize()
+    } else {
+        settings.for_deserialize()
+    };
+    serde_json::to_value(settings.into_generator().into_root_schema_for::<T>())
+        .expect("schema JSON")
 }
 /// The complete structured result is accompanied by concise discovery text, never copied into it.
-pub fn tool_result(name:&str,raw:&str,expanded:bool)->Result<String,WireError>{
-    let limits=ResourceLimits::default();
-    let response=decode_response(name,raw,expanded,&limits)?;
-    let structured:Value=serde_json::from_str(&response.to_json()?)?;
-    let envelope=serde_json::json!({"content":[{"type":"text","text":format!("{}: generation-bound result",response.tool().name())}],"structuredContent":structured,"isError":false});
-    let encoded=serde_json::to_string(&envelope)?;
-    admit_envelope(&encoded,expanded)?;
+pub fn tool_result(name: &str, raw: &str, expanded: bool) -> Result<String, WireError> {
+    let limits = ResourceLimits::default();
+    let response = decode_response(name, raw, expanded, &limits)?;
+    let structured: Value = serde_json::from_str(&response.to_json()?)?;
+    let envelope = serde_json::json!({"content":[{"type":"text","text":format!("{}: generation-bound result",response.tool().name())}],"structuredContent":structured,"isError":false});
+    let encoded = serde_json::to_string(&envelope)?;
+    admit_envelope(&encoded, expanded)?;
     Ok(encoded)
 }
 /// Apply the byte contract to the transport's actual serialized envelope, including text,
 /// structured data and protocol metadata. Admission precedes any JSON allocation.
-pub fn admit_envelope(encoded:&str,expanded:bool)->Result<(),WireError>{
-    if encoded.len() as u64>ResourceLimits::default().response_bytes(expanded){return Err(WireError::ResourceRefused("final MCP envelope bytes".into()));}
-    serde_json::from_str::<Value>(encoded)?;Ok(())
+pub fn admit_envelope(encoded: &str, expanded: bool) -> Result<(), WireError> {
+    if encoded.len() as u64 > ResourceLimits::default().response_bytes(expanded) {
+        return Err(WireError::ResourceRefused(
+            "final MCP envelope bytes".into(),
+        ));
+    }
+    serde_json::from_str::<Value>(encoded)?;
+    Ok(())
 }
-#[derive(Debug,Clone,Serialize)]
-pub struct ToolDeclaration {pub name:&'static str,pub request_schema:Value,pub response_schema:Value,pub read_only:bool,pub idempotent:bool}
-pub fn tools()->Vec<ToolDeclaration>{Tool::ALL.into_iter().map(|tool|ToolDeclaration{name:tool.name(),request_schema:tool.request_schema(),response_schema:tool.response_schema(),read_only:true,idempotent:true}).collect()}
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolDeclaration {
+    pub name: &'static str,
+    pub request_schema: Value,
+    pub response_schema: Value,
+    pub read_only: bool,
+    pub idempotent: bool,
+}
+pub fn tools() -> Vec<ToolDeclaration> {
+    Tool::ALL
+        .into_iter()
+        .map(|tool| ToolDeclaration {
+            name: tool.name(),
+            request_schema: tool.request_schema(),
+            response_schema: tool.response_schema(),
+            read_only: true,
+            idempotent: true,
+        })
+        .collect()
+}
 /// The authored capability body uses the same admitted closure as `get_capability`.
-pub const CAPABILITY_RESOURCE_TEMPLATE:&str="lctx://capability/{capability}";
-#[derive(Debug,Clone,Serialize)]
-pub struct ResourceDeclaration {pub uri_template:&'static str,pub name:&'static str,pub mime_type:&'static str}
-pub fn resources()->Vec<ResourceDeclaration>{vec![ResourceDeclaration{uri_template:CAPABILITY_RESOURCE_TEMPLATE,name:"capability",mime_type:"text/markdown"}]}
-pub fn wire_identity()->WireIdentity {
-    let mut sink=KeySink::new("serving-wire/v1");
-    for tool in Tool::ALL {sink.part(b"tool",tool.name().as_bytes());
-        sink.part(b"decode-schema",&serde_json::to_vec(&tool.request_schema()).expect("schema bytes"));
-        sink.part(b"encode-schema",&serde_json::to_vec(&tool.response_schema()).expect("schema bytes"));}
-    sink.part(b"resource-presentation",b"canonical-authored-body/attributed-assertion-evidence/v2");
-    sink.part(b"resource-inventory",&serde_json::to_vec(&resources()).expect("resource bytes"));
+pub const CAPABILITY_RESOURCE_TEMPLATE: &str = "lctx://capability/{capability}";
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceDeclaration {
+    pub uri_template: &'static str,
+    pub name: &'static str,
+    pub mime_type: &'static str,
+}
+pub fn resources() -> Vec<ResourceDeclaration> {
+    vec![ResourceDeclaration {
+        uri_template: CAPABILITY_RESOURCE_TEMPLATE,
+        name: "capability",
+        mime_type: "text/markdown",
+    }]
+}
+pub fn wire_identity() -> WireIdentity {
+    let mut sink = KeySink::new("serving-wire/v1");
+    for tool in Tool::ALL {
+        sink.part(b"tool", tool.name().as_bytes());
+        sink.part(
+            b"decode-schema",
+            &serde_json::to_vec(&tool.request_schema()).expect("schema bytes"),
+        );
+        sink.part(
+            b"encode-schema",
+            &serde_json::to_vec(&tool.response_schema()).expect("schema bytes"),
+        );
+    }
+    sink.part(
+        b"resource-presentation",
+        b"canonical-authored-body/attributed-assertion-evidence/v2",
+    );
+    sink.part(
+        b"resource-inventory",
+        &serde_json::to_vec(&resources()).expect("resource bytes"),
+    );
     WireIdentity(sink.finish())
 }
 /// Native canonical selection enums intentionally have existing Serde encodings. This boundary
 /// additionally refuses unknown nested object fields that their recovery codecs would ignore.
-fn check_closed(input:&Value,decoded:&Value)->Result<(),WireError>{
-    match (input,decoded) {
-        (Value::Object(input),Value::Object(decoded))=>for (key,value) in input {
-            let expected=decoded.get(key).ok_or_else(||WireError::Invalid(format!("unknown field {key}")))?;
-            check_closed(value,expected)?;
-        },
-        (Value::Array(input),Value::Array(decoded))=>{for (a,b) in input.iter().zip(decoded){check_closed(a,b)?;}},_=>{}
-    } Ok(())
-}
-fn validate_selection(selection:&selection::Selection,limits:&ResourceLimits)->Result<(),WireError>{
-    if selection.requirements.len()>limits.maximum_requirements as usize{return Err(WireError::ResourceRefused("requirements".into()));}
-    for requirement in &selection.requirements{requirement.predicate.validate().map_err(|e|WireError::Invalid(e.to_string()))?;}
+fn check_closed(input: &Value, decoded: &Value) -> Result<(), WireError> {
+    match (input, decoded) {
+        (Value::Object(input), Value::Object(decoded)) => {
+            for (key, value) in input {
+                let expected = decoded
+                    .get(key)
+                    .ok_or_else(|| WireError::Invalid(format!("unknown field {key}")))?;
+                check_closed(value, expected)?;
+            }
+        }
+        (Value::Array(input), Value::Array(decoded)) => {
+            for (a, b) in input.iter().zip(decoded) {
+                check_closed(a, b)?;
+            }
+        }
+        _ => {}
+    }
     Ok(())
 }
-fn validate_selector(selector:&OperationSelector)->Result<(),WireError>{
-    if let OperationSelector::PublicPath{path}=selector
-        && (path.is_empty() || path.len()>128){return Err(WireError::Invalid("public path extent".into()));}
+fn validate_selection(
+    selection: &selection::Selection,
+    limits: &ResourceLimits,
+) -> Result<(), WireError> {
+    if selection.requirements.len() > limits.maximum_requirements as usize {
+        return Err(WireError::ResourceRefused("requirements".into()));
+    }
+    for requirement in &selection.requirements {
+        requirement
+            .predicate
+            .validate()
+            .map_err(|e| WireError::Invalid(e.to_string()))?;
+    }
     Ok(())
 }
-fn validate_request(request:&Request,limits:&ResourceLimits)->Result<(),WireError>{
-    if request.page().size==0 || request.page().size>limits.maximum_page_rows{return Err(WireError::ResourceRefused("page rows".into()));}
+fn validate_selector(selector: &OperationSelector) -> Result<(), WireError> {
+    if let OperationSelector::PublicPath { path } = selector
+        && (path.is_empty() || path.len() > 128)
+    {
+        return Err(WireError::Invalid("public path extent".into()));
+    }
+    Ok(())
+}
+fn validate_request(request: &Request, limits: &ResourceLimits) -> Result<(), WireError> {
+    if request.page().size == 0 || request.page().size > limits.maximum_page_rows {
+        return Err(WireError::ResourceRefused("page rows".into()));
+    }
     match request {
-        Request::SearchOperations(r)=>validate_selection(&r.selection.0,limits)?,
-        Request::FindOperations(r)=>validate_selection(&r.selection.0,limits)?,
-        Request::BrowseLibrary(r)=>validate_selection(&r.selection.0,limits)?,
-        Request::CompareOperations(r)=>{
-            if r.operations.is_empty() || r.operations.len()>limits.maximum_comparison_candidates as usize{return Err(WireError::ResourceRefused("comparison candidates".into()));}
-            validate_selection(&r.selection.0,limits)?;for operation in &r.operations{validate_selector(operation)?;}
-        },
-        Request::GetOperation(r)=>{validate_selector(&r.operation)?;if r.sections.len()>6{return Err(WireError::Invalid("operation sections".into()));}},
-        Request::InspectValuePaths(r)=>{
-            if r.inputs.len()>limits.maximum_requirements as usize{return Err(WireError::ResourceRefused("exact input bindings".into()));}
-            let mut formals=std::collections::BTreeSet::new();
-            for input in &r.inputs{input.value.validate().map_err(|e|WireError::Invalid(e.to_string()))?;
-                if !formals.insert(input.formal){return Err(WireError::Invalid("duplicate exact input formal".into()));}}
-        },_=>{}
+        Request::SearchOperations(r) => validate_selection(&r.selection.0, limits)?,
+        Request::FindOperations(r) => validate_selection(&r.selection.0, limits)?,
+        Request::BrowseLibrary(r) => validate_selection(&r.selection.0, limits)?,
+        Request::CompareOperations(r) => {
+            if r.operations.is_empty()
+                || r.operations.len() > limits.maximum_comparison_candidates as usize
+            {
+                return Err(WireError::ResourceRefused("comparison candidates".into()));
+            }
+            validate_selection(&r.selection.0, limits)?;
+            for operation in &r.operations {
+                validate_selector(operation)?;
+            }
+        }
+        Request::GetOperation(r) => {
+            validate_selector(&r.operation)?;
+            if r.sections.len() > 6 {
+                return Err(WireError::Invalid("operation sections".into()));
+            }
+        }
+        Request::InspectValuePaths(r) => {
+            if r.inputs.len() > limits.maximum_requirements as usize {
+                return Err(WireError::ResourceRefused("exact input bindings".into()));
+            }
+            let mut formals = std::collections::BTreeSet::new();
+            for input in &r.inputs {
+                input
+                    .value
+                    .validate()
+                    .map_err(|e| WireError::Invalid(e.to_string()))?;
+                if !formals.insert(input.formal) {
+                    return Err(WireError::Invalid("duplicate exact input formal".into()));
+                }
+            }
+        }
+        _ => {}
     }
     Ok(())
 }

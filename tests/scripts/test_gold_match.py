@@ -73,5 +73,3 @@ def test_an_unmapped_span_is_a_miss_in_the_denominator(tmp_path: Path) -> None:
     ]
     recalled, touched, unmapped = span_recall(gold, {"a.py": [(0, 3)]}, tmp_path, {"f"})
     assert recalled == [1, 2] and touched == [1, 2] and unmapped == 1
-
-

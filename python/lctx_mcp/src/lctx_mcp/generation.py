@@ -1,4 +1,5 @@
 """Lifespan state for the Rust generation service and numerical callback."""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +24,9 @@ class Generation:
     numerical: NumericalScorer
     embedder: Embedder | None
 
-    async def query_vector(self, grant: RequestGrant, query: str | None) -> tuple[list[float] | None, str | None]:
+    async def query_vector(
+        self, grant: RequestGrant, query: str | None
+    ) -> tuple[list[float] | None, str | None]:
         if query is None:
             return None, None
         raw_spec = await self.service.embedding_spec(grant)
@@ -37,12 +40,14 @@ class Generation:
         try:
             async with asyncio.timeout(grant.remaining_seconds()):
                 vectors = await self.embedder.embed([actual.query_text(query)])
-        except (EmbedderError, TimeoutError):
+        except EmbedderError, TimeoutError:
             return None, "query_embedding_unavailable"
         return vectors[0].tolist(), None
 
 
-async def open_generation(config: Path, embedder: Embedder | None, *, generation: str | None = None, vectors: bool = False) -> Generation:
+async def open_generation(
+    config: Path, embedder: Embedder | None, *, generation: str | None = None, vectors: bool = False
+) -> Generation:
     from lctx_storage import open_service
 
     service = await open_service(str(config), generation=generation, vectors=vectors)

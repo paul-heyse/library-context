@@ -8,14 +8,14 @@ fn nested_reservations_share_process_capacity_and_refusals_preserve_charges() {
     assert!(preparation.reserve("prepared", 11).is_err());
     let result = request.reserve("request", 20).unwrap();
     assert!(request.reserve("request", 20).is_err());
-    assert_eq!(request.reserved(),20);
-    assert_eq!(shared.reserved(),90);
+    assert_eq!(request.reserved(), 20);
+    assert_eq!(shared.reserved(), 90);
     assert!(prepared.try_resize(81).is_err());
-    assert_eq!(prepared.size(),70);
+    assert_eq!(prepared.size(), 70);
     drop(result);
     prepared.try_resize(80).unwrap();
-    assert_eq!(shared.reserved(),80);
+    assert_eq!(shared.reserved(), 80);
     drop(prepared);
-    assert_eq!(shared.reserved(),0);
-    assert_eq!(preparation.reserved(),0);
+    assert_eq!(shared.reserved(), 0);
+    assert_eq!(preparation.reserved(), 0);
 }

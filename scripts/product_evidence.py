@@ -80,7 +80,8 @@ class Evidence:
         if not 1 <= limit <= 20 or not query.strip() or len(query) > 4096:
             raise ValueError("query/limit outside bounds")
         tokens = [
-            token for token in TOKEN.findall(query.lower())
+            token
+            for token in TOKEN.findall(query.lower())
             if 0 < self.df.get(token, 0) < len(self.chunks)
         ]
         scores = (

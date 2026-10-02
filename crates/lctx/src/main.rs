@@ -45,8 +45,8 @@ use std::process::{Command, ExitCode};
 
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
-use cpg_extract::library;
 use cpg_core::postgres::operations::AttemptId;
+use cpg_extract::library;
 use lctx_workspace_hack as _; // Contributes Cargo features, not callable APIs (ADR-0079).
 
 /// The command line (H1 C4: clap derive; each command takes only its own options).

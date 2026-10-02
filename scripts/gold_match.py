@@ -137,8 +137,8 @@ def line_spans(sources: Path, path: str) -> list[int] | None:
     return starts
 
 
-
 SOURCE = re.compile(r"^(?P<path>[^:]+):(?P<start>\d+)(?:-(?P<end>\d+))?$")
+
 
 def source_ranges(root: str, item: dict) -> list[tuple[str, int, int]]:
     """The item's `path:start-end` citations as served paths (`<root>/<path>`, `../` siblings)."""
@@ -151,5 +151,3 @@ def source_ranges(root: str, item: dict) -> list[tuple[str, int, int]]:
         start = int(m["start"])
         out.append((path, start, int(m["end"] or start)))
     return out
-
-

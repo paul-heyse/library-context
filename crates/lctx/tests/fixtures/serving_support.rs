@@ -1,8 +1,14 @@
 //! Real compiler + disposable PG18 fixture; acquisition command is a bounded no-op.
-#![allow(dead_code, reason = "Shared fixture targets exercise different subsets of these helpers and keepalive fields")]
-use std::{path::Path,process::Command,sync::Arc};
-use lctx_model::domain::{self,serving::*};
-use lctx_postgres::{generations::{GenerationStore,GenerationService,CatalogService,GenerationId},testing::DisposableDatabase};
+#![allow(
+    dead_code,
+    reason = "Shared fixture targets exercise different subsets of these helpers and keepalive fields"
+)]
+use lctx_model::domain::{self, serving::*};
+use lctx_postgres::{
+    generations::{CatalogService, GenerationId, GenerationService, GenerationStore},
+    testing::DisposableDatabase,
+};
+use std::{path::Path, process::Command, sync::Arc};
 pub fn write(path: &Path, bytes: impl AsRef<[u8]>) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, bytes).unwrap();
@@ -73,7 +79,7 @@ pub fn command(root: &Path, cfg: &Path, through: &str, profile: &str) -> Command
     cmd
 }
 
-pub const SOURCE:&[u8]=br#"__all__ = ['api', 'consume', 'Holder']
+pub const SOURCE: &[u8] = br#"__all__ = ['api', 'consume', 'Holder']
 def api(flag: bool = False) -> bool:
     return flag
 
@@ -87,26 +93,100 @@ class Holder:
         def nested(self, flag: bool = False):
             return flag
 "#;
-pub struct ServingFixture {pub db:DisposableDatabase,pub store:GenerationStore,pub service:GenerationService,pub catalog:CatalogService,pub generation:GenerationId,pub dir:tempfile::TempDir}
-impl ServingFixture {
-    pub async fn start(source:&[u8])->Self {Self::start_profile(source,"catalog").await}
-    pub async fn start_profile(source:&[u8],profile:&str)->Self {Self::start_with_seeds(source,profile,&[],0).await}
-    pub async fn start_with_seeds(source:&[u8],profile:&str,seeds:&[&str],brief_budget:u32)->Self {
-        let db=DisposableDatabase::start().await;db.migrate().await;
-        let model=Arc::new(domain::model().unwrap());
-        let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
-        let dir=tempfile::tempdir().unwrap();input_source(dir.path(),source);db.write_configs(dir.path()).unwrap();
-        write(&dir.path().join("libraries/demo/analytics.toml"),format!("version = 1\n[subsystem]\nmodule_prefixes = ['demo']\npublic_roots = ['demo']\n[seeds]\nprimary = {}\ndistractors = []\n[pass_a]\nmax_depth = 4\nmax_vertices = 256\nmax_edges = 1024\nmax_witnesses = 4\n[briefs]\nbudget = {brief_budget}\n",serde_json::to_string(seeds).unwrap()));
-        let output=command(dir.path(),&dir.path().join("postgres.json"),"catalog",profile).output().unwrap();
-        assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
-        let report:serde_json::Value=serde_json::from_slice(&output.stdout).unwrap();
-        let generation=GenerationId::from_hex(report["generation"].as_str().unwrap()).unwrap();
-        let config=lctx_postgres::roles::RoleConfig::load(&dir.path().join("postgres-serving.json")).unwrap();
-        let service=GenerationService::admit(model,&config,Some(generation)).await.unwrap();
-        let catalog=CatalogService::prepare(service.clone()).await.unwrap();
-        Self{db,store,service,catalog,generation,dir}
-    }
-    pub async fn members(&self)->Vec<OperationCandidate>{let execution=self.service.execution().await.unwrap();self.catalog.find(&execution,&FindOperationsRequest{library:Name::new("demo").unwrap(),selection:SelectionInput::default(),page:PageRequest{size:100,..Default::default()}}).await.unwrap().supported.items}
-    pub async fn finish(self){self.service.shutdown().await.unwrap();self.store.retire(self.generation).await.unwrap();}
+pub struct ServingFixture {
+    pub db: DisposableDatabase,
+    pub store: GenerationStore,
+    pub service: GenerationService,
+    pub catalog: CatalogService,
+    pub generation: GenerationId,
+    pub dir: tempfile::TempDir,
 }
-pub fn path(value:&str)->OperationSelector{OperationSelector::PublicPath{path:value.split('.').map(|s|Name::new(s).unwrap()).collect()}}
+impl ServingFixture {
+    pub async fn start(source: &[u8]) -> Self {
+        Self::start_profile(source, "catalog").await
+    }
+    pub async fn start_profile(source: &[u8], profile: &str) -> Self {
+        Self::start_with_seeds(source, profile, &[], 0).await
+    }
+    pub async fn start_with_seeds(
+        source: &[u8],
+        profile: &str,
+        seeds: &[&str],
+        brief_budget: u32,
+    ) -> Self {
+        let db = DisposableDatabase::start().await;
+        db.migrate().await;
+        let model = Arc::new(domain::model().unwrap());
+        let store = GenerationStore::install(db.owner.clone(), model.clone())
+            .await
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        input_source(dir.path(), source);
+        db.write_configs(dir.path()).unwrap();
+        write(
+            &dir.path().join("libraries/demo/analytics.toml"),
+            format!(
+                "version = 1\n[subsystem]\nmodule_prefixes = ['demo']\npublic_roots = ['demo']\n[seeds]\nprimary = {}\ndistractors = []\n[pass_a]\nmax_depth = 4\nmax_vertices = 256\nmax_edges = 1024\nmax_witnesses = 4\n[briefs]\nbudget = {brief_budget}\n",
+                serde_json::to_string(seeds).unwrap()
+            ),
+        );
+        let output = command(
+            dir.path(),
+            &dir.path().join("postgres.json"),
+            "catalog",
+            profile,
+        )
+        .output()
+        .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let generation = GenerationId::from_hex(report["generation"].as_str().unwrap()).unwrap();
+        let config =
+            lctx_postgres::roles::RoleConfig::load(&dir.path().join("postgres-serving.json"))
+                .unwrap();
+        let service = GenerationService::admit(model, &config, Some(generation))
+            .await
+            .unwrap();
+        let catalog = CatalogService::prepare(service.clone()).await.unwrap();
+        Self {
+            db,
+            store,
+            service,
+            catalog,
+            generation,
+            dir,
+        }
+    }
+    pub async fn members(&self) -> Vec<OperationCandidate> {
+        let execution = self.service.execution().await.unwrap();
+        self.catalog
+            .find(
+                &execution,
+                &FindOperationsRequest {
+                    library: Name::new("demo").unwrap(),
+                    selection: SelectionInput::default(),
+                    page: PageRequest {
+                        size: 100,
+                        ..Default::default()
+                    },
+                },
+            )
+            .await
+            .unwrap()
+            .supported
+            .items
+    }
+    pub async fn finish(self) {
+        self.service.shutdown().await.unwrap();
+        self.store.retire(self.generation).await.unwrap();
+    }
+}
+pub fn path(value: &str) -> OperationSelector {
+    OperationSelector::PublicPath {
+        path: value.split('.').map(|s| Name::new(s).unwrap()).collect(),
+    }
+}

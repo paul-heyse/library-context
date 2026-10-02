@@ -4,6 +4,7 @@ Rust owns tokenization, corpus identity, document frequency policy, eligibility,
 joins and fusion. This callback returns complete numerical document scores, including zeros.
 Its initialization and calls run under the native service's actual execution grant.
 """
+
 from __future__ import annotations
 
 import json
@@ -35,8 +36,10 @@ class NumericalScorer:
             # term work in that family; retain its document identities and explicit zero scores.
             if any(supplied):
                 index = bm25s.BM25(
-                    k1=settings["k1"], b=settings["b"],
-                    method=settings["method"], backend=settings["backend"],
+                    k1=settings["k1"],
+                    b=settings["b"],
+                    method=settings["method"],
+                    backend=settings["backend"],
                 )
                 index.index(supplied, show_progress=False)
             else:

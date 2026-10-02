@@ -1,11 +1,11 @@
 //! The service baseline and the verified service owner against a disposable real PostgreSQL 18
 //! (cutover plan P1.5, T11/T12). Each control states its answer before running it.
-use lctx_postgres::operations::AttemptId;
 use lctx_model::domain::{
     ContentHash,
     embedding::{Spec, value::encode_vector},
     model,
 };
+use lctx_postgres::operations::AttemptId;
 use lctx_postgres::{
     CacheValue, Config, Error, OwnerPool,
     generations::GenerationStore,
@@ -110,7 +110,13 @@ async fn fresh_baseline_installs_only_services() {
         .unwrap();
     assert_eq!(
         schemas(&s.db.superuser).await,
-        ["lctx_cache", "lctx_ext", "lctx_model_store", "lctx_ops", "public"]
+        [
+            "lctx_cache",
+            "lctx_ext",
+            "lctx_model_store",
+            "lctx_ops",
+            "public"
+        ]
     );
     migrator.check().await.unwrap();
 }
@@ -126,8 +132,15 @@ async fn repeated_migrate_is_noop() {
         inventory(&s.db.superuser).await,
         history(&s.db.superuser).await,
     );
-    assert_eq!(before.1.iter().map(|(version, _)| *version).collect::<Vec<_>>(),
-        [202609300014, 202610020015], "the exact current service migrations");
+    assert_eq!(
+        before
+            .1
+            .iter()
+            .map(|(version, _)| *version)
+            .collect::<Vec<_>>(),
+        [202609300014, 202610020015],
+        "the exact current service migrations"
+    );
     migrator.migrate().await.unwrap();
     assert_eq!(
         (
@@ -293,7 +306,10 @@ async fn attempts_events_runs_mark_interrupted() {
         .await
         .unwrap();
     let app = s.config.connect_application().await.unwrap();
-    let (first, second) = (AttemptId::from_bytes([1; 16]), AttemptId::from_bytes([2; 16]));
+    let (first, second) = (
+        AttemptId::from_bytes([1; 16]),
+        AttemptId::from_bytes([2; 16]),
+    );
     app.start_attempt(first, ContentHash([7; 32]), "fastmcp", "build/store")
         .await
         .unwrap();
@@ -371,10 +387,16 @@ async fn attempts_events_runs_mark_interrupted() {
         app.runs(Some(second), 10, 0).await.unwrap()[0].outcome,
         "published"
     );
-    assert!(app.runs(Some(AttemptId::from_bytes([3; 16])), 10, 0).await.unwrap().is_empty());
+    assert!(
+        app.runs(Some(AttemptId::from_bytes([3; 16])), 10, 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     assert!(
         matches!(
-            app.event(AttemptId::from_bytes([3; 16]), "started", "started", "").await,
+            app.event(AttemptId::from_bytes([3; 16]), "started", "started", "")
+                .await,
             Err(Error::Database { .. })
         ),
         "an event needs its attempt"
@@ -496,7 +518,10 @@ async fn service_grant_matrix() {
 #[tokio::test]
 async fn superuser_and_elevated_owners_refused() {
     let s = services().await;
-    let before = (schemas(&s.db.superuser).await, inventory(&s.db.superuser).await);
+    let before = (
+        schemas(&s.db.superuser).await,
+        inventory(&s.db.superuser).await,
+    );
     assert!(matches!(
         OwnerPool::verify(s.db.superuser.clone()).await,
         Err(Error::Owner("a superuser may not own the store"))
@@ -508,7 +533,10 @@ async fn superuser_and_elevated_owners_refused() {
     let migrator = superuser.connect_migrator().await.unwrap();
     assert!(matches!(migrator.migrate().await, Err(Error::Owner(_))));
     assert_eq!(
-        (schemas(&s.db.superuser).await, inventory(&s.db.superuser).await),
+        (
+            schemas(&s.db.superuser).await,
+            inventory(&s.db.superuser).await
+        ),
         before,
         "a refused install changes nothing"
     );

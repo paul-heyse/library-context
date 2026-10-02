@@ -615,33 +615,69 @@ impl Diagram {
         // relative variable order and cannot grow its node count.
         for (index, (atom, _)) in replacements.iter().enumerate() {
             if self.support.binary_search(atom).is_err()
-                || replacements[..index].iter().any(|(previous, _)| previous == atom)
+                || replacements[..index]
+                    .iter()
+                    .any(|(previous, _)| previous == atom)
             {
-                return Err(DiagramAdmissionError::Boundary(KernelBoundary::TransferUnsupported));
+                return Err(DiagramAdmissionError::Boundary(
+                    KernelBoundary::TransferUnsupported,
+                ));
             }
         }
-        let vocabulary = self.support.len().checked_add(replacements.iter().map(|(_, d)| d.support.len()).sum::<usize>())
-            .and_then(|n| n.checked_mul(128)).and_then(|n| n.checked_add(8192))
-            .ok_or(DiagramAdmissionError::Boundary(KernelBoundary::WorkPreflight))?;
-        let mut reservation = budget.reserve("condition_substitution", vocabulary)
+        let vocabulary = self
+            .support
+            .len()
+            .checked_add(
+                replacements
+                    .iter()
+                    .map(|(_, d)| d.support.len())
+                    .sum::<usize>(),
+            )
+            .and_then(|n| n.checked_mul(128))
+            .and_then(|n| n.checked_add(8192))
+            .ok_or(DiagramAdmissionError::Boundary(
+                KernelBoundary::WorkPreflight,
+            ))?;
+        let mut reservation = budget
+            .reserve("condition_substitution", vocabulary)
             .map_err(DiagramAdmissionError::Resource)?;
-        let support: BTreeSet<_> = self.support.iter().filter(|atom| !replacements.iter().any(|(bound, _)| bound == *atom))
-            .chain(replacements.iter().flat_map(|(_, d)| d.support.iter())).copied().collect();
+        let support: BTreeSet<_> = self
+            .support
+            .iter()
+            .filter(|atom| !replacements.iter().any(|(bound, _)| bound == *atom))
+            .chain(replacements.iter().flat_map(|(_, d)| d.support.iter()))
+            .copied()
+            .collect();
         if support.len() > MAX_ATOMS {
             return Err(DiagramAdmissionError::Boundary(KernelBoundary::AtomLimit));
         }
         // A reduced ordered BDD over n variables has at most the full decision tree plus
         // terminals. The deliberately looser 2^(n+1) also covers the constant case.
-        let possible_nodes = 1usize.checked_shl((support.len() + 1) as u32).unwrap_or(MAX_NODES).min(MAX_NODES);
-        let pairs = possible_nodes.checked_mul(possible_nodes).unwrap_or(MAX_PAIR_WORK).min(MAX_PAIR_WORK);
+        let possible_nodes = 1usize
+            .checked_shl((support.len() + 1) as u32)
+            .unwrap_or(MAX_NODES)
+            .min(MAX_NODES);
+        let pairs = possible_nodes
+            .checked_mul(possible_nodes)
+            .unwrap_or(MAX_PAIR_WORK)
+            .min(MAX_PAIR_WORK);
         // At most two edge visits per source node clone a memo/terminal result. Each first
         // visit also owns predicate/not, three apply outputs and the memo output clone;
         // the final two allowances cover normalization. Initial replacement transfers keep
         // their node counts because canonical variable order is unchanged.
-        let retained = self.bdd.size().checked_mul(8).and_then(|n| n.checked_add(2))
+        let retained = self
+            .bdd
+            .size()
+            .checked_mul(8)
+            .and_then(|n| n.checked_add(2))
             .and_then(|n| n.checked_mul(possible_nodes))
-            .and_then(|n| replacements.iter().try_fold(n, |n, (_, d)| n.checked_add(d.bdd.size())))
-            .unwrap_or(super::substitution::MAX_RETAINED_NODES).min(super::substitution::MAX_RETAINED_NODES);
+            .and_then(|n| {
+                replacements
+                    .iter()
+                    .try_fold(n, |n, (_, d)| n.checked_add(d.bdd.size()))
+            })
+            .unwrap_or(super::substitution::MAX_RETAINED_NODES)
+            .min(super::substitution::MAX_RETAINED_NODES);
         let bytes = pairs
             .checked_mul(PAIR_ALLOCATION_ALLOWANCE)
             .and_then(|n| {
@@ -657,7 +693,14 @@ impl Diagram {
             .ok_or(DiagramAdmissionError::Boundary(
                 KernelBoundary::WorkPreflight,
             ))?;
-        reservation.try_resize(bytes.checked_add(vocabulary).ok_or(DiagramAdmissionError::Boundary(KernelBoundary::WorkPreflight))?)
+        reservation
+            .try_resize(
+                bytes
+                    .checked_add(vocabulary)
+                    .ok_or(DiagramAdmissionError::Boundary(
+                        KernelBoundary::WorkPreflight,
+                    ))?,
+            )
             .map_err(DiagramAdmissionError::Resource)?;
         drop(support);
         let diagram = self

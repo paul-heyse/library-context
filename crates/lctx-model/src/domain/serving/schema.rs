@@ -4,18 +4,28 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde_json::{Value, json};
 use std::borrow::Cow;
 impl<T: Record> JsonSchema for Id<T> {
-    fn schema_name() -> Cow<'static,str> { format!("{}Id",T::NAME).into() }
+    fn schema_name() -> Cow<'static, str> {
+        format!("{}Id", T::NAME).into()
+    }
     fn json_schema(_: &mut SchemaGenerator) -> Schema {
         json_schema!({"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":16,"maxItems":16,"x-nominal-relation":T::NAME})
     }
 }
-impl<T: SumRecord,const CODE:i16> JsonSchema for ArmId<T,CODE> {
-    fn schema_name()->Cow<'static,str>{format!("{}Arm{}Id",T::NAME,CODE).into()}
-    fn json_schema(_: &mut SchemaGenerator)->Schema{json_schema!({"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":16,"maxItems":16,"x-nominal-relation":T::NAME,"x-nominal-arm":CODE})}
+impl<T: SumRecord, const CODE: i16> JsonSchema for ArmId<T, CODE> {
+    fn schema_name() -> Cow<'static, str> {
+        format!("{}Arm{}Id", T::NAME, CODE).into()
+    }
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":16,"maxItems":16,"x-nominal-relation":T::NAME,"x-nominal-arm":CODE})
+    }
 }
 impl JsonSchema for ContentHash {
-    fn schema_name() -> Cow<'static,str> { "ContentHash".into() }
-    fn json_schema(_: &mut SchemaGenerator) -> Schema { json_schema!({"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32}) }
+    fn schema_name() -> Cow<'static, str> {
+        "ContentHash".into()
+    }
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32})
+    }
 }
 macro_rules! code_schema { ($($ty:ty),* $(,)?)=>{$(
     impl JsonSchema for $ty {
@@ -23,18 +33,47 @@ macro_rules! code_schema { ($($ty:ty),* $(,)?)=>{$(
         fn json_schema(_: &mut SchemaGenerator)->Schema {json_schema!({"type":"integer","enum":<$ty as FieldValue>::codes().iter().map(|(c,_)| *c).collect::<Vec<_>>()})}
     }
 )*}; }
-code_schema!(selection::EvidenceBasis,selection::Mode,selection::JointPolicy,selection::Quantifier,selection::Outcome,
-    selection::Reason,selection::JointApplicability,selection::Facet,selection::MemberKind,
-    selection::InvocationForm,selection::DefaultState,selection::ConfigurationScope,
-    selection::FieldRelationship,selection::RelationRole,selection::Fidelity,
-    selection::CheckAxis,selection::DeploymentField,calls::ParameterKind,calls::SignatureForm,
-    catalog::evidence::Intent,deployment::CheckStatus,types::RecordKind,
-    normalized::callables::SignatureAdjustment,normalized::callables::Knowledge,
-    catalog::evidence::AssociationBasis,catalog::CatalogContractBasis,retrieval::Family,analysis::policy::EvidenceStatus,analysis::policy::AssertionKind,analysis::policy::BriefSection,analysis::policy::SupportRole,
-    obligation::Verdict,obligation::ObligationKind);
+code_schema!(
+    selection::EvidenceBasis,
+    selection::Mode,
+    selection::JointPolicy,
+    selection::Quantifier,
+    selection::Outcome,
+    selection::Reason,
+    selection::JointApplicability,
+    selection::Facet,
+    selection::MemberKind,
+    selection::InvocationForm,
+    selection::DefaultState,
+    selection::ConfigurationScope,
+    selection::FieldRelationship,
+    selection::RelationRole,
+    selection::Fidelity,
+    selection::CheckAxis,
+    selection::DeploymentField,
+    calls::ParameterKind,
+    calls::SignatureForm,
+    catalog::evidence::Intent,
+    deployment::CheckStatus,
+    types::RecordKind,
+    normalized::callables::SignatureAdjustment,
+    normalized::callables::Knowledge,
+    catalog::evidence::AssociationBasis,
+    catalog::CatalogContractBasis,
+    retrieval::Family,
+    analysis::policy::EvidenceStatus,
+    analysis::policy::AssertionKind,
+    analysis::policy::BriefSection,
+    analysis::policy::SupportRole,
+    obligation::Verdict,
+    obligation::ObligationKind
+);
 fn object(fields: Vec<(&str, Value)>) -> Value {
-    let required: Vec<_> = fields.iter().map(|(n,_)|n.to_string()).collect();
-    let properties: serde_json::Map<_,_> = fields.into_iter().map(|(n,v)|(n.to_string(),v)).collect();
+    let required: Vec<_> = fields.iter().map(|(n, _)| n.to_string()).collect();
+    let properties: serde_json::Map<_, _> = fields
+        .into_iter()
+        .map(|(n, v)| (n.to_string(), v))
+        .collect();
     json!({"type":"object","additionalProperties":false,"properties":properties,"required":required})
 }
 macro_rules! enum_schema { ($module:ident::$ty:ident, $($variant:ident {$($field:ident:$ft:ty),* $(,)?}),* $(,)?)=>{
@@ -70,10 +109,41 @@ enum_schema!(selection::Predicate,
     ScenarioIntent {intent:catalog::evidence::Intent}, ScenarioCheck {check:selection::CheckAxis,status:deployment::CheckStatus},
     SourceAlignment {exact:bool}, ReleaseVersion {distribution:String,version:String}, DeploymentDeclaration {field:selection::DeploymentField,name:String});
 impl JsonSchema for selection::Requirement {
-    fn schema_name()->Cow<'static,str>{"SelectionRequirement".into()}
-    fn json_schema(g:&mut SchemaGenerator)->Schema {object(vec![("predicate",g.subschema_for::<selection::Predicate>().to_value()),("quantifier",g.subschema_for::<selection::Quantifier>().to_value())]).try_into().expect("object schema")}
+    fn schema_name() -> Cow<'static, str> {
+        "SelectionRequirement".into()
+    }
+    fn json_schema(g: &mut SchemaGenerator) -> Schema {
+        object(vec![
+            (
+                "predicate",
+                g.subschema_for::<selection::Predicate>().to_value(),
+            ),
+            (
+                "quantifier",
+                g.subschema_for::<selection::Quantifier>().to_value(),
+            ),
+        ])
+        .try_into()
+        .expect("object schema")
+    }
 }
 impl JsonSchema for selection::Selection {
-    fn schema_name()->Cow<'static,str>{"Selection".into()}
-    fn json_schema(g:&mut SchemaGenerator)->Schema {object(vec![("requirements",g.subschema_for::<Vec<selection::Requirement>>().to_value()),("mode",g.subschema_for::<selection::Mode>().to_value()),("joint",g.subschema_for::<selection::JointPolicy>().to_value())]).try_into().expect("object schema")}
+    fn schema_name() -> Cow<'static, str> {
+        "Selection".into()
+    }
+    fn json_schema(g: &mut SchemaGenerator) -> Schema {
+        object(vec![
+            (
+                "requirements",
+                g.subschema_for::<Vec<selection::Requirement>>().to_value(),
+            ),
+            ("mode", g.subschema_for::<selection::Mode>().to_value()),
+            (
+                "joint",
+                g.subschema_for::<selection::JointPolicy>().to_value(),
+            ),
+        ])
+        .try_into()
+        .expect("object schema")
+    }
 }

@@ -18,8 +18,12 @@ impl ExactScalar {
         match self {
             Self::None {} => Literal::None,
             Self::Bool { value } => Literal::Bool { value: *value },
-            Self::Integer { decimal } => Literal::Integer { decimal: decimal.clone() },
-            Self::String { value } => Literal::String { value: Utf8Text::from(value.clone()) },
+            Self::Integer { decimal } => Literal::Integer {
+                decimal: decimal.clone(),
+            },
+            Self::String { value } => Literal::String {
+                value: Utf8Text::from(value.clone()),
+            },
         }
     }
     pub(super) fn bytes(&self) -> usize {
@@ -46,6 +50,8 @@ pub struct Assumptions {
 }
 impl Default for Assumptions {
     fn default() -> Self {
-        Self { builtin_namespace: BuiltinNamespace::Unknown }
+        Self {
+            builtin_namespace: BuiltinNamespace::Unknown,
+        }
     }
 }

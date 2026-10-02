@@ -173,7 +173,9 @@ impl KeySink {
         sink
     }
     pub fn part(&mut self, tag: &[u8], bytes: &[u8]) {
-        framed_part(tag, bytes, |fragment| { self.0.update(fragment); });
+        framed_part(tag, bytes, |fragment| {
+            self.0.update(fragment);
+        });
     }
     pub fn finish(self) -> ContentHash {
         ContentHash(*self.0.finalize().as_bytes())
@@ -198,25 +200,39 @@ impl PreparedContentHashes {
         count.checked_mul(8 + b"digest".len() + 8 + 32)
     }
     pub(crate) fn try_new(count: usize) -> Result<Self, super::ModelError> {
-        let limit = Self::encoded_size(count)
-            .ok_or_else(|| super::ModelError::Invalid("content hash sequence size overflow".into()))?;
+        let limit = Self::encoded_size(count).ok_or_else(|| {
+            super::ModelError::Invalid("content hash sequence size overflow".into())
+        })?;
         let mut bytes = Vec::new();
-        bytes.try_reserve_exact(limit)
-            .map_err(|_| super::ModelError::Invalid("content hash sequence allocation failed".into()))?;
+        bytes.try_reserve_exact(limit).map_err(|_| {
+            super::ModelError::Invalid("content hash sequence allocation failed".into())
+        })?;
         Ok(Self { bytes, limit })
     }
-    pub(crate) fn capacity(&self) -> usize { self.bytes.capacity() }
+    pub(crate) fn capacity(&self) -> usize {
+        self.bytes.capacity()
+    }
     pub(crate) fn push(&mut self, hash: ContentHash) -> Result<(), super::ModelError> {
-        if self.bytes.len().checked_add(Self::encoded_size(1).expect("one frame"))
-            .is_none_or(|end| end > self.limit) {
-            return Err(super::ModelError::Invalid("content hash sequence exceeds reserved size".into()));
+        if self
+            .bytes
+            .len()
+            .checked_add(Self::encoded_size(1).expect("one frame"))
+            .is_none_or(|end| end > self.limit)
+        {
+            return Err(super::ModelError::Invalid(
+                "content hash sequence exceeds reserved size".into(),
+            ));
         }
-        framed_part(b"digest", &hash.0, |fragment| self.bytes.extend_from_slice(fragment));
+        framed_part(b"digest", &hash.0, |fragment| {
+            self.bytes.extend_from_slice(fragment)
+        });
         Ok(())
     }
 }
 impl Key for PreparedContentHashes {
-    fn encode(&self, sink: &mut KeySink) { sink.0.update(&self.bytes); }
+    fn encode(&self, sink: &mut KeySink) {
+        sink.0.update(&self.bytes);
+    }
 }
 
 pub trait Key {
@@ -428,12 +444,21 @@ mod prepared_hash_tests {
     #[test]
     fn prepared_hashes_preserve_original_framing_and_order() {
         // Independent, explicit byte framing fixes the v3 contract, including empty sequences.
-        for hashes in [vec![], vec![ContentHash([0; 32])],
-            vec![ContentHash([1; 32]), ContentHash([2; 32]), ContentHash([1; 32])]] {
+        for hashes in [
+            vec![],
+            vec![ContentHash([0; 32])],
+            vec![
+                ContentHash([1; 32]),
+                ContentHash([2; 32]),
+                ContentHash([1; 32]),
+            ],
+        ] {
             let mut expected = Vec::new();
-            for (tag, value) in [(b"domain".as_slice(), b"lctx-semantic/v3".as_slice()),
+            for (tag, value) in [
+                (b"domain".as_slice(), b"lctx-semantic/v3".as_slice()),
                 (b"type".as_slice(), b"inventory-control".as_slice()),
-                (b"text".as_slice(), b"class/context".as_slice())] {
+                (b"text".as_slice(), b"class/context".as_slice()),
+            ] {
                 expected.extend_from_slice(&(tag.len() as u64).to_le_bytes());
                 expected.extend_from_slice(tag);
                 expected.extend_from_slice(&(value.len() as u64).to_le_bytes());
@@ -452,7 +477,10 @@ mod prepared_hash_tests {
             let mut direct = KeySink::new("inventory-control");
             "class/context".to_owned().encode(&mut direct);
             let mut prepared = PreparedContentHashes::try_new(hashes.len()).unwrap();
-            for hash in &hashes { hash.encode(&mut direct); prepared.push(*hash).unwrap(); }
+            for hash in &hashes {
+                hash.encode(&mut direct);
+                prepared.push(*hash).unwrap();
+            }
             "symbol".to_owned().encode(&mut direct);
             let mut replay = KeySink::new("inventory-control");
             "class/context".to_owned().encode(&mut replay);

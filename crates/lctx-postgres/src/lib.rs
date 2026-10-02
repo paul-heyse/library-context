@@ -435,7 +435,9 @@ pub fn contract_schema(name: &str, output: bool) -> Result<serde_json::Value, Er
         "PostgresConfig" if !output => schema_for::<Config>(false),
         "MigrationConfig" if !output => schema_for::<MigrationConfig>(false),
         "PostgresRoleConfig" => schema_for::<roles::RoleConfig>(output),
-        "RankingPolicy" => schema_for::<lctx_model::domain::serving::ranking::RankingPolicy>(output),
+        "RankingPolicy" => {
+            schema_for::<lctx_model::domain::serving::ranking::RankingPolicy>(output)
+        }
         _ => return Err(Error::Config("unknown schema or unsupported direction")),
     })
 }
@@ -477,9 +479,9 @@ mod schema_tests {
             .build(&contract_schema("RankingPolicy", false).unwrap())
             .unwrap();
         assert!(validator.is_valid(&serde_json::from_str(&before).unwrap()));
-        let after: lctx_model::domain::serving::ranking::RankingPolicy = serde_json::from_str(&before).unwrap();
+        let after: lctx_model::domain::serving::ranking::RankingPolicy =
+            serde_json::from_str(&before).unwrap();
         assert_eq!(serde_json::to_string(&after).unwrap(), before);
         assert_eq!(after.identity().unwrap(), digest);
     }
 }
-

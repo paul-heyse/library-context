@@ -40,7 +40,10 @@ impl ResourceBudget {
     /// Preparation and request budgets cannot independently promise the process allowance.
     pub fn scoped(parent: &Self, limit: usize) -> Result<Self, ModelError> {
         let local = Self::fixed(limit)?;
-        Self::from_pool(Arc::new(ScopedPool { parent: parent.clone(), local }))
+        Self::from_pool(Arc::new(ScopedPool {
+            parent: parent.clone(),
+            local,
+        }))
     }
     pub fn fixed(limit: usize) -> Result<Self, ModelError> {
         if limit == 0 {
@@ -95,7 +98,11 @@ struct ScopedReservation {
     local: Box<dyn Reservation>,
 }
 impl ResourcePool for ScopedPool {
-    fn reserve(&self, owner: &'static str, bytes: usize) -> Result<Box<dyn Reservation>, ModelError> {
+    fn reserve(
+        &self,
+        owner: &'static str,
+        bytes: usize,
+    ) -> Result<Box<dyn Reservation>, ModelError> {
         let mut reservation = ScopedReservation {
             parent: self.parent.reserve(owner, 0)?,
             local: self.local.reserve(owner, 0)?,
@@ -103,18 +110,28 @@ impl ResourcePool for ScopedPool {
         reservation.try_resize(bytes)?;
         Ok(Box::new(reservation))
     }
-    fn reserved(&self) -> usize { self.local.reserved() }
-    fn limit(&self) -> usize { self.local.limit() }
-    fn peak(&self) -> Option<usize> { self.local.peak() }
+    fn reserved(&self) -> usize {
+        self.local.reserved()
+    }
+    fn limit(&self) -> usize {
+        self.local.limit()
+    }
+    fn peak(&self) -> Option<usize> {
+        self.local.peak()
+    }
 }
 impl Reservation for ScopedReservation {
-    fn size(&self) -> usize { self.local.size() }
+    fn size(&self) -> usize {
+        self.local.size()
+    }
     fn try_resize(&mut self, bytes: usize) -> Result<(), ModelError> {
         let old = self.local.size();
         self.local.try_resize(bytes)?;
         if let Err(error) = self.parent.try_resize(bytes) {
             // Returning a just-acquired local increment always fits; shrink is infallible.
-            self.local.try_resize(old).expect("restore local reservation after parent refusal");
+            self.local
+                .try_resize(old)
+                .expect("restore local reservation after parent refusal");
             return Err(error);
         }
         Ok(())

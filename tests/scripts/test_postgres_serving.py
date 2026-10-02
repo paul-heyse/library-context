@@ -71,15 +71,21 @@ def test_retained_service_backup_roundtrip_and_corrupt_receipt_refusal(database,
     archive = tmp_path / "services.dump"
     command = [sys.executable, str(ROOT / "scripts/postgres_backup.py")]
     config = tmp_path / "postgres.json"
-    made = subprocess.run([*command, "backup", str(archive), "--config", str(config)], capture_output=True, text=True)
+    made = subprocess.run(
+        [*command, "backup", str(archive), "--config", str(config)], capture_output=True, text=True
+    )
     assert made.returncode == 0, made.stderr
     receipt_path = archive.with_suffix(".dump.json")
     receipt = json.loads(receipt_path.read_text())
     assert receipt["format"] == 4 and receipt["scope"] == "retained-services"
     assert set(receipt["tables"]) == set(TABLES)
-    restored = subprocess.run([*command, "restore-drill", str(archive)], capture_output=True, text=True)
+    restored = subprocess.run(
+        [*command, "restore-drill", str(archive)], capture_output=True, text=True
+    )
     assert restored.returncode == 0, restored.stderr
     assert json.loads(restored.stdout)["semantic_generations"] == "rebuild_from_pinned_inputs"
     receipt_path.write_text(json.dumps({**receipt, "tables": {}}))
-    refused = subprocess.run([*command, "restore-drill", str(archive)], capture_output=True, text=True)
+    refused = subprocess.run(
+        [*command, "restore-drill", str(archive)], capture_output=True, text=True
+    )
     assert refused.returncode != 0 and "unsupported" in refused.stderr

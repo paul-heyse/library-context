@@ -1,13 +1,13 @@
 //! Pure generation-qualified exact-input inspection. This module never executes Python.
 //! A restricted diagram has request identity; its structural Condition ID is not a stored row.
-mod scalar;
-mod ingress;
 mod evaluate;
+mod ingress;
 mod inventory;
-pub use scalar::{Assumptions, BuiltinNamespace, ExactScalar};
-pub use ingress::{CheckedAtom, NativeContext, NativePath};
+mod scalar;
 pub use evaluate::{assess, unexamined};
+pub use ingress::{CheckedAtom, NativeContext, NativePath};
 pub use inventory::NativeInventory;
+pub use scalar::{Assumptions, BuiltinNamespace, ExactScalar};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
@@ -24,10 +24,16 @@ pub const MODEL_REVISION: u16 = 1;
 pub fn definition() -> ContentHash {
     use crate::domain::Key;
     let mut key = crate::domain::KeySink::new("native exact-input operation definition");
-    for source in [include_bytes!("scalar.rs").as_slice(), include_bytes!("ingress.rs").as_slice(),
-        include_bytes!("evaluate.rs").as_slice(), include_bytes!("../local_theory.rs").as_slice(),
-        include_bytes!("../conditions/entry.rs").as_slice(), include_bytes!("../conditions/stability.rs").as_slice(),
-        include_bytes!("../conditions/rebase.rs").as_slice(), include_bytes!("../conditions/kernel.rs").as_slice()] {
+    for source in [
+        include_bytes!("scalar.rs").as_slice(),
+        include_bytes!("ingress.rs").as_slice(),
+        include_bytes!("evaluate.rs").as_slice(),
+        include_bytes!("../local_theory.rs").as_slice(),
+        include_bytes!("../conditions/entry.rs").as_slice(),
+        include_bytes!("../conditions/stability.rs").as_slice(),
+        include_bytes!("../conditions/rebase.rs").as_slice(),
+        include_bytes!("../conditions/kernel.rs").as_slice(),
+    ] {
         ContentHash::of(source).encode(&mut key);
     }
     key.finish()
@@ -53,7 +59,9 @@ pub enum Basis {
     Unexamined,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(deny_unknown_fields)]
 pub struct Work {
     pub atoms_examined: usize,
@@ -74,7 +82,13 @@ pub struct Limits {
 }
 impl Default for Limits {
     fn default() -> Self {
-        Self { atoms: 128, assignments: 32, bdd_pairs: 1_000_000, render_terms: 20, predicate_comparisons: 4096 }
+        Self {
+            atoms: 128,
+            assignments: 32,
+            bdd_pairs: 1_000_000,
+            render_terms: 20,
+            predicate_comparisons: 4096,
+        }
     }
 }
 
