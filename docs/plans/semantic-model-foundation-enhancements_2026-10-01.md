@@ -1,14 +1,14 @@
 # Semantic-model foundations: focused enhancement plan
 
-**Proposed, 2026-10-01; source Interface-checked.** Companion to the
+**Execution authorized, 2026-10-01; implementation and acceptance in progress.** Companion to the
 [Phase 5 plan](semantic-model-phase5-detailed-plan_2026-10-01.md), which owns the combined serving
 target, shared contracts and assembled acceptance. The [cutover plan](semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
 continues to own cross-phase findings. This document owns only F1–F3 enhancement packages and their
 local completion. Their identifiers are package names, not competing review finding IDs.
 
-Baseline: main 16ffb9e4 plus existing preserved dirty changes, inspected 2026-10-01. No production
-changes, tests, probes or measurements are claimed here. Earlier qualification retains its original
-scope. Improvements are designed for existing finite semantics; they do not reopen R4 multi-variant
+Plan-authoring baseline: main 16ffb9e4 plus preserved dirty changes, inspected 2026-10-01.
+Authoring established no runtime qualification. Execution starts from e6c18fe5 plus the preserved
+current tree; §5 owns its current package state and receipts. Earlier qualification retains its original scope. Improvements are designed for existing finite semantics; they do not reopen R4 multi-variant
 admission, introduce heap identity, change provider ownership or require another store/framework.
 
 ## 1. Why these improvements and when to undertake them
@@ -110,7 +110,8 @@ not a request-specific fallback to incomplete classification.
 ### 2.4 Implementation and acceptance
 
 One owner changes selection/evaluate, the new classification inventory/container and their tests.
-The repository owner integrates generation/receipt admission in Phase 5 C0. Keep build/replay inputs
+The repository owner integrates the minimal canonical generation/receipt admission consumer in
+this foundation scope; Phase 5 C0 will reuse it for its broader catalog routes. Keep build/replay inputs
 and publication checks authoritative; remove only the replaced request dependency on broad Data.
 
 Compile lctx-model and run its existing domain_selection_catalog and domain_selection controls
@@ -243,7 +244,20 @@ receipt qualifies later changes. End-of-turn automation owns formatting/generato
 No additional gates, progress register, fixture framework or evidence folder is introduced. A static
 design assessment can establish the change rationale; runtime acceptance remains planned until run.
 
-**Current package state, 2026-10-01:** F1, F2 and F3 are Proposed / not_run. Begin F1 after the shared
-Phase 5 identity/admission decisions are settled. F2/F3 may begin independently inside accepted
-contracts. The root decides whether each parallel package joins the Phase 5 acceptance tree;
-record that integration choice here when execution is authorized.
+**Execution boundary, authorized 2026-10-01:** complete F1–F3 as a separately qualified foundation
+scope, including F1's minimal canonical PostgreSQL consumer. Broader Phase 5 mappings, process
+runtime, catalog routes, vector preparation, native reconstruction and MCP remain outside it.
+One production writer migrates F2, then F3, then F1; the root owns integration and independent review.
+
+**Settled F1 prerequisite:** admission binds generation, frontier/profile and applicable availability,
+model/physical identity, the C2 declaration-closure receipt, and every consumed relation/source/epoch
+content receipt. Use an owner-free serving-role reader factory over the existing canonical lease
+protocol; require no runtime migration credentials. Receipt verification and consumed-row scanning
+use the original leased connection. The opaque admitted owner retains that lease and charged data/
+indexes; arbitrary rows cannot manufacture the store admission capability. Retain strict broad replay
+for external rows and diagnosis. Initial production preparation uses the proposed 128 MiB ceiling
+through an explicit injected budget. The remaining ADR-0114 serving proposals are not accepted or
+implemented by settling this foundation-only contract.
+
+**Current package state, 2026-10-01:** F2 in progress; F1/F3 not_run. No runtime qualification is
+claimed until the targeted controls and scope-end functional/hygiene gates pass for the integrated tree.
