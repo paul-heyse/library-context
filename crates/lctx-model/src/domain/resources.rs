@@ -36,6 +36,12 @@ pub trait Reservation: std::fmt::Debug + Send + Sync {
 #[derive(Debug, Clone)]
 pub struct ResourceBudget(Arc<dyn ResourcePool>);
 impl ResourceBudget {
+    /// A local ceiling whose every retained byte is also charged to the parent pool.
+    /// Preparation and request budgets cannot independently promise the process allowance.
+    pub fn scoped(parent: &Self, limit: usize) -> Result<Self, ModelError> {
+        let local = Self::fixed(limit)?;
+        Self::from_pool(Arc::new(ScopedPool { parent: parent.clone(), local }))
+    }
     pub fn fixed(limit: usize) -> Result<Self, ModelError> {
         if limit == 0 {
             return Err(ModelError::Invalid("memory limit must be positive".into()));
@@ -76,6 +82,42 @@ impl ResourceBudget {
     }
     pub fn shares_pool(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+#[derive(Debug)]
+struct ScopedPool {
+    parent: ResourceBudget,
+    local: ResourceBudget,
+}
+#[derive(Debug)]
+struct ScopedReservation {
+    parent: Box<dyn Reservation>,
+    local: Box<dyn Reservation>,
+}
+impl ResourcePool for ScopedPool {
+    fn reserve(&self, owner: &'static str, bytes: usize) -> Result<Box<dyn Reservation>, ModelError> {
+        let mut reservation = ScopedReservation {
+            parent: self.parent.reserve(owner, 0)?,
+            local: self.local.reserve(owner, 0)?,
+        };
+        reservation.try_resize(bytes)?;
+        Ok(Box::new(reservation))
+    }
+    fn reserved(&self) -> usize { self.local.reserved() }
+    fn limit(&self) -> usize { self.local.limit() }
+    fn peak(&self) -> Option<usize> { self.local.peak() }
+}
+impl Reservation for ScopedReservation {
+    fn size(&self) -> usize { self.local.size() }
+    fn try_resize(&mut self, bytes: usize) -> Result<(), ModelError> {
+        let old = self.local.size();
+        self.local.try_resize(bytes)?;
+        if let Err(error) = self.parent.try_resize(bytes) {
+            // Returning a just-acquired local increment always fits; shrink is infallible.
+            self.local.try_resize(old).expect("restore local reservation after parent refusal");
+            return Err(error);
+        }
+        Ok(())
     }
 }
 #[derive(Debug)]
