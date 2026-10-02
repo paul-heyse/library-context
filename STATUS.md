@@ -25,9 +25,11 @@ remains **Proposed / not_run**; [ADR-0114](docs/adr/0114-generation-serving-cont
 The first `NEXTEST_TEST_THREADS=8 just test-all` failed: 972 Rust tests passed, 27 encountered
 database/container interference and one needed the reviewed digest-only snapshot migration.
 The operator stopped the interfering probe; the snapshot control passed after scoped acceptance.
-The cached retry passed all 1,000 workspace Rust tests; Python/oracles and the remaining
-components are executing. Hygiene stopped at three new Clippy diagnostics; the bounded corrections
-passed `just clippy`. Their digest-only snapshot refresh and live-store check remain pending.
+The cached retry passed all 1,000 workspace Rust tests, then failed one Python oracle's
+600-second CLI build limit (237 passed, 56 skipped). The completed build is cached; its timeout
+and expectations remain unchanged. The bounded Clippy corrections, reviewed digest-only snapshot
+and 24 model controls passed. Hygiene is **composite passed**, including corrected Clippy and
+store checks. A fresh final-source `just test-all` is executing; integrated acceptance is pending.
 
 | Command / scope | Outcome |
 |---|---|
@@ -35,7 +37,7 @@ passed `just clippy`. Their digest-only snapshot refresh and live-store check re
 | F2/F3 focused release controls, 2026-10-01 | **composite passed**, original failures and corrections retained |
 | F1 final-source model controls, 2026-10-02 | **passed**, 23 controls; actual CLI infrastructure failure recorded separately |
 | Normal-cleanup actual CLI Catalog control, 2026-10-02 | **passed**, both profiles and admission/integrity/lifetime controls; run `f8872936-a8cd-4d1d-80fb-8945b13dad95` |
-| `just hygiene`, current foundation scope | **failed**, three Clippy diagnostics; corrected `just clippy` **passed**; live-store check **not_run** |
+| `just hygiene`, current foundation scope | **composite passed**, initial run plus corrected `just clippy` and `just store-check` |
 | Upper FastMCP pilots, live embedding and measurements | **not_run**, outside foundation scope |
 
 The companion retains the initial pure reference-check failure, source-prefix refusal, negative
@@ -43,14 +45,17 @@ control fixture correction and disposable PostgreSQL EOF failures. Earlier conta
 SIGKILL/exit 137; the API caller and cause remain unconfirmed. The retained-container diagnostic
 passed, then the unchanged source passed under normal cleanup. No external containers were changed.
 
+The empty, quiescent local store was reset to model `e66cccc2…` after the old digest finding;
+`just store-check` passed with zero generations and zero findings.
+
 Cargo retains the pinned toolchain, release profile, stable shared intermediates and 16 build jobs.
 Nextest8 caps simultaneous test processes; it does not request eight threads per process. Earlier
 compiler SIGTERM remains an unconfirmed build interruption, not a proven test/threading cause.
 
 ## Next and standing limits
 
-Finish the functional gate, run hygiene once, repair named failures and record the same-tree
-qualification in companion §5.4. Then D0 settles ADR-0114 and integrates shared serving contracts;
+Finish the final-source functional gate and record qualification in companion §5.4;
+recheck publication after the final documentation update. Then D0 settles ADR-0114 and integrates shared serving contracts;
 ready M0/N0 follow, and C0 reuses F1 preparation. No broader serving package is complete here.
 PR6 remains paused. R4's simultaneous two-variant Summary qualification remains **not_run / open**;
 current admission requires complete uniquely Bound variants. Revisit R4 before broadening it.

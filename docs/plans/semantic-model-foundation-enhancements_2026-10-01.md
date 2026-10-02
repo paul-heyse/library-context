@@ -447,16 +447,38 @@ its digest; no relation, column, reference, sum or codebook declaration changed.
 
 - **passed, intermediate functional receipt:** the complete retry's workspace run
   `9ae3072e-0202-4bd2-8426-76232fdb1e06` passed all 1,000 Rust tests (12 skipped) in
-  854.079 seconds. Python/oracles and the remaining integrated components are executing.
+  854.079 seconds. This run precedes the two Clippy corrections below.
 - **failed, corrected:** `just hygiene` passed agent/ADR/fixture/gold/rules, Ruff, types,
   documentation publication and dependency checks, then stopped at three new selection-model
   Clippy diagnostics. Independent optional candidate-reference checks now occupy separate lines,
   and the evidence map has a private type alias. Neither correction changes behavior or declarations.
-- **passed:** `just clippy` on the corrected source, workspace and all targets. `store-check`
-  remains **not_run**. The two source files contribute to selection identity, so the resulting
-  digest-only snapshot migration and canonical admission checks remain required before closure.
+- **passed:** `just clippy` on the corrected source, workspace and all targets.
+- **failed, build timeout:** the retry's Python/oracle component finished with 237 passed,
+  56 skipped and one failed: `test_every_seed_shape_is_admitted[calls]` exceeded its existing
+  600-second release CLI build limit. Subsequent oracle cases passed after the build completed.
+  The separate PostgreSQL and doctest components were **not_run** in that attempt. No timeout,
+  test expectation, compiler profile or job setting was weakened.
+- **snapshot migration reviewed and accepted:** `INSTA_UPDATE=new NEXTEST_TEST_THREADS=8 python3
+  scripts/build_environment.py -- cargo nextest run --release -p lctx --test model_describe`
+  produced the expected pending snapshot after the Clippy corrections, run
+  `d9f7ea48-d70a-4376-b4d7-ff85dfa438ae`. The full diff changed only the digest from `f78eaf504fad7da139d048fcdbdb52bbb9d4846d7bb76b4c7190fe331e12012f`
+  to `e66cccc2b3f0776b44ecc6e18e0259588fb35eca46543a08047b9366ce41388c`.
+  After reviewing it, the same scoped `cargo insta accept --snapshot model_describe__model_describe.snap`
+  command accepted the migration. Relations, fields and codebooks remain unchanged.
+- **passed:** `INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo
+  nextest run --release -p lctx-model --test domain_selection_catalog --test domain_selection
+  -p lctx --test model_describe`, 24 corrected-source controls, run
+  `5af87f96-af68-41af-87c9-6f37668e007e`.
+- **failed, corrected local store:** `just store-check` found only the previously installed model
+  digest. A current read-only inventory found zero generations and no serving, importer or owner
+  sessions. `target/release/lctx store reset` confirmed a zero-generation dry run; authorized
+  `target/release/lctx store reset --confirm lctx` installed the current model while retaining
+  service tables. Corrected `just store-check` **passed**, zero generations and zero findings.
 
-The functional gate and scoped snapshot correction are still executing. Final results and any
-named corrected checks will be recorded here; focused or diagnostic passes do not replace these
+All hygiene components have passed through the initial run plus corrected `just clippy` and
+`just store-check`: this is a **composite hygiene receipt**, not an initially clean run.
+
+A fresh final-source `NEXTEST_TEST_THREADS=8 just test-all` is executing with the reviewed snapshot
+and cached oracle CLI build. Final results will be recorded here; focused or diagnostic passes do not replace these
 obligations. The independent review's original source manifest remains a dated baseline; only
 these two non-behavioral Clippy corrections follow it.

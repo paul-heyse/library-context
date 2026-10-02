@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "f78eaf504fad7da139d048fcdbdb52bbb9d4846d7bb76b4c7190fe331e12012f",
+  "digest": "e66cccc2b3f0776b44ecc6e18e0259588fb35eca46543a08047b9366ce41388c",
   "relations": [
     {
       "name": "access_paths",
