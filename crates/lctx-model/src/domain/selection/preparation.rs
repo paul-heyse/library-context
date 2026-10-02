@@ -2,10 +2,11 @@
 use super::{*, build::{invalid,need,Output}, classification::ClassificationData};
 use crate::domain::{*, charged::{ChargedMap,ChargedSet,StateCharge}, resources::ResourceBudget};
 type Frame = (Id<catalog::CatalogMember>,Id<attribution::AnalysisContext>,DomainKind);
+type EvidenceIndex = ChargedMap<(Id<SelectionDomain>,Id<Context>),Vec<Id<DomainEvidence>>>;
 pub(super) struct Index {
     domains: ChargedMap<Frame,Id<SelectionDomain>>,
     members: ChargedMap<Id<SelectionDomain>,Vec<Id<DomainContext>>>,
-    evidence: ChargedMap<(Id<SelectionDomain>,Id<Context>),Vec<Id<DomainEvidence>>>,
+    evidence: EvidenceIndex,
     closure: ChargedMap<Id<SelectionDomain>,Vec<Id<DomainClosure>>>,
     _charge: StateCharge,
 }

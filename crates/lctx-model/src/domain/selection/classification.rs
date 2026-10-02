@@ -106,7 +106,12 @@ impl ClassificationData {
         let c=&self.source.catalog;let n=&self.source.core;let f=&self.facts;
         for r in c.members.iter() {need(&n.modules,r.access)?;}
         for r in c.exposures.iter() {need(&c.members,r.member)?;need(&n.exposures,r.exposure)?;}
-        for r in c.candidates.iter() {need(&c.exposures,r.exposure)?;if let Some(id)=r.entity {need(&n.entity_candidates,id)?;}if let Some(id)=r.path {need(&c.paths,id)?;}if let Some(id)=r.alias {need(&c.aliases,id)?;}}
+        for r in c.candidates.iter() {
+            need(&c.exposures,r.exposure)?;
+            if let Some(id)=r.entity {need(&n.entity_candidates,id)?;}
+            if let Some(id)=r.path {need(&c.paths,id)?;}
+            if let Some(id)=r.alias {need(&c.aliases,id)?;}
+        }
         for r in c.paths.iter() {need(&c.candidates,r.parent)?;need(&n.refs,r.entity)?;}
         for r in c.aliases.iter() {need(&n.refs,r.entity)?;}
         for r in c.callables.iter() {need(&c.members,r.member)?;need(&c.candidates,r.candidate)?;need(&n.assessments,r.assessment)?;}

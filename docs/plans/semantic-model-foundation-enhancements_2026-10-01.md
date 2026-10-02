@@ -445,6 +445,18 @@ its digest; no relation, column, reference, sum or codebook declaration changed.
   cargo nextest run --release -p lctx --test model_describe`, one corrected control, run
   `fc761336-a5bb-465a-a720-461018cd4111`.
 
-The complete same-source `NEXTEST_TEST_THREADS=8 just test-all` retry is executing. `just hygiene`
-remains **not_run** until that functional gate completes. Final results and any named corrected
-checks will be recorded here; focused or diagnostic passes do not replace these obligations.
+- **passed, intermediate functional receipt:** the complete retry's workspace run
+  `9ae3072e-0202-4bd2-8426-76232fdb1e06` passed all 1,000 Rust tests (12 skipped) in
+  854.079 seconds. Python/oracles and the remaining integrated components are executing.
+- **failed, corrected:** `just hygiene` passed agent/ADR/fixture/gold/rules, Ruff, types,
+  documentation publication and dependency checks, then stopped at three new selection-model
+  Clippy diagnostics. Independent optional candidate-reference checks now occupy separate lines,
+  and the evidence map has a private type alias. Neither correction changes behavior or declarations.
+- **passed:** `just clippy` on the corrected source, workspace and all targets. `store-check`
+  remains **not_run**. The two source files contribute to selection identity, so the resulting
+  digest-only snapshot migration and canonical admission checks remain required before closure.
+
+The functional gate and scoped snapshot correction are still executing. Final results and any
+named corrected checks will be recorded here; focused or diagnostic passes do not replace these
+obligations. The independent review's original source manifest remains a dated baseline; only
+these two non-behavioral Clippy corrections follow it.

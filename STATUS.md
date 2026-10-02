@@ -25,7 +25,9 @@ remains **Proposed / not_run**; [ADR-0114](docs/adr/0114-generation-serving-cont
 The first `NEXTEST_TEST_THREADS=8 just test-all` failed: 972 Rust tests passed, 27 encountered
 database/container interference and one needed the reviewed digest-only snapshot migration.
 The operator stopped the interfering probe; the snapshot control passed after scoped acceptance.
-The complete cached retry is executing; integrated qualification remains pending.
+The cached retry passed all 1,000 workspace Rust tests; Python/oracles and the remaining
+components are executing. Hygiene stopped at three new Clippy diagnostics; the bounded corrections
+passed `just clippy`. Their digest-only snapshot refresh and live-store check remain pending.
 
 | Command / scope | Outcome |
 |---|---|
@@ -33,7 +35,7 @@ The complete cached retry is executing; integrated qualification remains pending
 | F2/F3 focused release controls, 2026-10-01 | **composite passed**, original failures and corrections retained |
 | F1 final-source model controls, 2026-10-02 | **passed**, 23 controls; actual CLI infrastructure failure recorded separately |
 | Normal-cleanup actual CLI Catalog control, 2026-10-02 | **passed**, both profiles and admission/integrity/lifetime controls; run `f8872936-a8cd-4d1d-80fb-8945b13dad95` |
-| `just hygiene`, current foundation scope | **not_run**, follows functional gate |
+| `just hygiene`, current foundation scope | **failed**, three Clippy diagnostics; corrected `just clippy` **passed**; live-store check **not_run** |
 | Upper FastMCP pilots, live embedding and measurements | **not_run**, outside foundation scope |
 
 The companion retains the initial pure reference-check failure, source-prefix refusal, negative
