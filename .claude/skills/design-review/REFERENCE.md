@@ -48,9 +48,10 @@ only executed checks justify Tested. Do not convert a source walkthrough into a 
 
 ### When the subject is a document
 
-**Reconstruct rather than read.** Build the template's tables yourself from the document
-instead of checking whether the document's own versions look complete. Every cell you have to
-invent is a decision the design has not made, and the list of invented cells is the evidence:
+**Reconstruct the design.** Establish the responsibilities and scenarios from the substance of
+the document rather than the apparent completeness of its tables. Use the template's maps or
+tables where they help explain a material question. A consequential distinction you must invent
+is an unresolved decision; an unused template cell is not itself a defect. Where relevant, deepen:
 
 - the **responsibility/dependency map** (slot 2), followed by semantic authorities and their
   revision/update paths, including domain operations and the phenomena they represent;
@@ -215,3 +216,70 @@ DP-07, DP-12, G6."
 | 10 Verification | Proposed checks | Existing coverage and gaps | Top gaps only |
 | 11 Authority changes / exceptions | Target reviews; deviations | Same | Only if present |
 | 12 Architecture and decision | A1–A3 and scoped decision | A1–A3 and scoped decision | Bounded judgment; enclosing limit |
+
+<a id="synthesis-and-corrective-reasoning"></a>
+
+## §4 Synthesis and corrective reasoning
+
+These examples illustrate reasoning useful to an intelligent reader, not required paragraphs or
+new assessment criteria. Apply the selected standard's judgments and evidence vocabulary.
+
+### A coherent argument across findings
+
+**Thin synthesis.** "Request validation is duplicated, persisted requests are ambiguous, and
+errors need improvement. Consolidate the helpers and update the schema."
+
+**Useful synthesis.** "The affected entry points interpret references independently, while
+persistence records the submitted spelling without its interpretation context. These findings
+share a missing operation contract: resolution should establish the selected identities and
+retain failures before execution begins. Execution and persistence can then consume that
+interpretation. Defining the resolution contract precedes choosing its durable representation;
+merely merging helper functions leaves the interpretation and storage problems intact."
+
+The argument connects cause, boundary and corrective dependency. It does not establish that every
+error-handling defect has this cause. An independent resource-lifetime finding remains separate,
+even if it affects the same request path. A resolution fix and a storage fix can contribute to
+one obligation without either alone proving complete correction.
+
+### An established diagnosis with an unresolved remedy
+
+"Source inspection establishes that two consumers interpret the same operation outcome
+differently. One treats partial completion as usable; the other refuses it. The requested policy
+is shared, so these are competing interpretations. A shared permission decision would remove
+that disagreement, but the inspected design does not settle whether permission depends on each
+output or on the operation as a whole. Resolve that requirement before selecting the result
+contract. The evidence establishes the divergence; the proposed decision boundary still needs
+that distinction."
+
+This finding does not need a fully designed replacement to be useful. A mixed-output scenario
+can settle the missing requirement, and the review can explain which recommendation changes
+with the answer. Numerical confidence scores would add little. A later remedy refinement can
+preserve the original finding and its source evidence.
+
+### Strengths constrain a correction
+
+"The existing operation emits a detailed failure identity, and several identities deliberately
+share a broad presentation category. The transport boundary currently loses the identity.
+Preserve the detailed cause through that boundary and derive presentation and retry views from
+it with their relevant context. Reconstructing the identity from the broad category would erase
+valid distinctions. The correction should retain independent retry policy and diagnostics even
+when no execution result exists."
+
+A malformed input and a transient external failure can test the recommendation's meaning without
+requiring a new universal error framework. Existing guarantees shape the remedy; mentioning them
+is more useful than general praise. Static reasoning can establish the many-to-one information
+loss, while any claim about executed transport behavior needs its own evidence.
+
+### Choosing presentation and handoff depth
+
+A substantial review might lead with its integrated assessment, develop request interpretation
+and persistence as one connected argument, and link a separate resource-lifecycle analysis.
+The principal document retains the overall verdict, coverage and interactions. A short boundary
+review may express the same reasoning in a few paragraphs with one finding. Neither form needs
+to reproduce the review team's assignments or every template table.
+
+An urgent consumer defect may depend on a less urgent contract clarification. Explain both
+severity and prerequisite meaning. If adoption requires old records to retain their interpretation,
+identify that preservation constraint and any unresolved feasibility question. Subsequent planning
+chooses the work packages and migration sequence; the review owns the argument and the evidence
+needed to distinguish a genuine correction from moved complexity.

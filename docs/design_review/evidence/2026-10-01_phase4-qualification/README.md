@@ -186,3 +186,43 @@ The repaired `cargo nextest run --release -p cpg-core --test summary_publication
 profiles (96.791s), including both intact/permuted controls and allten genuine corruption
 refusals. `just clippy` [clippy10](raw/phase4-q0-clippy10.log) **passed** for the current
 release workspace/all-targets tree. The subsequent complete functional rerun remains pending.
+
+## Q0 completion — verified 2026-10-01, America/New_York
+
+`NEXTEST_TEST_THREADS=8 just test-all` [full5](raw/phase4-q0-test-all5.log) **passed**
+completely: 993 release Rust tests (12 skipped), 238 Python/oracle tests (56 skipped),
+374 separate real-PostgreSQL tests (two tests and one binary skipped), final release CLI build,
+and34 positive/compile-fail doctests (two ignored). First Nextest runtime955.139s;
+separate PG runtime938.926s. Timings are receipts, not performance qualification.
+The strengthened Summary control passes inside the full suite as well as its focused rerun.
+Earlier full1–4 failures remain intact; this is a successful subsequent complete run.
+
+The [before capture](raw/phase4-q0-source-before4.json) and
+[after capture](raw/phase4-q0-source-after5.json) cover the532 production fingerprint input files:
+SHA256 `998b34ed993f435949f3d00f2bdb1fab6ccfa57df9d5f337cfa94d7f3b2f7fb9` is unchanged.
+These SHA256 captures verify tree coherence; they are not model identities. The intervening
+Summary repair is confined to an integration fixture, and concurrent role/documentation changes
+are outside this producer closure. The actual model digest remains
+`1d93a1a8808ddf31711497051f5774efc5d2f6aed282d4988a2765560d84b3b6`.
+
+The initial hygiene command failed; its named corrected and materially affected reruns provide
+a composite receipt. Final owner-document/agent/ADR/rule and live-store reruns passed as recorded below.
+No automatic end-of-turn formatter/generator result is claimed. R4, live embedding, real-library
+upper-frontier pilots/comparisons, performance/hydration/total-RSS and Phase5 remain outside
+this acceptance.
+
+Final materially affected hygiene reruns **passed**: `just docs-check`
+[docs-check4](raw/phase4-q0-docs-check4.log),254 canonical pages/zero publication errors;
+`just lint-agents` [agent2](raw/phase4-q0-lint-agents2.log); `just adr-lint`
+[ADR4](raw/phase4-q0-adr-lint4.log),61 records; and `just rules-scan`
+[rules2](raw/phase4-q0-rules-scan2.log). Python-only checker commands used `UV_NO_SYNC=1`
+after the passing full gate, avoiding redundant native-package synchronization; their check
+semantics are unchanged. The final named `just store-check`
+[store-check3](raw/phase4-q0-store-check3.log) **passed**, zero generations/zero findings.
+Together with the unchanged fixture/gold/rule-test/Ruff/type/dependency passes and current
+full `just clippy` pass, this completes composite hygiene for the qualified producer tree.
+The automatic hook has not been substituted for any check.
+
+The plan, parent finding register, semantic owner and STATUS now record scoped Phase4 completion.
+Their R4/P5 and excluded-measurement boundaries are unchanged. Unrelated dirty instruction/catalog
+work and the concurrent ADR-0113 role-policy commit were preserved.

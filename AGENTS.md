@@ -19,7 +19,7 @@ the single relational store, and DataFusion as in-process compute (DESIGN §15).
 5. serving.
 
 Legacy code is removed at the ownership boundary; no compatibility adapters, legacy IDs or dual stores.
-Phases 0–3 are implemented within their recorded qualification boundaries. Phase 4 typed analysis/catalog and cumulative compilation are implemented; mapped legacy retirement is complete and full Q0 qualification is active. Phase 5 serving remains unavailable. Product work (PR6, new features) pauses until phase 5. STATUS and the current Phase 4 plan own acceptance, not an implementation label alone.
+Phases 0–3 are implemented within their recorded qualification boundaries. Phase 4 typed analysis/catalog and cumulative compilation are implemented; mapped legacy retirement and Q0 acceptance are complete within the recorded scope, 2026-10-01. Phase 5 serving remains unavailable. Product work (PR6, new features) pauses until phase 5. STATUS and the current Phase 4 plan own acceptance, not an implementation label alone.
 
 The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
@@ -84,7 +84,7 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 |---|---|
 | During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No integrated gate after a slice or commit. |
 | After all functional scope in the plan is implemented | `just test-all`: release-profile nextest, pytest (including the oracles), real PostgreSQL and compile-fail doc tests. Then `just hygiene`, every non-functional check, once; fix what fails and re-run a single check with `just <id>`. Qualification cites both passing for the same tree |
-| The real library, end to end | `lctx compile fastmcp --through facts --profile catalog|behavioral`; reports a facts generation without selecting it. Upper-frontier fixture qualification is separate and in progress; serving remains unavailable. |
+| The real library, end to end | `lctx compile fastmcp --through facts --profile catalog|behavioral`; reports a facts generation without selecting it. Upper-frontier fixture qualification passed within the Phase 4 receipt; real-library upper pilots are not_run and serving remains unavailable. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Dependency policy | `just deps`, a `hygiene` check: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
@@ -250,6 +250,7 @@ assigns; [its contract](.agents/roles/library-research.md) bounds those writes (
 
 - Work on `main` in the current working tree for ordinary edits, reviews and spikes. Use a
   separate worktree only when truly parallel agents must edit production code concurrently.
+  Clean up any remaining worktrees that are fully merged.
 - Commit to `main` in small commits. Each message names the slice and any ADR, and states the
   test outcome.
 - Never force-push or `reset --hard`.

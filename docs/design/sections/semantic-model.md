@@ -20,21 +20,23 @@ its automated gate excludes stopped library comparisons and measurements.
 
 Phase 4 analysis/catalog, immutable vocabulary groups, typed Local/execution/models/Summary,
 structural/optional analytics, catalog/evidence/selection, synthesis and retrieval are
-**Implemented; mapped ownership retirement complete and Q0 qualification active**, 2026-10-01. Bounded antecedent receipts
+**Implemented / Tested within the accepted Phase 4 scope**, 2026-10-01. Mapped ownership retirement and Q0 acceptance are complete; the
+[current qualification receipt](../../design_review/evidence/2026-10-01_phase4-qualification/README.md)
+records the complete functional gate and composite hygiene. Bounded antecedent receipts
 are in the [Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md).
 The [foundation review](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
 is **Accept scoped**. The [P4B3-F01 corrective reinspection](../../design_review/reviews/design_review_phase4-symbolic-reinspection_2026-10-01.md)
 and [assembled Design/Target review](../../design_review/reviews/design_review_phase4-assembled_2026-10-01.md)
-are **Accept scoped**, 2026-10-01; full Q0 remains open.
+are **Accept scoped**, 2026-10-01; Q0 passed within the recorded finite envelope.
 Phase 5 serving remains **Proposed / unavailable**. No live embedding, real-library upper-frontier
 pilot, comparative product, hydration-cost or total-RSS measurement is claimed.
 
 **Current state.** PostgreSQL is the sole canonical relational store; DataFusion supplies in-process
 compute. `lctx compile --through facts|normalized|analysis|catalog` is implemented for either profile
-and never selects the generation. Upper-frontier runtime acceptance is in progress. Catalog Flow
+and never selects the generation. Upper-frontier runtime controls passed within the recorded scope, 2026-10-01. Catalog Flow
 is `NotRequested`; behavioral uncertainty remains explicit. `lctx-model` owns all semantic contracts;
 extraction/native flow have no `cpg-schema` dependency. Legacy Phase 4 engine retirement is complete within the exact mapped scope after independent
-replacement controls; full Q0 is active. Remaining `cpg-schema` wire/serving and dormant
+replacement controls; Q0 passed within the recorded scope, 2026-10-01. Remaining `cpg-schema` wire/serving and dormant
 `cpg-core::bundle` sources are named Phase 5 inputs, not active P4 authorities.
 
 **Execution owner.** The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
@@ -481,9 +483,9 @@ source-call certification and enriched execution are separate later owners. Base
 publishes a separately replayed statement/refusal inventory from earlier BaseEvaluation outcomes,
 including finalizer replacement order and profile-bound NotRequested results (**focused-Tested,
 2026-10-01**, 4 actual PG + 9 native + 3 outcome controls). Exact attribute evaluation retains the
-explicit heap-state prerequisite. The detailed plan owns these receipts; assembled acceptance remains open.
+explicit heap-state prerequisite. The detailed plan owns these receipts; scoped assembled acceptance passed, 2026-10-01.
 
-**Symbolic source associations (Implemented; qualification in progress,
+**Symbolic source associations (Implemented / Tested within the recorded scope,
 2026-10-01).** The normalized callable-metadata stage owns source class/store/reader
 associations for both profiles. `normalized::symbolic_fields` admits the bounded standard-record
 subset through exact decorator/options, defaults, generated signatures and source membership.
@@ -535,7 +537,7 @@ owns integration, native/store controls and corrective reinspection of P4B3-F01.
   the site. Where signature variants restate one guard differently, the composed condition names
   the restatement. The input must be the caller's, extended only through identity. The output must
   be the site, one of its actuals or its receiver, or a field or global.
-- **Implemented; qualification in progress, 2026-10-01 (ADR-0106).** Keep exact invocation-distinct guards within the existing
+- **Implemented / Tested within the finite contract, 2026-10-01 (ADR-0106).** Keep exact invocation-distinct guards within the existing
   depth-8/proof-step-64 evidence envelope. Semantic equality excludes proof ancestry and cost;
   stable finite residual keys expose uncovered recursion without erasing guards and claiming
   Exact. Separate evidence-occurrence DAGs from aggregate summary publication. An open residual
@@ -635,7 +637,7 @@ directly; no unused Dispatch analysis parent or fabricated completion is require
 coverage predecessors, admissible derived-proof sources and inherited obligation sources have
 independent declared routes. Production relation membership contains only actual writers; specialized
 execution/analytic proofs do not require empty generic obligation/derivation families. Shared
-foundation declarations remain usable by their scoped conformance controls. Declared analysis producers and S0 now consume these owners; their assembled qualification remains in progress.
+foundation declarations remain usable by their scoped conformance controls. Declared analysis producers and S0 now consume these owners; their scoped assembled qualification passed, 2026-10-01.
 
 **Witnesses** are selected at serve time from derivations, under response budgets. A smaller budget
 never removes an established conclusion.
@@ -677,7 +679,7 @@ No separate graph schema or materialized path closure becomes semantic authority
 branded native visit views after hydration; canonical SCC ordering uses this interface without
 reconstructing edges from SQL. **Implemented / focused-Tested, 2026-10-01:** collection preparation
 retains hydrated graphs and their reservations; each later borrower needs matching completed-source
-permits and the same budget. The cumulative compilation driver wires those lifetimes to the current Structural and Analytic consumers; actual upper-frontier qualification remains in progress.
+permits and the same budget. The cumulative compilation driver wires those lifetimes to the current Structural and Analytic consumers; actual upper-frontier controls passed within the recorded scope, 2026-10-01.
 Dispatch expansion precedes the graph build on every fresh collection.
 **Implemented / focused-Tested, 2026-10-01:** projection version 3 gives source callable
 definitions their own role and arc identity from normalized declaration ownership. Ordinary
@@ -693,7 +695,7 @@ membership define the structural scope. Prepared graphs are borrowed by producti
 replay recomputes exact path, boundary, usage and invocation inventories from completed inputs.
 Path steps retain their own conditions and phases: structural reachability does not establish
 execution or normal completion. S0 selects final brief seeds independently of the mandatory catalog. Optional topology/concept analyses publish explicit selected or NotRequested outcomes.
-**Implemented; qualification in progress:** numeric conversions have explicit universe/weight/lineage contracts and share
+**Implemented / Tested within the recorded controls, 2026-10-01:** numeric conversions have explicit universe/weight/lineage contracts and share
 the attempt budget. Optional analytics retain their existing disabled defaults.
 
 > Decision: ADR-0085, ADR-0103, ADR-0106
@@ -800,7 +802,7 @@ the same attempt and schedule. It cannot widen that grant or supply a receipt of
 provider reads the selected immutable view. This also lets one consumer use Facts-bound native
 semantics and a later derived vocabulary without conflating their authority.
 The [R0/R1 foundation review](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
-is **Accept scoped, 2026-10-01**. Complete Phase 4 acceptance remains pending.
+is **Accept scoped, 2026-10-01**. Scoped Phase 4 acceptance passed, 2026-10-01.
 
 **Implemented foundation, 2026-10-01 (ADR-0108).** The finite nominal owner graph follows
 actual stored-read dependencies, including execution sub-stages and catalog core → evidence →
@@ -809,11 +811,11 @@ new predecessor vocabulary; ordinary results can complete against the existing p
 proof reference sum may pull future owners into an earlier stage's invariant dependencies. Final
 frontier coverage has a separate one-shot writer checking the independently declared expected
 owners/outcomes (**Implemented / focused-Tested, 2026-10-01**); actual cumulative publication
-qualification remains open. Catalog construction remains independent of optional analysis success.
+controls passed within the recorded scope, 2026-10-01. Catalog construction remains independent of optional analysis success.
 
 > Decision: ADR-0105, ADR-0108
 
-**Normalized availability (Implemented; qualification in progress, 2026-09-30).** A final writer
+**Normalized availability (Implemented / Tested within the recorded scope, 2026-10-01).** A final writer
 records capability/scope/context outcomes independently of successful computation. Model-owned
 capabilities declare anchor and dependency families. Shared input/context/family premise sets
 retain original scoped coverage once; outcomes and their producing-stage receipts refer to these
@@ -858,8 +860,7 @@ A layer is complete only when it contains no legacy code.
 
 **Clean reconstruction.** No adapters, legacy-ID side relations, compatibility flags or dual
 stores are retained. Phases 0–2 restore model/store/facts; phases 3–5 reconstruct normalized,
-analysis/catalog and serving layers in order. The current Phase 4 driver is an unqualified execution
-checkpoint; Phase 5 MCP remains unavailable. Availability is recorded per generation; missing capabilities never become empty
+analysis/catalog and serving layers in order. The Phase 4 driver passed its scoped cumulative publication controls, 2026-10-01; Phase 5 MCP remains unavailable. Availability is recorded per generation; missing capabilities never become empty
 answers. Independent semantic expectations and protected evidence survive implementation deletion.
 Deleting an engine does not retire its capability obligation; that needs a separate consumer decision.
 

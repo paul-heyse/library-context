@@ -5,56 +5,59 @@ description: Execute authorized scope in an existing implementation plan through
 
 # Execute a plan
 
-Carry the authorized plan scope through implementation and acceptance. Use the current plan,
-`STATUS.md`, repository instructions and actual tree to establish what remains; prior receipts
-retain their original date and scope. Inspect dirty-tree ownership before editing and preserve
-concurrent work. Resolve material ambiguity without making routine implementation choices into
-new approval steps. A proposed decision or unimplemented target is not an established baseline.
+Carry the authorized scope through implementation, integration and acceptance using the existing
+plan and established execution approach. Use [plan-execution](../plan-execution/SKILL.md) to
+resolve consequential gaps when needed, including on direct invocation, without requiring
+another planning round or approval. Reuse settled reasoning and assignments while adapting
+to concrete evidence.
 
-The root agent coordinates the work and retains design decisions, integration and acceptance.
-Delegate when independent work, context isolation, distinct capabilities or independent judgment
-justify handoff and integration cost; small or tightly coupled tasks may stay with the root.
-The [shared roles](../../../.agents/roles/README.md) offer bounded code mapping,
-library research, design review, execution, implementation review and testing through
-`code-mapper`, `library-research`, `design-reviewer`, `executor`,
-`implementation-reviewer` and `test-agent`. Use the roles that help; neither every role nor a
-fixed sequence is required.
+Refresh the current baseline where it affects the next work, especially concurrent edits and
+prerequisite availability. Use the current plan, relevant `STATUS.md` checkpoint,
+repository instructions and actual tree to establish what remains.
+Delegated workers use their brief and relevant owners and may follow discovered dependencies.
+Preserve concurrent work; distinguish accepted decisions, implemented prerequisites and proposals.
+Prior receipts retain their original date and scope.
 
-Give delegated work enough context to be useful: the question or package, relevant contracts,
-permitted edits, dependencies and expected evidence. Assign disjoint edit ownership before
-parallel implementation; use separate worktrees only as repository instructions require for
-concurrent production edits. Read-only evidence tasks can run alongside implementation when
-their inputs are stable. Review agents assess a named baseline independently. Agent conclusions
-inform the root's judgment; they do not transfer responsibility for accepting the result.
+Carry out delegated assignments under the [shared coordination contract](../../../.agents/roles/README.md).
+Keep affected workers informed when shared assumptions or dependencies change. The coordinator
+retains responsibility for design decisions, integration and acceptance; delegation remains
+discretionary. Independent review assesses an identified baseline.
 
-Implement prerequisite scope before dependent work and integrate completed slices against
-their contracts and adjacent consumers. Follow relevant pinned-library skills and documentation
-routes when library behavior matters. Adapt as evidence changes: narrow an investigation,
-correct a failed assumption, or revise the remaining sequence in its existing owner. Preserve
-source-review finding IDs and their single disposition owner rather than adding parallel status
-documents or a second durable execution plan.
+Resolve local implementation choices within the agreed behavior and contracts. When evidence
+contradicts a shared assumption or affects a contract, scope or acceptance, reconcile the specific
+issue with its owner and affected work. Update the remaining approach and its owning records
+where needed, and continue independent authorized scope whose assumptions still hold. Do not
+silently change the intended behavior or weaken acceptance to finish a local assignment. Seek
+user input only when a material scope or authorization decision requires it.
 
-Use the binding's
-[review cadence](../../../docs/design_review/design_principles/binding/library-context.md#reviews-in-this-repository)
-for change/conformance and design/target review. Routine code changes do not create a standing
-architecture or domain-model review obligation. Reopen architecture when a changed boundary,
-decision or concrete evidence warrants it; the focused foundation assessment in
-[create-plan](../create-plan/SKILL.md) is not repeated by default. Route decision changes through
-[adr](../adr/SKILL.md) and update the architectural owner. Continue independent authorized work
-while resolving a prerequisite; seek user input when a material scope or authorization decision
-actually requires it.
+Implement prerequisites before work that requires them, and integrate contributions with
+their adjacent consumers. Complete the plan's applicable migration, preservation and retirement
+obligations as part of delivering the target. Follow the repository's library-skill and
+documentation routes when library behavior matters. A completed assignment does not by itself
+establish accepted integrated scope.
 
-Validate new functional scope with compile checks and targeted tests or probes. Run integrated
-tests and pilots only after all functional scope of the authorized plan is implemented, following
-`AGENTS.md`; bounded-package completion does not establish an enclosing stage exit. Repair
-failures and rerun the affected checks, broadening verification when a material change warrants
-it. Formatting, linting and other hygiene belong to the automatic end-of-turn hook: do not run,
-inspect or troubleshoot those checks through this workflow.
+Follow the binding's
+[review cadence](../../../docs/design_review/design_principles/binding/library-context.md#reviews-in-this-repository).
+Routine execution does not repeat the plan's foundation assessment or initiate recurring
+architecture or domain-model reviews. Route warranted architectural decision changes through
+[adr](../adr/SKILL.md) and the architectural owner.
 
-Record actual commands and outcomes (`passed`, `failed`, `blocked` with its prerequisite, or
-`not_run`) in the existing receipt owner. Keep proposed, implemented, tested and measured claims
-distinct, date verified claims, and retain composite or partial qualification boundaries. Close
-findings only with evidence for their stated obligation. Follow repository commit policy within
-the task's authorization, and use [handoff](../handoff/SKILL.md) when the work changes what is
-true. Report the resulting behavior, verification and any remaining authorized work or blockers;
-do not treat a partial slice as completion of the requested scope.
+Follow `AGENTS.md` for verification scope and timing, generation, formatting and hook ownership.
+Validate new behavior with relevant compile checks and targeted functional tests or probes;
+perform integrated qualification at the repository's prescribed boundary. Repair failures and
+rerun affected checks, broadening verification when a material change warrants it. Reassess
+whether earlier evidence still applies when integration or subsequent edits change what it
+exercised. A bounded package pass does not establish an enclosing stage exit.
+
+Report actual commands and outcomes (`passed`, `failed`, `blocked` with its prerequisite, or
+`not_run`). Record evidence in the existing receipt owner.
+Keep proposed, implemented, tested and measured claims distinct, date verified claims, and
+retain composite or partial qualification boundaries. Close findings only with evidence for
+their stated obligation; preserve source-review IDs and their single disposition owner.
+
+Follow repository commit policy within the task's authorization. Use [handoff](../handoff/SKILL.md)
+when the work changes what is true.
+Keep durable status in its existing owner without a second execution plan or parallel ledger.
+Clean up any remaining worktrees that are fully merged. Report the resulting behavior,
+verification and any remaining authorized work or blockers; a partial checkpoint is not
+completion of the requested scope.

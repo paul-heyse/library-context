@@ -5,6 +5,8 @@ Standard: [design principles](design-principles.md): FP-01–FP-06 organize arch
 assessment; DP-01–DP-24 support it; A1–A3 and G1–G8 remain separate judgments.
 Profiles add domain constraints within the slots. The binding supplies local owners and cadence.
 
+Output and synthesis guidance revised 2026-10-01; assessment rules and slot identifiers unchanged.
+
 ## Part 1 — The review contract
 
 ### Tier and purpose
@@ -94,6 +96,34 @@ architectural acceptance of the enclosing subsystem, and both from release quali
 Add domain content within the slots, marked with the profile prefix. Domain fidelity tables and
 execution details support the architectural argument. They do not replace ownership, change
 scenarios or local reasoning. The binding identifies a single current disposition owner per finding.
+
+### Organize the review around its argument
+
+The slots below identify content and stable references for profile additions. They are not a
+required investigation sequence or a demand for one heading and table per slot. Group or
+distribute explanations to suit the subject, while keeping the applicable assessment obligations,
+foundation and gate judgments, decision and evidence limits discoverable. If a slot's content
+appears elsewhere, link it where readers or profile references need a route. Presentation choices
+do not change the selected standard's acceptance rules.
+
+Lead with a concise integrated assessment: what the system intends to accomplish, which
+responsibilities and choices shape its behavior, what supports the target, and which material
+causes explain the problems. Develop the argument through coherent topics and concrete findings.
+Several independent concerns may remain; no single root cause or overarching redesign is required.
+Use tables for comparisons and navigation, and prose where causal reasoning needs explanation.
+A compact finding index can link to detailed arguments instead of compressing them into wide cells.
+
+A formal review has one accountable principal document. Substantial bounded analysis or evidence
+may live in supporting documents when independently useful. The principal review owns the combined
+scope, architectural explanation, relationships, judgment and evidence limits. Supporting material
+names its narrower role, inspected baseline and relevant context and links back to the principal
+review. Local judgments do not establish unexamined interactions or create separate overall
+decisions. Current finding status remains at the binding-designated disposition owner.
+
+Document boundaries should serve reader understanding. Keep tightly coupled reasoning together;
+length, subsystem count and reviewer assignments do not dictate a split. Small reviews can keep
+their argument compact in one document. Supporting analysis is optional and does not require a
+new evidence folder, artifact hierarchy or registration process.
 
 ## Part 2 — The template
 
@@ -186,6 +216,23 @@ relevant scenario. Assess semantic ownership and propagation, not a promise of i
 Give verdicts for applicable foundations/supporting rules. State which boundaries already meet
 the scenarios and the evidence for them. Keep observations distinct from actionable findings.
 
+For consequential corrections, explain the intended operation and consumer behavior: inputs,
+owned decisions, outputs or effects, preserved guarantees and intentional differences. Existing
+strengths can constrain the remedy. Explain enough to distinguish a correction from relocated
+complexity, while leaving routine implementation choices open. A narrow finding may need only
+one sentence of correction.
+
+Keep diagnosis and remedy maturity distinct. State what the evidence establishes, which direction
+is proposed and what unresolved requirement or assumption affects that recommendation. A sound
+finding remains actionable without a fully designed replacement. Challenge a consequential remedy
+with a legitimate case it might wrongly reject, flatten or mishandle; reasoning may suffice.
+
+Synthesize related findings through their causes and obligations. Identify shared causes,
+independent defects, prerequisite contracts, alternative remedies and conflicting recommendations
+where material. Group concrete manifestations without merging distinct closure obligations.
+Explain whether the corrections fit together; neither shared terminology nor the same component
+establishes a common cause. No mandatory dependency graph or additional analysis stage is implied.
+
 ### 8. Library fit and total complexity
 
 Relevant entries in docs/library-utilization.jsonl, where available, may offer particularly
@@ -210,6 +257,12 @@ contract can be preferable to a forwarding abstraction. This is a focused compar
 Rows can coincide or be out of scope with a reason. Explain what becomes easier and harder.
 Preserve independent semantic controls when removing obsolete implementation-specific tests.
 
+Relate expected benefits to their mechanism, relevant conditions and material ownership costs.
+Explain which premise would change the recommendation and how it could be settled. Consider
+external consumers, preserved meaning and intermediate states when transition feasibility affects
+the choice. Detailed migration procedures and execution packages belong to subsequent planning
+unless explicitly requested.
+
 ### 10. Verification and uncertainty
 
 | Claim or scenario | Evidence label/date | Inspection/test/analysis/benchmark | Conditions and expected result | Current outcome or gap |
@@ -221,6 +274,11 @@ judges whether complexity, criticality or unresolved uncertainty warrants creati
 probes; this slot and the review tier do not require them or a separate evidence folder.
 Independent oracles, when used, must challenge production contracts. Follow the binding's
 integrated acceptance timing and retain the evidence required for Tested/Measured claims.
+
+Distinguish unexamined breadth from a missing premise that could change the verdict or corrective
+direction. Connect consequential uncertainty to the decision it affects and suitable settling
+evidence. An unexamined area is not itself a defect. Evidence for a diagnosis does not automatically
+qualify its remedy, and a refined remedy need not invalidate the diagnosis.
 
 ### 11. Authority changes and dispositions
 
@@ -245,5 +303,12 @@ assessed (scope reason). State the evidence strength; a passing local slice does
 
 | Priority | Change and responsible component | Source findings | Closure evidence or revisit trigger |
 |---|---|---|---|
+
+Separate consequence-based priority from prerequisite order: a less urgent contract correction
+may enable a more urgent consumer fix. Explain the capability or meaning required by a dependency.
+Identify the next consequential decision and follow-up obligations without turning the review
+into an implementation schedule. In delegated reviews, reconcile shared assumptions, boundary
+gaps and conflicting recommendations before stating the combined judgment; preserve material
+disagreement and its effect on the decision when the evidence does not settle it.
 
 The conclusion names the next architectural decision or implementation step and its owner.
