@@ -21,7 +21,8 @@ Finite association establishes no allocation, alias, mutation or temporal heap i
 Committed Phase 5 slices include D0 (`a55870c8`), L0 (`5223cf73`), bounded condition allocation
 (`441b9c8f`), retained service/evaluation retirement (`17bfe0e4`), canonical selectors
 (`0bc8ea11`), and additive model serving/native contracts (`4acf8551`). Canonical store services, bridges, CLI, original controls and ownership-boundary retirement
-are committed as `91751d1c`; complete Q0 qualification remains pending.
+are committed as `91751d1c`; bounded normalization and qualification repairs are committed
+as `3591b68c`. Complete Q0 qualification remains pending.
 
 X0 removed 375 unchanged inventoried source files and 21 obsolete query metadata entries,
 including the retired schema, bundle, native IPC and old serving authorities. Three obsolete
@@ -100,10 +101,11 @@ frontend thread. Nextest8 caps test processes; it does not request eight threads
 A verified cross-worktree Cargo artifact lock cycle is avoided by serializing builds, with no
 cache cleanup. Earlier compiler SIGTERM remains unexplained, not a proven threading failure.
 
-Next: repair the eight full-gate failures and validate the byte-preserving, charged callable
-normalization prerequisite exposed by the real pilot; then finish complete functional/hygiene
-gates and both-profile fresh-generation Q0 journeys,
-explicit vector artifact
-preparation and reviewed activation. Shared main preserves the initial 118 dirty tracked paths
-against snapshot `bd22f66c`; semantic-only staging keeps unrelated formatting unstaged.
+Next: the requested scoped `just fmt`, `just adr index` and `just build-features` refresh
+exception remains awaiting the operator's response. After source stabilization, rebuild both
+CPython ABIs, read/accept the model digest snapshot, run complete functional/named hygiene
+qualification, then both-profile fresh FastMCP Catalog journeys, explicit vector preparation
+and reviewed activation. The earlier eight gate defects are repaired with current focused
+receipts; the full gate is not promoted to passed. Main preserves all initial 118 dirty paths
+against snapshot `bd22f66c`; semantic-only staging excludes unrelated formatting.
 The end-of-turn hook owns formatting and generators. Its future results are not claimed here.
