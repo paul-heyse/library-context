@@ -1,7 +1,6 @@
 ---
 name: design-reviewer
 description: Independently assess architecture and domain models, as focused advice or a formal design review.
-tools: Read, Grep, Glob, Bash, Skill, ToolSearch, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: opus
 effort: high
 ---

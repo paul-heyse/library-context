@@ -1,7 +1,6 @@
 ---
 name: implementation-reviewer
 description: "Independently review a stable implementation for correctness, regressions and contract violations."
-tools: Read, Grep, Glob, Bash, Skill, ToolSearch, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: sonnet
 effort: high
 ---

@@ -90,9 +90,10 @@ generators, readiness and the library catalog. It fixes nothing else (ADR-0110).
 **Implemented workflow, 2026-09-30 (ADR-0109):** a coordinator owns design, integration and
 acceptance, using reusable evidence, design-review, execution, implementation-review and functional
 testing roles. Shared responsibilities and permitted effects live in [agent role contracts](../../.agents/roles/README.md);
-native Codex and Claude definitions select models and tools (Codex roles inherit the session's sandbox).
+native Codex and Claude definitions select models only: no role file restricts tools or sandbox, so the
+contracts alone bound each role's effects.
 `library-research` may write the evidence locations AGENTS.md names and an assigned shared library
-skill; the other evidence roles are read-only (ADR-0112). Paired process skills prepare and carry
+skill; the other evidence roles are read-only (ADR-0113). Paired process skills prepare and carry
 out reviews, plan creation and execution. Plan creation includes focused assessment of the existing
 foundations it will use. Delegation is selective: independent coverage, context isolation, capability or judgment must
 justify coordination cost. Worker startup follows the brief and relevant authorities; concrete
@@ -100,7 +101,7 @@ evidence conflicts and repeated repair failures trigger coordinator reassessment
 single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
 routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0046, ADR-0079, ADR-0040, ADR-0110, ADR-0109, ADR-0112
+> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0046, ADR-0079, ADR-0040, ADR-0110, ADR-0109, ADR-0113
 
 <a id="section-1-3"></a>
 

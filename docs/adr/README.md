@@ -64,7 +64,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0109](0109-selective-agent-coordination.md) | Delegate selectively with explicit evidence and review routes | 2026-09-30 | [§1.2](../design/DESIGN.md#section-1-2) | Implemented | ADR-0107 |
 | [ADR-0110](0110-end-of-turn-automatic-steps.md) | End-of-turn hooks run only automatic steps; agents run the non-functional checks at scope end | 2026-10-01 | [§1.2](../design/DESIGN.md#section-1-2) | Tested | ADR-0104 |
 | [ADR-0111](0111-checked-false-native-source-candidates.md) | Retain complete checked-false native candidate evidence for finite negative questions | 2026-10-01 | [§3.9](../design/sections/behavior-model.md#section-3-9), [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§15.6](../design/sections/semantic-model.md#section-15-6) | Tested |  |
-| [ADR-0112](0112-library-research-writes.md) | library-research writes its evidence and assigned shared skills; Codex role files carry no sandbox settings | 2026-10-01 | [§1.2](../design/DESIGN.md#section-1-2) | Implemented |  |
+| [ADR-0113](0113-agent-permissions-by-contract.md) | Role contracts are the only bound on agent effects; native role files carry no tool lists or sandbox settings | 2026-10-01 | [§1.2](../design/DESIGN.md#section-1-2) | Implemented | ADR-0112 |
 
 ## Proposed: open choices, not accepted decisions
 

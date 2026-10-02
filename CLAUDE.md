@@ -11,7 +11,7 @@
   and fix nothing else; `just hygiene` findings (type errors, clippy, lint) are the agent's at
   scope end. Subagents stopping don't trigger the hook.
 - **Subagents:** [shared roles](.agents/roles/README.md) define responsibility and handoff;
-  `.claude/agents/` supplies native model/tool configuration. `implementer` uses the executor
+  `.claude/agents/` supplies native model settings and no tool lists (ADR-0113). `implementer` uses the executor
   contract. Use fresh context for independent review; the binding selects formal tier and purpose.
 - **Memory:** project memory records the low-friction process preference; the repository binding under ADR-0040 owns current
   review mechanics; AGENTS.md owns agent instructions.

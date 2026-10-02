@@ -8,7 +8,7 @@ responsible for design, integration and acceptance. No role sequence or minimum 
 ## Roles and runtime routing
 
 Read the relevant shared contract when assigning work. Workers load [the common contract](worker.md)
-and their role; native definitions carry model and tool settings.
+and their role; native definitions carry model and effort settings only.
 
 | Responsibility | Shared contract | Codex model / effort | Claude agent / model / effort |
 |---|---|---|---|
@@ -29,10 +29,11 @@ Prefer the named native role. If the available delegation tool has no role selec
 shared contract paths and choose the table's model and effort explicitly. With Codex's collaboration
 tool, use a focused brief with `fork_turns="none"` when selecting a different model; a full-history
 fork inherits the parent. If the runtime cannot select a model, disclose the fallback. Do not assume
-editing configuration changes agents already running. Codex custom roles inherit the session's
-sandbox and approval settings (their files carry none: Codex ignores sandbox keys there), and
-Claude roles differ only in their tool lists. The shared contracts define each role's permitted
-effects; live parent permission overrides take precedence.
+editing configuration changes agents already running. Native role files carry no permission
+restrictions: Codex roles inherit the session's sandbox and approval settings (Codex ignores
+sandbox keys in role files), and Claude roles inherit the session's tools (no `tools` lists). The
+shared contracts alone define each role's permitted effects; live parent permission overrides take
+precedence.
 
 ## Coordinate the work
 

@@ -6,7 +6,9 @@ The root's general startup tour is not repeated by workers: use the brief and re
 following additional dependencies when evidence requires it. All permission, preservation and test
 rules still apply; named files are not a restriction on necessary read-only investigation. The coordinator's
 brief bounds the assignment and permitted effects; a role contract may grant standing write
-scopes, which a brief can narrow. Resolve paths from the repository root; Codex
+scopes, which a brief can narrow. Name a markdown file you write for its content (`README.md`,
+`<topic>.md`): Claude Code refuses a subagent's Write of a `.md` file whose name begins with
+report, summary, findings or analysis. Resolve paths from the repository root; Codex
 discovers skills through `.agents/skills`, and their tracked source is `.claude/skills`.
 
 Preserve concurrent work. Do not commit, push or delegate further unless assigned. Report a missing

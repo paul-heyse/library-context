@@ -1,7 +1,6 @@
 ---
 name: test-agent
 description: "Run scoped functional tests and diagnose failures without changing implementation or acceptance controls."
-tools: Read, Grep, Glob, Bash, Skill
 model: sonnet
 effort: high
 ---
