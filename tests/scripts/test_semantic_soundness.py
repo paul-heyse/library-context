@@ -5,6 +5,7 @@ behavioral Catalog producer, then challenges named native paths against these ob
 May compatibility is never an established identity claim, and a refuted path is never
 whole-operation absence. Only these generated programs execute, never analyzer fixtures.
 """
+
 from __future__ import annotations
 
 import json
@@ -105,7 +106,8 @@ for name, flagged in plan:
                     if frame.f_lineno in tests:
                         guards.append({"function": frame.f_code.co_name,
                                        "line": frame.f_lineno,
-                                       "value": bool(eval(tests[frame.f_lineno], frame.f_globals, frame.f_locals))})
+                                       "value": bool(eval(tests[frame.f_lineno],
+                                                          frame.f_globals, frame.f_locals))})
                 elif event == "return":
                     returns.append({"function": frame.f_code.co_name,
                                     "line": last_lines.get(key, frame.f_lineno),
@@ -131,13 +133,17 @@ print(json.dumps(out))
 
 
 def _source(functions: list[Function]) -> str:
-    parts = ['"""Independent generated-program soundness challenge."""\n',
-             "__all__ = " + repr([f.name for f in functions]) + "\n",
-             "\ndef _replace(function):\n    return lambda *args: None\n"]
+    parts = [
+        '"""Independent generated-program soundness challenge."""\n',
+        "__all__ = " + repr([f.name for f in functions]) + "\n",
+        "\ndef _replace(function):\n    return lambda *args: None\n",
+    ]
     for f in functions:
         params = "value, flag" if f.flagged else "value"
-        parts.append(("\n@_replace\n" if f.decorated else "\n")
-                     + f'def {f.name}({params}):\n    """Generated."""\n{f.body}')
+        parts.append(
+            ("\n@_replace\n" if f.decorated else "\n")
+            + f'def {f.name}({params}):\n    """Generated."""\n{f.body}'
+        )
     return "".join(parts)
 
 
@@ -147,21 +153,28 @@ def _observe(source: str, functions: list[Function]) -> dict:
         package.mkdir()
         (package / "__init__.py").write_text(source, encoding="utf-8")
         plan = json.dumps([[f.name, f.flagged] for f in functions])
-        done = subprocess.run([sys.executable, "-I", "-c", WORKER, tmp, plan],
-                              capture_output=True, text=True, timeout=20, check=True)
+        done = subprocess.run(
+            [sys.executable, "-I", "-c", WORKER, tmp, plan],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=True,
+        )
     return json.loads(done.stdout.splitlines()[-1])
 
 
 def known_shapes() -> list[Function]:
-    return [Function("f0", False, LEAVES["ident"][1]),
-            Function("f1", False, "    return f0(value)\n"),
-            Function("f2", True, LEAVES["guard"][1]),
-            Function("f3", False, "    return f2(value, False)\n"),
-            Function("f4", False, LEAVES["logged"][1]),
-            Function("f5", False, "    f4(value)\n    return value\n"),
-            Function("f6", False, DECORATED, decorated=True),
-            Function("f7", False, "    return f6(value)\n"),
-            Function("f8", False, "    if value is None:\n        return value\n    return value\n")]
+    return [
+        Function("f0", False, LEAVES["ident"][1]),
+        Function("f1", False, "    return f0(value)\n"),
+        Function("f2", True, LEAVES["guard"][1]),
+        Function("f3", False, "    return f2(value, False)\n"),
+        Function("f4", False, LEAVES["logged"][1]),
+        Function("f5", False, "    f4(value)\n    return value\n"),
+        Function("f6", False, DECORATED, decorated=True),
+        Function("f7", False, "    return f6(value)\n"),
+        Function("f8", False, "    if value is None:\n        return value\n    return value\n"),
+    ]
 
 
 def challenge_bundle() -> dict:
@@ -181,8 +194,12 @@ def challenge_bundle() -> dict:
             body = re.sub(r"\bf\d+\b", lambda match, names=names: names[match.group()], f.body)
             functions.append(Function(names[f.name], f.flagged, body, f.decorated))
     source = _source(functions)
-    return {"source": source, "functions": [asdict(f) for f in functions],
-            "observed": _observe(source, functions), "groups": len(groups)}
+    return {
+        "source": source,
+        "functions": [asdict(f) for f in functions],
+        "observed": _observe(source, functions),
+        "groups": len(groups),
+    }
 
 
 def test_known_shapes_preserve_independent_identity_and_decorator_observations() -> None:
@@ -199,7 +216,9 @@ def test_known_shapes_preserve_independent_identity_and_decorator_observations()
 
 @settings(max_examples=8, derandomize=True, deadline=None, database=None)
 @given(packages())
-def test_generated_acyclic_programs_complete_with_fresh_sentinel_observations(functions: list[Function]) -> None:
+def test_generated_acyclic_programs_complete_with_fresh_sentinel_observations(
+    functions: list[Function],
+) -> None:
     observed = _observe(_source(functions), functions)
     assert set(observed) == {f.name for f in functions}
     assert all(run["raised"] is None for runs in observed.values() for run in runs)

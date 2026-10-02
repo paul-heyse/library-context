@@ -78,6 +78,15 @@ rolled-back shadow install of this binary's lowering. It also checks:
 **Reset.** `store reset` removes one generation per transaction and replaces the control schema
 last. It is resumable: rerun it after an interruption.
 
+**Catalog lock capacity.** Size PostgreSQL's shared lock table for the declared generation
+shape before resetting Catalog generations. On 2026-10-02, the local generation had 1,086
+tables and 11,914 constraints; reset exhausted the default `max_locks_per_transaction=64`.
+The operator cluster now uses `512`: after the service restart, the same resumable reset
+passed and the current CLI reported zero store findings. This is a tested local deployment
+setting, not a bound on future model growth. Changing it with `ALTER SYSTEM` requires a
+PostgreSQL service restart; reload alone leaves `pending_restart` true. The independent
+disposable-store controls retain their own server configurations.
+
 **Busy refusals.** Install, check and reset try the installation lock and refuse `Busy` (exit 2)
 rather than waiting behind work in flight.
 

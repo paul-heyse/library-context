@@ -52,7 +52,7 @@ canonical; resources append attributed assertion status/kind/qualification/text/
 | Corrected `NEXTEST_TEST_THREADS=8 just test-all` | **failed**, Rust 916 passed / eight failed / two skipped; downstream Python, separate PG and doctests not_run |
 | Current model/native/wire repair controls | **passed**, 51 selected; signed-cursor and final cache envelope covered |
 | CLI exact attempt-ID parser | **passed**, original one selected control |
-| Phase 5 `just hygiene` | **failed**, stale ADR index; named repairs: Clippy and types passed, fixture/gold/rule checks passed; formatting/generators pending |
+| Phase 5 `just hygiene` | **composite passed**, all current source/policy checks including workspace/all-target Clippy; live store reset and final zero-finding CLI check passed |
 | Both-profile fresh pinned FastMCP Catalog journeys and activation | **in progress / not qualified** |
 | Live query embedding | **blocked**, configured endpoint absent; controlled seams establish no live quality |
 
@@ -71,8 +71,8 @@ bounded. No product budget, deadline, guard or oracle assertion was weakened. Th
 fixture now has two eight-argument calls demonstrating the order difference before preparation.
 
 The earlier pinned FastMCP 4.0.5 Catalog compile was quiesced with a scoped SIGINT after source
-and model changed. It stopped after 2h50 elapsed / 2h36 CPU in callable normalization, with 204
-receipts preserved in an unselected staging generation. Its backend and locks are gone. This
+and model changed. It stopped after 2h50 elapsed / 2h36 CPU in callable normalization. Its 204 original receipt records were
+captured before the scoped reset retired that unselected staging generation. This
 is an interrupted obsolete-source preliminary journey, not a stage failure or final-tree Q0.
 A charged, byte-preserving inventory cache and span candidate index now have scoped controls
 and static integration acceptance; original native symbolic/summary controls passed six, and
@@ -101,11 +101,14 @@ frontend thread. Nextest8 caps test processes; it does not request eight threads
 A verified cross-worktree Cargo artifact lock cycle is avoided by serializing builds, with no
 cache cleanup. Earlier compiler SIGTERM remains unexplained, not a proven threading failure.
 
-Next: the requested scoped `just fmt`, `just adr index` and `just build-features` refresh
-exception remains awaiting the operator's response. After source stabilization, rebuild both
-CPython ABIs, read/accept the model digest snapshot, run complete functional/named hygiene
-qualification, then both-profile fresh FastMCP Catalog journeys, explicit vector preparation
-and reviewed activation. The earlier eight gate defects are repaired with current focused
-receipts; the full gate is not promoted to passed. Main preserves all initial 118 dirty paths
-against snapshot `bd22f66c`; semantic-only staging excludes unrelated formatting.
-The end-of-turn hook owns formatting and generators. Its future results are not claimed here.
+Next: the current model is `dac961ba`; both CPython ABIs are rebuilt and installed.
+The digest-only model snapshot is reviewed/accepted; its original control passed. Run the
+complete functional gate, then final-source both-profile FastMCP Catalog journeys, explicit
+vector preparation and reviewed activation.
+The old staging generation was inventoried, its receipt metadata captured, and retired by the
+resumable reset. Local PostgreSQL now uses `max_locks_per_transaction=512` after the operator
+restart; reset passed and the final CLI reports zero generations / zero store findings.
+The earlier eight functional gate defects have focused repair receipts; full Q0 remains pending.
+Main preserves all initial 118 dirty paths against snapshot `bd22f66c`. The automatic hook
+completed ADR indexing/formatting; the authorized feature-union refresh is complete. Formatting
+and generated-file refreshes remain hook-owned; no manual formatter was run.

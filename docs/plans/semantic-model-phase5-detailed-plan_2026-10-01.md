@@ -536,7 +536,7 @@ lowering, manifests, query metadata and final acceptance. No formatting/generato
 | V0 | Implemented / scoped Tested. Full original corrected actual fixture passed 1 / zero skipped, 120.119s, run `ee4c8c95-37b3-45c2-9d3e-3fb002ef230f`; controlled numerical HTTP seam only. Composite receipt retains physical inventory and isolated dependency-sync failures. Later integration is covered by the assembled gate. |
 | N0/N1 | Implemented / scoped Tested. Pure native/condition/selection/evidence controls passed 50. Current ordering-discriminator actual fixture passed 1 / zero skipped, 200.266s; both profiles passed all ten transport controls. The unchanged generated CPython original-path oracle passed 1 / zero skipped, 795.987s after the production ordering repair. |
 | T0/X0 | Implemented / scoped Tested. Current ten-tool/resource bridges and exact final codecs passed in actual transport. 375 inventoried obsolete source files, 21 metadata entries and three obsolete wire assets retired. Independent expectations are re-homed; real retained-service and matcher/preregistration controls passed as scoped composite receipts. Generated-program controls passed 2; actual native oracle now passed. |
-| Q0 | Corrected complete Rust gate failed: 916 passed / eight failed / two skipped; repairs implemented, final functional qualification pending. Hygiene is composite in progress; named Clippy/types/fixture/gold/rule checks passed. Original and corrected logs retained in §10. The preliminary pinned FastMCP Catalog compile was interrupted for changed source/model; its unselected staging receipts are preserved. Final-source both-profile journeys, explicit vector preparation and activation remain pending. Live embedding is separately blocked by the absent configured endpoint. |
+| Q0 | Corrected complete Rust gate failed: 916 passed / eight failed / two skipped; repairs implemented, final functional qualification pending. Hygiene is composite passed after current-tree source checks, dependency refresh and a scoped local-store reset; full functional qualification remains pending. Original and corrected logs retained in §10. The preliminary pinned FastMCP Catalog compile was interrupted for changed source/model; its unselected staging receipts are preserved. Final-source both-profile journeys, explicit vector preparation and activation remain pending. Live embedding is separately blocked by the absent configured endpoint. |
 
 **Build coordination, 2026-10-02:** simultaneous release builds in isolated production worktrees
 formed a verified fine-grain Cargo artifact lock cycle: vector build held shared `allocative` and
@@ -819,24 +819,49 @@ sessions are absent. The original unselected staging generation
 not stage failure. Its Model/producer hashes remain original; fresh final-source both-profile
 journeys are required. No store reset, abort, drop or new compile occurred at quiescence.
 
-**Hygiene, composite in progress, 2026-10-02:** `just hygiene` stopped at the stale ADR index,
-`/tmp/lctx-phase5-hygiene_2026-10-02.log`. Named `just fixtures-check`, `just gold`,
-`just rules-scan` and `just rules-test` passed. Type repairs preserve actual SDK/content/optional
-checks, original context capture, numerical-library typing and the independent original-evidence
-baseline's tokenizer/DF/settings; `just types` passed and the original focused Python command
-passed 11 tests. Logs: `/tmp/lctx-phase5-hygiene-types-python-repair_2026-10-02.log` and
-`/tmp/lctx-phase5-hygiene-python-focused-corrected_2026-10-02.log`; initial wrong test-path
-invocation is retained as no collected result. `just clippy` passed after named mechanical
-repairs, `/tmp/lctx-phase5-hygiene-clippy-final_2026-10-02.log`. Inline finite packets/refusal
-frames retain existing allocation accounting rather than introducing uncharged heap indirection.
-The exact ID parser also refuses signed byte pairs; cursor/control hex readers now reject them
-explicitly. Existing cursor controls add signed-tab framing rejection. `just deps` now passes
-family/license/fork/shear and stops at the expected Hakari union diff after dependency retirement;
-`/tmp/lctx-phase5-hygiene-deps-repaired_2026-10-02.log`. An unchanged unlinked store fixture was
-inventoried and retired: `/tmp/lctx-phase5-unlinked-fixture-retirement_2026-10-02.json`; its live
-control uses the current model fixture. ADR/docs and feature-union refreshes, remaining Ruff
-line-length/SIM117 repairs, live store check and final functional qualification remain pending.
-The requested scoped formatter/generator exception is not presumed approved.
+**Hygiene, composite passed, 2026-10-02:** the earlier `just hygiene` failure at
+ADR lint is retained in `/tmp/lctx-phase5-hygiene_2026-10-02.log`. After the automatic
+ADR/formatting hook, `just hygiene` reached Ruff and found eight residual line lengths:
+`/tmp/lctx-phase5-hygiene-current_2026-10-02.log`. The recovery SQL/constants and embedded
+oracle AST remain unchanged after those repairs; nine focused Python controls passed in
+`/tmp/lctx-phase5-hygiene-script-repairs-corrected_2026-10-02.log`. The initial wrong test-path
+invocation collected nothing and is not a pass. `just ruff` and `just types` passed their
+named final reruns. The authorized `just build-features` refreshed the retired dependency
+union; `just deps` passed, `/tmp/lctx-phase5-hygiene-deps-final_2026-10-02.log`.
+
+The final `PYO3_PYTHON=.venv/bin/python just hygiene` passed all source/policy checks,
+including workspace/all-target `cargo clippy --release --workspace --all-targets --quiet --
+-D warnings`, and stopped only at the obsolete local installation:
+`/tmp/lctx-phase5-hygiene-final_2026-10-02.log`. The CLI and both CPython bridges were
+rebuilt from the refreshed tree and installed; build passed in 8m32s, model
+`dac961ba186c11b01144120a749e0be4d3c7aec8fe7bd908a052850955fbf025`.
+Original gate/repair receipts retain their earlier source boundary; this is not a full
+functional or real-library qualification.
+
+The scoped reset inventoried only the interrupted, unselected `aed6c594573c68b317428c1212383869`
+generation. Its 205 generation/output receipt records were captured in
+`/tmp/lctx-phase5-hygiene-obsolete-generation-receipts_2026-10-02.jsonl` before retirement.
+Reset initially exhausted PostgreSQL's default shared lock table at 1,086 tables / 11,914
+constraints, after withdrawing installation. Local administration configured
+`max_locks_per_transaction=512`; the operator restarted the system service because the
+agent OS account lacks passwordless sudo. Readback verified `512`, `pending_restart=false`.
+The resumable reset then passed, `/tmp/lctx-phase5-hygiene-store-reset-resumed_2026-10-02.log`,
+and named `just store-check` passed with zero generations / zero findings,
+`/tmp/lctx-phase5-hygiene-store-final_2026-10-02.log`. Its final build and CLI steps both passed. This closes the live-store component
+of the same-tree composite hygiene receipt. The runbook owns the current local capacity
+prerequisite. No formatter was run manually, and no runtime compatibility generation remains.
+
+
+**Model digest snapshot migration, Tested, 2026-10-02:** the original model-description
+control produced a new snapshot with only the model digest changed from `e66cccc2` to
+`dac961ba`; the full `.snap.new` diff and parsed relation/invariant/codebook bodies were
+reviewed and verified unchanged. Scoped `cargo insta accept --manifest-path
+crates/lctx/Cargo.toml --snapshot model_describe__model_describe.snap` accepted that contract
+migration. The original `INSTA_UPDATE=no ... cargo nextest run --release -p lctx --test
+model_describe --no-fail-fast` rerun passed one / zero skipped:
+`/tmp/lctx-phase5-model-snapshot-accepted_2026-10-02.log`. The pre-acceptance failure is
+retained in `/tmp/lctx-phase5-model-snapshot-final_2026-10-02.log`; this is not a new
+semantic relation or codebook change.
 
 
 **Current model/native/wire repairs, passed, 2026-10-02:** normalized

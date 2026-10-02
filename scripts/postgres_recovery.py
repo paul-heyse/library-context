@@ -101,7 +101,8 @@ def roots(session):
             "ORDER BY n.nspname,c.relname),'[]') "
             "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
             "WHERE c.relkind IN ('r','p') AND NOT c.relispartition AND "
-            "NOT (n.nspname='lctx_cache' AND c.relname IN ('serving_vectors','serving_vector_artifacts')) AND "
+            "NOT (n.nspname='lctx_cache' AND "
+            "c.relname IN ('serving_vectors','serving_vector_artifacts')) AND "
             "(n.nspname IN ('lctx_cache','lctx_ops') OR "
             "(n.nspname='public' AND c.relname='_sqlx_migrations'));"
         )
@@ -159,7 +160,9 @@ def backup(config, archive):
         protected(config)
         settings = json.loads(config.read_text())
     env = connection_env(settings["migration_url"])
-    env["PGOPTIONS"] = "-c statement_timeout=900000 -c lock_timeout=5000 -c default_transaction_read_only=on"
+    env["PGOPTIONS"] = (
+        "-c statement_timeout=900000 -c lock_timeout=5000 -c default_transaction_read_only=on"
+    )
     archive.parent.mkdir(parents=True, exist_ok=True)
     receipt = archive.with_suffix(archive.suffix + ".json")
     if archive.exists() or receipt.exists():
@@ -168,26 +171,52 @@ def backup(config, archive):
     session = Session(env)
     started = time.monotonic()
     try:
-        snapshot = session.one("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SELECT pg_export_snapshot();")
+        snapshot = session.one(
+            "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SELECT pg_export_snapshot();"
+        )
         tables = roots(session)
         state = fingerprints(session, tables)
-        run(["pg_dump", "--format=custom", "--snapshot", snapshot,
-             *[f"--table={table}" for table in TABLES],
-             "--file", str(archive)], env=env, capture_output=True)
+        run(
+            [
+                "pg_dump",
+                "--format=custom",
+                "--snapshot",
+                snapshot,
+                *[f"--table={table}" for table in TABLES],
+                "--file",
+                str(archive),
+            ],
+            env=env,
+            capture_output=True,
+        )
         list(session.lines("COMMIT;"))
         with archive.open("rb") as stream:
             checksum = hashlib.file_digest(stream, "sha256").hexdigest()
             os.fsync(stream.fileno())
-        result = dict(format=4, scope="retained-services", fingerprint_algorithm="sha256-sorted-row-sha256-v2",
-                      sha256=checksum, tables=state,
-                      image=(ROOT / "specs/postgres-vector-image.txt").read_text().strip())
+        result = dict(
+            format=4,
+            scope="retained-services",
+            fingerprint_algorithm="sha256-sorted-row-sha256-v2",
+            sha256=checksum,
+            tables=state,
+            image=(ROOT / "specs/postgres-vector-image.txt").read_text().strip(),
+        )
         pending = receipt.with_suffix(receipt.suffix + ".incomplete")
         secret(pending, result)
         with pending.open("rb") as stream:
             os.fsync(stream.fileno())
         pending.rename(receipt)
         sync_directory(receipt.parent)
-        print(json.dumps(dict(outcome="passed", receipt_format=4, tables=len(state), seconds=time.monotonic()-started)))
+        print(
+            json.dumps(
+                dict(
+                    outcome="passed",
+                    receipt_format=4,
+                    tables=len(state),
+                    seconds=time.monotonic() - started,
+                )
+            )
+        )
     finally:
         session.close()
 
@@ -200,29 +229,107 @@ def restore(archive):
     protected(receipt)
     expected = json.loads(receipt.read_text())
     image = (ROOT / "specs/postgres-vector-image.txt").read_text().strip()
-    if (expected.get("format") != 4 or expected.get("scope") != "retained-services"
+    if (
+        expected.get("format") != 4
+        or expected.get("scope") != "retained-services"
         or expected.get("fingerprint_algorithm") != "sha256-sorted-row-sha256-v2"
-        or set(expected.get("tables", {})) != set(TABLES) or expected.get("image") != image):
-        raise RuntimeError("unsupported retained-service recovery receipt; rebuild semantic generations from pinned inputs")
+        or set(expected.get("tables", {})) != set(TABLES)
+        or expected.get("image") != image
+    ):
+        raise RuntimeError(
+            "unsupported retained-service recovery receipt; "
+            "rebuild semantic generations from pinned inputs"
+        )
     with archive.open("rb") as stream:
         if hashlib.file_digest(stream, "sha256").hexdigest() != expected["sha256"]:
             raise RuntimeError("backup checksum mismatch")
-    container = run(["docker", "run", "--rm", "--detach", "--publish", "127.0.0.1::5432",
-                     "--env", "POSTGRES_PASSWORD=fixture-only", image], capture_output=True).stdout.strip()
+    container = run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--detach",
+            "--publish",
+            "127.0.0.1::5432",
+            "--env",
+            "POSTGRES_PASSWORD=fixture-only",
+            image,
+        ],
+        capture_output=True,
+    ).stdout.strip()
     try:
         for _ in range(120):
-            if subprocess.run(["docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], capture_output=True).returncode == 0:
+            if (
+                subprocess.run(
+                    [
+                        "docker",
+                        "exec",
+                        container,
+                        "pg_isready",
+                        "-h",
+                        "127.0.0.1",
+                        "-U",
+                        "postgres",
+                    ],
+                    capture_output=True,
+                ).returncode
+                == 0
+            ):
                 break
             time.sleep(0.25)
         else:
             raise RuntimeError("recovery database did not become ready")
-        port = json.loads(run(["docker", "inspect", container], capture_output=True).stdout)[0]["NetworkSettings"]["Ports"]["5432/tcp"][0]["HostPort"]
-        command = ["docker", "exec", "-i", container, "psql", "-X", "-qAt", "-U", "postgres", "-v", "ON_ERROR_STOP=1"]
-        run(command, input=" ".join(f"CREATE ROLE {r} LOGIN PASSWORD 'fixture-only';" for r in ("lctx_app", "lctx_migrator", "lctx_importer", "lctx_serving")) + " CREATE DATABASE lctx OWNER lctx_migrator;", capture_output=True)
+        port = json.loads(run(["docker", "inspect", container], capture_output=True).stdout)[0][
+            "NetworkSettings"
+        ]["Ports"]["5432/tcp"][0]["HostPort"]
+        command = [
+            "docker",
+            "exec",
+            "-i",
+            container,
+            "psql",
+            "-X",
+            "-qAt",
+            "-U",
+            "postgres",
+            "-v",
+            "ON_ERROR_STOP=1",
+        ]
+        run(
+            command,
+            input=" ".join(
+                f"CREATE ROLE {r} LOGIN PASSWORD 'fixture-only';"
+                for r in ("lctx_app", "lctx_migrator", "lctx_importer", "lctx_serving")
+            )
+            + " CREATE DATABASE lctx OWNER lctx_migrator;",
+            capture_output=True,
+        )
         # Table-only dumps deliberately exclude semantic schemas and do not create namespaces.
-        run([*command,"-d","lctx"], input="CREATE SCHEMA lctx_cache AUTHORIZATION lctx_migrator; CREATE SCHEMA lctx_ops AUTHORIZATION lctx_migrator; REVOKE ALL ON SCHEMA lctx_cache,lctx_ops FROM PUBLIC; GRANT USAGE ON SCHEMA lctx_cache,lctx_ops TO lctx_app;", capture_output=True)
-        run(["docker", "cp", str(archive), container+":/tmp/lctx.dump"], capture_output=True)
-        run(["docker", "exec", container, "pg_restore", "-U", "postgres", "--dbname=lctx", "--exit-on-error", "/tmp/lctx.dump"], capture_output=True)
+        run(
+            [*command, "-d", "lctx"],
+            input=(
+                "CREATE SCHEMA lctx_cache AUTHORIZATION lctx_migrator; "
+                "CREATE SCHEMA lctx_ops AUTHORIZATION lctx_migrator; "
+                "REVOKE ALL ON SCHEMA lctx_cache,lctx_ops FROM PUBLIC; "
+                "GRANT USAGE ON SCHEMA lctx_cache,lctx_ops TO lctx_app;"
+            ),
+            capture_output=True,
+        )
+        run(["docker", "cp", str(archive), container + ":/tmp/lctx.dump"], capture_output=True)
+        run(
+            [
+                "docker",
+                "exec",
+                container,
+                "pg_restore",
+                "-U",
+                "postgres",
+                "--dbname=lctx",
+                "--exit-on-error",
+                "/tmp/lctx.dump",
+            ],
+            capture_output=True,
+        )
         session = Session(connection_env(f"postgres://postgres:fixture-only@127.0.0.1:{port}/lctx"))
         try:
             actual = fingerprints(session, roots(session))
@@ -231,7 +338,28 @@ def restore(archive):
         if actual != expected["tables"]:
             raise RuntimeError("restored retained-service fingerprints differ")
         attempt = uuid.uuid4().hex
-        run([*command,"-d","lctx"], input="SET ROLE lctx_app; INSERT INTO lctx_ops.attempts(attempt_id,compiler_digest,library,store_path) " + f"VALUES(decode('{attempt}','hex'),decode(repeat('00',32),'hex'),'recovery-probe','disposable'); " + "INSERT INTO lctx_ops.events(attempt_id,event_key,kind,detail) " + f"VALUES(decode('{attempt}','hex'),'recovery-probe','started','recovered writer verified'); RESET ROLE;", capture_output=True)
-        print(json.dumps(dict(outcome="passed", scope="retained-services", tables=len(actual), semantic_generations="rebuild_from_pinned_inputs")))
+        run(
+            [*command, "-d", "lctx"],
+            input=(
+                "SET ROLE lctx_app; "
+                "INSERT INTO lctx_ops.attempts(attempt_id,compiler_digest,library,store_path) "
+                + f"VALUES(decode('{attempt}','hex'),decode(repeat('00',32),'hex'),"
+                "'recovery-probe','disposable'); "
+                + "INSERT INTO lctx_ops.events(attempt_id,event_key,kind,detail) "
+                + f"VALUES(decode('{attempt}','hex'),'recovery-probe','started',"
+                "'recovered writer verified'); RESET ROLE;"
+            ),
+            capture_output=True,
+        )
+        print(
+            json.dumps(
+                dict(
+                    outcome="passed",
+                    scope="retained-services",
+                    tables=len(actual),
+                    semantic_generations="rebuild_from_pinned_inputs",
+                )
+            )
+        )
     finally:
         run(["docker", "rm", "--force", container], stdout=subprocess.DEVNULL)

@@ -4,8 +4,9 @@ A lexical pass over Rust source: it masks comments and string/char literals, fin
 a dependency the file's own package declares (`root::...`, `use root;`, `::root::...`, and the
 `$crate::__private::root::` macro re-export form), and tags every reference as test code when it
 sits in a `#[cfg(test)]` or `#[test]` item. Nothing is parsed or resolved, so it runs the same on a
-tree that does not compile. It does not see re-exports (`lctx_model::domain::__private::RecordBatch` counts for
-`lctx_model`, an internal crate, not for arrow) or inferred method calls;
+tree that does not compile. It does not see re-exports
+(`lctx_model::domain::__private::RecordBatch` counts for `lctx_model`, an internal crate, not for
+arrow) or inferred method calls;
 docs/library-utilization.md lists that as the reason for the later semantic stage.
 """
 
