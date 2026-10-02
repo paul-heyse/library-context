@@ -82,7 +82,7 @@ def main() -> None:
             receipt = args.archive.with_suffix(args.archive.suffix + ".json")
             protected(receipt)
             version = json.loads(receipt.read_text()).get("format")
-            if version == 3:
+            if version == 4:
                 from postgres_recovery import restore
 
                 restore(args.archive)

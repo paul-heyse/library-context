@@ -13,6 +13,9 @@ Evaluation only: nothing here feeds the compiler (§1.4).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+import posixpath
+import re
 
 MATCHER_VERSION = 2
 
@@ -90,3 +93,63 @@ def hits(family: Family, seed: bytes) -> bool:
 def node_of(public_paths: list[dict], path: str) -> bytes | None:
     """The node a public path names, or None (the same lookup as `resolve`)."""
     return paths(public_paths).get(path)
+
+
+def span_recall(
+    gold: list[dict],
+    evidence: dict[str, list[tuple[int, int]]],
+    sources: Path,
+    touched: set[str],
+) -> tuple[list[int], list[int], int]:
+    """(c): recalled and total spans, overall and in touched families, and how many the sources
+    could not map. An unmapped span is a miss, never out of the denominator (R2 F2)."""
+    recall_all = [0, 0]
+    recall_touched = [0, 0]
+    unmapped = 0
+    for f in gold:
+        for span in f["source_spans"]:
+            starts = line_spans(sources, span["path"])
+            hit = False
+            if starts is None or span["line_end"] >= len(starts):
+                unmapped += 1
+            else:
+                a, z = starts[span["line_start"] - 1], starts[span["line_end"]]
+                hit = any(s < z and a < e for s, e in evidence.get(span["path"], []))
+            recall_all[0] += hit
+            recall_all[1] += 1
+            if f["id"] in touched:
+                recall_touched[0] += hit
+                recall_touched[1] += 1
+    return recall_all, recall_touched, unmapped
+
+
+def line_spans(sources: Path, path: str) -> list[int] | None:
+    """The byte offset of each line start of a release file (and its end)."""
+    file = sources / path
+    if not file.exists():
+        return None
+    data = file.read_bytes()
+    starts = [0]
+    for i, b in enumerate(data):
+        if b == 0x0A:
+            starts.append(i + 1)
+    starts.append(len(data))
+    return starts
+
+
+
+SOURCE = re.compile(r"^(?P<path>[^:]+):(?P<start>\d+)(?:-(?P<end>\d+))?$")
+
+def source_ranges(root: str, item: dict) -> list[tuple[str, int, int]]:
+    """The item's `path:start-end` citations as served paths (`<root>/<path>`, `../` siblings)."""
+    out = []
+    for cited in item.get("source", []):
+        m = SOURCE.match(cited)
+        if m is None:
+            continue
+        path = posixpath.normpath(posixpath.join(root, m["path"]))
+        start = int(m["start"])
+        out.append((path, start, int(m["end"] or start)))
+    return out
+
+

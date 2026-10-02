@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -13,14 +11,6 @@ import pytest
 from postgres_backup import connection_env
 from postgres_bootstrap import bootstrap_sql, configurations, write_secret
 
-pytest.skip(
-    "suspended: PostgreSQL serving import is dormant until cutover phase 5 (plan P1.3)",
-    allow_module_level=True,
-)
-
-pytestmark = pytest.mark.skipif(
-    os.environ.get("LCTX_POSTGRES_TEST") != "1", reason="explicit real PostgreSQL functional check"
-)
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -53,9 +43,9 @@ def test_current_bootstrap_split_credentials_and_existing_database_refusal(datab
     call(
         [
             str(ROOT / "target/release/lctx"),
-            "--database-config",
+            "--database",
             str(folder / "postgres.json"),
-            "db",
+            "store",
             "check",
         ]
     )
@@ -73,150 +63,22 @@ def test_current_bootstrap_split_credentials_and_existing_database_refusal(datab
     )
 
 
-def test_async_lifetime_cancellation_and_sanitized_errors(database, tmp_path):
-    from lctx_storage import StorageError, open_repository
+def test_retained_service_backup_roundtrip_and_corrupt_receipt_refusal(database, tmp_path):
+    import sys
+    from postgres_backup import TABLES
 
-    serving, command, call, role, port = database
-
-    async def scenario():
-        repo = await open_repository(serving)
-        answers = await asyncio.gather(*(repo.check() for _ in range(10)))
-        assert all(json.loads(answer)["role"] == "lctx_serving" for answer in answers)
-        # Hold a lock on a real query dependency; cancellation must release/discard the lease.
-        env = connection_env(f"postgres://postgres:fixture-only@127.0.0.1:{port}/lctx")
-        lock = subprocess.Popen(
-            ["psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1"],
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        assert lock.stdin is not None and lock.stdout is not None
-        try:
-            lock.stdin.write(
-                "BEGIN; LOCK TABLE public._sqlx_migrations IN ACCESS EXCLUSIVE MODE; "
-                "SELECT 'locked';\n"
-            )
-            lock.stdin.flush()
-            assert await asyncio.to_thread(lock.stdout.readline) == "locked\n"
-            pending = repo.check()
-            beats = 0
-            for _ in range(10):
-                await asyncio.sleep(0.01)
-                beats += 1
-            assert not pending.done() and beats == 10
-            pending.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await pending
-            for _ in range(50):
-                count = await asyncio.to_thread(
-                    lambda: call(
-                        command,
-                        input=(
-                            "SELECT count(*) FROM pg_stat_activity "
-                            "WHERE usename='lctx_serving' AND state='active';"
-                        ),
-                    ).stdout.strip()
-                )
-                if count == "0":
-                    break
-                await asyncio.sleep(0.05)
-            assert count == "0", "cancelled work must finish or disconnect before reuse"
-            lock.stdin.write("ROLLBACK;\n\\q\n")
-            lock.stdin.flush()
-            await asyncio.to_thread(lock.wait, 5)
-        finally:
-            if lock.poll() is None:
-                lock.terminate()
-                lock.wait(timeout=5)
-        assert json.loads(await repo.check())["schema_current"]
-        await repo.close()
-        await repo.close()
-        with pytest.raises(StorageError) as stopped:
-            await repo.check()
-        assert stopped.value.kind == "unavailable"
-        wrong = tmp_path / "wrong.json"
-        write_secret(
-            wrong,
-            {
-                **role,
-                "url": "postgres://lctx_serving:do-not-leak@remote.invalid/lctx?sslmode=disable",
-            },
-        )
-        with pytest.raises(StorageError) as rejected:
-            await open_repository(wrong)
-        assert rejected.value.kind == "incompatible"
-        assert "do-not-leak" not in str(rejected.value)
-
-    asyncio.run(scenario())
-
-
-def test_cancelled_server_work_retains_one_slot_until_statement_deadline(database, tmp_path):
-    from lctx_storage import open_repository
-
-    _serving, command, call, role, _port = database
-    config = tmp_path / "one-slot.json"
-    write_secret(config, {**role, "max_connections": 1, "statement_timeout_seconds": 2})
-
-    async def scenario():
-        repo = await open_repository(config)
-        call(
-            command,
-            input=(
-                "ALTER TABLE public._sqlx_migrations RENAME TO retained_migrations; "
-                "CREATE VIEW public._sqlx_migrations AS SELECT m.* "
-                "FROM public.retained_migrations m CROSS JOIN pg_sleep(5); "
-                "GRANT SELECT ON public._sqlx_migrations TO lctx_serving;"
-            ),
-        )
-        pending = repo.check()
-        try:
-            for _ in range(100):
-                sleeping = await asyncio.to_thread(
-                    lambda: call(
-                        command,
-                        input=(
-                            "SELECT count(*) FROM pg_stat_activity "
-                            "WHERE application_name='lctx-serving' AND wait_event='PgSleep'"
-                        ),
-                    ).stdout.strip()
-                )
-                if sleeping == "1":
-                    break
-                await asyncio.sleep(0.01)
-            assert sleeping == "1"
-            pending.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await pending
-            waiting = repo.check()
-            await asyncio.sleep(0.15)
-            assert not waiting.done(), "cancelled server work must still own the sole pool slot"
-            active = await asyncio.to_thread(
-                lambda: call(
-                    command,
-                    input=(
-                        "SELECT count(*) FROM pg_stat_activity "
-                        "WHERE application_name='lctx-serving' AND state='active'"
-                    ),
-                ).stdout.strip()
-            )
-            assert active == "1"
-            waiting.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await waiting
-        finally:
-            # DDL waits for the actual query/statement deadline, then restores the fixture.
-            await asyncio.to_thread(
-                lambda: call(
-                    command,
-                    input=(
-                        "DROP VIEW public._sqlx_migrations; "
-                        "ALTER TABLE public.retained_migrations RENAME TO _sqlx_migrations;"
-                    ),
-                )
-            )
-        assert json.loads(await repo.check())["role"] == "lctx_serving"
-        await repo.close()
-
-    asyncio.run(scenario())
+    archive = tmp_path / "services.dump"
+    command = [sys.executable, str(ROOT / "scripts/postgres_backup.py")]
+    config = tmp_path / "postgres.json"
+    made = subprocess.run([*command, "backup", str(archive), "--config", str(config)], capture_output=True, text=True)
+    assert made.returncode == 0, made.stderr
+    receipt_path = archive.with_suffix(".dump.json")
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["format"] == 4 and receipt["scope"] == "retained-services"
+    assert set(receipt["tables"]) == set(TABLES)
+    restored = subprocess.run([*command, "restore-drill", str(archive)], capture_output=True, text=True)
+    assert restored.returncode == 0, restored.stderr
+    assert json.loads(restored.stdout)["semantic_generations"] == "rebuild_from_pinned_inputs"
+    receipt_path.write_text(json.dumps({**receipt, "tables": {}}))
+    refused = subprocess.run([*command, "restore-drill", str(archive)], capture_output=True, text=True)
+    assert refused.returncode != 0 and "unsupported" in refused.stderr

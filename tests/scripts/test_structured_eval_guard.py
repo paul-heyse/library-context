@@ -6,7 +6,7 @@ import hashlib
 import tomllib
 from pathlib import Path
 
-import structured_eval
+from gold_match import source_ranges
 
 REPO = Path(__file__).resolve().parents[2]
 QUESTIONS = REPO / "eval" / "behavior" / "fastmcp-4.0.5.toml"
@@ -45,12 +45,14 @@ def test_requests_are_evaluation_only() -> None:
             assert r["operation"], r["id"]
         if r["tool"] == "inspect_value_paths":
             assert r["formal"], r["id"]
-            structured_eval.value_paths.ExactPrimitive.model_validate(r["exact_input"])
+            # This is the sealed preregistration vocabulary, not the current serving DTO.
+            assert r["exact_input"]["kind"] == "str"
+            assert isinstance(r["exact_input"]["value"], str)
 
 
 def test_source_ranges_map_to_served_paths() -> None:
     item = {"source": ["server/server.py:1951-1966", "../fastmcp_tasks/a.py:3", "docs/x.mdx"]}
-    assert structured_eval._ranges("fastmcp", item) == [
+    assert source_ranges("fastmcp", item) == [
         ("fastmcp/server/server.py", 1951, 1966),
         ("fastmcp_tasks/a.py", 3, 3),
     ]

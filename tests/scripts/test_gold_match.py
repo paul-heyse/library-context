@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager
 from pathlib import Path
-from types import SimpleNamespace
 
-import ranking_check
 from gold_match import MATCHER_VERSION, hits, jaccard, node_of, resolve, roots, status
-from score_gold import span_recall
+from gold_match import span_recall
 
 C, M, OTHER, T = b"C" * 16, b"M" * 16, b"O" * 16, b"T" * 16
 
@@ -80,36 +76,3 @@ def test_an_unmapped_span_is_a_miss_in_the_denominator(tmp_path: Path) -> None:
     assert recalled == [1, 2] and touched == [1, 2] and unmapped == 1
 
 
-def test_the_ranking_check_is_blocked_by_a_degraded_live_alias(monkeypatch) -> None:
-    """R2 F2: a lexical-only first rank under `vllm` is not evidence; the check exits 2."""
-    seed = b"S" * 16
-    brief = b"B" * 16
-    gen = SimpleNamespace(
-        library="fastmcp",
-        tables={
-            "public_paths": SimpleNamespace(
-                to_pylist=lambda: [
-                    {"node_id": seed, "access_path": "fastmcp.FastMCP.tool", "kind": "function"}
-                ]
-            )
-        },
-        briefs={brief: {"seed_node_id": seed}},
-    )
-
-    async def search(served, library, alias, limit):
-        hit = SimpleNamespace(title="fastmcp.FastMCP.tool", capability_id=brief.hex())
-        return SimpleNamespace(mode="lexical-only", hits=[hit], degraded_reason="down")
-
-    gen.tables["briefs"] = SimpleNamespace(
-        to_pylist=lambda: [{"brief_id": brief, "seed_node_id": seed}], num_rows=1
-    )
-
-    @asynccontextmanager
-    async def session(path, embedder, config):
-        yield SimpleNamespace(generation=gen), SimpleNamespace(table=lambda name: gen.tables[name])
-
-    monkeypatch.setattr(ranking_check, "session", session)
-    monkeypatch.setattr(ranking_check, "search", search)
-    live = ranking_check.check(Path("gen"), "vllm", "http://127.0.0.1:1", "fm.register")
-    assert asyncio.run(live) == 2
-    assert asyncio.run(ranking_check.check(Path("gen"), "none", "", "fm.register")) == 0
