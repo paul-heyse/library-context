@@ -163,6 +163,23 @@ pub async fn run(
         "probe must read every declared replay input"
     );
     let behavioral = access.profile() == Profile::Behavioral;
+    // Unconditional reader and constructor observations may share one qualification.
+    // Corrupt an actual distinct native qualification, independently of batch order.
+    let mut qualification_target = None;
+    if behavioral {
+        for (input, batch) in &batches {
+            if input.name() == execution::summary_symbolic::SymbolicFieldAlternative::NAME {
+                for row in execution::summary_symbolic::SymbolicFieldAlternative::decode(batch)? {
+                    if row.reader_qualification != row.constructor_qualification
+                        && qualification_target.is_none_or(|target| row.id() < target)
+                    {
+                        qualification_target = Some(row.id());
+                    }
+                }
+            }
+        }
+        assert!(qualification_target.is_some(), "qualification mutation needs a distinct native target");
+    }
     for mutation in 0..=11 {
         if !behavioral && mutation > 1 {
             continue;
@@ -226,7 +243,8 @@ pub async fn run(
             }
             if mutation == 10 && i.name() == execution::summary_symbolic::SymbolicFieldAlternative::NAME {
                 let mut rows = execution::summary_symbolic::SymbolicFieldAlternative::decode(&batch)?;
-                if let Some(row) = rows.first_mut() {
+                if let Some(row) = rows.iter_mut().find(|row| Some(row.id()) == qualification_target) {
+                    assert_ne!(row.reader_qualification, row.constructor_qualification);
                     row.reader_qualification = row.constructor_qualification;
                     changed = true;
                 }

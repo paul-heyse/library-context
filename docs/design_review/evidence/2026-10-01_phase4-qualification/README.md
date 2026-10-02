@@ -169,3 +169,20 @@ this repair changes no producer, boundary or production declaration.
 The full current-tree `just clippy` [clippy9](raw/phase4-q0-clippy9.log) **passed** after
 the explicit result-match correction. The complete `NEXTEST_TEST_THREADS=8 just test-all`
 rerun is in progress; passing focused repairs and installation checks do not establish its result.
+
+The complete `NEXTEST_TEST_THREADS=8 just test-all` [full4](raw/phase4-q0-test-all4.log)
+**failed** after a successful2m25s build: 993 tests ran, 992 passed, one failed, 12 skipped
+(1005.025s). All prior fixture/schema repairs passed, including both cumulative CLI controls
+(310.842s and670.091s). Python, the separate PostgreSQL gate and doctests were **not_run**.
+The sole failure was Summary mutation10: its first-row constructor/reader qualification replacement
+could be a no-op for a legitimate unconditional native observation. Shared replay rederives every
+symbolic alternative and compares all fields; the repair selects the minimum actual row ID with
+distinct qualifications and asserts inequality before corruption. Allten negative controls remain.
+This test-only repair was made after its binary had completed; full4 retains the old control's failure.
+The focused rerun and subsequent complete current-tree gate are pending.
+
+The repaired `cargo nextest run --release -p cpg-core --test summary_publication
+--no-fail-fast` [summary5](raw/phase4-q0-summary5.log) **passed** both actual PostgreSQL
+profiles (96.791s), including both intact/permuted controls and allten genuine corruption
+refusals. `just clippy` [clippy10](raw/phase4-q0-clippy10.log) **passed** for the current
+release workspace/all-targets tree. The subsequent complete functional rerun remains pending.
