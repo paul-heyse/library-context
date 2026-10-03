@@ -159,6 +159,8 @@ macro_rules! native_analysis_pairs {
         68: TypeQuery => $crate::domain::types::TypeQueryObservation, $crate::domain::types::TypeQuerySupport;
         55: GenericSpecialization => $crate::domain::types::GenericSpecializationObservation, $crate::domain::types::GenericSpecializationSupport;
         64: ExportEnumeration => $crate::domain::symbols::ExportEnumerationObservation, $crate::domain::symbols::ExportEnumerationSupport;
+        70: RuffBindingObservation => $crate::domain::ruff::RuffBindingObservation, $crate::domain::ruff::RuffBindingSupport;
+        71: RuffDefinitionObservation => $crate::domain::ruff::RuffDefinitionObservation, $crate::domain::ruff::RuffDefinitionSupport;
     } };
 }
 crate::native_analysis_pairs!(native_pairs);

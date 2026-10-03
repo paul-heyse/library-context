@@ -117,6 +117,10 @@ fn outputs() -> Vec<RelationUse> {
         Occurrence,
         RuffContextObservation,
         RuffContextSupport,
+        RuffBindingObservation,
+        RuffBindingSupport,
+        RuffDefinitionObservation,
+        RuffDefinitionSupport,
         SyntaxObservation,
         SyntaxSupport,
         SyntaxPlacement,
@@ -276,6 +280,10 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             Occurrence,
             RuffContextObservation,
         RuffContextSupport,
+        RuffBindingObservation,
+        RuffBindingSupport,
+        RuffDefinitionObservation,
+        RuffDefinitionSupport,
         SyntaxObservation,
             SyntaxSupport,
             SyntaxPlacement,
@@ -815,12 +823,7 @@ fn session<S: StageSink + 'static>(
             ((0, 0), 0, false, false, false);
         let syntax = match emitted {
             Ok(_) => {
-                let contextual=canonical.context_rows(&spans,&qualification,context.budget())?;
-                if contextual.incomplete.is_some() || contextual.unlocated>0 {ruff_context_incomplete=Some(format!("contextual pass: {:?}; {} unattached source contexts",contextual.incomplete,contextual.unlocated));}
-                for row in &contextual.rows {
-                    context.emit(RuffContextSupport { assertion:row.id(),run:ruff_run.id(),surface:ruff_context_surface.id(),evidence:Evidence::Occurrence {occurrence:row.subject}.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural })?;
-                    context.emit(row.clone())?;
-                }
+                let mut contextual=canonical.context_rows(&spans,&qualification,context.budget())?;
                 let records = syntax_records::records(
                     &ast,
                     &module_name,
@@ -851,6 +854,13 @@ fn session<S: StageSink + 'static>(
                 let facts = lexical_records::facts(ast, &spans, &static_decisions, &outside, &stars)?;
                 let lexical =
                     lexical_records::records(&facts, &spans, qualification.id(), candidate.id())?;
+                let native_lexical=contextual.lower_lexical(&spans,&lexical,&qualification,candidate.id(),context.budget())?;
+                if contextual.incomplete.is_some() || contextual.unlocated>0 {ruff_context_incomplete=Some(format!("contextual pass: {:?}; {} unattached source contexts",contextual.incomplete,contextual.unlocated));}
+                for row in &contextual.rows {
+                    context.emit(RuffContextSupport { assertion:row.id(),run:ruff_run.id(),surface:ruff_context_surface.id(),evidence:Evidence::Occurrence {occurrence:row.subject}.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural })?;
+                    context.emit(row.clone())?;
+                }
+                write_native_lexical(context,native_lexical,&lexical,&ruff_run,&ruff_context_surface)?;
                 write_lexical(context, lexical, &|subject| {
                     support(FactFamily::Lexical, subject)
                 })?;
@@ -2577,5 +2587,19 @@ fn write_types<S: StageSink + 'static>(
             detail: Some(detail),
         })?;
     }
+    Ok(())
+}
+
+fn write_native_lexical<S:StageSink+'static>(context:&mut StageContext<S>, rows:crate::ruff_lexical::NativeLexicalRecords, source:&lexical_records::LexicalRecords, run:&ProviderRun, surface:&ProviderSurface)->Result<(),ModelError> {
+    macro_rules! support {($ty:ident,$row:expr,$subject:expr)=>{{let row=$row;let evidence=Evidence::Occurrence{occurrence:$subject};context.contribute(evidence.clone())?;context.emit($ty{assertion:row.id(),run:run.id(),surface:surface.id(),evidence:evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;}};}
+    for scope in &rows.scopes {context.emit(scope.clone())?;}
+    for (row,emit) in &rows.scope_observations {
+        let scope=rows.scopes.iter().chain(source.scopes.iter()).find(|s|s.id()==row.scope).ok_or_else(||invalid("native scope evidence has no canonical owner".into()))?;
+        support!(LexicalScopeSupport,row,scope.owner);if *emit{context.emit(row.clone())?;}
+    }
+    for row in &rows.bindings {let event=rows.events.iter().find(|e|e.id()==row.event).ok_or_else(||invalid("native binding evidence has no canonical event".into()))?;support!(RuffBindingSupport,row,event.site);context.emit(row.clone())?;}
+    for row in &rows.definitions {support!(RuffDefinitionSupport,row,row.declaration);context.emit(row.clone())?;}
+    for target in &rows.targets {if !source.targets.iter().any(|t|t.id()==target.id()){context.emit(target.clone())?;}}
+    for (row,emit) in &rows.resolutions {support!(LexicalResolutionSupport,row,row.read);if *emit {context.emit(row.clone())?;}}
     Ok(())
 }

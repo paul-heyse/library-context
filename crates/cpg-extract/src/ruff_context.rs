@@ -1,6 +1,6 @@
 //! One latest-Ruff parse of verified captured bytes, shared by syntax and contextual observation.
 use lctx_model::domain::{
-    ContentHash, ModelError,
+    ContentHash, HeapSize, ModelError,
     attribution::AnalysisContext,
     resources::{Reservation, ResourceBudget},
     source::SourceArtifact,
@@ -79,15 +79,18 @@ use lctx_model::domain::Record;
 pub fn provider() -> lctx_model::domain::attribution::Provider {
     lctx_model::domain::attribution::Provider {
         tool:"ruff".into(), revision:RUFF_REVISION.into(),
-        build_digest:crate::bundle::build_digest(&[include_str!("ruff_context.rs"),include_str!("typed_syntax.rs"),include_str!("syntax_records.rs")]),
+        build_digest:crate::bundle::build_digest(&[include_str!("ruff_context.rs"),include_str!("ruff_lexical.rs"),include_str!("typed_syntax.rs"),include_str!("syntax_records.rs")]),
     }
 }
 /// Native integers stay local to one parse. Only canonical occurrence/context identities escape.
 pub struct ContextRows {
+    source_id:lctx_model::domain::Id<SourceArtifact>,
+    context_id:lctx_model::domain::Id<AnalysisContext>,
     pub rows: Vec<lctx_model::domain::ruff::RuffContextObservation>,
     pub unlocated: usize,
     pub incomplete: Option<Incomplete>,
     _charge: lctx_model::domain::charged::StateCharge,
+    native: crate::ruff_lexical::NativeRows,
 }
 impl CanonicalSyntax<'_> {
     pub fn context_rows(&self, spans:&crate::syntax_records::Spans, qualification:&lctx_model::domain::assertion::AssertionQualification, budget:&ResourceBudget) -> Result<ContextRows,ModelError> {
@@ -102,6 +105,7 @@ impl CanonicalSyntax<'_> {
         }
         impl Sink for Collect<'_> {
             fn observe(&mut self,fact:Fact)->Result<(),StopReason> {
+                self.output.native.capture(&fact, &mut self.output._charge).map_err(|error| { self.error=Some(error);StopReason::Sink("native lexical resource allowance".into()) })?;
                 let row=match fact {
                     Fact::Node(node) if node.origin==NodeOrigin::Source => {
                         let subject=match self.spans.get(node.range,crate::typed_syntax::kind(node.kind)) { Ok(id)=>id,Err(_)=>{self.output.unlocated+=1;return Ok(());} };
@@ -111,10 +115,11 @@ impl CanonicalSyntax<'_> {
                         let flags=Flags::from_bits_retain(node.flags);
                         Some(RuffContextObservation {
                             qualification:self.qualification,subject,phase:ContextPhase::ActiveNode,reference_load:None,
-                            typing:node.context.is_typing(), typing_only_annotation:flags.contains(Flags::TYPING_ONLY_ANNOTATION),
-                            runtime_annotation:flags.contains(Flags::RUNTIME_EVALUATED_ANNOTATION),
-                            string_annotation:flags.intersects(Flags::SIMPLE_STRING_TYPE_DEFINITION|Flags::COMPLEX_STRING_TYPE_DEFINITION),
-                            type_checking:flags.contains(Flags::TYPE_CHECKING_BLOCK),qualified_name:node.qualified_name,
+                            typing:Some(node.context.is_typing()), typing_only_annotation:Some(flags.contains(Flags::TYPING_ONLY_ANNOTATION)),
+                            runtime_annotation:Some(flags.contains(Flags::RUNTIME_EVALUATED_ANNOTATION)),
+                            string_annotation:Some(flags.intersects(Flags::SIMPLE_STRING_TYPE_DEFINITION|Flags::COMPLEX_STRING_TYPE_DEFINITION)),
+                            type_checking:Some(flags.contains(Flags::TYPE_CHECKING_BLOCK)),qualified_name:node.qualified_name,
+                            final_binding:None,final_binding_location:None,unresolved_wildcard:None,unresolved_annotation_binding:None,
                         })
                     }
                     Fact::Binding(binding)=> {
@@ -125,9 +130,10 @@ impl CanonicalSyntax<'_> {
                     Fact::Reference(reference)=> {
                         let Some(subject)=self.spans.reference(reference.range,reference.is_load) else {self.output.unlocated+=1;return Ok(());};
                         Some(RuffContextObservation { qualification:self.qualification,subject,phase:ContextPhase::FinalReference,reference_load:Some(reference.is_load),
-                            typing:reference.typing_context,typing_only_annotation:reference.typing_only_annotation,
-                            runtime_annotation:reference.runtime_annotation,string_annotation:reference.string_annotation,
-                            type_checking:reference.type_checking,qualified_name:self.bindings.get(&reference.binding).cloned().flatten(),
+                            typing:Some(reference.typing_context),typing_only_annotation:Some(reference.typing_only_annotation),
+                            runtime_annotation:Some(reference.runtime_annotation),string_annotation:Some(reference.string_annotation),
+                            type_checking:Some(reference.type_checking),qualified_name:self.bindings.get(&reference.binding).cloned().flatten(),
+                            final_binding:None,final_binding_location:Some(lctx_model::domain::ruff::AttachmentStatus::Unlocated),unresolved_wildcard:None,unresolved_annotation_binding:None,
                         })
                     }
                     _=>None,
@@ -140,10 +146,23 @@ impl CanonicalSyntax<'_> {
                 Ok(())
             }
         }
-        let mut sink=Collect { spans,qualification:qualification.id(),output:ContextRows {rows:vec![],unlocated:0,incomplete:None,_charge:lctx_model::domain::charged::StateCharge::new(budget,"ruff-context-rows")},bindings:BTreeMap::new(),seen:BTreeSet::new(),error:None };
+        let mut sink=Collect { spans,qualification:qualification.id(),output:ContextRows {source_id:self.source_id,context_id:self.context_id,rows:vec![],unlocated:0,incomplete:None,native:Default::default(),_charge:lctx_model::domain::charged::StateCharge::new(budget,"ruff-context-rows")},bindings:BTreeMap::new(),seen:BTreeSet::new(),error:None };
         sink.output.incomplete=self.observe(&mut sink).err();
         if let Some(error)=sink.error {return Err(error);}
         sink.output.rows.sort_by_key(Record::id);
         Ok(sink.output)
+    }
+}
+
+impl ContextRows {
+    /// Borrowed native IDs are translated within this retained traversal before any publication.
+    pub fn lower_lexical(&mut self, spans:&crate::syntax_records::Spans, source:&crate::lexical_records::LexicalRecords, qualification:&lctx_model::domain::assertion::AssertionQualification, candidate:lctx_model::domain::Id<lctx_model::domain::assertion::AssertionQualification>, budget:&ResourceBudget) -> Result<crate::ruff_lexical::NativeLexicalRecords,ModelError> {
+        if spans.source()!=Some(self.source_id) || qualification.context!=self.context_id {return Err(ModelError::Invalid("final Ruff lexical attachment differs from retained source/context".into()));}
+        let lowered=self.native.lower(spans,source,qualification,candidate,budget)?;
+        self.rows.retain(|row|row.phase!=lctx_model::domain::ruff::ContextPhase::FinalReference);
+        for row in &lowered.contexts { self._charge.grow(1024+row.heap_bytes())?;self.rows.push(row.clone()); }
+        self.unlocated+=lowered.unlocated;
+        self.rows.sort_by_key(Record::id);self.rows.dedup_by_key(|row|row.id());
+        Ok(lowered)
     }
 }

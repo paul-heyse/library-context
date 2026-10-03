@@ -185,6 +185,7 @@ pub fn normalize(
     let mut output = RelationOutput::new(budget);
     let index = Index::new(data, budget)?;
     references(data, &mut output, budget)?;
+    super::native_lexical::characterize(data,&mut output,budget)?;
     imports(data, &index, &mut output, budget)?;
     ancestry(data, &index, &mut output, budget)?;
     mentions(data, &index, &mut output, budget)?;

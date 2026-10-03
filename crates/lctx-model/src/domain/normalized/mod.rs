@@ -47,7 +47,7 @@ pub(crate) fn facts_inputs(inputs: Vec<ValidationInput>) -> Vec<ValidationInput>
 
 /// Revision of semantic normalization, included in every assessment key and stage declaration.
 pub fn policy_revision() -> ContentHash {
-    ContentHash::of(b"lctx-normalization/phase4/dispatch-class-of/v3")
+    ContentHash::of(&[b"lctx-normalization/phase4/dispatch-class-of/v3".as_slice(),include_bytes!("native_lexical.rs").as_slice()].concat())
 }
 pub fn relations() -> Vec<Relation> {
     let mut relations = entities::relations();
@@ -78,3 +78,5 @@ pub fn facts_stage_inputs(inputs: Vec<stages::RelationUse>) -> Vec<stages::Relat
     inputs.dedup_by_key(|input| input.name());
     inputs
 }
+
+mod native_lexical;

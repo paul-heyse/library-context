@@ -20,7 +20,7 @@ async fn aliased_overloads_and_local_spelling_keep_distinct_semantics() {
     let ov=contexts.iter().filter(|row|row.phase==ContextPhase::ActiveNode && row.qualified_name.as_deref()==Some(&["typing".into(),"overload".into()])).count();
     assert_eq!(ov,2);
     let typing_value=spellings.iter().find(|row|row.spelling=="typing_value").unwrap().occurrence;
-    assert!(contexts.iter().any(|row|row.subject==typing_value && row.type_checking && row.typing));
+    assert!(contexts.iter().any(|row|row.subject==typing_value && row.type_checking == Some(true) && row.typing == Some(true)));
     assert!(contexts.iter().filter(|row|row.phase==ContextPhase::FinalReference).count()>0);
     let providers=rows::<Provider>(&tables);
     let ruff=providers.iter().find(|provider|provider.tool=="ruff").unwrap();

@@ -168,6 +168,8 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<ReferenceEntityTarget>(),
         Relation::of::<ReferenceEntityAssessment>(),
         Relation::of::<ReferenceEntityCandidate>(),
+        Relation::of::<ReferenceBindingCharacterization>(),
+        Relation::of::<DeclarationNativeCharacterization>(),
         Relation::of::<ImportModuleAssessment>(),
         Relation::of::<ImportModuleCandidate>(),
         Relation::of::<AncestryEntityAssessment>(),
@@ -206,4 +208,27 @@ pub struct MentionSymbolCandidate {
     pub observation: Id<symbols::SymbolObservation>,
     #[model(key)]
     pub resolution: Id<SymbolEntityResolution>,
+}
+
+/// Located native characterization accompanies a source association; it grants no capture or body authority.
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "reference_binding_characterizations")]
+pub struct ReferenceBindingCharacterization {
+    #[model(key)] pub reference: Id<lexical::ReferenceObservation>,
+    #[model(key)] pub native_context: Id<ruff::RuffContextObservation>,
+    #[model(key)] pub binding: Id<ruff::RuffBindingObservation>,
+    #[model(key)] pub context_support: Option<Id<ruff::RuffContextSupport>>,
+    #[model(key)] pub support: Option<Id<ruff::RuffBindingSupport>>,
+    #[model(key)] pub candidate: Option<Id<ReferenceEntityCandidate>>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "declaration_native_characterizations")]
+pub struct DeclarationNativeCharacterization {
+    #[model(key)] pub declaration: Id<syntax::DeclarationObservation>,
+    #[model(key)] pub native_definition: Id<ruff::RuffDefinitionObservation>,
+    #[model(key)] pub support: Option<Id<ruff::RuffDefinitionSupport>>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
 }

@@ -126,7 +126,7 @@ async fn signature_slots_preserve_raw_order_defaults_collectors_and_entity_links
     let variant = output
         .variants
         .iter()
-        .find(|v| v.callable == Some(a.callable))
+        .find(|v| v.callable == Some(a.callable) && v.role == SignatureRole::Source)
         .unwrap();
     let mut slots: Vec<_> = output
         .slots

@@ -21,6 +21,7 @@ pub mod pyrefly_stage;
 pub mod protocol_records;
 mod runtime_scripts;
 pub mod ruff_context;
+pub mod ruff_lexical;
 mod native_branches;
 pub mod symbol_records;
 pub mod syntax_records;
