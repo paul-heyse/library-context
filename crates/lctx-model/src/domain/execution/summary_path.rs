@@ -71,6 +71,13 @@ pub enum SummaryPathRoute {
         #[model(premise)]
         definition_support: Id<FlowDefinitionSupport>,
     },
+    #[model(code = 2)]
+    EscapingRaise {
+        #[model(premise)]
+        route: Id<SummaryPathRoute>,
+        #[model(premise)]
+        outcome: Id<super::summary_exceptions::SummaryExceptionOutcome>,
+    },
 }
 impl analysis::support::sealed::DerivedEvidence for SummaryPathWitness {}
 impl DerivedEvidence for SummaryPathWitness {

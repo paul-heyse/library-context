@@ -90,7 +90,8 @@ impl Prepared {
             }
             if matches!(
                 requirement.predicate,
-                Predicate::MemberKind { .. }
+                Predicate::BehavioralRaises { .. }
+                    | Predicate::MemberKind { .. }
                     | Predicate::InvocationForm { .. }
                     | Predicate::ClassOwner { .. }
             ) && matches!(c, Context::Member { .. })
@@ -161,7 +162,9 @@ impl Prepared {
             } else {
                 vec![]
             };
-            let basis = if matches!(c, Context::Scenario { .. }) {
+            let basis = if matches!(requirement.predicate, Predicate::BehavioralRaises { .. }) {
+                EvidenceBasis::BoundedModel
+            } else if matches!(c, Context::Scenario { .. }) {
                 EvidenceBasis::ObservedScenario
             } else if matches!(&requirement.predicate, Predicate::VariantParameterType { .. } | Predicate::VariantReturnType { .. }) {
                 EvidenceBasis::ProviderDeclaration
@@ -185,11 +188,13 @@ impl Prepared {
         let role_observed = !observations.is_empty();
         let domain = Domain {
             corpus_complete: stored.corpus_complete,
-            analyzer_complete: (stored.analyzer_complete && (!role_requested || role_observed))
+            analyzer_complete: if matches!(requirement.predicate, Predicate::BehavioralRaises { .. }) {
+                !observations.is_empty() && observations.iter().all(|row| row.value.is_some())
+            } else { stored.analyzer_complete && (!role_requested || role_observed)
                 || matches!(
                     requirement.predicate,
                     Predicate::PublicPath { .. } | Predicate::PublicModule { .. }
-                ),
+                ) },
             closure,
             observations,
         };
@@ -660,6 +665,20 @@ fn evaluate(
 ) -> Result<Option<bool>, ModelError> {
     let member = member_of(d, c)?;
     match p {
+        Predicate::BehavioralRaises { exception } => {
+            let Context::Binding { candidate, .. } = c else { return Ok(None); };
+            let owner = candidate_entity(d, *candidate)?;
+            let mut results = w.iter().filter_map(|witness| match witness { Witness::SummaryException { outcome } => d.facts.exception_outcomes.get(*outcome), _ => None });
+            let Some(result) = results.next() else { return Ok(None); };
+            if results.next().is_some() || result.context != c.analysis() || Some(result.owner) != owner
+                || member.is_none_or(|member| member.input != result.input) { return Ok(None); }
+            let q = need(&d.source.core.qualifications, result.qualification)?;
+            if q.context != c.analysis() || q.condition != conditions::Diagram::always().id()
+                || q.assumptions != assumptions::AssumptionSet::empty().id()
+                || q.modality != attribution::Modality::Definite || q.approximation != assertion::Approximation::Exact
+                || analysis::policy::behavioral_support(result.status, false).is_err() { return Ok(None); }
+            Ok(Some(result.exception == Some(*exception)))
+        }
         Predicate::PublicPath { path } => Ok(member
             .map(|m| public_path(d, m).map(|p| p == *path))
             .transpose()?),

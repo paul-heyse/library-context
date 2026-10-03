@@ -132,7 +132,23 @@ packet!(AssertionPacket {assertion:Id<synthesis::assertions::ProgrammaticAsserti
 packet!(CapabilityPacket {capability:Id<synthesis::briefs::Brief>,title:Name,rendered:Text<0,262144>,assertions:Vec<AssertionPacket>,originals:Vec<OriginalRange>,#[doc = "Section availability; unavailable or not-requested data must not be interpreted as absence."] availability:Availability,unreviewed:bool,documentation_only:bool});
 packet!(BehaviorPacket {claim_basis:ClaimBasisPacket,condition:Id<conditions::Condition>,#[doc = "Model-qualified verdict, never proof of unrestricted runtime behavior."] verdict:obligation::Verdict,model:Id<models::ModelCatalog>,proof:Vec<ProofReference>,presentation:RenderedConditionPacket,presentation_truncated:bool});
 packet!(OperationPacket {core:OperationCore,scenarios:SectionPage<ScenarioPacket>,deployment:SectionPage<DeploymentPacket>,relationships:SectionPage<RelationshipPacket>,conflicts:SectionPage<ConflictPacket>,briefs:SectionPage<CapabilityPacket>,behavior:SectionPage<BehaviorPacket>});
-packet!(RequirementWitnessPacket {context:Id<selection::Context>,#[doc = "Canonical evidence or derivation basis for this result, rather than a confidence score."] basis:selection::EvidenceBasis,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>});
+packet!(BehavioralExceptionPacket {summary:Id<execution::summary_exceptions::SummaryExceptionOutcome>,body:Id<execution::enriched_records::BodyExecution>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,owner:Id<normalized::entities::EntityRef>,qualification:Id<assertion::AssertionQualification>,scope:Id<source::CoverageScope>,condition:Id<conditions::Condition>,#[doc = "Exact finite builtin runtime exception under body entry. Null means this admitted body completed normally; missing bodies never produce absence evidence."] exception:Nullable<execution::ExactRuntimeException>,#[doc = "This result is conditional on entering the source body and uses the bounded runtime model, independently of typing characterization."] under_body_entry:bool,claim_basis:ClaimBasisPacket,proof:Vec<ProofReference>});
+impl BehavioralExceptionPacket {
+    pub fn from_canonical(result: &execution::summary_exceptions::SummaryExceptionOutcome, q: &assertion::AssertionQualification) -> Result<Self, ModelError> {
+        let empty = assumptions::AssumptionSet::empty();
+        if result.qualification != q.id() || result.context != q.context || q.assumptions != empty.id()
+            || q.condition != conditions::Diagram::always().id() || q.modality != attribution::Modality::Definite
+            || q.approximation != assertion::Approximation::Exact {
+            return Err(ModelError::Invalid("runtime exception packet changes its exact entry basis".into()));
+        }
+        Ok(Self { summary: result.id(), body: result.body, input: result.input, context: result.context, owner: result.owner,
+            qualification: q.id(), scope: q.scope, condition: q.condition, exception: Nullable(result.exception), under_body_entry: true,
+            claim_basis: ClaimBasisPacket { set: empty.id(), members_digest: empty.members, definitions: Vec::new() },
+            proof: vec![ProofReference::from_canonical(derivation::RowRef::of(result.id())), ProofReference::from_canonical(derivation::RowRef::of(result.body))],
+        })
+    }
+}
+packet!(RequirementWitnessPacket {context:Id<selection::Context>,#[doc = "Canonical evidence or derivation basis for this result, rather than a confidence score."] basis:selection::EvidenceBasis,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>,behavioral_exceptions:Vec<BehavioralExceptionPacket>});
 packet!(RequirementResult {claims:Vec<RequirementWitnessPacket>,closure:Vec<Id<selection::Witness>>,requirement:selection::Requirement,#[doc = "Selection outcome; unresolved evidence stays separate from conflicting and supported results."] outcome:selection::Outcome,#[doc = "Declared canonical reason for this result; interpret it with the accompanying status and evidence."] reason:selection::Reason,contexts:Vec<Id<selection::Context>>,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>,corpus_complete:bool,analyzer_complete:bool,examined:u64,total:Nullable<u64>});
 packet!(OperationCandidate {member:Id<catalog::CatalogMember>,analysis:Id<attribution::AnalysisContext>,name:Name,requirements:Vec<RequirementResult>,#[doc = "Whether the requirements have a shared applicable context; separate supported results alone do not prove joint applicability."] joint:selection::JointApplicability,#[doc = "Completeness of signature evidence; unknown signatures remain visible."] signature_knowledge:normalized::callables::Knowledge});
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

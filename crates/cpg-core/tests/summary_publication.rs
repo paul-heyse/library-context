@@ -18,7 +18,8 @@ use lctx_postgres::{
     testing::DisposableDatabase,
 };
 use std::sync::Arc;
-async fn run(profile: Profile) {
+async fn run(profile: Profile) { run_fixture(profile, "phase4_summaries").await; }
+async fn run_fixture(profile: Profile, fixture: &str) {
     let (completion, source_calls, enriched) = (true, true, true);
     let runtime = AttemptRuntime::new(RuntimeOptions {
         memory_bytes: 1 << 30,
@@ -71,7 +72,7 @@ async fn run(profile: Profile) {
     declarations.extend(execution::summary_replay::output_relations());
     declarations.extend(execution::summary_path::relations());
     declarations.extend(execution::summary_proof::relations());
-    declarations.push(Relation::of::<replay_probe::ProbeReceipt>());
+    if fixture == "phase4_summaries" { declarations.push(Relation::of::<replay_probe::ProbeReceipt>()); }
     declarations.sort_by_key(Relation::name);
     declarations.dedup_by_key(|r| r.name());
     let model = Arc::new(ValidatedModel::validate(declarations).unwrap());
@@ -79,7 +80,7 @@ async fn run(profile: Profile) {
         .await
         .unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/python/phase4_summaries");
+        .join("../../fixtures/python").join(fixture);
     let captured = Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(
             CapturedInput::capture(&root, &["cases.py".into()], budget).unwrap(),
@@ -158,7 +159,8 @@ async fn run(profile: Profile) {
 
     stages.push(execution::model_production::stage(profile, &model_definition, &model).unwrap());
     stages.push(execution::summary_replay::stage(profile, &summary_definition, &model).unwrap());
-    stages.push(replay_probe::stage(&model, profile));
+    // This probe mutates the distinct symbolic constructor/reader pairs of its own fixture.
+    if fixture == "phase4_summaries" { stages.push(replay_probe::stage(&model, profile)); }
     let facts_members = stages
         .iter()
         .filter(|s| {
@@ -529,7 +531,8 @@ async fn run(profile: Profile) {
     .fetch_all(db.owner.pool())
     .await
     .unwrap();
-    if profile == Profile::Behavioral {
+    if profile == Profile::Behavioral { assert!(statuses.iter().all(|s| *s == 1)); }
+    if profile == Profile::Behavioral && fixture == "phase4_summaries" {
         assert!(proofs > 0);
         assert!(statuses.iter().all(|s| *s == 1));
         let alternatives:Vec<(Vec<u8>,Vec<u8>,i64,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -573,9 +576,43 @@ async fn run(profile: Profile) {
             "SELECT count(*) FROM {0}.summary_behavioral_conclusions c JOIN {0}.summary_obligation_subjects s ON s.id=c.subject JOIN {0}.summary_claims q ON q.id=s.summaryclaim_transfer JOIN {0}.summary_symbolic_field_alternatives a ON a.id=q.symbolicfieldassociation_alternative WHERE c.verdict=3 AND c.proof IS NULL AND c.qualification=a.reader_qualification AND c.reason=a.reason",id.schema())))
             .fetch_one(db.owner.pool()).await.unwrap();
         assert_eq!(conclusions, 4);
-    } else {
+    } else if profile == Profile::Catalog {
         assert_eq!(proofs, 0);
         assert!(statuses.iter().all(|s| *s == 3));
+    }
+    if fixture == "exact_exception_shapes" {
+        let results: Vec<(String, Option<i16>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT spelling.spelling,result.exception FROM {0}.summary_exception_outcomes result JOIN {0}.entity_refs e ON e.id=result.owner JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations spelling ON spelling.occurrence=d.name ORDER BY 1", id.schema())))
+            .fetch_all(db.owner.pool()).await.unwrap();
+        eprintln!("B4_SUMMARY {results:?}");
+        for (name, exception) in [("bare_class", Some(1)), ("broad_first", None), ("tuple_match", None), ("unmatched", Some(1)), ("final_return", None), ("final_raise", Some(2)), ("reraised", Some(1)), ("named_disposal", None), ("argument_order", Some(1))] {
+            assert!(results.iter().any(|row| row == &(name.to_owned(), exception)), "missing actual finite Summary {name}: {results:?}");
+        }
+        type StoredException = (Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Option<i16>,i16,Vec<u8>,Vec<u8>,Vec<u8>,i16,i16);
+        let stored: Vec<StoredException> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT s.id,s.invocation,s.body,s.input,s.context,s.owner,s.qualification,s.outcome,s.exception,s.status,q.assumptions,q.scope,q.condition,q.modality,q.approximation FROM {0}.summary_exception_outcomes s JOIN {0}.assertion_qualifications q ON q.id=s.qualification LIMIT 32", id.schema())))
+            .fetch_all(db.owner.pool()).await.unwrap();
+        assert!(!stored.is_empty() && stored.len() < 32);
+        fn nominal<T>(bytes: Vec<u8>) -> Id<T> {
+            serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(bytes.into_iter())).unwrap()
+        }
+        for (record,invocation,body,input,context,owner,qualification,outcome,exception,status,assumptions,scope,condition,modality,approximation) in stored {
+            let result = execution::summary_exceptions::SummaryExceptionOutcome { invocation:nominal(invocation),body:nominal(body),input:nominal(input),context:nominal(context),owner:nominal(owner),qualification:nominal(qualification),outcome:nominal(outcome),exception:exception.map(|value|serde_json::from_value(serde_json::json!(value)).unwrap()),status:serde_json::from_value(serde_json::json!(status)).unwrap() };
+            let q = assertion::AssertionQualification { context:result.context,assumptions:nominal(assumptions),scope:nominal(scope),condition:nominal(condition),modality:serde_json::from_value(serde_json::json!(modality)).unwrap(),approximation:serde_json::from_value(serde_json::json!(approximation)).unwrap() };
+            assert_eq!(result.id().bytes().as_slice(), record);
+            assert_eq!(result.qualification, q.id());
+            let packet = serving::BehavioralExceptionPacket::from_canonical(&result, &q).unwrap();
+            assert_eq!(packet.exception.0, result.exception);
+            assert!(packet.under_body_entry && packet.claim_basis.definitions.is_empty());
+            assert_eq!(packet.claim_basis.set, assumptions::AssumptionSet::empty_id());
+            assert_eq!(packet.proof.len(), 2);
+            let mut missing = serde_json::to_value(&packet).unwrap();
+            missing.as_object_mut().unwrap().remove("claim_basis");
+            assert!(serde_json::from_value::<serving::BehavioralExceptionPacket>(missing).is_err());
+        }
+        for name in ["dynamic_constructor", "argument_opaque", "unsupported_group", "shadowed_constructor", "invalid_handler", "named_retained", "starred_constructor", "handler_lookup_failure"] {
+            assert!(!results.iter().any(|row| row.0 == name), "unsupported body became Summary absence");
+        }
     }
     validated.abort().await.unwrap();
     drop(captured);
@@ -588,4 +625,9 @@ async fn behavioral_summaries_publish_finite_proofs_and_validate() {
 #[tokio::test]
 async fn catalog_summaries_are_explicitly_not_requested() {
     run(Profile::Catalog).await;
+}
+
+#[tokio::test]
+async fn exact_exception_summary_projects_only_actual_completed_bodies() {
+    run_fixture(Profile::Behavioral, "exact_exception_shapes").await;
 }

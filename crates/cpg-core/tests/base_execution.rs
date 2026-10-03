@@ -433,6 +433,11 @@ async fn run_fixture(
         .validate()
         .await
         .unwrap();
+    if fixture == "exact_exception_shapes" {
+        let native:Vec<(String,i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT s.name,count(a.id) FROM {0}.provider_symbols s LEFT JOIN {0}.class_ancestry_observations a ON a.class=s.id WHERE s.name IN ('ValueError','RuntimeError','TypeError','Exception','BaseException') GROUP BY s.name ORDER BY s.name", id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
+        let refused:Vec<(i16,i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT reason,count(*) FROM {0}.execution_body_boundaries GROUP BY reason ORDER BY reason", id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
+        eprintln!("B4_NATIVE {native:?}; B4_REFUSED {refused:?}");
+    }
     let counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.base_expression_evaluations),(SELECT count(*) FROM {}.base_evaluation_boundaries),(SELECT count(*) FROM {}.base_evaluation_runs)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
     assert!(counts.2 > 0);
     let statuses: Vec<i16> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
@@ -453,14 +458,14 @@ async fn run_fixture(
         .fetch_one(db.owner.pool())
         .await
         .unwrap();
-        assert!(entries > 0);
+        if fixture != "exact_exception_shapes" { assert!(entries > 0); }
     } else {
         assert_eq!((counts.0, counts.1), (0, 0));
         assert!(statuses.iter().all(|s| *s == 3));
     }
     let read_counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.base_read_observations),(SELECT count(*) FROM {}.base_formal_read_assessments),(SELECT count(*) FROM {}.base_attribute_reads)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
     if profile == Profile::Behavioral {
-        assert!(read_counts.0 > 0 && read_counts.1 > 0 && read_counts.2 > 0);
+        if fixture != "exact_exception_shapes" { assert!(read_counts.0 > 0 && read_counts.1 > 0 && read_counts.2 > 0); }
     } else {
         assert_eq!(read_counts, (0, 0, 0));
     }
@@ -496,8 +501,8 @@ async fn run_fixture(
         .unwrap();
         if profile == Profile::Behavioral {
             let body_counts:(i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.base_source_body_completions),(SELECT count(*) FROM {}.base_source_body_boundaries)",id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
-            assert!(body_counts.0 > 0 && body_counts.1 > 0);
-            assert!(counts.0 > 0 && counts.1 > 0);
+            if fixture != "exact_exception_shapes" { assert!(body_counts.0 > 0 && body_counts.1 > 0); }
+            if fixture != "exact_exception_shapes" { assert!(counts.0 > 0 && counts.1 > 0); }
             assert!(statuses.iter().all(|s| *s == 1));
             let sources: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT count(*) FROM {}.base_completion_sources WHERE kind=1",
@@ -529,7 +534,7 @@ async fn run_fixture(
         let counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.source_call_headers),(SELECT count(*) FROM {}.source_call_boundaries),(SELECT count(*) FROM {}.source_call_runs)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
         assert!(counts.2 > 0);
         if profile == Profile::Behavioral {
-            assert!(counts.0 > 0 && counts.1 > 0);
+            if fixture != "exact_exception_shapes" { assert!(counts.0 > 0 && counts.1 > 0); }
             let invoked: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT count(*) FROM {}.source_call_invocations",
                 id.schema()
@@ -537,7 +542,7 @@ async fn run_fixture(
             .fetch_one(db.owner.pool())
             .await
             .unwrap();
-            assert!(invoked > 0);
+            if fixture != "exact_exception_shapes" { assert!(invoked > 0); }
         } else {
             assert_eq!((counts.0, counts.1), (0, 0));
         }
@@ -559,7 +564,8 @@ async fn run_fixture(
         let counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.statement_executions),(SELECT count(*) FROM {}.execution_sources WHERE kind=2),(SELECT count(*) FROM {}.execution_runs)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
         assert!(counts.2 > 0);
         if profile == Profile::Behavioral {
-            assert!(counts.0 > 0 && counts.1 > 0);
+            if fixture != "exact_exception_shapes" { assert!(counts.0 > 0 && counts.1 > 0); }
+            if fixture != "exact_exception_shapes" {
             let modeled: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT count(*) FROM {}.modeled_call_evaluations",
                 id.schema()
@@ -618,9 +624,40 @@ async fn run_fixture(
             assert!(bindings > 0);
             let retained_bindings:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.context_entry_bindings WHERE release=1 AND entry_actual IS NOT NULL",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
             assert!(retained_bindings > 0);
+            }
         } else {
             assert_eq!((counts.0, counts.1), (0, 0));
         }
+    }
+    if fixture == "exact_exception_shapes" && profile == Profile::Behavioral && enriched {
+        let rows: Vec<(String, i16, Option<i16>, Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT so.spelling, o.kind, o.raise_exception, returned.start FROM {0}.body_executions b JOIN {0}.entity_refs e ON e.id=b.owner JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations so ON so.occurrence=d.name JOIN {0}.execution_outcomes o ON o.id=b.outcome LEFT JOIN {0}.occurrences returned ON returned.id=o.return_site ORDER BY so.spelling", id.schema())))
+            .fetch_all(db.owner.pool()).await.unwrap();
+        eprintln!("B4_BODY {rows:?}");
+        let expected = [
+            ("normal_plain", 1, None), ("bare_class", 2, Some(1)), ("broad_first", 1, None), ("tuple_match", 1, None), ("unmatched", 2, Some(1)),
+            ("final_return", 1, None), ("final_raise", 2, Some(2)), ("reraised", 2, Some(1)),
+            ("named_disposal", 1, None), ("normal_else", 2, Some(2)), ("no_else_after_handler", 0, None),
+            ("argument_failure", 2, Some(1)), ("argument_order", 2, Some(1)), ("explicit_cause", 2, Some(1)), ("invalid_cause", 2, Some(0)),
+        ];
+        for (name, kind, exception) in expected {
+            assert!(rows.iter().any(|row| (row.0.as_str(), row.1, row.2) == (name, kind, exception)), "missing Python expected body {name}: {rows:?}");
+        }
+        let source = std::fs::read_to_string(root.join(file)).unwrap();
+        for (name, returned) in [("broad_first", "return 1"), ("tuple_match", "return 3"), ("final_return", "return 5")] {
+            let expected = source.find(returned).unwrap() as i64;
+            assert!(rows.iter().any(|row| row.0 == name && row.3 == Some(expected)), "wrong Python-selected handler/finalizer for {name}: {rows:?}");
+        }
+        for name in ["dynamic_constructor", "argument_opaque", "shadowed_constructor", "unsupported_group", "invalid_handler", "named_retained", "starred_constructor", "handler_lookup_failure"] {
+            assert!(!rows.iter().any(|row| row.0 == name), "unsupported body {name} incorrectly admitted");
+        }
+        // A call in an except test has conditional ty reaching evidence. This source-call
+        // contract requires unconditional evidence and retains the located approximation.
+        let lookup = source.find("except lookup():").unwrap() as i64 + 7;
+        let lookup_refused: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {0}.source_call_boundaries b JOIN {0}.normalized_call_events e ON e.id=b.event JOIN {0}.occurrences o ON o.id=e.site WHERE o.start={lookup} AND o.end={end} AND b.reason=48", id.schema(), end=lookup+8)))
+            .fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(lookup_refused, 1);
     }
     validated.abort().await.unwrap();
     drop(captured);
@@ -710,4 +747,9 @@ async fn catalog_field_read_screen_is_not_requested() {
         "cases.py",
     )
     .await;
+}
+
+#[tokio::test]
+async fn exact_exception_handlers_preserve_order_and_runtime_completion() {
+    run_fixture(Profile::Behavioral, true, true, true, "exact_exception_shapes", "cases.py").await;
 }

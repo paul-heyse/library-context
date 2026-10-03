@@ -2,6 +2,7 @@
 macro_rules! catalog_selection_inputs {
     ($m:ident) => {
         $m! {
+         exception_outcomes:$crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
          shapes:$crate::domain::calls::ParameterShape,
          signature_parameters:$crate::domain::calls::SignatureParameter,
          signatures:$crate::domain::calls::Signature,

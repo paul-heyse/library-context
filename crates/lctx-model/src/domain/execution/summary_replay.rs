@@ -304,6 +304,7 @@ pub fn stage(
 
 pub fn relations() -> Vec<Relation> {
     vec![
+        Relation::of::<super::summary_exceptions::SummaryExceptionOutcome>(),
         Relation::of::<SummaryRun>(),
         Relation::of::<SummaryComponent>(),
         Relation::of::<ComponentMember>(),

@@ -319,6 +319,8 @@ pub enum Witness {
     ConstructorCandidate { link: Id<ConstructorCandidateLink> },
     #[model(code = 18)]
     SignatureTypeObservation { observation: Id<types::SignatureTypeObservation> },
+    #[model(code = 19)]
+    SummaryException { outcome: Id<execution::summary_exceptions::SummaryExceptionOutcome> },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="catalog_selection_domains",invariants=super::build::invariants,semantic_source=include_bytes!("build.rs"))]
@@ -382,6 +384,8 @@ pub enum FieldTarget {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Predicate {
+    /// Exact finite body behavior under source function entry, using runtime model evidence.
+    BehavioralRaises { exception: execution::ExactRuntimeException },
     FacetMembership {
         facet: Facet,
         value: String,
@@ -478,7 +482,8 @@ pub enum Predicate {
 impl Predicate {
     pub fn domain(&self) -> DomainKind {
         match self {
-            Self::PublicPath { .. }
+            Self::BehavioralRaises { .. }
+            | Self::PublicPath { .. }
             | Self::PublicModule { .. }
             | Self::ClassOwner { .. }
             | Self::MemberKind { .. }
@@ -594,6 +599,7 @@ impl Predicate {
             Self::PublicPath { path: p }
             | Self::ClassOwner { path: p }
             | Self::ConfigurationOwner { path: p } => path(p),
+            Self::BehavioralRaises { .. } => Ok(()),
             Self::FacetMembership { .. } => Err(ModelError::Invalid(
                 "facet membership has no supported typed evaluator".into(),
             )),

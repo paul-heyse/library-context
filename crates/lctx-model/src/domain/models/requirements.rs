@@ -294,6 +294,9 @@ modality = "potential"
         let entries = required.entries().collect::<Vec<_>>();
         for (module, name, mro) in [
             ("builtins", "TypeError", true),
+            ("builtins", "ValueError", true),
+            ("builtins", "RuntimeError", true),
+            ("builtins", "Exception", true),
             ("builtins", "OSError", true),
             ("contextlib", "nullcontext.__enter__", false),
             ("contextlib", "suppress.__exit__", false),

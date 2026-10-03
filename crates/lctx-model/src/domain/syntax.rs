@@ -95,6 +95,10 @@ pub enum SyntaxDetail {
     Literal { literal: Id<Literal> },
     #[model(code = 2)]
     WithMode { is_async: bool },
+    #[model(code = 3)]
+    TryMode { is_star: bool },
+    #[model(code = 4)]
+    HandlerName { name: Option<String> },
 }
 /// A provider states an occurrence's `ordinal`th detail (a comparison chain has several).
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]

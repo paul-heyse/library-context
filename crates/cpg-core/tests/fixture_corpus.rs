@@ -37,6 +37,7 @@ const CASES: &[&str] = &[
     "dunder_all",
     "entry_bridge",
     "expression_completion_shapes",
+    "exact_exception_shapes",
     "flow_call_paths",
     "flow_shapes",
     "graph_shapes",

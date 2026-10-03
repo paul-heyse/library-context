@@ -203,6 +203,16 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                             Witness::Candidate { candidate: r.id() },
                         )?;
                     }
+                    for candidate in d.source.catalog.candidates.iter() {
+                        let exposure = need(&d.source.catalog.exposures, candidate.exposure)?;
+                        if exposure.member != *member_id { continue; }
+                        let entity = if let Some(path) = candidate.path { Some(need(&d.source.catalog.paths, path)?.entity) }
+                            else if let Some(alias) = candidate.alias { Some(need(&d.source.catalog.aliases, alias)?.entity) }
+                            else { candidate.entity.map(|entity| need(&d.source.core.entity_candidates, entity).map(|row| row.entity)).transpose()? };
+                        for result in d.facts.exception_outcomes.iter().filter(|row| row.context == *context && row.input == member.input && Some(row.owner) == entity) {
+                            add(&mut out, &mut members, &mut charge, Context::Binding { member: *member_id, candidate: candidate.id(), analysis: *context }, Witness::SummaryException { outcome: result.id() })?;
+                        }
+                    }
                     semantic_complete = qualified(d, member, *context)?;
                 }
                 DomainKind::SignatureVariants => {

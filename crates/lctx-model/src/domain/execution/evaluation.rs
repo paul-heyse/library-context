@@ -57,6 +57,9 @@ macro_rules! execution_evaluation_inputs {
             attribute_loads:$crate::domain::flow::FlowAttributeLoadObservation,
             attribute_load_supports:$crate::domain::flow::FlowAttributeLoadSupport,
             classes:$crate::domain::normalized::entities::ClassEntity,
+            symbols:$crate::domain::calls::ProviderSymbol,
+            symbol_observations:$crate::domain::symbols::SymbolObservation,
+            symbol_supports:$crate::domain::symbols::SymbolSupport,
             class_fields:$crate::domain::syntax::ClassFieldSyntaxObservation,
             class_field_supports:$crate::domain::syntax::ClassFieldSyntaxSupport,
             segments:$crate::domain::value::PathSegment,
@@ -110,6 +113,8 @@ enum Value {
     Tuple { nonempty: bool, retained: bool },
     Retained,
     OpaqueClosed,
+    Class(Id<calls::ProviderSymbol>),
+    Exception { kind: super::ExactRuntimeException, retained: bool },
 }
 impl Value {
     fn truth(self) -> Option<bool> {
@@ -119,6 +124,7 @@ impl Value {
             Self::Int(i) => Some(i != 0),
             Self::Float(f) => Some(f != 0.0),
             Self::Tuple { nonempty, .. } => Some(nonempty),
+            Self::Class(_) | Self::Exception { .. } => Some(true),
             Self::Literal | Self::Retained | Self::OpaqueClosed => None,
         }
     }
@@ -130,7 +136,7 @@ impl Value {
         }
     }
     fn release(self) -> ReleaseSafety {
-        if matches!(self, Self::Retained | Self::Tuple { retained: true, .. }) {
+        if matches!(self, Self::Retained | Self::Tuple { retained: true, .. } | Self::Class(_) | Self::Exception { retained: true, .. }) {
             ReleaseSafety::CallerRetained
         } else {
             ReleaseSafety::Closed
@@ -164,6 +170,12 @@ pub struct CheckedEvaluation {
 impl CheckedEvaluation {
     pub(crate) fn call_source(&self) -> Option<CallOrigin> {
         self.call_source
+    }
+    pub(crate) fn class_value(&self) -> Option<Id<calls::ProviderSymbol>> {
+        match self.value { Value::Class(class) => Some(class), _ => None }
+    }
+    pub(crate) fn raised_value(&self) -> Option<super::ExactRuntimeException> {
+        match self.value { Value::Exception { kind, .. } => Some(kind), _ => None }
     }
     pub(crate) fn exception(&self) -> Option<(Id<Occurrence>, super::ExactRuntimeException)> {
         self.exception
@@ -205,6 +217,7 @@ struct PreparedSyntax {
     ownership: charged::ChargedMap<Id<Occurrence>, Vec<Id<EntityRef>>>,
     declarations: charged::ChargedMap<Id<Occurrence>, Vec<Id<syntax::DeclarationObservation>>>,
     lazy_owners: charged::ChargedSet<Id<EntityRef>>,
+    builtin_classes: charged::ChargedMap<String, Vec<Id<calls::ProviderSymbol>>>,
     _charge: charged::StateCharge,
 }
 impl PreparedSyntax {
@@ -221,8 +234,14 @@ impl PreparedSyntax {
             ownership: Default::default(),
             declarations: Default::default(),
             lazy_owners: Default::default(),
+            builtin_classes: Default::default(),
             _charge: charged::StateCharge::new(budget, "execution-syntax-index"),
         };
+        for symbol in data.symbols.iter().filter(|symbol| symbol.context == context && symbol.kind == calls::SymbolKind::Class
+            && matches!(data.provider_modules.get(symbol.module), Some(calls::ProviderModule::Bundled { name, bundle: calls::ModuleBundle::Typeshed, .. }) if name == "builtins")
+            && (symbol.name == "BaseException" || super::ExactRuntimeException::ALL.iter().any(|kind| kind.class().1 == symbol.name))) {
+            index.builtin_classes.update(&mut index._charge, symbol.name.clone(), |rows| rows.push(symbol.id()))?;
+        }
         for row in data.placements.iter() {
             if data
                 .qualifications
@@ -514,6 +533,22 @@ impl Evaluator<'_> {
         self.tick(children.len()).map_err(boundary)?;
         Ok(children)
     }
+    /// Ruff retains the Arguments structural node; its children are in source traversal order.
+    pub(crate) fn positional_arguments(&mut self, call: &[SyntaxPlacement]) -> Result<Vec<SyntaxPlacement>, EvaluationError> {
+        if call.len() != 2 || call.iter().filter(|row| row.field == SyntaxField::Callee).count() != 1 {
+            return Err(boundary(UNSUPPORTED));
+        }
+        let container = call.iter().find(|row| row.field == SyntaxField::Child && row.ordinal == 0
+            && self.data.occurrences.get(row.occurrence).is_some_and(|node| node.syntax_kind == SyntaxKind::Arguments))
+            .ok_or_else(|| boundary(UNSUPPORTED))?;
+        self.observe(container.occurrence)?;
+        let arguments = self.children(container.occurrence)?;
+        if arguments.iter().enumerate().any(|(ordinal, row)| row.field != SyntaxField::Child || row.ordinal != ordinal as i64
+            || self.data.occurrences.get(row.occurrence).is_none_or(|node| matches!(node.syntax_kind, SyntaxKind::ExprStarred | SyntaxKind::Keyword))) {
+            return Err(boundary(UNSUPPORTED));
+        }
+        Ok(arguments)
+    }
     pub(crate) fn detail(
         &mut self,
         occurrence: Id<Occurrence>,
@@ -534,6 +569,35 @@ impl Evaluator<'_> {
             );
         }
         Ok(found)
+    }
+    pub(crate) fn builtin_class(&mut self, name: &str) -> Result<Id<calls::ProviderSymbol>, EvaluationError> {
+        self.tick(1).map_err(boundary)?;
+        let symbols = self.index.builtin_classes.get(&name.to_owned()).ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
+        if symbols.len() != 1 { return Err(boundary(ObligationKind::AmbiguousBinding)); }
+        Ok(symbols[0])
+    }
+    pub(crate) fn class_matches(&mut self, raised: super::ExactRuntimeException, handler: Id<calls::ProviderSymbol>) -> Result<bool, EvaluationError> {
+        let raised = self.builtin_class(raised.class().1)?;
+        let base = self.builtin_class("BaseException")?;
+        self.admit_class(raised)?;
+        self.admit_class(handler)?;
+        let budget = self.charge.budget().ok_or_else(|| EvaluationError::Model(ModelError::Invalid("class match has no budget".into())))?;
+        let raised = super::model_context::CheckedExactClass::derive_evidence(super::model_context::ClassEvidence::evaluation(self.data, self.request.input, &self.index.native), raised, self.request.context, budget)?.map_err(boundary)?;
+        let handler = super::model_context::CheckedExactClass::derive_evidence(super::model_context::ClassEvidence::evaluation(self.data, self.request.input, &self.index.native), handler, self.request.context, budget)?.map_err(boundary)?;
+        if !handler.contains(base) { return Err(boundary(ObligationKind::UnsupportedControlFlow)); }
+        raised.matches(&handler).map_err(boundary)
+    }
+    pub(crate) fn admit_class(&mut self, symbol: Id<calls::ProviderSymbol>) -> Result<(), EvaluationError> {
+        let budget = self.charge.budget().ok_or_else(|| EvaluationError::Model(ModelError::Invalid("class proof has no budget".into())))?;
+        let proof = super::model_context::CheckedExactClass::derive_evidence(
+            super::model_context::ClassEvidence::evaluation(self.data, self.request.input, &self.index.native), symbol, self.request.context, budget,
+        )?.map_err(boundary)?;
+        for premise in proof.premises().iter() {
+            self.charge.grow(size_of::<Id<NativeAssertionPremise>>() * 2)?;
+            if !self.native.contains(&premise.id()) { self.native.push(premise.id()); }
+        }
+        self.status = analysis::support::inferred_status(analysis::Interpretation::Structural, [self.status, proof.status()]);
+        Ok(())
     }
     fn eval(&mut self, id: Id<Occurrence>, depth: usize) -> Result<Value, EvaluationError> {
         self.tick(1).map_err(boundary)?;
@@ -632,7 +696,12 @@ impl Evaluator<'_> {
                     );
                     self.charge.grow(size_of::<Id<Occurrence>>() * 2)?;
                     self.operands.push(id);
-                    return Ok(Value::Retained);
+                    let name = proof.name();
+                    if name != "BaseException" && !super::ExactRuntimeException::ALL.iter().any(|kind| kind.class().1 == name) { return Ok(Value::Retained); }
+                    if !self.index.builtin_classes.contains_key(&name.to_owned()) { return Ok(Value::Retained); }
+                    let symbol = self.builtin_class(name)?;
+                    self.admit_class(symbol)?;
+                    return Ok(Value::Class(symbol));
                 };
                 if entries.next().is_some() {
                     return Err(boundary(ObligationKind::MissingEvidence));
@@ -664,6 +733,21 @@ impl Evaluator<'_> {
                 self.entries.push(witness.id());
                 self.entry_charges.push(entry.allowance());
                 Value::Retained
+            }
+            SyntaxKind::ExprCall => {
+                let callee = one(SyntaxField::Callee)?;
+                let Value::Class(class) = self.eval(callee, depth + 1)? else { return Err(boundary(UNSUPPORTED)); };
+                let symbol = need(&self.data.symbols, class).map_err(boundary)?;
+                let Some(kind) = super::ExactRuntimeException::ALL.iter().copied().find(|kind| kind.class().1 == symbol.name) else { return Err(boundary(UNSUPPORTED)); };
+                if self.builtin_class(kind.class().1)? != class { return Err(boundary(UNSUPPORTED)); }
+                // The builtin class token above is pinned by native identity and complete MRO.
+                // Positional arguments run in source order; star/keyword calls remain outside this finite rule.
+                let arguments = self.positional_arguments(&children)?;
+                let mut retained = false;
+                for argument in arguments {
+                    retained |= self.eval(argument.occurrence, depth + 1)?.release() != ReleaseSafety::Closed;
+                }
+                Value::Exception { kind, retained }
             }
             SyntaxKind::ExprUnaryOp if children.len() == 1 => {
                 let value = self.eval(one(SyntaxField::Operand)?, depth + 1)?;

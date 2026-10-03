@@ -53,6 +53,7 @@ pub fn summaries(
     ContentHash::of(include_bytes!("summary_schedule.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_consequences.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_symbolic.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("summary_exceptions.rs")).encode(&mut key);
     enriched_execution(catalog)
         .1
         .semantic_version
@@ -88,6 +89,8 @@ pub fn base_evaluation() -> (MethodParameters, AnalysisDefinition) {
     ContentHash::of(include_bytes!("../conditions/entry.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("evaluation.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("builtin_read.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("model_context.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("model_application.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("production.rs")).encode(&mut key);
     let definition = AnalysisDefinition {
         method: AnalysisMethod::Execution,

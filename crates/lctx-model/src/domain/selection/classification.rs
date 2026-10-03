@@ -78,6 +78,7 @@ group!(Evidence, crate::domain::catalog::evidence::build::EvidenceOutput, {
     deployments: crate::domain::catalog::evidence::CatalogDeployment,
 });
 group!(Facts, crate::domain::selection::build::Facts, {
+    exception_outcomes: crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
     shapes: crate::domain::calls::ParameterShape,
     signature_parameters: crate::domain::calls::SignatureParameter,
     signatures: crate::domain::calls::Signature,
@@ -363,6 +364,19 @@ impl ClassificationData {
             build::{invalid, need},
         };
         match w {
+            Witness::SummaryException { outcome } => {
+                let result = need(&self.facts.exception_outcomes, *outcome)?;
+                let q = need(&self.source.core.qualifications, result.qualification)?;
+                let Context::Binding { member, candidate, analysis } = c else { return Err(invalid("exception witness lacks source binding context")); };
+                let candidate = need(&self.source.catalog.candidates, *candidate)?;
+                let owner = if let Some(path) = candidate.path { Some(need(&self.source.catalog.paths, path)?.entity) }
+                    else if let Some(alias) = candidate.alias { Some(need(&self.source.catalog.aliases, alias)?.entity) }
+                    else { candidate.entity.map(|id| need(&self.source.core.entity_candidates, id).map(|row| row.entity)).transpose()? };
+                if result.context != *analysis || q.context != result.context || Some(result.owner) != owner
+                    || result.input != need(&self.source.catalog.members, *member)?.input {
+                    return Err(invalid("exception summary witness crosses source/context/input"));
+                }
+            }
             Witness::Candidate { candidate } => {
                 need(&self.source.catalog.candidates, *candidate)?;
                 if !matches!(c,Context::Binding{candidate:id,..} if id==candidate) {

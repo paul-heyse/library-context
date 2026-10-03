@@ -316,12 +316,21 @@ pub(super) fn append_native_evidence(
     rows: &mut Rows<analysis::native::NativeAssertionPremise>,
     status: &mut analysis::policy::EvidenceStatus,
 ) -> Result<(), RuntimeEvidenceError> {
-    exact(&data.bindings, q, context)?;
+    append_native_evidence_rows(&data.bindings.qualifications, &data.native, &data.premises, None, reference, q, context, rows, status)
+}
+pub(super) fn append_native_evidence_rows(
+    qualifications: &Rows<AssertionQualification>, native: &Rows<analysis::native::NativeQualification>,
+    premises: &Rows<analysis::native::NativeAssertionPremise>, index: Option<&charged::ChargedMap<derivation::RowRef, Vec<Id<analysis::native::NativeQualification>>>>, reference: derivation::RowRef,
+    q: Id<AssertionQualification>, context: Id<AnalysisContext>,
+    rows: &mut Rows<analysis::native::NativeAssertionPremise>, status: &mut analysis::policy::EvidenceStatus,
+) -> Result<(), RuntimeEvidenceError> {
+    exact_qualification(qualifications, q, context)?;
     let mut found = false;
-    for native in data.native.iter().filter(|n| n.qualification == q) {
-        let premise = need(&data.premises, native.premise)?;
+    let mut append = |native: &analysis::native::NativeQualification| -> Result<(), RuntimeEvidenceError> {
+        if native.qualification != q { return Ok(()); }
+        let premise = need(premises, native.premise)?;
         if premise.assertion_and_support().0 != reference {
-            continue;
+            return Ok(());
         }
         if native.fidelity == attribution::Fidelity::DisplayOnly
             || native.status != analysis::policy::native_status(native.family, native.fidelity)
@@ -336,6 +345,12 @@ pub(super) fn append_native_evidence(
             [*status, native.status],
         );
         found = true;
+        Ok(())
+    };
+    if let Some(index) = index {
+        for id in index.get(&reference).into_iter().flatten() { append(need(native, *id)?)?; }
+    } else {
+        for native in native.iter() { append(native)?; }
     }
     if !found {
         return Err(ObligationKind::MissingEvidence.into());
@@ -453,7 +468,12 @@ pub(super) fn exact(
     id: Id<AssertionQualification>,
     context: Id<AnalysisContext>,
 ) -> Result<(), ObligationKind> {
-    let q = need(&data.qualifications, id)?;
+    exact_qualification(&data.qualifications, id, context)
+}
+pub(super) fn exact_qualification(
+    data: &Rows<AssertionQualification>, id: Id<AssertionQualification>, context: Id<AnalysisContext>,
+) -> Result<(), ObligationKind> {
+    let q = need(data, id)?;
     if q.context != context {
         return Err(ObligationKind::IncompatibleContexts);
     }

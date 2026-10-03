@@ -35,6 +35,7 @@ macro_rules! code_schema { ($($ty:ty),* $(,)?)=>{$(
 )*}; }
 code_schema!(
     attribution::Fidelity,
+    execution::ExactRuntimeException,
     types::TypeRole,
     selection::EvidenceBasis,
     selection::Mode,
@@ -107,6 +108,7 @@ enum_schema!(selection::RelationTarget,
 enum_schema!(selection::FieldTarget,
     Declaration {entity:Id<normalized::entities::EntityRef>}, Parameter {slot:Id<normalized::callables::SignatureSlot>});
 enum_schema!(selection::Predicate,
+    BehavioralRaises {exception:execution::ExactRuntimeException},
     FacetMembership {facet:selection::Facet,value:String}, PublicPath {path:Vec<String>}, PublicModule {module:String}, ClassOwner {path:Vec<String>},
     MemberKind {kind:selection::MemberKind}, InvocationForm {form:selection::InvocationForm}, DeclaresParameter {name:String},
     ParameterKind {name:String,kind:calls::ParameterKind}, ParameterRequired {name:String,required:bool},

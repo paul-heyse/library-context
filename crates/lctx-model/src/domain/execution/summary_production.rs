@@ -175,6 +175,7 @@ pub struct PairOutcome {
 }
 #[macro_export]
 macro_rules! summary_owned_inputs{($apply:ident)=>{$apply!{
+ exception_bodies:$crate::domain::execution::enriched_records::BodyExecution,exception_values:$crate::domain::execution::enriched_records::ExecutionOutcome,
  symbolic_classes:$crate::domain::normalized::symbolic_fields::SourceFieldClass,symbolic_stores:$crate::domain::normalized::symbolic_fields::SourceFieldStore,symbolic_associations:$crate::domain::normalized::symbolic_fields::SourceFieldAssociation,symbolic_readers:$crate::domain::normalized::symbolic_fields::SourceFieldReader,symbolic_links:$crate::domain::normalized::symbolic_fields::SourceFieldReaderLink,symbolic_local_stores:$crate::domain::local_symbolic::SymbolicFieldStore,
  local_invocations:$crate::domain::analysis::local::AnalysisInvocation,model_invocations:$crate::domain::analysis::model::AnalysisInvocation,enriched_invocations:$crate::domain::analysis::enriched_execution::AnalysisInvocation,source_invocations:$crate::domain::analysis::source_call::AnalysisInvocation,
  local_outcomes:$crate::domain::analysis::local::AnalysisOutcome,model_outcomes:$crate::domain::analysis::model::AnalysisOutcome,enriched_outcomes:$crate::domain::analysis::enriched_execution::AnalysisOutcome,source_outcomes:$crate::domain::analysis::source_call::AnalysisOutcome,model_derivations:$crate::domain::analysis::model::AnalysisDerivation,
@@ -226,6 +227,7 @@ impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{graphs:projection::nor
 crate::summary_owned_inputs!(data);
 #[macro_export]
 macro_rules! summary_outputs{($apply:ident)=>{$apply!{
+ exception_outcomes:$crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
  symbolic_alternatives:$crate::domain::execution::summary_symbolic::SymbolicFieldAlternative,
  origin_boundaries:$crate::domain::execution::summary_production::OriginBoundary,pair_outcomes:$crate::domain::execution::summary_production::PairOutcome,
  runs:$crate::domain::execution::summary_production::SummaryRun,components:$crate::domain::execution::summary_production::SummaryComponent,component_members:$crate::domain::execution::summary_production::ComponentMember,origins:$crate::domain::execution::summary_production::SummaryOrigin,proof_origins:$crate::domain::execution::summary_production::ProofOrigin,residuals:$crate::domain::execution::summary_production::SummaryResidual,call_members:$crate::domain::execution::summary_production::CallMember,
@@ -1486,6 +1488,7 @@ pub fn produce(
         out.consequences(data, invocation, definition, profile, budget)?;
         return Ok(out);
     }
+    run.work += super::summary_exceptions::derive(data, invocation, &mut out, limits.work, budget)? as i64;
     let verified =
         normalized::binding_normalization::verify(&data.bindings, &data.binding_output, budget)?;
     let schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
@@ -1840,6 +1843,19 @@ pub fn produce(
                             budget,
                         )?,
                         _ => unreachable!(),
+                    };
+                    let result = match result {
+                        Ok(mut emission) => match super::summary_exceptions::filter_raise(data, &out.exception_outcomes, source.descriptor().owner, &emission, invocation.input, budget)? {
+                            Err(reason) => Err(reason),
+                            Ok(None) => Ok(emission),
+                            Ok(Some(outcome)) => {
+                                out.path_routes.insert(emission.route.clone())?;
+                                emission.route = summary_path::SummaryPathRoute::EscapingRaise { route: emission.route.id(), outcome };
+                                emission.witness.route = emission.route.id();
+                                Ok(emission)
+                            }
+                        },
+                        Err(reason) => Err(reason),
                     };
                     match result {
                         Err(reason) => residual(

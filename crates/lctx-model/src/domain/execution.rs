@@ -32,12 +32,18 @@ pub fn relations() -> Vec<crate::domain::Relation> {
 #[repr(i16)]
 pub enum ExactRuntimeException {
     TypeError = 0,
+    ValueError = 1,
+    RuntimeError = 2,
+    Exception = 3,
 }
 impl ExactRuntimeException {
-    pub const ALL: &[Self] = &[Self::TypeError];
+    pub const ALL: &[Self] = &[Self::TypeError, Self::ValueError, Self::RuntimeError, Self::Exception];
     pub const fn class(self) -> (&'static str, &'static str) {
         match self {
             Self::TypeError => ("builtins", "TypeError"),
+            Self::ValueError => ("builtins", "ValueError"),
+            Self::RuntimeError => ("builtins", "RuntimeError"),
+            Self::Exception => ("builtins", "Exception"),
         }
     }
 }
@@ -94,3 +100,5 @@ pub mod summary_consequences;
 pub mod summary_symbolic;
 
 pub mod read_fields;
+
+pub mod summary_exceptions;

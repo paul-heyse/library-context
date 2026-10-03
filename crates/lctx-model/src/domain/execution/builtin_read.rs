@@ -11,12 +11,14 @@ use crate::domain::{
 };
 pub struct CheckedBuiltinRead {
     request: ExpressionRequest,
+    name: String,
     qualification: Id<assertion::AssertionQualification>,
     status: EvidenceStatus,
     premises: [Id<NativeAssertionPremise>; 3],
     _charge: charged::StateCharge,
 }
 impl CheckedBuiltinRead {
+    pub fn name(&self) -> &str { &self.name }
     pub fn request(&self) -> ExpressionRequest {
         self.request
     }
@@ -202,6 +204,7 @@ impl CheckedBuiltinRead {
             }
             Ok(Self {
                 request,
+                name: { charge.grow(reference.name.len())?; reference.name.clone() },
                 qualification,
                 status,
                 premises: [pairs[0].id(), pairs[1].id(), pairs[2].id()],
