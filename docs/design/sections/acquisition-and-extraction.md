@@ -255,8 +255,13 @@ definition answers. Its duplicate fixture lookup follows the actual last-retaine
 that is a native answer, not a runtime fixture-registration claim. Missing or foreign locations
 remain unavailable. Catalog original-evidence packets keep the observations inside the same
 source grant; a diagnostic-free source or fixture lookup never certifies execution success.
-Scoped native controls are **Tested**; the actual original-evidence service and usage-association
-cascade remain open in the code-facts coordinator. The typed model owns payloads and attachments.
+The implemented usage cascade joins exact native call sites to normalized events and original
+source. It preserves arguments, receivers, binding roles, API association or unresolved targets,
+and separate chosen/candidate traces. Higher-order targets remain potential callback
+characterization, without invocation/effect authority. Source grants do not expand to reveal
+foreign or outside locations. Scoped native controls are **Tested**; actual diagnostic/usage
+original-evidence service qualification remains open in the code-facts coordinator. The typed
+model owns payloads and attachments.
 
 
 
