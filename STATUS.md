@@ -105,7 +105,7 @@ Coordinator §7 owns dated package receipts; §5 owns all source finding disposi
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
 Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
 establish traceability. No current full-series acceptance, retrieval-quality or performance claim.
-Prior stdio qualification runner remains uncommitted; source-default repair integrated with P4.
+Prior stdio qualification runner is integrated; source-default repair and source-only scalar bridge are in P4.
 Focused controls passed: real-PG both-profile runner (one), transcript (two), source-default packet
 (one); full gates/hygiene and real-library journeys are not_run for these changes. Phase 5 §10 owns
 receipts and remaining integration. The catalog compile stopped with SIGINT/exit130; staging

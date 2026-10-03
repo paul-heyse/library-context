@@ -731,3 +731,13 @@ AnalyzerAssertion/NativeTraversal/ReportProjection source correspondence; captur
 value proofs remain native structural. Literal/formal sources, direct frames, qualifications
 and characterization are checked. Earlier failures/interruption remain a composite scoped
 receipt; required-wire control and main integration remain pending. This is not Q0 acceptance.
+
+
+The preserved stdio qualification runner and its real both-profile fixture/control tests are
+integrated for Q0, 2026-10-03. Scalar inputs now require one complete Source-role formal from
+Rust's emitted schema; NativeSlot identities remain outside source-body input mapping. The
+runner preserves actual protocol bytes, continuation, generation/source/default/channel checks
+and negative fault controls. Earlier scoped Phase 5 receipts retain their original baseline;
+current `uv run --no-sync python -m pytest tests/scripts/test_qualify_serving.py -q` failed
+collection on the missing installed `lctx_semantics` (`p4-stdio-transcript-controls.log`). Fresh
+adapter and both-profile runtime qualification remain pending the final assembled model.
