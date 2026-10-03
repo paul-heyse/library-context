@@ -237,12 +237,12 @@ assembled runtime acceptance.
 |---|---|
 | M0–M3, N0–N5 | Migration and selected normalization are integrated, with scoped native/model/store receipts below. Genuine native ClassTrait support for B3 passed its six-class/provenance and disagreement controls in the executor tree; integration and unchanged PG acceptance remain open. No report support is relabelled. Current-pin assembled qualification remains open. |
 | B0/B1/B2/B4 | Required bases, conditional atom restrictions, bounded direct captures and exact finite exceptions are integrated. Their scoped producer controls passed; the completed packet cascade still requires assembled acceptance. |
-| B3 | Native/recognizer read eligibility and narrow Candidate source-target routing controls passed. The unchanged final-class/member PG oracle still refuses MissingEvidence until genuine native ClassTrait support is qualified. Terminal serving remains active work. |
+| B3 | Native/recognizer read eligibility and narrow Candidate source-target routing controls passed. Genuine native ClassTrait provenance controls passed; the actual PG fixture now reaches the exact three expected conditional frontiers, retaining contradictory-MRO/open-source/placeholder exclusions. Its later provenance count was scoped to frontier targets and the affected rerun is active. Producer integration and terminal serving remain open. |
 | P0/P1/P2 | Parameter analytics, native characterization/roles, typed facets and stored witnesses are integrated. Scoped analytic/native/model/service controls passed; generated-role control and same-tree assembled journeys remain open. |
 | Raised-type review correction | Independent assembled review found that retained nonmatching raises could incorrectly close an unavailable native raise trace. P2 now requires existing complete Types coverage at the same source/context for a negative, with append-only witness27; matching positives remain valid under partial coverage. Targeted model check passed after a test-import repair; new unit/service controls and final independent review remain open. |
 | P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics and repaired usage both passed as a two-control composite; the repair retains opaque module/local assignment negatives alongside direct import/re-export positives. Current-tree assembled qualification remains open. |
 | P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Same-tree assembled check remains open. Terminal output is pending B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
-| Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. Old operator staging and real-library/activation remain excluded. |
+| Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. The both-profile stdio fixture is being extended to explicitly select fixed communities/PageRank/FCA/RCA/type/mention policies; kNN/embeddings remain off. Old operator staging and real-library/activation remain excluded. |
 
 | Package / command, 2026-10-03 | Outcome and boundary |
 |---|---|
@@ -769,8 +769,12 @@ Signatures coverage alone cannot close omitted native raise traces. Append-only 
 witness27 retains the closure row. `cargo check --release -p lctx-model --tests` **passed**
 (43.17s, `f01-raised-types-check-repaired.log`), after the retained initial test-import failure
 (`f01-raised-types-check.log`). `cargo check --release -p lctx --test raised_type_selection`
-**passed** (25.29s, `f01-raised-types-service-check.log`). Unit and actual mixed/complete native
-inventory serving controls remain pending; actual runtime needs the final matching CLI.
+**passed** (25.29s, `f01-raised-types-service-check.log`). `cargo test --release -p lctx-model
+--lib raised_coverage_tests -- --nocapture` **passed**, two controls (`f01-raised-types-unit.log`):
+partial/missing/foreign-context/foreign-artifact/wrong-family inventories preserve positives and
+refuse negatives; a complete set retains the exact closure witness and rejects foreign witness
+replay. Actual mixed/complete native inventory serving controls remain pending; actual runtime
+needs the final matching CLI.
 
 
 Frozen direct capture output integrated as `16827a31` (executor `c5a26787`), with
