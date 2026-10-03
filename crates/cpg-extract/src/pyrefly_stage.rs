@@ -48,6 +48,7 @@ use lctx_model::domain::{
     symbols::*,
     syntax::*,
     ruff::*,
+    diagnostics::*,
     types::*,
 };
 use std::{collections::BTreeMap, path::Path};
@@ -83,6 +84,8 @@ pub fn pyrefly_provider() -> Provider {
             include_str!("call_records.rs"),
             include_str!("protocol_records.rs"),
             include_str!("capture_records.rs"),
+            include_str!("diagnostic_records.rs"),
+            include_str!("parameter_definition_records.rs"),
         ]),
     }
 }
@@ -121,6 +124,14 @@ fn outputs() -> Vec<RelationUse> {
         RuffBindingSupport,
         RuffDefinitionObservation,
         RuffDefinitionSupport,
+        RuffDiagnosticObservation,
+        RuffDiagnosticSupport,
+        PyreflyDiagnosticObservation,
+        PyreflyDiagnosticSupport,
+        DiagnosticSubject,
+        DiagnosticAnnotation,
+        NativeParameterDefinitionObservation,
+        NativeParameterDefinitionSupport,
         SyntaxObservation,
         SyntaxSupport,
         SyntaxPlacement,
@@ -284,6 +295,14 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
         RuffBindingSupport,
         RuffDefinitionObservation,
         RuffDefinitionSupport,
+        RuffDiagnosticObservation,
+        RuffDiagnosticSupport,
+        PyreflyDiagnosticObservation,
+        PyreflyDiagnosticSupport,
+        DiagnosticSubject,
+        DiagnosticAnnotation,
+        NativeParameterDefinitionObservation,
+        NativeParameterDefinitionSupport,
         SyntaxObservation,
             SyntaxSupport,
             SyntaxPlacement,
@@ -804,6 +823,8 @@ fn session<S: StageSink + 'static>(
             Ok(())
         });
         let errors = transaction.get_errors([handle]).collect_errors();
+        write_diagnostics(context,crate::diagnostic_records::pyrefly_diagnostics!(artifact,text.as_str(),&errors,info.as_ref(),&qualification,context.budget()),&run,&surfaces[&FactFamily::Types])?;
+        write_diagnostics(context,canonical.diagnostics(artifact,&qualification,context.budget())?,&ruff_run,&ruff_context_surface)?;
         let native_parse_error = [
             &errors.ordinary,
             &errors.directives,
@@ -832,6 +853,8 @@ fn session<S: StageSink + 'static>(
                     qualification.id(),
                     &contextual.rows,
                 )?;
+                let parameter_answers=crate::parameter_definition_records::records(&transaction,handle,artifact,&text,&records,&spans,&qualification,native_available&&!native_parse_error,context.budget())?;
+                write_parameter_definitions(context,parameter_answers,&run,&surfaces[&FactFamily::Types])?;
                 let computed = records.computed_all.clone();
                 computed_all = !computed.is_empty();
                 imports.extend(records.import_lookups.iter().cloned().map(|lookup| (index, lookup)));
@@ -2602,4 +2625,16 @@ fn write_native_lexical<S:StageSink+'static>(context:&mut StageContext<S>, rows:
     for target in &rows.targets {if !source.targets.iter().any(|t|t.id()==target.id()){context.emit(target.clone())?;}}
     for (row,emit) in &rows.resolutions {support!(LexicalResolutionSupport,row,row.read);if *emit {context.emit(row.clone())?;}}
     Ok(())
+}
+
+fn write_diagnostics<S:StageSink+'static>(context:&mut StageContext<S>,records:crate::diagnostic_records::Records,run:&ProviderRun,surface:&ProviderSurface)->Result<(),ModelError> {
+    for evidence in &records.evidence {context.contribute(evidence.clone())?;}
+    for subject in &records.subjects {context.emit(subject.clone())?;}
+    for annotation in &records.annotations {context.emit(annotation.clone())?;}
+    macro_rules! emit {($rows:expr,$support:ident)=>{for row in $rows {let evidence=row.primary.map(|span|span.id()).unwrap_or_else(||Evidence::Invocation{run:run.id()}.id());if row.primary.is_none(){context.contribute(Evidence::Invocation{run:run.id()})?;}context.emit($support {assertion:row.id(),run:run.id(),surface:surface.id(),evidence,origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;context.emit(row.clone())?;}};}
+    emit!(&records.ruff,RuffDiagnosticSupport);emit!(&records.pyrefly,PyreflyDiagnosticSupport);Ok(())
+}
+fn write_parameter_definitions<S:StageSink+'static>(context:&mut StageContext<S>,records:crate::parameter_definition_records::Records,run:&ProviderRun,surface:&ProviderSurface)->Result<(),ModelError>{
+    for evidence in &records.evidence {context.contribute(evidence.clone())?;}
+    for row in &records.rows {let evidence=Evidence::Occurrence{occurrence:row.subject};context.contribute(evidence.clone())?;context.emit(NativeParameterDefinitionSupport {assertion:row.id(),run:run.id(),surface:surface.id(),evidence:evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;context.emit(row.clone())?;}Ok(())
 }

@@ -53,6 +53,7 @@ pub mod structural;
 pub mod symbols;
 pub mod syntax;
 pub mod ruff;
+pub mod diagnostics;
 pub mod synthesis;
 pub mod transfer;
 pub mod types;
@@ -430,6 +431,14 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<CallSyntax>(),
         Relation::of::<CallSyntaxSupport>(),
         Relation::of::<CallArgument>(),
+        Relation::of::<diagnostics::RuffDiagnosticObservation>(),
+        Relation::of::<diagnostics::RuffDiagnosticSupport>(),
+        Relation::of::<diagnostics::PyreflyDiagnosticObservation>(),
+        Relation::of::<diagnostics::PyreflyDiagnosticSupport>(),
+        Relation::of::<diagnostics::DiagnosticSubject>(),
+        Relation::of::<diagnostics::DiagnosticAnnotation>(),
+        Relation::of::<diagnostics::NativeParameterDefinitionObservation>(),
+        Relation::of::<diagnostics::NativeParameterDefinitionSupport>(),
         Relation::of::<ruff::RuffContextObservation>(),
         Relation::of::<ruff::RuffContextSupport>(),
         Relation::of::<ruff::RuffBindingObservation>(),

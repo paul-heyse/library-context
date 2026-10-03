@@ -70,6 +70,10 @@ impl<'a> CanonicalSyntax<'a> {
     }
     pub fn module(&self) -> &ModModule { self.parsed.syntax() }
     pub fn parsed(&self) -> &Parsed<ModModule> { &self.parsed }
+    pub fn diagnostics(&self,artifact:&SourceArtifact,qualification:&lctx_model::domain::assertion::AssertionQualification,budget:&ResourceBudget)->Result<crate::diagnostic_records::Records,ModelError> {
+        if artifact.id()!=self.source_id || qualification.context!=self.context_id {return Err(ModelError::Invalid("selected Ruff diagnostics differ from captured source/context".into()));}
+        crate::diagnostic_records::ruff(artifact,self.source,&self.parsed,&self.settings,qualification,budget)
+    }
     pub fn observe(&self, sink: &mut dyn Sink) -> Result<TraversalStats, Incomplete> {
         observe_parsed(self.source, &self.parsed, &self.settings, sink)
     }
@@ -79,7 +83,7 @@ use lctx_model::domain::Record;
 pub fn provider() -> lctx_model::domain::attribution::Provider {
     lctx_model::domain::attribution::Provider {
         tool:"ruff".into(), revision:RUFF_REVISION.into(),
-        build_digest:crate::bundle::build_digest(&[include_str!("ruff_context.rs"),include_str!("ruff_lexical.rs"),include_str!("typed_syntax.rs"),include_str!("syntax_records.rs")]),
+        build_digest:crate::bundle::build_digest(&[include_str!("ruff_context.rs"),include_str!("ruff_lexical.rs"),include_str!("diagnostic_records.rs"),include_str!("typed_syntax.rs"),include_str!("syntax_records.rs")]),
     }
 }
 /// Native integers stay local to one parse. Only canonical occurrence/context identities escape.

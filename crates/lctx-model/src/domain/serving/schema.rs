@@ -58,6 +58,7 @@ code_schema!(
     calls::ParameterKind,
     calls::SignatureForm,
     calls::SignatureRole,
+    diagnostics::DiagnosticSeverity,diagnostics::DiagnosticChannel,diagnostics::DiagnosticLocation,diagnostics::SelectedRuffRule,diagnostics::NativeBaselineStatus,diagnostics::DefinitionAnswer,diagnostics::NativeParameterRole,diagnostics::NativeDefinitionMetadata,diagnostics::NativeDefinitionSymbolKind,
     catalog::evidence::Intent,
     deployment::CheckStatus,
     types::RecordKind,

@@ -3,6 +3,19 @@ macro_rules! catalog_evidence_inputs {
     ($m:ident) => {
         $m! {
          runs:$crate::domain::attribution::ProviderRun,
+         characterization_native:$crate::domain::analysis::native::NativeAssertionPremise,
+         characterization_surfaces:$crate::domain::assertion::ProviderSurface,
+         characterization_providers:$crate::domain::attribution::Provider,
+         characterization_scopes:$crate::domain::source::CoverageScope,
+         ruff_diagnostics:$crate::domain::diagnostics::RuffDiagnosticObservation,
+         ruff_diagnostic_supports:$crate::domain::diagnostics::RuffDiagnosticSupport,
+         pyrefly_diagnostics:$crate::domain::diagnostics::PyreflyDiagnosticObservation,
+         pyrefly_diagnostic_supports:$crate::domain::diagnostics::PyreflyDiagnosticSupport,
+         parameter_definitions:$crate::domain::diagnostics::NativeParameterDefinitionObservation,
+         parameter_definition_supports:$crate::domain::diagnostics::NativeParameterDefinitionSupport,
+         diagnostic_subjects:$crate::domain::diagnostics::DiagnosticSubject,
+         diagnostic_annotations:$crate::domain::diagnostics::DiagnosticAnnotation,
+
          spellings:$crate::domain::source::SyntaxObservation,
          symbol_observations:$crate::domain::symbols::SymbolObservation,
          decorators:$crate::domain::syntax::DeclarationDecorator,
@@ -49,6 +62,8 @@ macro_rules! catalog_evidence_inputs {
 macro_rules! catalog_evidence_outputs {
     ($m:ident) => {
         $m! {
+                source_characterizations:$crate::domain::catalog::evidence::SourceCharacterization,
+                source_characterization_scenarios:$crate::domain::catalog::evidence::SourceCharacterizationScenario,
                 original_sources:$crate::domain::catalog::evidence::OriginalSource,
                 scenario_sources:$crate::domain::catalog::evidence::ScenarioSource,
                 scenarios:$crate::domain::catalog::evidence::CatalogScenario,

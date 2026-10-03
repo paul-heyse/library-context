@@ -198,7 +198,7 @@ pub struct EvidenceBodyPage {
     /// The page omitted results because of its declared bound.
     pub truncated: bool,
 }
-packet!(EvidencePacket {original:OriginalRange,body:EvidenceBodyPage,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,derivation:SectionPage<DerivationStep>});
+packet!(EvidencePacket {original:OriginalRange,body:EvidenceBodyPage,#[doc="Selected positive native source observations within this original range. An empty section proves neither diagnostic absence nor successful execution."] source_characterization:SectionPage<SourceCharacterizationPacket>,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,derivation:SectionPage<DerivationStep>});
 packet!(DerivationStep {source:ProofReference,rule:Name,conclusion:ProofReference,premises:Vec<PremisePacket>});
 packet!(PremisePacket {
     #[doc = "Declared relationship or support role; interpret it within the accompanying evidence context."]
@@ -315,3 +315,16 @@ impl CapabilityPacket {
         Ok(text)
     }
 }
+
+// A location is available only inside this request's already granted original range.
+packet!(SourceCharacterizationSpan {artifact:Id<source::SourceArtifact>,start:u64,end:u64});
+packet!(SourceAnnotationPacket {annotation:Id<diagnostics::DiagnosticAnnotation>,location:Availability,span:Nullable<SourceCharacterizationSpan>,label:Nullable<Text<0,16384>>});
+packet!(NativeSourceSupportPacket {support:ProofReference,run:Id<attribution::ProviderRun>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,environment:ContentHash,provider:Name,revision:Name,build:ContentHash,surface:Name,evidence:ProofReference,fidelity:attribution::Fidelity});
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
+#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+pub enum SourceCharacterizationPayload {
+    RuffDiagnostic {observation:Id<diagnostics::RuffDiagnosticObservation>,rule:diagnostics::SelectedRuffRule,native_id:Name,native_code:Name,primary_location:diagnostics::DiagnosticLocation,severity:diagnostics::DiagnosticSeverity,channel:diagnostics::DiagnosticChannel,message:Text<0,16384>,settings:ContentHash,annotations:Vec<SourceAnnotationPacket>},
+    PyreflyDiagnostic {observation:Id<diagnostics::PyreflyDiagnosticObservation>,category:Name,primary_location:diagnostics::DiagnosticLocation,severity:diagnostics::DiagnosticSeverity,channel:diagnostics::DiagnosticChannel,baseline:diagnostics::NativeBaselineStatus,header:Text<0,16384>,details:Nullable<Text<0,16384>>,annotations:Vec<SourceAnnotationPacket>},
+    ParameterDefinition {observation:Id<diagnostics::NativeParameterDefinitionObservation>,parameter:Id<syntax::ParameterSyntaxObservation>,answer:diagnostics::DefinitionAnswer,answer_count:u64,role:diagnostics::NativeParameterRole,reason:Nullable<obligation::ObligationKind>,metadata:Nullable<diagnostics::NativeDefinitionMetadata>,symbol_kind:Nullable<diagnostics::NativeDefinitionSymbolKind>,target_location:Availability,target:Nullable<SourceCharacterizationSpan>,target_name:Nullable<Text<0,16384>>},
+}
+packet!(SourceCharacterizationPacket {characterization:Id<catalog::evidence::SourceCharacterization>,qualification:Id<assertion::AssertionQualification>,#[doc="Captured source anchor. A diagnostic with unavailable primary location uses its artifact anchor; this is not a fabricated diagnostic range."] source:SourceCharacterizationSpan,#[doc="Containing scenarios characterize source context only. An empty list is unassociated Unknown, never proof of an API target or test execution."] containing_scenarios:Vec<Id<catalog::evidence::CatalogScenario>>,payload:SourceCharacterizationPayload,support:NativeSourceSupportPacket,proof:Vec<ProofReference>});

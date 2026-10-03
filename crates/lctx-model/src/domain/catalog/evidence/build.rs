@@ -647,6 +647,7 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
     checks(data, &mut out)?;
     dependencies(data, &mut out, b)?;
     finish_scenarios(data, &mut out, b)?;
+    super::characterization::derive(data,&mut out)?;
     Ok(out)
 }
 fn deployments(data: &EvidenceData, out: &mut EvidenceOutput) -> Result<(), ModelError> {

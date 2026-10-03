@@ -161,6 +161,9 @@ macro_rules! native_analysis_pairs {
         65: FlowCaptureTiming => $crate::domain::flow_capture::FlowCaptureTimingObservation, $crate::domain::flow_capture::FlowCaptureTimingSupport;
         64: ExportEnumeration => $crate::domain::symbols::ExportEnumerationObservation, $crate::domain::symbols::ExportEnumerationSupport;
         70: RuffBindingObservation => $crate::domain::ruff::RuffBindingObservation, $crate::domain::ruff::RuffBindingSupport;
+        66: RuffDiagnosticObservation => $crate::domain::diagnostics::RuffDiagnosticObservation, $crate::domain::diagnostics::RuffDiagnosticSupport;
+        67: PyreflyDiagnosticObservation => $crate::domain::diagnostics::PyreflyDiagnosticObservation, $crate::domain::diagnostics::PyreflyDiagnosticSupport;
+        69: NativeParameterDefinitionObservation => $crate::domain::diagnostics::NativeParameterDefinitionObservation, $crate::domain::diagnostics::NativeParameterDefinitionSupport;
         71: RuffDefinitionObservation => $crate::domain::ruff::RuffDefinitionObservation, $crate::domain::ruff::RuffDefinitionSupport;
     } };
 }

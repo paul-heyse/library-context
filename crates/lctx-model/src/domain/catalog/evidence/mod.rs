@@ -1,5 +1,7 @@
 //! Original contextual evidence references canonical captured coordinates and earlier semantic owners.
 pub mod build;
+pub mod characterization;
+pub use characterization::{SourceCharacterization,SourceCharacterizationScenario};
 mod fields;
 pub mod frames;
 mod intent;

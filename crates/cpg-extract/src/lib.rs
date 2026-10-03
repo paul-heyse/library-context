@@ -9,6 +9,8 @@ pub mod capture_records;
 pub mod deployment;
 pub mod deployment_parser;
 mod docstrings;
+pub mod diagnostic_records;
+pub mod parameter_definition_records;
 pub mod document_parser;
 mod lexical;
 pub mod lexical_records;
