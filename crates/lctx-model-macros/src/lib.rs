@@ -169,7 +169,7 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         quote! {
             type Source=::lctx_model::domain::assertion::NoDerivedSource;
             fn attribution(&self) -> Option<::lctx_model::domain::assertion::SupportAttribution> {
-                Some(::lctx_model::domain::assertion::SupportAttribution { run: self.run, surface: self.surface, evidence: self.evidence, fidelity: self.fidelity })
+                Some(::lctx_model::domain::assertion::SupportAttribution { run: self.run, surface: self.surface, evidence: self.evidence, origin: self.origin, mode: self.mode, fidelity: self.fidelity })
             }
         }
     };

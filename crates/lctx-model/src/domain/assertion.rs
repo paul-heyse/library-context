@@ -401,6 +401,8 @@ pub struct SupportAttribution {
     pub run: Id<ProviderRun>,
     pub surface: Id<ProviderSurface>,
     pub evidence: Id<Evidence>,
+    pub origin: Origin,
+    pub mode: ExtractionMode,
     pub fidelity: Fidelity,
 }
 pub trait Support: Record {
