@@ -646,3 +646,18 @@ hold; canonical site and CallEventSource supply location. Named rerun and actual
 pending. The Q0 stdio runner now addresses only a unique complete Source-role formal for
 scalar inputs; NativeSlot identities are not source-body input substitutes. Its fresh runtime
 qualification remains pending the assembled model and Python adapter.
+
+
+P3 repaired usage/native batch **passed**, 2026-10-03: ten controls across four native
+binaries, zero skipped, run `f9079739-1441-45c1-9ad7-d0b75a92d7b7`
+(`p3-usage-native-repaired2-controls.log`). Exact Invocation support is retained with its run
+and native attribution, and source location remains the actual canonical site/event. Earlier
+failed batches remain recorded; this is a composite scoped native receipt. The source producer
+is frozen for matching-CLI and real-PG original-evidence qualification, which are pending.
+
+Capture PG3 diagnostic **failed**, 194.34s (`p4-capture-pg3-diagnostic.log`), preserving
+actual two bindings, two value sources and two witnesses. It confirms the declaration support
+is AnalyzerAssertion/NativeTraversal/ReportProjection. The bounded packet repair exposes that
+source-correspondence proof with its actual qualification/basis/attribution and explicit lack
+of value authority, rather than admitting it through the NativeStructural value-proof helper.
+The native capture/timing/origin checks remain unchanged. Affected actual PG rerun is pending.
