@@ -495,3 +495,12 @@ existing `new_with_src` publicly. Native separate-process explicit-root/CWD cont
 Aggregate patch sha256 `b7154806d8d5106f02c225d35c4cb8802c869d551af4ce1dd2d391178deaa6f8`;
 receipt `/home/paul/.cache/lctx-code-facts/p3-ruff-fork-receipt.json`. Prior parity receipts keep
 their original revision; P3 consumer and assembled current-pin gates remain open.
+
+P4 output-control checkpoint `7d7a0ba4`, 2026-10-03: actual service controls independently
+specify source/effective typing differences and true/false/unknown structural facets, stored
+witness identity, conditional versus empty-basis Summary/brief packets, and exact/dynamic
+exception packets under body entry. `cargo check --release -p lctx --test conditional_output_packets`
+**passed**, final 0.47s (`p4-conditional-exception-output-check.log`); role service control compile
+receipt is above. Release PG runs remain pending in `p2-witness-epoch-p4-service-repair-controls.log`
+and `p4-conditional-exception-output-controls.log`. A compiled control does not establish served
+runtime acceptance. Full-series gates remain **not_run**.

@@ -15,8 +15,8 @@ retains prior receipts/limits; [parent cutover §8](docs/plans/semantic-model-cu
 owns older findings. PR6 remains paused until serving is qualified. R4 simultaneous multi-variant
 Summary qualification is not_run; retrieval quality, speed and total RSS remain unmeasured.
 
-The model remains the single semantic owner, PostgreSQL the canonical relation store and
-DataFusion in-process compute. Pure native preparation/formal resolution now live in the model;
+The model owns semantics and native preparation/formal resolution; PostgreSQL stores relations,
+and DataFusion computes in-process.
 storage retains receipt/membership/guard checks and resource admission. Exact dependency
 requirements, finite upper-stage bindings, one fixed analytic policy and typed packet bindings
 replace duplicate authorities. Catalog Flow stays NotRequested, default stability remains
@@ -99,7 +99,8 @@ N4b integrated (`f4a77641`, 32 controls passed); B4 integrated (`c115e623`, scop
 P1 integrated (`1a7ad33d`, real-PG RCA handoff passed); narrow M2 Lexical fix passed 22/22.
 P2 supported facets/stored witness closure (`d288a6b1`): compile, 17 model and three native controls passed.
 M2 lexical metadata integrated (`f36441c7`, 17 controls passed). B1 actual-PG Summary/replay repair passed.
-P4 ports/basis/conditional wording compile passed; actual service controls and B2/B3/P3 remain active.
+P4 ports/basis/conditional wording and output controls compile passed; actual service reruns,
+B2/B3/P3 remain active. B2 formal/literal capture PG journey passed; regression repair is pending.
 Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
 Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
@@ -111,11 +112,9 @@ receipts and remaining integration. The catalog compile stopped with SIGINT/exit
 `d3a3fa026a1237a1c4e175b9b1019eeb` has 204 receipts, no readers/writer, and remains unselected.
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves the stop state. No alignment implementation remains open; PR6 remains separate.
-Transport seams exercise grants/response bytes within their recorded limits.
-Borrowed CPU kernels drain; hard cancellation and performance improvements are not claimed.
+Transport seams exercise grants/response bytes within recorded limits; borrowed CPU kernels drain.
 
-Earlier incomplete Phase 5 and foundation/Phase 4 receipts remain at their owners; current
-alignment acceptance does not extend them to real-library serving. Gold/heldout/benchmarks are untouched.
+Earlier Phase 5/foundation/Phase 4 receipts retain their own boundaries; gold/heldout/benchmarks are untouched.
 
-Cargo retains release/shared intermediates/jobs16/frontend1. Nextest8 limits processes; builds may overlap.
-The automatic end-of-turn hook owns formatting and generated indexes; no cache cleanup is needed.
+Cargo retains release/shared intermediates/jobs16/frontend1; Nextest8 limits processes, builds may overlap.
+The end-of-turn hook owns formatting/generated indexes; no cache cleanup is needed.
