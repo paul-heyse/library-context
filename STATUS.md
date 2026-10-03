@@ -7,8 +7,10 @@ _Updated 2026-10-03 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 owns current execution; coordinator §7 is the sole mutable F01–F08/O1–O6 disposition. All N/E/D
 and T0/T1/T2 packages are integrated, with current complete functional and composite hygiene receipts.
 
-**Phase 5 real-library qualification and activation remain stopped by operator instruction.**
-Do not resume FastMCP Q0 without authorization. [Phase 5 §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
+**Phase 5 lexical-only real-library qualification and local stdio activation are authorized / in progress.**
+The operator selected both profiles with communities, PageRank, FCA/RCA and type/mention layers;
+kNN and embeddings are off. Live embedding/vector qualification is deliberately deferred pending
+analytical-output review; client registrations remain unchanged. [Phase 5 §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
 retains prior receipts/limits; [parent cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
 owns older findings. PR6 remains paused until serving is qualified. R4 simultaneous multi-variant
 Summary qualification is not_run; retrieval quality, speed and total RSS remain unmeasured.
@@ -49,7 +51,8 @@ Actual runtime acceptance and failures are recorded separately in coordinator §
 | `just hygiene` plus named repair checks | **composite passed**; all constituents including full workspace/all-target `just clippy` passed |
 | `just docs-check` | **passed** after final disposition/handoff publication; 269 canonical pages, zero offline link errors |
 | Confirmed `lctx store reset`, then `just store-check` | **passed**, current empty model, zero generations/findings |
-| Q0, reconstruction, activation, R4 and measurements | **not_run**, stopped/separate qualification boundaries |
+| Current lexical-only Q0 reconstruction/activation | **in progress**; preflight passed; catalog compilation running, behavioral/journeys/gates/selection pending |
+| Live embedding/vector qualification, R4 and measurements | **not_run**, deliberately deferred/separate qualification boundaries |
 
 Persistent command logs/exit receipts are under
 `/home/paul/.cache/lctx-alignment-execution/receipts-2026-10-03/`.
@@ -69,9 +72,12 @@ No readers were connected before retiring the old unselected staging generation
 Reset installed the current model and named store-check passed. Reconstruction from pinned
 inputs remains an activation prerequisite; no old runtime authority or compatibility reader remains.
 
-Next action is the operator’s choice of further qualification: authorize reconstruction/Q0
-before serving activation or PR6. No alignment implementation remains open; stopped work
-was not resumed as part of closure.
+Current execution: finish the real-library runner, compile/qualify both selected profiles, run
+final complete functional/hygiene gates, then select the catalog generation and verify a fresh
+selected-generation stdio launch. Receipt owner is Phase 5 §10; persistent campaign receipts are
+under `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/`. Readiness passed: current CLI,
+both adapters, both images and zero store findings. No alignment implementation remains open.
+PR6 and embedding-target design are separate subsequent work.
 Actual transport failure seams exercise the service/original grant and complete response bytes;
 they do not qualify physical backend faults or universal early errors without an admitted request.
 Borrowed CPU kernels drain; hard cancellation and performance improvements are not claimed.

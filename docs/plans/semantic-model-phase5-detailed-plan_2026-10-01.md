@@ -1,6 +1,6 @@
 # Phase 5: generation-bound serving — detailed design and execution plan
 
-**Implementation sufficient for now by operator instruction, 2026-10-02; further qualification stopped.** Full Q0 and activation are not claimed. This plan reconstructs serving after the semantic model
+**Lexical-only real-library qualification and local stdio activation authorized / in progress, 2026-10-03.** Full hybrid Q0 is not claimed; live embeddings and real-library vector preparation are deliberately deferred pending inspection of analytical outputs. This plan reconstructs serving after the semantic model
 cutover. It is subordinate to the [cutover plan](semantic-model-cutover-plan_2026-09-29.md), which
 owns cross-phase sequence and finding disposition. [DESIGN §15.12](../design/sections/semantic-model.md#section-15-12)
 and [§11](../design/sections/synthesis-and-serving.md#section-11) own accepted architecture;
@@ -536,7 +536,7 @@ lowering, manifests, query metadata and final acceptance. No formatting/generato
 | V0 | Implemented / scoped Tested. Full original corrected actual fixture passed 1 / zero skipped, 120.119s, run `ee4c8c95-37b3-45c2-9d3e-3fb002ef230f`; controlled numerical HTTP seam only. Composite receipt retains physical inventory and isolated dependency-sync failures. Later integration is covered by the assembled gate. |
 | N0/N1 | Implemented / scoped Tested. Pure native/condition/selection/evidence controls passed 50. Current ordering-discriminator actual fixture passed 1 / zero skipped, 200.266s; both profiles passed all ten transport controls. The unchanged generated CPython original-path oracle passed 1 / zero skipped, 795.987s after the production ordering repair. |
 | T0/X0 | Implemented / scoped Tested. Current ten-tool/resource bridges and exact final codecs passed in actual transport. 375 inventoried obsolete source files, 21 metadata entries and three obsolete wire assets retired. Independent expectations are re-homed; real retained-service and matcher/preregistration controls passed as scoped composite receipts. Generated-program controls passed 2; actual native oracle now passed. |
-| Q0 | Stopped at operator request, 2026-10-02. Final workspace Rust passed 927 / two skipped; Python passed 228. Separate PostgreSQL gate was interrupted after 349 passes; doctests not_run. Hygiene is composite passed, including current all-target Clippy and live store inspection. Final-source FastMCP Catalog compile was interrupted with its unselected staging receipts retained. Behavioral compile, physical artifact preparation, real-library MCP journeys and activation are deferred / not_run. This is accepted as sufficient for now, not complete Q0 qualification. |
+| Q0 | Lexical-only real-library qualification and local stdio activation authorized / in progress, 2026-10-03. Current execution receipt below owns the resumed scope. The prior stop remains a dated incomplete receipt. Alignment subsequently passed a complete functional gate and composite hygiene; it does not establish real-library qualification. Live embeddings, real-library vector artifacts and hybrid retrieval are deliberately deferred pending analytical-output review. |
 
 **Build coordination, 2026-10-02:** simultaneous release builds in isolated production worktrees
 formed a verified fine-grain Cargo artifact lock cycle: vector build held shared `allocative` and
@@ -921,3 +921,40 @@ generation and inactive execution worktrees are preserved as restart context; no
 drop or selection was performed at this stop. Resume only on a new operator request, first
 reconciling this checkpoint with the current tree; omitted gates and journeys still bound any
 future full Phase 5 qualification claim. Parent finding remainders are not closed by this stop.
+
+
+### Current Q0 execution — lexical-only campaign, 2026-10-03
+
+The operator authorized execution after selecting local stdio activation with no client-registration
+changes, and deliberately deferred embeddings until the analytical outputs can inform what is
+embedded. Both FastMCP 4.0.5 catalog and behavioral generations include communities, PageRank,
+FCA/RCA and type/mention layers. kNN, its community layer and all embeddings are off. This is
+a scoped lexical qualification/activation boundary; full hybrid Q0 remains separate. No new
+semantic authority, public route, vector policy, dependency pin or unrequested analysis is added.
+
+Baseline is clean main `6885dbf6a8c0083bc95162ac83c91b225680589d`. Persistent source/input
+manifest and command receipts are under
+`/home/paul/.cache/lctx-phase5-qualification/2026-10-03/`; `baseline.json` captures manifest,
+lockfile, toolchain and analytic-configuration hashes. The previous interrupted generation
+`de1e0c2b09a319134fcef595a9bcbe89` was retired during alignment after receipt archival; current
+read-only inventory is empty. It cannot be resumed or used to qualify current source.
+
+| Command / scope | Current result |
+|---|---|
+| `just test-cli-build` | **passed**; current release CLI, model `12242a5558134418fc3b54fdb526628d1715720e60e6199a8a6079f6066582da` |
+| `just native-adapter-ready` and explicit embedded-source comparison | **passed**; both locked native members rebuilt/installed; CLI and installed storage match all 240 current model sources (`adapter-source-agreement.json`) |
+| `just postgres-test-ready` | **passed**; both pinned images present |
+| `target/release/lctx store check` | **passed**; zero generations/findings; role configuration files are regular mode0600 |
+| `compile fastmcp --through catalog --profile catalog --embedder none --techniques '+communities,+pagerank,+fca,+rca,+type-layer,+mention-layer,-knn,-knn-layer'` | **in progress**, unselected staging generation `d3a3fa026a1237a1c4e175b9b1019eeb`; `catalog-compile.json/.log/.exit` |
+| Same compilation with `--profile behavioral` | **not_run**; follows catalog acquisition/publication |
+| Real-library runner, journeys, final complete gate/hygiene and stdio selection/activation | **not_run**; runner implementation and publication prerequisites in progress |
+| Live embedding, real-library vector preparation and hybrid retrieval | **not_run / deliberately deferred**; analytical-output review precedes embedding-target work |
+
+One production writer owns the qualification runner and focused real-PG fixture control; root
+owns campaign, integration, lifecycle, shared documentation and acceptance. Independent
+source/output mapping proceeds read-only. Native/default uncertainty, original byte evidence,
+lexical-only channel reporting, profile distinction and final response bounds must survive the
+real-library journeys. Requested analytical outcomes are reported faithfully, not converted
+into success by an empty result or an unavailable optional native model. Production identity
+changes require fresh affected generations. Full gates wait until functional runner/repairs
+are complete; the hook retains formatting/generator ownership.
