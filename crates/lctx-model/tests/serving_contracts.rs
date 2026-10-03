@@ -390,12 +390,12 @@ fn operation_response(parameters: usize) -> Value {
     let id = json!(vec![1u8; 16]);
     let absent =
         json!({"availability":{"status":"not_requested"},"items":[],"omitted":0,"truncated":false});
-    let parameter = json!({"parameter":id,"slot":null,"formals":[],"ordinal":0,"name":"x".repeat(500),"kind":1,"required":true,"types":[],"default":{"kind":"absent"}});
+    let parameter = json!({"parameter":id,"slot":null,"formals":[],"ordinal":0,"name":"x".repeat(500),"kind":1,"required":true,"types":[],"type_evidence":[],"default":{"kind":"absent"}});
     json!({"generation":vec![1u8;16],"operation":{"resolution":"unique","packet":{
         "core":{"member":id,"name":"FastMCP.run",
             "release":{"input":id,"release":id,"distribution":"fastmcp","version":"4.0.5"},
             "access":{"module":id,"path":["FastMCP","run"],"exposures":[id],"candidates":[id],"basis":null},
-            "invocations":[],"signatures":[{"source":id,"variant":id,"analysis":id,"form":0,"adjustment":0,"parameters":vec![parameter.clone();parameters],"effective_parameters":vec![parameter;parameters],"return_types":[],"complete":true}],
+            "invocations":[],"signatures":[{"signature":id,"role":0,"native":null,"variant":id,"analysis":id,"form":0,"adjustment":0,"parameters":vec![parameter.clone();parameters],"effective_parameters":vec![parameter;parameters],"return_types":[],"return_evidence":[],"typing":[],"complete":true}],
             "signature_knowledge":0,"options":[],"literal_values":[],"type_presentations":[],"limits":{"maximum_page_rows":100,"maximum_response_bytes":32768,"signature_indivisible":true}},
         "scenarios":absent,"deployment":absent,"relationships":absent,"conflicts":absent,"briefs":absent,"behavior":absent
     }}})
