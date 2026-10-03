@@ -134,6 +134,21 @@ modality, evidence and applicability. Different evidence bases cannot merge beca
 match. Extents/intents, implications and enumeration diagnostics are exact under that admitted
 context, not universal runtime laws. The fcars development oracle compares concept sets.
 
+**Implemented / scoped Tested, 2026-10-03:** model-owned source-parameter correspondence
+supplies declared parameter/type incidence and bound-receiver exclusion. Native signature,
+parameter and return attributes keep their invocation role, adjustment and native receiver;
+`AttributePolicy` records role/receiver selection in the method recipe and digest. The retained
+default is SourceDeclared with source bound receivers excluded and native slots preserved.
+Native slots are already adjusted by their callable type and are not adjusted again.
+
+Resolved decorators, class/member/record traits, deprecation, capture dependence and exit/terminal
+typing have distinct attributed incidence sources. These remain characterization; capture timing
+or terminal typing alone does not prove runtime value stability or completion. Boolean incidence
+deduplicates membership while retaining its multiple supports. The sparse type layer still ranges
+over release-defined classes, excluding builtin/dependency classes; richer observations do not
+silently expand its universe. The [code-facts coordinator](../../plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
+owns the focused native/real-PG P0/P1 receipts and pending assembled Q0 qualification.
+
 RCA performs one declared relational scaling step over admitted calls/handoffs and the same FCA
 context, followed by bounded concept enumeration. It requires FCA and preserves relation roles,
 qualification and closure. No recursive ontology expansion is activated. Shared-signature or
