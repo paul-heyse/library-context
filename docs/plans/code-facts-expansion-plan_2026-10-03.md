@@ -240,7 +240,7 @@ assembled runtime acceptance.
 | B3 | Native/recognizer read eligibility and narrow Candidate source-target routing controls passed. The unchanged final-class/member PG oracle still refuses MissingEvidence until genuine native ClassTrait support is qualified. Terminal serving remains active work. |
 | P0/P1/P2 | Parameter analytics, native characterization/roles, typed facets and stored witnesses are integrated. Scoped analytic/native/model/service controls passed; generated-role control and same-tree assembled journeys remain open. |
 | P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics and repaired usage both passed as a two-control composite; the repair retains opaque module/local assignment negatives alongside direct import/re-export positives. Current-tree assembled qualification remains open. |
-| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence actual PG passed on its frozen executor tree; required-wire control and main integration are pending. Terminal output is pending B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
+| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Same-tree assembled check remains open. Terminal output is pending B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
 | Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. Old operator staging and real-library/activation remain excluded. |
 
 | Package / command, 2026-10-03 | Outcome and boundary |
@@ -755,3 +755,15 @@ positives and both module/local opaque-assignment negatives are now independentl
 with no production or schema relaxation. Receiver/applicability/chosen/candidate/full-basis,
 higher-order Potential and source-grant controls passed in that journey. This closes the
 bounded P3 consumer receipt, not assembled Q0 or full-series gates.
+
+
+Frozen direct capture output integrated as `16827a31` (executor `c5a26787`), with
+`3b8a4a69` sharing the already registered P3 Modality/Approximation schema implementations.
+No numeric codes are changed. Required-wire control **passed**, 2026-10-03:
+`cargo test --release -p lctx-model --test serving_contracts direct_capture_packets_are_required_and_typed -- --exact`
+(one selected control, eighteen outside-filter controls; `p4-capture-wire1.log`), in addition to
+the actual PG4 and matching CLI/check receipts above. Exact executor receipt:
+`/home/paul/.cache/lctx-code-facts/code-facts-p4-capture-receipt.md`; aggregate patch SHA-256
+`91ad5d44deec1bd3f28fa8834d135305ccd1535ab14aadb6d58c2f12015e52ab`.
+P3 Evidence fields and source-formal documentation are preserved. Assembled compile, snapshots,
+current adapter, Q0 and full gates remain pending; this is an additive hard wire/schema migration.

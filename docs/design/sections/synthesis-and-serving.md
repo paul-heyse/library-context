@@ -84,6 +84,13 @@ conditional-raise and unfollowed premises. Parameter names follow qualified sign
 links; literal and guard/raise text uses original source occurrences. Source and effective
 signature options are distinct. An unproved correspondence cannot be supplied by their labels.
 
+**Implemented premise rendering, 2026-10-03 (ADR-0120).** Summary assertion and brief text
+consume the actual shared qualification. A nonempty basis is explicitly conditional and identifies
+its premise set; an empty basis states that no additional typing/closed-world assumptions apply.
+It does not remove the finite model, source-body entry, condition or scope. Conservative and
+restricted alternatives remain separate, and fresh runtime source-binding admission refuses a
+nonempty typing basis. Current packet/runtime acceptance is owned by the code-facts coordinator.
+
 <a id="section-10-3"></a>
 
 ### §10.3 Brief structure and the Outcome order
@@ -279,6 +286,21 @@ selection is shared with analytics and follows normalized references before supp
 metadata. C2 persists canonical witness rows, and request-time classification refuses an unstored
 citation. Incomplete metadata and unsupported runtime meanings remain Unknown or explicit refusal.
 The coordinator's §7 records the bounded checks; full series qualification remains open.
+
+**Implemented selected evidence and direct captures, 2026-10-03.** Original-source packets
+retain bounded native diagnostics, pytest definition roles and usage observations under the same
+source grant. Exact targets, arguments, receiver/applicability qualification and chosen/candidate
+trace availability survive; unresolved associations and potential callback channels remain explicit.
+These observations do not certify execution or extend a grant to a foreign source range.
+
+Behavior packets expose the actual selected direct Summary capture contribution, including its
+caller/callee frame, source-formal or literal value source and complete qualification/proof chain.
+Source-declaration correspondence retains its actual report/native attribution separately from
+native structural capture/timing/origin evidence. Timing candidates remain characterization,
+and the value certificate remains conditional on entry to the bounded direct synchronous caller
+frame. An empty capture list does not establish capture absence or transitive provenance.
+Scoped original-evidence and capture PostgreSQL journeys are **Tested** in coordinator §7;
+assembled same-tree adapter/Q0/full gates remain open.
 
 Required signatures are indivisible. Packet/evidence row and byte budgets disclose omissions,
 continuations or resource refusal; they do not silently shorten a signature. Cursors bind
