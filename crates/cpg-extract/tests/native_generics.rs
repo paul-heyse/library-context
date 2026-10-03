@@ -83,6 +83,9 @@ async fn selection_fixture() -> (selection::build::Data, ResourceBudget) {
         let id = d.source.facts.core_invocations.insert(invocation).unwrap();
         for member in d.source.catalog.members.iter() { d.source.facts.core_links.insert(CatalogMemberInvocation {member:member.id(),invocation:id}).unwrap(); }
     }
+    let mut native=analysis::native::NativeInventory::new(&b);
+    for input in analysis::native::NativeInventory::inputs(){if let Some(batch)=tables.lock().unwrap().get(input.name()){native.visit(input.name(),batch).unwrap();}}
+    for premise in native.collect().unwrap().premises.iter(){d.source.facts.characterization_native.insert(premise.clone()).unwrap();}
     d.evidence = catalog::evidence::build::build(&d.source,&b).unwrap();
     (d,b)
 }

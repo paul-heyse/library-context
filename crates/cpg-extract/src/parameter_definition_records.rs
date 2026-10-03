@@ -8,14 +8,14 @@ use ruff_text_size::Ranged;
 pub struct Records {pub rows:Vec<NativeParameterDefinitionObservation>,pub evidence:Vec<Evidence>,charge:StateCharge}
 fn symbol(kind:SymbolKind)->NativeDefinitionSymbolKind {match kind {SymbolKind::Module=>NativeDefinitionSymbolKind::Module,SymbolKind::Attribute=>NativeDefinitionSymbolKind::Attribute,SymbolKind::Variable=>NativeDefinitionSymbolKind::Variable,SymbolKind::Constant=>NativeDefinitionSymbolKind::Constant,SymbolKind::Parameter=>NativeDefinitionSymbolKind::Parameter,SymbolKind::TypeParameter=>NativeDefinitionSymbolKind::TypeParameter,SymbolKind::TypeAlias=>NativeDefinitionSymbolKind::TypeAlias,SymbolKind::Function=>NativeDefinitionSymbolKind::Function,SymbolKind::Method=>NativeDefinitionSymbolKind::Method,SymbolKind::Class=>NativeDefinitionSymbolKind::Class}}
 #[allow(clippy::too_many_arguments)]
-pub fn records(transaction:&Transaction<'_>,handle:&Handle,artifact:&SourceArtifact,source:&str,syntax:&Syntax,spans:&Spans,q:&AssertionQualification,native_complete:bool,budget:&ResourceBudget)->Result<Records,ModelError>{
+pub fn records(transaction:&Transaction<'_>,handle:&Handle,artifact:&SourceArtifact,source:&str,syntax:&Syntax,spans:&Spans,q:&AssertionQualification,native_reason:Option<ObligationKind>,budget:&ResourceBudget)->Result<Records,ModelError>{
     let mut out=Records {rows:vec![],evidence:vec![],charge:StateCharge::new(budget,"native-parameter-definitions")};
     let info=transaction.get_module_info(handle);let ast=transaction.get_ast(handle);
     for parameter in &syntax.parameters {
         let formal=syntax.formals.iter().find(|(wrapper,_)|*wrapper==parameter.parameter).map(|(_,formal)|*formal);
         let range=formal.and_then(|f|spans.range_of(f));
         let offset=range.map_or(0,|r|r.start().to_u32() as i64);
-        let correspondence=native_complete && info.as_ref().is_some_and(|m|m.contents().as_str()==source) && range.is_some_and(|range|ast.as_ref().is_some_and(|ast|pyrefly_python::ast::Ast::locate_node(ast,range.start()).iter().any(|n|matches!(n,ruff_python_ast::AnyNodeRef::Parameter(p) if p.range()==range))));
+        let correspondence=native_reason.is_none() && info.as_ref().is_some_and(|m|m.contents().as_str()==source) && range.is_some_and(|range|ast.as_ref().is_some_and(|ast|pyrefly_python::ast::Ast::locate_node(ast,range.start()).iter().any(|n|matches!(n,ruff_python_ast::AnyNodeRef::Parameter(p) if p.range()==range))));
         let mut preference=FindPreference::default();preference.disable_style_fallback=true;
         let result=if correspondence {transaction.find_definition(handle,range.unwrap().start(),preference).ok().filter(|items|!items.is_empty())}else{None};
         let count=result.as_ref().map_or(0,|items|items.len());
@@ -29,7 +29,7 @@ pub fn records(transaction:&Transaction<'_>,handle:&Handle,artifact:&SourceArtif
                 let row=NativeParameterDefinitionObservation {qualification:q.id(),parameter:parameter.id(),subject:parameter.parameter,query_offset:offset,ordinal:ordinal as i64,answer_count:count as i64,answer:if count==1 {DefinitionAnswer::Known}else{DefinitionAnswer::Candidate},role,reason:if count==1 {None}else{Some(ObligationKind::MissingEvidence)},metadata:Some(metadata),symbol_kind:kind,target,target_location:if target.is_some(){DiagnosticLocation::Available}else{DiagnosticLocation::Unavailable},target_name:item.display_name};row.validate()?;out.charge.grow(size_of::<NativeParameterDefinitionObservation>().saturating_mul(4)+row.heap_bytes())?;out.rows.push(row);
             }
         } else {
-            let row=NativeParameterDefinitionObservation {qualification:q.id(),parameter:parameter.id(),subject:parameter.parameter,query_offset:offset,ordinal:0,answer_count:0,answer:DefinitionAnswer::Unknown,role:NativeParameterRole::Unknown,reason:Some(if native_complete {ObligationKind::MissingEvidence}else{ObligationKind::SyntaxError}),metadata:None,symbol_kind:None,target:None,target_location:DiagnosticLocation::Unavailable,target_name:None};row.validate()?;out.charge.grow(size_of::<NativeParameterDefinitionObservation>().saturating_mul(4)+row.heap_bytes())?;out.rows.push(row);
+            let row=NativeParameterDefinitionObservation {qualification:q.id(),parameter:parameter.id(),subject:parameter.parameter,query_offset:offset,ordinal:0,answer_count:0,answer:DefinitionAnswer::Unknown,role:NativeParameterRole::Unknown,reason:Some(native_reason.unwrap_or(ObligationKind::MissingEvidence)),metadata:None,symbol_kind:None,target:None,target_location:DiagnosticLocation::Unavailable,target_name:None};row.validate()?;out.charge.grow(size_of::<NativeParameterDefinitionObservation>().saturating_mul(4)+row.heap_bytes())?;out.rows.push(row);
         }
     }
     Ok(out)

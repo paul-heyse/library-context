@@ -24,7 +24,7 @@ impl PacketLease<'_> {
     async fn source_support<R:Support>(&mut self,support:Id<R>,q:&AssertionQualification,family:FactFamily,tool:&str)->Result<NativeSourceSupportPacket,Error>{
         let row=required(&self.read_ids::<R>(&[support]).await?,support)?;let a=row.attribution().ok_or(Error::Contract)?;
         let run=required(&self.read_ids::<ProviderRun>(&[a.run]).await?,a.run)?;let surface=required(&self.read_ids::<ProviderSurface>(&[a.surface]).await?,a.surface)?;let provider=required(&self.read_ids::<Provider>(&[run.provider]).await?,run.provider)?;let context=required(&self.read_ids::<AnalysisContext>(&[run.context]).await?,run.context)?;
-        if run.context!=q.context||run.provider!=surface.provider||surface.family!=family||provider.tool!=tool||a.fidelity!=Fidelity::NativeStructural{return Err(Error::Contract)}
+        if run.context!=q.context||run.provider!=surface.provider||surface.family!=family||provider.tool!=tool||a.origin!=Origin::AnalyzerAssertion||a.mode!=ExtractionMode::NativeTraversal||a.fidelity!=Fidelity::NativeStructural{return Err(Error::Contract)}
         Ok(NativeSourceSupportPacket {support:ProofReference::from_canonical(derivation::RowRef::of(support)),run:run.id(),input:run.input,context:run.context,environment:context.environment_digest,provider:Name::new(provider.tool).map_err(wire)?,revision:Name::new(provider.revision).map_err(wire)?,build:provider.build_digest,surface:Name::new(surface.name).map_err(wire)?,evidence:ProofReference::from_canonical(derivation::RowRef::of(a.evidence)),fidelity:a.fidelity})
     }
     async fn annotations(&mut self,subject:DiagnosticSubject,grant:&OriginalRange,charge:&mut charged::StateCharge)->Result<Vec<SourceAnnotationPacket>,Error>{
@@ -50,6 +50,11 @@ impl PacketLease<'_> {
             charge.grow(4096)?;
             let premise=required(&self.read_ids::<NativeAssertionPremise>(&[row.native]).await?,row.native)?;
             let payload=match premise {
+                NativeAssertionPremise::ProviderCallSite{assertion,support}=>{
+                    let raw=required(&self.read_ids::<calls::ProviderCallSite>(&[assertion]).await?,assertion)?;let basis=self.source_support(support,&q,FactFamily::Calls,"pyrefly").await?;
+                    let usage=self.source_usage(&row,&raw,grant,&mut charge).await?;
+                    (SourceCharacterizationPayload::Usage{usage},basis)
+                },
                 NativeAssertionPremise::RuffDiagnosticObservation{assertion,support}=>{
                     let raw=required(&self.read_ids::<RuffDiagnosticObservation>(&[assertion]).await?,assertion)?;charge.grow(raw.heap_bytes().saturating_add(2048))?;let basis=self.source_support(support,&q,FactFamily::Lexical,"ruff").await?;
                     let annotations=self.annotations(DiagnosticSubject::Ruff{observation:assertion},grant,&mut charge).await?;
@@ -69,7 +74,8 @@ impl PacketLease<'_> {
             let scenarios=self.read_for::<SourceCharacterizationScenario,SourceCharacterization>("characterization",&[row.id()]).await?;
             if scenarios.rows().len()>64{return Err(Error::ResourceRefused("indivisible source characterization scenario context"))}
             let mut containing_scenarios=scenarios.rows().iter().map(|s|s.scenario).collect::<Vec<_>>();containing_scenarios.sort();containing_scenarios.dedup();
-            let proof=vec![ProofReference::from_canonical(derivation::RowRef::of(row.id())),ProofReference::from_canonical(derivation::RowRef::of(row.native)),payload.1.support.clone()];
+            let mut proof=vec![ProofReference::from_canonical(derivation::RowRef::of(row.id())),ProofReference::from_canonical(derivation::RowRef::of(row.native)),payload.1.support.clone()];
+            if let SourceCharacterizationPayload::Usage{usage}= &payload.0 {proof.push(ProofReference::from_canonical(derivation::RowRef::of(usage.usage)));}
             items.push(SourceCharacterizationPacket{characterization:row.id(),qualification:row.qualification,source,containing_scenarios,payload:payload.0,support:payload.1,proof});
         }
         Ok(SectionPage{availability:if omitted==0{Availability::Available{}}else{Availability::Partial{reason:Name::new("source characterization row bound reached").map_err(wire)?}},items,continuation:Optional::default(),omitted,truncated:omitted>0})

@@ -368,7 +368,7 @@ macro_rules! binding {
                 BINDING.get_or_init(|| {
                     let prepared: &'static [PreparedDependency] = $prepared;
                     let mut sources = $sources;
-                    if matches!($name, "operation_core"|"capability"|"behavior"|"native_assessment") { sources.extend(claim_basis_sources()); }
+                    if matches!($name, "operation_core"|"capability"|"behavior"|"native_assessment"|"original_evidence") { sources.extend(claim_basis_sources()); }
                     sources.extend(dependency_sources(prepared));
                     sources.sort_by_key(Relation::name);
                     sources.dedup_by_key(|r| r.name());
@@ -447,7 +447,30 @@ binding!(
     &[Capability::Catalog],
     sources!(
         e::OriginalSource,
+        e::SourceUsage,
         e::SourceCharacterization,
+        domain::normalized::events::NormalizedCallEvent,
+        domain::normalized::events::NormalizedCallAlternative,
+        domain::normalized::events::CallAlternativeSource,
+        domain::normalized::bindings::CallBindingAttempt,
+        domain::normalized::bindings::CallBinding,
+        domain::normalized::callables::SignatureVariant,
+        domain::calls::ProviderCallSite,
+        domain::calls::ProviderCallSiteSupport,
+        domain::calls::CallTarget,
+        domain::calls::CallTargetSupport,
+        domain::calls::CallDestination,
+        domain::calls::CallChannel,
+        domain::calls::Receiver,
+        domain::calls::CallSyntax,
+        domain::calls::CallSyntaxSupport,
+        domain::calls::CallArgument,
+        domain::calls::Signature,
+        domain::calls::BindingSource,
+        domain::types::TypeObservation,
+        domain::types::TypeSupport,
+        e::ScenarioAssociation,
+        domain::catalog::CatalogMember,
         e::SourceCharacterizationScenario,
         domain::analysis::native::NativeAssertionPremise,
         domain::assertion::AssertionQualification,

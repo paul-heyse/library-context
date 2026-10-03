@@ -853,7 +853,7 @@ fn session<S: StageSink + 'static>(
                     qualification.id(),
                     &contextual.rows,
                 )?;
-                let parameter_answers=crate::parameter_definition_records::records(&transaction,handle,artifact,&text,&records,&spans,&qualification,native_available&&!native_parse_error,context.budget())?;
+                let parameter_answers=crate::parameter_definition_records::records(&transaction,handle,artifact,&text,&records,&spans,&qualification,if native_parse_error {Some(ObligationKind::SyntaxError)}else if !native_available {Some(ObligationKind::MissingEvidence)}else{None},context.budget())?;
                 write_parameter_definitions(context,parameter_answers,&run,&surfaces[&FactFamily::Types])?;
                 let computed = records.computed_all.clone();
                 computed_all = !computed.is_empty();

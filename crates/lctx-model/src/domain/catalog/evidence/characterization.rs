@@ -29,7 +29,7 @@ fn supported(d:&EvidenceData,q:&AssertionQualification,artifact:Id<SourceArtifac
         && q.assumptions==assumptions::AssumptionSet::empty_id() && q.modality==Modality::Definite && q.approximation==Approximation::Exact && q.condition==conditions::Diagram::always().id()
         && origin==Origin::AnalyzerAssertion && mode==ExtractionMode::NativeTraversal && fidelity==Fidelity::NativeStructural && d.facts.canonical_evidence.get(evidence).is_some()
 }
-fn add(d:&EvidenceData,out:&mut EvidenceOutput,premise:NativeAssertionPremise,q:Id<AssertionQualification>,artifact:Id<SourceArtifact>,source:OriginalSource)->Result<(),ModelError>{
+fn add(d:&EvidenceData,out:&mut EvidenceOutput,premise:NativeAssertionPremise,q:Id<AssertionQualification>,artifact:Id<SourceArtifact>,source:OriginalSource)->Result<Id<SourceCharacterization>,ModelError>{
     // Existing native inventory must contain this exact pair. No support is synthesized here.
     if d.facts.characterization_native.get(premise.id())!=Some(&premise){return Err(invalid("source characterization exact native premise absent"));}
     let qrow=need(&d.core.qualifications,q)?;let (actual,start,end)=coordinates(d,&source)?;let a=need(&d.core.artifacts,artifact)?;
@@ -43,7 +43,14 @@ fn add(d:&EvidenceData,out:&mut EvidenceOutput,premise:NativeAssertionPremise,q:
         let context=match source{ScenarioSource::Python{context,..}=>Some(*context),ScenarioSource::Fence{observation}=>Some(need(&d.core.qualifications,need(&d.facts.blocks,*observation)?.qualification)?.context)};
         if context==Some(qrow.context)&&other==artifact&&lo<=start&&end<=hi{scenarios.push(span.scenario);}
     }
-    scenarios.sort();scenarios.dedup();for scenario in scenarios{out.source_characterization_scenarios.insert(SourceCharacterizationScenario{characterization:id,scenario})?;}Ok(())
+    scenarios.sort();scenarios.dedup();for scenario in scenarios{out.source_characterization_scenarios.insert(SourceCharacterizationScenario{characterization:id,scenario})?;}Ok(id)
+}
+/// Exact event-source correspondence; it survives unresolved targets and does not imply execution.
+#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[model(name="catalog_source_usages",rule="source_usage",semantic_source=include_bytes!("characterization.rs"))]
+pub struct SourceUsage {
+    #[model(key,premise)] pub characterization:Id<SourceCharacterization>,
+    #[model(key)] pub event:Id<normalized::events::NormalizedCallEvent>,
 }
 pub(super) fn derive(d:&EvidenceData,out:&mut EvidenceOutput)->Result<(),ModelError>{
     for annotation in d.facts.diagnostic_annotations.iter(){
@@ -67,6 +74,17 @@ pub(super) fn derive(d:&EvidenceData,out:&mut EvidenceOutput)->Result<(),ModelEr
         if parameter.parameter!=row.subject || parameter.qualification!=row.qualification || row.query_offset<occurrence.start || row.query_offset>occurrence.end{return Err(invalid("native parameter answer changes exact canonical parameter/context"));}
         for support in d.facts.parameter_definition_supports.iter().filter(|s|s.assertion==row.id()){
             if d.facts.canonical_evidence.get(support.evidence)==Some(&Evidence::Occurrence{occurrence:row.subject}) && supported(d,q,occurrence.source,support.run,support.surface,support.evidence,FactFamily::Types,"pyrefly",support.origin,support.mode,support.fidelity){add(d,out,NativeAssertionPremise::NativeParameterDefinitionObservation{assertion:row.id(),support:support.id()},row.qualification,occurrence.source,OriginalSource::Occurrence{occurrence:row.subject})?;}
+        }
+    }
+    for source in d.facts.usage_event_sources.iter(){
+        let event=need(&d.facts.events,source.event)?;let row=need(&d.facts.usage_sites,source.observation)?;let occurrence=need(&d.core.occurrences,row.site)?;let q=need(&d.core.qualifications,row.qualification)?;
+        if row.site!=event.site||row.origin!=event.origin||q.context!=event.context{return Err(invalid("source usage changes exact native event source identity"));}
+        for support in d.facts.usage_site_supports.iter().filter(|s|s.assertion==row.id()){
+            let located=match d.facts.canonical_evidence.get(support.evidence){Some(Evidence::SourceSpan{source,start,end})=>*source==occurrence.source&&*start<=occurrence.start&&occurrence.end<=*end,Some(Evidence::Occurrence{occurrence:subject})=>*subject==row.site,Some(Evidence::Invocation{run})=>*run==support.run,_=>false};
+            if located&&supported(d,q,occurrence.source,support.run,support.surface,support.evidence,FactFamily::Calls,"pyrefly",support.origin,support.mode,support.fidelity){
+                let characterization=add(d,out,NativeAssertionPremise::ProviderCallSite{assertion:row.id(),support:support.id()},row.qualification,occurrence.source,OriginalSource::Occurrence{occurrence:row.site})?;
+                out.source_usages.insert(SourceUsage{characterization,event:event.id()})?;
+            }
         }
     }
     Ok(())

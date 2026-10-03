@@ -5,6 +5,7 @@ mod codec;
 mod ddl;
 mod evidence_service;
 mod source_characterization_service;
+mod source_usage_service;
 mod failure;
 mod guard;
 mod install;

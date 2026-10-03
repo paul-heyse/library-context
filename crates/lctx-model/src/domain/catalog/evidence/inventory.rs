@@ -39,6 +39,9 @@ macro_rules! catalog_evidence_inputs {
          corpus_libraries:$crate::domain::input::CorpusLibrary,
          artifact_ownership:$crate::domain::input::ArtifactOwnership,
          verifications:$crate::domain::input::DistributionVerification,
+         usage_sites:$crate::domain::calls::ProviderCallSite,
+         usage_site_supports:$crate::domain::calls::ProviderCallSiteSupport,
+         usage_event_sources:$crate::domain::normalized::events::CallEventSource,
          events:$crate::domain::normalized::events::NormalizedCallEvent,
          alternatives:$crate::domain::normalized::events::NormalizedCallAlternative,
          alternative_sources:$crate::domain::normalized::events::CallAlternativeSource,
@@ -62,6 +65,7 @@ macro_rules! catalog_evidence_inputs {
 macro_rules! catalog_evidence_outputs {
     ($m:ident) => {
         $m! {
+                source_usages:$crate::domain::catalog::evidence::SourceUsage,
                 source_characterizations:$crate::domain::catalog::evidence::SourceCharacterization,
                 source_characterization_scenarios:$crate::domain::catalog::evidence::SourceCharacterizationScenario,
                 original_sources:$crate::domain::catalog::evidence::OriginalSource,

@@ -31,7 +31,7 @@ pub struct RuffDiagnosticObservation {
     #[model(key)] pub severity:DiagnosticSeverity,
     #[model(key)] pub channel:DiagnosticChannel,
     #[model(key)] pub message:String,
-    /// Digest of actual selected settings and both native noqa passes over the retained parse.
+    /// Digest of the actual selected linter settings; channel distinguishes the two retained native noqa passes.
     #[model(key)] pub settings:ContentHash,
 }
 #[derive(Debug,Clone,PartialEq,Eq,Domain,Assertion)]
