@@ -392,6 +392,7 @@ async fn native_false_source_persists_exact_negative_s0_authority() {
         let mut assertions = assertions::Output::new(budget);
         assertions::extend_summary(
             &data,
+            &observed,
             &facets,
             &frames,
             &invocations,

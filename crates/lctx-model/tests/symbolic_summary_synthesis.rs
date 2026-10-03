@@ -163,7 +163,7 @@ fn qualified_symbolic_unknown_retains_reader_scope_and_has_no_finding_authority(
         assert_eq!(facet.reason, Some(reason));
         assert_eq!(facet.source, None);
         assert!(
-            summary::text(&f.data, facet, &f.budget)
+            summary::text(&f.data, facet, Some(&f.reader), &f.budget)
                 .unwrap()
                 .contains("whether a later read returns the stored value remains unresolved")
         );

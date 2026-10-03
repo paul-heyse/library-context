@@ -448,7 +448,15 @@ pub fn extend_observations(
     }
     Ok(())
 }
-pub fn text(d: &Data, facet: &SummaryFacet, b: &ResourceBudget) -> Result<String, ModelError> {
+pub fn text(
+    d: &Data,
+    facet: &SummaryFacet,
+    qualification: Option<&assertion::AssertionQualification>,
+    b: &ResourceBudget,
+) -> Result<String, ModelError> {
+    if facet.qualification != qualification.map(Record::id) {
+        return Err(invalid("Summary text changes its exact qualification"));
+    }
     let _charge = b.reserve("s0-summary-facet-render", 1024)?;
     let question = match facet.claim.map(|c| need(&d.claims, c)).transpose()? {
         Some(SummaryClaim::SymbolicFieldAssociation { alternative, .. }) => {
@@ -479,8 +487,13 @@ pub fn text(d: &Data, facet: &SummaryFacet, b: &ResourceBudget) -> Result<String
         ),
         None => "Behavioral analysis for this captured frame".into(),
     };
+    let basis = match qualification {
+        Some(q) if q.assumptions == assumptions::AssumptionSet::empty_id() => "No additional typing or closed-world assumptions".to_owned(),
+        Some(q) => format!("Conditional on the stated typing or closed-world premises (basis {})", q.assumptions.hex()),
+        None => "Qualification and assumption basis are unavailable".to_owned(),
+    };
     Ok(format!(
-        "{question}: {:?}; coverage {:?}; reason {:?}; exact conclusion {}.",
+        "{question}: {:?}; coverage {:?}; reason {:?}; exact conclusion {}. {basis}.",
         facet.verdict,
         facet.coverage,
         facet.reason,
@@ -644,6 +657,23 @@ mod tests {
         (b, d, docs, o, frames, invocations, coverage)
     }
     #[test]
+    fn summary_text_preserves_the_exact_assumption_basis() {
+        let (b, d, docs, o, f, i, _) = fixture(true, obligation::Verdict::Conditional);
+        let (facets, _) = build(&d, &docs, &f, &i, &b).unwrap();
+        let facet = facets.iter().next().unwrap();
+        let original = o.qualifications.get(facet.qualification.unwrap()).unwrap();
+        assert!(text(&d, facet, Some(original), &b).unwrap().contains("No additional typing or closed-world assumptions"));
+        let mut qualified = original.clone();
+        qualified.assumptions = id(97);
+        let mut conditional = facet.clone();
+        conditional.qualification = Some(qualified.id());
+        let rendered = text(&d, &conditional, Some(&qualified), &b).unwrap();
+        assert!(rendered.contains("Conditional on the stated typing or closed-world premises"));
+        assert!(rendered.contains(&qualified.assumptions.hex()));
+        assert!(!rendered.contains("No additional typing"));
+        assert!(text(&d, &conditional, Some(original), &b).is_err());
+    }
+    #[test]
     fn summary_question_retains_original_artifact_call_identity_and_negative_verdict() {
         for verdict in [
             obligation::Verdict::Established,
@@ -655,7 +685,7 @@ mod tests {
             let facet = facets.iter().next().unwrap();
             assert_eq!(facet.verdict, verdict);
             assert!(
-                text(&d, facet, &b)
+                text(&d, facet, facet.qualification.and_then(|q|o.qualifications.get(q)), &b)
                     .unwrap()
                     .contains(&format!("{verdict:?}"))
             );

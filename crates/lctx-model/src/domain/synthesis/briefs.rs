@@ -278,7 +278,7 @@ pub fn build_with_summary(
             text.push_str("\nBehavioral question coverage:\n");
             for facet in selected_facets.iter() {
                 facet.id().encode(&mut assertion_hash);
-                text.push_str(&super::summary::text(summary, facet, b)?);
+                text.push_str(&super::summary::text(summary, facet, facet.qualification.map(|q|need(&d.qualifications,q)).transpose()?, b)?);
                 text.push('\n');
             }
         }

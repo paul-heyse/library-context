@@ -435,8 +435,10 @@ pub fn build(
     }
     Ok(out)
 }
+#[allow(clippy::too_many_arguments, reason = "Summary assertion lowering keeps the separately owned qualification and nominal proof inputs explicit.")]
 pub fn extend_summary(
     d: &super::summary::Data,
+    observations: &super::observations::Data,
     facets: &Rows<super::summary::SummaryFacet>,
     frames: &Rows<super::frames::Frame>,
     invocations: &Rows<owner::Invocation>,
@@ -462,7 +464,8 @@ pub fn extend_summary(
         let facts = derived.source_facts();
         let template = AssertionTemplate::Summary { facet: facet.id() };
         let source = AssertionSource::Summary { facet: facet.id() };
-        let text = super::summary::text(d, facet, b)?;
+        let qualification = need(&observations.qualifications, facts.qualification)?;
+        let text = super::summary::text(d, facet, Some(qualification), b)?;
         let (assertion, support) = emit(
             inv.id(),
             member,
@@ -504,7 +507,7 @@ pub fn build_all(
 ) -> Result<Output, ModelError> {
     let mut out = build(d, docs, o, controls, public, frames, invocations, b)?;
     let (facets, _) = super::summary::build(summary, d, frames, invocations, b)?;
-    extend_summary(summary, &facets, frames, invocations, &mut out, b)?;
+    extend_summary(summary, o, &facets, frames, invocations, &mut out, b)?;
     let code = super::patterns::build(patterns, d, frames, invocations, b)?;
     extend_patterns(patterns, d, &code, frames, invocations, &mut out, b)?;
     Ok(out)

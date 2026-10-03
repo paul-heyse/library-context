@@ -109,6 +109,7 @@ impl Evidence<'_> {
         if q.condition != conditions::Diagram::always().id()
             || q.modality != Modality::Definite
             || q.approximation != Approximation::Exact
+            || q.assumptions != assumptions::AssumptionSet::empty_id()
         {
             return Err(boundary(obligation::ObligationKind::Approximation));
         }
