@@ -168,6 +168,9 @@ use lctx_model::domain::{
 use std::collections::BTreeMap;
 #[derive(Default)]
 pub struct Places {
+    pub assumption_sets: BTreeMap<Id<lctx_model::domain::assumptions::AssumptionSet>, lctx_model::domain::assumptions::AssumptionSet>,
+    pub assumption_members: BTreeMap<Id<lctx_model::domain::assumptions::AssumptionSetMember>, lctx_model::domain::assumptions::AssumptionSetMember>,
+    pub assumptions: BTreeMap<Id<lctx_model::domain::assumptions::Assumption>, lctx_model::domain::assumptions::Assumption>,
     pub roots: BTreeMap<Id<PlaceRoot>, PlaceRoot>,
     pub places: BTreeMap<Id<Place>, Place>,
     pub paths: BTreeMap<Id<AccessPath>, AccessPath>,
@@ -205,6 +208,7 @@ impl Places {
     }
     pub fn catalog(&self) -> CompositionCatalog<'_> {
         CompositionCatalog {
+            assumptions: lctx_model::domain::assumptions::AssumptionCatalog {sets: &self.assumption_sets, members: &self.assumption_members, definitions: &self.assumptions},
             guards: GuardCatalog {
                 places: &self.places,
                 roots: &self.roots,

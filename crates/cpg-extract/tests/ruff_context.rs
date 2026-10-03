@@ -61,7 +61,7 @@ fn contextual_attachment_refuses_foreign_source_and_context() {
     let provider=cpg_extract::ruff_context::provider();
     let (run,_)=ProviderRun::new(provider.id(),context.id(),artifact.input,context.config_digest,[FactFamily::Syntax]).unwrap();
     let surface=ProviderSurface {provider:provider.id(),family:FactFamily::Syntax,name:"control".into()};
-    let qualification=AssertionQualification {context:context.id(),scope:CoverageScope::Artifact {artifact:artifact.id()}.id(),condition:Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact};
+    let qualification=AssertionQualification {assumptions:lctx_model::domain::assumptions::AssumptionSet::empty_id(),context:context.id(),scope:CoverageScope::Artifact {artifact:artifact.id()}.id(),condition:Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact};
     let mut spans=Spans::new(&budget);
     typed_syntax::emit(syntax.module(),source,SyntaxInvocation {source:&artifact,qualification:&qualification,run:&run,surface:&surface},SyntaxLimits::default(),|event|spans.insert(&event.occurrence)).unwrap();
     let contexts=syntax.context_rows(&spans,&qualification,&budget).unwrap();

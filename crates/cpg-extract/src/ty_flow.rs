@@ -1049,7 +1049,7 @@ impl<S: StageSink + 'static> Writer<'_, S> {
             let (condition,nodes)=Diagram::always().records();
             self.context.contribute(condition.clone())?;
             for node in nodes {self.context.contribute(node)?;}
-            let qualification=AssertionQualification { context:self.analysis.id(),scope:self.scope.id(),condition:condition.id(),modality:Modality::Definite,approximation:Approximation::Exact };
+            let qualification=AssertionQualification { assumptions:lctx_model::domain::assumptions::AssumptionSet::empty_id(),context:self.analysis.id(),scope:self.scope.id(),condition:condition.id(),modality:Modality::Definite,approximation:Approximation::Exact };
             self.context.contribute(qualification.clone())?;
             let row=FlowSourceViewObservation { qualification:qualification.id(),source:self.artifact.id(),original_content,view_content,byte_len:byte_len as i64,renamed_type_checking:i64::from(flow.renamed) };
             row.validate()?;
