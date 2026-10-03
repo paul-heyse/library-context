@@ -46,15 +46,16 @@ Edit the shared copy to improve it for every selecting repo. Process skills abov
 Each library skill retains its pinned references, lookup scripts, evidence and build inputs.
 Silence in an index is not evidence of absence.
 
-Check a skill's pinned profile against `docs/pins.md` before transferring a claim: `pyrefly-ruff` indexes ruff 0.16.7 (crates
-0.0.13) / pyrefly 1.3.1. We link pyrefly 1.3.1 plus a visibility patch, and ruff crates **0.0.11**;
-the known 0.0.11 vs 0.0.13 deltas are listed in `docs/pins.md`.
+Check a skill's pinned profile against `docs/pins.md` before transferring a claim: `pyrefly-ruff` indexes ruff 0.16.8 (crates
+0.0.14) / pyrefly 1.4.0-dev.3, the planned shift target. We link pyrefly 1.3.1 plus a visibility patch, and
+ruff crates **0.0.11**, until the shift; the skill's `show migration` lists what changes on our surface.
+It is the one shared skill with a labeled library-context layer (`show project`).
 
 | Repository | Indexes | Built from |
 |---|---|---|
 | [`datafusion/`](datafusion/SKILL.md) | DataFusion and the Arrow family | hosted rustdoc JSON |
 | [`fastmcp/`](fastmcp/SKILL.md) | `fastmcp`, `mcp`, `mcp-types`, plus 774 files of upstream docs, examples and tests | Griffe + the ty language server + pinned GitHub tarballs |
-| [`pyrefly-ruff/`](pyrefly-ruff/SKILL.md) | 42 ruff and pyrefly crates, every catalog the two tools emit about themselves, a question router and 16 reviewed briefs, and source-derived maps of all 970 rules and 144 error kinds | rustdoc JSON + the tools' own JSON oracles + ast-grep facts from the pinned source, and 21 **executed** probes |
+| [`pyrefly-ruff/`](pyrefly-ruff/SKILL.md) | 42 ruff and pyrefly crates (including pyrefly's doc-hidden session API and private-module Pysa collectors), every catalog the two tools emit about themselves, a question router and 24 reviewed briefs, source-derived maps of all 970 rules and 148 error kinds, and a library-context layer (usage and reasoning per brief, 11 opportunities, the 1.3.1 → 1.4.0-dev.3 migration) | rustdoc JSON + the tools' own JSON oracles + ast-grep facts from the pinned source, and 21 **executed** probes |
 | [`ast-grep-ripgrep/`](ast-grep-ripgrep/SKILL.md) | every flag, node kind, rule field and regex construct of both tools, plus the 23 library crates underneath | the installed binaries' own help, ast-grep's shipped schemas, PCRE2 10.48's manual, rustdoc JSON — and 49 **executed** probes |
 | [`rust-code-model/`](rust-code-model/SKILL.md) | the seven layers of Rust program knowledge -- rustdoc JSON, ra_ap_syntax, ra_ap_hir, the project-loading layer, MIR, dataflow and cargo metadata -- across 11 crates | docs.rs rustdoc JSON, pinned rustc and rust-analyzer source, and 33 **executed** probes |
 | [`datafusion-tracing/`](datafusion-tracing/SKILL.md) | `datafusion-tracing` and `instrumented-object-store`, plus the `tracing` and OpenTelemetry wiring they cannot be used without -- 11 crates | docs.rs rustdoc JSON **and** a local `--document-private-items` capture, upstream's own trace snapshots, 16 releases of registry history, and executed probes |

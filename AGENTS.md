@@ -139,8 +139,11 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
 - `datafusion` (DataFusion, Arrow, object_store)
 - `rust-graphs` (petgraph plus rustworkx-core, leiden-rs, graphops and others: which library, how
   to reach it from a petgraph graph, and each one's silent failures)
-- `pyrefly-ruff`. It indexes ruff crates 0.0.13, but we link 0.0.11 (Pyrefly's line). The deltas are
-  listed in `docs/pins.md`
+- `pyrefly-ruff` (pyrefly 1.4.0-dev.3 and ruff 0.16.8 / crates 0.0.14, the planned shift target;
+  we link pyrefly 1.3.1 and ruff 0.0.11 until the shift, so check `show migration` before
+  transferring a claim). It carries a labeled library-context layer: how each pyrefly/ruff
+  capability is used here and why, its in-process API (`State`/`Transaction`, Pysa collectors),
+  an opportunity register and the migration impact. Start with `show project`
 - `ty-flow` (the ty 0.0.14 / ruff_db / salsa =0.28.2 line that `cpg-flow` links: use-def maps,
   reachability and narrowing, module resolution, the salsa pin trap)
 - `rust-reasoning` (biodivine-lib-bdd, OxiDD, z3 0.21.1 on Z3 5.1.0, ascent, datafrog, fcars: the
