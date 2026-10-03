@@ -2,20 +2,21 @@
 
 # §3.9 Behavior model: places, conditions and verdicts
 
-**Implemented; Phase 4 qualification in progress, 2026-10-01.** The typed owners in
+**Implemented; code-facts enhancements in progress, 2026-10-03.** The typed owners in
 `lctx-model::domain` implement this abstraction. [§15.4](semantic-model.md#section-15-4)
 owns entities and places, [§15.6](semantic-model.md#section-15-6) transfers,
 [§15.7](semantic-model.md#section-15-7) conditions and
 [§15.8](semantic-model.md#section-15-8) obligations and verdicts. The
-[Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md) owns current
-qualification and finding disposition; implementation is not phase-exit acceptance.
+[code-facts coordinator](../../plans/code-facts-expansion-plan_2026-10-03.md) owns current
+enhancement qualification and finding disposition; earlier Phase 4 receipts retain their scope.
 
 `cpg-flow` supplies attributed ty observations. Normalized attachment, Local, execution and
 Summary derive their conclusions from those observations through model-owned operations and
 shared stored validators. `cpg-core` acquires completed inputs, runs these operations and
 publishes into the PostgreSQL generation store. Arrow and DataFusion are transport and compute;
 there is no separate schema, behavioral database or serving-side reconstruction authority.
-Phase 5 serving remains unavailable ([§11](synthesis-and-serving.md#section-11)).
+Serving is implemented within its recorded fixture boundaries; real-library qualification and
+activation remain separate ([§11](synthesis-and-serving.md#section-11)).
 
 ## Places
 
@@ -130,6 +131,18 @@ obligation, not a guessed value.
 
 ## Value flows and call transfers
 
+**Implemented / focused-Tested, 2026-10-03:** qualifications require a canonical assumption
+basis, including an explicit empty set. Supported lower typing observations can introduce a
+type-conformance premise for bounded predicate decisions. Empty, mixed, uninhabited or
+nonconforming domains do not prune. A typing-conditioned Local restriction changes its actual
+Summary guard while the conservative runtime alternative remains separately qualified.
+Conjunction combines premises; alternatives retain distinct bases. S0 text discloses nonempty
+bases and serving resolves their actual definitions rather than defaulting missing premises to
+empty. The coordinator owns current S0/packet qualification; the scoped producer receipt does
+not establish an unrestricted runtime result.
+
+> Decision: ADR-0120
+
 A transfer relates input and output places under one qualification. Identity means the same value;
 Derived means a value computed from it. Identity composed with Identity remains Identity; any
 composition involving Derived is Derived. `ControlInfluence` and `Selection` are separate
@@ -140,6 +153,23 @@ call remains an obligation until binding, evaluation, completion and an applicab
 proof admit composition. Summary matches caller and callee by call site, restates only supported
 formal atoms and retains invocation-distinct guards. Unknown dispatch or defaults do not become
 normal return. Source signatures and effective signatures stay separate authorities.
+
+**Implemented / focused-Tested, 2026-10-03:** a direct synchronous nested sole-return callable
+can carry an outer source formal or one immutable primitive literal through a checked caller
+frame. The model requires exact declaration/Identifier-child correspondence, native capture
+support, complete unchanged source inventory and nonescape. It records the formal or literal
+origin without inventing a nested formal or caller-entry read. Actual completed source/body
+execution feeds the existing finite Summary transfer; mutation, global/nonlocal, loop, delayed,
+unbound and escaped cases retain their refusal. Native enclosing snapshots, including lazy
+candidate and unavailable states, characterize timing and supply no value authority. Arbitrary
+captured-cell or heap analysis remains outside this lane. Scoped native/PG/replay receipts and
+the remaining capture packet journey are owned by the code-facts coordinator.
+
+**Implemented / focused-Tested, 2026-10-03:** bounded builtin exception values retain ordered
+handler, reraising and finalizer behavior. Summary exception outcomes require actual completed
+bodies and an exact empty-basis qualification. A normal outcome is evidence about that admitted
+body under entry; a missing body or dynamic raise cannot establish absence. Behavioral Raises
+selection and its body-entry packet remain distinct from native raised-type characterization.
 
 Supported source constructor/field/reader associations retain declaration, store and read
 premises. Their symbolic constructor→field→reader route is not a temporal runtime value proof:
