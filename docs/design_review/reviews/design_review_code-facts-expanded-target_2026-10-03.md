@@ -6,6 +6,13 @@ Accountable reviewer: coordinator, with independent pinned-provider research. Ba
 `main` at `700476d9` plus preserved serving-qualification edits. Diagnosis is **Interface-checked**
 from source; implementation directions and anticipated output improvements are **Proposed**.
 
+**Execution route, Proposed, 2026-10-03:** the
+[five-plan code-facts series](../../plans/code-facts-expansion-plan_2026-10-03.md#sole-current-finding-disposition)
+now owns the sole current disposition of original F01–F11 and this review's F01–F03.
+The assessments below remain dated review evidence; planning transfers obligations without
+establishing implementation or closure. Independent latest Ruff and explicit premise propagation
+remain target decisions to adopt through the scheduled ADR/owner route.
+
 ## Integrated assessment
 
 **Decision: Revise the extraction and first analytical layer, retaining the semantic-model
@@ -494,8 +501,9 @@ remain prerequisites to activation, not work authorized by this review.
 ## 6. Reassessment of the source review and new findings
 
 Original IDs retain their source meaning. This is a dated reassessment, not duplicated mutable
-execution status. New findings below are unscheduled and **Deferred to implementation planning**,
-with the explicit triggers in §11; acceptance is not claimed by that disposition.
+execution status. New findings below were deferred to implementation planning at review time;
+their current scheduled disposition and closure evidence now belong to the linked coordinator.
+Acceptance is not claimed by that transfer.
 
 | Earlier finding | Follow-up assessment / obligation |
 |---|---|
@@ -724,11 +732,12 @@ current rule; it does not silently mutate accepted ADRs, installed pins or curre
 | Existing source identity/import/handler/facet corrections | Implementation within current contracts; update stale owning claims and meaningful controls | New F03; prior F04/F05/F06/F11; deferred to next implementation plan, not accepted as harmless |
 | Additional analytics/diagnostic/fixture consumers | Existing analytics/evidence owners with explicit frame/fidelity and named served consumer | C11/C12; adopt only selected subpayloads, revisit competing/oracle surfaces on unique consumer value |
 
-Unscheduled new F01–F03 disposition is **Deferred**, owned here, until the next implementation
-plan assigns component/closure evidence. Original findings remain at the
-[source review](design_review_code-facts-opportunity_2026-10-03.md#7-findings-and-applicability)
-until transferred with their original IDs. The next plan must consolidate related remediation
-without losing distinct closure obligations. STATUS links here; it is not a second finding ledger.
+Current disposition is transferred to the
+[code-facts coordinator](../../plans/code-facts-expansion-plan_2026-10-03.md#sole-current-finding-disposition),
+which assigns components and closure evidence for original and new findings using their
+source-qualified IDs. The table above records required decision routes and the review-time
+triggers, not another execution register. Neither the transfer nor plan publication establishes
+verified closure. STATUS links to that coordinator.
 
 ## 12. Decision to carry into planning
 

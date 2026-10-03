@@ -77,10 +77,17 @@ is complete at **Interface-checked** strength, 2026-10-03: finite coverage is 34
 137 concepts, with twelve fact/first-operation contracts and downstream output implications.
 Inventory consistency and `just docs-check` **passed** (273 pages, zero offline link errors);
 provider seams/remedies remain Proposed; runtime probes and product gates were not_run.
-Decision **Revise** retains the model/store architecture; proposed remedies include independent
-latest Ruff, shared source correspondence, richer signature/metadata roles and explicit premise
-propagation. The review owns unscheduled new F01–F03; original IDs remain at the source review.
-Next: convert these obligations into an implementation plan; no provider migration is started.
+Decision **Revise** retains the model/store architecture. The
+[five-plan code-facts series](docs/plans/code-facts-expansion-plan_2026-10-03.md) now schedules the
+full C1–C12 cascade and is the sole current disposition owner for source-qualified original/new
+findings. Authoring is complete at **Proposed** strength: latest Ruff owns syntax; provider families
+retain exact source identity; shared correspondence and explicit premise propagation precede their
+consumers. Next implementation: M0 and N0/P0, with B0/N4a/P2a independent preparation.
+No provider migration or production implementation ran. Authoring `just docs-check` **passed**,
+2026-10-03: 278 canonical pages, zero offline link errors. Inventory verifier **passed**: 340 facts,
+137 concepts, 41 selected routes and 488 pin references; this checks traceability, not semantics.
+Fixture/full production gates and real-library reconstruction/activation are not_run; activation
+remains a separately authorized follow-up after fixture/test/hygiene completion.
 Removing the embedded-Ruff restriction is operator-directed target scope; current rules/pins are unchanged.
 Prior qualification work remains uncommitted: actual stdio runner and source-default packet repair.
 Focused controls passed: real-PG both-profile runner (one), transcript (two), source-default packet

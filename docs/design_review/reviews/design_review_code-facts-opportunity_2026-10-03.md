@@ -4,6 +4,14 @@
 profile 1.3, [library-context binding](../design_principles/binding/library-context.md). Baseline
 `main` at `6885dbf6`, clean tree. Read-only static review; no build, test, pilot or probe was run.
 
+**Current execution route, Proposed, 2026-10-03:** the
+[code-facts coordinator](../../plans/code-facts-expansion-plan_2026-10-03.md#sole-current-finding-disposition)
+owns F01–F11 disposition and scheduled closure evidence. The
+[expanded review](design_review_code-facts-expanded-target_2026-10-03.md#6-reassessment-of-the-source-review-and-new-findings)
+refines the original premises, including independent latest Ruff, consumer-specific admission,
+non-complementary exit inference and actual predicate-truth consumption. Tables and diagnoses
+below are the original dated assessment, not competing current implementation instructions.
+
 ## Integrated assessment
 
 library-context turns a pinned Python library into provider-attributed facts. Model-owned
@@ -511,6 +519,9 @@ these owners would decide on its own what a type-level premise may establish (F0
 ## 7. Findings and applicability
 
 ### Finding index
+
+The disposition routes in this dated index are transferred to the linked coordinator; source
+IDs and closure obligations are retained there with the expanded review's explicit refinements.
 
 | ID | Finding | Principles · judgment / gate | Disposition route |
 |---|---|---|---|
