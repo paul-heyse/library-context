@@ -526,3 +526,17 @@ with explicit serialized-byte checks between the unchanged default32KiB/expanded
 required native roles/proof dictionaries made the old seventy-parameter packet exceed both.
 The named two-control rerun is pending (`p4-service-oracle-repair-controls.log`); existing 23 passes
 retain their exact baseline. Full-series acceptance remains **not_run**.
+
+B2 regression14 **passed**, 2026-10-03: actual PostgreSQL Behavioral Summary control plus
+all twelve replay-corruption controls, 111.80s (`b2-summary-regression14.log`); prior failure13
+remains recorded. Scoped producer composite totals eight passing controls across native/model,
+formal/literal capture PG and Catalog/Behavioral/exact-exception regressions. This closes that
+producer boundary, not the new P4 capture packet journey or the full Q0 gates.
+
+B3 persisted RCA: nineteen actual LexicalResolution assertions have native Ruff support and
+retained Pyrefly recognizer support with different origin/mode/fidelity. Rejecting the second
+support conflated those authorities. The approved native-read eligibility repair requires actual
+AnalyzerAssertion/NativeTraversal/NativeStructural attribution and matching native qualification
+fidelity; recognizers remain retained characterization. Native/recognizer twin, recognizer-only,
+mismatched-fidelity and actual B3 PG controls remain pending. Evidence:
+`/home/paul/.cache/lctx-code-facts/b3-read-provenance.txt`; this finding's repair is not yet passed.

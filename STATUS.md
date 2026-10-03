@@ -100,7 +100,7 @@ P1 integrated (`1a7ad33d`, real-PG RCA handoff passed); narrow M2 Lexical fix pa
 P2 supported facets/stored witness closure (`d288a6b1`): compile, 17 model and three native controls passed.
 M2 lexical metadata integrated (`f36441c7`, 17 controls passed). B1 actual-PG Summary/replay repair passed.
 P4 ports/basis/conditional wording and output controls compile passed; actual service reruns,
-B2/B3/P3 remain active. B2 formal/literal capture PG journey passed; regression repair is pending.
+B3/P3 and P4 capture output remain active. B2 scoped native/PG/replay composite passed eight controls.
 Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
 Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
