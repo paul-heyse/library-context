@@ -114,6 +114,17 @@ impl ServingFixture {
         seeds: &[&str],
         brief_budget: u32,
     ) -> Self {
+        Self::start_with_analytics(source, profile, seeds, brief_budget, None, None).await
+    }
+    /// Opt-in Q0 settings and official corpus; ordinary serving fixtures keep their defaults.
+    pub async fn start_with_analytics(
+        source: &[u8],
+        profile: &str,
+        seeds: &[&str],
+        brief_budget: u32,
+        techniques: Option<&str>,
+        document: Option<&[u8]>,
+    ) -> Self {
         let db = DisposableDatabase::start().await;
         db.migrate().await;
         let model = Arc::new(domain::model().unwrap());
@@ -122,6 +133,32 @@ impl ServingFixture {
             .unwrap();
         let dir = tempfile::tempdir().unwrap();
         input_source(dir.path(), source);
+        if let Some(document) = document {
+            // A pinned disposable source tree enters through production acquisition. No fake
+            // document facts or Python-docstring-as-Document role is supplied to the compiler.
+            let tree = dir.path().join("sources/demo/corpus");
+            write(&tree.join("guide.md"), document);
+            let git = |args: &[&str]| {
+                let output = Command::new("git").current_dir(&tree)
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                    .env("GIT_AUTHOR_DATE", "2026-10-03T00:00:00Z")
+                    .env("GIT_COMMITTER_DATE", "2026-10-03T00:00:00Z")
+                    .args(["-c", "core.hooksPath=/dev/null", "-c", "user.name=Serving fixture", "-c", "user.email=fixture@example.invalid"])
+                    .args(args).output().unwrap();
+                assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+                String::from_utf8(output.stdout).unwrap().trim().to_owned()
+            };
+            git(&["init", "-q", "--template=", "--object-format=sha1"]);
+            git(&["add", "guide.md"]);
+            git(&["commit", "-q", "-m", "Pinned official fixture document"]);
+            let commit = git(&["rev-parse", "HEAD"]);
+            std::fs::rename(&tree, dir.path().join("sources/demo").join(&commit)).unwrap();
+            let project = dir.path().join("libraries/demo/pyproject.toml");
+            let mut definition = std::fs::read_to_string(&project).unwrap();
+            definition.push_str(&format!("[tool.lctx.source]\nrepository = 'https://example.invalid/demo'\ntag = 'v1.0'\ncommit = '{commit}'\ndocuments = ['guide.md']\n"));
+            write(&project, definition);
+        }
         db.write_configs(dir.path()).unwrap();
         write(
             &dir.path().join("libraries/demo/analytics.toml"),
@@ -130,14 +167,16 @@ impl ServingFixture {
                 serde_json::to_string(seeds).unwrap()
             ),
         );
-        let output = command(
+        let mut compile = command(
             dir.path(),
             &dir.path().join("postgres.json"),
             "catalog",
             profile,
-        )
-        .output()
-        .unwrap();
+        );
+        if let Some(techniques) = techniques {
+            compile.args(["--techniques", techniques, "--embedder", "none"]);
+        }
+        let output = compile.output().unwrap();
         assert!(
             output.status.success(),
             "{}",

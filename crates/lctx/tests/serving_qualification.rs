@@ -4,6 +4,175 @@ mod support;
 use std::path::Path;
 use support::{ServingFixture, write};
 
+const TECHNIQUES: &str = "+communities,+pagerank,+fca,+rca,+type-layer,+mention-layer,-knn,-knn-layer";
+const DOCUMENT: &[u8] = b"# Official typed APIs\n\n`demo.first` and `demo.second` accept Token; `demo.first` repeats the same entity.\n";
+const SEEDS: &[&str] = &["demo.api", "demo.first"];
+
+async fn assert_selected_analytics(fixture: &ServingFixture) {
+    use lctx_model::domain::{
+        *, analysis::{self, AnalysisMethod as M, AnalysisStatus as S, Interpretation},
+        analytics::*, input::{ArtifactUse, SourceRole}, structural::{PublicCandidate, StructuralFrame},
+        source::{SourceArtifact, CoverageScope}, types::{TypeObservation, TypeRole},
+        documents::{DocumentMentionObservation, MentionClass}, assertion::AssertionQualification,
+    };
+    let execution = fixture.service.execution().await.unwrap();
+    macro_rules! read {($($var:ident:$ty:ty),*$(,)?) => {$(
+        let $var = execution.read::<$ty>().await.unwrap();
+    )*};}
+    read! {
+        settings:analysis::settings::AnalyticsConfiguration, definitions:analysis::AnalysisDefinition,
+        parameters:analysis::MethodParameters, frames:AnalyticFrame, structural:StructuralFrame,
+        results:TechniqueResult, invocations:analysis::analytic::Invocation,
+        outcomes:analysis::analytic::AnalysisOutcome, parents:analysis::analytic::AnalysisInput,
+        sources:analysis::analytic::InvocationSource, receipts:analysis::analytic::SourceReceipt,
+        universe:UniverseMember, selectors:PublicSelector, public:PublicCandidate,
+        pairs:LayerPair, combined:CombinedPair, contributions:PairContribution, provenance:PairSource,
+        ranks:RankScore, runs:CommunityRun, scopes:ConceptScope, objects:ConceptObject,
+        incidences:Incidence, attributes:Attribute, incidence_sources:IncidenceSource,
+        formal_syntax:syntax::ParameterSyntaxObservation, types:TypeObservation,
+        mentions:DocumentMentionObservation, artifacts:SourceArtifact, uses:ArtifactUse,
+        qualifications:AssertionQualification, coverage_scopes:CoverageScope,
+        embeddings:analysis::analytic_embedding::AnalysisOutcome,
+        vectors:embedding::analytic::AnalysisEmbeddingUse,
+    }
+    assert_eq!(settings.rows().len(), 1);
+    let configuration = &settings.rows()[0];
+    assert_eq!(configuration.configured_seeds, SEEDS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!((configuration.depth, configuration.vertices, configuration.arcs,
+        configuration.witnesses, configuration.brief_budget), (4, 256, 1024, 4, 4));
+    assert!(configuration.communities && configuration.pagerank && configuration.fca
+        && configuration.rca && configuration.type_layer && configuration.mention_layer);
+    assert!(!configuration.knn && !configuration.knn_layer);
+    assert!(!frames.rows().is_empty());
+    assert!(!embeddings.rows().is_empty());
+    assert!(embeddings.rows().iter().all(|e| e.status == S::NotRequested));
+    assert!(vectors.rows().is_empty(), "Q0 never substitutes vectors for lexical evidence");
+    let document = artifacts.rows().iter().find(|a| a.content == ContentHash::of(DOCUMENT))
+        .expect("official Markdown must be captured through the declared corpus");
+    assert!(uses.rows().iter().any(|u| u.artifact == document.id() && u.role == SourceRole::Document));
+    for frame in frames.rows() {
+        assert_eq!(frame.configuration, configuration.id());
+        let predecessor = structural.rows().iter().find(|s| s.id() == frame.structural).unwrap();
+        let candidates = public.rows().iter().filter(|p| p.frame == frame.structural && p.in_subsystem)
+            .collect::<Vec<_>>();
+        let entity = |path: &str| candidates.iter().find(|p| p.path == path)
+            .unwrap_or_else(|| panic!("missing independent fixture endpoint {path}")).entity;
+        let (first, second, api) = (entity("demo.first"), entity("demo.second"), entity("demo.api"));
+        let endpoints = (first.min(second), first.max(second));
+        let members = universe.rows().iter().filter(|u| u.frame == frame.id()).collect::<Vec<_>>();
+        assert!(members.iter().any(|u| u.entity == first && u.public && u.release_scope));
+        assert!(members.iter().any(|u| u.entity == second && u.public && u.release_scope));
+        assert_eq!(members.iter().map(|u| u.entity).collect::<std::collections::BTreeSet<_>>().len(), members.len(),
+            "entity universe must not multiply public paths");
+        let selected = selectors.rows().iter().filter(|s| s.frame == frame.id()).map(|s| s.candidate)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(selected, candidates.iter().map(|p| p.id()).collect(), "configured seeds cannot shrink public selection");
+        for (method, on) in [(M::Communities,true), (M::PageRank,true), (M::Concepts,true),
+            (M::RelationalConcepts,true), (M::Neighbours,false)] {
+            let result = results.rows().iter().find(|r| r.frame == frame.id() && r.method == method).unwrap();
+            assert_eq!(result.selected, on);
+            if on {
+                assert!(matches!(result.status, S::Completed | S::Partial), "selected method must execute: {result:?}");
+                assert_ne!(result.stop, Stop::NotRequested);
+            } else {
+                assert_eq!((result.status,result.stop), (S::NotRequested,Stop::NotRequested));
+            }
+            let invocation = invocations.rows().iter().find(|i| i.id() == result.invocation).unwrap();
+            let definition = definitions.rows().iter().find(|d| d.id() == invocation.definition).unwrap();
+            let parameter = parameters.rows().iter().find(|p| p.id() == definition.parameters).unwrap();
+            assert_eq!(definition.method, method);
+            // Shared policy lowering owns the recipe/digest; independent constants pin Q0's fixed inputs.
+            assert_eq!(*definition, build::definition(configuration, method).unwrap().1);
+            assert_eq!(parameter.depth, Some(256));
+            assert_eq!(parameter.work, Some(100_000_000));
+            assert_eq!(parameter.threshold.unwrap().get(), if method == M::Neighbours { 0.5 } else { 1e-10 });
+            if method == M::PageRank { assert_eq!(parameter.damping.unwrap().get(), 0.85); }
+            if matches!(method, M::PageRank | M::Communities) { assert_eq!(parameter.iterations, Some(100)); }
+            if method == M::Communities {
+                assert_eq!(parameter.seed, Some(0));
+                assert_eq!(parameter.resolution.unwrap().get(), 1.0);
+            }
+            if matches!(method, M::Concepts | M::RelationalConcepts) {
+                assert_eq!(parameter.proof_steps, Some(20_000));
+                assert_eq!(definition.interpretation, Interpretation::ExactUnderContext);
+            }
+            let outcome = outcomes.rows().iter().find(|o| o.invocation == invocation.id()).unwrap();
+            assert_eq!(*outcome, lctx_model::domain::analytics::frames::outcome(result));
+            let parent_ids = parents.rows().iter().filter(|p| p.invocation == invocation.id()).map(|p| p.parent)
+                .collect::<std::collections::BTreeSet<_>>();
+            for expected in [predecessor.invocation, predecessor.usage_invocation].into_iter()
+                .chain((method == M::RelationalConcepts).then_some(predecessor.handoff_invocation)) {
+                let parent = analysis::analytic::InvocationSource::Structural { invocation: expected };
+                assert!(parent_ids.contains(&parent.id()) && sources.rows().contains(&parent));
+            }
+            assert!(!receipts.rows().iter().filter(|r| r.invocation == invocation.id()).collect::<Vec<_>>().is_empty());
+            if matches!(method, M::Concepts | M::RelationalConcepts) {
+                let selected_scopes = scopes.rows().iter().filter(|s| s.result == result.id()).collect::<Vec<_>>();
+                assert!(!selected_scopes.is_empty(), "selected FCA/RCA must retain finite scopes");
+                let incidence = incidences.rows().iter().filter(|i| i.entity == api
+                    && selected_scopes.iter().any(|s| s.id() == i.scope)
+                    && attributes.rows().iter().any(|a| a.id() == i.attribute
+                        && matches!(a, Attribute::Parameter { name, .. } if name.as_str() == "flag")))
+                    .collect::<Vec<_>>();
+                assert_eq!(incidence.len(), 1, "defaulted flag supplies one source formal incidence per method");
+                let IncidenceSource::Parameter { observation } = incidence_sources.rows().iter()
+                    .find(|s| s.id() == incidence[0].source).unwrap() else { panic!("flag lost its source formal provenance"); };
+                let formal = formal_syntax.rows().iter().find(|p| p.id() == *observation).unwrap();
+                assert!(formal.default_literal.is_some(), "source-default parameter is retained");
+                assert!(!incidences.rows().iter().any(|i| i.entity == entity("demo.Holder.method")
+                    && selected_scopes.iter().any(|s| s.id() == i.scope)
+                    && attributes.rows().iter().any(|a| a.id() == i.attribute
+                        && matches!(a, Attribute::Parameter { name, .. } if name.as_str() == "self"))),
+                    "bound source receiver remains excluded from FCA/RCA votes");
+                assert!(objects.rows().iter().any(|o| o.entity == first && selected_scopes.iter().any(|s| s.id() == o.scope)));
+            }
+        }
+        let rank = results.rows().iter().find(|r| r.frame == frame.id() && r.method == M::PageRank).unwrap();
+        let targets = ranks.rows().iter().filter(|r| r.result == rank.id()).map(|r| r.target)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(targets, members.iter().filter(|u| u.graph).map(|u| u.entity).collect());
+        let communities = results.rows().iter().find(|r| r.frame == frame.id() && r.method == M::Communities).unwrap();
+        assert_eq!(runs.rows().iter().filter(|r| r.result == communities.id()).count(), 40,
+            "fixed four-resolution/ten-seed policy executes without vectors");
+        for layer in [Layer::Type, Layer::Mention] {
+            let selected = pairs.rows().iter().filter(|p| p.frame == frame.id() && p.layer == layer).collect::<Vec<_>>();
+            assert_eq!(selected.len(), 1, "predeclared Token/co-mention endpoints form one pair: {selected:?}");
+            let pair = selected[0];
+            assert_eq!((pair.left,pair.right), endpoints);
+            assert_eq!(pair.count, 1, "repeated mentions never multiply entity votes");
+            assert_eq!(pair.normalized_weight.get(), 1.0);
+            let contribution = contributions.rows().iter().find(|c| c.frame == frame.id() && c.layer == layer
+                && (c.left,c.right) == endpoints).unwrap();
+            let source = provenance.rows().iter().find(|p| p.id() == contribution.source).unwrap();
+            match source {
+                PairSource::Type { left, right, .. } => {
+                    for id in [left,right] {
+                        let observation = types.rows().iter().find(|o| o.id() == *id).unwrap();
+                        assert!(observation.declared && observation.role == TypeRole::Parameter);
+                    }
+                }
+                PairSource::Mention { left, right } => {
+                    for id in [left,right] {
+                        let mention = mentions.rows().iter().find(|m| m.id() == *id).unwrap();
+                        assert_eq!(mention.class, MentionClass::Exact);
+                        let qualification = qualifications.rows().iter().find(|q| q.id() == mention.qualification).unwrap();
+                        assert!(coverage_scopes.rows().iter().any(|s| s.id() == qualification.scope
+                            && matches!(s, CoverageScope::Artifact { artifact } if *artifact == document.id())),
+                            "co-mention provenance must cite the official document artifact");
+                    }
+                }
+                _ => panic!("selected {layer:?} pair has wrong provenance: {source:?}"),
+            }
+        }
+        let pair = combined.rows().iter().find(|p| p.frame == frame.id() && (p.left,p.right) == endpoints).unwrap();
+        assert_eq!(pair.weight.get(), 0.5, "two active unit layers retain their authored quarter weights");
+    }
+    let mismatches: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM {}.analytic_source_receipts r LEFT JOIN lctx_model_store.stage_receipts c ON c.generation_id=decode($1,'hex') AND c.relation_name=r.relation AND c.stage_name=r.producer WHERE c.content_digest IS DISTINCT FROM r.content OR c.row_count IS DISTINCT FROM r.rows",
+        fixture.generation.schema()))).bind(fixture.generation.hex()).fetch_one(fixture.db.owner.pool()).await.unwrap();
+    assert_eq!(mismatches, 0, "analytic provenance must match actual same-generation stage receipts");
+}
+
 fn runner(fixture: &ServingFixture, profile: &str, receipts: &Path) -> std::process::Command {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut command = std::process::Command::new("uv");
@@ -38,7 +207,7 @@ async fn runner_uses_actual_stdio_and_challenges_received_generation_evidence_ch
     let source = format!(
         "\"\"\"Public api consume method signature source evidence.\n{}\"\"\"\n{}",
         "🦀 café\n".repeat(5000),
-        r#"__all__ = ['api', 'consume', 'Holder']
+        r#"__all__ = ['api', 'consume', 'Holder', 'Token', 'first', 'second']
 def api(flag: bool = False) -> bool:
     return flag
 def consume(value: int) -> int:
@@ -48,6 +217,12 @@ class Holder:
         if not isinstance(token, str):
             raise TypeError('token must be str')
         return token
+class Token:
+    pass
+def first(value: Token) -> Token:
+    return value
+def second(value: Token) -> Token:
+    return value
 "#
     )
     .into_bytes();
@@ -57,7 +232,9 @@ class Holder:
         {"path":"demo.Holder.method", "qualname":"Holder.method"}
     ]);
     for profile in ["catalog", "behavioral"] {
-        let fixture = ServingFixture::start_profile(&source, profile).await;
+        let fixture = ServingFixture::start_with_analytics(&source, profile, SEEDS, 4,
+            Some(TECHNIQUES), Some(DOCUMENT)).await;
+        assert_selected_analytics(&fixture).await;
         write(&fixture.dir.path().join("source.py"), &source);
         write(
             &fixture.dir.path().join("anchors.json"),
