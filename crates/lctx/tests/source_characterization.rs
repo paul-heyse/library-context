@@ -45,12 +45,14 @@ async fn actual_usage_aliases_targets_overloads_and_locations_reach_original_evi
  let source=br#"from .api import parse as parse, replacement as replacement, Box as Box, apply as apply
 from .reexport import public_parse as forwarded
 from .api import replacement as simple
+from .api import parse as aliased
 __all__ = ['parse', 'forwarded', 'replacement', 'Box', 'apply', 'example']
-aliased = parse
+opaque = parse
 def example(unknown):
     apply(replacement, 7)
     simple(6)
     aliased(1)
+    opaque(2)
     forwarded('text')
     rebound = aliased
     rebound(2)
@@ -66,8 +68,9 @@ def example(unknown):
  let usages=packet.evidence.source_characterization.items.iter().filter_map(|i|match &i.payload{SourceCharacterizationPayload::Usage{usage}=>Some((i,usage)),_=>None}).collect::<Vec<_>>();assert!(!usages.is_empty());
  let call=|text:&str|usages.iter().find(|(i,_)|&source[i.source.start as usize..i.source.end as usize]==text.as_bytes()).copied().unwrap_or_else(||panic!("missing usage {text}"));
  let symbols=execution.read::<ProviderSymbol>().await.unwrap();let names=|u:&SourceUsagePacket|u.targets.iter().filter_map(|t|t.symbol.0).map(|id|symbols.rows().iter().find(|s|s.id()==id).unwrap().name.as_str()).collect::<Vec<_>>();
- for text in ["aliased(1)","forwarded('text')"]{let(_,u)=call(text);assert!(names(u).contains(&"parse"),"{text}");assert!(matches!(u.association,Availability::Available{}),"actual resolved target has a catalog association: {text}");assert!(u.targets.iter().all(|t|!t.support.is_empty()));}
+ for text in ["aliased(1)","forwarded('text')"]{let(_,u)=call(text);assert!(names(u).contains(&"parse"),"{text}: names {:?}; targets {:?}",names(u),u.targets);assert!(matches!(u.association,Availability::Available{}),"actual resolved target has a catalog association: {text}; targets {:?}",u.targets);assert!(u.targets.iter().all(|t|!t.support.is_empty()));}
  let(_,simple)=call("simple(6)");assert!(names(simple).contains(&"replacement"));assert!(matches!(simple.association,Availability::Available{}));
+ let(_,module_alias)=call("opaque(2)");assert!(matches!(module_alias.association,Availability::Unavailable{..}));assert!(module_alias.targets.iter().any(|t|t.native_unresolved.0==Some(PysaUnresolvedReason::UnexpectedDefiningClass)&&t.entity.0.is_none()&&t.symbol.0.is_none()),"native module assignment alias remains unresolved: {:?}",module_alias.targets);
  let(_,opaque_alias)=call("rebound(2)");assert!(matches!(opaque_alias.association,Availability::Unavailable{..}));assert!(opaque_alias.targets.iter().any(|t|t.native_unresolved.0==Some(PysaUnresolvedReason::UnexpectedDefiningClass)&&t.entity.0.is_none()),"native overload alias uncertainty never gains an API association from spelling or type shape");
  let(_,rebound)=call("rebound(3)");assert!(names(rebound).contains(&"replacement"));assert!(!names(rebound).contains(&"parse"));
  let(_,chosen)=call("aliased(1)");assert!(matches!(chosen.chosen,Availability::Available{}));assert!(chosen.overloads.iter().any(|o|o.role==TypeRole::ChosenOverload));assert!(chosen.overloads.iter().all(|o|o.variant.0.is_none()&&matches!(o.variant_availability,Availability::Unavailable{..})),"native trace is not shape-matched to a normalized variant");
