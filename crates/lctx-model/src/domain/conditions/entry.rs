@@ -355,7 +355,8 @@ impl EntryValueWitness {
             let mut links = data
                 .links
                 .iter()
-                .filter(|l| l.entity == request.formal && l.declaration.is_some());
+                .filter(|l| l.entity == request.formal && l.declaration.is_some()
+                    && data.parameters.get(l.parameter).and_then(|p| data.signatures.get(p.signature)).is_some_and(|s| s.role.runtime_source()));
             let link = links.next().ok_or(ObligationKind::MissingEvidence)?;
             if links.next().is_some() {
                 return Err(ObligationKind::EntryValueUnknown);
@@ -729,9 +730,12 @@ impl EntryValueWitness {
                             .attribution()
                             .ok_or(ObligationKind::MissingEvidence)?;
                         let native = need(&data.runs, a.run)?;
+                        // Canonical placement is supplied by independent Ruff; the source
+                        // symbol is supplied by Pyrefly. Their provider IDs must stay distinct.
+                        // The placement's own run/surface/family and exact captured frame are
+                        // checked by supported(), rather than reusing the symbol's provider.
                         if native.input == run.input
                             && native.context == request.context
-                            && native.provider == symbol.provider
                         {
                             let frame = EntryRequest {
                                 run: a.run,

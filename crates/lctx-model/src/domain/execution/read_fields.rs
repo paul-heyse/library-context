@@ -605,7 +605,7 @@ pub(super) fn produce(
             complete = false;
             continue;
         };
-        let receiver=match root{PlaceRoot::Receiver{callable}=>*callable==function,PlaceRoot::Formal{declaration}=>entry.links.iter().any(|l|matches!(entry.formals.get(l.entity),Some(ParameterEntity::Source{declaration:p})if p==declaration)&&entry.parameters.get(l.parameter).is_some_and(|p|p.ordinal==0)),PlaceRoot::Local{scope,name}if *scope==function=>entry.signatures.iter().filter(|s|entry.symbol_declarations.iter().any(|d|d.symbol==s.symbol&&d.declaration==function)).any(|s|entry.parameters.iter().any(|p|p.signature==s.id()&&p.ordinal==0&&data.parameter_shapes.get(p.shape).is_some_and(|shape|shape.name.as_ref().is_some_and(|n|n.as_str()==name)))),_=>false};
+        let receiver=match root{PlaceRoot::Receiver{callable}=>*callable==function,PlaceRoot::Formal{declaration}=>entry.links.iter().any(|l|matches!(entry.formals.get(l.entity),Some(ParameterEntity::Source{declaration:p})if p==declaration)&&entry.parameters.get(l.parameter).is_some_and(|p|p.ordinal==0&&entry.signatures.get(p.signature).is_some_and(|s|s.role.runtime_source()))),PlaceRoot::Local{scope,name}if *scope==function=>entry.signatures.iter().filter(|s|s.role.runtime_source()&&entry.symbol_declarations.iter().any(|d|d.symbol==s.symbol&&d.declaration==function)).any(|s|entry.parameters.iter().any(|p|p.signature==s.id()&&p.ordinal==0&&data.parameter_shapes.get(p.shape).is_some_and(|shape|shape.name.as_ref().is_some_and(|n|n.as_str()==name)))),_=>false};
         if !receiver {
             continue;
         }
