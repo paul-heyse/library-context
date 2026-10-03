@@ -242,7 +242,7 @@ impl Declared for Pyrefly {
             inputs: vec![],
             outputs: outputs(),
             contributes: crate::assembly::vocabulary(),
-            coverage: FAMILIES.to_vec().into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:if family==FactFamily::Syntax {crate::ruff_context::provider().id()} else {provider.id()}}).chain(std::iter::once(lctx_model::domain::stages::FamilyCoverage {family:FactFamily::Exports,provider:crate::ruff_context::provider().id()})).collect(),
+            coverage: FAMILIES.to_vec().into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:if family==FactFamily::Syntax {crate::ruff_context::provider().id()} else {provider.id()}}).chain(std::iter::once(lctx_model::domain::stages::FamilyCoverage {family:FactFamily::Exports,provider:crate::ruff_context::provider().id()})).chain(std::iter::once(lctx_model::domain::stages::FamilyCoverage {family:FactFamily::Lexical,provider:crate::ruff_context::provider().id()})).collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Extraction,
             code: provider.build_digest,
@@ -556,14 +556,16 @@ fn session<S: StageSink + 'static>(
         })
         .collect();
     let ruff=crate::ruff_context::provider();
-    let (ruff_run,ruff_families)=ProviderRun::new(ruff.id(),analysis.id(),captured.revision().id(),analysis.config_digest,[FactFamily::Syntax,FactFamily::Exports])?;
-    let ruff_surface=ProviderSurface { provider:ruff.id(),family:FactFamily::Syntax,name:"canonical parse and populated contextual pass".into() };
+    let (ruff_run,ruff_families)=ProviderRun::new(ruff.id(),analysis.id(),captured.revision().id(),analysis.config_digest,[FactFamily::Syntax,FactFamily::Exports,FactFamily::Lexical])?;
+    let ruff_surface=ProviderSurface { provider:ruff.id(),family:FactFamily::Syntax,name:"canonical structural parse".into() };
     context.contribute(ruff)?;
     context.contribute(ruff_run.clone())?;
     for family in ruff_families {context.contribute(family)?;}
     context.contribute(ruff_surface.clone())?;
     let ruff_exports=ProviderSurface {provider:ruff_surface.provider,family:FactFamily::Exports,name:"canonical per-alias imports and __all__ literal characterization".into()};
     context.contribute(ruff_exports.clone())?;
+    let ruff_context_surface=ProviderSurface {provider:ruff_surface.provider,family:FactFamily::Lexical,name:"populated lexical context and final references".into()};
+    context.contribute(ruff_context_surface.clone())?;
     context.contribute(analysis.clone())?;
     context.contribute(run.clone())?;
     for family in families {
@@ -664,6 +666,10 @@ fn session<S: StageSink + 'static>(
                     Some(*reason),
                     None,
                 ))?;
+            }
+            for family in [FactFamily::Exports,FactFamily::Lexical] {
+                let mut row=coverage(&scope,family,CoverageStatus::Unavailable,Some(*reason),None);
+                row.provider=Some(ruff_surface.provider);row.run=Some(ruff_run.id());context.contribute(row)?;
             }
             partial = true;
             continue;
@@ -812,7 +818,7 @@ fn session<S: StageSink + 'static>(
                 let contextual=canonical.context_rows(&spans,&qualification,context.budget())?;
                 if contextual.incomplete.is_some() || contextual.unlocated>0 {ruff_context_incomplete=Some(format!("contextual pass: {:?}; {} unattached source contexts",contextual.incomplete,contextual.unlocated));}
                 for row in &contextual.rows {
-                    context.emit(RuffContextSupport { assertion:row.id(),run:ruff_run.id(),surface:ruff_surface.id(),evidence:Evidence::Occurrence {occurrence:row.subject}.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural })?;
+                    context.emit(RuffContextSupport { assertion:row.id(),run:ruff_run.id(),surface:ruff_context_surface.id(),evidence:Evidence::Occurrence {occurrence:row.subject}.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural })?;
                     context.emit(row.clone())?;
                 }
                 let records = syntax_records::records(
@@ -986,9 +992,9 @@ fn session<S: StageSink + 'static>(
         context.contribute(coverage(
             &scope,
             FactFamily::Syntax,
-            contextual.0,
-            contextual.1,
-            contextual.2.clone(),
+            syntax.0,
+            syntax.1,
+            syntax.2.clone(),
         ))?;
         context.contribute(coverage(
             &scope,
@@ -997,6 +1003,9 @@ fn session<S: StageSink + 'static>(
             syntax.1,
             syntax.2.clone(),
         ))?;
+        let mut contextual_coverage=coverage(&scope,FactFamily::Lexical,contextual.0,contextual.1,contextual.2.clone());
+        contextual_coverage.provider=Some(ruff_surface.provider);contextual_coverage.run=Some(ruff_run.id());
+        context.contribute(contextual_coverage)?;
         // Exports and Signatures follow the syntax; a computed `__all__`, a declaration that did not
         // attach and an unlocated parameter description each leave their family partial.
         let complete = syntax.0 == CoverageStatus::CompleteUnderStatedModel;

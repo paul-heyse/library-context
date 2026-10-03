@@ -120,6 +120,15 @@ pub fn capture(
     label: &str,
     profile: Profile,
 ) -> Arc<CapturedInputs> {
+    capture_with_ruff(files, label, profile, Default::default())
+}
+
+pub fn capture_with_ruff(
+    files: &BTreeMap<String, Vec<u8>>,
+    label: &str,
+    profile: Profile,
+    settings: cpg_extract::ruff_context::ContextSettings,
+) -> Arc<CapturedInputs> {
     let original = tempfile::tempdir().unwrap();
     for (path, bytes) in files {
         let target = original.path().join(path);
@@ -141,7 +150,7 @@ pub fn capture(
     .unwrap();
     Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(captured, label)],
-        cpg_extract::native_context::NativeContextConfig::committed(profile, &budget()).unwrap(),
+        cpg_extract::native_context::NativeContextConfig::committed(profile, &budget()).unwrap().with_ruff(settings).unwrap(),
     ))
 }
 

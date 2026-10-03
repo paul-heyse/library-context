@@ -8,7 +8,7 @@ pub enum ContextPhase { ActiveNode = 0, FinalReference = 1 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "ruff_context_observations")]
-#[assertion(support = RuffContextSupport, name = "ruff_context_supports", family = FactFamily::Syntax, subjects(subject))]
+#[assertion(support = RuffContextSupport, name = "ruff_context_supports", family = FactFamily::Lexical, subjects(subject))]
 pub struct RuffContextObservation {
     #[model(key)]
     pub qualification: Id<AssertionQualification>,
