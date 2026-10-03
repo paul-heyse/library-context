@@ -1305,48 +1305,123 @@ fn completed_selection_inputs_close_new_lower_coverage_sum_arms() {
 
 #[test]
 fn strict_preparation_owns_metadata_and_reuses_charged_indexes() {
-    let (b,d,m,c,_)=fixture();
-    let out=selection::build::build(&d,&b).unwrap();
-    let prepared=Prepared::new(&d,&out,&b).unwrap();
-    drop(d);drop(out);
-    assert!(b.reserved()>0);
-    let requirement=Requirement{predicate:Predicate::PublicModule{module:"pkg.api".into()},quantifier:Quantifier::AnyApplicable};
-    for _ in 0..3 {let result=prepared.classify(m,c,&requirement,&b).unwrap();assert_eq!(result.outcome,Outcome::Supported);}
-    drop(prepared);assert_eq!(b.reserved(),0);
+    let (b, d, m, c, _) = fixture();
+    let out = selection::build::build(&d, &b).unwrap();
+    let prepared = Prepared::new(&d, &out, &b).unwrap();
+    drop(d);
+    drop(out);
+    assert!(b.reserved() > 0);
+    let requirement = Requirement {
+        predicate: Predicate::PublicModule {
+            module: "pkg.api".into(),
+        },
+        quantifier: Quantifier::AnyApplicable,
+    };
+    for _ in 0..3 {
+        let result = prepared.classify(m, c, &requirement, &b).unwrap();
+        assert_eq!(result.outcome, Outcome::Supported);
+    }
+    drop(prepared);
+    assert_eq!(b.reserved(), 0);
 }
 #[test]
 fn local_preparation_inventory_and_missing_membership_refusal() {
     use selection::classification::ClassificationData;
-    assert_eq!(ClassificationData::inputs().len(),45);
-    assert!(ClassificationData::inputs().iter().all(|r|r.prefix().is_none()));
-    let (b,d,_,_,_)=fixture();let expected=selection::build::build(&d,&b).unwrap();
-    let mut missing=Output::new(&b);
+    assert_eq!(ClassificationData::inputs().len(), 45);
+    assert!(
+        ClassificationData::inputs()
+            .iter()
+            .all(|r| r.prefix().is_none())
+    );
+    let (b, d, _, _, _) = fixture();
+    let expected = selection::build::build(&d, &b).unwrap();
+    let mut missing = Output::new(&b);
     // A complete domain cannot silently lose its nominal context membership.
     macro_rules! rows {($($f:ident:$ty:ty,)*)=>{$(for row in expected.$f.iter().collect::<Vec<_>>().into_iter().rev() {if <$ty>::NAME!=DomainContext::NAME {missing.$f.insert(row.clone()).unwrap();}})*};}
     lctx_model::catalog_selection_outputs!(rows);
-    assert!(Prepared::from_local_rows(ClassificationData::project(&d,&b).unwrap(),missing,&b).is_err());
-    let tiny=ResourceBudget::fixed(1).unwrap();assert!(Prepared::new(&d,&expected,&tiny).is_err());assert_eq!(tiny.reserved(),0);
+    assert!(
+        Prepared::from_local_rows(ClassificationData::project(&d, &b).unwrap(), missing, &b)
+            .is_err()
+    );
+    let tiny = ResourceBudget::fixed(1).unwrap();
+    assert!(Prepared::new(&d, &expected, &tiny).is_err());
+    assert_eq!(tiny.reserved(), 0);
 }
 #[test]
 fn shuffled_narrow_rows_classify_like_strict_replay() {
     use selection::classification::ClassificationData;
-    let (b,d,m,c,_)=fixture();let expected=selection::build::build(&d,&b).unwrap();
-    let strict=Prepared::new(&d,&expected,&b).unwrap();
-    let mut data=ClassificationData::project(&d,&b).unwrap();
+    let (b, d, m, c, _) = fixture();
+    let expected = selection::build::build(&d, &b).unwrap();
+    let strict = Prepared::new(&d, &expected, &b).unwrap();
+    let mut data = ClassificationData::project(&d, &b).unwrap();
     // Feed actual typed metadata batches in an order different from the canonical inventory.
-    data.source.catalog.members=Rows::new(&b);data.source.core.modules=Rows::new(&b);
-    let members=d.source.catalog.members.iter().cloned().collect::<Vec<_>>();
-    let modules=d.source.core.modules.iter().cloned().collect::<Vec<_>>();
-    assert!(data.visit(CatalogMember::NAME,&CatalogMember::encode(&members.into_iter().rev().collect::<Vec<_>>()).unwrap()).unwrap());
-    assert!(data.visit(Module::NAME,&Module::encode(&modules.into_iter().rev().collect::<Vec<_>>()).unwrap()).unwrap());
-    let mut shuffled=Output::new(&b);
+    data.source.catalog.members = Rows::new(&b);
+    data.source.core.modules = Rows::new(&b);
+    let members = d.source.catalog.members.iter().cloned().collect::<Vec<_>>();
+    let modules = d.source.core.modules.iter().cloned().collect::<Vec<_>>();
+    assert!(
+        data.visit(
+            CatalogMember::NAME,
+            &CatalogMember::encode(&members.into_iter().rev().collect::<Vec<_>>()).unwrap()
+        )
+        .unwrap()
+    );
+    assert!(
+        data.visit(
+            Module::NAME,
+            &Module::encode(&modules.into_iter().rev().collect::<Vec<_>>()).unwrap()
+        )
+        .unwrap()
+    );
+    let mut shuffled = Output::new(&b);
     macro_rules! rows {($($f:ident:$ty:ty,)*)=>{$(let rows=expected.$f.iter().cloned().collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>();assert!(shuffled.visit(<$ty>::NAME,&<$ty as Record>::encode(&rows).unwrap()).unwrap());)*};}
     lctx_model::catalog_selection_outputs!(rows);
-    let narrow=Prepared::from_local_rows(data,shuffled,&b).unwrap();
-    for predicate in [Predicate::PublicModule{module:"pkg.api".into()},Predicate::DeclaresParameter{name:"flag".into()},Predicate::ParameterRequired{name:"flag".into(),required:false}] {
-        let requirement=Requirement{predicate,quantifier:Quantifier::AnyApplicable};
-        let actual=narrow.classify(m,c,&requirement,&b).unwrap();let replay=strict.classify(m,c,&requirement,&b).unwrap();
-        assert_eq!((actual.outcome,actual.reason,actual.examined,actual.total,actual.corpus_complete,actual.analyzer_complete,&actual.closure),(replay.outcome,replay.reason,replay.examined,replay.total,replay.corpus_complete,replay.analyzer_complete,&replay.closure));
-        assert_eq!(format!("{:?}",actual.witnesses),format!("{:?}",replay.witnesses));assert_eq!(actual.admissible().collect::<Vec<_>>(),replay.admissible().collect::<Vec<_>>());
+    let narrow = Prepared::from_local_rows(data, shuffled, &b).unwrap();
+    for predicate in [
+        Predicate::PublicModule {
+            module: "pkg.api".into(),
+        },
+        Predicate::DeclaresParameter {
+            name: "flag".into(),
+        },
+        Predicate::ParameterRequired {
+            name: "flag".into(),
+            required: false,
+        },
+    ] {
+        let requirement = Requirement {
+            predicate,
+            quantifier: Quantifier::AnyApplicable,
+        };
+        let actual = narrow.classify(m, c, &requirement, &b).unwrap();
+        let replay = strict.classify(m, c, &requirement, &b).unwrap();
+        assert_eq!(
+            (
+                actual.outcome,
+                actual.reason,
+                actual.examined,
+                actual.total,
+                actual.corpus_complete,
+                actual.analyzer_complete,
+                &actual.closure
+            ),
+            (
+                replay.outcome,
+                replay.reason,
+                replay.examined,
+                replay.total,
+                replay.corpus_complete,
+                replay.analyzer_complete,
+                &replay.closure
+            )
+        );
+        assert_eq!(
+            format!("{:?}", actual.witnesses),
+            format!("{:?}", replay.witnesses)
+        );
+        assert_eq!(
+            actual.admissible().collect::<Vec<_>>(),
+            replay.admissible().collect::<Vec<_>>()
+        );
     }
 }

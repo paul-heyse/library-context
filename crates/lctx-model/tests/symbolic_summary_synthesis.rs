@@ -45,7 +45,10 @@ fn fixture(reason: ObligationKind) -> Fixture {
     let reader_condition = Diagram::from_atom(nominal(4));
     let constructor = AssertionQualification {
         context: invocation.context,
-        scope: CoverageScope::Artifact { artifact: nominal(5) }.id(),
+        scope: CoverageScope::Artifact {
+            artifact: nominal(5),
+        }
+        .id(),
         condition: Diagram::always().id(),
         modality: Modality::Definite,
         approximation: Approximation::Exact,
@@ -76,7 +79,9 @@ fn fixture(reason: ObligationKind) -> Fixture {
         alternative: alternative.id(),
         qualification: reader.id(),
     };
-    let subject = analysis::summary::ObligationSubject::SummaryClaim { transfer: claim.id() };
+    let subject = analysis::summary::ObligationSubject::SummaryClaim {
+        transfer: claim.id(),
+    };
     let conclusion = ClaimConclusion {
         invocation: alternative.invocation,
         subject: subject.id(),
@@ -103,27 +108,40 @@ fn fixture(reason: ObligationKind) -> Fixture {
         }
     }
     let mut frames = Rows::new(&budget);
-    frames.insert(frames::Frame {
-        invocation: invocation.id(),
-        configuration: nominal(14),
-        core: nominal(15),
-        evidence: nominal(16),
-        selection: nominal(17),
-        structural: nominal(18),
-        analytic: nominal(19),
-        summary: conclusion.invocation,
-    }).unwrap();
+    frames
+        .insert(frames::Frame {
+            invocation: invocation.id(),
+            configuration: nominal(14),
+            core: nominal(15),
+            evidence: nominal(16),
+            selection: nominal(17),
+            structural: nominal(18),
+            analytic: nominal(19),
+            summary: conclusion.invocation,
+        })
+        .unwrap();
     let mut invocations = Rows::new(&budget);
     invocations.insert(invocation).unwrap();
     Fixture {
         docs: documentary::Data::new(&budget),
-        budget, data, observations, frames, invocations, reader, constructor, claim, conclusion,
+        budget,
+        data,
+        observations,
+        frames,
+        invocations,
+        reader,
+        constructor,
+        claim,
+        conclusion,
     }
 }
 
 #[test]
 fn qualified_symbolic_unknown_retains_reader_scope_and_has_no_finding_authority() {
-    for reason in [ObligationKind::ScopeBoundary, ObligationKind::MissingEvidence] {
+    for reason in [
+        ObligationKind::ScopeBoundary,
+        ObligationKind::MissingEvidence,
+    ] {
         let f = fixture(reason);
         assert_ne!(f.reader.condition, f.constructor.condition);
         assert_eq!(f.reader.scope, f.constructor.scope);
@@ -131,7 +149,8 @@ fn qualified_symbolic_unknown_retains_reader_scope_and_has_no_finding_authority(
         assert_ne!(alternative.constructor, alternative.reader);
         assert_eq!(f.conclusion.proof, None);
         assert_eq!(summary::evidence(&f.data, &f.conclusion).unwrap(), None);
-        let (facets, sources) = summary::build(&f.data, &f.docs, &f.frames, &f.invocations, &f.budget).unwrap();
+        let (facets, sources) =
+            summary::build(&f.data, &f.docs, &f.frames, &f.invocations, &f.budget).unwrap();
         assert_eq!(facets.len(), 1);
         assert!(sources.is_empty());
         let facet = facets.iter().next().unwrap();
@@ -142,10 +161,23 @@ fn qualified_symbolic_unknown_retains_reader_scope_and_has_no_finding_authority(
         assert_eq!(facet.verdict, Verdict::Unknown);
         assert_eq!(facet.reason, Some(reason));
         assert_eq!(facet.source, None);
-        assert!(summary::text(&f.data, facet, &f.budget).unwrap().contains("whether a later read returns the stored value remains unresolved"));
+        assert!(
+            summary::text(&f.data, facet, &f.budget)
+                .unwrap()
+                .contains("whether a later read returns the stored value remains unresolved")
+        );
         let mut output = observations::Output::new(&f.budget);
-        summary::extend_observations(&f.data, &f.observations, &facets, &f.frames,
-            &f.invocations, &Rows::new(&f.budget), &mut output, &f.budget).unwrap();
+        summary::extend_observations(
+            &f.data,
+            &f.observations,
+            &facets,
+            &f.frames,
+            &f.invocations,
+            &Rows::new(&f.budget),
+            &mut output,
+            &f.budget,
+        )
+        .unwrap();
         assert!(output.findings.is_empty());
         assert!(output.supports.is_empty());
         assert!(output.sources.is_empty());
@@ -163,7 +195,8 @@ fn symbolic_authority_and_constructor_qualification_forgery_refuse() {
             0 => f.conclusion.verdict = Verdict::Established,
             1 => {
                 let proof = ClaimProof::Closure {
-                    claim: f.claim.id(), qualification: f.reader.id(),
+                    claim: f.claim.id(),
+                    qualification: f.reader.id(),
                     status: analysis::policy::EvidenceStatus::StructurallyObserved,
                     members: ContentHash::of(b"forged-symbolic-proof"),
                 };
@@ -178,7 +211,9 @@ fn symbolic_authority_and_constructor_qualification_forgery_refuse() {
                 };
                 f.data.claims = Rows::new(&f.budget);
                 f.data.claims.insert(f.claim.clone()).unwrap();
-                let subject = analysis::summary::ObligationSubject::SummaryClaim { transfer: f.claim.id() };
+                let subject = analysis::summary::ObligationSubject::SummaryClaim {
+                    transfer: f.claim.id(),
+                };
                 f.data.subjects = Rows::new(&f.budget);
                 f.conclusion.subject = f.data.subjects.insert(subject).unwrap();
                 f.conclusion.qualification = Some(f.constructor.id());
@@ -188,7 +223,13 @@ fn symbolic_authority_and_constructor_qualification_forgery_refuse() {
         }
         f.data.conclusions = Rows::new(&f.budget);
         f.data.conclusions.insert(f.conclusion.clone()).unwrap();
-        assert!(summary::evidence(&f.data, &f.conclusion).is_err(), "forgery {case}");
-        assert!(summary::build(&f.data, &f.docs, &f.frames, &f.invocations, &f.budget).is_err(), "forgery {case}");
+        assert!(
+            summary::evidence(&f.data, &f.conclusion).is_err(),
+            "forgery {case}"
+        );
+        assert!(
+            summary::build(&f.data, &f.docs, &f.frames, &f.invocations, &f.budget).is_err(),
+            "forgery {case}"
+        );
     }
 }

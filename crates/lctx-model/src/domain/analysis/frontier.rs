@@ -222,11 +222,12 @@ pub fn derive(
     };
     if let Some(earlier) = &earlier
         && (!equal(&earlier.analysis, &data.analysis)
-            || !equal(&earlier.analysis_members, &data.analysis_members)) {
+            || !equal(&earlier.analysis_members, &data.analysis_members))
+    {
         return Err(invalid(
             "Catalog final assessment changes immutable Analysis checkpoint",
         ));
-        }
+    }
     for &(input, context) in frames.iter() {
         let mut members = charged::ChargedMap::<ContentHash, Draft>::default();
         let mut frame_charge = charged::StateCharge::new(b, "final-frontier-frame-members");

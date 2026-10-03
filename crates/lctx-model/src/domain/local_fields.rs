@@ -589,13 +589,26 @@ impl InvariantCheck for FieldCheck {
         for invocation in self.invocations.iter() {
             for store in self.inventory.symbolic_stores.iter() {
                 for support in self.entry.value_supports.iter() {
-                    let Some(value)=self.entry.values.get(support.assertion) else{continue};
-                    if !crate::domain::local_symbolic::same(&self.entry,value.sink,store.value){continue}
-                    if let Ok(emission)=crate::domain::local_symbolic::derive(&data,invocation,store,support,&self.budget)? {
-                        for entry in [&emission.value,&emission.receiver] {
-                            if self.entries.get(entry.witness().id())!=Some(entry.witness())
-                                || self.sources.get(entry.source().id())!=Some(entry.source()) {
-                                return Err(invalid("symbolic store entry premises differ from replay"));
+                    let Some(value) = self.entry.values.get(support.assertion) else {
+                        continue;
+                    };
+                    if !crate::domain::local_symbolic::same(&self.entry, value.sink, store.value) {
+                        continue;
+                    }
+                    if let Ok(emission) = crate::domain::local_symbolic::derive(
+                        &data,
+                        invocation,
+                        store,
+                        support,
+                        &self.budget,
+                    )? {
+                        for entry in [&emission.value, &emission.receiver] {
+                            if self.entries.get(entry.witness().id()) != Some(entry.witness())
+                                || self.sources.get(entry.source().id()) != Some(entry.source())
+                            {
+                                return Err(invalid(
+                                    "symbolic store entry premises differ from replay",
+                                ));
                             }
                         }
                         expected.symbolic_stores.insert(emission.row)?;

@@ -95,7 +95,10 @@ fn result<'a>(
 }
 /// The earlier owner validates each supplied row. This operation preserves all candidate
 /// decisions, and never turns a rank/community navigation choice into semantic evidence.
-#[allow(clippy::too_many_arguments, reason = "Public seed completion keeps separately admitted documentary, structural and analytic inputs explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Public seed completion keeps separately admitted documentary, structural and analytic inputs explicit."
+)]
 pub fn complete(
     d: &documentary::Data,
     docs: &documentary::Output,
@@ -185,7 +188,8 @@ pub fn complete(
         }
         if configured.contains(&member.id())
             && let Some(c) =
-                community.filter(|c| !configured_communities.contains(&(*c, member.id()))) {
+                community.filter(|c| !configured_communities.contains(&(*c, member.id())))
+        {
             configured_communities.insert(&mut charge, (c, member.id()))?;
             let count = held.get(&c).copied().unwrap_or(0);
             held.insert(
@@ -198,7 +202,7 @@ pub fn complete(
                         .filter(|r| r.member == member.id())
                         .count(),
             )?;
-            }
+        }
         let reason = if configured.contains(&member.id()) {
             DecisionReason::Configured
         } else if !candidate.in_subsystem {
@@ -420,10 +424,7 @@ mod tests {
         assert_eq!(docs.conclusions.len(), count);
         (b, d, docs, public, frames, parents, a, settings, invocation)
     }
-    fn fixture(
-        count: usize,
-        budget: i64,
-    ) -> Fixture {
+    fn fixture(count: usize, budget: i64) -> Fixture {
         fixture_with(count, budget, false, false, false)
     }
     fn analytic(
@@ -471,22 +472,29 @@ mod tests {
         a.results.insert(r.clone()).unwrap();
         r
     }
-struct SelectionInputs<'a> {
-    d: &'a documentary::Data,
-    docs: &'a documentary::Output,
-    p: &'a Rows<structural::PublicCandidate>,
-    f: &'a Rows<structural::StructuralFrame>,
-    parents: &'a Rows<analysis::structural::Invocation>,
-    a: &'a Data,
-}
+    struct SelectionInputs<'a> {
+        d: &'a documentary::Data,
+        docs: &'a documentary::Output,
+        p: &'a Rows<structural::PublicCandidate>,
+        f: &'a Rows<structural::StructuralFrame>,
+        parents: &'a Rows<analysis::structural::Invocation>,
+        a: &'a Data,
+    }
 
     fn select(
-    selection_inputs: SelectionInputs<'_>,
-    s: &AnalyticsConfiguration,
-    i: &owner::Invocation,
-    b: &ResourceBudget,
-) -> seeds::Output {
-    let SelectionInputs { d, docs, p, f, parents, a } = selection_inputs;
+        selection_inputs: SelectionInputs<'_>,
+        s: &AnalyticsConfiguration,
+        i: &owner::Invocation,
+        b: &ResourceBudget,
+    ) -> seeds::Output {
+        let SelectionInputs {
+            d,
+            docs,
+            p,
+            f,
+            parents,
+            a,
+        } = selection_inputs;
         let mut out = seeds::configured(d, p, f, parents, s, i, b).unwrap();
         complete(d, docs, p, f, parents, a, s, i, &mut out, b).unwrap();
         out
@@ -494,7 +502,19 @@ struct SelectionInputs<'a> {
     #[test]
     fn eligible_extras_follow_official_usage_and_zero_budget_is_explicit() {
         let (b, d, docs, p, f, parents, a, s, i) = fixture(4, 2);
-        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let out = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         assert_eq!(out.selected.len(), 2);
         let selected = out.selected.iter().find(|r| r.ordinal == 0).unwrap();
         let source = out.sources.get(selected.source).unwrap();
@@ -513,7 +533,19 @@ struct SelectionInputs<'a> {
             2
         );
         let (b, d, docs, p, f, parents, a, s, i) = fixture(2, 0);
-        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let out = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         assert!(out.selected.is_empty());
         assert!(
             out.automatic
@@ -525,7 +557,19 @@ struct SelectionInputs<'a> {
     fn eligibility_requires_summary_and_official_usage_and_keeps_outside_candidates() {
         let (b, d, mut docs, mut p, f, parents, mut a, s, i) = fixture(3, 3);
         docs.conclusions = Rows::new(&b);
-        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let out = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         assert!(out.selected.is_empty());
         assert!(
             out.automatic
@@ -534,7 +578,19 @@ struct SelectionInputs<'a> {
         );
         let docs = documentary::build(&d, &b).unwrap();
         a.usage = Rows::new(&b);
-        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let out = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         assert!(out.selected.is_empty());
         assert!(
             out.automatic
@@ -548,7 +604,19 @@ struct SelectionInputs<'a> {
             ..old
         })
         .unwrap();
-        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let out = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         assert_eq!(
             out.automatic.iter().next().unwrap().reason,
             DecisionReason::OutsideSubsystem
@@ -576,7 +644,19 @@ struct SelectionInputs<'a> {
                 })
                 .unwrap();
         }
-        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let out = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         let chosen = out
             .automatic
             .iter()
@@ -594,7 +674,19 @@ struct SelectionInputs<'a> {
                 ..old
             })
             .unwrap();
-        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let out = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         let chosen = out
             .automatic
             .iter()
@@ -632,7 +724,19 @@ struct SelectionInputs<'a> {
                 })
                 .unwrap();
         }
-        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let out = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         assert_eq!(out.selected.len(), 2);
         let first = out.selected.iter().find(|r| r.ordinal == 0).unwrap();
         assert!(matches!(
@@ -654,7 +758,19 @@ struct SelectionInputs<'a> {
         assert_eq!(expected.score.get(), 5.0);
         let mut erased = out;
         erased.automatic = Rows::new(&b);
-        let replay = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let replay = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         assert!(erased.matches(&replay).is_err());
     }
     #[test]

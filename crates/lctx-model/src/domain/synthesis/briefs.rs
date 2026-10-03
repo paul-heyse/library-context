@@ -156,7 +156,10 @@ pub fn build(
         b,
     )
 }
-#[allow(clippy::too_many_arguments, reason = "Public brief construction keeps independent documentary, assertion, pattern, summary and seed owners explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Public brief construction keeps independent documentary, assertion, pattern, summary and seed owners explicit."
+)]
 pub fn build_with_summary(
     d: &documentary::Data,
     docs: &documentary::Output,

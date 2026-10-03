@@ -11,17 +11,21 @@ use crate::domain::{
 };
 /// The recognized expected-domain row inventory and typed decoder dispatch share this owner.
 #[macro_export]
-macro_rules! expected_domain_inputs {($apply:ident)=>{$apply!{
- inputs:$crate::domain::input::InputRevision,
- artifacts:$crate::domain::source::SourceArtifact,
- uses:$crate::domain::input::ArtifactUse,
- scopes:$crate::domain::source::CoverageScope,
- computations:$crate::domain::normalized::coverage::NormalizationComputation,
- normalized:$crate::domain::normalized::coverage::NormalizationCoverage,
- native:$crate::domain::attribution::ProviderCoverage,
- text:$crate::domain::embedding::text::TextDefinition,
- analytics:$crate::domain::analysis::settings::AnalyticsConfiguration,
-}};}
+macro_rules! expected_domain_inputs {
+    ($apply:ident) => {
+        $apply! {
+         inputs:$crate::domain::input::InputRevision,
+         artifacts:$crate::domain::source::SourceArtifact,
+         uses:$crate::domain::input::ArtifactUse,
+         scopes:$crate::domain::source::CoverageScope,
+         computations:$crate::domain::normalized::coverage::NormalizationComputation,
+         normalized:$crate::domain::normalized::coverage::NormalizationCoverage,
+         native:$crate::domain::attribution::ProviderCoverage,
+         text:$crate::domain::embedding::text::TextDefinition,
+         analytics:$crate::domain::analysis::settings::AnalyticsConfiguration,
+        }
+    };
+}
 #[derive(Clone, Copy)]
 struct ScopeContract {
     grain: admission::Grain,
@@ -694,11 +698,16 @@ impl<'a> CoverageAdmission<'a> {
         batch: &arrow_array::RecordBatch,
     ) -> Result<VisitResult, ModelError> {
         // The dispatch checks source identity for handled inputs before decoding or mutation.
-        Ok(if self.index.visit_with_check(R::NAME, batch, || self.sources.accepts(permit))? {
-            VisitResult::Handled
-        } else {
-            VisitResult::Skipped
-        })
+        Ok(
+            if self
+                .index
+                .visit_with_check(R::NAME, batch, || self.sources.accepts(permit))?
+            {
+                VisitResult::Handled
+            } else {
+                VisitResult::Skipped
+            },
+        )
     }
     pub fn visit<R: Record>(
         &mut self,

@@ -8,11 +8,7 @@ use cpg_extract::{
     capture::CapturedInput,
 };
 use lctx_model::domain::{
-    admission::FrontierContract,
-    local_semantics,
-    normalized::entity_normalization,
-    stages::*,
-    *,
+    admission::FrontierContract, local_semantics, normalized::entity_normalization, stages::*, *,
 };
 use lctx_postgres::{
     generations::GenerationStore,
@@ -308,8 +304,7 @@ async fn run(profile: Profile) {
         assert!(
             availabilities
                 .iter()
-                .all(|s| *s
-                    == normalized::coverage::EvidenceAvailability::NotRequested.code())
+                .all(|s| *s == normalized::coverage::EvidenceAvailability::NotRequested.code())
         );
     }
     let theory:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.local_type_domains),(SELECT count(*) FROM {}.local_theory_witnesses),(SELECT count(*) FROM {}.local_type_class_members)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
@@ -342,30 +337,146 @@ async fn catalog_local_publishes_not_requested_without_semantic_rows() {
 
 #[test]
 fn catalog_local_keeps_expected_metadata_out_of_unrequested_domain_state() {
-    use lctx_model::domain::{attribution::*, calls::*, source::*, resources::ResourceBudget, local_semantics::LocalData, normalized::entities::ClassEntity, value::Literal};
-    let input = input::InputRevision {manifest:ContentHash::of(b"profile retention control")};
+    use lctx_model::domain::{
+        attribution::*, calls::*, local_semantics::LocalData, normalized::entities::ClassEntity,
+        resources::ResourceBudget, source::*, value::Literal,
+    };
+    let input = input::InputRevision {
+        manifest: ContentHash::of(b"profile retention control"),
+    };
     let artifact = SourceArtifact::from_bytes(input.id(), "control.py".into(), b"pass\n").unwrap();
-    let scope = CoverageScope::Artifact {artifact:artifact.id()};
-    let context = AnalysisContext {python_version:"3.14".into(),python_platform:"test".into(),search_path:vec![],site_package_path:vec![],config_digest:ContentHash::of(b"config"),environment_digest:ContentHash::of(b"env"),lock_digest:None};
-    let coverage = ProviderCoverage {scope:scope.id(),provider:None,context:context.id(),family:FactFamily::Flow,run:None,status:CoverageStatus::NotRequested,reason:None,diagnostic:None};
-    let batches = [(SourceArtifact::NAME, SourceArtifact::encode(&[artifact]).unwrap()), (CoverageScope::NAME, <CoverageScope as Record>::encode(&[scope]).unwrap()), (ProviderCoverage::NAME, ProviderCoverage::encode(&[coverage]).unwrap())];
+    let scope = CoverageScope::Artifact {
+        artifact: artifact.id(),
+    };
+    let context = AnalysisContext {
+        python_version: "3.14".into(),
+        python_platform: "test".into(),
+        search_path: vec![],
+        site_package_path: vec![],
+        config_digest: ContentHash::of(b"config"),
+        environment_digest: ContentHash::of(b"env"),
+        lock_digest: None,
+    };
+    let coverage = ProviderCoverage {
+        scope: scope.id(),
+        provider: None,
+        context: context.id(),
+        family: FactFamily::Flow,
+        run: None,
+        status: CoverageStatus::NotRequested,
+        reason: None,
+        diagnostic: None,
+    };
+    let batches = [
+        (
+            SourceArtifact::NAME,
+            SourceArtifact::encode(&[artifact]).unwrap(),
+        ),
+        (
+            CoverageScope::NAME,
+            <CoverageScope as Record>::encode(&[scope]).unwrap(),
+        ),
+        (
+            ProviderCoverage::NAME,
+            ProviderCoverage::encode(&[coverage]).unwrap(),
+        ),
+    ];
     let small = ResourceBudget::fixed(1).unwrap();
     let mut catalog = LocalData::new(&small);
-    for (name,batch) in &batches {assert!(!catalog.visit_consumed(Profile::Catalog,name,batch).unwrap());}
-    assert!(catalog.entry.artifacts.is_empty() && catalog.entry.scopes.is_empty() && catalog.entry.coverage.is_empty());
-    assert_eq!(small.reserved(),0,"Catalog does not reserve a second copy of expected-only metadata");
+    for (name, batch) in &batches {
+        assert!(
+            !catalog
+                .visit_consumed(Profile::Catalog, name, batch)
+                .unwrap()
+        );
+    }
+    assert!(
+        catalog.entry.artifacts.is_empty()
+            && catalog.entry.scopes.is_empty()
+            && catalog.entry.coverage.is_empty()
+    );
+    assert_eq!(
+        small.reserved(),
+        0,
+        "Catalog does not reserve a second copy of expected-only metadata"
+    );
     let budget = ResourceBudget::fixed(1 << 20).unwrap();
     let mut behavioral = LocalData::new(&budget);
-    for (name,batch) in &batches {assert!(behavioral.visit_consumed(Profile::Behavioral,name,batch).unwrap());}
-    assert_eq!((behavioral.entry.artifacts.len(),behavioral.entry.scopes.len(),behavioral.entry.coverage.len()),(1,1,1));
-    let provider = Provider {tool:"test".into(),revision:"1".into(),build_digest:ContentHash::of(b"build")};
-    let module = ProviderModule::Bundled {provider:provider.id(),bundle:ModuleBundle::Typeshed,name:"test".into()};
-    let symbol = ProviderSymbol {provider:provider.id(),context:context.id(),module:module.id(),native_key:"C".into(),name:"C".into(),kind:SymbolKind::Class};
-    let class = ClassEntity::Synthetic {symbol:symbol.id()};
-    assert!(behavioral.visit_consumed(Profile::Behavioral,Literal::NAME,&<Literal as Record>::encode(&[Literal::None]).unwrap()).unwrap());
-    assert!(behavioral.visit_consumed(Profile::Behavioral,ClassEntity::NAME,&<ClassEntity as Record>::encode(&[class]).unwrap()).unwrap());
-    assert_eq!((behavioral.theory.literals.len(),behavioral.fields.class_entities.len()),(1,1),"Behavioral visitation reaches both independent inventories");
+    for (name, batch) in &batches {
+        assert!(
+            behavioral
+                .visit_consumed(Profile::Behavioral, name, batch)
+                .unwrap()
+        );
+    }
+    assert_eq!(
+        (
+            behavioral.entry.artifacts.len(),
+            behavioral.entry.scopes.len(),
+            behavioral.entry.coverage.len()
+        ),
+        (1, 1, 1)
+    );
+    let provider = Provider {
+        tool: "test".into(),
+        revision: "1".into(),
+        build_digest: ContentHash::of(b"build"),
+    };
+    let module = ProviderModule::Bundled {
+        provider: provider.id(),
+        bundle: ModuleBundle::Typeshed,
+        name: "test".into(),
+    };
+    let symbol = ProviderSymbol {
+        provider: provider.id(),
+        context: context.id(),
+        module: module.id(),
+        native_key: "C".into(),
+        name: "C".into(),
+        kind: SymbolKind::Class,
+    };
+    let class = ClassEntity::Synthetic {
+        symbol: symbol.id(),
+    };
+    assert!(
+        behavioral
+            .visit_consumed(
+                Profile::Behavioral,
+                Literal::NAME,
+                &<Literal as Record>::encode(&[Literal::None]).unwrap()
+            )
+            .unwrap()
+    );
+    assert!(
+        behavioral
+            .visit_consumed(
+                Profile::Behavioral,
+                ClassEntity::NAME,
+                &<ClassEntity as Record>::encode(&[class]).unwrap()
+            )
+            .unwrap()
+    );
+    assert_eq!(
+        (
+            behavioral.theory.literals.len(),
+            behavioral.fields.class_entities.len()
+        ),
+        (1, 1),
+        "Behavioral visitation reaches both independent inventories"
+    );
     let mut catalog = LocalData::new(&budget);
-    assert!(catalog.visit_consumed(Profile::Catalog,Provider::NAME,&Provider::encode(&[provider]).unwrap()).unwrap());
-    assert_eq!(catalog.entry.providers.len(),1,"Catalog still retains its declared provider metadata");
+    assert!(
+        catalog
+            .visit_consumed(
+                Profile::Catalog,
+                Provider::NAME,
+                &Provider::encode(&[provider]).unwrap()
+            )
+            .unwrap()
+    );
+    assert_eq!(
+        catalog.entry.providers.len(),
+        1,
+        "Catalog still retains its declared provider metadata"
+    );
 }

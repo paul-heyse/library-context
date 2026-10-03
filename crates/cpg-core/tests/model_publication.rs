@@ -8,11 +8,7 @@ use cpg_extract::{
     capture::CapturedInput,
 };
 use lctx_model::domain::{
-    admission::FrontierContract,
-    local_semantics,
-    normalized::entity_normalization,
-    stages::*,
-    *,
+    admission::FrontierContract, local_semantics, normalized::entity_normalization, stages::*, *,
 };
 use lctx_postgres::{
     generations::GenerationStore,

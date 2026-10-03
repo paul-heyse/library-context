@@ -147,7 +147,10 @@ async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
         .collect::<Vec<_>>();
     macro_rules! put {
         ($ty:ty,$rows:expr) => {
-            batches.push((<$ty>::NAME, <$ty as Record>::encode(($rows).as_ref()).unwrap()));
+            batches.push((
+                <$ty>::NAME,
+                <$ty as Record>::encode(($rows).as_ref()).unwrap(),
+            ));
         };
     }
     macro_rules! raw{($($field:ident:$ty:ty,)*)=>{$(put!($ty,f.data.$field.iter().cloned().collect::<Vec<_>>());)*};}

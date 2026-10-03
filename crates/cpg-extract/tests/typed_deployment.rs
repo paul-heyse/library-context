@@ -108,14 +108,11 @@ fn captured_with_budget(
         },
     )
     .unwrap();
-    let frozen = CapturedInput::capture(
-        corpus.path(),
-        &[path.into(), "launch.json".into()],
-        budget,
-    )
-    .unwrap()
-    .with_receipts(&[supplied.path().into()])
-    .unwrap();
+    let frozen =
+        CapturedInput::capture(corpus.path(), &[path.into(), "launch.json".into()], budget)
+            .unwrap()
+            .with_receipts(&[supplied.path().into()])
+            .unwrap();
     let input = AcquiredInput::new(
         frozen,
         Acquisition::Corpus {

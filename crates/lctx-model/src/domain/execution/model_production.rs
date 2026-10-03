@@ -436,7 +436,11 @@ pub fn apply_all(
     }
     for context in replay.contexts.iter() {
         super::model_protocol::emit(
-            super::model_protocol::ProtocolInputs { catalog, data: &data.early, execution: context },
+            super::model_protocol::ProtocolInputs {
+                catalog,
+                data: &data.early,
+                execution: context,
+            },
             &replay.context_items,
             &replay.outcomes,
             invocation,
@@ -468,7 +472,8 @@ pub fn apply_all(
                 &data.entries,
                 &data.entry_sources,
                 budget,
-            )? {
+            )?
+        {
             super::model_context_transfer::emit(
                 proof,
                 invocation,
@@ -476,7 +481,7 @@ pub fn apply_all(
                 &mut records,
                 budget,
             )?;
-            }
+        }
     }
     for row in replay.modeled_arguments.iter() {
         if data.modeled_arguments.get(row.id()) != Some(row) {
@@ -651,13 +656,23 @@ pub fn apply_all(
                             if matches!(operation, ModeledOperation::Transfer { .. })
                                 && let Ok(proof) =
                                     super::model_transfer::CheckedModelTransfer::derive(
-                                        super::model_transfer::TransferRuleInputs { application: &row, rule, operation, paths: &applied.paths },
+                                        super::model_transfer::TransferRuleInputs {
+                                            application: &row,
+                                            rule,
+                                            operation,
+                                            paths: &applied.paths,
+                                        },
                                         call,
                                         &replay.modeled_arguments,
                                         &data.execution.source.completed,
-                                        super::model_transfer::TransferEntryInputs { entry_data: &data.execution.source.flow, entries: &data.entries, sources: &data.entry_sources },
+                                        super::model_transfer::TransferEntryInputs {
+                                            entry_data: &data.execution.source.flow,
+                                            entries: &data.entries,
+                                            sources: &data.entry_sources,
+                                        },
                                         budget,
-                                    )? {
+                                    )?
+                            {
                                 super::model_transfer::emit(
                                     proof,
                                     invocation,
@@ -665,7 +680,7 @@ pub fn apply_all(
                                     &mut records,
                                     budget,
                                 )?;
-                                }
+                            }
                         }
                     }
                     records.action_assessments.insert(assessment)?;

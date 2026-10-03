@@ -155,9 +155,15 @@ async fn check_clean_in_every_state() {
         .await
         .unwrap();
     let mut staging = harness(&store, &db).await;
-    let mut sealed = Harness::begin_empty_conformance(&store, db.writer.clone(), Profile::Behavioral, budget(), vec![])
-        .await
-        .unwrap();
+    let mut sealed = Harness::begin_empty_conformance(
+        &store,
+        db.writer.clone(),
+        Profile::Behavioral,
+        budget(),
+        vec![],
+    )
+    .await
+    .unwrap();
     sealed.seal().await.unwrap();
     let mut validated = harness(&store, &db).await;
     validated.seal().await.unwrap();
@@ -177,12 +183,31 @@ async fn check_clean_in_every_state() {
     let prefix: String = sqlx::query_scalar("SELECT c.relname::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relkind='v' AND c.relname ~ '^__v[0-9]+_' ORDER BY c.relname LIMIT 1")
         .bind(sealed.generation().schema()).fetch_one(db.owner.pool()).await.unwrap();
     let prefix_relation = format!("{}.{}", sealed.generation().schema(), prefix);
-    run(db.owner.pool(), &format!("GRANT SELECT ON {prefix_relation} TO lctx_app")).await;
+    run(
+        db.owner.pool(),
+        &format!("GRANT SELECT ON {prefix_relation} TO lctx_app"),
+    )
+    .await;
     let granted = GenerationStore::check(&db.owner, &model).await.unwrap();
-    assert!(granted.findings.iter().any(|finding| finding.kind == FindingKind::Differs
-        && finding.subject == format!("{} relation {prefix}", sealed.generation().schema())));
-    run(db.owner.pool(), &format!("REVOKE SELECT ON {prefix_relation} FROM lctx_app")).await;
-    assert!(GenerationStore::check(&db.owner, &model).await.unwrap().clean());
+    assert!(
+        granted
+            .findings
+            .iter()
+            .any(|finding| finding.kind == FindingKind::Differs
+                && finding.subject
+                    == format!("{} relation {prefix}", sealed.generation().schema()))
+    );
+    run(
+        db.owner.pool(),
+        &format!("REVOKE SELECT ON {prefix_relation} FROM lctx_app"),
+    )
+    .await;
+    assert!(
+        GenerationStore::check(&db.owner, &model)
+            .await
+            .unwrap()
+            .clean()
+    );
     assert!(
         !schemas(&db.superuser)
             .await
@@ -349,10 +374,11 @@ async fn check_detects_each_drift() {
     // Store-wide drifts: applied, detected, then reverted.
     let state_check: String = sqlx::query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'generations_state_check'")
         .fetch_one(&owner).await.unwrap();
-    let checksums: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT version, checksum FROM public._sqlx_migrations ORDER BY version")
-        .fetch_all(&owner)
-        .await
-        .unwrap();
+    let checksums: Vec<(i64, Vec<u8>)> =
+        sqlx::query_as("SELECT version, checksum FROM public._sqlx_migrations ORDER BY version")
+            .fetch_all(&owner)
+            .await
+            .unwrap();
     let global = [
         (
             "control CHECK",

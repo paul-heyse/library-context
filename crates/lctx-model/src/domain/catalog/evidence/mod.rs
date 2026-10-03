@@ -6,7 +6,6 @@ mod intent;
 mod inventory;
 pub mod runtime;
 mod symbolic;
-pub use symbolic::SourceFieldLink;
 use crate::domain::{
     assertion::{AssertionQualification, EvidenceSourceSpanId},
     catalog::*,
@@ -19,6 +18,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
+pub use symbolic::SourceFieldLink;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "catalog_original_sources")]
 pub enum OriginalSource {

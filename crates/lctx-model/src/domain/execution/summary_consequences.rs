@@ -885,15 +885,17 @@ pub fn derive(
                         );
                     }
                     if pair.disposition == PairDisposition::Proven
-                        && let Some(witness) = pair.witness {
+                        && let Some(witness) = pair.witness
+                    {
                         let source = SummaryPremise::Witness { witness };
                         if let (Some(fact), Some(proof)) =
                             (finite.get(&source.id()), proven.get(&source.id()))
-                            && fact.branch.qualification() == q {
+                            && fact.branch.qualification() == q
+                        {
                             decisions.proof(member.attempt, *proof, Verdict::Established);
                             statuses.push(fact.facts.status);
-                            }
                         }
+                    }
                 }
                 for residual in out
                     .residuals
@@ -1014,11 +1016,38 @@ pub fn derive(
         }
     }
     for alternative in out.symbolic_alternatives.iter() {
-        let claim=SummaryClaim::SymbolicFieldAssociation{alternative:alternative.id(),qualification:alternative.reader_qualification};
-        let subject=owner::ObligationSubject::SummaryClaim{transfer:claim.id()};
-        let result=obligation::verdict(obligation::VerdictInput{condition:None,open:&[alternative.reason],coverage:CoverageStatus::Partial,approximation:Approximation::Exact,modality:Modality::Definite});
-        rows.conclusions.insert(ClaimConclusion{invocation:invocation.id(),subject:subject.id(),qualification:Some(alternative.reader_qualification),proof:None,coverage:CoverageStatus::Partial,verdict:result.verdict,reason:result.reason})?;
-        rows.obligations.insert(owner::AnalysisObligation{invocation:invocation.id(),subject:subject.id(),channel:analysis::AnalysisChannel::Value,phase:CallPhase::Init,qualification:alternative.reader_qualification,reason:alternative.reason,responsible:analysis::AnalysisMethod::Summaries})?;
+        let claim = SummaryClaim::SymbolicFieldAssociation {
+            alternative: alternative.id(),
+            qualification: alternative.reader_qualification,
+        };
+        let subject = owner::ObligationSubject::SummaryClaim {
+            transfer: claim.id(),
+        };
+        let result = obligation::verdict(obligation::VerdictInput {
+            condition: None,
+            open: &[alternative.reason],
+            coverage: CoverageStatus::Partial,
+            approximation: Approximation::Exact,
+            modality: Modality::Definite,
+        });
+        rows.conclusions.insert(ClaimConclusion {
+            invocation: invocation.id(),
+            subject: subject.id(),
+            qualification: Some(alternative.reader_qualification),
+            proof: None,
+            coverage: CoverageStatus::Partial,
+            verdict: result.verdict,
+            reason: result.reason,
+        })?;
+        rows.obligations.insert(owner::AnalysisObligation {
+            invocation: invocation.id(),
+            subject: subject.id(),
+            channel: analysis::AnalysisChannel::Value,
+            phase: CallPhase::Init,
+            qualification: alternative.reader_qualification,
+            reason: alternative.reason,
+            responsible: analysis::AnalysisMethod::Summaries,
+        })?;
         rows.claims.insert(claim)?;
         rows.subjects.insert(subject)?;
     }
@@ -1165,10 +1194,7 @@ impl InvariantCheck for RefutationCheck {
                     .enumerate()
                     .any(|(i, m)| m.ordinal != i as i64 || m.coverage != expected[i])
                 || *coverage
-                    != super::records::ordered_digest(
-                        "summary-refutation-coverage",
-                        expected,
-                    )
+                    != super::records::ordered_digest("summary-refutation-coverage", expected)
             {
                 return Err(invalid(
                     "refutation changes complete native coverage membership",

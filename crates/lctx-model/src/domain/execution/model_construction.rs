@@ -423,9 +423,10 @@ impl<'a> CheckedContextConstruction<'a> {
                         .find(|o: &&ProtocolSignatureOutcome| o.outcome.is_ok())
                         && (b.signatures.get(previous.signature).is_none_or(|s| {
                             s.parameters != signature.parameters || s.form != signature.form
-                        })) {
+                        }))
+                    {
                         return Ok(Err(ObligationKind::AmbiguousBinding));
-                        }
+                    }
                     compatible = true;
                     charge.grow(
                         assigned

@@ -216,7 +216,12 @@ fn with_capture_omitting<T>(
         RelationUse::of::<ProviderCoverage>(),
         RelationUse::of::<AnalysisDefinition>(),
     ];
-    let readers = names.iter().filter(|r|Some(r.name())!=omit).cloned().map(|r| r.completed_store()).collect();
+    let readers = names
+        .iter()
+        .filter(|r| Some(r.name()) != omit)
+        .cloned()
+        .map(|r| r.completed_store())
+        .collect();
     let schedule = Schedule::build(
         &model,
         vec![
@@ -254,12 +259,14 @@ fn with_capture_omitting<T>(
     let mut admission = CoverageAdmission::new(&captured, &budget).unwrap();
     macro_rules! visit {
         ($r:ty,$rows:expr) => {
-            if Some(<$r>::NAME)!=omit {admission
-                .visit_if_expected(
-                    &consumer.read::<$r>().unwrap(),
-                    &<$r as Record>::encode($rows).unwrap(),
-                )
-                .unwrap();}
+            if Some(<$r>::NAME) != omit {
+                admission
+                    .visit_if_expected(
+                        &consumer.read::<$r>().unwrap(),
+                        &<$r as Record>::encode($rows).unwrap(),
+                    )
+                    .unwrap();
+            }
         };
     }
     visit!(InputRevision, std::slice::from_ref(&universe.input));
@@ -278,7 +285,20 @@ fn with_capture_omitting<T>(
         &consumer,
     )
 }
-fn with_capture<T>(universe:&Universe,profile:Profile,f:impl FnOnce(&CapturedSources,&CoverageAdmission<'_>,&[CompletedRelation],&ValidatedModel,&resources::ResourceBudget,&StageAccess<'_,'_>)->T)->T {with_capture_omitting(universe,profile,None,f)}
+fn with_capture<T>(
+    universe: &Universe,
+    profile: Profile,
+    f: impl FnOnce(
+        &CapturedSources,
+        &CoverageAdmission<'_>,
+        &[CompletedRelation],
+        &ValidatedModel,
+        &resources::ResourceBudget,
+        &StageAccess<'_, '_>,
+    ) -> T,
+) -> T {
+    with_capture_omitting(universe, profile, None, f)
+}
 fn publication<R: Record>(
     mut frames: BTreeMap<&'static str, arrow_array::RecordBatch>,
     sources: &[CompletedRelation],
@@ -652,32 +672,67 @@ fn catalog_python_domain_keeps_partiality_without_flow_and_missing_lower_refuses
 #[test]
 fn conditional_routing_skips_unrelated_and_refuses_malformed_or_foreign_before_mutation() {
     use lctx_model::domain::analysis::expected::VisitResult;
-    let universe=Universe::new(Profile::Catalog,AnalysisMethod::Catalog,1);
-    with_capture(&universe,Profile::Catalog,|captured,_,_,_,budget,access| {
-        let mut route=CoverageAdmission::new(captured,budget).unwrap();
-        let definition=access.read::<AnalysisDefinition>().unwrap();
-        let unrelated=AnalysisDefinition::encode(std::slice::from_ref(&universe.definition)).unwrap();
-        assert_eq!(route.visit_if_expected(&definition,&unrelated).unwrap(),VisitResult::Skipped);
-        assert!(route.visit(&definition,&unrelated).is_err());
-        let permit=access.read::<InputRevision>().unwrap();
-        assert!(route.visit_if_expected(&permit,&unrelated).is_err());
-        with_capture(&universe,Profile::Catalog,|_,_,_,_,_,foreign| {
-            let wrong=foreign.read::<InputRevision>().unwrap();
-            let batch=InputRevision::encode(std::slice::from_ref(&universe.input)).unwrap();
-            assert!(route.visit_if_expected(&wrong,&batch).is_err());
-        });
-        // Neither error inserted a row: the correct source remains admissible exactly once.
-        let batch=InputRevision::encode(std::slice::from_ref(&universe.input)).unwrap();
-        assert_eq!(route.visit_if_expected(&permit,&batch).unwrap(),VisitResult::Handled);
-        assert!(route.visit_if_expected(&permit,&batch).is_err());
-    });
+    let universe = Universe::new(Profile::Catalog, AnalysisMethod::Catalog, 1);
+    with_capture(
+        &universe,
+        Profile::Catalog,
+        |captured, _, _, _, budget, access| {
+            let mut route = CoverageAdmission::new(captured, budget).unwrap();
+            let definition = access.read::<AnalysisDefinition>().unwrap();
+            let unrelated =
+                AnalysisDefinition::encode(std::slice::from_ref(&universe.definition)).unwrap();
+            assert_eq!(
+                route.visit_if_expected(&definition, &unrelated).unwrap(),
+                VisitResult::Skipped
+            );
+            assert!(route.visit(&definition, &unrelated).is_err());
+            let permit = access.read::<InputRevision>().unwrap();
+            assert!(route.visit_if_expected(&permit, &unrelated).is_err());
+            with_capture(&universe, Profile::Catalog, |_, _, _, _, _, foreign| {
+                let wrong = foreign.read::<InputRevision>().unwrap();
+                let batch = InputRevision::encode(std::slice::from_ref(&universe.input)).unwrap();
+                assert!(route.visit_if_expected(&wrong, &batch).is_err());
+            });
+            // Neither error inserted a row: the correct source remains admissible exactly once.
+            let batch = InputRevision::encode(std::slice::from_ref(&universe.input)).unwrap();
+            assert_eq!(
+                route.visit_if_expected(&permit, &batch).unwrap(),
+                VisitResult::Handled
+            );
+            assert!(route.visit_if_expected(&permit, &batch).is_err());
+        },
+    );
 }
 #[test]
 fn conditional_routing_does_not_infer_missing_required_capture_from_observed_callbacks() {
-    let universe=Universe::new(Profile::Catalog,AnalysisMethod::Catalog,1);
-    with_capture_omitting(&universe,Profile::Catalog,Some(NormalizationCoverage::NAME),|captured,admission,_,_,budget,access| {
-        assert!(access.read::<NormalizationCoverage>().is_err());
-        let (inv,_,_,_)=catalog_core::Invocation::admitted(universe.input.id(),nominal(2),universe.definition.id(),None,[],captured,[],budget).unwrap();
-        assert!(catalog_core::coverage::admit(&inv,&universe.definition,AnalysisCapability::Catalog,admission,budget).is_err());
-    });
+    let universe = Universe::new(Profile::Catalog, AnalysisMethod::Catalog, 1);
+    with_capture_omitting(
+        &universe,
+        Profile::Catalog,
+        Some(NormalizationCoverage::NAME),
+        |captured, admission, _, _, budget, access| {
+            assert!(access.read::<NormalizationCoverage>().is_err());
+            let (inv, _, _, _) = catalog_core::Invocation::admitted(
+                universe.input.id(),
+                nominal(2),
+                universe.definition.id(),
+                None,
+                [],
+                captured,
+                [],
+                budget,
+            )
+            .unwrap();
+            assert!(
+                catalog_core::coverage::admit(
+                    &inv,
+                    &universe.definition,
+                    AnalysisCapability::Catalog,
+                    admission,
+                    budget
+                )
+                .is_err()
+            );
+        },
+    );
 }

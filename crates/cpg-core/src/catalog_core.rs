@@ -54,7 +54,8 @@ pub async fn produce(
     .map_err(ModelError::codec)?;
     let session = runtime.session(&access);
     let mut registered = charged::ChargedSet::default();
-    let mut registration = charged::StateCharge::new(runtime.budget(), "expected-input-registration");
+    let mut registration =
+        charged::StateCharge::new(runtime.budget(), "expected-input-registration");
     let mut data = CatalogData::new(runtime.budget());
     macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(
         let permit=access.read::<$ty>()?;
@@ -69,7 +70,7 @@ pub async fn produce(
         ($ty:ty,$rows:ident,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
             session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
-            registered.insert(&mut registration,<$ty>::NAME)?;
+            registered.insert(&mut registration, <$ty>::NAME)?;
             load(&session, &mut $rows, &permit, $admit).await?;
         }};
     }

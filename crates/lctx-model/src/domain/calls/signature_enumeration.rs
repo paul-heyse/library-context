@@ -102,7 +102,8 @@ fn enumeration_invariants() -> Vec<Invariant> {
         }),
     }]
 }
-type SignatureGroups = ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>), BTreeMap<i64, Id<Signature>>>;
+type SignatureGroups =
+    ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>), BTreeMap<i64, Id<Signature>>>;
 
 #[derive(Default)]
 struct EnumerationCheck {

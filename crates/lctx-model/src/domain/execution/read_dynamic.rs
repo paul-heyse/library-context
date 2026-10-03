@@ -113,7 +113,11 @@ impl Inspect<'_> {
         site: Id<Occurrence>,
     ) -> Result<bool, ModelError> {
         let selected = native(
-            super::read_channels::NativeContext { data: self.data, entry: self.entry, invocation: self.invocation },
+            super::read_channels::NativeContext {
+                data: self.data,
+                entry: self.entry,
+                invocation: self.invocation,
+            },
             supports,
             assertion,
             q,
@@ -392,26 +396,61 @@ impl Inspect<'_> {
             return Ok(false);
         };
         self.work.scan(self.data.bindings.len())?;
-        let mut bindings = self.data.bindings.iter().filter(|b| b.event == event.id() && self.always(b.qualification));
-        let Some(binding) = bindings.next() else { return Ok(false) };
-        if bindings.next().is_some() || binding.kind != BindingEventKind::Assignment
+        let mut bindings = self
+            .data
+            .bindings
+            .iter()
+            .filter(|b| b.event == event.id() && self.always(b.qualification));
+        let Some(binding) = bindings.next() else {
+            return Ok(false);
+        };
+        if bindings.next().is_some()
+            || binding.kind != BindingEventKind::Assignment
             || binding.static_branch.is_some()
-            || self.entry.lexical_scopes.get(binding.scope).is_none_or(|s| s.kind != LexicalScopeKind::Function)
+            || self
+                .entry
+                .lexical_scopes
+                .get(binding.scope)
+                .is_none_or(|s| s.kind != LexicalScopeKind::Function)
         {
             return Ok(false);
         }
-        self.work.scan(self.data.bindings.len() + self.data.callables.len())?;
-        if self.data.bindings.iter().filter(|b| b.scope == binding.scope
-            && self.entry.qualifications.get(b.qualification).is_some_and(|q| q.context == self.invocation.context)
-            && self.data.binding_events.get(b.event).is_some_and(|e| e.name == event.name)).count() != 1
+        self.work
+            .scan(self.data.bindings.len() + self.data.callables.len())?;
+        if self
+            .data
+            .bindings
+            .iter()
+            .filter(|b| {
+                b.scope == binding.scope
+                    && self
+                        .entry
+                        .qualifications
+                        .get(b.qualification)
+                        .is_some_and(|q| q.context == self.invocation.context)
+                    && self
+                        .data
+                        .binding_events
+                        .get(b.event)
+                        .is_some_and(|e| e.name == event.name)
+            })
+            .count()
+            != 1
         {
             return Ok(false);
         }
-        let Some(value) = binding.value else { return Ok(false) };
+        let Some(value) = binding.value else {
+            return Ok(false);
+        };
         if !self.data.callables.iter().any(|c| matches!(c, CallableEntity::Source { declaration, kind: CallableKind::Lambda } if *declaration == value)) {
             return Ok(false);
         }
-        self.observe(&self.data.binding_supports, binding.id(), binding.qualification, event.site)
+        self.observe(
+            &self.data.binding_supports,
+            binding.id(),
+            binding.qualification,
+            event.site,
+        )
     }
     fn global(
         &mut self,
@@ -650,14 +689,19 @@ impl Inspect<'_> {
         self.trace(value, scope, depth + 1)
     }
     fn emit(
-    &mut self,
-    records: &mut super::read_channels::ReadRecords,
-    dynamic_site: DynamicSite,
-    q: Id<AssertionQualification>,
-    scope: Option<Id<LexicalScope>>,
-    admitted: bool,
-) -> Result<(), ModelError> {
-    let DynamicSite { site, kind, owner, receiver } = dynamic_site;
+        &mut self,
+        records: &mut super::read_channels::ReadRecords,
+        dynamic_site: DynamicSite,
+        q: Id<AssertionQualification>,
+        scope: Option<Id<LexicalScope>>,
+        admitted: bool,
+    ) -> Result<(), ModelError> {
+        let DynamicSite {
+            site,
+            kind,
+            owner,
+            receiver,
+        } = dynamic_site;
         let class = if admitted {
             if let (Some(receiver), Some(scope)) = (receiver, scope) {
                 self.trace(receiver, scope, 0)?
@@ -776,7 +820,11 @@ pub(super) fn native_name(
             continue;
         };
         if native(
-            super::read_channels::NativeContext { data, entry, invocation: inv },
+            super::read_channels::NativeContext {
+                data,
+                entry,
+                invocation: inv,
+            },
             &data.call_target_supports,
             target.id(),
             target.qualification,
@@ -888,14 +936,15 @@ pub(super) fn produce(
             && let Some(spelling) = data
                 .spellings
                 .iter()
-                .find(|s| s.occurrence == call.callee && inspect.always(s.qualification)) {
+                .find(|s| s.occurrence == call.callee && inspect.always(s.qualification))
+        {
             inspect.observe(
                 &data.spelling_supports,
                 spelling.id(),
                 spelling.qualification,
                 call.callee,
             )?;
-            }
+        }
         // Literal getter/hasattr names are exact source-name reads, not unconstrained dynamic access.
         let literal_name = data
             .call_arguments
@@ -956,7 +1005,12 @@ pub(super) fn produce(
         );
         inspect.emit(
             records,
-            DynamicSite { site: call.site, kind, owner, receiver },
+            DynamicSite {
+                site: call.site,
+                kind,
+                owner,
+                receiver,
+            },
             call.qualification,
             scope,
             native && builtin && receiver_kind,
@@ -1014,7 +1068,12 @@ pub(super) fn produce(
         });
         inspect.emit(
             records,
-            DynamicSite { site: attribute.occurrence, kind: DynamicKind::Dictionary, owner, receiver },
+            DynamicSite {
+                site: attribute.occurrence,
+                kind: DynamicKind::Dictionary,
+                owner,
+                receiver,
+            },
             attribute.qualification,
             scope,
             native,

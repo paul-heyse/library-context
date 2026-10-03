@@ -25,7 +25,10 @@ fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ObligationKind> {
 fn invalid(s: &str) -> ModelError {
     ModelError::Invalid(s.into())
 }
-#[allow(clippy::too_many_arguments, reason = "Public summary-alias proof keeps independent source, native, vocabulary and alias witness authorities explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Public summary-alias proof keeps independent source, native, vocabulary and alias witness authorities explicit."
+)]
 pub fn derive(
     data: &EntryData,
     native: &Rows<NativeQualification>,

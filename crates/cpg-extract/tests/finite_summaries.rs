@@ -75,7 +75,10 @@ async fn native_call_paths_reach_caller_returns_and_keep_recursive_boundaries() 
         analysis::local::AnalysisInvocation,
         std::slice::from_ref(&invocation)
     );
-    load!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
+    load!(
+        analysis::AnalysisDefinition,
+        std::slice::from_ref(&definition)
+    );
     let output = local_semantics::produce(&local, &invocation, &definition, budget).unwrap();
     load!(
         analysis::local::AnalysisOutcome,
@@ -322,7 +325,10 @@ async fn native_call_paths_reach_caller_returns_and_keep_recursive_boundaries() 
             macro_rules! emit {
                 ($t:ty,$rows:expr) => {
                     check
-                        .visit(<$t>::NAME, &<$t as Record>::encode(($rows).as_ref()).unwrap())
+                        .visit(
+                            <$t>::NAME,
+                            &<$t as Record>::encode(($rows).as_ref()).unwrap(),
+                        )
                         .unwrap();
                 };
             }

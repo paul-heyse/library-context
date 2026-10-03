@@ -51,7 +51,11 @@ fn emit<R: DerivedEvidence>(
     coverage: &owner::AnalysisCoverage,
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let FindingSubject { source, entity, kind } = finding_subject;
+    let FindingSubject {
+        source,
+        entity,
+        kind,
+    } = finding_subject;
     let q = need(&d.qualifications, row.source_facts().qualification)?;
     if q.context != invocation.context
         || q.scope
@@ -159,7 +163,11 @@ pub fn build(
                 &mut out,
                 inv,
                 row,
-                FindingSubject { source: owner::SupportSource::StructuralObservation { witness: row.id() }, entity: row.subject, kind: row.kind },
+                FindingSubject {
+                    source: owner::SupportSource::StructuralObservation { witness: row.id() },
+                    entity: row.subject,
+                    kind: row.kind,
+                },
                 coverage,
                 b,
             )?;
@@ -175,7 +183,11 @@ pub fn build(
                 &mut out,
                 inv,
                 row,
-                FindingSubject { source: owner::SupportSource::AnalyticObservation { witness: row.id() }, entity: row.subject, kind: row.kind },
+                FindingSubject {
+                    source: owner::SupportSource::AnalyticObservation { witness: row.id() },
+                    entity: row.subject,
+                    kind: row.kind,
+                },
                 coverage,
                 b,
             )?;

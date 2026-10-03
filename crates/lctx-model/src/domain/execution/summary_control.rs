@@ -48,7 +48,11 @@ pub(super) fn publish(
     out: &mut SummaryRecords,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let SummaryControlInputs { invocation, definition, witness } = summary_control_inputs;
+    let SummaryControlInputs {
+        invocation,
+        definition,
+        witness,
+    } = summary_control_inputs;
     if influence.qualification != q.id() || condition.id() != q.condition {
         return Err(ModelError::Invalid(
             "rebased influence qualification differs".into(),

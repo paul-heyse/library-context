@@ -1,8 +1,8 @@
 //! Actual base operation outputs for retained source controls.
 #[path = "source_data.rs"]
 mod source_data;
-pub use source_data::data;
 use lctx_model::domain::{analysis, execution, normalized::Rows, *};
+pub use source_data::data;
 pub fn base_rows_with_entries(
     data: &mut execution::source_call_records::SourceCallData,
     input: Id<input::InputRevision>,
@@ -49,10 +49,7 @@ pub fn base_rows_with_entries(
         conditions::entry::EntryAccessSource,
         sources.iter().cloned().collect::<Vec<_>>()
     );
-    put!(
-        analysis::base_evaluation::AnalysisInvocation,
-        [invocation]
-    );
+    put!(analysis::base_evaluation::AnalysisInvocation, [invocation]);
     put!(analysis::AnalysisDefinition, [definition]);
     put!(
         execution::records::ExpressionEvaluation,

@@ -207,7 +207,12 @@ fn method(
     class: Id<ProviderSymbol>,
     context: Id<AnalysisContext>,
 ) -> Option<&FunctionTraitObservation> {
-    if d.decorators.iter().any(|r| same(d, r.declaration, function)) { return None; }
+    if d.decorators
+        .iter()
+        .any(|r| same(d, r.declaration, function))
+    {
+        return None;
+    }
     let symbol = symbol_for(d, function, context)?;
     let mut rows = d.traits.iter().filter(|r| {
         r.symbol == symbol
@@ -266,10 +271,18 @@ fn formal_read(
         let Some(event) = d.binding_events.get(*event) else {
             return false;
         };
-        let bindings=d.bindings.iter().filter(|b|b.event==event.id()).collect::<Vec<_>>();
-        if bindings.len()!=1 || bindings[0].kind!=BindingEventKind::Parameter
-            || !exact(d,bindings[0].qualification,context)
-            || !source(d,bindings[0],&d.symbolic_binding_supports,context) { return false; }
+        let bindings = d
+            .bindings
+            .iter()
+            .filter(|b| b.event == event.id())
+            .collect::<Vec<_>>();
+        if bindings.len() != 1
+            || bindings[0].kind != BindingEventKind::Parameter
+            || !exact(d, bindings[0].qualification, context)
+            || !source(d, bindings[0], &d.symbolic_binding_supports, context)
+        {
+            return false;
+        }
         if !same(d, event.site, parameter) {
             return false;
         }
@@ -315,7 +328,9 @@ fn attribute(
                 .get(p.occurrence)
                 .is_some_and(|o| o.syntax_kind == SyntaxKind::Identifier)
     }) {
-        if !exact(d, p.qualification, context) || !source(d, p, &d.symbolic_placement_supports, context) {
+        if !exact(d, p.qualification, context)
+            || !source(d, p, &d.symbolic_placement_supports, context)
+        {
             return None;
         }
         for text in d
@@ -323,7 +338,9 @@ fn attribute(
             .iter()
             .filter(|s| same(d, s.occurrence, p.occurrence) && exact(d, s.qualification, context))
         {
-            if !source(d, text, &d.symbolic_syntax_supports, context) { return None; }
+            if !source(d, text, &d.symbolic_syntax_supports, context) {
+                return None;
+            }
             if name
                 .as_ref()
                 .is_some_and(|old| old != text.spelling.as_str())
@@ -389,15 +406,19 @@ impl ClassInventory {
         let size = PreparedContentHashes::encoded_size(count)
             .ok_or_else(|| ModelError::Invalid("class inventory size overflow".into()))?;
         // Reserve an allocation envelope before allocation, then retain the exact capacity.
-        let capacity = size.checked_next_power_of_two()
+        let capacity = size
+            .checked_next_power_of_two()
             .ok_or_else(|| ModelError::Invalid("class inventory capacity overflow".into()))?;
         let metadata = size_of::<Self>();
-        let allowance = capacity.checked_add(metadata)
+        let allowance = capacity
+            .checked_add(metadata)
             .ok_or_else(|| ModelError::Invalid("class inventory allowance overflow".into()))?;
         let mut reservation = budget.reserve("source-class-inventory", allowance)?;
         let mut hashes = PreparedContentHashes::try_new(count)?;
         if hashes.capacity() > capacity {
-            return Err(ModelError::Invalid("class inventory allocation exceeds reserved capacity".into()));
+            return Err(ModelError::Invalid(
+                "class inventory allocation exceeds reserved capacity".into(),
+            ));
         }
         reservation.try_resize(hashes.capacity() + metadata)?;
         // Original macro order and original ID order, including otherwise unused siblings.
@@ -405,9 +426,17 @@ impl ClassInventory {
             for row in d.$field.iter() { hashes.push(row.content_digest())?; }
         )*}; }
         crate::callable_aspect_inputs!(rows);
-        Ok(Self { hashes, _reservation: reservation })
+        Ok(Self {
+            hashes,
+            _reservation: reservation,
+        })
     }
-    fn for_class(&self, class: Id<Occurrence>, context: Id<AnalysisContext>, symbol: Id<ProviderSymbol>) -> ContentHash {
+    fn for_class(
+        &self,
+        class: Id<Occurrence>,
+        context: Id<AnalysisContext>,
+        symbol: Id<ProviderSymbol>,
+    ) -> ContentHash {
         let mut k = KeySink::new("source-field-class-full-inventory");
         class.encode(&mut k);
         context.encode(&mut k);
@@ -462,7 +491,9 @@ fn plain_init(
                 let Some(name) = attribute(d, t.occurrence, receiver, context) else {
                     return false;
                 };
-                if !written.insert(name.clone()) { return false; }
+                if !written.insert(name.clone()) {
+                    return false;
+                }
                 if !d.symbolic_record_fields.iter().any(|f| {
                     f.class == symbol
                         && f.name.as_str() == name
@@ -501,69 +532,199 @@ fn plain_init(
     true
 }
 fn spelling(d: &AspectData, site: Id<Occurrence>, context: Id<AnalysisContext>) -> Option<&str> {
-    let rows = d.spellings.iter().filter(|r| same(d, r.occurrence, site)).collect::<Vec<_>>();
+    let rows = d
+        .spellings
+        .iter()
+        .filter(|r| same(d, r.occurrence, site))
+        .collect::<Vec<_>>();
     let first = rows.first()?;
-    if rows.iter().any(|r| !exact(d, r.qualification, context)
-        || !source(d, *r, &d.symbolic_syntax_supports, context)
-        || r.spelling != first.spelling) { return None; }
+    if rows.iter().any(|r| {
+        !exact(d, r.qualification, context)
+            || !source(d, *r, &d.symbolic_syntax_supports, context)
+            || r.spelling != first.spelling
+    }) {
+        return None;
+    }
     Some(first.spelling.as_str())
 }
-fn literal(d: &AspectData, site: Id<Occurrence>, context: Id<AnalysisContext>) -> Option<&value::Literal> {
-    let rows = d.details.iter().filter(|r| same(d, r.occurrence, site)).collect::<Vec<_>>();
+fn literal(
+    d: &AspectData,
+    site: Id<Occurrence>,
+    context: Id<AnalysisContext>,
+) -> Option<&value::Literal> {
+    let rows = d
+        .details
+        .iter()
+        .filter(|r| same(d, r.occurrence, site))
+        .collect::<Vec<_>>();
     let first = rows.first()?;
-    if rows.iter().any(|r| !exact(d, r.qualification, context)
-        || !source(d, *r, &d.symbolic_detail_supports, context) || r.detail != first.detail) { return None; }
-    let SyntaxDetail::Literal { literal } = d.detail_values.get(first.detail)? else { return None; };
+    if rows.iter().any(|r| {
+        !exact(d, r.qualification, context)
+            || !source(d, *r, &d.symbolic_detail_supports, context)
+            || r.detail != first.detail
+    }) {
+        return None;
+    }
+    let SyntaxDetail::Literal { literal } = d.detail_values.get(first.detail)? else {
+        return None;
+    };
     d.symbolic_literals.get(*literal)
 }
-fn standard_import(d: &AspectData, site: Id<Occurrence>, name: &str, context: Id<AnalysisContext>) -> bool {
-    let Some(node)=d.occurrences.get(site) else { return false; };
-    let (read,qualified)=match node.syntax_kind {
-        SyntaxKind::ExprName => (site,false),
+fn standard_import(
+    d: &AspectData,
+    site: Id<Occurrence>,
+    name: &str,
+    context: Id<AnalysisContext>,
+) -> bool {
+    let Some(node) = d.occurrences.get(site) else {
+        return false;
+    };
+    let (read, qualified) = match node.syntax_kind {
+        SyntaxKind::ExprName => (site, false),
         SyntaxKind::ExprAttribute => {
-            let Some(base)=child(d,site,SyntaxField::Value,context) else {return false;};
-            let names=d.placements.iter().filter(|p|p.parent.is_some_and(|p|same(d,p,site))
-                && d.occurrences.get(p.occurrence).is_some_and(|o|o.syntax_kind==SyntaxKind::Identifier)).collect::<Vec<_>>();
-            if names.len()!=1 || !exact(d,names[0].qualification,context)
-                || !source(d,names[0],&d.symbolic_placement_supports,context)
-                || spelling(d,names[0].occurrence,context)!=Some(name) {return false;}
-            (base.occurrence,true)
-        },
+            let Some(base) = child(d, site, SyntaxField::Value, context) else {
+                return false;
+            };
+            let names = d
+                .placements
+                .iter()
+                .filter(|p| {
+                    p.parent.is_some_and(|p| same(d, p, site))
+                        && d.occurrences
+                            .get(p.occurrence)
+                            .is_some_and(|o| o.syntax_kind == SyntaxKind::Identifier)
+                })
+                .collect::<Vec<_>>();
+            if names.len() != 1
+                || !exact(d, names[0].qualification, context)
+                || !source(d, names[0], &d.symbolic_placement_supports, context)
+                || spelling(d, names[0].occurrence, context) != Some(name)
+            {
+                return false;
+            }
+            (base.occurrence, true)
+        }
         _ => return false,
     };
-    let references=d.references.iter().filter(|r|same(d,r.read,read)).collect::<Vec<_>>();
-    if references.len()!=1 || !exact(d,references[0].qualification,context)
-        || !source(d,references[0],&d.symbolic_reference_supports,context) {return false;}
-    let resolutions=d.lexical_resolutions.iter().filter(|r|same(d,r.read,read)).collect::<Vec<_>>();
-    if resolutions.len()!=1 || resolutions[0].captured || !exact(d,resolutions[0].qualification,context)
-        || !source(d,resolutions[0],&d.symbolic_resolution_supports,context) {return false;}
-    let Some(LexicalTarget::Binding{event})=d.symbolic_lexical_targets.get(resolutions[0].target) else {return false;};
-    let Some(event)=d.binding_events.get(*event) else {return false;};
-    if event.name!=references[0].name {return false;}
-    let bindings=d.bindings.iter().filter(|b|b.event==event.id()).collect::<Vec<_>>();
-    if bindings.len()!=1 || bindings[0].kind!=if qualified {BindingEventKind::Import} else {BindingEventKind::FromImport}
-        || !exact(d,bindings[0].qualification,context) || !source(d,bindings[0],&d.symbolic_binding_supports,context) {return false;}
-    let imports=d.symbolic_imports.iter().filter(|i|contains(d,i.alias,event.site)).collect::<Vec<_>>();
-    if imports.len()!=1 {return false;}
-    let mut identifiers=d.placements.iter().filter(|p|p.parent.is_some_and(|p|same(d,p,imports[0].alias))
-        && d.occurrences.get(p.occurrence).is_some_and(|o|o.syntax_kind==SyntaxKind::Identifier)).collect::<Vec<_>>();
-    identifiers.sort_by_key(|p|p.ordinal);
-    if !(1..=2).contains(&identifiers.len()) || identifiers.iter().any(|p|!exact(d,p.qualification,context)
-        || !source(d,*p,&d.symbolic_placement_supports,context))
-        || spelling(d,identifiers[0].occurrence,context)!=Some(if qualified {"dataclasses"} else {name})
-        || spelling(d,identifiers.last().unwrap().occurrence,context)!=Some(event.name.as_str()) {return false;}
-    imports[0].level==0 && imports[0].resolved_module.as_deref()==Some("dataclasses")
-        && exact(d,imports[0].qualification,context) && source(d,imports[0],&d.symbolic_import_supports,context)
-        && d.occurrences.get(imports[0].statement).is_some_and(|o|o.syntax_kind==if qualified {SyntaxKind::StmtImport} else {SyntaxKind::StmtImportFrom})
+    let references = d
+        .references
+        .iter()
+        .filter(|r| same(d, r.read, read))
+        .collect::<Vec<_>>();
+    if references.len() != 1
+        || !exact(d, references[0].qualification, context)
+        || !source(d, references[0], &d.symbolic_reference_supports, context)
+    {
+        return false;
+    }
+    let resolutions = d
+        .lexical_resolutions
+        .iter()
+        .filter(|r| same(d, r.read, read))
+        .collect::<Vec<_>>();
+    if resolutions.len() != 1
+        || resolutions[0].captured
+        || !exact(d, resolutions[0].qualification, context)
+        || !source(d, resolutions[0], &d.symbolic_resolution_supports, context)
+    {
+        return false;
+    }
+    let Some(LexicalTarget::Binding { event }) =
+        d.symbolic_lexical_targets.get(resolutions[0].target)
+    else {
+        return false;
+    };
+    let Some(event) = d.binding_events.get(*event) else {
+        return false;
+    };
+    if event.name != references[0].name {
+        return false;
+    }
+    let bindings = d
+        .bindings
+        .iter()
+        .filter(|b| b.event == event.id())
+        .collect::<Vec<_>>();
+    if bindings.len() != 1
+        || bindings[0].kind
+            != if qualified {
+                BindingEventKind::Import
+            } else {
+                BindingEventKind::FromImport
+            }
+        || !exact(d, bindings[0].qualification, context)
+        || !source(d, bindings[0], &d.symbolic_binding_supports, context)
+    {
+        return false;
+    }
+    let imports = d
+        .symbolic_imports
+        .iter()
+        .filter(|i| contains(d, i.alias, event.site))
+        .collect::<Vec<_>>();
+    if imports.len() != 1 {
+        return false;
+    }
+    let mut identifiers = d
+        .placements
+        .iter()
+        .filter(|p| {
+            p.parent.is_some_and(|p| same(d, p, imports[0].alias))
+                && d.occurrences
+                    .get(p.occurrence)
+                    .is_some_and(|o| o.syntax_kind == SyntaxKind::Identifier)
+        })
+        .collect::<Vec<_>>();
+    identifiers.sort_by_key(|p| p.ordinal);
+    if !(1..=2).contains(&identifiers.len())
+        || identifiers.iter().any(|p| {
+            !exact(d, p.qualification, context)
+                || !source(d, *p, &d.symbolic_placement_supports, context)
+        })
+        || spelling(d, identifiers[0].occurrence, context)
+            != Some(if qualified { "dataclasses" } else { name })
+        || spelling(d, identifiers.last().unwrap().occurrence, context) != Some(event.name.as_str())
+    {
+        return false;
+    }
+    imports[0].level == 0
+        && imports[0].resolved_module.as_deref() == Some("dataclasses")
+        && exact(d, imports[0].qualification, context)
+        && source(d, imports[0], &d.symbolic_import_supports, context)
+        && d.occurrences.get(imports[0].statement).is_some_and(|o| {
+            o.syntax_kind
+                == if qualified {
+                    SyntaxKind::StmtImport
+                } else {
+                    SyntaxKind::StmtImportFrom
+                }
+        })
 }
-fn standard_target(d: &AspectData, site: Id<Occurrence>, name: &str, context: Id<AnalysisContext>) -> bool {
-    let Some(node)=d.occurrences.get(site) else {return false;};
-    let callee=if node.syntax_kind==SyntaxKind::ExprCall {
-        let Some(callee)=child(d,site,SyntaxField::Callee,context) else {return false;};
+fn standard_target(
+    d: &AspectData,
+    site: Id<Occurrence>,
+    name: &str,
+    context: Id<AnalysisContext>,
+) -> bool {
+    let Some(node) = d.occurrences.get(site) else {
+        return false;
+    };
+    let callee = if node.syntax_kind == SyntaxKind::ExprCall {
+        let Some(callee) = child(d, site, SyntaxField::Callee, context) else {
+            return false;
+        };
         callee.occurrence
-    } else {site};
-    if !standard_import(d,callee,name,context) {return false;}
-    let targets = d.targets.iter().filter(|t| same(d, t.site, site)).collect::<Vec<_>>();
+    } else {
+        site
+    };
+    if !standard_import(d, callee, name, context) {
+        return false;
+    }
+    let targets = d
+        .targets
+        .iter()
+        .filter(|t| same(d, t.site, site))
+        .collect::<Vec<_>>();
     !targets.is_empty() && targets.iter().all(|t| {
         // Bare decorator application is Potential in the provider. The exact lexical import
         // establishes source target identity; this does not admit its runtime application.
@@ -578,84 +739,181 @@ fn standard_target(d: &AspectData, site: Id<Occurrence>, name: &str, context: Id
             && matches!(d.provider_modules.get(s.module), Some(ProviderModule::Bundled { provider, bundle: ModuleBundle::Typeshed, name }) if *provider == s.provider && name == "dataclasses")
     })
 }
-fn arguments(d: &AspectData, site: Id<Occurrence>, context: Id<AnalysisContext>) -> Option<Vec<&CallArgument>> {
+fn arguments(
+    d: &AspectData,
+    site: Id<Occurrence>,
+    context: Id<AnalysisContext>,
+) -> Option<Vec<&CallArgument>> {
     let mut calls = d.calls.iter().filter(|c| same(d, c.site, site));
     let call = calls.next()?;
-    if calls.next().is_some() || !exact(d, call.qualification, context)
-        || !source(d, call, &d.symbolic_call_supports, context) { return None; }
-    let mut arguments = d.arguments.iter().filter(|a| a.call == call.id()).collect::<Vec<_>>();
+    if calls.next().is_some()
+        || !exact(d, call.qualification, context)
+        || !source(d, call, &d.symbolic_call_supports, context)
+    {
+        return None;
+    }
+    let mut arguments = d
+        .arguments
+        .iter()
+        .filter(|a| a.call == call.id())
+        .collect::<Vec<_>>();
     arguments.sort_by_key(|a| a.ordinal);
-    call.actuals(&arguments.iter().map(|a| (*a).clone()).collect::<Vec<_>>()).ok()?;
+    call.actuals(&arguments.iter().map(|a| (*a).clone()).collect::<Vec<_>>())
+        .ok()?;
     Some(arguments)
 }
-fn decorator_options(d: &AspectData, decorator: &DeclarationDecorator, context: Id<AnalysisContext>) -> Option<(bool, bool)> {
+fn decorator_options(
+    d: &AspectData,
+    decorator: &DeclarationDecorator,
+    context: Id<AnalysisContext>,
+) -> Option<(bool, bool)> {
     let mut expression = decorator.decorator;
     if d.occurrences.get(expression)?.syntax_kind == SyntaxKind::Decorator {
         expression = child(d, expression, SyntaxField::Value, context)
-            .or_else(|| child(d, expression, SyntaxField::Child, context))?.occurrence;
+            .or_else(|| child(d, expression, SyntaxField::Child, context))?
+            .occurrence;
     }
-    if !standard_target(d, expression, "dataclass", context) { return None; }
+    if !standard_target(d, expression, "dataclass", context) {
+        return None;
+    }
     let mut init = true;
     let mut kw_only = false;
     if d.occurrences.get(expression)?.syntax_kind == SyntaxKind::ExprCall {
         let mut seen = std::collections::BTreeSet::new();
         for argument in arguments(d, expression, context)? {
-            if argument.kind != ArgumentKind::Keyword { return None; }
+            if argument.kind != ArgumentKind::Keyword {
+                return None;
+            }
             let key = argument.keyword.as_deref()?;
-            if !seen.insert(key) { return None; }
-            let value::Literal::Bool { value } = literal(d, argument.value, context)? else { return None; };
+            if !seen.insert(key) {
+                return None;
+            }
+            let value::Literal::Bool { value } = literal(d, argument.value, context)? else {
+                return None;
+            };
             match key {
                 "init" => init = *value,
                 "kw_only" => kw_only = *value,
                 // Options that replace the class or change field access/allocation are outside
                 // this narrow source-storage model. Other standard defaults are harmless.
-                "repr" | "eq" | "match_args" if *value => {},
-                "order" | "unsafe_hash" | "frozen" | "slots" | "weakref_slot" if !*value => {},
+                "repr" | "eq" | "match_args" if *value => {}
+                "order" | "unsafe_hash" | "frozen" | "slots" | "weakref_slot" if !*value => {}
                 _ => return None,
             }
         }
     }
     Some((init, kw_only))
 }
-fn signature_parameters(d: &AspectData, symbol: Id<ProviderSymbol>, context: Id<AnalysisContext>) -> Option<Vec<&SignatureParameter>> {
+fn signature_parameters(
+    d: &AspectData,
+    symbol: Id<ProviderSymbol>,
+    context: Id<AnalysisContext>,
+) -> Option<Vec<&SignatureParameter>> {
     let mut signatures = d.symbolic_signatures.iter().filter(|s| s.symbol == symbol);
     let signature = signatures.next()?;
-    if signatures.next().is_some() || signature.form != SignatureForm::List
+    if signatures.next().is_some()
+        || signature.form != SignatureForm::List
         || !exact(d, signature.qualification, context)
-        || !source(d, signature, &d.symbolic_signature_supports, context) { return None; }
-    let mut parameters = d.symbolic_parameters.iter().filter(|p| p.signature == signature.id()).collect::<Vec<_>>();
+        || !source(d, signature, &d.symbolic_signature_supports, context)
+    {
+        return None;
+    }
+    let mut parameters = d
+        .symbolic_parameters
+        .iter()
+        .filter(|p| p.signature == signature.id())
+        .collect::<Vec<_>>();
     parameters.sort_by_key(|p| p.ordinal);
-    let shapes = parameters.iter().map(|p| d.symbolic_parameter_shapes.get(p.shape).cloned()).collect::<Option<Vec<_>>>()?;
+    let shapes = parameters
+        .iter()
+        .map(|p| d.symbolic_parameter_shapes.get(p.shape).cloned())
+        .collect::<Option<Vec<_>>>()?;
     let q = d.qualifications.get(signature.qualification)?;
-    let enumerations=d.symbolic_signature_enumerations.iter().filter(|e|e.symbol==symbol).collect::<Vec<_>>();
-    if enumerations.len()!=1 || !enumerations[0].complete
-        || !exact(d,enumerations[0].qualification,context)
-        || !source(d,enumerations[0],&d.symbolic_enumeration_supports,context) {return None;}
-    let (enumeration,enumerated)=SignatureEnumerationObservation::new(q,symbol,std::iter::once(signature),true).ok()?;
-    let actual=d.symbolic_signature_members.iter().filter(|m|m.enumeration==enumerations[0].id()).collect::<Vec<_>>();
-    if enumeration!=*enumerations[0] || actual.len()!=1 || enumerated[0]!=*actual[0] {return None;}
-    let (rebuilt, members) = Signature::new(q, symbol, signature.variant, signature.form, &shapes).ok()?;
-    if rebuilt != *signature || members.iter().zip(&parameters).any(|(a,b)| a != *b) { return None; }
+    let enumerations = d
+        .symbolic_signature_enumerations
+        .iter()
+        .filter(|e| e.symbol == symbol)
+        .collect::<Vec<_>>();
+    if enumerations.len() != 1
+        || !enumerations[0].complete
+        || !exact(d, enumerations[0].qualification, context)
+        || !source(
+            d,
+            enumerations[0],
+            &d.symbolic_enumeration_supports,
+            context,
+        )
+    {
+        return None;
+    }
+    let (enumeration, enumerated) =
+        SignatureEnumerationObservation::new(q, symbol, std::iter::once(signature), true).ok()?;
+    let actual = d
+        .symbolic_signature_members
+        .iter()
+        .filter(|m| m.enumeration == enumerations[0].id())
+        .collect::<Vec<_>>();
+    if enumeration != *enumerations[0] || actual.len() != 1 || enumerated[0] != *actual[0] {
+        return None;
+    }
+    let (rebuilt, members) =
+        Signature::new(q, symbol, signature.variant, signature.form, &shapes).ok()?;
+    if rebuilt != *signature || members.iter().zip(&parameters).any(|(a, b)| a != *b) {
+        return None;
+    }
     Some(parameters)
 }
-fn initializer(d: &AspectData, class: Id<ProviderSymbol>, context: Id<AnalysisContext>) -> Option<&FunctionTraitObservation> {
-    let mut rows = d.traits.iter().filter(|t| t.defining_class == Some(class)
-        && d.symbols.get(t.symbol).is_some_and(|s| s.name == "__init__"));
+fn initializer(
+    d: &AspectData,
+    class: Id<ProviderSymbol>,
+    context: Id<AnalysisContext>,
+) -> Option<&FunctionTraitObservation> {
+    let mut rows = d.traits.iter().filter(|t| {
+        t.defining_class == Some(class)
+            && d.symbols
+                .get(t.symbol)
+                .is_some_and(|s| s.name == "__init__")
+    });
     let first = rows.next()?;
-    if rows.next().is_some() || !exact(d, first.qualification, context)
+    if rows.next().is_some()
+        || !exact(d, first.qualification, context)
         || !source(d, first, &d.symbolic_trait_supports, context)
-        || first.staticmethod || first.classmethod || first.property_getter || first.property_setter
-        || first.stub || first.overload { return None; }
+        || first.staticmethod
+        || first.classmethod
+        || first.property_getter
+        || first.property_setter
+        || first.stub
+        || first.overload
+    {
+        return None;
+    }
     Some(first)
 }
-fn field_default(d: &AspectData, syntax: &ClassFieldSyntaxObservation, field: &RecordFieldObservation,
-    context: Id<AnalysisContext>, out: &AspectOutput) -> bool {
-    let links = d.fields.iter().filter(|l| l.declaration == syntax.id()).collect::<Vec<_>>();
-    if links.len() != 1 { return false; }
-    let Some(assessment) = out.fields.iter().find(|a| a.declaration == links[0].id()) else { return false; };
-    let Some(default) = out.defaults.get(assessment.default) else { return false; };
+fn field_default(
+    d: &AspectData,
+    syntax: &ClassFieldSyntaxObservation,
+    field: &RecordFieldObservation,
+    context: Id<AnalysisContext>,
+    out: &AspectOutput,
+) -> bool {
+    let links = d
+        .fields
+        .iter()
+        .filter(|l| l.declaration == syntax.id())
+        .collect::<Vec<_>>();
+    if links.len() != 1 {
+        return false;
+    }
+    let Some(assessment) = out.fields.iter().find(|a| a.declaration == links[0].id()) else {
+        return false;
+    };
+    let Some(default) = out.defaults.get(assessment.default) else {
+        return false;
+    };
     let expected_default = !matches!(default, FieldDefault::Absent {});
-    if field.has_default != Some(expected_default) { return false; }
+    if field.has_default != Some(expected_default) {
+        return false;
+    }
     (match default {
         FieldDefault::Absent {} => syntax.value.is_none(),
         FieldDefault::Literal { observation, literal: value } => d.details.get(*observation).is_some_and(|detail|
@@ -684,90 +942,272 @@ fn field_default(d: &AspectData, syntax: &ClassFieldSyntaxObservation, field: &R
         })
     })
 }
-fn direct_member(d: &AspectData, class: Id<Occurrence>, node: Id<Occurrence>, context: Id<AnalysisContext>) -> bool {
-    let rows=d.placements.iter().filter(|p| same(d,p.occurrence,node)).collect::<Vec<_>>();
-    rows.len()==1 && rows[0].parent.is_some_and(|p| same(d,p,class)) && rows[0].field==SyntaxField::Body
-        && exact(d,rows[0].qualification,context) && source(d,rows[0],&d.symbolic_placement_supports,context)
+fn direct_member(
+    d: &AspectData,
+    class: Id<Occurrence>,
+    node: Id<Occurrence>,
+    context: Id<AnalysisContext>,
+) -> bool {
+    let rows = d
+        .placements
+        .iter()
+        .filter(|p| same(d, p.occurrence, node))
+        .collect::<Vec<_>>();
+    rows.len() == 1
+        && rows[0].parent.is_some_and(|p| same(d, p, class))
+        && rows[0].field == SyntaxField::Body
+        && exact(d, rows[0].qualification, context)
+        && source(d, rows[0], &d.symbolic_placement_supports, context)
 }
-fn record_gate(d: &AspectData, class: Id<Occurrence>, symbol: Id<ProviderSymbol>, context: Id<AnalysisContext>, out: &AspectOutput) -> Option<ObligationKind> {
-    if !covered(d, class, context) { return Some(ObligationKind::IncompleteCoverage); }
-    let decorators = d.decorators.iter().filter(|r| same(d, r.declaration, class)).collect::<Vec<_>>();
-    if decorators.len() != 1 || !exact(d,decorators[0].qualification,context)
-        || !source(d,decorators[0],&d.symbolic_decorator_supports,context) { return Some(ObligationKind::OutsideProviderModel); }
-    let Some((generate_init, kw_only)) = decorator_options(d,decorators[0],context) else { return Some(ObligationKind::OutsideProviderModel); };
-    if d.placements.iter().any(|p| p.parent.is_some_and(|p| same(d,p,class)) && p.field == SyntaxField::Argument) { return Some(ObligationKind::IncompleteDomain); }
-    let mros = d.symbolic_ancestry.iter().filter(|m| m.class == symbol && m.relation == AncestryRelation::Mro).collect::<Vec<_>>();
-    if mros.len() != 1 || !exact(d,mros[0].qualification,context) || mros[0].linearization != Some(Linearization::Complete)
-        || !source(d,mros[0],&d.symbolic_ancestry_supports,context)
-        || d.symbolic_sequences.get(mros[0].ancestors).is_none_or(|s| s.id() != SymbolSequence::empty()) { return Some(ObligationKind::IncompleteDomain); }
-    let mut fields = d.symbolic_record_fields.iter().filter(|f| f.class == symbol).collect::<Vec<_>>();
+fn record_gate(
+    d: &AspectData,
+    class: Id<Occurrence>,
+    symbol: Id<ProviderSymbol>,
+    context: Id<AnalysisContext>,
+    out: &AspectOutput,
+) -> Option<ObligationKind> {
+    if !covered(d, class, context) {
+        return Some(ObligationKind::IncompleteCoverage);
+    }
+    let decorators = d
+        .decorators
+        .iter()
+        .filter(|r| same(d, r.declaration, class))
+        .collect::<Vec<_>>();
+    if decorators.len() != 1
+        || !exact(d, decorators[0].qualification, context)
+        || !source(d, decorators[0], &d.symbolic_decorator_supports, context)
+    {
+        return Some(ObligationKind::OutsideProviderModel);
+    }
+    let Some((generate_init, kw_only)) = decorator_options(d, decorators[0], context) else {
+        return Some(ObligationKind::OutsideProviderModel);
+    };
+    if d.placements
+        .iter()
+        .any(|p| p.parent.is_some_and(|p| same(d, p, class)) && p.field == SyntaxField::Argument)
+    {
+        return Some(ObligationKind::IncompleteDomain);
+    }
+    let mros = d
+        .symbolic_ancestry
+        .iter()
+        .filter(|m| m.class == symbol && m.relation == AncestryRelation::Mro)
+        .collect::<Vec<_>>();
+    if mros.len() != 1
+        || !exact(d, mros[0].qualification, context)
+        || mros[0].linearization != Some(Linearization::Complete)
+        || !source(d, mros[0], &d.symbolic_ancestry_supports, context)
+        || d.symbolic_sequences
+            .get(mros[0].ancestors)
+            .is_none_or(|s| s.id() != SymbolSequence::empty())
+    {
+        return Some(ObligationKind::IncompleteDomain);
+    }
+    let mut fields = d
+        .symbolic_record_fields
+        .iter()
+        .filter(|f| f.class == symbol)
+        .collect::<Vec<_>>();
     fields.sort_by_key(|f| f.ordinal);
-    let mut syntaxes = d.field_syntax.iter().filter(|s| same(d,s.class,class)).collect::<Vec<_>>();
-    syntaxes.sort_by_key(|s|d.occurrences.get(s.target).map(|o|o.start));
-    if fields.len() != syntaxes.len() { return Some(ObligationKind::MissingEvidence); }
+    let mut syntaxes = d
+        .field_syntax
+        .iter()
+        .filter(|s| same(d, s.class, class))
+        .collect::<Vec<_>>();
+    syntaxes.sort_by_key(|s| d.occurrences.get(s.target).map(|o| o.start));
+    if fields.len() != syntaxes.len() {
+        return Some(ObligationKind::MissingEvidence);
+    }
     for (ordinal, field) in fields.iter().enumerate() {
-        if field.ordinal != ordinal as i64 || field.record != RecordKind::Dataclass || !field.declared
-            || field.alias.is_some() || !exact(d,field.qualification,context)
-            || !source(d,*field,&d.symbolic_record_supports,context) { return Some(ObligationKind::MissingEvidence); }
-        let matches = syntaxes.iter().filter(|s| field.declaration.is_some_and(|site| same(d,s.target,site))).collect::<Vec<_>>();
-        if matches.len() != 1 { return Some(ObligationKind::MissingEvidence); }
+        if field.ordinal != ordinal as i64
+            || field.record != RecordKind::Dataclass
+            || !field.declared
+            || field.alias.is_some()
+            || !exact(d, field.qualification, context)
+            || !source(d, *field, &d.symbolic_record_supports, context)
+        {
+            return Some(ObligationKind::MissingEvidence);
+        }
+        let matches = syntaxes
+            .iter()
+            .filter(|s| {
+                field
+                    .declaration
+                    .is_some_and(|site| same(d, s.target, site))
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Some(ObligationKind::MissingEvidence);
+        }
         let syntax = matches[0];
-        if syntax.id()!=syntaxes[ordinal].id() {return Some(ObligationKind::IncompleteDomain);}
-        let targets=d.placements.iter().filter(|p|same(d,p.occurrence,syntax.target) && p.field==SyntaxField::Target).collect::<Vec<_>>();
-        if targets.len()!=1 || !exact(d,targets[0].qualification,context)
-            || !source(d,targets[0],&d.symbolic_placement_supports,context)
-            || targets[0].parent.is_none_or(|node| !direct_member(d,class,node,context)) { return Some(ObligationKind::MissingEvidence); }
-        if syntax.annotation.is_none() || !exact(d,syntax.qualification,context)
-            || !source(d,*syntax,&d.symbolic_field_supports,context)
-            || spelling(d,syntax.target,context) != Some(field.name.as_str())
-            || !field_default(d,syntax,field,context,out) { return Some(ObligationKind::MissingEvidence); }
+        if syntax.id() != syntaxes[ordinal].id() {
+            return Some(ObligationKind::IncompleteDomain);
+        }
+        let targets = d
+            .placements
+            .iter()
+            .filter(|p| same(d, p.occurrence, syntax.target) && p.field == SyntaxField::Target)
+            .collect::<Vec<_>>();
+        if targets.len() != 1
+            || !exact(d, targets[0].qualification, context)
+            || !source(d, targets[0], &d.symbolic_placement_supports, context)
+            || targets[0]
+                .parent
+                .is_none_or(|node| !direct_member(d, class, node, context))
+        {
+            return Some(ObligationKind::MissingEvidence);
+        }
+        if syntax.annotation.is_none()
+            || !exact(d, syntax.qualification, context)
+            || !source(d, *syntax, &d.symbolic_field_supports, context)
+            || spelling(d, syntax.target, context) != Some(field.name.as_str())
+            || !field_default(d, syntax, field, context, out)
+        {
+            return Some(ObligationKind::MissingEvidence);
+        }
     }
     // A complete direct-body inventory is checked independently of provider field rows.
-    for p in d.placements.iter().filter(|p| p.parent.is_some_and(|p| same(d,p,class)) && p.field==SyntaxField::Body) {
-        if !exact(d,p.qualification,context) || !source(d,p,&d.symbolic_placement_supports,context) { return Some(ObligationKind::MissingEvidence); }
-        let Some(node) = d.occurrences.get(p.occurrence) else { return Some(ObligationKind::MissingEvidence); };
-        if matches!(node.syntax_kind,SyntaxKind::StmtAnnAssign | SyntaxKind::StmtAssign) {
-            let Some(target) = child(d,node.id(),SyntaxField::Target,context) else { return Some(ObligationKind::MissingEvidence); };
-            if syntaxes.iter().filter(|s| same(d,s.target,target.occurrence)).count()!=1 { return Some(ObligationKind::MissingEvidence); }
-        } else if node.syntax_kind==SyntaxKind::StmtExpr {
-            let Some(value)=child(d,node.id(),SyntaxField::Value,context) else {return Some(ObligationKind::MissingEvidence);};
-            if d.occurrences.get(value.occurrence).is_none_or(|o|o.syntax_kind!=SyntaxKind::ExprStringLiteral) {return Some(ObligationKind::IncompleteDomain);}
-        } else if !matches!(node.syntax_kind,SyntaxKind::StmtFunctionDef | SyntaxKind::StmtPass) {
+    for p in d
+        .placements
+        .iter()
+        .filter(|p| p.parent.is_some_and(|p| same(d, p, class)) && p.field == SyntaxField::Body)
+    {
+        if !exact(d, p.qualification, context)
+            || !source(d, p, &d.symbolic_placement_supports, context)
+        {
+            return Some(ObligationKind::MissingEvidence);
+        }
+        let Some(node) = d.occurrences.get(p.occurrence) else {
+            return Some(ObligationKind::MissingEvidence);
+        };
+        if matches!(
+            node.syntax_kind,
+            SyntaxKind::StmtAnnAssign | SyntaxKind::StmtAssign
+        ) {
+            let Some(target) = child(d, node.id(), SyntaxField::Target, context) else {
+                return Some(ObligationKind::MissingEvidence);
+            };
+            if syntaxes
+                .iter()
+                .filter(|s| same(d, s.target, target.occurrence))
+                .count()
+                != 1
+            {
+                return Some(ObligationKind::MissingEvidence);
+            }
+        } else if node.syntax_kind == SyntaxKind::StmtExpr {
+            let Some(value) = child(d, node.id(), SyntaxField::Value, context) else {
+                return Some(ObligationKind::MissingEvidence);
+            };
+            if d.occurrences
+                .get(value.occurrence)
+                .is_none_or(|o| o.syntax_kind != SyntaxKind::ExprStringLiteral)
+            {
+                return Some(ObligationKind::IncompleteDomain);
+            }
+        } else if !matches!(
+            node.syntax_kind,
+            SyntaxKind::StmtFunctionDef | SyntaxKind::StmtPass
+        ) {
             return Some(ObligationKind::IncompleteDomain);
         }
     }
-    for method in d.declarations.iter().filter(|r| r.parent.is_some_and(|p| same(d,p,class))) {
-        if !direct_member(d,class,method.declaration,context) || !exact(d,method.qualification,context)
-            || !source(d,method,&d.symbolic_declaration_supports,context) { return Some(ObligationKind::MissingEvidence); }
-        let Some(name)=spelling(d,method.name,context) else { return Some(ObligationKind::MissingEvidence); };
-        if matches!(name,"__new__"|"__post_init__"|"__setattr__"|"__getattribute__"|"__getattr__")
-            || fields.iter().any(|f| f.name.as_str()==name) { return Some(ObligationKind::IncompleteDomain); }
-    }
-    let Some(init)=initializer(d,symbol,context) else { return Some(ObligationKind::MissingEvidence); };
-    if init.origin == FunctionOrigin::DefStatement {
-        let declarations=d.declarations.iter().filter(|m| m.parent.is_some_and(|p| same(d,p,class))
-            && spelling(d,m.name,context)==Some("__init__")).collect::<Vec<_>>();
-        if declarations.len()!=1 { return Some(ObligationKind::MissingEvidence); }
-        let function=declarations[0].declaration;
-        if method(d,function,symbol,context).is_none() { return Some(ObligationKind::IncompleteDomain); }
-        let Some(receiver)=receiver(d,function,context) else { return Some(ObligationKind::MissingEvidence); };
-        if !plain_init(d,function,symbol,context,receiver) { return Some(ObligationKind::IncompleteDomain); }
-    } else if init.origin == FunctionOrigin::Synthesized && generate_init {
-        let Some(parameters)=signature_parameters(d,init.symbol,context) else { return Some(ObligationKind::MissingEvidence); };
-        let active=fields.iter().filter(|f| f.init==Some(true)).collect::<Vec<_>>();
-        if parameters.len()!=active.len()+1 { return Some(ObligationKind::IncompleteDomain); }
-        let Some(receiver)=d.symbolic_parameter_shapes.get(parameters[0].shape) else { return Some(ObligationKind::MissingEvidence); };
-        if receiver.name.as_ref().is_none_or(|n| n.as_str()!="self") || !matches!(receiver.kind,ParameterKind::PositionalOnly|ParameterKind::PositionalOrKeyword) || !receiver.required { return Some(ObligationKind::IncompleteDomain); }
-        // Native dataclass signatures group positional fields before keyword-only fields.
-        let mut active=active;
-        active.sort_by_key(|f| (f.kw_only.unwrap_or(kw_only),f.ordinal));
-        for (parameter,field) in parameters.iter().skip(1).zip(active) {
-            let Some(shape)=d.symbolic_parameter_shapes.get(parameter.shape) else { return Some(ObligationKind::MissingEvidence); };
-            if shape.name.as_ref().is_none_or(|n| n.as_str()!=field.name.as_str())
-                || shape.kind != if field.kw_only.unwrap_or(kw_only) {ParameterKind::KeywordOnly} else {ParameterKind::PositionalOrKeyword}
-                || shape.required != (field.has_default==Some(false)) { return Some(ObligationKind::IncompleteDomain); }
+    for method in d
+        .declarations
+        .iter()
+        .filter(|r| r.parent.is_some_and(|p| same(d, p, class)))
+    {
+        if !direct_member(d, class, method.declaration, context)
+            || !exact(d, method.qualification, context)
+            || !source(d, method, &d.symbolic_declaration_supports, context)
+        {
+            return Some(ObligationKind::MissingEvidence);
         }
-    } else { return Some(ObligationKind::IncompleteDomain); }
+        let Some(name) = spelling(d, method.name, context) else {
+            return Some(ObligationKind::MissingEvidence);
+        };
+        if matches!(
+            name,
+            "__new__" | "__post_init__" | "__setattr__" | "__getattribute__" | "__getattr__"
+        ) || fields.iter().any(|f| f.name.as_str() == name)
+        {
+            return Some(ObligationKind::IncompleteDomain);
+        }
+    }
+    let Some(init) = initializer(d, symbol, context) else {
+        return Some(ObligationKind::MissingEvidence);
+    };
+    if init.origin == FunctionOrigin::DefStatement {
+        let declarations = d
+            .declarations
+            .iter()
+            .filter(|m| {
+                m.parent.is_some_and(|p| same(d, p, class))
+                    && spelling(d, m.name, context) == Some("__init__")
+            })
+            .collect::<Vec<_>>();
+        if declarations.len() != 1 {
+            return Some(ObligationKind::MissingEvidence);
+        }
+        let function = declarations[0].declaration;
+        if method(d, function, symbol, context).is_none() {
+            return Some(ObligationKind::IncompleteDomain);
+        }
+        let Some(receiver) = receiver(d, function, context) else {
+            return Some(ObligationKind::MissingEvidence);
+        };
+        if !plain_init(d, function, symbol, context, receiver) {
+            return Some(ObligationKind::IncompleteDomain);
+        }
+    } else if init.origin == FunctionOrigin::Synthesized && generate_init {
+        let Some(parameters) = signature_parameters(d, init.symbol, context) else {
+            return Some(ObligationKind::MissingEvidence);
+        };
+        let active = fields
+            .iter()
+            .filter(|f| f.init == Some(true))
+            .collect::<Vec<_>>();
+        if parameters.len() != active.len() + 1 {
+            return Some(ObligationKind::IncompleteDomain);
+        }
+        let Some(receiver) = d.symbolic_parameter_shapes.get(parameters[0].shape) else {
+            return Some(ObligationKind::MissingEvidence);
+        };
+        if receiver.name.as_ref().is_none_or(|n| n.as_str() != "self")
+            || !matches!(
+                receiver.kind,
+                ParameterKind::PositionalOnly | ParameterKind::PositionalOrKeyword
+            )
+            || !receiver.required
+        {
+            return Some(ObligationKind::IncompleteDomain);
+        }
+        // Native dataclass signatures group positional fields before keyword-only fields.
+        let mut active = active;
+        active.sort_by_key(|f| (f.kw_only.unwrap_or(kw_only), f.ordinal));
+        for (parameter, field) in parameters.iter().skip(1).zip(active) {
+            let Some(shape) = d.symbolic_parameter_shapes.get(parameter.shape) else {
+                return Some(ObligationKind::MissingEvidence);
+            };
+            if shape
+                .name
+                .as_ref()
+                .is_none_or(|n| n.as_str() != field.name.as_str())
+                || shape.kind
+                    != if field.kw_only.unwrap_or(kw_only) {
+                        ParameterKind::KeywordOnly
+                    } else {
+                        ParameterKind::PositionalOrKeyword
+                    }
+                || shape.required != (field.has_default == Some(false))
+            {
+                return Some(ObligationKind::IncompleteDomain);
+            }
+        }
+    } else {
+        return Some(ObligationKind::IncompleteDomain);
+    }
     None
 }
 pub(super) fn normalize(
@@ -808,21 +1248,28 @@ pub(super) fn normalize(
                 && exact(d, t.qualification, q.context)
                 && source(d, *t, &d.symbolic_class_supports, q.context)
         });
-        let Some(class_traits) = traits.next() else { continue; };
-        if traits.next().is_some() { continue; }
+        let Some(class_traits) = traits.next() else {
+            continue;
+        };
+        if traits.next().is_some() {
+            continue;
+        }
         let traits = class_traits;
-        let Some(support) = d
-            .symbolic_class_supports
-            .iter()
-            .find(|s| s.assertion == traits.id() && s.source_fidelity()
-                && d.symbolic_runs.get(s.run).is_some_and(|r|r.context==q.context))
-        else {
+        let Some(support) = d.symbolic_class_supports.iter().find(|s| {
+            s.assertion == traits.id()
+                && s.source_fidelity()
+                && d.symbolic_runs
+                    .get(s.run)
+                    .is_some_and(|r| r.context == q.context)
+        }) else {
             continue;
         };
         if full_inventory.is_none() {
             full_inventory = Some(ClassInventory::prepare(d, b)?);
         }
-        let inventory = full_inventory.as_ref().expect("prepared inventory")
+        let inventory = full_inventory
+            .as_ref()
+            .expect("prepared inventory")
             .for_class(class, q.context, symbol);
         let reason = if traits.dataclass && !traits.synthesized {
             record_gate(d, class, symbol, q.context, out)
@@ -943,8 +1390,9 @@ pub(super) fn normalize(
                         .any(|s| same(d, s.occurrence, m.name) && s.spelling.as_str() == "__init__")
             }) {
                 for signature in d.symbolic_signatures.iter().filter(|s| {
-                    initializer(d, symbol, q.context).is_some_and(|i| i.origin == FunctionOrigin::Synthesized && i.symbol == s.symbol)
-                        && exact(d, s.qualification, q.context)
+                    initializer(d, symbol, q.context).is_some_and(|i| {
+                        i.origin == FunctionOrigin::Synthesized && i.symbol == s.symbol
+                    }) && exact(d, s.qualification, q.context)
                         && source(d, *s, &d.symbolic_signature_supports, q.context)
                 }) {
                     for p in d
@@ -952,11 +1400,13 @@ pub(super) fn normalize(
                         .iter()
                         .filter(|p| p.signature == signature.id())
                     {
-                        if f.init == Some(true) && d.symbolic_parameter_shapes.get(p.shape).is_some_and(|s| {
-                            s.name
-                                .as_ref()
-                                .is_some_and(|n| n.as_str() == f.name.as_str())
-                        }) {
+                        if f.init == Some(true)
+                            && d.symbolic_parameter_shapes.get(p.shape).is_some_and(|s| {
+                                s.name
+                                    .as_ref()
+                                    .is_some_and(|n| n.as_str() == f.name.as_str())
+                            })
+                        {
                             out.symbolic_associations.insert(SourceFieldAssociation {
                                 class: assessment.id(),
                                 field: f.id(),
@@ -997,27 +1447,42 @@ pub(super) fn normalize(
 mod inventory_controls {
     use super::*;
     fn nominal<T>(value: u8) -> Id<T> {
-        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([value; 16].into_iter())).unwrap()
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([value; 16].into_iter()))
+        .unwrap()
     }
     #[test]
     fn full_inventory_matches_replay_and_unused_sibling_changes_invalidate() {
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let mut data = AspectData::new(&budget);
         let original_usage = budget.reserved();
-        let class = nominal(1); let context = nominal(2); let symbol = nominal(3);
+        let class = nominal(1);
+        let context = nominal(2);
+        let symbol = nominal(3);
         let original = ClassInventory::prepare(&data, &budget).unwrap();
         let before = original.for_class(class, context, symbol);
         drop(original);
         assert_eq!(budget.reserved(), original_usage);
         // This occurrence is not a class or a member. It remains an inventory premise.
-        data.occurrences.insert(Occurrence { source: nominal(4), start: 7, end: 9,
-            syntax_kind: SyntaxKind::ExprName, structural_path: vec![7], role: OccurrenceRole::Syntax }).unwrap();
+        data.occurrences
+            .insert(Occurrence {
+                source: nominal(4),
+                start: 7,
+                end: 9,
+                syntax_kind: SyntaxKind::ExprName,
+                structural_path: vec![7],
+                role: OccurrenceRole::Syntax,
+            })
+            .unwrap();
         let rows_usage = budget.reserved();
         let prepared = ClassInventory::prepare(&data, &budget).unwrap();
         let after = prepared.for_class(class, context, symbol);
         assert_ne!(before, after);
         let mut old = KeySink::new("source-field-class-full-inventory");
-        class.encode(&mut old); context.encode(&mut old);
+        class.encode(&mut old);
+        context.encode(&mut old);
         macro_rules! rows { ($($field:ident:$ty:ty,)*) => {$(
             for row in data.$field.iter() { row.content_digest().encode(&mut old); }
         )*}; }
@@ -1027,7 +1492,10 @@ mod inventory_controls {
         drop(prepared);
         assert_eq!(budget.reserved(), rows_usage);
         let tiny = ResourceBudget::fixed(1).unwrap();
-        assert!(matches!(ClassInventory::prepare(&data, &tiny), Err(ModelError::Resource { .. })));
+        assert!(matches!(
+            ClassInventory::prepare(&data, &tiny),
+            Err(ModelError::Resource { .. })
+        ));
         assert_eq!(tiny.reserved(), 0);
     }
 }

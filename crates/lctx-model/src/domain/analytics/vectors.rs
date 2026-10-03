@@ -34,7 +34,10 @@ fn assessment<'a>(
     }
     Ok(a)
 }
-#[allow(clippy::too_many_arguments, reason = "Public operation keeps the analytic frame, structural owner, selected domain, independent result layers and budget explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Public operation keeps the analytic frame, structural owner, selected domain, independent result layers and budget explicit."
+)]
 pub fn produce(
     d: &Data,
     f: &AnalyticFrame,

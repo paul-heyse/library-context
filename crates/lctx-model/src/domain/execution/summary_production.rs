@@ -8,8 +8,7 @@ use super::{
 };
 use crate::domain::{
     analysis::{
-        self,
-        summary as owner,
+        self, summary as owner,
         support::{DerivedEvidence, SourceFacts},
     },
     assertion::*,
@@ -197,11 +196,15 @@ macro_rules! summary_evidence_inputs {($apply:ident)=>{$apply!{
  context_transfer_witnesses:$crate::domain::execution::model_context_transfer::ContextTransferWitness,
 }};}
 #[macro_export]
-macro_rules! summary_projection_inputs {($apply:ident)=>{$apply!{
- graph_assessments:$crate::domain::projection::ProjectionSourceAssessment,
- graph_snapshots:$crate::domain::projection::ProjectionSnapshot,
- graph_chunks:$crate::domain::projection::ProjectionSnapshotChunk,
-}};}
+macro_rules! summary_projection_inputs {
+    ($apply:ident) => {
+        $apply! {
+         graph_assessments:$crate::domain::projection::ProjectionSourceAssessment,
+         graph_snapshots:$crate::domain::projection::ProjectionSnapshot,
+         graph_chunks:$crate::domain::projection::ProjectionSnapshotChunk,
+        }
+    };
+}
 macro_rules! projection_inventory {($($f:ident:$t:ty,)*)=>{fn projection_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]}};}
 crate::summary_projection_inputs!(projection_inventory);
 #[macro_export]
@@ -389,7 +392,10 @@ impl Vocabulary {
         Ok(())
     }
 }
-type GuardInventory = (BTreeMap<Id<EvaluationAtom>, CheckedStability>, Box<dyn Reservation>);
+type GuardInventory = (
+    BTreeMap<Id<EvaluationAtom>, CheckedStability>,
+    Box<dyn Reservation>,
+);
 
 impl SummaryData {
     fn evidence(
@@ -541,10 +547,7 @@ impl SummaryData {
         seeds.sort_by_key(WorkBranch::id);
         Ok((seeds, charge))
     }
-    fn guards(
-        &self,
-        budget: &ResourceBudget,
-    ) -> Result<GuardInventory, ModelError> {
+    fn guards(&self, budget: &ResourceBudget) -> Result<GuardInventory, ModelError> {
         let charge = budget.reserve(
             "summary-private-stability",
             self.local_guards
@@ -579,9 +582,10 @@ impl SummaryData {
                 return Err(invalid("Local guard stability changes"));
             }
             if let Some(old) = results.insert(witness.atom, checked)
-                && old.witness() != witness {
+                && old.witness() != witness
+            {
                 return Err(invalid("multiple stability witnesses for one atom"));
-                }
+            }
         }
         Ok((results, charge))
     }
@@ -677,7 +681,12 @@ fn compose(
     callee: &WorkBranch,
     budget: &ResourceBudget,
 ) -> Result<CompositionResults, ModelError> {
-    let CompositionInputs { data, verified, vocabulary, guards } = composition_inputs;
+    let CompositionInputs {
+        data,
+        verified,
+        vocabulary,
+        guards,
+    } = composition_inputs;
     let attempt = need(&data.binding_output.attempts, call.attempt)?;
     let target = need(&data.bindings.targets, call.target)?;
     let bound = verified
@@ -997,22 +1006,25 @@ fn candidates(
         .iter()
         .filter(|c| component.binary_search(&c.owner).is_ok())
     {
-        if call.owner == branch.descriptor().owner && caller_eligible(branch)
-            && let Some(rows) = progress.by_owner.get(&call.callee) {
+        if call.owner == branch.descriptor().owner
+            && caller_eligible(branch)
+            && let Some(rows) = progress.by_owner.get(&call.callee)
+        {
             for other in rows {
                 if progress.current(*other) {
                     consume(WorkItem::Call(call.attempt, new, *other))?;
                 }
             }
-            }
+        }
         if call.callee == branch.descriptor().owner
-            && let Some(rows) = progress.by_owner.get(&call.owner) {
+            && let Some(rows) = progress.by_owner.get(&call.owner)
+        {
             for other in rows {
                 if progress.current(*other) && caller_eligible(&progress.branches[other]) {
                     consume(WorkItem::Call(call.attempt, *other, new))?;
                 }
             }
-            }
+        }
     }
     path_candidates(data, vocabulary, branch, consume)
 }
@@ -1030,7 +1042,13 @@ fn residual(
     reason: obligation::ObligationKind,
     out: &mut SummaryRecords,
 ) -> Result<(), ModelError> {
-    let ResidualContext { data, invocation, component, progress, seeds } = residual_context;
+    let ResidualContext {
+        data,
+        invocation,
+        component,
+        progress,
+        seeds,
+    } = residual_context;
     let (origin, event, phase, input, output) = match item {
         WorkItem::Call(attempt, caller, callee) => {
             let caller = &progress.branches[&caller];
@@ -1147,14 +1165,29 @@ fn enqueue(
     processed: &charged::ChargedSet<WorkItem>,
     out: &mut SummaryRecords,
 ) -> Result<(), ModelError> {
-    let EnqueueContext { data, vocabulary, calls, component, component_id, invocation, progress, seeds } = enqueue_context;
+    let EnqueueContext {
+        data,
+        vocabulary,
+        calls,
+        component,
+        component_id,
+        invocation,
+        progress,
+        seeds,
+    } = enqueue_context;
     candidates(data, vocabulary, calls, component, progress, new, |item| {
         if processed.contains(&item) {
             return Ok(());
         }
         if let Err(reason) = queue.insert(item)? {
             residual(
-                ResidualContext { data, invocation, component: component_id, progress, seeds },
+                ResidualContext {
+                    data,
+                    invocation,
+                    component: component_id,
+                    progress,
+                    seeds,
+                },
                 item,
                 reason,
                 out,
@@ -1502,7 +1535,16 @@ pub fn produce(
             .collect::<Vec<_>>();
         for id in initial {
             enqueue(
-                EnqueueContext { data, vocabulary: &vocabulary, calls: &calls, component, component_id, invocation, progress: &progress, seeds: &seeds },
+                EnqueueContext {
+                    data,
+                    vocabulary: &vocabulary,
+                    calls: &calls,
+                    component,
+                    component_id,
+                    invocation,
+                    progress: &progress,
+                    seeds: &seeds,
+                },
                 id,
                 &mut queue,
                 &processed,
@@ -1521,7 +1563,13 @@ pub fn produce(
                     closed = false;
                     for item in queue.pending() {
                         residual(
-                            ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
+                            ResidualContext {
+                                data,
+                                invocation,
+                                component: component_id,
+                                progress: &progress,
+                                seeds: &seeds,
+                            },
                             *item,
                             reason,
                             &mut out,
@@ -1556,7 +1604,12 @@ pub fn produce(
                         reason,
                     };
                     for result in compose(
-                        CompositionInputs { data, verified: &verified, vocabulary: &vocabulary, guards: &guards },
+                        CompositionInputs {
+                            data,
+                            verified: &verified,
+                            vocabulary: &vocabulary,
+                            guards: &guards,
+                        },
                         call,
                         &caller,
                         &callee,
@@ -1584,7 +1637,13 @@ pub fn produce(
                                     Some(reason),
                                 ))?;
                                 residual(
-                                    ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
+                                    ResidualContext {
+                                        data,
+                                        invocation,
+                                        component: component_id,
+                                        progress: &progress,
+                                        seeds: &seeds,
+                                    },
                                     item,
                                     reason,
                                     &mut out,
@@ -1600,7 +1659,13 @@ pub fn produce(
                                             Some(reason),
                                         ))?;
                                         residual(
-                                            ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
+                                            ResidualContext {
+                                                data,
+                                                invocation,
+                                                component: component_id,
+                                                progress: &progress,
+                                                seeds: &seeds,
+                                            },
                                             item,
                                             reason,
                                             &mut out,
@@ -1642,7 +1707,13 @@ pub fn produce(
                                         Some(reason),
                                     ))?;
                                     residual(
-                                        ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
+                                        ResidualContext {
+                                            data,
+                                            invocation,
+                                            component: component_id,
+                                            progress: &progress,
+                                            seeds: &seeds,
+                                        },
                                         item,
                                         reason,
                                         &mut out,
@@ -1695,7 +1766,11 @@ pub fn produce(
                                         })?;
                                     let condition = vocabulary.diagram(q.condition, budget)?;
                                     super::summary_control::publish(
-                                        super::summary_control::SummaryControlInputs { invocation, definition, witness: &emission.witness },
+                                        super::summary_control::SummaryControlInputs {
+                                            invocation,
+                                            definition,
+                                            witness: &emission.witness,
+                                        },
                                         influence,
                                         q,
                                         &condition,
@@ -1706,7 +1781,16 @@ pub fn produce(
                                 retain_proof(&mut out, invocation, &branch)?;
                                 if admission == summary_worklist::Admission::Advanced {
                                     enqueue(
-                                        EnqueueContext { data, vocabulary: &vocabulary, calls: &calls, component, component_id, invocation, progress: &progress, seeds: &seeds },
+                                        EnqueueContext {
+                                            data,
+                                            vocabulary: &vocabulary,
+                                            calls: &calls,
+                                            component,
+                                            component_id,
+                                            invocation,
+                                            progress: &progress,
+                                            seeds: &seeds,
+                                        },
                                         branch.id(),
                                         &mut queue,
                                         &processed,
@@ -1753,7 +1837,13 @@ pub fn produce(
                     };
                     match result {
                         Err(reason) => residual(
-                            ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
+                            ResidualContext {
+                                data,
+                                invocation,
+                                component: component_id,
+                                progress: &progress,
+                                seeds: &seeds,
+                            },
                             item,
                             reason,
                             &mut out,
@@ -1763,7 +1853,13 @@ pub fn produce(
                                 Ok(c) => c,
                                 Err(reason) => {
                                     residual(
-                                        ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
+                                        ResidualContext {
+                                            data,
+                                            invocation,
+                                            component: component_id,
+                                            progress: &progress,
+                                            seeds: &seeds,
+                                        },
                                         item,
                                         reason,
                                         &mut out,
@@ -1789,7 +1885,13 @@ pub fn produce(
                             )?;
                             if let summary_worklist::Admission::Refused(reason) = admission {
                                 residual(
-                                    ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
+                                    ResidualContext {
+                                        data,
+                                        invocation,
+                                        component: component_id,
+                                        progress: &progress,
+                                        seeds: &seeds,
+                                    },
                                     item,
                                     reason,
                                     &mut out,
@@ -1821,7 +1923,16 @@ pub fn produce(
                             retain_proof(&mut out, invocation, &branch)?;
                             if admission == summary_worklist::Admission::Advanced {
                                 enqueue(
-                                    EnqueueContext { data, vocabulary: &vocabulary, calls: &calls, component, component_id, invocation, progress: &progress, seeds: &seeds },
+                                    EnqueueContext {
+                                        data,
+                                        vocabulary: &vocabulary,
+                                        calls: &calls,
+                                        component,
+                                        component_id,
+                                        invocation,
+                                        progress: &progress,
+                                        seeds: &seeds,
+                                    },
                                     branch.id(),
                                     &mut queue,
                                     &processed,
@@ -1875,7 +1986,7 @@ pub fn produce(
         out.outcome.status = analysis::AnalysisStatus::Partial;
         out.outcome.reason = Some(obligation::ObligationKind::IncompleteCoverage);
     }
-    super::summary_symbolic::produce(data,invocation,&mut out,budget)?;
+    super::summary_symbolic::produce(data, invocation, &mut out, budget)?;
     out.consequences(data, invocation, definition, profile, budget)?;
     Ok(out)
 }

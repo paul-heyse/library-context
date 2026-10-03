@@ -75,7 +75,10 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
         analysis::local::AnalysisInvocation,
         std::slice::from_ref(&invocation)
     );
-    load!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
+    load!(
+        analysis::AnalysisDefinition,
+        std::slice::from_ref(&definition)
+    );
     let output = local_semantics::produce(&local, &invocation, &definition, budget).unwrap();
     load!(
         analysis::local::AnalysisOutcome,
@@ -104,7 +107,13 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
         .entry
         .symbol_declarations
         .iter()
-        .filter(|r| summary.entry.symbols.get(r.symbol).is_some_and(|s| s.name == "relay"))
+        .filter(|r| {
+            summary
+                .entry
+                .symbols
+                .get(r.symbol)
+                .is_some_and(|s| s.name == "relay")
+        })
         .map(|r| r.declaration)
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(relay_declarations.len(), 1);
@@ -114,10 +123,18 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
         .entry
         .declarations
         .iter()
-        .filter(|r| summary.entry.occurrences.get(r.declaration).is_some_and(|o| {
-            o.source == relay.source && o.start >= relay.start && o.end <= relay.end
-                && o.structural_path.starts_with(&relay.structural_path)
-        }))
+        .filter(|r| {
+            summary
+                .entry
+                .occurrences
+                .get(r.declaration)
+                .is_some_and(|o| {
+                    o.source == relay.source
+                        && o.start >= relay.start
+                        && o.end <= relay.end
+                        && o.structural_path.starts_with(&relay.structural_path)
+                })
+        })
         .map(|r| r.declaration)
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(relay_parameters.len(), 1);
@@ -127,9 +144,14 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
         .iter()
         .filter(|event| {
             let site = summary.entry.occurrences.get(event.site).unwrap();
-            summary.entry.owners.get(event.owner).is_some_and(|owner| owner.owner == relay_declaration)
+            summary
+                .entry
+                .owners
+                .get(event.owner)
+                .is_some_and(|owner| owner.owner == relay_declaration)
                 && event.context == context
-                && f.source_bytes(site.source)[site.start as usize..site.end as usize] == *b"identity(value)"
+                && f.source_bytes(site.source)[site.start as usize..site.end as usize]
+                    == *b"identity(value)"
         })
         .map(Record::id)
         .collect::<std::collections::BTreeSet<_>>();
@@ -137,7 +159,12 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
     let relay_event = *relay_events.iter().next().unwrap();
     let mut baseline = None;
     let default_work = execution::configuration::SummaryLimits::default().work;
-    for (depth, members, work) in [(0, 1 << 16, default_work), (2, 1 << 16, default_work), (2, 1, default_work), (2, 1 << 16, 1)] {
+    for (depth, members, work) in [
+        (0, 1 << 16, default_work),
+        (2, 1 << 16, default_work),
+        (2, 1, default_work),
+        (2, 1 << 16, 1),
+    ] {
         let (p, d) = execution::configuration::summaries(
             catalog.declaration().id(),
             execution::configuration::SummaryLimits {
@@ -236,28 +263,46 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
             // Rejected source states have transfer boundaries even when no caller/callee
             // pair survives to define a closure query. Do not choose a survivor by ID order.
             assert_eq!(output.outcome.status, analysis::AnalysisStatus::Partial);
-            assert_eq!(output.outcome.reason, Some(obligation::ObligationKind::IncompleteCoverage));
-            let boundaries = output.origin_boundaries.iter().filter(|r| {
-                r.reason == obligation::ObligationKind::SummaryProofLimit
-            }).collect::<Vec<_>>();
-            assert!(!boundaries.is_empty(), "one-member cap retains explicit source boundaries");
+            assert_eq!(
+                output.outcome.reason,
+                Some(obligation::ObligationKind::IncompleteCoverage)
+            );
+            let boundaries = output
+                .origin_boundaries
+                .iter()
+                .filter(|r| r.reason == obligation::ObligationKind::SummaryProofLimit)
+                .collect::<Vec<_>>();
+            assert!(
+                !boundaries.is_empty(),
+                "one-member cap retains explicit source boundaries"
+            );
             for boundary in boundaries {
                 assert_eq!(boundary.invocation, invocation.id());
                 assert!(output.origins.get(boundary.origin).is_some());
                 assert_eq!(output.keys.get(boundary.transfer).unwrap().context, context);
-                let q = output.vocabulary.qualifications.get(&boundary.qualification).unwrap();
+                let q = output
+                    .vocabulary
+                    .qualifications
+                    .get(&boundary.qualification)
+                    .unwrap();
                 assert_eq!(q.context, context);
                 assert_eq!(q.approximation, assertion::Approximation::Over);
                 let subject = analysis::summary::ObligationSubject::SummaryTransfer {
                     transfer: boundary.transfer,
                 };
                 assert_eq!(output.subjects.get(subject.id()), Some(&subject));
-                assert!(output.obligations.iter().any(|o| {
-                    o.invocation == invocation.id() && o.subject == subject.id()
-                        && o.qualification == boundary.qualification && o.reason == boundary.reason
-                        && o.responsible == analysis::AnalysisMethod::Summaries
-                        && o.channel == analysis::AnalysisChannel::Value && o.phase == calls::CallPhase::Call
-                }), "each refused source retains its qualified transfer obligation");
+                assert!(
+                    output.obligations.iter().any(|o| {
+                        o.invocation == invocation.id()
+                            && o.subject == subject.id()
+                            && o.qualification == boundary.qualification
+                            && o.reason == boundary.reason
+                            && o.responsible == analysis::AnalysisMethod::Summaries
+                            && o.channel == analysis::AnalysisChannel::Value
+                            && o.phase == calls::CallPhase::Call
+                    }),
+                    "each refused source retains its qualified transfer obligation"
+                );
             }
         }
         if depth > 0 && members > 1 {
@@ -277,7 +322,10 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
                             && matches!(summary.vocabulary.roots.get(&p.root), Some(value::PlaceRoot::Return { callable }) if identity.contains(callable))
                     })
             }).collect::<Vec<_>>();
-            assert!(!residuals.is_empty(), "actual relay Entry-to-identity Return pair remains explicitly open");
+            assert!(
+                !residuals.is_empty(),
+                "actual relay Entry-to-identity Return pair remains explicitly open"
+            );
             for residual in residuals {
                 let claim = conclusions.claims.iter().find(|claim| matches!(claim,
                     execution::summary_consequences::SummaryClaim::CallClosure { event, input, output, qualification, channel, phase, .. }
@@ -285,15 +333,35 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
                         && *qualification == residual.qualification && *channel == analysis::AnalysisChannel::Value
                         && *phase == calls::CallPhase::Call
                 )).expect("known exhausted pair retains its closure claim");
-                let subject = analysis::summary::ObligationSubject::SummaryClaim { transfer: claim.id() };
-                let conclusion = conclusions.conclusions.iter().find(|r| r.subject == subject.id()).unwrap();
+                let subject = analysis::summary::ObligationSubject::SummaryClaim {
+                    transfer: claim.id(),
+                };
+                let conclusion = conclusions
+                    .conclusions
+                    .iter()
+                    .find(|r| r.subject == subject.id())
+                    .unwrap();
                 assert_eq!(conclusion.verdict, obligation::Verdict::Unknown);
-                assert!(conclusion.proof.is_none(), "open sibling cannot acquire a closure proof");
-                assert!(conclusions.members.iter().filter(|m| m.claim == claim.id()).any(|member| {
-                    conclusions.standings.iter().any(|s| s.member == member.id()
-                        && s.standing == execution::summary_consequences::MemberStanding::Open
-                        && s.proof.is_none() && s.reason.is_some())
-                }), "the independently selected call retains its open member standing");
+                assert!(
+                    conclusion.proof.is_none(),
+                    "open sibling cannot acquire a closure proof"
+                );
+                assert!(
+                    conclusions
+                        .members
+                        .iter()
+                        .filter(|m| m.claim == claim.id())
+                        .any(|member| {
+                            conclusions.standings.iter().any(|s| {
+                                s.member == member.id()
+                                    && s.standing
+                                        == execution::summary_consequences::MemberStanding::Open
+                                    && s.proof.is_none()
+                                    && s.reason.is_some()
+                            })
+                        }),
+                    "the independently selected call retains its open member standing"
+                );
             }
         }
         if depth == 2 && members > 1 && work > 1 {

@@ -359,10 +359,11 @@ impl CheckedContextExecution {
                         if checked.release() != ReleaseSafety::Closed
                             && !base.caller_holds_argument(row)?
                             && !super::builtin_read::CheckedBuiltinRead::derive(
-                                    facts,
-                                    checked.request(),
-                                    budget
-                                )?.is_ok()
+                                facts,
+                                checked.request(),
+                                budget,
+                            )?
+                            .is_ok()
                         {
                             return Err(boundary(K::FrameExitCleanup));
                         }
@@ -461,11 +462,11 @@ impl CheckedContextExecution {
                     )?
                     .map_err(boundary)?;
                     if let Some(exception) = outcome.exception()
-                        && !protocol.preserves() {
+                        && !protocol.preserves()
+                    {
                         let (module, name) = exception.class();
                         let mut classes=application.bindings.symbols.iter().filter(|s|s.context==request.context&&s.name==name&&s.kind==calls::SymbolKind::Class&&matches!(application.bindings.provider_modules.get(s.module),Some(calls::ProviderModule::Bundled{name,bundle:calls::ModuleBundle::Typeshed,..})if name==module));
-                        let symbol =
-                            classes.next().ok_or_else(|| boundary(K::MissingEvidence))?;
+                        let symbol = classes.next().ok_or_else(|| boundary(K::MissingEvidence))?;
                         if classes.next().is_some() {
                             return Err(boundary(K::AmbiguousBinding));
                         }
@@ -522,7 +523,7 @@ impl CheckedContextExecution {
                             outcome = PendingOutcome::Normal;
                             *suppressed = true;
                         }
-                        }
+                    }
                     *exit_output = outcome;
                 }
                 let qualification = syntax.qualification(request.statement).map_err(boundary)?;

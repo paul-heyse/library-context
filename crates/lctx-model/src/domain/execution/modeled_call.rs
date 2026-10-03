@@ -190,10 +190,12 @@ impl CheckedModeledEvaluation {
                 // Builtin lookup separately proves that the exact returned object remains externally held;
                 // a parameter-read witness cannot substitute for this disposal premise.
                 if !super::builtin_read::CheckedBuiltinRead::derive(
-                        data,
-                        checked.request(),
-                        budget
-                    )?.is_ok() && !earlier.earlier().caller_holds_argument(row)?
+                    data,
+                    checked.request(),
+                    budget,
+                )?
+                .is_ok()
+                    && !earlier.earlier().caller_holds_argument(row)?
                 {
                     return Ok(Err(ObligationKind::FrameExitCleanup));
                 }

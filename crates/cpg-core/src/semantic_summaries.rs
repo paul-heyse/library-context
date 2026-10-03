@@ -34,7 +34,10 @@ pub async fn produce(
     .await
     .map_err(ModelError::codec)?;
     let mut data = SummaryData::new(budget);
-    let mut consumed=crate::consumed_rows::ConsumedInputs::new(SummaryData::consumed_inputs(access.profile()),budget)?;
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(
+        SummaryData::consumed_inputs(access.profile()),
+        budget,
+    )?;
     macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
         // Distinct epoch sources have the same nominal table name, so each gets its own session.
         let session=runtime.session(&access);

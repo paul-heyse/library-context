@@ -179,7 +179,10 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
     macro_rules! earlier {
         ($ty:ty,$rows:expr) => {
             source_data
-                .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
+                .visit(
+                    <$ty>::NAME,
+                    &<$ty as Record>::encode(($rows).as_ref()).unwrap(),
+                )
                 .unwrap()
         };
     }
@@ -224,7 +227,10 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
         analysis::base_completion::AnalysisInvocation,
         std::slice::from_ref(&base)
     );
-    earlier!(analysis::AnalysisDefinition, std::slice::from_ref(&base_definition));
+    earlier!(
+        analysis::AnalysisDefinition,
+        std::slice::from_ref(&base_definition)
+    );
     earlier!(
         execution::body_records::SourceBodyCompletion,
         bodies.bodies.iter().cloned().collect::<Vec<_>>()
@@ -270,7 +276,10 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
+                    .visit(
+                        <$ty>::NAME,
+                        &<$ty as Record>::encode(($rows).as_ref()).unwrap(),
+                    )
                     .unwrap()
             };
         }
@@ -282,7 +291,10 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
             analysis::base_completion::AnalysisInvocation,
             std::slice::from_ref(&base)
         );
-        put!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
+        put!(
+            analysis::AnalysisDefinition,
+            std::slice::from_ref(&definition)
+        );
         put!(
             analysis::source_call::AnalysisOutcome,
             std::slice::from_ref(&records.outcome)
@@ -399,9 +411,14 @@ async fn retained_source_shapes_preserve_invocation_and_frame_boundaries() {
     let input = f.rows::<input::InputRevision>()[0].id();
     let context = f.data.event_events.iter().next().unwrap().context;
     let base = source_fixture::base_rows_with_entries(
-        &mut data, input, context, &f.budget,
-        &normalized::Rows::new(&f.budget), &normalized::Rows::new(&f.budget),
-    ).0;
+        &mut data,
+        input,
+        context,
+        &f.budget,
+        &normalized::Rows::new(&f.budget),
+        &normalized::Rows::new(&f.budget),
+    )
+    .0;
     let (_, definition) = execution::configuration::source_calls();
     let parent = analysis::source_call::InvocationSource::BaseCompletion {
         invocation: base.id(),
@@ -926,7 +943,10 @@ async fn modeled_return_replays_every_actual_and_then_releases_the_exact_fresh_s
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
+                    .visit(
+                        <$ty>::NAME,
+                        &<$ty as Record>::encode(($rows).as_ref()).unwrap(),
+                    )
                     .unwrap()
             };
         }
@@ -1237,11 +1257,17 @@ async fn source_frame_releases_only_exact_bound_externally_held_actuals() {
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
+                    .visit(
+                        <$ty>::NAME,
+                        &<$ty as Record>::encode(($rows).as_ref()).unwrap(),
+                    )
                     .unwrap()
             };
         }
-        put!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
+        put!(
+            analysis::AnalysisDefinition,
+            std::slice::from_ref(&definition)
+        );
         put!(
             analysis::source_call::AnalysisInvocation,
             std::slice::from_ref(&invocation)
@@ -1588,7 +1614,10 @@ async fn ordered_context_execution_replays_actual_entry_body_reverse_exit_and_su
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
+                    .visit(
+                        <$ty>::NAME,
+                        &<$ty as Record>::encode(($rows).as_ref()).unwrap(),
+                    )
                     .unwrap()
             };
         }

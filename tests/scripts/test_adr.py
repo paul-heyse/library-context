@@ -67,10 +67,12 @@ def test_unresolved_design_ref_is_reported(root: Path) -> None:
 def test_design_reference_scalar_forms_keep_owner_and_decision_checks(root: Path, ref: str) -> None:
     path = new(root, "scalar-section", f"[{ref}]", decide=False)
     design = root / "docs/design/DESIGN.md"
-    design.write_text(design.read_text().replace(
-        "### §4.2 Identity\n",
-        "### §4.2 Identity\n<!-- relocated-section -->\n[owner](sections/identity.md)\n",
-    ))
+    design.write_text(
+        design.read_text().replace(
+            "### §4.2 Identity\n",
+            "### §4.2 Identity\n<!-- relocated-section -->\n[owner](sections/identity.md)\n",
+        )
+    )
     owner = root / "docs/design/sections/identity.md"
     owner.parent.mkdir()
     owner.write_text("# §4.2 Identity\n> Decision: ADR-0001\n")

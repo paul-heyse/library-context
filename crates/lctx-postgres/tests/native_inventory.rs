@@ -57,7 +57,10 @@ async fn native_inventory_roundtrips_and_refuses_omission_and_forged_status() {
         }],
         &[],
         Profile::Catalog,
-        vec![PublicationGroup::new(PublicationBoundary::Facts, vec!["native_fixture"])],
+        vec![PublicationGroup::new(
+            PublicationBoundary::Facts,
+            vec!["native_fixture"],
+        )],
     )
     .unwrap();
     for mutation in ["none", "omit", "status"] {
@@ -66,10 +69,10 @@ async fn native_inventory_roundtrips_and_refuses_omission_and_forged_status() {
         let mut native = NativeInventory::new(&budget);
         let input_names = NativeInventory::inputs();
         let mut execution = schedule.execute();
-        let attempt =
-            store.begin_conformance(db.writer.clone(), &mut execution, budget.clone())
-                .await
-                .unwrap();
+        let attempt = store
+            .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+            .await
+            .unwrap();
         let generation = attempt.generation();
         let mut access = execution.begin("native_fixture").unwrap();
         macro_rules! copy { ($($ty:ty),+) => { $(
@@ -105,7 +108,10 @@ async fn native_inventory_roundtrips_and_refuses_omission_and_forged_status() {
             .write::<NativeQualification, _>(async |permit| attempt.copy(permit, &batch).await)
             .await
             .unwrap();
-        access.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+        access
+            .complete(&attempt, ProviderOutcome::Complete)
+            .await
+            .unwrap();
         let sealed = attempt.seal(execution.finish().unwrap()).await.unwrap();
         if mutation != "none" {
             let refused = sealed.validate_with(&budget).await;
@@ -117,7 +123,13 @@ async fn native_inventory_roundtrips_and_refuses_omission_and_forged_status() {
             store.abort(generation).await.unwrap();
             continue;
         }
-        sealed.validate_with(&budget).await.unwrap().publish().await.unwrap();
+        sealed
+            .validate_with(&budget)
+            .await
+            .unwrap()
+            .publish()
+            .await
+            .unwrap();
         let mut lease = store
             .pin(&db.reader, generation, budget.clone())
             .await

@@ -1428,21 +1428,35 @@ fn produce_symbolic_stores(
     records: &mut LocalRecords,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    let input=crate::domain::local_fields::FieldData{entry:&data.entry,theory:&data.theory,inventory:&data.fields};
+    let input = crate::domain::local_fields::FieldData {
+        entry: &data.entry,
+        theory: &data.theory,
+        inventory: &data.fields,
+    };
     for store in data.fields.symbolic_stores.iter() {
         for support in data.entry.value_supports.iter() {
-            let Some(value)=data.entry.values.get(support.assertion) else{continue};
-            if !crate::domain::local_symbolic::same(&data.entry,value.sink,store.value){continue}
-            if let Ok(emission)=crate::domain::local_symbolic::derive(&input,invocation,store,support,budget)? {
-                for entry in [&emission.value,&emission.receiver] {
+            let Some(value) = data.entry.values.get(support.assertion) else {
+                continue;
+            };
+            if !crate::domain::local_symbolic::same(&data.entry, value.sink, store.value) {
+                continue;
+            }
+            if let Ok(emission) =
+                crate::domain::local_symbolic::derive(&input, invocation, store, support, budget)?
+            {
+                for entry in [&emission.value, &emission.receiver] {
                     records.entries.insert(entry.witness().clone())?;
                     records.entry_sources.insert(entry.source().clone())?;
                     records.roots.insert(entry.root().clone())?;
                     records.places.insert(entry.place().clone())?;
-                    records.qualifications.insert(entry.qualification().clone())?;
-                    let (condition,nodes)=entry.condition().records();
+                    records
+                        .qualifications
+                        .insert(entry.qualification().clone())?;
+                    let (condition, nodes) = entry.condition().records();
                     records.conditions.insert(condition)?;
-                    for node in nodes{records.nodes.insert(node)?;}
+                    for node in nodes {
+                        records.nodes.insert(node)?;
+                    }
                 }
                 records.fields.symbolic_stores.insert(emission.row)?;
             }

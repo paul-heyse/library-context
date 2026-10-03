@@ -113,10 +113,14 @@ pub enum DocumentarySource {
         member: Id<CatalogMemberInvocation>,
         association: Id<evidence::DocumentAssociation>,
         component: Id<documents::DocumentComponentObservation>,
-        #[model(premise)] premise: Id<NativeAssertionPremise>,
-        #[model(premise)] scope: Id<NativeAssertionPremise>,
-        #[model(premise)] field: Option<Id<NativeAssertionPremise>>,
-        #[model(premise)] title: Option<Id<NativeAssertionPremise>>,
+        #[model(premise)]
+        premise: Id<NativeAssertionPremise>,
+        #[model(premise)]
+        scope: Id<NativeAssertionPremise>,
+        #[model(premise)]
+        field: Option<Id<NativeAssertionPremise>>,
+        #[model(premise)]
+        title: Option<Id<NativeAssertionPremise>>,
         option: Option<Id<CatalogOption>>,
         source_option: Option<Id<CatalogOption>>,
         role: super::documentary_templates::ComponentRole,
@@ -127,7 +131,9 @@ pub enum DocumentarySource {
 impl DocumentarySource {
     pub fn member(&self) -> Id<CatalogMemberInvocation> {
         match self {
-            Self::Literal { member, .. } | Self::Passage { member, .. } | Self::Component { member, .. } => *member,
+            Self::Literal { member, .. }
+            | Self::Passage { member, .. }
+            | Self::Component { member, .. } => *member,
         }
     }
     pub fn subject(&self) -> Option<Id<EntityRef>> {
@@ -149,8 +155,22 @@ pub struct DocumentaryConclusion {
     status: EvidenceStatus,
 }
 impl DocumentaryConclusion {
-    pub(super) fn authored(source: Id<DocumentarySource>, prose: Id<ProseSlice>, excerpt: Id<ProseSlice>, excerpt_digest: ContentHash, qualification: Id<AssertionQualification>, status: EvidenceStatus) -> Self {
-        Self { source, prose, excerpt, excerpt_digest, qualification, status }
+    pub(super) fn authored(
+        source: Id<DocumentarySource>,
+        prose: Id<ProseSlice>,
+        excerpt: Id<ProseSlice>,
+        excerpt_digest: ContentHash,
+        qualification: Id<AssertionQualification>,
+        status: EvidenceStatus,
+    ) -> Self {
+        Self {
+            source,
+            prose,
+            excerpt,
+            excerpt_digest,
+            qualification,
+            status,
+        }
     }
     pub fn status(&self) -> EvidenceStatus {
         self.status
@@ -691,8 +711,6 @@ impl InvariantCheck for Check {
     }
 }
 
-
-
 /// Resolve an original anchor mechanically; a derived slice never changes the earlier source.
 pub fn original(
     d: &Data,
@@ -814,9 +832,10 @@ pub fn mention_sentence(
             None
         };
         if (skip || marker.is_some())
-            && let Some(result) = finish(open.take())? {
+            && let Some(result) = finish(open.take())?
+        {
             return Ok(Some(result));
-            }
+        }
         if fence {
             fenced = !fenced;
             continue;
@@ -1045,8 +1064,8 @@ fn passage_outcomes(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<()
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::domain::{analysis::native::NativeQualification, artifact::ArtifactChunk};
     use super::*;
+    use crate::domain::{analysis::native::NativeQualification, artifact::ArtifactChunk};
     fn id<T>(n: u8) -> Id<T> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
             _,
@@ -1054,7 +1073,11 @@ pub(crate) mod tests {
         >::new([n; 16].into_iter()))
         .unwrap()
     }
-    pub(in crate::domain::synthesis) fn pair(d: &mut Data, p: NativeAssertionPremise, q: &AssertionQualification) {
+    pub(in crate::domain::synthesis) fn pair(
+        d: &mut Data,
+        p: NativeAssertionPremise,
+        q: &AssertionQualification,
+    ) {
         let n = NativeQualification {
             premise: p.id(),
             qualification: q.id(),
@@ -1247,7 +1270,11 @@ pub(crate) mod tests {
         );
         (b, d, frame)
     }
-    pub(in crate::domain::synthesis) fn replay(d: &Data, o: &Output, b: &ResourceBudget) -> Result<(), ModelError> {
+    pub(in crate::domain::synthesis) fn replay(
+        d: &Data,
+        o: &Output,
+        b: &ResourceBudget,
+    ) -> Result<(), ModelError> {
         let mut c = (invariants().remove(0).create)(b);
         macro_rules! input{($($f:ident:$ty:ty,)*)=>{$(c.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}
         crate::synthesis_documentary_inputs!(input);

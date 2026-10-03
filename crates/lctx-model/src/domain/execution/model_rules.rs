@@ -594,14 +594,15 @@ impl AppliedRules {
             row.operation = out.operations.insert(operation.clone())?;
             if row.applicable
                 && let ModeledOperation::Resource { action } = operation
-                    && let Some(value) = row.source.or(row.destination) {
+                && let Some(value) = row.source.or(row.destination)
+            {
                 out.resources.insert(ResourceIdentity {
                     rule: row.id(),
                     value,
                     action,
                     phase: row.phase,
                 })?;
-                }
+            }
             out.rules.insert(row)?;
         }
         for channel in ModelChannel::ALL {

@@ -758,24 +758,34 @@ pub(crate) mod tests {
         };
         docs.qualifications.insert(q.clone()).unwrap();
         let base = docs.occurrences.iter().next().unwrap().clone();
-struct OccurrenceSite<'a> {
-    artifact: Id<SourceArtifact>,
-    start: i64,
-    end: i64,
-    kind: SyntaxKind,
-    path: &'a str,
-    parent: Option<Id<Occurrence>>,
-    field: SyntaxField,
-    ordinal: i64,
-    q: Id<assertion::AssertionQualification>,
-}
+        struct OccurrenceSite<'a> {
+            artifact: Id<SourceArtifact>,
+            start: i64,
+            end: i64,
+            kind: SyntaxKind,
+            path: &'a str,
+            parent: Option<Id<Occurrence>>,
+            field: SyntaxField,
+            ordinal: i64,
+            q: Id<assertion::AssertionQualification>,
+        }
 
         fn occurrence(
-    d: &mut documentary::Data,
-    base: &Occurrence,
-    occurrence_site: OccurrenceSite<'_>,
-) -> Id<Occurrence> {
-    let OccurrenceSite { artifact, start, end, kind, path, parent, field, ordinal, q } = occurrence_site;
+            d: &mut documentary::Data,
+            base: &Occurrence,
+            occurrence_site: OccurrenceSite<'_>,
+        ) -> Id<Occurrence> {
+            let OccurrenceSite {
+                artifact,
+                start,
+                end,
+                kind,
+                path,
+                parent,
+                field,
+                ordinal,
+                q,
+            } = occurrence_site;
             let o = Occurrence {
                 source: artifact,
                 start,
@@ -809,27 +819,77 @@ struct OccurrenceSite<'a> {
         let module = occurrence(
             &mut docs,
             &base,
-            OccurrenceSite { artifact: artifact.id(), start: 0, end: bytes.len() as i64, kind: SyntaxKind::ModModule, path: "m", parent: None, field: SyntaxField::Body, ordinal: 0, q: q.id() },
+            OccurrenceSite {
+                artifact: artifact.id(),
+                start: 0,
+                end: bytes.len() as i64,
+                kind: SyntaxKind::ModModule,
+                path: "m",
+                parent: None,
+                field: SyntaxField::Body,
+                ordinal: 0,
+                q: q.id(),
+            },
         );
         let import = occurrence(
             &mut docs,
             &base,
-            OccurrenceSite { artifact: artifact.id(), start: 0, end: 26, kind: SyntaxKind::StmtImportFrom, path: "m.i", parent: Some(module), field: SyntaxField::Body, ordinal: 0, q: q.id() },
+            OccurrenceSite {
+                artifact: artifact.id(),
+                start: 0,
+                end: 26,
+                kind: SyntaxKind::StmtImportFrom,
+                path: "m.i",
+                parent: Some(module),
+                field: SyntaxField::Body,
+                ordinal: 0,
+                q: q.id(),
+            },
         );
         let statement = occurrence(
             &mut docs,
             &base,
-            OccurrenceSite { artifact: artifact.id(), start: 27, end: 39, kind: SyntaxKind::StmtExpr, path: "m.s", parent: Some(module), field: SyntaxField::Body, ordinal: 1, q: q.id() },
+            OccurrenceSite {
+                artifact: artifact.id(),
+                start: 27,
+                end: 39,
+                kind: SyntaxKind::StmtExpr,
+                path: "m.s",
+                parent: Some(module),
+                field: SyntaxField::Body,
+                ordinal: 1,
+                q: q.id(),
+            },
         );
         let consumer = occurrence(
             &mut docs,
             &base,
-            OccurrenceSite { artifact: artifact.id(), start: 27, end: 39, kind: SyntaxKind::ExprCall, path: "m.s.c", parent: Some(statement), field: SyntaxField::Value, ordinal: 0, q: q.id() },
+            OccurrenceSite {
+                artifact: artifact.id(),
+                start: 27,
+                end: 39,
+                kind: SyntaxKind::ExprCall,
+                path: "m.s.c",
+                parent: Some(statement),
+                field: SyntaxField::Value,
+                ordinal: 0,
+                q: q.id(),
+            },
         );
         let producer = occurrence(
             &mut docs,
             &base,
-            OccurrenceSite { artifact: artifact.id(), start: 33, end: 38, kind: SyntaxKind::ExprCall, path: "m.s.c.p", parent: Some(consumer), field: SyntaxField::Argument, ordinal: 0, q: q.id() },
+            OccurrenceSite {
+                artifact: artifact.id(),
+                start: 33,
+                end: 38,
+                kind: SyntaxKind::ExprCall,
+                path: "m.s.c.p",
+                parent: Some(consumer),
+                field: SyntaxField::Argument,
+                ordinal: 0,
+                q: q.id(),
+            },
         );
         for (name, start, end, site, parent, ordinal) in [
             ("run", 16, 19, producer, producer, 0),
@@ -838,7 +898,17 @@ struct OccurrenceSite<'a> {
             let alias = occurrence(
                 &mut docs,
                 &base,
-                OccurrenceSite { artifact: artifact.id(), start, end, kind: SyntaxKind::Alias, path: &format!("m.i.a{ordinal}"), parent: Some(import), field: SyntaxField::Child, ordinal, q: q.id() },
+                OccurrenceSite {
+                    artifact: artifact.id(),
+                    start,
+                    end,
+                    kind: SyntaxKind::Alias,
+                    path: &format!("m.i.a{ordinal}"),
+                    parent: Some(import),
+                    field: SyntaxField::Child,
+                    ordinal,
+                    q: q.id(),
+                },
             );
             let event = BindingEvent {
                 site: alias,
@@ -883,7 +953,17 @@ struct OccurrenceSite<'a> {
             let read = occurrence(
                 &mut docs,
                 &base,
-                OccurrenceSite { artifact: artifact.id(), start: if ordinal == 0 { 33 } else { 27 }, end: if ordinal == 0 { 36 } else { 32 }, kind: SyntaxKind::ExprName, path: &format!("m.s.n{ordinal}"), parent: Some(site), field: SyntaxField::Callee, ordinal, q: q.id() },
+                OccurrenceSite {
+                    artifact: artifact.id(),
+                    start: if ordinal == 0 { 33 } else { 27 },
+                    end: if ordinal == 0 { 36 } else { 32 },
+                    kind: SyntaxKind::ExprName,
+                    path: &format!("m.s.n{ordinal}"),
+                    parent: Some(site),
+                    field: SyntaxField::Callee,
+                    ordinal,
+                    q: q.id(),
+                },
             );
             let reference = ReferenceObservation {
                 qualification: q.id(),

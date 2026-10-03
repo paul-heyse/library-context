@@ -3,10 +3,7 @@
 //! Defaults, caller-held arguments and imported/global callable availability have separate owners.
 use super::evaluation::EvaluationData;
 use crate::domain::{
-    analysis::{
-        native::NativeAssertionPremise,
-        policy::EvidenceStatus,
-    },
+    analysis::{native::NativeAssertionPremise, policy::EvidenceStatus},
     assertion::{Approximation, AssertionQualification},
     attribution::{FactFamily, Modality},
     conditions::entry::EntryData,
@@ -202,7 +199,10 @@ fn supported<S: assertion::Support>(
 }
 impl CheckedSourceBinding {
     /// Replayed normalized admission is necessary but does not establish fresh runtime availability.
-    #[allow(clippy::too_many_arguments, reason = "Public checked source-call proof keeps independent evidence owners, request, completion authority and budget explicit.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Public checked source-call proof keeps independent evidence owners, request, completion authority and budget explicit."
+    )]
     pub fn derive(
         data: &EvaluationData,
         flow: &EntryData,

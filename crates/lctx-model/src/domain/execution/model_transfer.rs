@@ -66,15 +66,24 @@ pub(super) struct TransferEntryInputs<'a> {
 
 impl CheckedModelTransfer {
     pub(super) fn derive(
-    transfer_rule_inputs: TransferRuleInputs<'_>,
-    call: &ModeledCallEvaluation,
-    arguments: &Rows<ModeledCallArgument>,
-    earlier: &CompletedEvaluations,
-    transfer_entry_inputs: TransferEntryInputs<'_>,
-    budget: &ResourceBudget,
-) -> Result<Result<Self, ObligationKind>, ModelError> {
-    let TransferRuleInputs { application, rule, operation, paths } = transfer_rule_inputs;
-    let TransferEntryInputs { entry_data, entries, sources } = transfer_entry_inputs;
+        transfer_rule_inputs: TransferRuleInputs<'_>,
+        call: &ModeledCallEvaluation,
+        arguments: &Rows<ModeledCallArgument>,
+        earlier: &CompletedEvaluations,
+        transfer_entry_inputs: TransferEntryInputs<'_>,
+        budget: &ResourceBudget,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        let TransferRuleInputs {
+            application,
+            rule,
+            operation,
+            paths,
+        } = transfer_rule_inputs;
+        let TransferEntryInputs {
+            entry_data,
+            entries,
+            sources,
+        } = transfer_entry_inputs;
         let result = (|| -> Result<_, ObligationKind> {
             if !rule.applicable
                 || rule.application != application.id()

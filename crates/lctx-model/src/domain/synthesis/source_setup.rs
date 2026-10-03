@@ -131,7 +131,12 @@ fn placed(
     };
     Ok(Ok((row, premise)))
 }
-type StatementSite = (Id<Occurrence>, Id<NativeAssertionPremise>, Id<Occurrence>, SyntaxField);
+type StatementSite = (
+    Id<Occurrence>,
+    Id<NativeAssertionPremise>,
+    Id<Occurrence>,
+    SyntaxField,
+);
 
 fn statement(
     d: &documentary::Data,

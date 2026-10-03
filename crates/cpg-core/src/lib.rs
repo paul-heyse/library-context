@@ -11,12 +11,12 @@ pub mod analytic;
 pub mod catalog_core;
 pub mod catalog_evidence;
 pub mod catalog_selection;
+pub mod consumed_rows;
 pub mod embedding_realization;
 pub mod embedding_service;
 pub mod facts;
 pub mod final_coverage;
 pub mod generation_read;
-pub mod consumed_rows;
 pub mod model_runtime;
 pub mod postgres;
 pub mod retrieval_preparation;
@@ -47,8 +47,6 @@ pub enum CoreError {
     #[error("embedding service: {0}")]
     EmbeddingService(String),
 }
-
-
 
 pub mod retrieval;
 

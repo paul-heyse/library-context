@@ -69,7 +69,7 @@ fn entity(d: &Data, claim: &SummaryClaim) -> Result<Id<EntityRef>, ModelError> {
             Ok(need(&d.ownership, need(&d.events, *event)?.owner)?.entity)
         }
         SummaryClaim::SymbolicFieldAssociation { alternative, .. } => {
-            Ok(need(&d.symbolic_alternatives,*alternative)?.constructor)
+            Ok(need(&d.symbolic_alternatives, *alternative)?.constructor)
         }
     }
 }
@@ -77,12 +77,25 @@ pub fn evidence(
     d: &Data,
     row: &ClaimConclusion,
 ) -> Result<Option<owner::SupportSource>, ModelError> {
-    if let Some((SummaryClaim::SymbolicFieldAssociation{alternative,qualification},_))=claim(d,row)? {
-        let alternative=need(&d.symbolic_alternatives,*alternative)?;
-        if row.proof.is_some() || row.verdict!=obligation::Verdict::Unknown
-            || row.qualification!=Some(*qualification) || *qualification!=alternative.reader_qualification
-            || row.reason!=Some(alternative.reason) || row.coverage!=attribution::CoverageStatus::Partial {
-            return Err(invalid("symbolic association acquired behavioral proof authority"));
+    if let Some((
+        SummaryClaim::SymbolicFieldAssociation {
+            alternative,
+            qualification,
+        },
+        _,
+    )) = claim(d, row)?
+    {
+        let alternative = need(&d.symbolic_alternatives, *alternative)?;
+        if row.proof.is_some()
+            || row.verdict != obligation::Verdict::Unknown
+            || row.qualification != Some(*qualification)
+            || *qualification != alternative.reader_qualification
+            || row.reason != Some(alternative.reason)
+            || row.coverage != attribution::CoverageStatus::Partial
+        {
+            return Err(invalid(
+                "symbolic association acquired behavioral proof authority",
+            ));
         }
         return Ok(None);
     }
@@ -113,7 +126,9 @@ pub fn evidence(
             qualification,
             ..
         } => (*channel, *phase, *qualification),
-        SummaryClaim::SymbolicFieldAssociation { .. } => return Err(invalid("symbolic association cannot cite a finite proof")),
+        SummaryClaim::SymbolicFieldAssociation { .. } => {
+            return Err(invalid("symbolic association cannot cite a finite proof"));
+        }
     };
     let original = analysis::summary::SupportSource::ClaimProof { witness: proof };
     if d.sources.get(original.id()) != Some(&original) {
@@ -303,7 +318,10 @@ impl InvariantCheck for Check {
 }
 
 /// Generic consequences retain the original per-value/call phase and scope.
-#[allow(clippy::too_many_arguments, reason = "Public synthesis boundary keeps separately admitted observation, facet, invocation and proof inputs explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Public synthesis boundary keeps separately admitted observation, facet, invocation and proof inputs explicit."
+)]
 pub fn extend_observations(
     d: &Data,
     o: &super::observations::Data,
@@ -341,7 +359,9 @@ pub fn extend_observations(
         let (channel, phase) = match claim {
             SummaryClaim::FiniteAlternative { channel, phase, .. }
             | SummaryClaim::CallClosure { channel, phase, .. } => (*channel, *phase),
-            SummaryClaim::SymbolicFieldAssociation { .. } => return Err(invalid("symbolic association cannot emit a finding")),
+            SummaryClaim::SymbolicFieldAssociation { .. } => {
+                return Err(invalid("symbolic association cannot emit a finding"));
+            }
         };
         let frame = need(frames, facet.frame)?;
         let inv = need(invocations, frame.invocation)?;
@@ -431,10 +451,10 @@ pub fn extend_observations(
 pub fn text(d: &Data, facet: &SummaryFacet, b: &ResourceBudget) -> Result<String, ModelError> {
     let _charge = b.reserve("s0-summary-facet-render", 1024)?;
     let question = match facet.claim.map(|c| need(&d.claims, c)).transpose()? {
-        Some(SummaryClaim::SymbolicFieldAssociation{alternative,..}) => {
-            let _association=need(&d.symbolic_alternatives,*alternative)?;
+        Some(SummaryClaim::SymbolicFieldAssociation { alternative, .. }) => {
+            let _association = need(&d.symbolic_alternatives, *alternative)?;
             "Source associates a constructor parameter with a field read; whether a later read returns the stored value remains unresolved".into()
-        },
+        }
         Some(SummaryClaim::FiniteAlternative {
             transfer,
             channel,

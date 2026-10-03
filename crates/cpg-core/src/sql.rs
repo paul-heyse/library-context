@@ -24,4 +24,3 @@ pub async fn render(ctx: &SessionContext, sql: &str) -> Result<String> {
     let batches = query(ctx, sql).await?.collect().await?;
     Ok(datafusion::arrow::util::pretty::pretty_format_batches(&batches)?.to_string())
 }
-

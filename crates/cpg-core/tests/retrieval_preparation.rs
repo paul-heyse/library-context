@@ -32,15 +32,29 @@ fn mandatory_reader_inputs(profile: Profile, model: &ValidatedModel) -> Vec<Rela
     // Facts references already belong to the validated checkpoint; every later row below
     // must instead have a completed producer in this fixture's actual schedule.
     let mut inputs = retrieval::build::mandatory_inputs(profile, model).unwrap();
-    let facts = facts_relations().iter().map(Relation::name)
+    let facts = facts_relations()
+        .iter()
+        .map(Relation::name)
         .collect::<std::collections::BTreeSet<_>>();
-    let relation = |name| model.relations().iter().find(|r| r.name() == name)
-        .unwrap_or_else(|| panic!("mandatory reader relation absent: {name}"));
+    let relation = |name| {
+        model
+            .relations()
+            .iter()
+            .find(|r| r.name() == name)
+            .unwrap_or_else(|| panic!("mandatory reader relation absent: {name}"))
+    };
     let mut pending = inputs.iter().map(|r| r.name()).collect::<Vec<_>>();
     while let Some(name) = pending.pop() {
         let row = relation(name);
-        for required in row.fields().iter().filter_map(|f| f.target().map(|(_, n)| n))
-            .chain(row.invariants().iter().flat_map(|i| i.inputs.iter().map(ValidationInput::name)))
+        for required in row
+            .fields()
+            .iter()
+            .filter_map(|f| f.target().map(|(_, n)| n))
+            .chain(
+                row.invariants()
+                    .iter()
+                    .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
+            )
         {
             if (!facts.contains(required) || is_vocabulary(required))
                 && !inputs.iter().any(|r| r.name() == required)
@@ -151,20 +165,37 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         },
     ]);
     declarations.extend(catalog_runtime::stages(profile, &model));
-    let mandatory = declarations.iter().find(|s| s.name == "retrieval_mandatory_control").unwrap();
+    let mandatory = declarations
+        .iter()
+        .find(|s| s.name == "retrieval_mandatory_control")
+        .unwrap();
     assert!(mandatory.reads::<analysis::source_call::AnalysisCoverage>());
     for input in &mandatory.inputs {
-        assert!(declarations.iter().filter(|s| s.name != mandatory.name)
-            .any(|s| s.outputs.iter().any(|r| r.name() == input.name())),
-            "mandatory input has no actual scheduled producer: {}", input.name());
+        assert!(
+            declarations
+                .iter()
+                .filter(|s| s.name != mandatory.name)
+                .any(|s| s.outputs.iter().any(|r| r.name() == input.name())),
+            "mandatory input has no actual scheduled producer: {}",
+            input.name()
+        );
     }
     let schedule = catalog_schedule::schedule(&model, declarations, profile);
-    for invariant in schedule.stages().iter().find(|s| s.name == "retrieval_mandatory_control")
-        .unwrap().read_invariants(&model).unwrap()
+    for invariant in schedule
+        .stages()
+        .iter()
+        .find(|s| s.name == "retrieval_mandatory_control")
+        .unwrap()
+        .read_invariants(&model)
+        .unwrap()
     {
         for boundary in invariant.inputs.iter().filter_map(ValidationInput::prefix) {
-            schedule.prefix_for(boundary).unwrap_or_else(|e|
-                panic!("mandatory invariant {} has no immutable publication: {e}", invariant.name));
+            schedule.prefix_for(boundary).unwrap_or_else(|e| {
+                panic!(
+                    "mandatory invariant {} has no immutable publication: {e}",
+                    invariant.name
+                )
+            });
         }
     }
     assert!(
@@ -387,13 +418,27 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     }
     let receipt = execution.finish().unwrap();
     assert_eq!(expected_receipts.len(), 9);
-    assert_eq!(receipt.sources().iter()
-        .filter(|source| source.producer() == "retrieval_mandatory_control").count(), 9);
+    assert_eq!(
+        receipt
+            .sources()
+            .iter()
+            .filter(|source| source.producer() == "retrieval_mandatory_control")
+            .count(),
+        9
+    );
     for (relation, expected) in expected_receipts {
-        let actual = receipt.sources().iter().find(|source|
-            source.producer() == "retrieval_mandatory_control" && source.relation() == relation)
+        let actual = receipt
+            .sources()
+            .iter()
+            .find(|source| {
+                source.producer() == "retrieval_mandatory_control" && source.relation() == relation
+            })
             .unwrap_or_else(|| panic!("mandatory output receipt missing: {relation}"));
-        assert_eq!(actual.receipt(), expected, "stored mandatory output differs: {relation}");
+        assert_eq!(
+            actual.receipt(),
+            expected,
+            "stored mandatory output differs: {relation}"
+        );
     }
     let sealed = attempt.seal(receipt).await.unwrap();
     let s = id.schema();
@@ -437,9 +482,12 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         Ok(_) => panic!("partial assembly unexpectedly validated"),
         Err(error) => error,
     };
-    assert!(matches!(refusal,
+    assert!(
+        matches!(refusal,
         lctx_postgres::generations::Error::Model(ModelError::Invalid(ref message))
-        if message == "analytic embedding needs one immutable text definition"), "{refusal:?}");
+        if message == "analytic embedding needs one immutable text definition"),
+        "{refusal:?}"
+    );
     store.abort(id).await.unwrap();
     drop(configuration);
     drop(captured);

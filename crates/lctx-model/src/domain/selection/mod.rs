@@ -1,12 +1,12 @@
 //! Finite catalog requirements and evidence selection; serving only lowers this contract.
+pub mod admission;
 pub mod algebra;
 pub mod build;
 pub mod classification;
-pub mod admission;
-mod preparation;
 pub mod evaluate;
 pub mod frames;
 mod inventory;
+mod preparation;
 mod vocabulary;
 use crate::domain::*;
 pub use vocabulary::*;

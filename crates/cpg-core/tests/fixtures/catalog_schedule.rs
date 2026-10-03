@@ -1,5 +1,5 @@
 //! Facts/Local publication schedule used by catalog evidence, selection and retrieval controls.
-use lctx_model::domain::{stages::*, ValidatedModel};
+use lctx_model::domain::{ValidatedModel, stages::*};
 pub fn schedule(model: &ValidatedModel, stages: Vec<Stage>, profile: Profile) -> Schedule {
     let facts = stages
         .iter()

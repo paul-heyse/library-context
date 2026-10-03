@@ -1,8 +1,5 @@
 //! Replay-sealed analytic navigation observations. Exact FCA means the declared finite context.
-use super::{
-    build::need,
-    *,
-};
+use super::{build::need, *};
 use crate::domain::{
     analysis::{
         self, analytic as owner,

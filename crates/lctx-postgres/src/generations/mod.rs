@@ -1,37 +1,37 @@
 //! Immutable generation schemas lowered exclusively from a validated semantic model (ADR-0086).
+mod capability_service;
 mod catalog;
 mod codec;
 mod ddl;
+mod evidence_service;
 mod failure;
+mod guard;
 mod install;
 mod lease;
 mod lifecycle;
 pub(crate) mod locks;
-mod publication_validation;
-mod receipts;
-mod reader;
-mod guard;
-mod serving_shape;
-mod runtime;
-mod vectors;
-mod evidence_service;
-mod capability_service;
 mod native_service;
+mod publication_validation;
+mod reader;
+mod runtime;
+mod serving_shape;
+mod vectors;
 pub use native_service::PreparedNative;
 mod service;
 pub use service::ServingService;
 mod retrieval_service;
-pub use retrieval_service::{RetrievalService,RankingRequest,NumericalCorpus,NumericalQuery};
+pub use retrieval_service::{NumericalCorpus, NumericalQuery, RankingRequest, RetrievalService};
 mod catalog_service;
-mod packet_service;
 mod operation_sections;
+mod packet_service;
 pub use catalog_service::CatalogService;
-pub use vectors::{VectorArtifact,ScoredVectors};
 pub use guard::GenerationGuard;
-pub use runtime::{GenerationService, RequestExecution, PreparedReservation};
+pub use runtime::{GenerationService, PreparedReservation, RequestExecution};
+pub use vectors::{ScoredVectors, VectorArtifact};
+mod receipts;
 mod selection;
 pub use reader::GenerationReader;
-pub use selection::{AdmittedSelection,SELECTION_PREPARATION_BYTES};
+pub use selection::{AdmittedSelection, SELECTION_PREPARATION_BYTES};
 mod stage_validation;
 mod validation_views;
 mod verify;
@@ -46,7 +46,7 @@ use futures::TryStreamExt;
 pub use install::ResetInventory;
 use lctx_model::domain::resources::{MAX_ROW_BYTES, ResourceBudget, TRANSFER_BYTES, TRANSFER_ROWS};
 use lctx_model::domain::{
-    Batch, ContentHash, Infrastructure, ModelError, Record, Relation, ValidatedModel,
+    Batch, ContentHash, Id, Infrastructure, ModelError, Record, Relation, ValidatedModel,
     admission::Frontier,
 };
 pub use lease::{AttemptReadContract, Held, LeaseContract, LeaseDriver, LeaseParam};
@@ -79,6 +79,8 @@ pub enum Error {
         #[source]
         source: sqlx::Error,
     },
+    #[error("serving resource refused: {0}")]
+    ResourceRefused(&'static str),
     #[error("generation state does not permit this operation")]
     State,
     /// No generation with this id is registered: never created, aborted or retired.
@@ -132,6 +134,7 @@ impl Error {
             Self::Commit(_) | Self::Rollback { .. } | Self::CopyAbort { .. } => {
                 Infrastructure::Unconfirmed
             }
+            Self::ResourceRefused(_) => Infrastructure::Contention,
             Self::State
             | Self::Absent
             | Self::NotInstalled
@@ -180,6 +183,12 @@ impl GenerationId {
         let mut bytes = [0; 16];
         getrandom::fill(&mut bytes).map_err(|_| Error::Random)?;
         Ok(Self(bytes))
+    }
+    pub fn bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
+    pub fn from_bytes(bytes: [u8; 16]) -> Self {
+        Self(bytes)
     }
     pub fn hex(self) -> String {
         self.0.iter().map(|b| format!("{b:02x}")).collect()
@@ -391,6 +400,18 @@ impl GenerationStore {
         if !locks::try_generation_exclusive(tx, g).await? {
             return Err(Error::Busy);
         }
+        // The optional cache follows existing generation cleanup. It cannot hold a lease or
+        // constrain generation deletion through a foreign key into the canonical store.
+        let artifact_cache: Option<String> =
+            sqlx::query_scalar("SELECT to_regclass('lctx_cache.serving_vector_artifacts')::text")
+                .fetch_one(&mut *tx)
+                .await?;
+        if artifact_cache.is_some() {
+            sqlx::query("DELETE FROM lctx_cache.serving_vector_artifacts WHERE generation_id=$1")
+                .bind(g.0.to_vec())
+                .execute(&mut *tx)
+                .await?;
+        }
         let current: Option<String> =
             sqlx::query_scalar("SELECT state FROM lctx_model_store.generations WHERE id=$1")
                 .bind(g.0.to_vec())
@@ -538,7 +559,7 @@ impl GenerationStore {
         g: GenerationId,
         budget: ResourceBudget,
     ) -> Result<GenerationLease, Error> {
-        GenerationLease::acquire(reader,self.model.clone(),self.lease_contract(g),budget).await
+        GenerationLease::acquire(reader, self.model.clone(), self.lease_contract(g), budget).await
     }
     /// The lease protocol for one generation of this store's model.
     pub fn lease_contract(&self, g: GenerationId) -> LeaseContract {
@@ -750,11 +771,24 @@ pub struct GenerationLease {
     relations: BTreeSet<&'static str>,
 }
 impl GenerationLease {
-    async fn acquire(reader:&PgPool,model:Arc<ValidatedModel>,contract:LeaseContract,budget:ResourceBudget)->Result<Self,Error> {
+    async fn acquire(
+        reader: &PgPool,
+        model: Arc<ValidatedModel>,
+        contract: LeaseContract,
+        budget: ResourceBudget,
+    ) -> Result<Self, Error> {
         // A single leased session owns both its pool permit and generation lock until release.
-        let mut connection=reader.acquire().await?;connection.close_on_drop();
-        let held=contract.acquire(&mut lease::Sqlx(&mut connection)).await?;
-        Ok(Self {connection,contract,model,budget,relations:held.relations,frontier:held.frontier})
+        let mut connection = reader.acquire().await?;
+        connection.close_on_drop();
+        let held = contract.acquire(&mut lease::Sqlx(&mut connection)).await?;
+        Ok(Self {
+            connection,
+            contract,
+            model,
+            budget,
+            relations: held.relations,
+            frontier: held.frontier,
+        })
     }
     pub fn generation(&self) -> GenerationId {
         self.contract.generation()
@@ -763,10 +797,13 @@ impl GenerationLease {
     /// Drop still closes the connection conservatively, but does not acknowledge lock release.
     /// The connection remains close-on-drop on error or cancellation and is never pooled again.
     pub async fn release(mut self) -> Result<(), Error> {
-        self.contract
+        let released = self
+            .contract
             .release(&mut lease::Sqlx(&mut self.connection))
-            .await?;
-        self.connection.close().await?;
+            .await;
+        let closed = self.connection.close().await;
+        released?;
+        closed?;
         Ok(())
     }
     /// Visit bounded typed batches while borrowing the original leased connection.
@@ -824,6 +861,131 @@ impl GenerationLease {
         .await?;
         Ok(Batch::new(&self.model, rows, &self.budget)?)
     }
+    /// Streaming set lookup for large original artifacts. The finite owner declares the
+    /// nominal relation field and ordering; both are checked before building SQL.
+    pub async fn visit_for<R: Record, T: Record>(
+        &mut self,
+        field: &'static str,
+        ids: &[Id<T>],
+        order: &[&str],
+        mut visitor: impl FnMut(Batch<R>) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let relation = self.model.require::<R>()?.clone();
+        if !self.relations.contains(R::NAME) {
+            return Err(Error::Frontier(R::NAME.into()));
+        }
+        if field != "id" || std::any::TypeId::of::<R>() != std::any::TypeId::of::<T>() {
+            let f = relation
+                .fields()
+                .iter()
+                .find(|f| f.name() == field)
+                .ok_or(Error::Contract)?;
+            if f.list()
+                || f.scalar() != lctx_model::domain::Scalar::Id
+                || f.target().map(|t| t.0) != Some(std::any::TypeId::of::<T>())
+            {
+                return Err(Error::Contract);
+            }
+        }
+        if order.is_empty()
+            || order.iter().any(|name| {
+                *name != "id"
+                    && !relation
+                        .fields()
+                        .iter()
+                        .any(|f| f.name() == *name && !f.list())
+            })
+        {
+            return Err(Error::Contract);
+        }
+        let _keys_charge = self
+            .budget
+            .reserve("serving-set-keys", ids.len().saturating_mul(64))?;
+        let keys: Vec<_> = ids.iter().map(|id| id.bytes().to_vec()).collect();
+        let model = self.model.clone();
+        let budget = self.budget.clone();
+        let generation = self.generation();
+        let result = visit_physical_inner(
+            &mut self.connection,
+            generation,
+            &relation,
+            R::NAME,
+            order,
+            &budget,
+            Some((field, &keys)),
+            |arrow| visitor(Batch::read(&model, &arrow, &budget)?),
+        )
+        .await;
+        self.connection.shrink_buffers();
+        result
+    }
+    /// Set-based packet hydration. Field names are checked against nominal declarations before
+    /// SQL construction; identifiers never arrive from a serving request.
+    pub async fn read_ids<R: Record>(&mut self, ids: &[Id<R>]) -> Result<Batch<R>, Error> {
+        self.read_for::<R, R>("id", ids).await
+    }
+    pub async fn read_for<R: Record, T: Record>(
+        &mut self,
+        field: &'static str,
+        ids: &[Id<T>],
+    ) -> Result<Batch<R>, Error> {
+        let relation = self
+            .model
+            .relations()
+            .iter()
+            .find(|r| r.name() == R::NAME)
+            .ok_or(Error::Contract)?
+            .clone();
+        if !self.relations.contains(R::NAME) {
+            return Err(Error::Frontier(R::NAME.into()));
+        }
+        if field != "id" || std::any::TypeId::of::<R>() != std::any::TypeId::of::<T>() {
+            let declaration = relation
+                .fields()
+                .iter()
+                .find(|f| f.name() == field)
+                .ok_or(Error::Contract)?;
+            if declaration.list()
+                || declaration.scalar() != lctx_model::domain::Scalar::Id
+                || declaration.target().map(|t| t.0) != Some(std::any::TypeId::of::<T>())
+            {
+                return Err(Error::Contract);
+            }
+        }
+        let mut retained = self
+            .budget
+            .reserve("serving-set-read", ids.len().saturating_mul(64))?;
+        let keys: Vec<_> = ids.iter().map(|id| id.bytes().to_vec()).collect();
+        let mut rows = Vec::new();
+        let mut bytes = keys.len().saturating_mul(64);
+        let model = self.model.clone();
+        let budget = self.budget.clone();
+        let generation = self.generation();
+        let result = visit_physical_inner(
+            &mut self.connection,
+            generation,
+            &relation,
+            R::NAME,
+            &["id"],
+            &budget,
+            Some((field, &keys)),
+            |arrow| {
+                let batch = Batch::<R>::read(&model, &arrow, &budget)?;
+                for row in batch.rows() {
+                    bytes = bytes
+                        .checked_add(size_of::<R>().saturating_mul(2) + row.heap_bytes())
+                        .ok_or(Error::Contract)?;
+                }
+                retained.try_resize(bytes)?;
+                rows.extend_from_slice(batch.rows());
+                Ok(())
+            },
+        )
+        .await;
+        self.connection.shrink_buffers();
+        result?;
+        Ok(Batch::new(&model, rows, &budget)?)
+    }
 }
 
 /// Rows are buffered up to one transfer batch. Raw rows and their decoded form are admitted
@@ -856,15 +1018,20 @@ async fn visit_named(
     budget: &ResourceBudget,
     visitor: impl FnMut(RecordBatch) -> Result<(), Error>,
 ) -> Result<(), Error> {
-    let result =
-        visit_physical_inner(connection, g, relation, physical, order, budget, visitor).await;
+    let result = visit_physical_inner(
+        connection, g, relation, physical, order, budget, None, visitor,
+    )
+    .await;
     // SQLx retains the largest protocol buffers unless explicitly shrunk. The stream is gone
     // before this call, including on a visitor/resource refusal.
     connection.shrink_buffers();
     result
 }
 
-#[allow(clippy::too_many_arguments, reason = "Validated physical read inputs, budget and visitor keep the SQL effect local")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Validated physical read inputs, budget and visitor keep the SQL effect local"
+)]
 async fn visit_physical_inner(
     connection: &mut PgConnection,
     g: GenerationId,
@@ -872,6 +1039,7 @@ async fn visit_physical_inner(
     physical: &str,
     order: &[&str],
     budget: &ResourceBudget,
+    filter: Option<(&str, &[Vec<u8>])>,
     mut visitor: impl FnMut(RecordBatch) -> Result<(), Error>,
 ) -> Result<(), Error> {
     let columns = relation
@@ -898,15 +1066,23 @@ async fn visit_physical_inner(
         .collect::<Vec<_>>()
         .join(",");
     let query = format!(
-        "SELECT {}{columns} FROM {} ORDER BY {order}",
+        "SELECT {}{columns} FROM {}{} ORDER BY {order}",
         if physical.starts_with("__delta_") {
             "DISTINCT "
         } else {
             ""
         },
-        qualified(g, physical)
+        qualified(g, physical),
+        filter.map_or(String::new(), |(field, _)| format!(
+            " WHERE {}=ANY($1)",
+            quoted(field)
+        ))
     );
-    let mut stream = sqlx::query(sqlx::AssertSqlSafe(query)).fetch(connection);
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(query));
+    if let Some((_, keys)) = filter {
+        query = query.bind(keys);
+    }
+    let mut stream = query.fetch(connection);
     let mut rows = Vec::new();
     let mut bytes = 0usize;
     let mut held = budget.reserve("postgres-read", 0)?;

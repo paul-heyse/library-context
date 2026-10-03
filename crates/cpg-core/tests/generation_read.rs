@@ -207,14 +207,10 @@ async fn rich(db: &DisposableDatabase) -> Rich {
 async fn provider_reads_equal_typed_readback() {
     let db = DisposableDatabase::start().await;
     let fixture = rich(&db).await;
-    let session = GenerationSession::open(
-        &serving(&db),
-        facts_model(),
-        fixture.generation,
-        options(),
-    )
-    .await
-    .unwrap();
+    let session =
+        GenerationSession::open(&serving(&db), facts_model(), fixture.generation, options())
+            .await
+            .unwrap();
     let batches = collect(session.table::<ArtifactChunk>().unwrap())
         .await
         .unwrap();
@@ -272,14 +268,10 @@ async fn provider_reads_equal_typed_readback() {
 async fn closed_filter_pushdown() {
     let db = DisposableDatabase::start().await;
     let fixture = rich(&db).await;
-    let session = GenerationSession::open(
-        &serving(&db),
-        facts_model(),
-        fixture.generation,
-        options(),
-    )
-    .await
-    .unwrap();
+    let session =
+        GenerationSession::open(&serving(&db), facts_model(), fixture.generation, options())
+            .await
+            .unwrap();
     let packages = session.table::<Package>().unwrap();
     let chunks = session.table::<ArtifactChunk>().unwrap();
     let id = fixture.packages[1].id();
@@ -596,14 +588,10 @@ async fn pin_survives_selection_change_and_frontier_is_enforced() {
 async fn lease_blocks_retire_close_releases() {
     let db = DisposableDatabase::start().await;
     let fixture = rich(&db).await;
-    let session = GenerationSession::open(
-        &serving(&db),
-        facts_model(),
-        fixture.generation,
-        options(),
-    )
-    .await
-    .unwrap();
+    let session =
+        GenerationSession::open(&serving(&db), facts_model(), fixture.generation, options())
+            .await
+            .unwrap();
     assert_eq!(
         provider_backends(&db).await.len(),
         2,
@@ -631,14 +619,9 @@ async fn byte_bounded_batches_and_reservation_refusal() {
         },
         ..options()
     };
-    let session = GenerationSession::open(
-        &serving(&db),
-        facts_model(),
-        fixture.generation,
-        narrow,
-    )
-    .await
-    .unwrap();
+    let session = GenerationSession::open(&serving(&db), facts_model(), fixture.generation, narrow)
+        .await
+        .unwrap();
     let batches = collect(session.table::<Package>().unwrap()).await.unwrap();
     assert_eq!(
         batches
@@ -655,14 +638,9 @@ async fn byte_bounded_batches_and_reservation_refusal() {
     // Default limits: no batch holds more than 8 MiB of rows (8 whole chunks).
     let session_default = {
         session.close().await.unwrap();
-        GenerationSession::open(
-            &serving(&db),
-            facts_model(),
-            fixture.generation,
-            options(),
-        )
-        .await
-        .unwrap()
+        GenerationSession::open(&serving(&db), facts_model(), fixture.generation, options())
+            .await
+            .unwrap()
     };
     let batches = collect(session_default.table::<ArtifactChunk>().unwrap())
         .await
@@ -711,14 +689,10 @@ async fn byte_bounded_batches_and_reservation_refusal() {
 async fn cancellation_mid_stream_drains_and_returns() {
     let db = DisposableDatabase::start().await;
     let fixture = rich(&db).await;
-    let session = GenerationSession::open(
-        &serving(&db),
-        facts_model(),
-        fixture.generation,
-        options(),
-    )
-    .await
-    .unwrap();
+    let session =
+        GenerationSession::open(&serving(&db), facts_model(), fixture.generation, options())
+            .await
+            .unwrap();
     let before = provider_backends(&db).await;
     assert_eq!(before.len(), 2);
     for _ in 0..3 {
@@ -781,14 +755,10 @@ async fn cancellation_mid_stream_drains_and_returns() {
 async fn transport_loss_is_terminal() {
     let db = DisposableDatabase::start().await;
     let fixture = rich(&db).await;
-    let session = GenerationSession::open(
-        &serving(&db),
-        facts_model(),
-        fixture.generation,
-        options(),
-    )
-    .await
-    .unwrap();
+    let session =
+        GenerationSession::open(&serving(&db), facts_model(), fixture.generation, options())
+            .await
+            .unwrap();
     assert!(matches!(session.health(), PoolHealth::Ready { .. }));
     sqlx::query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'lctx-provider'").execute(&db.superuser).await.unwrap();
     let lost = collect(session.table::<Package>().unwrap())
@@ -982,14 +952,9 @@ async fn inspection_memory_is_bounded() {
         inspection_memory: 1 << 20,
         ..options()
     };
-    let session = GenerationSession::open(
-        &serving(&db),
-        facts_model(),
-        fixture.generation,
-        small,
-    )
-    .await
-    .unwrap();
+    let session = GenerationSession::open(&serving(&db), facts_model(), fixture.generation, small)
+        .await
+        .unwrap();
     let inspection = InspectionSession::new(session).unwrap();
     let refused = inspection
         .query("SELECT * FROM artifact_chunks ORDER BY ordinal DESC")
@@ -1046,13 +1011,8 @@ async fn a_lease_lock_timeout_is_contention() {
         lock_timeout_seconds: 1,
         ..serving(&db)
     };
-    let refused = GenerationSession::open(
-        &impatient,
-        facts_model(),
-        fixture.generation,
-        options(),
-    )
-    .await;
+    let refused =
+        GenerationSession::open(&impatient, facts_model(), fixture.generation, options()).await;
     assert!(
         matches!(&refused, Err(ReadError::Store(StoreError::Driver { class: lctx_model::domain::Infrastructure::Contention, detail }))
         if detail.contains("55P03")),
@@ -1064,15 +1024,10 @@ async fn a_lease_lock_timeout_is_contention() {
         .await
         .unwrap();
     drop(holder);
-    GenerationSession::open(
-        &impatient,
-        facts_model(),
-        fixture.generation,
-        options(),
-    )
-    .await
-    .unwrap()
-    .close()
-    .await
-    .unwrap();
+    GenerationSession::open(&impatient, facts_model(), fixture.generation, options())
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
 }

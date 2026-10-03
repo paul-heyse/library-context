@@ -177,16 +177,25 @@ async fn actual_read_inventory_and_complete_negative_are_replayed() {
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
+                    .visit(
+                        <$ty>::NAME,
+                        &<$ty as Record>::encode(($rows).as_ref()).unwrap(),
+                    )
                     .unwrap()
             };
         }
-        put!(analysis::local::AnalysisInvocation, std::slice::from_ref(&local));
+        put!(
+            analysis::local::AnalysisInvocation,
+            std::slice::from_ref(&local)
+        );
         put!(
             analysis::base_evaluation::AnalysisInvocation,
             std::slice::from_ref(&invocation)
         );
-        put!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
+        put!(
+            analysis::AnalysisDefinition,
+            std::slice::from_ref(&definition)
+        );
         put!(
             execution::production::EvaluationRun,
             std::slice::from_ref(&records.run)

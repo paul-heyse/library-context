@@ -1233,10 +1233,28 @@ fn a_stage_outcome_must_agree_with_its_coverage() {
 #[test]
 fn derived_flow_assertions_do_not_claim_native_provider_coverage() {
     use lctx_model::domain::{assertion::Assertion, attribution::FactFamily, flow, transfer};
-    assert_eq!(Relation::of::<flow::FlowRegionObservation>().family(), Some(FactFamily::Flow));
-    assert_eq!(Relation::of::<flow::FlowRegionSupport>().family(), Some(FactFamily::Flow));
-    assert_eq!(Relation::of::<transfer::local::ControlInfluence>().family(), None);
-    assert_eq!(Relation::of::<transfer::local::ControlSupport>().family(), None);
-    assert_eq!(Relation::of::<transfer::summary::ControlInfluence>().family(), None);
-    assert_eq!(<transfer::local::ControlInfluence as Assertion>::FAMILY, FactFamily::Flow);
+    assert_eq!(
+        Relation::of::<flow::FlowRegionObservation>().family(),
+        Some(FactFamily::Flow)
+    );
+    assert_eq!(
+        Relation::of::<flow::FlowRegionSupport>().family(),
+        Some(FactFamily::Flow)
+    );
+    assert_eq!(
+        Relation::of::<transfer::local::ControlInfluence>().family(),
+        None
+    );
+    assert_eq!(
+        Relation::of::<transfer::local::ControlSupport>().family(),
+        None
+    );
+    assert_eq!(
+        Relation::of::<transfer::summary::ControlInfluence>().family(),
+        None
+    );
+    assert_eq!(
+        <transfer::local::ControlInfluence as Assertion>::FAMILY,
+        FactFamily::Flow
+    );
 }

@@ -65,9 +65,7 @@ pub async fn produce(
     lctx_model::structural_outputs!(inventory);
     lctx_model::analytic_extra_inputs!(inventory);
     lctx_model::analytic_consumption_inputs!(inventory);
-    read!(
-        projection::ProjectionSourceAssessment
-    );
+    read!(projection::ProjectionSourceAssessment);
     lctx_model::expected_domain_inputs!(inventory);
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;

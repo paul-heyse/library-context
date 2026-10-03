@@ -8,9 +8,8 @@ use super::{
 };
 use crate::domain::{
     analysis::{
-        self, AnalysisDefinition,
-        base_completion::AnalysisInvocation, native::NativeAssertionPremise,
-        policy::EvidenceStatus,
+        self, AnalysisDefinition, base_completion::AnalysisInvocation,
+        native::NativeAssertionPremise, policy::EvidenceStatus,
     },
     assertion::AssertionQualification,
     normalized::{Rows, entities::EntityRef},

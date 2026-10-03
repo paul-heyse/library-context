@@ -230,26 +230,39 @@ async fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_all
     use lctx_model::domain::{conditions::entry::*, normalized::entities::*};
     let (data, entries, budget) = data().await;
     let source_files = files("execution_channels");
-    let callable = data.callables.iter().find(|row| matches!(row,
-        CallableEntity::Source { declaration, .. } if {
-            let occurrence = data.occurrences.get(*declaration).unwrap();
-            let source = data.artifacts.get(occurrence.source).unwrap();
-            source_files[&source.path][occurrence.start as usize..occurrence.end as usize]
-                .starts_with(b"def read(")
-        }
-    )).unwrap();
-    let expected_owner = EntityRef::Callable { callable: callable.id() }.id();
+    let callable = data
+        .callables
+        .iter()
+        .find(|row| {
+            matches!(row,
+                CallableEntity::Source { declaration, .. } if {
+                    let occurrence = data.occurrences.get(*declaration).unwrap();
+                    let source = data.artifacts.get(occurrence.source).unwrap();
+                    source_files[&source.path][occurrence.start as usize..occurrence.end as usize]
+                        .starts_with(b"def read(")
+                }
+            )
+        })
+        .unwrap();
+    let expected_owner = EntityRef::Callable {
+        callable: callable.id(),
+    }
+    .id();
     let read = data
         .occurrences
         .iter()
         .find(|o| {
-            o.syntax_kind == SyntaxKind::ExprName && o.role == OccurrenceRole::Read
-                && data.owners.iter().any(|owner| owner.occurrence == o.id() && owner.entity == expected_owner)
+            o.syntax_kind == SyntaxKind::ExprName
+                && o.role == OccurrenceRole::Read
+                && data
+                    .owners
+                    .iter()
+                    .any(|owner| owner.occurrence == o.id() && owner.entity == expected_owner)
                 && {
-                let source = data.artifacts.get(o.source).unwrap();
-                files("execution_channels")[&source.path][o.start as usize..o.end as usize]
-                    == *b"value"
-            }
+                    let source = data.artifacts.get(o.source).unwrap();
+                    files("execution_channels")[&source.path][o.start as usize..o.end as usize]
+                        == *b"value"
+                }
         })
         .unwrap();
     let owner = entries
@@ -746,15 +759,19 @@ async fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_f
         check
             .visit(
                 analysis::base_evaluation::AnalysisInvocation::NAME,
-                &analysis::base_evaluation::AnalysisInvocation::encode(std::slice::from_ref(&eval_invocation))
-                    .unwrap(),
+                &analysis::base_evaluation::AnalysisInvocation::encode(std::slice::from_ref(
+                    &eval_invocation,
+                ))
+                .unwrap(),
             )
             .unwrap();
         check
             .visit(
                 analysis::base_completion::AnalysisInvocation::NAME,
-                &analysis::base_completion::AnalysisInvocation::encode(std::slice::from_ref(&invocation))
-                    .unwrap(),
+                &analysis::base_completion::AnalysisInvocation::encode(std::slice::from_ref(
+                    &invocation,
+                ))
+                .unwrap(),
             )
             .unwrap();
         for rows in &earlier {
@@ -988,7 +1005,10 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
         macro_rules! put {
             ($ty:ty,$values:expr) => {
                 checker
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($values).as_ref()).unwrap())
+                    .visit(
+                        <$ty>::NAME,
+                        &<$ty as Record>::encode(($values).as_ref()).unwrap(),
+                    )
                     .unwrap();
             };
         }
@@ -996,7 +1016,10 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
         lctx_model::execution_evaluation_inputs!(inputs);
         macro_rules! entry_inputs {($($field:ident:$ty:ty,)*)=>{$(put!($ty,entry.$field.iter().cloned().collect::<Vec<_>>());)*};}
         lctx_model::entry_value_inputs!(entry_inputs);
-        put!(analysis::local::AnalysisInvocation, std::slice::from_ref(&local));
+        put!(
+            analysis::local::AnalysisInvocation,
+            std::slice::from_ref(&local)
+        );
         put!(
             publication::AnalysisInvocation,
             if omit_frame {
@@ -1005,7 +1028,10 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
                 vec![invocation.clone()]
             }
         );
-        put!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
+        put!(
+            analysis::AnalysisDefinition,
+            std::slice::from_ref(&definition)
+        );
         let mut run = output.run.clone();
         let mut boundaries = output.boundaries.iter().cloned().collect::<Vec<_>>();
         if shrink {
@@ -1113,8 +1139,10 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
         check
             .visit(
                 publication::AnalysisInvocation::NAME,
-                &<publication::AnalysisInvocation as Record>::encode(std::slice::from_ref(&invocation))
-                    .unwrap(),
+                &<publication::AnalysisInvocation as Record>::encode(std::slice::from_ref(
+                    &invocation,
+                ))
+                .unwrap(),
             )
             .unwrap();
         check.finish(&[], profile)
@@ -1180,7 +1208,10 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
     macro_rules! put_captured {
         ($ty:ty,$rows:expr) => {
             captured
-                .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
+                .visit(
+                    <$ty>::NAME,
+                    &<$ty as Record>::encode(($rows).as_ref()).unwrap(),
+                )
                 .unwrap();
         };
     }
@@ -1263,7 +1294,10 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
+                    .visit(
+                        <$ty>::NAME,
+                        &<$ty as Record>::encode(($rows).as_ref()).unwrap(),
+                    )
                     .unwrap();
             };
         }
@@ -1377,7 +1411,8 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
         check
             .visit(
                 publication::AnalysisInvocation::NAME,
-                &publication::AnalysisInvocation::encode(std::slice::from_ref(&invocation)).unwrap(),
+                &publication::AnalysisInvocation::encode(std::slice::from_ref(&invocation))
+                    .unwrap(),
             )
             .unwrap();
         check.finish(&[], profile)

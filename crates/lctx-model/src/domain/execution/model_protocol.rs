@@ -98,7 +98,11 @@ pub(super) fn emit(
     records: &mut super::model_production::ModelRecords,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let ProtocolInputs { catalog, data, execution } = protocol_inputs;
+    let ProtocolInputs {
+        catalog,
+        data,
+        execution,
+    } = protocol_inputs;
     for item in items.iter().filter(|i| i.execution == execution.id()) {
         let protocol = CheckedContextProtocol::derive(
             catalog,

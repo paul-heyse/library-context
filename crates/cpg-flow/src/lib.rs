@@ -825,9 +825,10 @@ impl<'db> Walk<'_, 'db> {
             .bindings_at_use(use_id)
             .map(|b| (b.binding, b.reachability_constraint))
             .collect();
-        let lowered = bindings.into_iter().map(|(state, reach)| {
-            (state, reach, self.condition(fid, reach))
-        }).collect::<Vec<_>>();
+        let lowered = bindings
+            .into_iter()
+            .map(|(state, reach)| (state, reach, self.condition(fid, reach)))
+            .collect::<Vec<_>>();
         // A false-only native inventory can supply an explicit negative candidate. Preserve
         // every state, including Unbound; choosing one definition could fabricate uniqueness.
         // Live/approximate sets keep the existing pruning. Loop headers can expand to no rows,
@@ -957,7 +958,9 @@ impl<'db> Walk<'_, 'db> {
             // neither a missing use nor a missing formal origin is reconstructed here.
             // Computed values and call crossings retain the existing refusal boundary.
             if !identity || !call_path.is_empty() || !matches!(e, Expr::Name(_)) {
-                self.flow.skips.value(false_cause.unwrap_or(SkipCause::Stable));
+                self.flow
+                    .skips
+                    .value(false_cause.unwrap_or(SkipCause::Stable));
                 return;
             }
         }

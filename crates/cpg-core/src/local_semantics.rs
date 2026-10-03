@@ -34,7 +34,8 @@ pub async fn run(
     )
     .await
     .map_err(ModelError::codec)?;
-    let mut consumed = crate::consumed_rows::ConsumedInputs::new(LocalData::consumed_inputs(profile), budget)?;
+    let mut consumed =
+        crate::consumed_rows::ConsumedInputs::new(LocalData::consumed_inputs(profile), budget)?;
     let mut data = LocalData::new(budget);
     let mut inputs = normalized::Rows::<input::InputRevision>::new(budget);
     let mut definitions = normalized::Rows::<analysis::AnalysisDefinition>::new(budget);
@@ -56,7 +57,9 @@ pub async fn run(
     load! {definitions:analysis::AnalysisDefinition,}
     consumed.finish()?;
     if definitions.get(definition.id()) != Some(definition) {
-        return Err(ModelError::Invalid("Local selected definition is absent from confirmed configuration".into()));
+        return Err(ModelError::Invalid(
+            "Local selected definition is absent from confirmed configuration".into(),
+        ));
     }
     drop(definitions);
     reader.close().await.map_err(ModelError::codec)?;

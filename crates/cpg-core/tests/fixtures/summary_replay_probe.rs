@@ -178,7 +178,10 @@ pub async fn run(
                 }
             }
         }
-        assert!(qualification_target.is_some(), "qualification mutation needs a distinct native target");
+        assert!(
+            qualification_target.is_some(),
+            "qualification mutation needs a distinct native target"
+        );
     }
     for mutation in 0..=11 {
         if !behavioral && mutation > 1 {
@@ -237,13 +240,21 @@ pub async fn run(
                 changed |= batch.num_rows() > 0;
                 batch = analysis::summary::DischargeEvidence::encode(&[])?;
             }
-            if mutation == 9 && i.name() == execution::summary_symbolic::SymbolicFieldAlternative::NAME {
+            if mutation == 9
+                && i.name() == execution::summary_symbolic::SymbolicFieldAlternative::NAME
+            {
                 changed |= batch.num_rows() > 0;
                 batch = execution::summary_symbolic::SymbolicFieldAlternative::encode(&[])?;
             }
-            if mutation == 10 && i.name() == execution::summary_symbolic::SymbolicFieldAlternative::NAME {
-                let mut rows = execution::summary_symbolic::SymbolicFieldAlternative::decode(&batch)?;
-                if let Some(row) = rows.iter_mut().find(|row| Some(row.id()) == qualification_target) {
+            if mutation == 10
+                && i.name() == execution::summary_symbolic::SymbolicFieldAlternative::NAME
+            {
+                let mut rows =
+                    execution::summary_symbolic::SymbolicFieldAlternative::decode(&batch)?;
+                if let Some(row) = rows
+                    .iter_mut()
+                    .find(|row| Some(row.id()) == qualification_target)
+                {
                     assert_ne!(row.reader_qualification, row.constructor_qualification);
                     row.reader_qualification = row.constructor_qualification;
                     changed = true;
@@ -251,13 +262,13 @@ pub async fn run(
                 batch = execution::summary_symbolic::SymbolicFieldAlternative::encode(&rows)?;
             }
             if mutation == 11 && i.name() == conditions::stability::GuardSubstitution::NAME {
-                let mut rows=conditions::stability::GuardSubstitution::decode(&batch)?;
-                if let Some(row)=rows.first_mut() {
-                    assert_ne!(row.atom,row.source_atom);
+                let mut rows = conditions::stability::GuardSubstitution::decode(&batch)?;
+                if let Some(row) = rows.first_mut() {
+                    assert_ne!(row.atom, row.source_atom);
                     row.atom = row.source_atom;
                     changed = true;
                 }
-                batch=conditions::stability::GuardSubstitution::encode(&rows)?;
+                batch = conditions::stability::GuardSubstitution::encode(&rows)?;
             }
             check.visit_input(i, &batch)?;
         }

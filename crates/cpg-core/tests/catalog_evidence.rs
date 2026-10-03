@@ -418,16 +418,36 @@ async fn run(profile: Profile) {
     let source_links:Vec<(String,String,i16,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT convert_from(f.name,'UTF8'),r.name,l.source_association,l.runtime_value FROM {s}.catalog_source_field_links l JOIN {s}.source_field_reader_links k ON k.id=l.reader JOIN {s}.source_field_readers r ON r.id=k.reader JOIN {s}.source_field_associations a ON a.id=l.association JOIN {s}.record_field_observations f ON f.id=a.field")))
         .fetch_all(db.owner.pool()).await.unwrap();
-    assert_eq!(source_links.len(),12,"six exact field readers each retain declared and native field options");
-    assert!(source_links.iter().all(|(field,reader,source,runtime)|field==reader&&*source==normalized::callables::Knowledge::Known as i16&&*runtime==normalized::callables::Knowledge::Unknown as i16));
+    assert_eq!(
+        source_links.len(),
+        12,
+        "six exact field readers each retain declared and native field options"
+    );
+    assert!(
+        source_links
+            .iter()
+            .all(|(field, reader, source, runtime)| field == reader
+                && *source == normalized::callables::Knowledge::Known as i16
+                && *runtime == normalized::callables::Knowledge::Unknown as i16)
+    );
     let option_kinds:Vec<(i16,i16,i16,i16,i64)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT fs.kind,fe.kind,ps.kind,pe.kind,count(*) FROM {s}.catalog_source_field_links l JOIN {s}.catalog_options fo ON fo.id=l.field_option JOIN {s}.catalog_option_subjects fs ON fs.id=fo.subject JOIN {s}.catalog_option_evidence fe ON fe.id=fo.evidence JOIN {s}.catalog_options po ON po.id=l.parameter_option JOIN {s}.catalog_option_subjects ps ON ps.id=po.subject JOIN {s}.catalog_option_evidence pe ON pe.id=po.evidence GROUP BY 1,2,3,4 ORDER BY 1,2,3,4")))
         .fetch_all(db.owner.pool()).await.unwrap();
-    assert_eq!(option_kinds,vec![(1,2,0,1,6),(1,3,0,1,6)],"both field-option forms bind only the generated initializer's native parameter");
-    let reader_count:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT count(DISTINCT reader) FROM {s}.catalog_source_field_links")))
-        .fetch_one(db.owner.pool()).await.unwrap();
-    assert_eq!(reader_count,6,"PlainConfig supplies no supported-record source link");
+    assert_eq!(
+        option_kinds,
+        vec![(1, 2, 0, 1, 6), (1, 3, 0, 1, 6)],
+        "both field-option forms bind only the generated initializer's native parameter"
+    );
+    let reader_count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(DISTINCT reader) FROM {s}.catalog_source_field_links"
+    )))
+    .fetch_one(db.owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        reader_count, 6,
+        "PlainConfig supplies no supported-record source link"
+    );
     let roots: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(*) FROM {s}.catalog_evidence_roots"
     )))

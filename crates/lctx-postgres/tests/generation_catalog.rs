@@ -21,18 +21,36 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
         .unwrap();
     let catalog = GenerationCatalog::new(db.reader.clone());
     // Live conformance attempts in each unpublished state.
-    let staging_h = Harness::begin_empty_conformance(&store, db.writer.clone(), Profile::Behavioral, budget(), vec![])
-        .await
-        .unwrap();
+    let staging_h = Harness::begin_empty_conformance(
+        &store,
+        db.writer.clone(),
+        Profile::Behavioral,
+        budget(),
+        vec![],
+    )
+    .await
+    .unwrap();
     let staging = staging_h.generation();
-    let mut sealed_h = Harness::begin_empty_conformance(&store, db.writer.clone(), Profile::Catalog, budget(), vec![])
-        .await
-        .unwrap();
+    let mut sealed_h = Harness::begin_empty_conformance(
+        &store,
+        db.writer.clone(),
+        Profile::Catalog,
+        budget(),
+        vec![],
+    )
+    .await
+    .unwrap();
     let sealed = sealed_h.generation();
     sealed_h.seal().await.unwrap();
-    let mut validated_h = Harness::begin_empty_conformance(&store, db.writer.clone(), Profile::Catalog, budget(), vec![])
-        .await
-        .unwrap();
+    let mut validated_h = Harness::begin_empty_conformance(
+        &store,
+        db.writer.clone(),
+        Profile::Catalog,
+        budget(),
+        vec![],
+    )
+    .await
+    .unwrap();
     let validated = validated_h.generation();
     validated_h.seal().await.unwrap();
     validated_h.validate(&budget()).await.unwrap();

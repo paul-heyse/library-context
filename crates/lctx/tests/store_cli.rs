@@ -1,7 +1,9 @@
 //! The store, generation and query commands driven through the binary against a disposable real
 //! PostgreSQL 18 with protected (0600) configurations (cutover plan P1.11). Exit status: 0 ok,
 //! 1 error, 2 refused, 3 unavailable.
-use lctx_model::domain::{Record, input::Package, model, stages::Profile, transfer::local::TransferKey};
+use lctx_model::domain::{
+    Record, input::Package, model, stages::Profile, transfer::local::TransferKey,
+};
 use lctx_postgres::generations::GenerationStore;
 use lctx_postgres::testing::{
     DisposableDatabase, Harness,
@@ -76,7 +78,9 @@ async fn store_generation_and_query_commands() {
         db.writer.clone(),
         Profile::Catalog,
         budget(),
-        vec![Package { name: "example".into() }],
+        vec![Package {
+            name: "example".into(),
+        }],
     )
     .await
     .unwrap();

@@ -104,7 +104,10 @@ fn is_expression(kind: SyntaxKind) -> bool {
 }
 /// The caller's captured profile owns request selection. Publication independently verifies that
 /// profile through the analysis family's declared frontier callback.
-#[allow(clippy::too_many_arguments, reason = "Public publication boundary keeps independently admitted evaluation, entry, binding and event owners explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Public publication boundary keeps independently admitted evaluation, entry, binding and event owners explicit."
+)]
 pub fn evaluate_all(
     data: &EvaluationData,
     entry: &EntryData,

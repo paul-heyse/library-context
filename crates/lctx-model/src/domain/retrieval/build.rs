@@ -279,7 +279,11 @@ fn add(
     render: Render,
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let RenderedIdentity { family, origin, title } = rendered_identity;
+    let RenderedIdentity {
+        family,
+        origin,
+        title,
+    } = rendered_identity;
     for a in &render.anchors {
         let (artifact, _, _) = super::source::coordinates(d, a)?;
         if !matches!(origin, Origin::Brief { .. })
@@ -377,7 +381,11 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                     d,
                     &mut out,
                     root,
-                    RenderedIdentity { family: Family::ApiOptions, origin: Origin::Api { member: *member }, title: title.clone() },
+                    RenderedIdentity {
+                        family: Family::ApiOptions,
+                        origin: Origin::Api { member: *member },
+                        title: title.clone(),
+                    },
                     api(d, m, root.context)?,
                     b,
                 )?;
@@ -393,9 +401,13 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                     d,
                     &mut out,
                     root,
-                    RenderedIdentity { family: Family::Source, origin: Origin::Original {
-                        source: source.id(),
-                    }, title: need(&d.source.core.artifacts, module.source)?.path.clone() },
+                    RenderedIdentity {
+                        family: Family::Source,
+                        origin: Origin::Original {
+                            source: source.id(),
+                        },
+                        title: need(&d.source.core.artifacts, module.source)?.path.clone(),
+                    },
                     Render {
                         text: text.value.clone(),
                         anchors: vec![anchor],
@@ -457,9 +469,13 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                     d,
                     &mut out,
                     root,
-                    RenderedIdentity { family: Family::Scenario, origin: Origin::Scenario {
-                        scenario: *scenario,
-                    }, title: "Usage scenario".into() },
+                    RenderedIdentity {
+                        family: Family::Scenario,
+                        origin: Origin::Scenario {
+                            scenario: *scenario,
+                        },
+                        title: "Usage scenario".into(),
+                    },
                     Render {
                         text,
                         anchors,
@@ -506,12 +522,16 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                         d,
                         &mut out,
                         root,
-                        RenderedIdentity { family: Family::DocumentationDeployment, origin: Origin::Passage {
-                            observation: passage.id(),
-                        }, title: passage
-                            .heading
-                            .clone()
-                            .unwrap_or_else(|| artifact.path.clone()) },
+                        RenderedIdentity {
+                            family: Family::DocumentationDeployment,
+                            origin: Origin::Passage {
+                                observation: passage.id(),
+                            },
+                            title: passage
+                                .heading
+                                .clone()
+                                .unwrap_or_else(|| artifact.path.clone()),
+                        },
                         Render {
                             text: text.value.clone(),
                             anchors: vec![anchor],
@@ -529,12 +549,16 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                         d,
                         &mut out,
                         root,
-                        RenderedIdentity { family: Family::DocumentationDeployment, origin: Origin::Document {
-                            observation: *observation,
-                        }, title: document
-                            .title
-                            .clone()
-                            .unwrap_or_else(|| artifact.path.clone()) },
+                        RenderedIdentity {
+                            family: Family::DocumentationDeployment,
+                            origin: Origin::Document {
+                                observation: *observation,
+                            },
+                            title: document
+                                .title
+                                .clone()
+                                .unwrap_or_else(|| artifact.path.clone()),
+                        },
                         Render {
                             text: text.value.clone(),
                             anchors: vec![anchor],
@@ -562,9 +586,13 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                     d,
                     &mut out,
                     root,
-                    RenderedIdentity { family: Family::DocumentationDeployment, origin: Origin::Deployment {
-                        deployment: *deployment,
-                    }, title: observation.field.clone() },
+                    RenderedIdentity {
+                        family: Family::DocumentationDeployment,
+                        origin: Origin::Deployment {
+                            deployment: *deployment,
+                        },
+                        title: observation.field.clone(),
+                    },
                     Render {
                         text: format!(
                             "Declared {} {:?} interpretation={:?}\n{}",
@@ -710,7 +738,11 @@ fn briefs(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), ModelErr
             d,
             out,
             root,
-            RenderedIdentity { family: Family::ApiOptions, origin: Origin::Brief { brief: brief.id() }, title: brief.title.as_str().into() },
+            RenderedIdentity {
+                family: Family::ApiOptions,
+                origin: Origin::Brief { brief: brief.id() },
+                title: brief.title.as_str().into(),
+            },
             Render {
                 text,
                 anchors,

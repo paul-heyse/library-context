@@ -619,9 +619,8 @@ impl Evaluator<'_> {
                     )
                     .map_err(EvaluationError::Model)?
                     .map_err(boundary)?;
-                    self.charge.grow(
-                        std::mem::size_of_val(proof.native_premises()) * 2,
-                    )?;
+                    self.charge
+                        .grow(std::mem::size_of_val(proof.native_premises()) * 2)?;
                     for id in proof.native_premises() {
                         if !self.native.contains(id) {
                             self.native.push(*id);

@@ -2,9 +2,8 @@
 //! will have its own records and predecessor sum; base evidence never references a source call.
 use crate::domain::{
     analysis::{
-        self, AnalysisDefinition,
-        base_evaluation::AnalysisInvocation, native::NativeAssertionPremise,
-        policy::EvidenceStatus,
+        self, AnalysisDefinition, base_evaluation::AnalysisInvocation,
+        native::NativeAssertionPremise, policy::EvidenceStatus,
     },
     assertion::AssertionQualification,
     conditions::entry::{EntryAccessSource, EntryData, EntryValueWitness},

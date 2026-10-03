@@ -17,15 +17,31 @@ pub struct Prepared {
 impl Prepared {
     pub fn new(data: &Data, output: &Output, b: &ResourceBudget) -> Result<Self, ModelError> {
         output.matches(&build::build(data, b)?)?;
-        Self::from_local_rows(classification::ClassificationData::project(data,b)?, classification::copy_output(output,b)?, b)
+        Self::from_local_rows(
+            classification::ClassificationData::project(data, b)?,
+            classification::copy_output(output, b)?,
+            b,
+        )
     }
     /// Checks local finite integrity only. This grants no publication or repository admission.
-    pub fn from_local_rows(data: classification::ClassificationData, output: Output, b: &ResourceBudget) -> Result<Self,ModelError> {
-        let index = preparation::Index::new(&data,&output,b)?;
-        Ok(Self { data,output,index })
+    pub fn from_local_rows(
+        data: classification::ClassificationData,
+        output: Output,
+        b: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let index = preparation::Index::new(&data, &output, b)?;
+        Ok(Self {
+            data,
+            output,
+            index,
+        })
     }
-    pub fn data(&self) -> &classification::ClassificationData { &self.data }
-    pub fn output(&self) -> &Output { &self.output }
+    pub fn data(&self) -> &classification::ClassificationData {
+        &self.data
+    }
+    pub fn output(&self) -> &Output {
+        &self.output
+    }
     pub fn classify(
         &self,
         member: Id<catalog::CatalogMember>,
@@ -34,11 +50,25 @@ impl Prepared {
         b: &ResourceBudget,
     ) -> Result<Classified, ModelError> {
         requirement.predicate.validate()?;
-        let id = self.index.domain(member, analysis, requirement.predicate.domain())?;
-        let stored = need(&self.output.domains,id)?;
+        let id = self
+            .index
+            .domain(member, analysis, requirement.predicate.domain())?;
+        let stored = need(&self.output.domains, id)?;
         let members = self.index.members(id);
         let count = members.len();
-        let evidence_count = members.iter().map(|link| self.index.evidence(id,need(&self.output.members,*link).expect("indexed membership").context).len()).sum::<usize>();
+        let evidence_count = members
+            .iter()
+            .map(|link| {
+                self.index
+                    .evidence(
+                        id,
+                        need(&self.output.members, *link)
+                            .expect("indexed membership")
+                            .context,
+                    )
+                    .len()
+            })
+            .sum::<usize>();
         let closure_count = self.index.closure(id).len();
         let expanded = count.saturating_add(evidence_count);
         let retained = expanded
@@ -49,7 +79,7 @@ impl Prepared {
         let _reservation = b.reserve("selection-domain-observations", retained)?;
         let mut observations = Vec::new();
         for link in members {
-            let link = need(&self.output.members,*link)?;
+            let link = need(&self.output.members, *link)?;
             let c = need(&self.output.contexts, link.context)?;
             if matches!(
                 requirement.predicate,
@@ -68,9 +98,9 @@ impl Prepared {
                 continue;
             }
             let mut evidence = Vec::new();
-            for id in self.index.evidence(stored.id(),link.context) {
-                let r = need(&self.output.evidence,*id)?;
-                evidence.push(need(&self.output.witnesses,r.witness)?.clone());
+            for id in self.index.evidence(stored.id(), link.context) {
+                let r = need(&self.output.evidence, *id)?;
+                evidence.push(need(&self.output.witnesses, r.witness)?.clone());
             }
             if let Predicate::ParameterType { name, r#type } = &requirement.predicate {
                 let mut emitted = false;
@@ -129,8 +159,8 @@ impl Prepared {
         }
         let mut closure = Vec::new();
         for id in self.index.closure(stored.id()) {
-            let r = need(&self.output.closure,*id)?;
-            closure.push(need(&self.output.witnesses,r.evidence)?.clone());
+            let r = need(&self.output.closure, *id)?;
+            closure.push(need(&self.output.witnesses, r.evidence)?.clone());
         }
         let domain = Domain {
             corpus_complete: stored.corpus_complete,
@@ -236,7 +266,10 @@ impl Prepared {
         })
     }
 }
-fn public_path(d: &classification::ClassificationData, m: &catalog::CatalogMember) -> Result<Vec<String>, ModelError> {
+fn public_path(
+    d: &classification::ClassificationData,
+    m: &catalog::CatalogMember,
+) -> Result<Vec<String>, ModelError> {
     let module = need(&d.source.core.modules, m.access)?;
     let mut path = module
         .qualified_name
@@ -265,7 +298,10 @@ fn member_of<'a>(
         .map(|id| need(&d.source.catalog.members, id))
         .transpose()
 }
-fn option_name<'a>(d: &'a classification::ClassificationData, o: &catalog::CatalogOption) -> Result<Option<&'a str>, ModelError> {
+fn option_name<'a>(
+    d: &'a classification::ClassificationData,
+    o: &catalog::CatalogOption,
+) -> Result<Option<&'a str>, ModelError> {
     Ok(match need(&d.source.catalog.subjects, o.subject)? {
         catalog::CatalogOptionSubject::Parameter { slot } => {
             let slot = need(&d.source.core.slots, *slot)?;
@@ -281,7 +317,10 @@ fn option_name<'a>(d: &'a classification::ClassificationData, o: &catalog::Catal
         catalog::CatalogOptionSubject::SourceParameter { .. } => None,
     })
 }
-fn default_state(d: &classification::ClassificationData, o: &catalog::CatalogOption) -> Result<DefaultState, ModelError> {
+fn default_state(
+    d: &classification::ClassificationData,
+    o: &catalog::CatalogOption,
+) -> Result<DefaultState, ModelError> {
     Ok(match need(&d.source.catalog.defaults, o.default)? {
         catalog::CatalogDefault::Absent {} => DefaultState::Absent,
         catalog::CatalogDefault::Unavailable {} => DefaultState::OptionalExpressionUnavailable,
@@ -463,7 +502,11 @@ fn field_literal(
     }
     Ok(consensus(values))
 }
-fn parameter(d: &classification::ClassificationData, p: &Predicate, c: &Context) -> Result<Option<bool>, ModelError> {
+fn parameter(
+    d: &classification::ClassificationData,
+    p: &Predicate,
+    c: &Context,
+) -> Result<Option<bool>, ModelError> {
     let Context::Signature { invocation, .. } = c else {
         return Ok(None);
     };
@@ -700,9 +743,10 @@ fn evaluate(
                 if let Some(EntityRef::Class {
                     class: parent_class,
                 }) = candidate_entity(d, p.parent)?.and_then(|id| d.source.core.refs.get(id))
-                    && *parent_class == class {
+                    && *parent_class == class
+                {
                     return Ok(Some(public_path(d, owner)? == *path));
-                    }
+                }
             }
             let mut values = Vec::new();
             for owner in d.source.catalog.classes.iter().filter(|r| r.class == class) {

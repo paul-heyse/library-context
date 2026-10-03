@@ -3,6 +3,7 @@ use super::{
     build::{invalid, need},
     handoffs, *,
 };
+use crate::Domain;
 use crate::domain::{
     analysis::{self, settings::AnalyticsConfiguration, structural as owner},
     assertion::{AssertionQualification, Support},
@@ -17,7 +18,6 @@ use crate::domain::{
     value::*,
     *,
 };
-use crate::Domain;
 #[macro_export]
 macro_rules! structural_control_inputs {
     ($apply:ident) => {
@@ -362,21 +362,31 @@ pub fn produce(
             }
             flow(FlowInputs { d, h, base }, frame, binding, proof, None, out)?;
         }
-        if bound && argument.syntax_kind == SyntaxKind::ExprName
+        if bound
+            && argument.syntax_kind == SyntaxKind::ExprName
             && let Some((_, alias)) =
                 handoffs::named_definition(h, argument, invocation.context, budget)?
-                && let handoffs::ValueSource::Named { definition, .. } = &alias {
+            && let handoffs::ValueSource::Named { definition, .. } = &alias
+        {
             for proof in d.contributions.iter() {
                 let value = need(&h.entry.values, proof.value)?;
                 if value.kind == FlowSinkKind::Definition
                     && value.transfer == transfer::TransferKind::Identity
                     && proof.definition == Some(*definition)
-                    && alias_covers(h, &alias, proof.qualification, budget)? {
+                    && alias_covers(h, &alias, proof.qualification, budget)?
+                {
                     out.handoff_values.insert(alias.clone())?;
-                    flow(FlowInputs { d, h, base }, frame, binding, proof, Some(alias.id()), out)?;
-                    }
+                    flow(
+                        FlowInputs { d, h, base },
+                        frame,
+                        binding,
+                        proof,
+                        Some(alias.id()),
+                        out,
+                    )?;
+                }
             }
-            }
+        }
         if bound {
             for row in d.observations.iter().filter(|r| {
                 h.entry

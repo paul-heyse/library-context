@@ -271,15 +271,17 @@ impl Work {
         let mut parameters = charged::ChargedMap::default();
         for row in entry.placements.iter() {
             index.tick()?;
-            if row.field == lexical::SyntaxField::Child && row.ordinal == 0
+            if row.field == lexical::SyntaxField::Child
+                && row.ordinal == 0
                 && let Some(parameter) = row.parent.filter(|p| {
                     entry
                         .occurrences
                         .get(*p)
                         .is_some_and(|o| o.syntax_kind == SyntaxKind::Parameter)
-                }) {
+                })
+            {
                 parameters.insert(&mut index.charge, row.occurrence, parameter)?;
-                }
+            }
         }
         for row in entry.reaching.iter() {
             index.tick()?;
@@ -291,7 +293,8 @@ impl Work {
                 continue;
             }
             if let Some(ReachingDefinition::Bound { definition }) = entry.targets.get(row.target)
-                && let Some(definition) = entry.definitions.get(*definition) {
+                && let Some(definition) = entry.definitions.get(*definition)
+            {
                 let parameter = parameters
                     .get(&definition.occurrence)
                     .copied()
@@ -299,19 +302,19 @@ impl Work {
                 index
                     .formal_reads
                     .update(&mut index.charge, parameter, |rows| rows.push(row.use_))?;
-                }
+            }
             if matches!(
                 entry.targets.get(row.target),
                 Some(ReachingDefinition::Nested)
-            )
-                && let Some(owner) = entry
-                    .uses
-                    .get(row.use_)
-                    .and_then(|u| index.owner(u.occurrence)) {
+            ) && let Some(owner) = entry
+                .uses
+                .get(row.use_)
+                .and_then(|u| index.owner(u.occurrence))
+            {
                 index
                     .nested
                     .update(&mut index.charge, owner, |rows| rows.push(row.id()))?;
-                }
+            }
         }
         for target in data.call_targets.iter() {
             index.tick()?;
@@ -330,11 +333,12 @@ impl Work {
         for occurrence in entry.occurrences.iter() {
             index.tick()?;
             if occurrence.syntax_kind == SyntaxKind::ExprCall
-                && let Some(owner) = index.owner(occurrence.id()) {
+                && let Some(owner) = index.owner(occurrence.id())
+            {
                 index
                     .calls
                     .update(&mut index.charge, owner, |rows| rows.push(occurrence.id()))?;
-                }
+            }
         }
         Ok(index)
     }
@@ -408,7 +412,11 @@ pub(super) fn native<S: Support>(
     site: Id<Occurrence>,
     work: &mut Work,
 ) -> Result<Option<NativeSupport>, ModelError> {
-    let NativeContext { data, entry, invocation } = native_context;
+    let NativeContext {
+        data,
+        entry,
+        invocation,
+    } = native_context;
     let mut selected = None;
     work.scan(supports.len())?;
     for support in supports.iter().filter(|s| s.assertion() == assertion) {
@@ -488,7 +496,11 @@ pub fn produce(
             continue;
         };
         let supported = native(
-            super::read_channels::NativeContext { data, entry, invocation },
+            super::read_channels::NativeContext {
+                data,
+                entry,
+                invocation,
+            },
             &entry.use_supports,
             observation.id(),
             observation.qualification,
@@ -552,7 +564,11 @@ pub fn produce(
                     global_ambiguous = true;
                 }
                 let supported_binding = native(
-                    super::read_channels::NativeContext { data, entry, invocation },
+                    super::read_channels::NativeContext {
+                        data,
+                        entry,
+                        invocation,
+                    },
                     &data.binding_supports,
                     binding.id(),
                     binding.qualification,
@@ -564,7 +580,11 @@ pub fn produce(
                 )?;
                 if let (Some(premise), Some(binding)) = (
                     native(
-                        super::read_channels::NativeContext { data, entry, invocation },
+                        super::read_channels::NativeContext {
+                            data,
+                            entry,
+                            invocation,
+                        },
                         &data.lexical_resolution_supports,
                         resolution.id(),
                         resolution.qualification,
@@ -600,7 +620,8 @@ pub fn produce(
             status: supported.map_or(EvidenceStatus::Unresolved, |p| p.2),
             execution_region: region.filter(|_| region_premise.is_some()).map(|r| r.0),
             region_premise,
-            reason: if supported.is_none() || (region_premise.is_none() && !observation.annotation) {
+            reason: if supported.is_none() || (region_premise.is_none() && !observation.annotation)
+            {
                 Some(obligation::ObligationKind::MissingEvidence)
             } else {
                 None
@@ -616,7 +637,11 @@ pub fn produce(
         }) {
             work.tick()?;
             let supported = native(
-                super::read_channels::NativeContext { data, entry, invocation },
+                super::read_channels::NativeContext {
+                    data,
+                    entry,
+                    invocation,
+                },
                 &entry.value_supports,
                 value.id(),
                 value.qualification,
@@ -646,7 +671,11 @@ pub fn produce(
             continue;
         };
         let supported = native(
-            super::read_channels::NativeContext { data, entry, invocation },
+            super::read_channels::NativeContext {
+                data,
+                entry,
+                invocation,
+            },
             &data.attribute_load_supports,
             row.id(),
             row.qualification,
@@ -710,9 +739,11 @@ pub fn produce(
         work.scan(data.callable_assessments.len())?;
         let mut body = None;
         let mut ambiguous_body = false;
-        for assessment in data.callable_assessments.iter().filter(|a| {
-            a.callable == *callable && a.context == invocation.context
-        }) {
+        for assessment in data
+            .callable_assessments
+            .iter()
+            .filter(|a| a.callable == *callable && a.context == invocation.context)
+        {
             assessment.id().encode(&mut digest);
             if body.replace(assessment).is_some() {
                 ambiguous_body = true;
@@ -721,17 +752,28 @@ pub fn produce(
         let body_refusal = if ambiguous_body {
             Some(obligation::ObligationKind::ComparableConflict)
         } else {
-            body.filter(|a| !a.body_admitted).map(|a| {
-                use crate::domain::normalized::callables::CallableReason;
-                match a.body_reason {
-                    CallableReason::BodyExcluded => obligation::ObligationKind::AbstractBody,
-                    CallableReason::ConflictingEvidence => obligation::ObligationKind::ComparableConflict,
-                    CallableReason::MissingBodyEvidence | CallableReason::MissingTraits
-                        | CallableReason::IncompleteSyntax | CallableReason::MissingSignature
-                        | CallableReason::IncompleteSignature => obligation::ObligationKind::MissingEvidence,
-                    _ => obligation::ObligationKind::ScopeBoundary,
-                }
-            }).or_else(|| body.is_none().then_some(obligation::ObligationKind::MissingEvidence))
+            body.filter(|a| !a.body_admitted)
+                .map(|a| {
+                    use crate::domain::normalized::callables::CallableReason;
+                    match a.body_reason {
+                        CallableReason::BodyExcluded => obligation::ObligationKind::AbstractBody,
+                        CallableReason::ConflictingEvidence => {
+                            obligation::ObligationKind::ComparableConflict
+                        }
+                        CallableReason::MissingBodyEvidence
+                        | CallableReason::MissingTraits
+                        | CallableReason::IncompleteSyntax
+                        | CallableReason::MissingSignature
+                        | CallableReason::IncompleteSignature => {
+                            obligation::ObligationKind::MissingEvidence
+                        }
+                        _ => obligation::ObligationKind::ScopeBoundary,
+                    }
+                })
+                .or_else(|| {
+                    body.is_none()
+                        .then_some(obligation::ObligationKind::MissingEvidence)
+                })
         };
         let mut seen = false;
         let mut unresolved = out.dynamic.iter().any(|d| {

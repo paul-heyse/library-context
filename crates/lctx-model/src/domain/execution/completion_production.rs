@@ -1,11 +1,6 @@
 //! Base completion publishes one exact outcome or explicit boundary for every selected statement.
 //! It reconstructs earlier nominal evaluations; no source-call/enriched conclusions are inputs.
-use super::{
-    body_records::*,
-    completion::*,
-    completion_records::*,
-    records::BaseCheck,
-};
+use super::{body_records::*, completion::*, completion_records::*, records::BaseCheck};
 use crate::Domain;
 use crate::domain::{
     analysis::{self, base_completion as publication},

@@ -166,9 +166,10 @@ fn types(
             r.symbol == symbol && r.context == ctx && r.status == ResolutionStatus::Resolved
         }) {
             if let Some(entity) = r.entity
-                && matches!(d.native.refs.get(entity), Some(EntityRef::Class { .. })) {
+                && matches!(d.native.refs.get(entity), Some(EntityRef::Class { .. }))
+            {
                 classes.insert(entity);
-                }
+            }
         }
     }
     for sequence in lists {

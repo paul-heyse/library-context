@@ -664,24 +664,52 @@ fn rebinding_an_isinstance_class_and_distinct_literal_objects_keep_paths_open() 
 fn retained_false_candidates_are_not_counted_as_discarded_branches() {
     let skips = &flow().skips;
     assert!(skips.reaching_runtime_view > 0, "{skips:?}");
-    assert_eq!(skips.reaching_ty_false, 0, "exact false-only candidates are retained: {skips:?}");
+    assert_eq!(
+        skips.reaching_ty_false, 0,
+        "exact false-only candidates are retained: {skips:?}"
+    );
     assert_eq!(skips.reaching_stable_contradiction, 0, "{skips:?}");
-    assert_eq!(skips.values_runtime_view, 0, "direct false identity candidates are retained: {skips:?}");
+    assert_eq!(
+        skips.values_runtime_view, 0,
+        "direct false identity candidates are retained: {skips:?}"
+    );
     assert!(flow().reaching.iter().any(|r| r.condition.is_never()));
     assert!(flow().values.iter().any(|v| v.condition.is_never()));
 }
 
 #[test]
 fn runtime_false_identity_keeps_native_source_and_live_parameter_origin() {
-    let x = use_ix("x", "return x if TYPE_CHECKING else y", "def value_runtime_branch");
-    let y = use_ix("y", "return x if TYPE_CHECKING else y", "def value_runtime_branch");
-    let source = flow().values.iter().find(|v| v.use_ix == x && v.sink == Sink::Return)
+    let x = use_ix(
+        "x",
+        "return x if TYPE_CHECKING else y",
+        "def value_runtime_branch",
+    );
+    let y = use_ix(
+        "y",
+        "return x if TYPE_CHECKING else y",
+        "def value_runtime_branch",
+    );
+    let source = flow()
+        .values
+        .iter()
+        .find(|v| v.use_ix == x && v.sink == Sink::Return)
         .expect("actual checked-false source candidate is retained");
     assert!(source.identity && !source.through_call && source.call_path.is_empty());
     assert!(source.condition.is_never());
     let origin = reaching(x);
-    assert_eq!(origin, vec![("x".into(), Some(BindingKind::Parameter), "false".into(), false)]);
-    let live = flow().values.iter().find(|v| v.use_ix == y && v.sink == Sink::Return)
+    assert_eq!(
+        origin,
+        vec![(
+            "x".into(),
+            Some(BindingKind::Parameter),
+            "false".into(),
+            false
+        )]
+    );
+    let live = flow()
+        .values
+        .iter()
+        .find(|v| v.use_ix == y && v.sink == Sink::Return)
         .expect("live branch retains its independent source");
     assert!(live.identity && live.condition.is_always());
 }
@@ -691,30 +719,69 @@ fn false_only_candidates_preserve_unbound_competitors_and_do_not_poison_live_rea
     let source = "from typing import TYPE_CHECKING\n\ndef blocked(value, enabled):\n    if enabled:\n        target = value\n    return target if TYPE_CHECKING else None\n\ndef live(value, other):\n    target = value\n    if TYPE_CHECKING:\n        target = other\n    return target\n\ndef computed(value):\n    return value + 1 if TYPE_CHECKING else None\n";
     let mut runtime = RuntimeBindings::default();
     for (at, _) in source.match_indices("TYPE_CHECKING") {
-        runtime.checking_names.insert(Span { start: at as u32, end: at as u32 + 13 });
+        runtime.checking_names.insert(Span {
+            start: at as u32,
+            end: at as u32 + 13,
+        });
     }
-    let flow = cpg_flow::index(&[Input { path: "false_candidates.py".into(), text: source.into(), runtime }],
-        &RuntimeContext { python_version: (3, 14, 7), platform: "linux".into() }).pop().unwrap();
+    let flow = cpg_flow::index(
+        &[Input {
+            path: "false_candidates.py".into(),
+            text: source.into(),
+            runtime,
+        }],
+        &RuntimeContext {
+            python_version: (3, 14, 7),
+            platform: "linux".into(),
+        },
+    )
+    .pop()
+    .unwrap();
     assert_eq!(flow.error, None);
     let at = source.find("return target if").unwrap() as u32 + 7;
     let use_ix = flow.uses.iter().position(|u| u.span.start == at).unwrap() as u32;
-    let blocked = flow.reaching.iter().filter(|r| r.use_ix == use_ix).collect::<Vec<_>>();
-    assert_eq!(blocked.len(), 2, "the native Defined and Unbound alternatives must both survive: {blocked:?}");
-    assert!(blocked.iter().all(|r| r.condition.is_never() && !r.condition.approximated()));
+    let blocked = flow
+        .reaching
+        .iter()
+        .filter(|r| r.use_ix == use_ix)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        blocked.len(),
+        2,
+        "the native Defined and Unbound alternatives must both survive: {blocked:?}"
+    );
+    assert!(
+        blocked
+            .iter()
+            .all(|r| r.condition.is_never() && !r.condition.approximated())
+    );
     assert!(blocked.iter().any(|r| r.def_ix.is_none()));
     assert!(blocked.iter().any(|r| r.def_ix.is_some()));
     let at = source.find("return target\n").unwrap() as u32 + 7;
     let use_ix = flow.uses.iter().position(|u| u.span.start == at).unwrap() as u32;
-    let live = flow.reaching.iter().filter(|r| r.use_ix == use_ix).collect::<Vec<_>>();
-    assert_eq!(live.len(), 1, "inactive competing definitions cannot poison the live Entry inventory");
+    let live = flow
+        .reaching
+        .iter()
+        .filter(|r| r.use_ix == use_ix)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        live.len(),
+        1,
+        "inactive competing definitions cannot poison the live Entry inventory"
+    );
     assert!(live[0].condition.is_always());
     let def = &flow.defs[live[0].def_ix.unwrap() as usize];
     let value = def.value.unwrap();
     assert_eq!(&source[value.start as usize..value.end as usize], "value");
     let at = source.find("return value + 1").unwrap() as u32 + 7;
     let use_ix = flow.uses.iter().position(|u| u.span.start == at).unwrap() as u32;
-    assert!(!flow.values.iter().any(|v| v.use_ix == use_ix && v.sink == Sink::Return),
-        "computed false expressions remain outside the retained identity lane");
+    assert!(
+        !flow
+            .values
+            .iter()
+            .any(|v| v.use_ix == use_ix && v.sink == Sink::Return),
+        "computed false expressions remain outside the retained identity lane"
+    );
 }
 
 #[test]

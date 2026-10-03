@@ -65,18 +65,23 @@ pub async fn produce(
     .map_err(ModelError::codec)?;
     let session = runtime.session(&access);
     let mut registered = charged::ChargedSet::default();
-    let mut registration = charged::StateCharge::new(runtime.budget(), "expected-input-registration");
+    let mut registration =
+        charged::StateCharge::new(runtime.budget(), "expected-input-registration");
     macro_rules! synthesis{($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.render.synthesis.$f,&permit,&mut admission).await?;)*};}
     lctx_model::retrieval_synthesis_inputs!(synthesis);
     macro_rules! meta {
         ($ty:ty,$rows:expr,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
             session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
-            registered.insert(&mut registration,<$ty>::NAME)?;
+            registered.insert(&mut registration, <$ty>::NAME)?;
             load(&session, $rows, &permit, $admit).await?;
         }};
     }
-    meta!(embedding::EmbeddingSpec, &mut data.specifications, &mut admission);
+    meta!(
+        embedding::EmbeddingSpec,
+        &mut data.specifications,
+        &mut admission
+    );
     meta!(
         embedding::configuration::ServiceConfiguration,
         &mut data.services,
@@ -87,7 +92,11 @@ pub async fn produce(
         &mut data.analytic_uses,
         &mut admission
     );
-    meta!(embedding::text::TextWindow, &mut data.windows, &mut admission);
+    meta!(
+        embedding::text::TextWindow,
+        &mut data.windows,
+        &mut admission
+    );
     macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,&mut rows,&mut admission);}})*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);

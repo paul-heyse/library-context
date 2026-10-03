@@ -153,8 +153,7 @@ pub fn complete_body(
                 }
                 charge.grow(
                     size_of::<Id<Occurrence>>() * 2
-                        + std::mem::size_of_val(proof.release_inputs())
-                            * 2,
+                        + std::mem::size_of_val(proof.release_inputs()) * 2,
                 )?;
                 entered.push(row.occurrence);
                 releases.extend_from_slice(proof.release_inputs());

@@ -923,9 +923,10 @@ pub fn verify(
                             compatible += 1;
                             if enumeration.is_some()
                                 && let Some(other) = first
-                                    && !equivalent_shapes(data, stored, row, other)? {
+                                && !equivalent_shapes(data, stored, row, other)?
+                            {
                                 admitted = false;
-                                }
+                            }
                         }
                         Some(BindingOutcome::ProvenIncompatible) => {}
                         _ => admitted = false,
