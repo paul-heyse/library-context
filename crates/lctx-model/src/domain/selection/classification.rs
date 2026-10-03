@@ -43,6 +43,7 @@ group!(Catalog, crate::domain::catalog::build::CatalogOutput, {
     classes: crate::domain::catalog::CatalogClass,
 });
 group!(Core, crate::domain::catalog::build::CatalogData, {
+    native_coverage: crate::domain::attribution::ProviderCoverage,
     bindings: crate::domain::lexical::BindingObservation,
     binding_events: crate::domain::lexical::BindingEvent,
     lexical_scopes: crate::domain::lexical::LexicalScope,
@@ -397,6 +398,15 @@ impl ClassificationData {
                 let Context::Signature{invocation,..}=c else{return Err(invalid("native metadata witness lacks signature context"));};
                 let variant=need(&self.source.core.variants,need(&self.source.catalog.invocations,*invocation)?.variant)?;
                 if support.assertion!=row.id()||variant.native!=Some(row.id())||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("native metadata witness crosses signature or context"));}
+            }
+            Witness::NativeTypingCoverage{coverage}=>{
+                let row=need(&self.source.core.native_coverage,*coverage)?;
+                let declaration=super::structural_facets::declaration(self,c)?.ok_or_else(||invalid("typing coverage lacks source callable"))?;
+                let artifact=need(&self.source.core.occurrences,declaration)?.source;
+                if row.context!=c.analysis()||row.scope!=(source::CoverageScope::Artifact{artifact}).id()
+                    ||row.family!=attribution::FactFamily::Types||row.status!=attribution::CoverageStatus::CompleteUnderStatedModel {
+                    return Err(invalid("typing coverage crosses source, context or complete native type inventory"));
+                }
             }
             Witness::RaisedType{observation,support}=>{
                 let row=need(&self.facts.type_observations,*observation)?;let support=need(&self.facts.type_supports,*support)?;

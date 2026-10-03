@@ -1338,7 +1338,7 @@ fn strict_preparation_owns_metadata_and_reuses_charged_indexes() {
 #[test]
 fn local_preparation_inventory_and_missing_membership_refusal() {
     use selection::classification::ClassificationData;
-    assert_eq!(ClassificationData::inputs().len(), 78);
+    assert_eq!(ClassificationData::inputs().len(), 79);
     assert!(ClassificationData::inputs().iter().any(|r| r.name() == execution::summary_exceptions::SummaryExceptionOutcome::NAME));
     assert!(
         ClassificationData::inputs()

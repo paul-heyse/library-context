@@ -332,6 +332,7 @@ pub enum Witness {
     #[model(code = 24)] RaisedType {observation:Id<types::TypeObservation>,support:Id<types::TypeSupport>},
     #[model(code = 25)] ResolvedDecorator {observation:Id<syntax::DeclarationDecorator>,support:Id<syntax::DeclarationDecoratorSupport>,assessment:Id<normalized::links::ReferenceEntityAssessment>,candidate:Id<normalized::links::ReferenceEntityCandidate>},
     #[model(code = 26)] LexicalDefinition {observation:Id<lexical::BindingObservation>,support:Id<lexical::BindingSupport>},
+    #[model(code = 27)] NativeTypingCoverage {coverage:Id<attribution::ProviderCoverage>},
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="catalog_selection_domains",invariants=super::build::invariants,semantic_source=include_bytes!("build.rs"))]

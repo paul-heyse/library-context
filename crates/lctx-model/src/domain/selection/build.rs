@@ -624,6 +624,7 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
     for row in d.facts.generic_specializations.iter(){need(&d.source.core.qualifications,row.qualification)?;out.witnesses.insert(Witness::Qualification{qualification:row.qualification})?;}
     for row in d.source.core.signature_types.iter(){out.witnesses.insert(Witness::SignatureTypeObservation{observation:row.id()})?;}
     for row in d.facts.type_observations.iter(){out.witnesses.insert(Witness::TypeObservation{observation:row.id()})?;}
+    for row in d.source.core.native_coverage.iter().filter(|r|r.family==attribution::FactFamily::Types){out.witnesses.insert(Witness::NativeTypingCoverage{coverage:row.id()})?;}
     for row in d.facts.generic_specializations.iter(){out.witnesses.insert(Witness::GenericSpecialization{observation:row.id()})?;}
     for support in d.facts.binding_supports.iter(){need(&d.source.core.bindings,support.assertion)?;out.witnesses.insert(Witness::LexicalDefinition{observation:support.assertion,support:support.id()})?;}
     for support in d.facts.declaration_supports.iter(){need(&d.source.core.declarations,support.assertion)?;out.witnesses.insert(Witness::SourceCharacterization{observation:support.assertion,support:support.id()})?;}
