@@ -233,7 +233,7 @@ that owner. Acceptance, implementation and verification remain distinct facts.
 
 ### §B1 Independent Ruff syntax, Pyrefly typing and ty flow have distinct provider roles
 
-**Accepted target, 2026-10-03; migration in progress.** Latest independent Ruff owns canonical
+**Implemented with scoped receipts, 2026-10-03; assembled acceptance pending.** Latest independent Ruff owns canonical
 syntax and contextual lexical observations. Native Pyrefly owns typing, callable/class metadata,
 Pysa candidates and public-name evidence. ty supplies flow/index, timing and precision observations
 only when requested; ty inference is an offline oracle. None of these observations independently
@@ -244,8 +244,9 @@ Owned attachment checks source snapshot/view, byte range, node kind, role, conte
 synthetic variants have optional source correspondence. The ty TYPE_CHECKING runtime view is
 explicit. Model-owned normalization and question policies interpret these inputs.
 
-Current production remains the pre-migration extractor until M1/M2 integrate the target;
-[the coordinator](../plans/code-facts-expansion-plan_2026-10-03.md) owns acceptance. Earlier
+The working tree links the migrated families and canonical parser;
+[the coordinator](../plans/code-facts-expansion-plan_2026-10-03.md) owns scoped qualification,
+remaining enrichment and assembled acceptance. Earlier
 in-process extraction/CLI parity receipts retain their original scope.
 
 > Decision: ADR-0117

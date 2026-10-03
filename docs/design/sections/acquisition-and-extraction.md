@@ -297,8 +297,11 @@ distinct observations. The ty runtime view is separately labelled even when byte
 **Implemented, 2026-10-03:** `CanonicalSyntax` now parses with latest Ruff and reuses the
 borrowed parsed module for structural extraction and contextual observation. Unreadable bytes
 remain unavailable and recovered syntax remains Partial; no recovered empty module certifies
-absence. Final contextual payload adoption and independent parser-unavailability paths remain
-open in M2; cancellation is bounded by upstream pass draining, not a hard interruption. Producer→first-operation→output fixture controls qualify the
+absence. Owned contextual bindings/definitions and normalized reference/declaration characterization
+are implemented with scoped M2 receipts. Missing or unlocated native answers remain explicit,
+including absent flags on FinalUnresolved; they do not substitute for exact source binding.
+Independent parser-unavailability remains explicit. Cancellation is bounded by upstream pass
+draining, not a hard interruption. Producer→first-operation→output fixture controls qualify the
 new source contract; a fork compile alone does not.
 
 > Decision: ADR-0117
