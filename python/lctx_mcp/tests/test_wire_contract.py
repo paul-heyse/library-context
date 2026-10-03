@@ -121,3 +121,18 @@ def test_current_response_wraps_complete_dto_and_actual_generation_key():
             wire_tool_result("get_operation", json.dumps(invalid), False)
     schema = json.loads(wire_schema("get_operation", True))
     assert schema["additionalProperties"] is False
+
+
+def test_unsupported_facets_are_refused_by_native_request_admission():
+    request = {
+        "library": "control",
+        "selection": {
+            "requirements": [
+                {"predicate": {"FacetMembership": {"facet": 0, "value": "timeout"}}, "quantifier": 0}
+            ],
+            "mode": 0,
+            "joint": 1,
+        },
+    }
+    with pytest.raises(ValueError, match="facet membership"):
+        wire_decode("find_operations", json.dumps(request))

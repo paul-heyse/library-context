@@ -588,7 +588,9 @@ impl Predicate {
             Self::PublicPath { path: p }
             | Self::ClassOwner { path: p }
             | Self::ConfigurationOwner { path: p } => path(p),
-            Self::FacetMembership { value, .. } => text(value),
+            Self::FacetMembership { .. } => Err(ModelError::Invalid(
+                "facet membership has no supported typed evaluator".into(),
+            )),
             Self::PublicModule { module } => text(module),
             Self::DeclaresParameter { name }
             | Self::ParameterKind { name, .. }

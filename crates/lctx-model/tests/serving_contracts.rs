@@ -763,3 +763,14 @@ fn discovery_explains_codes_and_closed_packet_bindings_cover_composition() {
     }
     assert!(FailureKind::from_name("driver-secret").is_none());
 }
+
+#[test]
+fn unsupported_facets_are_refused_by_every_selection_wire_route() {
+    let selection = json!({"requirements":[{"predicate":{"FacetMembership":{"facet":0,"value":"timeout"}},"quantifier":0}],"mode":0,"joint":1});
+    for tool in ["search_operations", "find_operations", "browse_library", "compare_operations"] {
+        let mut request = json!({"library":"control", "selection":selection});
+        if tool.starts_with("search_") { request["query"] = json!("timeout"); }
+        if tool == "compare_operations" { request["operations"] = json!([{"kind":"public_path","path":["control","api"]}]); }
+        assert!(matches!(decode(tool, request), Err(WireError::Invalid(message)) if message.contains("facet membership")), "{tool} must reject before service admission");
+    }
+}
