@@ -621,3 +621,28 @@ canonical syntax), protocol/terminal2 (all24 origins/phases and negative termina
 Receipts `b3-closure-1.log`, `b3-read-1.log`, `b3-model-3.log` and `b3-current-batch.json`
 retain exact commands. Source-binding, actual unchanged three-frontier PG and terminal packets
 remain pending; this is not a B3 package or full-series pass.
+
+
+Remaining packet qualification, 2026-10-03: capture PG2 **failed** after actual fixture
+publication, 187.99s (`p4-capture-pg2.log`), at operation admission before packet assertions.
+Its declaration correspondence was checked through a native-value proof helper despite the
+actual `ParameterDeclarationSupport` carrying ReportProjection fidelity. The located repair
+will preserve that attribution for the source link while retaining strict native checks for
+capture/timing/origin value proofs; actual support inspection and rerun remain pending.
+
+B3 source-binding runtime **failed** (`b3-binding-2.log`) at default-model validation:
+`SummarySupportSource::TerminalFrontier` targets `SummaryTerminalWitness`, omitted from the
+cumulative `summary_replay::relations` owner list. The custom stage fixture declared it;
+the production cumulative model must also declare it. The bounded owner-list repair and
+membership regression are in progress; no global registry or compatibility path is added.
+
+P3 final usage/native batch **failed**, nine passed/one failed, zero skipped. Aliased,
+re-exported, rebound, receiver, chosen-negative and higher-order Potential controls passed;
+an overloaded local alias remains native UnresolvedTarget/UnexpectedDefiningClass rather
+than an invented association. The C2 failure is an overstrict support-location check:
+actual ProviderCallSite support is Invocation evidence. Admission will retain that exact
+support only when its invocation run equals the support run and native/context/input checks
+hold; canonical site and CallEventSource supply location. Named rerun and actual PG remain
+pending. The Q0 stdio runner now addresses only a unique complete Source-role formal for
+scalar inputs; NativeSlot identities are not source-body input substitutes. Its fresh runtime
+qualification remains pending the assembled model and Python adapter.
