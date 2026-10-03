@@ -193,7 +193,7 @@ impl StageSession {
             .map_err(ModelError::codec)?
         {
             return Err(ModelError::Invalid(
-                "stage relation already registered".into(),
+                format!("stage relation already registered: {}",permit.relation()),
             ));
         }
         self.context

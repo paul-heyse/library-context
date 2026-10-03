@@ -64,7 +64,7 @@ pub async fn produce(
     lctx_model::catalog_evidence_inputs!(facts);
     macro_rules! evidence {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.evidence.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_evidence_outputs!(evidence);
-    macro_rules! selection_facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.facts.$f,&permit,&mut admission).await?;)*};}
+    macro_rules! selection_facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;if registered.insert(&mut registration,<$ty>::NAME)? {session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.facts.$f,&permit,&mut admission).await?;} else {let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {data.facts.$f.decode(&batch)?;}})*};}
     lctx_model::catalog_selection_inputs!(selection_facts);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
     let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());

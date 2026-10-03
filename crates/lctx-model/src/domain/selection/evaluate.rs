@@ -90,6 +90,7 @@ impl Prepared {
             .saturating_add((evidence_count + closure_count).saturating_mul(size_of::<Witness>()));
         let _reservation = b.reserve("selection-domain-observations", retained)?;
         let mut observations = Vec::new();
+        let mut dynamic_evidence=charged::StateCharge::new(b,"selection-characterization-clones");
         for link in members {
             let link = need(&self.output.members, *link)?;
             let c = need(&self.output.contexts, link.context)?;
@@ -127,6 +128,9 @@ impl Prepared {
                     if need(&self.data.source.core.variants, invocation.variant)?.role != role { continue; }
                 }
             }
+            if let Predicate::FacetMembership{value,..}=&requirement.predicate {
+                if !structural_facets::applicable(&self.data,value,c)?{continue;}
+            }
             let mut evidence = Vec::new();
             for id in self.index.evidence(stored.id(), link.context) {
                 let r = need(&self.output.evidence, *id)?;
@@ -161,24 +165,33 @@ impl Prepared {
                     continue;
                 }
             }
-            let value = evaluate(
-                &self.data,
-                &requirement.predicate,
-                c,
-                &evidence,
-                link.complete,
-            )?;
+            if matches!(&requirement.predicate,Predicate::VariantReturnType{role:calls::SignatureRole::Source,..}) {
+                if let Context::Signature{invocation,..}=c {
+                    let variant=need(&self.data.source.core.variants,need(&self.data.source.catalog.invocations,*invocation)?.variant)?;
+                    if let Some(CallableEntity::Source{declaration,..})=variant.callable.and_then(|id|self.data.source.core.source_callables.get(id)) {
+                        for row in self.data.facts.type_observations.iter().filter(|r|r.subject==*declaration&&r.role==types::TypeRole::Return&&r.declared&&self.data.source.core.qualifications.get(r.qualification).is_some_and(|q|q.context==c.analysis())) {
+                            dynamic_evidence.grow(2*size_of::<Witness>())?;
+                            let witness=Witness::TypeObservation{observation:row.id()};need(&self.output.witnesses,witness.id())?;evidence.push(witness);
+                        }
+                    }
+                }
+            }
+            let facet_answer=if let Predicate::FacetMembership{value,..}=&requirement.predicate{Some(structural_facets::answer(&self.data,value,c,b)?)}else{None};
+            let value=if let Some(answer)=&facet_answer{
+                for witness in answer.evidence.iter(){need(&self.output.witnesses,witness.id())?;self.data.validate_witness(c,witness)?;dynamic_evidence.grow(2*size_of::<Witness>()+witness.heap_bytes())?;evidence.push(witness.clone());}
+                answer.value
+            }else{evaluate(&self.data,&requirement.predicate,c,&evidence,link.complete)?};
             let context = ClaimContext::Declaration(c.clone());
             let admissible = if value == Some(true) {
                 vec![context.clone()]
             } else {
                 vec![]
             };
-            let basis = if matches!(requirement.predicate, Predicate::BehavioralRaises { .. }) {
+            let basis = if let Some(answer)=facet_answer{answer.basis}else if matches!(requirement.predicate, Predicate::BehavioralRaises { .. }) {
                 EvidenceBasis::BoundedModel
             } else if matches!(c, Context::Scenario { .. }) {
                 EvidenceBasis::ObservedScenario
-            } else if matches!(&requirement.predicate, Predicate::VariantParameterType { .. } | Predicate::VariantReturnType { .. }) {
+            } else if matches!(&requirement.predicate, Predicate::VariantParameterType {role,..} | Predicate::VariantReturnType {role,..} if !role.runtime_source()) {
                 EvidenceBasis::ProviderDeclaration
             } else {
                 EvidenceBasis::SourceDeclaration
@@ -196,7 +209,7 @@ impl Prepared {
             let r = need(&self.output.closure, *id)?;
             closure.push(need(&self.output.witnesses, r.evidence)?.clone());
         }
-        let role_requested = matches!(&requirement.predicate, Predicate::VariantParameterType { .. } | Predicate::VariantReturnType { .. });
+        let role_requested = matches!(&requirement.predicate, Predicate::VariantParameterType { .. } | Predicate::VariantReturnType { .. } | Predicate::FacetMembership{..});
         let role_observed = !observations.is_empty();
         let domain = Domain {
             corpus_complete: stored.corpus_complete,
@@ -239,6 +252,7 @@ impl Prepared {
         let _scratch=b.reserve("located-selection-evidence",result.specialized.support.len().saturating_add(2).saturating_mul(size_of::<Witness>()).saturating_add(size_of::<Observation>()))?;
         let mut evidence=vec![Witness::SignatureTypeObservation {observation:result.observation},Witness::Qualification {qualification:result.specialized.qualification}];
         evidence.extend(result.specialized.support.iter().map(|observation|Witness::GenericSpecialization {observation:*observation}));
+        for witness in &evidence {need(&self.output.witnesses,witness.id())?;}
         let claim=ClaimContext::Declaration(context.clone());
         let observations=vec![Observation {context:claim.clone(),basis:EvidenceBasis::ProviderDeclaration,value,evidence:evidence.clone(),admissible:if value==Some(true) {vec![claim]} else {vec![]}}];
         // This closure concerns one located native answer, never all runtime invocations.
@@ -407,7 +421,7 @@ fn default_state(
         }
     })
 }
-fn type_match(
+pub(super) fn type_match(
     d: &classification::ClassificationData,
     term: Id<types::TypeTerm>,
     query: &StructuralType,
@@ -696,7 +710,7 @@ fn parameter(
         _ => Ok(None),
     }
 }
-fn candidate_entity(
+pub(super) fn candidate_entity(
     d: &classification::ClassificationData,
     candidate: Id<catalog::CatalogCandidate>,
 ) -> Result<Option<Id<EntityRef>>, ModelError> {
@@ -881,6 +895,15 @@ fn evaluate(
             let variant = need(&d.source.core.variants, invocation.variant)?;
             if variant.role != *role { return Ok(None); }
             let mut values = Vec::new();
+            if role.runtime_source(){
+                if let Some(CallableEntity::Source{declaration,..})=variant.callable.and_then(|id|d.source.core.source_callables.get(id)){
+                    for raw in d.facts.type_observations.iter().filter(|r|r.subject==*declaration&&r.role==types::TypeRole::Return&&r.declared){
+                        let q=need(&d.source.core.qualifications,raw.qualification)?;
+                        if q.context==c.analysis()&&q.approximation==assertion::Approximation::Exact&&q.modality==attribution::Modality::Definite&&q.condition==conditions::Diagram::always().id(){values.push(type_match(d,raw.term,r#type,c.analysis())?);}
+                    }
+                }
+                return Ok(consensus(values));
+            }
             for link in d.source.core.return_types.iter().filter(|r| r.variant == variant.id()) {
                 let raw = need(&d.source.core.signature_types, link.observation)?;
                 let q = need(&d.source.core.qualifications, raw.qualification)?;

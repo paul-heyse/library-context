@@ -6,6 +6,7 @@ pub mod classification;
 pub mod evaluate;
 pub mod frames;
 mod facets;
+mod structural_facets;
 mod inventory;
 mod preparation;
 mod vocabulary;

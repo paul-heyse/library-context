@@ -1,6 +1,6 @@
 //! Native metadata enriches declared type ports; no class fact closes runtime dispatch.
 use super::{attributes::{Fact, classes}, build::{Data, need}, *};
-use crate::domain::{charged::{ChargedVec, StateCharge}, normalized::{entities::{EntityRef, ResolutionStatus}, links::ReferenceEntityTarget}, resources::ResourceBudget};
+use crate::domain::{charged::{ChargedVec, StateCharge}, normalized::{entities::{EntityRef, ResolutionStatus}}, resources::ResourceBudget};
 
 pub(super) enum Selection {
     Metadata {
@@ -90,78 +90,29 @@ pub(super) fn metadata(
 /// describe the decorator, and spelling is never a shared attribute identity.
 pub(super) fn decorator(d: &Data, entity: Id<EntityRef>, decorator: &syntax::DeclarationDecorator,
     ctx: Id<attribution::AnalysisContext>, facts: &mut ChargedVec<Fact>, selections: &mut ChargedVec<Selection>, charge: &mut StateCharge) -> Result<(), ModelError> {
-    let retain = |selections: &mut ChargedVec<Selection>, charge: &mut StateCharge, assessment, status| {
-        selections.push(charge, Selection::Decorator { entity, observation: decorator.id(), assessment, status })
-    };
-    if !exact(d, decorator.qualification, ctx)? {
-        return retain(selections, charge, None, DecoratorSelectionStatus::QualifiedUncertainty);
-    }
-    let mut head = decorator.decorator;
-    // DeclarationDecorator names Ruff's wrapper, whose expression is its unique Child.
-    // Resolve that explicit structural edge before selecting a decorator-call's callee.
-    if need(&d.native.occurrences, head)?.syntax_kind == source::SyntaxKind::Decorator {
-        let expressions = d.native.placements.iter().filter(|p| p.parent == Some(head) && p.field == lexical::SyntaxField::Child
-            && d.native.qualifications.get(p.qualification).is_some_and(|q| q.context == ctx)).collect::<Vec<_>>();
-        let expression = match expressions.as_slice() {
-            [expression] => expression,
-            [] => return retain(selections, charge, None, DecoratorSelectionStatus::MissingCorrespondence),
-            _ => return retain(selections, charge, None, DecoratorSelectionStatus::Ambiguous),
-        };
-        if !exact(d, expression.qualification, ctx)? { return retain(selections, charge, None, DecoratorSelectionStatus::QualifiedUncertainty); }
-        head = expression.occurrence;
-    }
-    let heads: Vec<_> = d.native.placements.iter().filter(|p| p.parent == Some(head) && p.field == lexical::SyntaxField::Callee && d.native.qualifications.get(p.qualification).is_some_and(|q| q.context == ctx)).collect();
-    if heads.len() > 1 { return retain(selections, charge, None, DecoratorSelectionStatus::Ambiguous); }
-    if let Some(placement) = heads.first() {
-        if !exact(d, placement.qualification, ctx)? { return retain(selections, charge, None, DecoratorSelectionStatus::QualifiedUncertainty); }
-        head = placement.occurrence;
-    }
-    let mut found = false;
-    let mut qualified = false;
-    for reference in d.native.references.iter().filter(|r| r.read == head && d.native.qualifications.get(r.qualification).is_some_and(|q| q.context == ctx)) {
-        if !exact(d, reference.qualification, ctx)? { qualified = true; continue; }
-        for assessment in d.native.reference_assessments.iter().filter(|a| a.reference == reference.id()) {
-            found = true;
-            let candidates = d.native.reference_candidates.iter().filter(|c| c.assessment == assessment.id()).collect::<Vec<_>>();
-            let mut candidates_exact = true;
-            for candidate in &candidates {
-                candidates_exact &= exact(d, need(&d.native.lexical_resolutions, candidate.resolution)?.qualification, ctx)?;
-            }
-            let targets = candidates.iter().filter_map(|c| match d.native.reference_targets.get(c.target) {
-                Some(ReferenceEntityTarget::Binding { entity, .. }) => Some(*entity), _ => None,
-            }).collect::<std::collections::BTreeSet<_>>();
-            let status = if !candidates_exact { DecoratorSelectionStatus::QualifiedUncertainty } else { match assessment.status {
-                ResolutionStatus::Ambiguous => DecoratorSelectionStatus::Ambiguous,
-                ResolutionStatus::Unresolved => DecoratorSelectionStatus::Unresolved,
-                ResolutionStatus::Resolved if targets.len() > 1 => DecoratorSelectionStatus::Ambiguous,
-                ResolutionStatus::Resolved if targets.is_empty() => DecoratorSelectionStatus::UnsupportedTarget,
-                ResolutionStatus::Resolved => DecoratorSelectionStatus::Resolved,
-            } };
-            retain(selections, charge, Some(assessment.id()), status)?;
-            if status != DecoratorSelectionStatus::Resolved { continue; }
-            for candidate in candidates {
-                if let ReferenceEntityTarget::Binding { entity: target, .. } = need(&d.native.reference_targets, candidate.target)? {
-                    facts.push(charge, Fact { entity, attribute: Attribute::ResolvedDecorator { entity: *target }, source: IncidenceSource::ResolvedDecorator {
-                        observation: decorator.id(), assessment: assessment.id(), candidate: candidate.id() } })?;
-                }
-            }
+    let selected=normalized::decorator_identity::Inputs::from(&d.native).select(decorator,ctx,charge.budget().ok_or_else(||ModelError::Invalid("decorator selection has no resource budget".into()))?)?;
+    let mut seen=charged::ChargedSet::default();
+    for selected in selected.selections.iter(){
+        if seen.insert(charge,(selected.assessment,selected.status as i16))?{
+            selections.push(charge,Selection::Decorator{entity,observation:decorator.id(),assessment:selected.assessment,status:selected.status})?;
+        }
+        if let (Some(target),Some(assessment),Some(candidate))=(selected.entity,selected.assessment,selected.candidate){
+            facts.push(charge,Fact{entity,attribute:Attribute::ResolvedDecorator{entity:target},source:IncidenceSource::ResolvedDecorator{observation:decorator.id(),assessment,candidate}})?;
         }
     }
-    if qualified { retain(selections, charge, None, DecoratorSelectionStatus::QualifiedUncertainty)?; }
-    if !found && !qualified { retain(selections, charge, None, DecoratorSelectionStatus::MissingCorrespondence)?; }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{class_metadata::*, normalized::entities::*};
+    use crate::domain::{class_metadata::*, normalized::{entities::*,links::ReferenceEntityTarget}};
     fn id<T>(byte: u8) -> Id<T> { serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap() }
     fn fixture() -> (ResourceBudget, Data, types::TypeObservation, ClassMetadataObservation, Id<EntityRef>, Id<EntityRef>) {
         let b = ResourceBudget::fixed(16 << 20).unwrap();
         let mut d = Data::new(&b);
         let q = assertion::AssertionQualification { context: id(1), scope: id(2), condition: conditions::Diagram::always().id(),
-            modality: attribution::Modality::Definite, approximation: assertion::Approximation::Exact, assumptions: id(3) };
+            modality: attribution::Modality::Definite, approximation: assertion::Approximation::Exact, assumptions: assumptions::AssumptionSet::empty().id() };
         d.native.qualifications.insert(q.clone()).unwrap();
         let class = d.native.refs.insert(EntityRef::Class { class: id(4) }).unwrap();
         let entity = d.native.refs.insert(EntityRef::Callable { callable: id(5) }).unwrap();

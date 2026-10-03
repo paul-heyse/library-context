@@ -326,6 +326,12 @@ pub enum Witness {
     SummaryException { outcome: Id<execution::summary_exceptions::SummaryExceptionOutcome> },
     #[model(code = 20)]
     GenericSpecialization { observation: Id<types::GenericSpecializationObservation> },
+    #[model(code = 21)] SourceCharacterization {observation:Id<syntax::DeclarationObservation>,support:Id<syntax::DeclarationSupport>},
+    #[model(code = 22)] ClassMetadata {observation:Id<class_metadata::ClassMetadataObservation>,support:Id<class_metadata::ClassMetadataSupport>},
+    #[model(code = 23)] NativeCallableMetadata {observation:Id<types::NativeSignatureObservation>,support:Id<types::NativeSignatureSupport>},
+    #[model(code = 24)] RaisedType {observation:Id<types::TypeObservation>,support:Id<types::TypeSupport>},
+    #[model(code = 25)] ResolvedDecorator {observation:Id<syntax::DeclarationDecorator>,support:Id<syntax::DeclarationDecoratorSupport>,assessment:Id<normalized::links::ReferenceEntityAssessment>,candidate:Id<normalized::links::ReferenceEntityCandidate>},
+    #[model(code = 26)] LexicalDefinition {observation:Id<lexical::BindingObservation>,support:Id<lexical::BindingSupport>},
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="catalog_selection_domains",invariants=super::build::invariants,semantic_source=include_bytes!("build.rs"))]

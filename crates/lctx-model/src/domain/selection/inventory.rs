@@ -2,6 +2,13 @@
 macro_rules! catalog_selection_inputs {
     ($m:ident) => {
         $m! {
+         decorators:$crate::domain::syntax::DeclarationDecorator,
+         decorator_supports:$crate::domain::syntax::DeclarationDecoratorSupport,
+         binding_supports:$crate::domain::lexical::BindingSupport,
+         declaration_supports:$crate::domain::syntax::DeclarationSupport,
+         metadata_supports:$crate::domain::class_metadata::ClassMetadataSupport,
+         native_signature_supports:$crate::domain::types::NativeSignatureSupport,
+         type_supports:$crate::domain::types::TypeSupport,
          exception_outcomes:$crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
          shapes:$crate::domain::calls::ParameterShape,
          signature_parameters:$crate::domain::calls::SignatureParameter,

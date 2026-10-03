@@ -63,9 +63,11 @@ impl FacetValue {
         if self.facet() != facet { return Err(ModelError::Invalid("facet membership and typed value disagree or have no supported operator".into())); }
         if let Some(predicate) = self.predicate() { return predicate.validate(); }
         match self {
-            // These typed routes are activated with their evidence-consuming operator.
-            // Mere schema availability is not permission for a service grant.
-            _ => Err(ModelError::Invalid("facet membership operator is not implemented".into())),
+            Self::DecoratorQualifiedName{module,path} if !module.is_empty() && !path.is_empty() && path.iter().all(|s|!s.is_empty())=>Ok(()),
+            Self::Async{..}|Self::ClassMetadata{..}=>Ok(()),
+            Self::Deprecation{role,..} if *role!=calls::SignatureRole::Specialized=>Ok(()),
+            Self::RaisedClass{r#type}=>Predicate::VariantReturnType{role:calls::SignatureRole::Source,r#type:r#type.clone()}.validate(),
+            _=>Err(ModelError::Invalid("facet value has no supported located question".into())),
         }
     }
 }

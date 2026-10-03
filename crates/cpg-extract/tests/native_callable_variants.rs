@@ -7,9 +7,10 @@ use lctx_model::domain::{
 };
 use typed_driver::{files, rows};
 inspector!(Facts, Signature);
-async fn fixture() -> (typed_driver::Tables, BindingData, ResourceBudget) {
+async fn fixture() -> (typed_driver::Tables, BindingData, ResourceBudget) {fixture_for("native_callable_variants").await}
+async fn fixture_for(case:&str) -> (typed_driver::Tables, BindingData, ResourceBudget) {
     let tables = typed_driver::Tables::default();
-    typed_driver::run(&files("native_callable_variants"), Facts(tables.clone())).await.unwrap();
+    typed_driver::run(&files(case), Facts(tables.clone())).await.unwrap();
     let b = ResourceBudget::fixed(256 << 20).unwrap();
     let mut relations = relation_normalization::RelationData::new(&b);
     macro_rules! facts {($($f:ident:$ty:ty=>$family:ident,)*)=>{$(for row in rows::<$ty>(&tables){relations.facts.$f.insert(row).unwrap();})*};}
@@ -76,7 +77,10 @@ async fn wrappers_opaque_overloads_generated_and_bound_roles_have_native_ports()
 }
 
 async fn selection_fixture() -> (selection::build::Data, ResourceBudget) {
-    let (tables, normalized, b) = fixture().await;
+    selection_fixture_for("native_callable_variants").await
+}
+async fn selection_fixture_for(case:&str)->(selection::build::Data,ResourceBudget){
+    let (tables,normalized,b)=fixture_for(case).await;
     let mut d = selection::build::Data::new(&b);
     for (name, batch) in tables.lock().unwrap().iter() { d.visit(name, batch).unwrap(); }
     macro_rules! binding {($($f:ident:$ty:ty,)*)=>{$(d.visit(<$ty>::NAME,&<$ty as Record>::encode(&normalized.$f.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
@@ -128,4 +132,30 @@ async fn catalog_selection_distinguishes_declared_and_effective_wrapper_ports() 
     assert_eq!(classify(Predicate::FacetMembership {facet:Facet::Module,value:FacetValue::ModulePath {module:"api".into()}}).outcome,Outcome::Supported);
     assert_eq!(classify(Predicate::FacetMembership {facet:Facet::Module,value:FacetValue::ModulePath {module:"other".into()}}).outcome,Outcome::Contradicted);
     assert_eq!(classify(Predicate::FacetMembership {facet:Facet::Kind,value:FacetValue::MemberKind {kind:MemberKind::Class}}).outcome,Outcome::Contradicted);
+}
+
+#[tokio::test]
+async fn supported_facets_keep_source_metadata_and_native_role_meanings(){
+ let(d,b)=selection_fixture().await;let output=selection::build::build(&d,&b).unwrap();let prepared=Prepared::new(&d,&output,&b).unwrap();
+ let changed=d.source.catalog.members.iter().find(|m|m.name=="changed").unwrap();
+ let ctx=d.source.core.assessments.iter().find(|a|matches!(d.source.core.source_callables.get(a.callable),Some(lctx_model::domain::normalized::entities::CallableEntity::Source{declaration,..})if d.source.core.declarations.iter().any(|r|r.declaration==*declaration&&d.source.core.occurrences.get(r.name).is_some()))).unwrap().context;
+ let query=|member,facet,value|prepared.classify(member,ctx,&Requirement{predicate:Predicate::FacetMembership{facet,value},quantifier:Quantifier::AnyApplicable},&b).unwrap();
+ assert_eq!(query(changed.id(),Facet::Async,FacetValue::Async{asynchronous:false}).outcome,Outcome::Supported);
+ let negative=query(changed.id(),Facet::Async,FacetValue::Async{asynchronous:true});assert!(negative.witnesses.iter().any(|w|matches!(w,selection::algebra::RequirementWitness::Negative{..})),"known sync source supplies a negative characterization despite partial invocation inventory");
+ assert_eq!(query(changed.id(),Facet::Decorator,FacetValue::DecoratorQualifiedName{module:"api".into(),path:vec!["wrap".into()]}).outcome,Outcome::Supported);
+ let negative=query(changed.id(),Facet::Decorator,FacetValue::DecoratorQualifiedName{module:"other".into(),path:vec!["wrap".into()]});assert!(negative.witnesses.iter().any(|w|matches!(w,selection::algebra::RequirementWitness::Negative{..})));
+ let settings=d.source.catalog.members.iter().find(|m|m.name=="Settings").unwrap();
+ assert_eq!(query(settings.id(),Facet::ClassMetadata,FacetValue::ClassMetadata{trait_kind:ClassFacet::Enumeration,present:false}).outcome,Outcome::Supported);
+ assert_eq!(query(settings.id(),Facet::ClassMetadata,FacetValue::ClassMetadata{trait_kind:ClassFacet::AbstractMembers,present:false}).outcome,Outcome::Unresolved,"native abstract absence is unavailable");
+ assert_eq!(query(changed.id(),Facet::Raises,FacetValue::RaisedClass{r#type:StructuralType::NominalIdentity{module:"builtins".into(),name:"ValueError".into()}}).outcome,Outcome::Unresolved,"no raised-type record is not a never-raises proof");
+ let source=prepared.classify(changed.id(),ctx,&Requirement{predicate:Predicate::VariantReturnType{role:SignatureRole::Source,r#type:StructuralType::NominalIdentity{module:"builtins".into(),name:"int".into()}},quantifier:Quantifier::AnyApplicable},&b).unwrap();assert_eq!(source.outcome,Outcome::Supported,"source return stays int while effective return is bytes");
+ let(d,b)=selection_fixture_for("native_callable_deprecation").await;let output=selection::build::build(&d,&b).unwrap();let prepared=Prepared::new(&d,&output,&b).unwrap();
+ let member=d.source.catalog.members.iter().find(|m|m.name=="retired").unwrap();let ctx=d.source.core.symbols.iter().find(|s|s.name=="retired").unwrap().context;
+ let raised=d.source.catalog.members.iter().find(|m|m.name=="raises_value_error").unwrap();
+ let classify_raise=|name:&str|prepared.classify(raised.id(),ctx,&Requirement{predicate:Predicate::FacetMembership{facet:Facet::Raises,value:FacetValue::RaisedClass{r#type:StructuralType::NominalIdentity{module:"builtins".into(),name:name.into()}}},quantifier:Quantifier::AnyApplicable},&b).unwrap();
+ assert_eq!(classify_raise("ValueError").outcome,Outcome::Supported,"native raised-class characterization retains its supported type");
+ assert!(classify_raise("TypeError").witnesses.iter().any(|w|matches!(w,selection::algebra::RequirementWitness::Negative{..})),"known raised ValueError differs from TypeError without claiming runtime absence");
+ for(role,deprecated,expected)in[(SignatureRole::EffectiveTyped,true,Outcome::Supported),(SignatureRole::Source,true,Outcome::Unresolved)]{
+   let value=prepared.classify(member.id(),ctx,&Requirement{predicate:Predicate::FacetMembership{facet:Facet::Deprecation,value:FacetValue::Deprecation{role,deprecated}},quantifier:Quantifier::AnyApplicable},&b).unwrap();assert_eq!(value.outcome,expected);
+ }
 }

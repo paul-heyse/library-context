@@ -92,6 +92,7 @@ pub fn definition_with_policy(
         include_bytes!("conclusions.rs"),
         include_bytes!("attributes.rs"),
         include_bytes!("native_attributes.rs"),
+        include_bytes!("../normalized/decorator_identity.rs"),
         include_bytes!("partitions.rs"),
         include_bytes!("vectors.rs"),
     ] {

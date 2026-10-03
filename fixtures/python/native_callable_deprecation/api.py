@@ -47,3 +47,7 @@ def generic[T](value: T) -> T:
 converted = convert(1)
 untouched = convert("text")
 bound = Service().old
+
+
+def raises_value_error() -> None:
+    raise ValueError("fixture")

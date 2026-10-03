@@ -8,6 +8,7 @@ pub mod callable_normalization;
 pub mod callables;
 pub mod coverage;
 pub mod dispatch;
+pub mod decorator_identity;
 pub mod entities;
 pub mod entity_normalization;
 mod event_inventory;

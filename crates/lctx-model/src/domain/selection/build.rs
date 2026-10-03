@@ -32,10 +32,12 @@ impl Data {
         }
     }
     pub fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
-        if self.source.visit(n, b)? || self.evidence.visit(n, b)? {
-            return Ok(true);
-        }
-        self.facts.visit(n, b)
+        // One nominal input may feed more than one projection (notably decorators).
+        // Hydrate every declared consumer, including invariant replay.
+        let source=self.source.visit(n,b)?;
+        let evidence=self.evidence.visit(n,b)?;
+        let facts=self.facts.visit(n,b)?;
+        Ok(source||evidence||facts)
     }
     pub fn inputs() -> Vec<ValidationInput> {
         let mut r = EvidenceData::inputs();
@@ -614,6 +616,19 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
             }
         }
     }
+    // Request-time answers only reference persisted canonical witness rows. These rows
+    // characterize available facts; context admission and truth remain evaluator decisions.
+    for row in d.source.core.qualifications.iter(){out.witnesses.insert(Witness::Qualification{qualification:row.id()})?;}
+    for row in d.source.core.signature_types.iter(){out.witnesses.insert(Witness::SignatureTypeObservation{observation:row.id()})?;}
+    for row in d.facts.type_observations.iter(){out.witnesses.insert(Witness::TypeObservation{observation:row.id()})?;}
+    for row in d.facts.generic_specializations.iter(){out.witnesses.insert(Witness::GenericSpecialization{observation:row.id()})?;}
+    for support in d.facts.binding_supports.iter(){need(&d.source.core.bindings,support.assertion)?;out.witnesses.insert(Witness::LexicalDefinition{observation:support.assertion,support:support.id()})?;}
+    for support in d.facts.declaration_supports.iter(){need(&d.source.core.declarations,support.assertion)?;out.witnesses.insert(Witness::SourceCharacterization{observation:support.assertion,support:support.id()})?;}
+    for support in d.facts.metadata_supports.iter(){need(&d.source.core.class_metadata,support.assertion)?;out.witnesses.insert(Witness::ClassMetadata{observation:support.assertion,support:support.id()})?;}
+    for support in d.facts.native_signature_supports.iter(){need(&d.source.core.native_signatures,support.assertion)?;out.witnesses.insert(Witness::NativeCallableMetadata{observation:support.assertion,support:support.id()})?;}
+    for support in d.facts.type_supports.iter(){let row=need(&d.facts.type_observations,support.assertion)?;if row.role==types::TypeRole::Raised{out.witnesses.insert(Witness::RaisedType{observation:row.id(),support:support.id()})?;}}
+    let inputs=normalized::decorator_identity::Inputs{qualifications:&d.source.core.qualifications,occurrences:&d.source.core.occurrences,placements:&d.source.core.placements,references:&d.source.core.references,assessments:&d.source.core.reference_assessments,candidates:&d.source.core.reference_candidates,targets:&d.source.core.reference_targets,resolutions:&d.source.core.lexical_resolutions};
+    for support in d.facts.decorator_supports.iter(){let row=need(&d.facts.decorators,support.assertion)?;let q=need(&d.source.core.qualifications,row.qualification)?;let selected=inputs.select(row,q.context,b)?;for selection in selected.selections.iter(){if let(Some(assessment),Some(candidate))=(selection.assessment,selection.candidate){out.witnesses.insert(Witness::ResolvedDecorator{observation:row.id(),support:support.id(),assessment,candidate})?;}}}
     Ok(out)
 }
 pub fn invariants() -> Vec<Invariant> {
@@ -730,6 +745,8 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
                 include_bytes!("frames.rs").as_slice(),
                 include_bytes!("facets.rs").as_slice(),
                 include_bytes!("specialization.rs").as_slice(),
+                include_bytes!("structural_facets.rs").as_slice(),
+                include_bytes!("../normalized/decorator_identity.rs").as_slice(),
             ] {
                 ContentHash::of(bytes).encode(&mut k);
             }

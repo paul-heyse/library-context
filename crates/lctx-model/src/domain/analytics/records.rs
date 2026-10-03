@@ -339,9 +339,7 @@ pub struct TypeMetadataSelection {
     pub status: MetadataSelectionStatus,
     pub abstract_absence_known: Option<bool>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
-#[repr(i16)]
-pub enum DecoratorSelectionStatus { Resolved = 0, MissingCorrespondence = 1, QualifiedUncertainty = 2, Ambiguous = 3, Unresolved = 4, UnsupportedTarget = 5 }
+pub use crate::domain::normalized::decorator_identity::DecoratorSelectionStatus;
 /// A decorator's missing or uncertain identity is independent of Boolean incidence.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "analytic_decorator_selections")]

@@ -43,6 +43,18 @@ group!(Catalog, crate::domain::catalog::build::CatalogOutput, {
     classes: crate::domain::catalog::CatalogClass,
 });
 group!(Core, crate::domain::catalog::build::CatalogData, {
+    bindings: crate::domain::lexical::BindingObservation,
+    binding_events: crate::domain::lexical::BindingEvent,
+    lexical_scopes: crate::domain::lexical::LexicalScope,
+    occurrences: crate::domain::source::Occurrence,
+    placements: crate::domain::syntax::SyntaxPlacement,
+    references: crate::domain::lexical::ReferenceObservation,
+    reference_assessments: crate::domain::normalized::links::ReferenceEntityAssessment,
+    reference_candidates: crate::domain::normalized::links::ReferenceEntityCandidate,
+    reference_targets: crate::domain::normalized::links::ReferenceEntityTarget,
+    lexical_resolutions: crate::domain::lexical::LexicalResolution,
+    resolutions: crate::domain::normalized::entities::SymbolEntityResolution,
+    class_metadata: crate::domain::class_metadata::ClassMetadataObservation,
     modules: crate::domain::source::Module,
     slots: crate::domain::normalized::callables::SignatureSlot,
     slot_types: crate::domain::normalized::callables::SignatureSlotType,
@@ -78,6 +90,13 @@ group!(Evidence, crate::domain::catalog::evidence::build::EvidenceOutput, {
     deployments: crate::domain::catalog::evidence::CatalogDeployment,
 });
 group!(Facts, crate::domain::selection::build::Facts, {
+    decorators: crate::domain::syntax::DeclarationDecorator,
+    decorator_supports: crate::domain::syntax::DeclarationDecoratorSupport,
+    binding_supports: crate::domain::lexical::BindingSupport,
+    declaration_supports: crate::domain::syntax::DeclarationSupport,
+    metadata_supports: crate::domain::class_metadata::ClassMetadataSupport,
+    native_signature_supports: crate::domain::types::NativeSignatureSupport,
+    type_supports: crate::domain::types::TypeSupport,
     exception_outcomes: crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
     shapes: crate::domain::calls::ParameterShape,
     signature_parameters: crate::domain::calls::SignatureParameter,
@@ -364,6 +383,30 @@ impl ClassificationData {
             build::{invalid, need},
         };
         match w {
+            Witness::LexicalDefinition{observation,support}=>{let row=need(&self.source.core.bindings,*observation)?;let support=need(&self.facts.binding_supports,*support)?;if support.assertion!=row.id()||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("lexical definition witness crosses observation or context"));}}
+            Witness::SourceCharacterization{observation,support}=>{
+                let row=need(&self.source.core.declarations,*observation)?;let support=need(&self.facts.declaration_supports,*support)?;
+                if support.assertion!=row.id()||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("source characterization witness crosses observation or context"));}
+            }
+            Witness::ClassMetadata{observation,support}=>{
+                let row=need(&self.source.core.class_metadata,*observation)?;let support=need(&self.facts.metadata_supports,*support)?;
+                if support.assertion!=row.id()||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("class metadata witness crosses observation or context"));}
+            }
+            Witness::NativeCallableMetadata{observation,support}=>{
+                let row=need(&self.source.core.native_signatures,*observation)?;let support=need(&self.facts.native_signature_supports,*support)?;
+                let Context::Signature{invocation,..}=c else{return Err(invalid("native metadata witness lacks signature context"));};
+                let variant=need(&self.source.core.variants,need(&self.source.catalog.invocations,*invocation)?.variant)?;
+                if support.assertion!=row.id()||variant.native!=Some(row.id())||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("native metadata witness crosses signature or context"));}
+            }
+            Witness::RaisedType{observation,support}=>{
+                let row=need(&self.facts.type_observations,*observation)?;let support=need(&self.facts.type_supports,*support)?;
+                if row.role!=types::TypeRole::Raised||support.assertion!=row.id()||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("raised typing witness crosses observation or context"));}
+            }
+            Witness::ResolvedDecorator{observation,support,assessment,candidate}=>{
+                let row=need(&self.facts.decorators,*observation)?;let support=need(&self.facts.decorator_supports,*support)?;
+                need(&self.source.core.reference_assessments,*assessment)?;let candidate=need(&self.source.core.reference_candidates,*candidate)?;
+                if support.assertion!=row.id()||candidate.assessment!=*assessment||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("decorator witness crosses selected identity or context"));}
+            }
             Witness::SummaryException { outcome } => {
                 let result = need(&self.facts.exception_outcomes, *outcome)?;
                 let q = need(&self.source.core.qualifications, result.qualification)?;
