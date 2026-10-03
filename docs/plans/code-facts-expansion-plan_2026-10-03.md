@@ -691,3 +691,14 @@ remains an explicit boundary/Partial outcome. Charged native controls will cover
 dataclass, NamedTuple, TypedDict and functional synthesized classes plus disagreement refusal,
 then rerun the unchanged PG oracle. This is an implementation prerequisite of C4/B3's accepted
 native NoExtraOverrides contract, not a new admission framework or replacement basis.
+
+
+Frozen P3 usage matching standalone CLI **passed**, 2026-10-03: `cargo build --locked
+--release -p lctx`, 20m05s (`p3-source-usage-explicit-cli-build.log`); actual original-evidence
+PG is queued on the unchanged ff96 source baseline. Capture correspondence scoped release
+check **passed**, 42.03s (`p4-capture-check5.log`), after a retained move/clone check failure.
+Its matching standalone CLI **passed**, configured jobs16/default frontend1, 30m26s including
+normal shared-artifact waits (`p4-capture-cli2.log`). Actual capture PG4 and required-field
+wire controls remain pending. Native class-support producer check **passed**, 54.29s
+(`b3-check-7.log`); native flag/disagreement/provenance controls and unchanged frontier PG5
+remain pending. These results do not establish packet or full-series acceptance.
