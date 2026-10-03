@@ -75,7 +75,6 @@ pub fn stage(model: &ValidatedModel, profile: Profile) -> Stage {
         outputs: vec![RelationUse::of::<ProbeReceipt>()],
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: Effect::Pure,
         code: ContentHash::of(include_bytes!("summary_replay_probe.rs")),

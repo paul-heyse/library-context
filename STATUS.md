@@ -87,11 +87,15 @@ The operator-directed independent Ruff policy is accepted by ADR-0117/0118; both
 are published at exact immutable revisions. Native seam/parity controls passed in isolation.
 The working tree resolves Pyrefly 1.4.0-dev.3, Ruff 0.16.10/crates 0.0.16 and ty 0.0.16/salsa
 0.28.5, retaining embedded Ruff 0.0.14. Release extraction/flow all-target compile checks and
-19 source-family/fork policy controls passed; current-tree native runtime tests are running.
+19 source-family/fork policy controls and 14 current-tree native runtime controls passed.
 N4a per-alias/root module resolution passed 43 focused controls in its executor worktree,
-including real PostgreSQL; root integration is pending. B0 required canonical assumption sets
+including real PostgreSQL; root integration is committed at `ef7a50ed` and is being requalified. B0 required canonical assumption sets
 and composition are being implemented in an isolated executor worktree. Canonical latest-Ruff
-syntax adoption and remaining characterization/behavior/product packages are open.
+syntax/context and ADR-0119 per-family coverage grants are implemented in the working tree;
+workspace/all-target release compilation passed. Final focused admission/context/syntax/document
+controls passed 34/34 after fixture and exact reference-role repairs. ADR-0120 accepts required
+claim bases; B0/N1/N2 and N3/N5 are in isolated executor worktrees; remaining
+characterization/behavior/product packages are open.
 Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
 Real-library reconstruction/activation remain a separately authorized follow-up. The prior

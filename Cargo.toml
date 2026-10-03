@@ -71,6 +71,7 @@ ruff_python_ast_ty = { package = "ruff_python_ast", git = "https://github.com/pa
 ruff_text_size_ty = { package = "ruff_text_size", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
 ruff_python_parser_ty = { package = "ruff_python_parser", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
 salsa = { version = "=0.28.5", default-features = false, features = ["compact_str", "macros", "salsa_unstable", "inventory", "ordermap"] }
+ruff_python_semantic = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
 ruff_linter = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
 ruff_python_ast_latest = { package = "ruff_python_ast", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
 ruff_python_parser_latest = { package = "ruff_python_parser", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }

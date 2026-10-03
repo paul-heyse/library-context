@@ -955,7 +955,6 @@ pub fn stage(
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: if selected.embedding_requested {
             Effect::Embedding

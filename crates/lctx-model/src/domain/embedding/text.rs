@@ -226,7 +226,6 @@ pub fn stage(
         outputs: relations().iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: Effect::Pure,
         code: ContentHash::of(include_bytes!("text.rs")),

@@ -13,7 +13,6 @@ fn schedule(model: &ValidatedModel) -> Schedule {
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![Profile::Catalog],
         effect: Effect::Store,
         code: ContentHash::of(b"freeze control"),

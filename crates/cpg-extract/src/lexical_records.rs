@@ -9,16 +9,16 @@ use crate::{
 use lctx_model::domain::{
     Id, ModelError, Record, assertion::AssertionQualification, lexical::*, source::Occurrence,
 };
-use pyrefly_python::sys_info::SysInfo;
-use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
-use ruff_python_ast::{AnyNodeRef, Expr, ModModule};
-use ruff_text_size::Ranged;
+use crate::native_branches::NativeBranches;
+use ruff_python_ast_latest::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
+use ruff_python_ast_latest::{AnyNodeRef, Expr, ModModule};
+use ruff_text_size_latest::Ranged;
 
 /// Run the recognizer over one module's typed occurrences.
 pub fn facts(
     ast: &ModModule,
     spans: &Spans,
-    sys: &SysInfo,
+    decisions: &NativeBranches,
     outside: &Outside,
     stars: &Stars,
 ) -> Result<LexicalFacts<Id<Occurrence>>, ModelError> {
@@ -28,7 +28,7 @@ pub fn facts(
     )?;
     let mut driver = Driver {
         spans,
-        lexical: Lexical::new(module, ast.range(), sys, outside, stars),
+        lexical: Lexical::new(module, ast.range(), decisions, outside, stars),
         entered: vec![],
         annotation: 0,
         error: None,

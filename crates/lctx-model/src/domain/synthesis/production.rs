@@ -160,7 +160,6 @@ pub fn stage(
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: Effect::Pure,
         code: super::build::definition().1.semantic_version,

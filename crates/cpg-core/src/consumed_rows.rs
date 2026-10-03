@@ -135,7 +135,6 @@ mod tests {
             outputs,
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: vec![Profile::Catalog],
             effect: Effect::Pure,
             code: ContentHash::of(b"consumption control"),

@@ -12,20 +12,32 @@ use lctx_model::domain::{
     syntax::*,
     value::{Literal, LiteralSet, LiteralSetMember},
 };
-use pyrefly_python::{docstring::Docstring, module_name::ModuleName};
-use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
-use ruff_python_ast::{AnyNodeRef, ArgOrKeyword, Expr, ModModule, Parameters, Stmt, name::Name};
-use ruff_text_size::{Ranged, TextRange, TextSize};
+use pyrefly_python::module_name::ModuleName;
+use ruff_python_ast_latest::visitor::source_order::{self, SourceOrderVisitor};
+use ruff_python_ast_latest::{AnyNodeRef, ArgOrKeyword, Expr, ModModule, Parameters, Stmt};
+use ruff_text_size_latest::{Ranged, TextRange, TextSize};
 use std::collections::HashMap;
 
 fn invalid(message: String) -> ModelError {
     ModelError::Invalid(message)
 }
 
+/// Owned offsets at the nominal provider boundary. This carries no foreign AST node.
+#[derive(Debug, Clone, Copy)]
+pub struct ByteRange { start:u32, end:u32 }
+impl From<ruff_text_size::TextRange> for ByteRange {
+    fn from(range:ruff_text_size::TextRange)->Self { Self { start:range.start().to_u32(),end:range.end().to_u32() } }
+}
+impl From<TextRange> for ByteRange {
+    fn from(range:TextRange)->Self { Self { start:range.start().to_u32(),end:range.end().to_u32() } }
+}
+
 /// The occurrences one module's traversal emitted, by span and kind, with each one's parent and
 /// the parent's field that holds it.
 pub struct Spans {
     charge: StateCharge,
+    source: Option<Id<lctx_model::domain::source::SourceArtifact>>,
+    roles: HashMap<Id<Occurrence>,OccurrenceRole>,
     ranges: HashMap<Id<Occurrence>, (i64, i64, SyntaxKind)>,
     map: HashMap<(i64, i64, i16), Option<Id<Occurrence>>>,
     parents: HashMap<Id<Occurrence>, (Id<Occurrence>, lctx_model::domain::lexical::SyntaxField)>,
@@ -37,6 +49,7 @@ impl Spans {
     pub fn new(budget: &ResourceBudget) -> Self {
         Self {
             charge: StateCharge::new(budget, "syntax_spans"),
+            source:None, roles:HashMap::new(),
             ranges: HashMap::new(),
             map: HashMap::new(),
             parents: HashMap::new(),
@@ -45,8 +58,11 @@ impl Spans {
         }
     }
     pub fn insert(&mut self, occurrence: &Occurrence) -> Result<(), ModelError> {
+        if self.source.is_some_and(|source|source!=occurrence.source) {return Err(invalid("canonical span index mixes sources".into()));}
+        self.source=Some(occurrence.source);
         // Covers hash-table spare capacity, keys, values and each range's candidate buffer.
         self.charge.grow(768)?;
+        self.roles.insert(occurrence.id(),occurrence.role);
         self.ranges.insert(
             occurrence.id(),
             (occurrence.start, occurrence.end, occurrence.syntax_kind),
@@ -64,6 +80,28 @@ impl Spans {
             .or_default()
             .push((occurrence.syntax_kind, occurrence.role, occurrence.id()));
         Ok(())
+    }
+    pub fn source(&self)->Option<Id<lctx_model::domain::source::SourceArtifact>> {self.source}
+    pub fn role_of(&self,subject:Id<Occurrence>)->Option<OccurrenceRole> {self.roles.get(&subject).copied()}
+    /// A finalized semantic reference may name a load, an augmented target, a deletion or a
+    /// nonlocal declaration. Admit only the corresponding exact canonical structure.
+    pub fn reference(&self, range: impl Into<ByteRange>, is_load: bool) -> Option<Id<Occurrence>> {
+        use lctx_model::domain::lexical::SyntaxField;
+        let range = range.into();
+        let mut candidates = self.event_candidates(range,Some(SyntaxKind::ExprName));
+        candidates.extend(self.event_candidates(range,Some(SyntaxKind::Identifier)));
+        candidates.retain(|id| {
+            let Some((_,_,kind)) = self.ranges.get(id) else {return false;};
+            let parent = self.parent(*id).and_then(|(parent,field)| self.ranges.get(&parent).map(|(_,_,kind)|(*kind,field)));
+            match (*kind,self.role_of(*id),is_load,parent) {
+                (SyntaxKind::ExprName,Some(OccurrenceRole::Read),true,_) => true,
+                (SyntaxKind::ExprName,Some(OccurrenceRole::Binding),true,Some((SyntaxKind::StmtAugAssign,SyntaxField::Target))) => true,
+                (SyntaxKind::ExprName,Some(OccurrenceRole::Syntax),false,Some((SyntaxKind::StmtDelete,_))) => true,
+                (SyntaxKind::Identifier,Some(OccurrenceRole::Syntax),true,Some((SyntaxKind::StmtNonlocal|SyntaxKind::StmtGlobal,_))) => true,
+                _ => false,
+            }
+        });
+        match candidates.as_slice() {[id]=>Some(*id),_=>None}
     }
     pub fn place(
         &mut self,
@@ -91,7 +129,7 @@ impl Spans {
     }
     /// Exact range plus native kind; an implicit event lacking a native syntax kind accepts only
     /// one semantic expression/statement candidate. Same-span alternatives remain unattached.
-    pub fn event(&self, range: TextRange, kind: Option<SyntaxKind>) -> Option<Id<Occurrence>> {
+    pub fn event(&self, range: impl Into<ByteRange>, kind: Option<SyntaxKind>) -> Option<Id<Occurrence>> {
         match self.event_candidates(range, kind).as_slice() {
             [id] => Some(*id),
             _ => None,
@@ -100,13 +138,11 @@ impl Spans {
     /// Keep every exact candidate for diagnostics; candidate order does not depend on traversal.
     pub fn event_candidates(
         &self,
-        range: TextRange,
+        range: impl Into<ByteRange>,
         kind: Option<SyntaxKind>,
     ) -> Vec<Id<Occurrence>> {
-        let at = (
-            i64::from(u32::from(range.start())),
-            i64::from(u32::from(range.end())),
-        );
+        let range = range.into();
+        let at = (i64::from(range.start), i64::from(range.end));
         let mut found: Vec<_> = self
             .events
             .get(&at)
@@ -131,9 +167,9 @@ impl Spans {
         found.sort();
         found
     }
-    pub fn range_of(&self, id: Id<Occurrence>) -> Option<TextRange> {
+    pub fn range_of(&self, id: Id<Occurrence>) -> Option<ruff_text_size::TextRange> {
         self.ranges.get(&id).map(|(s, e, _)| {
-            TextRange::new(
+            ruff_text_size::TextRange::new(
                 ruff_text_size::TextSize::new(*s as u32),
                 ruff_text_size::TextSize::new(*e as u32),
             )
@@ -154,10 +190,11 @@ impl Spans {
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
-    pub fn get(&self, range: TextRange, kind: SyntaxKind) -> Result<Id<Occurrence>, ModelError> {
+    pub fn get(&self, range: impl Into<ByteRange>, kind: SyntaxKind) -> Result<Id<Occurrence>, ModelError> {
+        let range = range.into();
         match self.map.get(&(
-            i64::from(u32::from(range.start())),
-            i64::from(u32::from(range.end())),
+            i64::from(range.start),
+            i64::from(range.end),
             kind as i16,
         )) {
             Some(Some(id)) => Ok(*id),
@@ -213,7 +250,7 @@ pub fn absolute_module(
     level: i64,
     imported: Option<&str>,
 ) -> Option<String> {
-    let suffix = imported.map(Name::new);
+    let suffix = imported.map(ruff_python_ast::name::Name::new);
     let name = ModuleName::from_str(module).new_maybe_relative(
         is_package,
         u32::try_from(level).ok()?,
@@ -229,9 +266,11 @@ pub fn records(
     is_package: bool,
     spans: &Spans,
     qualification: Id<AssertionQualification>,
+    contextual: &[lctx_model::domain::ruff::RuffContextObservation],
 ) -> Result<Records, ModelError> {
     let mut walker = Walker {
         spans,
+        contextual,
         qualification,
         module,
         is_package,
@@ -248,6 +287,7 @@ pub fn records(
 }
 
 struct Walker<'a> {
+    contextual: &'a [lctx_model::domain::ruff::RuffContextObservation],
     spans: &'a Spans,
     qualification: Id<AssertionQualification>,
     module: &'a str,
@@ -256,14 +296,6 @@ struct Walker<'a> {
     annotation: usize,
     records: Records,
     error: Option<ModelError>,
-}
-fn trailing_name(expr: &Expr) -> Option<&str> {
-    match expr {
-        Expr::Name(name) => Some(name.id.as_str()),
-        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
-        Expr::Call(call) => trailing_name(&call.func),
-        _ => None,
-    }
 }
 fn is_dunder_all(expr: &Expr) -> bool {
     matches!(expr, Expr::Name(n) if n.id.as_str() == "__all__")
@@ -298,7 +330,7 @@ impl Walker<'_> {
         }
     }
     fn docstring(&self, body: &[Stmt]) -> Result<Option<Id<Occurrence>>, ModelError> {
-        match (Docstring::range_from_stmts(body), body.first()) {
+        match (crate::docstrings::docstring(body), body.first()) {
             (Some(_), Some(statement @ Stmt::Expr(_))) => {
                 Ok(Some(self.occ(statement.range(), SyntaxKind::StmtExpr)?))
             }
@@ -310,12 +342,16 @@ impl Walker<'_> {
         declaration: Id<Occurrence>,
         name: TextRange,
         kind: DeclarationKind,
-        decorators: &[ruff_python_ast::Decorator],
+        decorators: &[ruff_python_ast_latest::Decorator],
         body: &[Stmt],
     ) -> Result<(), ModelError> {
         let overload = decorators
             .iter()
-            .any(|d| trailing_name(&d.expression) == Some("overload"));
+            .any(|decorator| {
+                let expression=match &decorator.expression { Expr::Call(call)=>&*call.func,expression=>expression };
+                self.expr(expression).ok().and_then(|subject|lctx_model::domain::ruff::resolved_name(self.contextual,self.qualification,subject))
+                    .is_some_and(|name| matches!(name, [module,member] if (module=="typing"||module=="typing_extensions") && member=="overload"))
+            });
         self.records.declarations.push(DeclarationObservation {
             qualification: self.qualification,
             declaration,

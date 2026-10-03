@@ -130,7 +130,6 @@ fn a_bound_generation_accepts_only_its_execution_and_charges_what_it_stores() {
         outputs: vec![RelationUse::of::<Package>()],
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![Profile::Catalog],
         effect: Effect::Pure,
         code: ContentHash::of(b"p"),

@@ -73,7 +73,6 @@ fn stage(name: &'static str, profiles: Vec<Profile>) -> Stage {
         outputs: vec![RelationUse::of::<source::Module>()],
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles,
         effect: Effect::Pure,
         code: ContentHash::of(name.as_bytes()),

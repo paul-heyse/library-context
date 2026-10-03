@@ -199,7 +199,6 @@ fn inspect_stage() -> Stage {
         outputs: vec![RelationUse::of::<Module>()],
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![Profile::Catalog, Profile::Behavioral],
         effect: Effect::Pure,
         code: ContentHash::of(b"inspect"),

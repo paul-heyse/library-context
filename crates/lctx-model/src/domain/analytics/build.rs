@@ -765,7 +765,6 @@ pub fn stage(
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: Effect::Pure,
         code: ContentHash::of(include_bytes!("build.rs")),

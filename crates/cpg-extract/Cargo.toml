@@ -17,6 +17,7 @@ pyrefly_python.workspace = true
 pyrefly_types.workspace = true
 pyrefly_util.workspace = true
 ruff_linter.workspace = true
+ruff_python_semantic.workspace = true
 ruff_python_ast_latest.workspace = true
 ruff_python_parser_latest.workspace = true
 ruff_text_size_latest.workspace = true

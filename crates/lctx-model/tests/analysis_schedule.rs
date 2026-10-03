@@ -72,7 +72,6 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
                     .collect(),
                 contributes: vec![],
                 coverage: vec![],
-                provider: None,
                 profiles: vec![profile],
                 effect: Effect::Pure,
                 code: ContentHash::of(b"static"),

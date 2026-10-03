@@ -61,7 +61,6 @@ impl Declared for Assemble {
             outputs: vocabulary(),
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Pure,
             code: ContentHash::of(include_str!("assembly.rs").as_bytes()),

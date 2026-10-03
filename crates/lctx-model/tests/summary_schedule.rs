@@ -27,7 +27,6 @@ fn summary_dependencies_use_only_published_nominal_evidence_routes() {
                 .collect(),
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: vec![profile],
             effect: Effect::Pure,
             code: ContentHash::of(b"static-only"),

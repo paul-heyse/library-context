@@ -92,7 +92,6 @@ async fn run(forged: bool) {
         ],
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: Effect::Pure,
         code: ContentHash::of(include_bytes!("entry_value_publication.rs")),

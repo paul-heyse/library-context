@@ -1,4 +1,4 @@
-//! Typed syntax emission from Pyrefly's retained Ruff parse (ADR-0085, plan A4).
+//! Typed syntax emission from the canonical latest-Ruff parse (ADR-0085, plan A4).
 //!
 //! Every parse node is one occurrence, with its placement (the parent occurrence, the parent's
 //! field that holds it and its ordinal there) and the detail its bytes do not state: operator
@@ -15,15 +15,15 @@ use lctx_model::domain::{
     syntax::{OperatorKind, SyntaxDetail},
     value::Literal,
 };
-use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
-use ruff_python_ast::{
+use ruff_python_ast_latest::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
+use ruff_python_ast_latest::{
     Alias, AnyNodeRef, Arguments, BoolOp, BytesLiteral, CmpOp, Comprehension, Decorator,
     ElifElseClause, ExceptHandler, Expr, ExprContext, FString, Identifier,
     InterpolatedStringElement, Keyword, MatchCase, Mod, ModModule, NodeKind, Operator, Parameter,
     ParameterWithDefault, Parameters, Pattern, PatternArguments, PatternKeyword, Singleton, Stmt,
     StringLiteral, TString, TypeParam, TypeParams, UnaryOp, WithItem,
 };
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size_latest::{Ranged, TextRange};
 
 /// One structural occurrence and, for name/identifier leaves, its qualified observation, with its
 /// placement and details. Parent traversal never copies the entire source slice into every
@@ -686,19 +686,19 @@ fn comparison(op: CmpOp) -> OperatorKind {
 pub fn literal(expr: &Expr) -> Option<Literal> {
     literal_of(expr.into())
 }
-fn literal_of(expr: ruff_python_ast::ExprRef<'_>) -> Option<Literal> {
-    use ruff_python_ast::ExprRef as Expr;
+fn literal_of(expr: ruff_python_ast_latest::ExprRef<'_>) -> Option<Literal> {
+    use ruff_python_ast_latest::ExprRef as Expr;
     let literal = match expr {
         Expr::NumberLiteral(number) => match &number.value {
-            ruff_python_ast::Number::Int(int) => Literal::Integer {
+            ruff_python_ast_latest::Number::Int(int) => Literal::Integer {
                 decimal: int
                     .as_i64()
                     .map_or_else(|| int.to_string(), |v| v.to_string()),
             },
-            ruff_python_ast::Number::Float(value) => Literal::Float {
+            ruff_python_ast_latest::Number::Float(value) => Literal::Float {
                 bits: value.to_bits() as i64,
             },
-            ruff_python_ast::Number::Complex { .. } => return None,
+            ruff_python_ast_latest::Number::Complex { .. } => return None,
         },
         Expr::StringLiteral(string) => Literal::String {
             value: string.value.to_str().into(),

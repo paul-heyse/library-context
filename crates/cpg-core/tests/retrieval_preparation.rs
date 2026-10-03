@@ -158,7 +158,6 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
                 .collect(),
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: vec![profile],
             effect: Effect::Pure,
             code: ContentHash::of(b"native-mandatory-retrieval-control"),

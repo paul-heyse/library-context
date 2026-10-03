@@ -335,7 +335,7 @@ async fn syntax_shapes_states_declarations_parameters_calls_and_operators() {
         .iter()
         .find(|c| c.family == FactFamily::Syntax)
         .unwrap();
-    assert_eq!(syntax.status, CoverageStatus::CompleteUnderStatedModel);
+    assert_eq!(syntax.status, CoverageStatus::CompleteUnderStatedModel, "{syntax:?}");
     assert!(f.coverage.iter().any(|c| c.family == FactFamily::Types));
     // The public names are stated, and every definition attaches at its name span.
     assert!(

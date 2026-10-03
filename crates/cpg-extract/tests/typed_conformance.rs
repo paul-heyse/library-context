@@ -396,7 +396,7 @@ async fn a_short_budget_fails_the_attempt_and_releases_everything() {
 fn changed_text_is_refused_before_emission() {
     let files = fixture();
     let text = std::str::from_utf8(&files["sample.py"]).unwrap();
-    let parsed = ruff_python_parser::parse_module(text).unwrap();
+    let parsed = ruff_python_parser_latest::parse_module(text).unwrap();
     let mut source = artifact(&files, "sample.py");
     source.content = ContentHash::of(b"changed");
     let provider = pyrefly_provider();

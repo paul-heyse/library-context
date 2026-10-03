@@ -14,6 +14,7 @@ pub const RUFF_REVISION: &str = "8f01d80020921d3867f255ee5f919dd2d329b730";
 pub const RUFF_PATCH_SHA256: &str = "7da3c6617b8979bb5760c59a4def6fdb72fe177eff02b2aa229ff46d9bf0ff74";
 
 /// These are interpretation inputs, never discovered from ambient files or process state.
+#[derive(Clone, serde::Serialize)]
 pub struct ContextSettings {
     pub typing_modules: Vec<String>,
     pub custom_builtins: Vec<String>,
@@ -26,6 +27,8 @@ impl Default for ContextSettings {
     }
 }
 pub struct CanonicalSyntax<'a> {
+    source_id: lctx_model::domain::Id<SourceArtifact>,
+    context_id: lctx_model::domain::Id<AnalysisContext>,
     parsed: Parsed<ModModule>,
     source: &'a str,
     settings: Settings,
@@ -54,7 +57,7 @@ impl<'a> CanonicalSyntax<'a> {
         let parsed = parse_unchecked(source, ParseOptions::from(source_type).with_target_version(python_version))
             .try_into_module().ok_or_else(|| ModelError::Invalid("canonical Ruff requires module source".into()))?;
         Ok(Self {
-            parsed, source,
+            source_id:artifact.id(),context_id:context.id(),parsed, source,
             settings: Settings {
                 path: PathBuf::from("/captured").join(&artifact.path),
                 package_root: Some(Path::new("/captured").into()),
@@ -72,3 +75,75 @@ impl<'a> CanonicalSyntax<'a> {
     }
 }
 use lctx_model::domain::Record;
+
+pub fn provider() -> lctx_model::domain::attribution::Provider {
+    lctx_model::domain::attribution::Provider {
+        tool:"ruff".into(), revision:RUFF_REVISION.into(),
+        build_digest:crate::bundle::build_digest(&[include_str!("ruff_context.rs"),include_str!("typed_syntax.rs"),include_str!("syntax_records.rs")]),
+    }
+}
+/// Native integers stay local to one parse. Only canonical occurrence/context identities escape.
+pub struct ContextRows {
+    pub rows: Vec<lctx_model::domain::ruff::RuffContextObservation>,
+    pub unlocated: usize,
+    pub incomplete: Option<Incomplete>,
+    _charge: lctx_model::domain::charged::StateCharge,
+}
+impl CanonicalSyntax<'_> {
+    pub fn context_rows(&self, spans:&crate::syntax_records::Spans, qualification:&lctx_model::domain::assertion::AssertionQualification, budget:&ResourceBudget) -> Result<ContextRows,ModelError> {
+        if spans.source()!=Some(self.source_id)||qualification.context!=self.context_id {return Err(ModelError::Invalid("Ruff contextual attachment differs from captured source/context".into()));}
+        use lctx_model::domain::{Id, source::OccurrenceRole, ruff::{ContextPhase,RuffContextObservation}, assertion::AssertionQualification};
+        use ruff_linter::semantic_facts::{Fact,NodeOrigin,StopReason};
+        use ruff_python_semantic::SemanticModelFlags as Flags;
+        use std::collections::{BTreeMap,BTreeSet};
+        struct Collect<'a> {
+            spans:&'a crate::syntax_records::Spans, qualification:Id<AssertionQualification>,
+            output:ContextRows, bindings:BTreeMap<u32,Option<Vec<String>>>, seen:BTreeSet<Id<RuffContextObservation>>, error:Option<ModelError>,
+        }
+        impl Sink for Collect<'_> {
+            fn observe(&mut self,fact:Fact)->Result<(),StopReason> {
+                let row=match fact {
+                    Fact::Node(node) if node.origin==NodeOrigin::Source => {
+                        let subject=match self.spans.get(node.range,crate::typed_syntax::kind(node.kind)) { Ok(id)=>id,Err(_)=>{self.output.unlocated+=1;return Ok(());} };
+                        if let Some(expected)=node.expr_context.map(|role|match role {ruff_python_ast_latest::ExprContext::Load=>OccurrenceRole::Read,ruff_python_ast_latest::ExprContext::Store=>OccurrenceRole::Binding,_=>OccurrenceRole::Syntax}) {
+                            if node.kind==ruff_python_ast_latest::NodeKind::ExprName && self.spans.role_of(subject)!=Some(expected) {self.output.unlocated+=1;return Ok(());}
+                        }
+                        let flags=Flags::from_bits_retain(node.flags);
+                        Some(RuffContextObservation {
+                            qualification:self.qualification,subject,phase:ContextPhase::ActiveNode,reference_load:None,
+                            typing:node.context.is_typing(), typing_only_annotation:flags.contains(Flags::TYPING_ONLY_ANNOTATION),
+                            runtime_annotation:flags.contains(Flags::RUNTIME_EVALUATED_ANNOTATION),
+                            string_annotation:flags.intersects(Flags::SIMPLE_STRING_TYPE_DEFINITION|Flags::COMPLEX_STRING_TYPE_DEFINITION),
+                            type_checking:flags.contains(Flags::TYPE_CHECKING_BLOCK),qualified_name:node.qualified_name,
+                        })
+                    }
+                    Fact::Binding(binding)=> {
+                        let bytes=128+binding.qualified_name.as_ref().map_or(0,|names| names.iter().map(|name|name.len()+64).sum());
+                        if let Err(error)=self.output._charge.grow(bytes) { self.error=Some(error);return Err(StopReason::Sink("context resource allowance".into())); }
+                        self.bindings.insert(binding.id,binding.qualified_name);None
+                    }
+                    Fact::Reference(reference)=> {
+                        let Some(subject)=self.spans.reference(reference.range,reference.is_load) else {self.output.unlocated+=1;return Ok(());};
+                        Some(RuffContextObservation { qualification:self.qualification,subject,phase:ContextPhase::FinalReference,reference_load:Some(reference.is_load),
+                            typing:reference.typing_context,typing_only_annotation:reference.typing_only_annotation,
+                            runtime_annotation:reference.runtime_annotation,string_annotation:reference.string_annotation,
+                            type_checking:reference.type_checking,qualified_name:self.bindings.get(&reference.binding).cloned().flatten(),
+                        })
+                    }
+                    _=>None,
+                };
+                if let Some(row)=row {
+                    let bytes=512+row.qualified_name.as_ref().map_or(0,|names|names.iter().map(|name|name.len()+64).sum());
+                    if let Err(error)=self.output._charge.grow(bytes) {self.error=Some(error);return Err(StopReason::Sink("context resource allowance".into()));}
+                    if self.seen.insert(row.id()) { self.output.rows.push(row); } else { self.output._charge.release(bytes); }
+                }
+                Ok(())
+            }
+        }
+        let mut sink=Collect { spans,qualification:qualification.id(),output:ContextRows {rows:vec![],unlocated:0,incomplete:None,_charge:lctx_model::domain::charged::StateCharge::new(budget,"ruff-context-rows")},bindings:BTreeMap::new(),seen:BTreeSet::new(),error:None };
+        sink.output.incomplete=self.observe(&mut sink).err();
+        if let Some(error)=sink.error {return Err(error);}
+        sink.output.rows.sort_by_key(Record::id);
+        Ok(sink.output)
+    }
+}

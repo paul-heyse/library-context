@@ -21,7 +21,6 @@ fn stage(name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![Profile::Catalog],
         effect: Effect::Pure,
         code: ContentHash::of(b"real epoch test"),

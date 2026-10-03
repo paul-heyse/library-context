@@ -143,6 +143,15 @@ encoding is structural and length tagged, with a model namespace and nominal typ
 Entity identity, qualified proposition identity and support/run identity are distinct. A condition,
 modality or approximation qualifies an assertion; additional supports do not strengthen it.
 
+**Accepted target, adoption in progress, 2026-10-03.** Every assertion qualification requires an
+explicit canonical assumption set, including the empty set. Supported lower observations and
+pinned model definitions supply conditional premises without content-key cycles. Shared conjunction
+unions compatible sets; alternative union retains distinct governing bases. Transfer, Summary and
+served claims preserve and resolve the same basis. Typing-based refinement does not erase the
+conservative runtime alternative; question policy owns admission. Q0 acceptance remains pending.
+
+> Decision: ADR-0120
+
 Input revisions identify canonical manifests of analyzer-visible bytes, independently of acquisition
 labels or absolute checkout locations. Package/version releases, installed verification and acquired
 input revisions have separate identities. Installed, source-tree and corpus acquisition origins are
@@ -737,7 +746,14 @@ contributions, effect class and code identity. From it:
 - publication groups close declared private vocabulary deltas and ordinary results atomically,
   with no read authority before group acknowledgement (§15.11).
 
-A stage that reports coverage names its provider; the provider is part of the schedule digest.
+**Implemented, qualification in progress, 2026-10-03.** Scheduled extraction coverage names the
+actual provider per fact family through `FamilyCoverage`; one stage can coordinate canonical
+Ruff syntax and native Pyrefly typing without merging their support identities. Admission derives
+exact scope/family/provider expectations and reconciles the joint stage outcome. Relation writers
+remain singular; no provider discovery registry is introduced.
+
+> Decision: ADR-0119
+
 
 **The facts frontier** (`domain::admission`). A facts generation publishes only facts relations,
 which reference only facts relations. One table states, for each family:

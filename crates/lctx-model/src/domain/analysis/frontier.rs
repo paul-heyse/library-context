@@ -490,7 +490,6 @@ pub fn stage(
             .collect(),
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: stages::Effect::Pure,
         code: code.finish(),

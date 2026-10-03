@@ -77,7 +77,7 @@ fn paths(text: String, limits: SyntaxLimits) -> (Result<SyntaxWork, SyntaxError>
     std::thread::Builder::new()
         .stack_size(256 << 20)
         .spawn(move || {
-            let parsed = ruff_python_parser::parse_module(&text).expect("valid Python");
+            let parsed = ruff_python_parser_latest::parse_module(&text).expect("valid Python");
             let input = input(&text);
             let mut events = Vec::new();
             let invocation = SyntaxInvocation {
@@ -190,7 +190,7 @@ fn an_oversized_source_is_refused_before_any_callback() {
         "nothing was emitted"
     );
     // The emitter repeats the admission before any traversal or sink call.
-    let empty = ruff_python_parser::parse_module("").unwrap();
+    let empty = ruff_python_parser_latest::parse_module("").unwrap();
     let invocation = SyntaxInvocation {
         source: &big.source,
         qualification: &big.qualification,

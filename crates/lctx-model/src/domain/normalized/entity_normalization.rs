@@ -714,7 +714,6 @@ pub fn stage() -> stages::Stage {
             .collect(),
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: stages::Profile::ALL.to_vec(),
         effect: stages::Effect::Pure,
         code: policy_revision(),

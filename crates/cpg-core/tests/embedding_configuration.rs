@@ -77,7 +77,6 @@ async fn stored_selection_is_early_immutable_and_required_for_embedding_effects(
             outputs: vec![output],
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: Profile::ALL.to_vec(),
             effect,
             code: ContentHash::of(b"embedding effect contract control"),

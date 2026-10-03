@@ -715,7 +715,6 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         outputs: stage_outputs(),
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: stages::Effect::Pure,
         code: ContentHash::of(include_bytes!("build.rs")),

@@ -437,7 +437,6 @@ pub fn stage(profile: stages::Profile, requested: bool) -> stages::Stage {
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: if requested {
             Effect::Embedding

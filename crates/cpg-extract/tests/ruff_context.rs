@@ -48,3 +48,31 @@ fn cancellation_and_limits_never_certify_complete_context() {
     assert_eq!(syntax.observe(&mut Cancel).unwrap_err().reason, StopReason::Cancelled);
     assert_eq!(syntax.observe(&mut Rows::default()).unwrap_err().reason, StopReason::RowBudget);
 }
+
+#[test]
+fn contextual_attachment_refuses_foreign_source_and_context() {
+    use cpg_extract::{syntax_records::Spans,typed_syntax::{self,SyntaxInvocation,SyntaxLimits}};
+    use lctx_model::domain::{assertion::*,attribution::*,conditions::Diagram,source::*};
+    let source="x = 1\nx\n";
+    let artifact=artifact(source);
+    let context=context();
+    let budget=ResourceBudget::fixed(16<<20).unwrap();
+    let syntax=CanonicalSyntax::parse(&artifact,source,&context,ContextSettings::default(),&budget).unwrap();
+    let provider=cpg_extract::ruff_context::provider();
+    let (run,_)=ProviderRun::new(provider.id(),context.id(),artifact.input,context.config_digest,[FactFamily::Syntax]).unwrap();
+    let surface=ProviderSurface {provider:provider.id(),family:FactFamily::Syntax,name:"control".into()};
+    let qualification=AssertionQualification {context:context.id(),scope:CoverageScope::Artifact {artifact:artifact.id()}.id(),condition:Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact};
+    let mut spans=Spans::new(&budget);
+    typed_syntax::emit(syntax.module(),source,SyntaxInvocation {source:&artifact,qualification:&qualification,run:&run,surface:&surface},SyntaxLimits::default(),|event|spans.insert(&event.occurrence)).unwrap();
+    let contexts=syntax.context_rows(&spans,&qualification,&budget).unwrap();
+    assert!(contexts.incomplete.is_none());
+    assert_eq!(contexts.unlocated,0);
+    assert!(!contexts.rows.is_empty());
+    let mut foreign=artifact.clone();foreign.path="foreign.py".into();
+    let foreign_syntax=CanonicalSyntax::parse(&foreign,source,&context,ContextSettings::default(),&budget).unwrap();
+    assert!(foreign_syntax.context_rows(&spans,&qualification,&budget).is_err());
+    let mut other=qualification.clone();other.context=serde_json::from_value(serde_json::json!(vec![2;16])).unwrap();
+    assert!(syntax.context_rows(&spans,&other,&budget).is_err());
+    let occurrence=Occurrence { source:foreign.id(),start:0,end:1,syntax_kind:SyntaxKind::ExprName,role:OccurrenceRole::Read,structural_path:vec![999] };
+    assert!(spans.insert(&occurrence).is_err());
+}

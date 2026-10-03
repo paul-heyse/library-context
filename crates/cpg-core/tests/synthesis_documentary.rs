@@ -107,7 +107,6 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
                 .collect(),
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: vec![profile],
             effect: Effect::Pure,
             code: ContentHash::of(b"native-mandatory-retrieval-control"),

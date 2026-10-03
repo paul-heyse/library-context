@@ -23,7 +23,6 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
             outputs: vec![RelationUse::of::<Package>()],
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: vec![Profile::Catalog],
             effect: Effect::Extraction,
             code: ContentHash::of(b"package producer"),

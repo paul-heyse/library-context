@@ -243,6 +243,31 @@ canonical Ruff and scoped nominal source families; acceptance does not establish
 Fork sources/receipts are retained under `/home/paul/.cache/lctx-code-facts/`. Immutable Pyrefly
 revision `72bb34d6d67c2bc14720c77e2ad7eff6b89d360f` has parent `80cec3f57364bc11d4a39a419f6894a8eabcaa00`;
 Ruff revision `8f01d80020921d3867f255ee5f919dd2d329b730` has parent `3265ed1f944c98bb4c04d632fbefb1257cdb583d`.
-These are provider seam receipts, not full-series acceptance. N4a is in an isolated executor
-worktree; B0 and production migration follow. All other functional packages and Q0/full hygiene
-are **not_run**. Real-library reconstruction/activation remain separately authorized follow-up.
+These are provider seam receipts, not full-series acceptance. M1 pins/API port are committed at
+`1946cff1`; release extraction/flow all-target checks passed, 19 policy controls passed, and the
+current-tree `cargo nextest run --release -p cpg-extract --test ruff_context --test typed_types
+--test typed_flow --test harness` passed 14 controls. CLI versions were verified as Ruff 0.16.10
+and Pyrefly 1.4.0-dev.3 after `uv sync --no-install-workspace`.
+N4a is integrated at `ef7a50ed`; its executor release receipt passed 43 controls including actual
+per-alias extraction, normalization/projection and PostgreSQL roundtrip. Integration against new
+pins is being requalified with M2.
+M2 canonical syntax/context is implemented in the working tree: latest Ruff owns parse/traversal,
+owned static branch adapters retain Pyrefly decisions, contextual records preserve active-node
+versus final-reference phases, and overload recognition consumes actual qualified names. The
+initial focused run failed 16 controls on the old single-provider stage coverage assumption.
+ADR-0119 accepts finite family/provider coverage grants; frontier expectations and schedule
+identity now derive from those exact pairs. `cargo check --release --workspace --all-targets
+--locked` passed on 2026-10-03. The first admission rerun failed seven fixture-stage
+output declarations; the fixture now declares the actual contextual relations. Native rerun
+passed 29/31, with two coverage mismatches caused by augmented, deletion and nonlocal reference
+roles. Exact structural reference attachment repaired those mismatches. The final combined
+`cargo nextest run --release -p cpg-extract --test typed_lexical --test typed_syntax_shapes
+--test typed_documents --test typed_ruff_context --test ruff_context -p lctx-model
+--test domain_stages --test domain_admission` **passed**, 34/34, zero skipped. Earlier native
+controls for owner/limits/conformance/per-alias/type/parity also passed within the composite
+receipt. These are scoped controls, not complete M2 enrichment or Q0 acceptance. ADR-0120
+accepts required canonical assumption bases before conditional behavior activation; B0 integration
+remains pending.
+B0 required assumption sets/composition and N1/N2 callable variants/generics remain in isolated
+executor worktrees. Remaining M2 native enrichments, M3, downstream packages and Q0/full hygiene
+remain open/not_run. Real-library reconstruction/activation remain separately authorized follow-up.

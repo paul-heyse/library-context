@@ -88,7 +88,6 @@ pub fn stage(configuration: Option<&Configuration>) -> Stage {
             .collect(),
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: Profile::ALL.to_vec(),
         effect: Effect::Pure,
         code: ContentHash::of(include_bytes!("configuration.rs")),

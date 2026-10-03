@@ -49,7 +49,6 @@ async fn native_inventory_roundtrips_and_refuses_omission_and_forged_status() {
             outputs: syntax_relations!(outputs),
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: vec![Profile::Catalog],
             effect: Effect::Extraction,
             code: ContentHash::of(b"native inventory fixture"),

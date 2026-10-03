@@ -33,11 +33,9 @@ use lctx_model::domain::{
     obligation::ObligationKind,
     source::SyntaxKind,
 };
-use pyrefly_python::ast::Ast;
-use pyrefly_python::sys_info::SysInfo;
-use ruff_python_ast::helpers::any_over_expr;
-use ruff_python_ast::{AnyNodeRef, Expr, Stmt, StmtIf};
-use ruff_text_size::{Ranged, TextRange, TextSize};
+use crate::native_branches::NativeBranches;
+use ruff_python_ast_latest::{AnyNodeRef, Expr, Stmt};
+use ruff_text_size_latest::{Ranged, TextRange, TextSize};
 
 /// What a read resolves to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -183,7 +181,7 @@ struct Pushed {
 
 pub struct Lexical<'b, I> {
     /// The module's Python version and platform, for Pyrefly's static tests.
-    sys: &'b SysInfo,
+    decisions: &'b NativeBranches,
     outside: &'b Outside,
     stars: &'b Stars,
     scopes: Vec<ScopeRec<I>>,
@@ -204,74 +202,6 @@ pub struct Lexical<'b, I> {
     builtins_used: HashSet<String>,
 }
 
-/// Each clause of an `if` statement as Pyrefly decides it (H1 C1): `SysInfo::evaluate_bool` per
-/// clause, applied as `SysInfo::pruned_if_branches` applies it. `Some((kind, kept))`: the clause is
-/// statically decided, and Pyrefly analyzes it (`kept`) or prunes it; `None`: it depends on the
-/// runtime. An `else` is decided when every earlier test was decided false, and every clause after
-/// one decided true is pruned. The kind is the deciding test's (the true one's, for the clauses it
-/// prunes).
-pub(crate) fn clause_marks(sys: &SysInfo, i: &StmtIf) -> Vec<Option<(StaticBranch, bool)>> {
-    let mut marks = Vec::new();
-    let mut taken: Option<StaticBranch> = None;
-    let mut all_false = true;
-    let mut last_false: Option<StaticBranch> = None;
-    for (test, _) in Ast::if_branches(i) {
-        let mark = if let Some(kind) = taken {
-            Some((kind, false))
-        } else {
-            match test {
-                None if all_false => last_false.map(|kind| (kind, true)),
-                None => None,
-                Some(test) => match sys.evaluate_bool(test) {
-                    Some(holds) => {
-                        let kind = static_kind(test);
-                        if holds {
-                            taken = Some(kind);
-                        } else {
-                            last_false = Some(kind);
-                        }
-                        Some((kind, holds))
-                    }
-                    None => {
-                        all_false = false;
-                        None
-                    }
-                },
-            }
-        };
-        marks.push(mark);
-    }
-    marks
-}
-
-/// What a decided test reads: the kind is from the expression tree, never its text.
-fn static_kind(test: &Expr) -> StaticBranch {
-    let named = |e: &Expr, module: &str| matches!(e, Expr::Name(n) if n.id.as_str() == module);
-    let checking = any_over_expr(test, |e| match e {
-        Expr::Name(n) => SysInfo::is_type_checking_constant_name(n.id.as_str()),
-        Expr::Attribute(a) => {
-            a.value.is_name_expr() && SysInfo::is_type_checking_constant_name(a.attr.as_str())
-        }
-        _ => false,
-    });
-    let version = any_over_expr(
-        test,
-        |e| matches!(e, Expr::Attribute(a) if a.attr.as_str() == "version_info" && named(&a.value, "sys")),
-    );
-    let platform = any_over_expr(test, |e| {
-        matches!(e, Expr::Attribute(a)
-            if (a.attr.as_str() == "platform" && named(&a.value, "sys"))
-                || (a.attr.as_str() == "name" && named(&a.value, "os")))
-    });
-    match (checking, version, platform) {
-        (true, false, false) => StaticBranch::TypeChecking,
-        (false, true, false) => StaticBranch::VersionInfo,
-        (false, false, true) => StaticBranch::Platform,
-        (false, false, false) => StaticBranch::Constant,
-        _ => StaticBranch::Combined,
-    }
-}
-
 fn suite(body: &[Stmt]) -> Option<TextRange> {
     Some(TextRange::new(body.first()?.start(), body.last()?.end()))
 }
@@ -280,12 +210,12 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
     pub fn new(
         module_node_id: I,
         module_span: TextRange,
-        sys: &'b SysInfo,
+        decisions: &'b NativeBranches,
         outside: &'b Outside,
         stars: &'b Stars,
     ) -> Self {
         let mut this = Self {
-            sys,
+            decisions,
             outside,
             stars,
             scopes: Vec::new(),
@@ -373,14 +303,14 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
     )]
     pub fn enter(
         &mut self,
-        node: ruff_python_ast::AnyNodeRef<'_>,
+        node: ruff_python_ast_latest::AnyNodeRef<'_>,
         syntax_id: I,
         own_id: Option<I>,
         param_id: Option<I>,
         parent: (I, SyntaxField),
         in_annotation: bool,
     ) {
-        use ruff_python_ast::AnyNodeRef as N;
+        use ruff_python_ast_latest::AnyNodeRef as N;
         let mut pushed = Pushed::default();
         let r = node.range();
         // Annotations are the `types` family's (C4): no scope, binding or reference there, so a
@@ -447,7 +377,7 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
                 pushed.scope = true;
             }
             N::ExprListComp(_) | N::ExprSetComp(_) | N::ExprDictComp(_) | N::ExprGenerator(_) => {
-                let generators: &[ruff_python_ast::Comprehension] = match node {
+                let generators: &[ruff_python_ast_latest::Comprehension] = match node {
                     N::ExprListComp(x) => &x.generators,
                     N::ExprSetComp(x) => &x.generators,
                     N::ExprDictComp(x) => &x.generators,
@@ -561,7 +491,7 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
             {
                 let ranges = std::iter::once(suite(&i.body))
                     .chain(i.elif_else_clauses.iter().map(|c| Some(c.range())));
-                for (mark, range) in clause_marks(self.sys, i).into_iter().zip(ranges) {
+                for (mark, range) in self.decisions.marks(i).into_iter().zip(ranges) {
                     if let (Some((kind, kept)), Some(range)) = (mark, range) {
                         self.branches.push((range, kind, kept));
                         pushed.branches += 1;
@@ -671,10 +601,10 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
             N::ExprName(n) => {
                 let here = self.scope_at(r.start());
                 match n.ctx {
-                    ruff_python_ast::ExprContext::Load => {
+                    ruff_python_ast_latest::ExprContext::Load => {
                         self.reference(here, syntax_id, &n.id, r, parent);
                     }
-                    ruff_python_ast::ExprContext::Store => {
+                    ruff_python_ast_latest::ExprContext::Store => {
                         let ctx = self.stores.iter().rev().find(|s| s.range.contains_range(r));
                         let (kind, value) =
                             ctx.map_or((BindingKind::Assignment, None), |c| (c.kind, c.value));
@@ -689,10 +619,10 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
                         }
                         self.bind(target, &n.id, kind, syntax_id, r, value);
                     }
-                    ruff_python_ast::ExprContext::Del => {
+                    ruff_python_ast_latest::ExprContext::Del => {
                         self.bind(here, &n.id, BindingKind::Del, syntax_id, r, None);
                     }
-                    ruff_python_ast::ExprContext::Invalid => {}
+                    ruff_python_ast_latest::ExprContext::Invalid => {}
                 }
             }
             _ => {}
@@ -723,8 +653,8 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
     }
 
     /// Leave a node: undo what entering it pushed.
-    pub fn leave(&mut self, node: ruff_python_ast::AnyNodeRef<'_>) {
-        if matches!(node, ruff_python_ast::AnyNodeRef::StmtImportFrom(_)) {
+    pub fn leave(&mut self, node: ruff_python_ast_latest::AnyNodeRef<'_>) {
+        if matches!(node, ruff_python_ast_latest::AnyNodeRef::StmtImportFrom(_)) {
             self.in_from_import = false;
         }
         let p = self.pushed.pop().expect("enter and leave pair");
@@ -1145,12 +1075,12 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
 
 #[cfg(test)]
 mod tests {
-    use pyrefly_python::ast::Ast;
-    use pyrefly_python::sys_info::{PythonPlatform, PythonVersion, SysInfo};
+        use pyrefly_python::sys_info::{PythonPlatform, PythonVersion, SysInfo};
     use ruff_python_ast::visitor::source_order::{SourceOrderVisitor, walk_stmt};
     use ruff_python_ast::{PySourceType, Stmt, StmtIf};
 
-    use super::clause_marks;
+    use crate::native_branches::clause_marks;
+    use pyrefly_python::ast::Ast;
 
     /// Every `if` statement of a module, nested ones included.
     #[derive(Default)]

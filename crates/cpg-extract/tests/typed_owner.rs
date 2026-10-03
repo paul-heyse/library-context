@@ -44,13 +44,14 @@ fn occurrences() -> (Vec<Occurrence>, Vec<u8>) {
     );
     let mut txn = state.new_transaction(Require::Exports, None);
     txn.run(std::slice::from_ref(&handle), Require::Everything, None);
-    let ast = txn.get_ast(&handle).expect("retained native AST");
+
     let text = txn
         .get_module_info(&handle)
         .unwrap()
         .lined_buffer()
         .contents()
         .clone();
+    let ast = ruff_python_parser_latest::parse_module(&text).unwrap();
     let input = InputRevision::from_entries(vec![ManifestEntry {
         path: "owner.py".into(),
         content: ContentHash::of(&bytes),
@@ -101,7 +102,7 @@ fn occurrences() -> (Vec<Occurrence>, Vec<u8>) {
     };
     let mut occurrences = Vec::new();
     typed_syntax::emit(
-        &ast,
+        ast.syntax(),
         &text,
         SyntaxInvocation {
             source: &source,

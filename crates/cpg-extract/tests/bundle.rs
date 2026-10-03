@@ -119,7 +119,6 @@ fn stage(
         outputs,
         contributes,
         coverage: vec![],
-        provider: None,
         profiles: vec![Profile::Catalog],
         effect: Effect::Extraction,
         code: ContentHash::of(name.as_bytes()),

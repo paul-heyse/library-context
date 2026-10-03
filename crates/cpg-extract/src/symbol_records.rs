@@ -671,7 +671,7 @@ pub struct ParameterDocs {
     pub unlocated: Vec<String>,
 }
 pub fn parameter_docs(
-    ast: &ruff_python_ast::ModModule,
+    ast: &ruff_python_ast_latest::ModModule,
     text: &str,
     source: Id<lctx_model::domain::source::SourceArtifact>,
     spans: &Spans,
@@ -679,12 +679,12 @@ pub fn parameter_docs(
 ) -> Result<ParameterDocs, ModelError> {
     use crate::docstrings::{Located, docstring, locate_description};
     use lctx_model::domain::assertion::{Evidence, EvidenceSourceSpanId};
-    use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
-    use ruff_text_size::Ranged;
-    struct Defs<'a>(Vec<&'a ruff_python_ast::StmtFunctionDef>);
+    use ruff_python_ast_latest::statement_visitor::{StatementVisitor, walk_stmt};
+    use ruff_text_size_latest::Ranged;
+    struct Defs<'a>(Vec<&'a ruff_python_ast_latest::StmtFunctionDef>);
     impl<'a> StatementVisitor<'a> for Defs<'a> {
-        fn visit_stmt(&mut self, stmt: &'a ruff_python_ast::Stmt) {
-            if let ruff_python_ast::Stmt::FunctionDef(def) = stmt {
+        fn visit_stmt(&mut self, stmt: &'a ruff_python_ast_latest::Stmt) {
+            if let ruff_python_ast_latest::Stmt::FunctionDef(def) = stmt {
                 self.0.push(def);
             }
             walk_stmt(self, stmt);

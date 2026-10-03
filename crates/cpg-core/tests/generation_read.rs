@@ -811,7 +811,6 @@ async fn stage_session_reads_only_its_completed_source_and_admits_all_scan_insta
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![Profile::Catalog],
         effect: Effect::Store,
         code: ContentHash::of(b"stage reader"),

@@ -1,18 +1,16 @@
 //! Docstrings as Pyrefly finds them, and where a documented parameter's description lies in a
 //! docstring literal's source: the recognizer behind parameter documentation (slice 2.1).
-use pyrefly_python::docstring::Docstring;
-use ruff_python_ast::Stmt;
-use ruff_text_size::TextRange;
+use ruff_python_ast_latest::Stmt;
+use ruff_text_size_latest::{Ranged, TextRange};
 
 /// The body's docstring and its statement's range, where Pyrefly finds one
 /// (`Docstring::range_from_stmts`, H1 C9).
 pub(crate) fn docstring(body: &[Stmt]) -> Option<(String, TextRange)> {
-    let range = Docstring::range_from_stmts(body)?;
     let Some(Stmt::Expr(e)) = body.first() else {
         return None;
     };
     let text = e.value.as_string_literal_expr()?.value.to_str().to_owned();
-    Some((text, range))
+    Some((text, e.range()))
 }
 
 /// Where a parameter's description lies in a docstring literal's source (slice 2.1 review F2,

@@ -515,7 +515,6 @@ pub fn stage(profile: Profile) -> Stage {
         outputs: relations().iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: Effect::Pure,
         code: policy_revision(),

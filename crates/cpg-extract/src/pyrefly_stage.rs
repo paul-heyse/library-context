@@ -46,6 +46,7 @@ use lctx_model::domain::{
     stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage, StageSink},
     symbols::*,
     syntax::*,
+    ruff::*,
     types::*,
 };
 use std::{collections::BTreeMap, path::Path};
@@ -109,6 +110,8 @@ fn outputs() -> Vec<RelationUse> {
     uses!(
         Module,
         Occurrence,
+        RuffContextObservation,
+        RuffContextSupport,
         SyntaxObservation,
         SyntaxSupport,
         SyntaxPlacement,
@@ -214,8 +217,7 @@ impl Declared for Pyrefly {
             inputs: vec![],
             outputs: outputs(),
             contributes: crate::assembly::vocabulary(),
-            coverage: FAMILIES.to_vec(),
-            provider: Some(provider.id()),
+            coverage: FAMILIES.to_vec().into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:if family==FactFamily::Syntax {crate::ruff_context::provider().id()} else {provider.id()}}).collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Extraction,
             code: provider.build_digest,
@@ -247,7 +249,9 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
         declare!(
             Module,
             Occurrence,
-            SyntaxObservation,
+            RuffContextObservation,
+        RuffContextSupport,
+        SyntaxObservation,
             SyntaxSupport,
             SyntaxPlacement,
             SyntaxPlacementSupport,
@@ -491,7 +495,7 @@ fn session<S: StageSink + 'static>(
         analysis.id(),
         captured.revision().id(),
         analysis.config_digest,
-        FAMILIES,
+        FAMILIES.into_iter().filter(|family| *family!=FactFamily::Syntax),
     )?;
     let surfaces: BTreeMap<FactFamily, ProviderSurface> = FAMILIES
         .iter()
@@ -506,6 +510,13 @@ fn session<S: StageSink + 'static>(
             )
         })
         .collect();
+    let ruff=crate::ruff_context::provider();
+    let (ruff_run,ruff_families)=ProviderRun::new(ruff.id(),analysis.id(),captured.revision().id(),analysis.config_digest,[FactFamily::Syntax])?;
+    let ruff_surface=ProviderSurface { provider:ruff.id(),family:FactFamily::Syntax,name:"canonical parse and populated contextual pass".into() };
+    context.contribute(ruff)?;
+    context.contribute(ruff_run.clone())?;
+    for family in ruff_families {context.contribute(family)?;}
+    context.contribute(ruff_surface.clone())?;
     context.contribute(analysis.clone())?;
     context.contribute(run.clone())?;
     for family in families {
@@ -582,10 +593,10 @@ fn session<S: StageSink + 'static>(
                     reason: Option<ObligationKind>,
                     diagnostic: Option<String>| ProviderCoverage {
         scope: scope.id(),
-        provider: Some(provider.id()),
+        provider: Some(if family==FactFamily::Syntax {ruff_surface.provider} else {provider.id()}),
         context: analysis.id(),
         family,
-        run: Some(run.id()),
+        run: Some(if family==FactFamily::Syntax {ruff_run.id()} else {run.id()}),
         status,
         reason,
         diagnostic,
@@ -634,23 +645,27 @@ fn session<S: StageSink + 'static>(
         };
         context.contribute(qualification.clone())?;
         accesses.push((index, module_id, qualification.id()));
-        let ast = transaction
+        let native_ast = transaction
             .get_ast(handle)
             .ok_or_else(|| invalid("the analyzer did not retain the module's AST".into()))?;
         let info = transaction
             .get_module_info(handle)
             .ok_or_else(|| invalid("the analyzer did not retain the module's text".into()))?;
         let text = info.lined_buffer().contents().clone();
+        let canonical = crate::ruff_context::CanonicalSyntax::parse(artifact, &text, &analysis, selected.config().ruff_settings().clone(), context.budget())?;
+        let ast = canonical.module();
+        let static_decisions = crate::native_branches::NativeBranches::observe(&native_ast, &sys, context.budget())?;
+
         let invocation = SyntaxInvocation {
             source: artifact,
             qualification: &qualification,
-            run: &run,
-            surface: &surfaces[&FactFamily::Syntax],
+            run: &ruff_run,
+            surface: &ruff_surface,
         };
         let support = |family: FactFamily, subject: lctx_model::domain::Id<Occurrence>| {
             (
-                run.id(),
-                surfaces[&family].id(),
+                if family==FactFamily::Syntax {ruff_run.id()} else {run.id()},
+                if family==FactFamily::Syntax {ruff_surface.id()} else {surfaces[&family].id()},
                 Evidence::Occurrence {
                     occurrence: subject,
                 }
@@ -718,7 +733,7 @@ fn session<S: StageSink + 'static>(
             Ok(())
         });
         let errors = transaction.get_errors([handle]).collect_errors();
-        let parse_error = [
+        let native_parse_error = [
             &errors.ordinary,
             &errors.directives,
             &errors.suppressed,
@@ -728,16 +743,25 @@ fn session<S: StageSink + 'static>(
         .into_iter()
         .flatten()
         .any(|error| error.error_kind() == ErrorKind::ParseError);
+        let parse_error = !canonical.parsed().errors().is_empty();
+        let mut ruff_context_incomplete = None;
         let (mut unattached, mut unlocated, mut computed_all, mut calls_partial, mut types_partial) =
             ((0, 0), 0, false, false, false);
         let syntax = match emitted {
             Ok(_) => {
+                let contextual=canonical.context_rows(&spans,&qualification,context.budget())?;
+                if contextual.incomplete.is_some() || contextual.unlocated>0 {ruff_context_incomplete=Some(format!("contextual pass: {:?}; {} unattached source contexts",contextual.incomplete,contextual.unlocated));}
+                for row in &contextual.rows {
+                    context.emit(RuffContextSupport { assertion:row.id(),run:ruff_run.id(),surface:ruff_surface.id(),evidence:Evidence::Occurrence {occurrence:row.subject}.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural })?;
+                    context.emit(row.clone())?;
+                }
                 let records = syntax_records::records(
                     &ast,
                     &module_name,
                     is_package,
                     &spans,
                     qualification.id(),
+                    &contextual.rows,
                 )?;
                 let computed = records.computed_all.clone();
                 computed_all = !computed.is_empty();
@@ -758,7 +782,7 @@ fn session<S: StageSink + 'static>(
                     ..qualification.clone()
                 };
                 context.contribute(candidate.clone())?;
-                let facts = lexical_records::facts(&ast, &spans, &sys, &outside, &stars)?;
+                let facts = lexical_records::facts(ast, &spans, &static_decisions, &outside, &stars)?;
                 let lexical =
                     lexical_records::records(&facts, &spans, qualification.id(), candidate.id())?;
                 write_lexical(context, lexical, &|subject| {
@@ -820,6 +844,7 @@ fn session<S: StageSink + 'static>(
                     &transaction,
                     handle,
                     &qualification,
+                    &analysis,
                     provider,
                     &type_syntax,
                     &spans,
@@ -827,11 +852,11 @@ fn session<S: StageSink + 'static>(
                     context.budget(),
                     &analyzed,
                     limits,
-                    &run,
-                    &surfaces[&FactFamily::Syntax],
+                    &ruff_run,
+                    &ruff_surface,
                     root,
                 )?;
-                types_partial = !types.boundaries.is_empty();
+                types_partial = native_parse_error || !types.boundaries.is_empty();
                 write_types(
                     context,
                     types,
@@ -873,6 +898,8 @@ fn session<S: StageSink + 'static>(
                                 .into(),
                         ),
                     )
+                } else if let Some(detail)=ruff_context_incomplete.take() {
+                    (CoverageStatus::Partial,Some(ObligationKind::OutsideProviderModel),Some(detail))
                 } else {
                     (CoverageStatus::CompleteUnderStatedModel, None, None)
                 }
@@ -1294,7 +1321,7 @@ fn resolve_import(
     let mut requested = lookup.base.clone().unwrap_or_else(|| lookup.spelling.clone());
     let found = if let Some(base) = &lookup.base {
         if let Some(member) = &lookup.member {
-            if let Some(Type::Module(module)) = transaction.get_type_at_preserving_declaration(importer, lookup.binding_position) {
+            if let Some(Type::Module(module)) = transaction.get_type_at_preserving_declaration(importer, ruff_text_size::TextSize::new(lookup.binding_position.to_u32())) {
                 requested = module.parts().iter().map(|part| part.as_str()).collect::<Vec<_>>().join(".");
                 transaction.import_handle(importer, ModuleName::from_str(&requested), None).finding()
             } else if let Some(base_handle) = transaction.import_handle(importer, ModuleName::from_str(base), None).finding() {
@@ -1953,13 +1980,13 @@ fn star_imports(
     handle: &pyrefly_build::handle::Handle,
     module: &str,
     is_package: bool,
-    ast: &ruff_python_ast::ModModule,
+    ast: &ruff_python_ast_latest::ModModule,
 ) -> Stars {
-    use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
-    struct Found<'a>(Vec<&'a ruff_python_ast::StmtImportFrom>);
+    use ruff_python_ast_latest::statement_visitor::{StatementVisitor, walk_stmt};
+    struct Found<'a>(Vec<&'a ruff_python_ast_latest::StmtImportFrom>);
     impl<'a> StatementVisitor<'a> for Found<'a> {
-        fn visit_stmt(&mut self, stmt: &'a ruff_python_ast::Stmt) {
-            if let ruff_python_ast::Stmt::ImportFrom(i) = stmt
+        fn visit_stmt(&mut self, stmt: &'a ruff_python_ast_latest::Stmt) {
+            if let ruff_python_ast_latest::Stmt::ImportFrom(i) = stmt
                 && i.names.iter().any(|a| a.name.as_str() == "*")
             {
                 self.0.push(i);
@@ -1996,7 +2023,7 @@ fn star_imports(
                 .map(ToString::to_string)
                 .collect()
         });
-        stars.insert(u32::from(ruff_text_size::Ranged::start(star)), names);
+        stars.insert(u32::from(ruff_text_size_latest::Ranged::start(star)), names);
     }
     stars
 }
@@ -2238,6 +2265,7 @@ fn types(
     transaction: &pyrefly::state::state::Transaction<'_>,
     handle: &pyrefly_build::handle::Handle,
     qualification: &AssertionQualification,
+    context_info: &AnalysisContext,
     provider: &Provider,
     syntax: &syntax_records::Records,
     spans: &Spans,
@@ -2300,9 +2328,8 @@ fn types(
             let info = transaction
                 .get_module_info(&found)
                 .ok_or_else(|| invalid("inherited field text unavailable".into()))?;
-            let ast = transaction
-                .get_ast(&found)
-                .ok_or_else(|| invalid("inherited field AST unavailable".into()))?;
+            let canonical = crate::ruff_context::CanonicalSyntax::parse(artifact, info.lined_buffer().contents(), &context_info, crate::ruff_context::ContextSettings::default(), budget)?;
+            let ast = canonical.module();
             let mut spans = Spans::new(budget);
             let invocation = SyntaxInvocation {
                 source: artifact,

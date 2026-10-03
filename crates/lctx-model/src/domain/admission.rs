@@ -470,26 +470,16 @@ impl FrontierContract {
                 }
             }
             written.extend(stage.outputs.iter().map(|r| r.name()));
-            let Some(provider) = stage.provider else {
-                continue;
-            };
-            for family in &stage.coverage {
-                if !self.requested(*family) {
-                    return Err(refuse(format!(
-                        "stage {} attempts {family:?}, which the {} profile does not request",
-                        stage.name,
-                        self.profile.name()
-                    )));
+            let mut grants=BTreeSet::new();
+            for grant in &stage.coverage {
+                if !self.requested(grant.family) {
+                    return Err(refuse(format!("stage {} attempts {:?}, which the {} profile does not request",stage.name,grant.family,self.profile.name())));
                 }
-                coverers.entry(*family).or_default().insert(provider);
+                coverers.entry(grant.family).or_default().insert(grant.provider);
+                grants.insert((grant.family,grant.provider));
             }
-            stages.insert(
-                stage.name,
-                (
-                    provider,
-                    stage.coverage.iter().copied().collect::<BTreeSet<_>>(),
-                ),
-            );
+            if !grants.is_empty() { stages.insert(stage.name,grants); }
+
         }
         for requirement in self
             .requirements
@@ -513,7 +503,7 @@ impl FrontierContract {
                     .any(|output| output.name() == *relation)
             });
             match (self.requested(*family), writer) {
-                (true, Some(stage)) if stage.coverage.contains(family) => {}
+                (true, Some(stage)) if stage.coverage.iter().any(|grant|grant.family==*family) => {}
                 (true, _) => {
                     return Err(refuse(format!(
                         "{relation} is not written by a stage that reports {family:?} coverage"
@@ -576,7 +566,7 @@ pub struct Preflight {
     contract: FrontierContract,
     schedule: ContentHash,
     coverers: BTreeMap<FactFamily, BTreeSet<Id<Provider>>>,
-    stages: BTreeMap<&'static str, (Id<Provider>, BTreeSet<FactFamily>)>,
+    stages: BTreeMap<&'static str, BTreeSet<(FactFamily,Id<Provider>)>>,
 }
 /// One coverage row a facts generation must state: a requested family names its provider; an
 /// unrequested one is a single `NotRequested` row.
@@ -942,7 +932,7 @@ impl AdmissionCheck {
                 missing.family
             )));
         }
-        for (stage, (provider, families)) in &self.preflight.stages {
+        for (stage, grants) in &self.preflight.stages {
             let outcome = *receipt
                 .outcomes()
                 .get(stage)
@@ -950,7 +940,7 @@ impl AdmissionCheck {
             let rows: Vec<_> = stated
                 .values()
                 .copied()
-                .filter(|row| row.provider == Some(*provider) && families.contains(&row.family))
+                .filter(|row| row.provider.is_some_and(|provider| grants.contains(&(row.family,provider))))
                 .collect();
             reconcile(outcome, &rows)?;
         }

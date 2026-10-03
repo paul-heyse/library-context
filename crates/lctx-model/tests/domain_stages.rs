@@ -33,7 +33,6 @@ fn stages() -> Vec<Stage> {
             outputs: vec![RelationUse::of::<Package>()],
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Pure,
             code: ContentHash::of(b"test-producer"),
@@ -45,7 +44,6 @@ fn stages() -> Vec<Stage> {
             outputs: vec![RelationUse::of::<Release>()],
             contributes: vec![],
             coverage: vec![],
-            provider: None,
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Pure,
             code: ContentHash::of(b"test-producer"),
@@ -299,7 +297,6 @@ mod contributions {
             outputs,
             contributes,
             coverage: vec![],
-            provider: None,
             profiles: vec![Profile::Catalog],
             effect: Effect::Extraction,
             code: ContentHash::of(name.as_bytes()),
@@ -386,17 +383,15 @@ mod contributions {
             .id()
         };
         let mut unattributed = pipeline();
-        unattributed[0].coverage = vec![FactFamily::Syntax];
+        unattributed[0].coverage = vec![FamilyCoverage {family:FactFamily::Syntax,provider:provider("a")};2];
         assert!(
             Schedule::build(&model, unattributed, &[], Profile::Catalog).is_err(),
             "coverage names its provider"
         );
         let mut covered = pipeline();
-        covered[0].coverage = vec![FactFamily::Syntax];
-        covered[0].provider = Some(provider("a"));
+        covered[0].coverage = vec![FamilyCoverage {family:FactFamily::Syntax,provider:provider("a")}];
         let mut other = pipeline();
-        other[0].coverage = vec![FactFamily::Syntax];
-        other[0].provider = Some(provider("b"));
+        other[0].coverage = vec![FamilyCoverage {family:FactFamily::Syntax,provider:provider("b")}];
         assert_ne!(digest(pipeline()), digest(dropped));
         assert_ne!(digest(pipeline()), digest(covered.clone()));
         assert_ne!(
@@ -669,7 +664,6 @@ fn the_schedule_refuses_double_or_missing_writers_foreign_relations_and_cycles()
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles,
         effect: Effect::Pure,
         code: ContentHash::of(b"test-producer"),

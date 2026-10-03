@@ -1013,7 +1013,6 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
             .collect(),
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![profile],
         effect: stages::Effect::Pure,
         code: {

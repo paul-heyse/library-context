@@ -157,6 +157,12 @@ impl RelationUse {
         }
     }
 }
+/// One scheduled family names its actual reporting provider. No implicit secondary supplier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FamilyCoverage {
+    pub family: FactFamily,
+    pub provider: super::Id<super::attribution::Provider>,
+}
 #[derive(Debug, Clone)]
 pub struct Stage {
     pub name: &'static str,
@@ -165,9 +171,8 @@ pub struct Stage {
     /// Shared vocabulary this stage hands to another stage's output (ADR-0089). The writer runs
     /// after every contributor and emits each identity once.
     pub contributes: Vec<RelationUse>,
-    /// Fact families whose provider coverage this stage reports, and the provider that reports it.
-    pub coverage: Vec<FactFamily>,
-    pub provider: Option<super::Id<super::attribution::Provider>>,
+    /// Exact provider per fact family reported by this stage.
+    pub coverage: Vec<FamilyCoverage>,
     pub profiles: Vec<Profile>,
     pub effect: Effect,
     pub code: ContentHash,
@@ -271,11 +276,9 @@ impl Stage {
         }
         let mut coverage = self.coverage.clone();
         coverage.sort();
-        for family in coverage {
-            Key::encode(&family, digest);
-        }
-        if let Some(provider) = self.provider {
-            Key::encode(&provider, digest);
+        for grant in coverage {
+            Key::encode(&grant.family, digest);
+            Key::encode(&grant.provider, digest);
         }
     }
 }
@@ -673,9 +676,9 @@ impl Schedule {
                     )));
                 }
             }
-            if stage.coverage.is_empty() != stage.provider.is_none() {
+            if stage.coverage.iter().collect::<BTreeSet<_>>().len() != stage.coverage.len() {
                 return Err(ModelError::Invalid(format!(
-                    "{} reports coverage exactly when it names its provider",
+                    "{} repeats a family/provider coverage grant",
                     stage.name
                 )));
             }
@@ -686,7 +689,7 @@ impl Schedule {
                 .collect::<HashSet<_>>()
                 .len()
                 != stage.contributes.len()
-                || stage.coverage.iter().collect::<BTreeSet<_>>().len() != stage.coverage.len()
+
             {
                 return Err(ModelError::Invalid(format!(
                     "duplicate contribution or coverage family for {}",

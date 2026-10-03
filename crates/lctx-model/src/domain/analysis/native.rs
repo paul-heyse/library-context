@@ -144,6 +144,7 @@ macro_rules! native_analysis_pairs {
         49: FunctionBodyObservation => $crate::domain::types::FunctionBodyObservation, $crate::domain::types::FunctionBodySupport;
         50: RecordFieldObservation => $crate::domain::types::RecordFieldObservation, $crate::domain::types::RecordFieldSupport;
         51: SignatureEnumerationObservation => $crate::domain::calls::SignatureEnumerationObservation, $crate::domain::calls::SignatureEnumerationSupport;
+        52: RuffContextObservation => $crate::domain::ruff::RuffContextObservation, $crate::domain::ruff::RuffContextSupport;
     } };
 }
 crate::native_analysis_pairs!(native_pairs);

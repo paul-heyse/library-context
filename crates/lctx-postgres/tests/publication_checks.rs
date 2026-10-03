@@ -78,7 +78,6 @@ fn stage(name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: Profile::ALL.to_vec(),
         effect: Effect::Pure,
         code: ContentHash::of(b"publication callback control"),

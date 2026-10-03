@@ -765,7 +765,6 @@ fn transfer_schedule(model: &ValidatedModel) -> Schedule {
         outputs,
         contributes: vec![],
         coverage: vec![],
-        provider: None,
         profiles: vec![Profile::Behavioral],
         effect: Effect::Extraction,
         code: ContentHash::of(b"Local transfer conformance fixture"),
