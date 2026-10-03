@@ -3,7 +3,7 @@
 1. One revision: `Cargo.lock` is the authority for what is built. Every pyrefly crate is locked to
    one fork commit. The driver's `PYREFLY_REVISION` and `docs/pins.md`
    name that commit. The driver's `PYREFLY_PATCH_SHA256` and `docs/pins.md` name the sha256 of
-   `third_party/pyrefly-1.3.1.patch`.
+   `third_party/pyrefly-1.4.0-dev.3.patch`.
 2. The locked commit in cargo's git checkout is the upstream tag plus exactly the committed patch:
    its parent is the tag, and its `git patch-id --stable` equals the committed patch's (blob-id
    abbreviations differ between clones, so bytes are not compared).
@@ -24,12 +24,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TAG_COMMIT = "3e3177d0f4755b56c2d5a710d830eed89b14c2e3"
+TAG_COMMIT = "80cec3f57364bc11d4a39a419f6894a8eabcaa00"
 FORK = "git+https://github.com/paul-heyse/pyrefly"
 LOCK = ROOT / "Cargo.lock"
 DRIVER = ROOT / "crates" / "cpg-extract" / "src" / "typed_syntax.rs"
 PINS = ROOT / "docs" / "pins.md"
-PATCH = ROOT / "third_party" / "pyrefly-1.3.1.patch"
+PATCH = ROOT / "third_party" / "pyrefly-1.4.0-dev.3.patch"
 
 # How each variable is neutralized. A new name must be added deliberately.
 CLASSES: dict[str, set[str]] = {
@@ -43,13 +43,14 @@ CLASSES: dict[str, set[str]] = {
     # Interpreter discovery: disabled by skip_interpreter_query + explicit site-package path (S2).
     "neutralized_by_config": {"PYTHONPATH", "VIRTUAL_ENV", "CONDA_PREFIX", "PATH"},
     # Read by build scripts at compile time, never at run time.
-    "build_time": {"OUT_DIR", "OUT", "TYPESHED_ROOT", "STUBS_ROOT"},
+    "build_time": {"OUT_DIR", "OUT", "TYPESHED_ROOT", "STUBS_ROOT", "CARGO_FEATURE_THIRD_PARTY_STUBS"},
     # Tracing output only; never a fact.
     "log_only": {"PYREFLY_LOG"},
     # CLI argument overrides (`pyrefly_util::args`); the library driver never parses CLI args.
     "cli_only": {"PYREFLY_"},
     # Read only inside #[cfg(test)] modules, benches or doc generators.
     "test_only": {
+        "POLARS_TEST_PATH",
         "PYDANTIC_TEST_PATH",
         "UPDATE_EXPECT",
         "GLEAN_SNAPSHOTS_WRITE_PATH",
@@ -152,7 +153,7 @@ def main(argv: list[str]) -> int:
     ok = True
     parent = git("rev-parse", f"{rev}^").decode().strip()
     if parent != TAG_COMMIT:
-        print(f"pyrefly-fork: parent of {rev[:8]} is {parent[:8]}, not the 1.3.1 tag")
+        print(f"pyrefly-fork: parent of {rev[:8]} is {parent[:8]}, not the 1.4.0-dev.3 tag")
         ok = False
     fork_id = git("patch-id", "--stable", stdin=git("diff", TAG_COMMIT, rev)).split()[:1]
     ours_id = git("patch-id", "--stable", stdin=PATCH.read_bytes()).split()[:1]

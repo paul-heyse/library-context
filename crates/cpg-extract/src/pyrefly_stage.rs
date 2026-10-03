@@ -2245,7 +2245,6 @@ fn types(
             .finding()?;
         if found.path() != class.module().path()
             || transaction.get_answers(&found).is_none()
-            || transaction.get_bindings(&found).is_none()
         {
             return None;
         }

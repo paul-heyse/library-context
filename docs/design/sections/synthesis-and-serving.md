@@ -180,7 +180,7 @@ exact-vector artifact is explicitly prepared outside read-only startup. Operator
 awaits complete functional qualification and the assembled review disposition. The [foundation enhancements](../../plans/semantic-model-foundation-enhancements_2026-10-01.md#54-scope-qualification--2026-10-02)
 are Implemented / Tested within their recorded source boundary; Phase 5 qualifies the current tree.
 
-> Decision: ADR-0046, ADR-0071, ADR-0078, ADR-0080, ADR-0086; ADR-0114
+> Decision: ADR-0117, ADR-0071, ADR-0078, ADR-0080, ADR-0086; ADR-0114
 
 <a id="section-11-1"></a>
 

@@ -79,7 +79,7 @@ retirement qualification are in progress; Phase 5 contracts remain explicitly un
 
 The CPG precedes its analytics (ADR-0086). Canonical facts keep their identity and provenance;
 mandatory catalog construction is independent of optional analysis. Libraries remain pinned
-uv projects (ADR-0046). ADR-0040 owns review cadence. ADR-0079 owns the current-tree editable development loop on dated nightly Cargo,
+uv projects (ADR-0117). ADR-0040 owns review cadence. ADR-0079 owns the current-tree editable development loop on dated nightly Cargo,
 workspace feature unification, a CLI-only Hakari crate and shared intermediates with fine-grain
 locking. Final artifacts stay in local `target/`: workspace O2 with incremental compilation,
 imported dependencies O3 with sccache, and the existing release test workflow. No wheel
@@ -101,7 +101,7 @@ evidence conflicts and repeated repair failures trigger coordinator reassessment
 single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
 routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0046, ADR-0079, ADR-0040, ADR-0110, ADR-0109, ADR-0113
+> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0110, ADR-0109, ADR-0113
 
 <a id="section-1-3"></a>
 
@@ -131,7 +131,7 @@ routes; resource savings and broader workflow effectiveness remain **Proposed**.
 ### §1.4 Pilot, subsystem and gold reference
 
 **Implemented and Tested** for the pilot and the gold guard; the subsystem and freezes are
-**accepted** (ADR-0071, ADR-0046).
+**accepted** (ADR-0071, ADR-0117).
 
 - **Library.** FastMCP **4.0.5**, acquired as `libraries/fastmcp`
   ([§4.0](sections/acquisition-and-extraction.md#section-4-0)) with the `fastmcp` skill's install
@@ -157,7 +157,7 @@ routes; resource savings and broader workflow effectiveness remain **Proposed**.
 - **Serving** runs FastMCP from the project's own environment; that environment is never an
   analysis input.
 
-> Decision: ADR-0071, ADR-0046
+> Decision: ADR-0071, ADR-0117
 
 <a id="section-1-5"></a>
 
@@ -231,26 +231,24 @@ that owner. Acceptance, implementation and verification remain distinct facts.
 
 <a id="section-b1"></a>
 
-### §B1 Ruff and Pyrefly are the only semantic front ends
+### §B1 Independent Ruff syntax, Pyrefly typing and ty flow have distinct provider roles
 
-**Implemented and Tested** (in-process extraction, harness equivalence with the Pyrefly CLI).
+**Accepted target, 2026-10-03; migration in progress.** Latest independent Ruff owns canonical
+syntax and contextual lexical observations. Native Pyrefly owns typing, callable/class metadata,
+Pysa candidates and public-name evidence. ty supplies flow/index, timing and precision observations
+only when requested; ty inference is an offline oracle. None of these observations independently
+grants runtime truth or dispatch closure.
 
-- **Pyrefly**, linked in-process from a pinned, minimally patched fork (§B8,
-  [§4.2](sections/acquisition-and-extraction.md#section-4-2)), supplies definitions and
-  signatures, call resolution through its own Pysa collectors, class order, public names and
-  types.
-- **Ruff library crates** (the `=0.0.11` line Pyrefly compiles against) supply syntax by walking
-  Pyrefly's own parse, so there is one parse and one byte coordinate system.
-- **Binding history** comes from our own scope-aware recognizer over the Ruff AST
-  ([§4.2.4](sections/acquisition-and-extraction.md#section-4-2-4)): Pyrefly's binding IR drops
-  statically decided branches, and Ruff's semantic model has no public driver.
-- **One declared exception:** `cpg-flow` reads ty's semantic index over a second parse (the ruff
-  0.0.14 line) and contributes only flow facts, joined to ours by module and byte range under
-  two-way parity rules ([§3.9](sections/behavior-model.md#section-3-9)). Every other fact comes
-  from Pyrefly's parse. Otherwise gaps are closed with adapters, normalization and our own
-  analyses, never a second type checker.
+The latest Ruff/ty family and Pyrefly's embedded Ruff family are separate nominal Rust types.
+Owned attachment checks source snapshot/view, byte range, node kind, role, context and uniqueness;
+synthetic variants have optional source correspondence. The ty TYPE_CHECKING runtime view is
+explicit. Model-owned normalization and question policies interpret these inputs.
 
-> Decision: ADR-0046
+Current production remains the pre-migration extractor until M1/M2 integrate the target;
+[the coordinator](../plans/code-facts-expansion-plan_2026-10-03.md) owns acceptance. Earlier
+in-process extraction/CLI parity receipts retain their original scope.
+
+> Decision: ADR-0117
 
 <a id="section-b2"></a>
 
@@ -421,22 +419,20 @@ upper-frontier qualification is in progress. Publication never selects a generat
 
 <a id="section-b8"></a>
 
-### §B8 Pyrefly and Ruff link in-process; one workspace, one process
+### §B8 Pinned analyzer forks link in-process with observational seams
 
-**Implemented and Tested.**
+**Accepted target, 2026-10-03; migration in progress.** Pyrefly and independent Ruff/ty are exact
+upstream tags plus one aggregate reviewed patch each. Patches expose native observation and
+precision provenance while preserving ordinary inference/lint/algebra behavior. Parent/tag,
+immutable revision, patch digest, environment classification and paired parity controls are
+required; changing upstream semantic algorithms requires another decision.
 
-- **Pyrefly** is a git dependency on the fork `paul-heyse/pyrefly`, pinned by revision: the
-  upstream tag plus `third_party/pyrefly-<ver>.patch`, which changes visibility, adds a no-write
-  reporter switch and borrow-only accessors, and changes no logic. [`docs/pins.md`](../pins.md)
-  records the revision.
-- **Ruff** library crates are pinned to the line Pyrefly compiles against.
-- **One workspace, one process.** Extraction, construction, analytics and publication run in one
-  Rust process with no IPC. Isolation is by contract: an explicit constructed configuration,
-  refusal of ambient variables that cannot be cleared, and abort on any panic
-  ([§4.2](sections/acquisition-and-extraction.md#section-4-2)).
-- The Pyrefly CLI of the same revision is only a parity-test oracle.
+Extraction, analysis and publication stay in one Rust process. Explicit configuration isolates
+inputs; unsafe ambient variables are refused and provider panics abort the attempt. Native
+Pyrefly types are encoded during the live transaction. The matching Pyrefly CLI is a parity
+oracle only. Exact current pins and dated verification belong to [pins](../pins.md).
 
-> Decision: ADR-0046
+> Decision: ADR-0117
 
 <a id="section-b9"></a>
 
@@ -448,7 +444,7 @@ DataFusion, Arrow/Parquet and object_store each resolve to exactly one version i
 workspace; there is no delta-rs and no DataFusion federation. An extra family is allowed only when
 declared with its scope, and no type crosses its boundary (§7).
 
-> Decision: ADR-0090
+> Decision: ADR-0118
 
 <a id="section-b10"></a>
 
@@ -583,7 +579,7 @@ Owner: [Acquisition and extraction](sections/acquisition-and-extraction.md#secti
 - <a id="section-4-1"></a>[§4.1 Stages](sections/acquisition-and-extraction.md#section-4-1)
 - <a id="section-4-2"></a>[§4.2 Extraction](sections/acquisition-and-extraction.md#section-4-2)
 - <a id="section-4-2-1"></a>[§4.2.1 Driver](sections/acquisition-and-extraction.md#section-4-2-1)
-- <a id="section-4-2-2"></a>[§4.2.2 Syntax: one walk over Pyrefly's parse](sections/acquisition-and-extraction.md#section-4-2-2)
+- <a id="section-4-2-2"></a>[§4.2.2 Canonical syntax and provider correspondence](sections/acquisition-and-extraction.md#section-4-2-2)
 - <a id="section-4-2-3"></a>[§4.2.3 Semantics: Pyrefly's own collectors](sections/acquisition-and-extraction.md#section-4-2-3)
 - <a id="section-4-2-4"></a>[§4.2.4 Binding rule (conservative)](sections/acquisition-and-extraction.md#section-4-2-4)
 - <a id="section-4-2-5"></a>[§4.2.5 Failure, determinism and the parity oracle](sections/acquisition-and-extraction.md#section-4-2-5)
@@ -623,11 +619,13 @@ Owner: [Storage and publication](sections/storage-and-publication.md#section-6).
 
 DataFusion, Arrow/Parquet and object_store resolve to exactly one version each in the core
 workspace (§B9). The owned PostgreSQL table-provider fork is pinned by revision without federation. Extra families are allowed only when declared in `scripts/check_family.py`
-with their scope; the `cpg-flow` ty/ruff 0.0.14 line with salsa pinned exactly is the one in use.
+with version and nominal Cargo source scopes. The accepted analyzer target uses one latest
+Ruff/ty fork revision in extraction/flow and a separate registry Ruff family only inside the
+Pyrefly adapter; salsa's three crates are pinned exactly for the ty graph. M1 owns adoption.
 [`docs/pins.md`](../pins.md) is authoritative for every pin and its dated verification, and the
 `pin-check` skill governs changes.
 
-> Decision: ADR-0090
+> Decision: ADR-0118
 
 ---
 
@@ -700,15 +698,15 @@ Owner: [Validation and evaluation](sections/validation-and-evaluation.md#section
 
 ## §13 Deferred
 
-**Accepted deferrals** (ADR-0071, ADR-0046). These capabilities are outside the current
+**Accepted deferrals** (ADR-0071, ADR-0117). These capabilities are outside the current
 architecture on purpose; each returns by ADR when a named consumer needs it. The
 [forward plan §7](../plans/behavioral-model-forward-plan_2026-09-24.md#7-deferred-each-with-a-trigger)
 owns the scheduling triggers.
 
 - **Ontology tables beyond the CPG families.** The CPG holds typed families and derived catalogs
   (§3); the capability registry (§9.9) is a closed, executable vocabulary, not an ontology store.
-- **A port of Ruff's semantic model.** Our scope-aware recognizer supplies binding history
-  ([§4.2.4](sections/acquisition-and-extraction.md#section-4-2-4)).
+- **A bespoke port of Ruff's semantic model.** Native contextual observations are scheduled
+  through Ruff's existing Checker; model normalization owns interpretation, not an analyzer port.
 - **Pyrefly cross-references (Glean collector)** and **located/contextual types**. Reachable
   in-process, but no consumer needs them; cross-references would complement, never replace,
   `reference_resolutions`.
@@ -730,4 +728,4 @@ owns the scheduling triggers.
 - **Graph-FCA in the pipeline; on-demand RCA at serve time.**
 - **Generative interpretation** (§B11), graph embeddings, neural reranking and composition planning.
 
-> Decision: ADR-0046, ADR-0071, ADR-0073
+> Decision: ADR-0117, ADR-0071, ADR-0073

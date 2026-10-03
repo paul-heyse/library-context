@@ -25,7 +25,7 @@ Unknown, and finite-association/five-verdict limits survive. Python owns transpo
 Analyzer-skill checkpoint, 2026-10-03: the shared `pyrefly-ruff` and `ty-flow` skills merged into
 `python-analyzers`. It indexes the planned shift targets (pyrefly 1.4.0-dev.3 on ruff 0.0.14; ruff
 0.16.10 / crates 0.0.16; ty 0.0.16, salsa 0.28.5) plus a code-facts model, and its `show migration`
-now also covers `cpg-flow`'s ty move. Pins are unchanged and neither shift has started. The skill's
+now also covers `cpg-flow`'s ty move. The five-plan migration is now in progress; current package receipts are in the coordinator. The skill's
 `build/verify.py --repo` (11 checks), 75/75 probes, `just docs-check` and `just lint-agents`
 passed on 2026-10-03. Those receipts are separate from alignment acceptance.
 
@@ -80,15 +80,23 @@ provider seams/remedies remain Proposed; runtime probes and product gates were n
 Decision **Revise** retains the model/store architecture. The
 [five-plan code-facts series](docs/plans/code-facts-expansion-plan_2026-10-03.md) now schedules the
 full C1–C12 cascade and is the sole current disposition owner for source-qualified original/new
-findings. Authoring is complete at **Proposed** strength: latest Ruff owns syntax; provider families
-retain exact source identity; shared correspondence and explicit premise propagation precede their
-consumers. Next implementation: M0 and N0/P0, with B0/N4a/P2a independent preparation.
-No provider migration or production implementation ran. Authoring `just docs-check` **passed**,
-2026-10-03: 278 canonical pages, zero offline link errors. Inventory verifier **passed**: 340 facts,
-137 concepts, 41 selected routes and 488 pin references; this checks traceability, not semantics.
-Fixture/full production gates and real-library reconstruction/activation are not_run; activation
-remains a separately authorized follow-up after fixture/test/hygiene completion.
-Removing the embedded-Ruff restriction is operator-directed target scope; current rules/pins are unchanged.
+findings. Execution is in progress under the [execute-plan skill](.claude/skills/execute-plan/SKILL.md).
+N0/P0 source-formal/native-slot correspondence and P2a pre-admission facet refusal are committed
+(`107e1933`, `e58575a3`): 32 model controls and two real-PG analytic journeys passed on 2026-10-03.
+The operator-directed independent Ruff policy is accepted by ADR-0117/0118; both narrow forks
+are published at exact immutable revisions. Native seam/parity controls passed in isolation.
+The working tree resolves Pyrefly 1.4.0-dev.3, Ruff 0.16.10/crates 0.0.16 and ty 0.0.16/salsa
+0.28.5, retaining embedded Ruff 0.0.14. Release extraction/flow all-target compile checks and
+19 source-family/fork policy controls passed; current-tree native runtime tests are running.
+N4a per-alias/root module resolution passed 43 focused controls in its executor worktree,
+including real PostgreSQL; root integration is pending. B0 required canonical assumption sets
+and composition are being implemented in an isolated executor worktree. Canonical latest-Ruff
+syntax adoption and remaining characterization/behavior/product packages are open.
+Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
+Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
+Real-library reconstruction/activation remain a separately authorized follow-up. The prior
+278-page authoring docs check and finite inventory verifier receipts establish traceability,
+not semantics. No current full-series acceptance, retrieval-quality or performance claim is made.
 Prior qualification work remains uncommitted: actual stdio runner and source-default packet repair.
 Focused controls passed: real-PG both-profile runner (one), transcript (two), source-default packet
 (one); full gates/hygiene and real-library journeys are not_run for these changes. Phase 5 §10 owns

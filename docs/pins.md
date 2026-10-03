@@ -3,7 +3,7 @@
 Every pin with how and when it was last verified. Change a pin with the
 `pin-check` skill: read the primary source; product pin changes run the tests (the end-of-turn
 checks run `just deps`), and add a dated row here. Design authority for the Rust family is
-DESIGN §7 / ADR-0090. A row without a date is not verified.
+DESIGN §7 / ADR-0118. A row without a date is not verified.
 
 ## Rust
 
@@ -11,7 +11,7 @@ DESIGN §7 / ADR-0090. A row without a date is not verified.
 |---|---|---|---|
 | toolchain | nightly-2026-09-29 (`rust-toolchain.toml`); manifest minimum remains 1.98.1 | 2026-09-28 | `rustc -Vv`: 1.101.0-nightly, c1070d69382b8d2f2eb65119c738a77d9e324c9e, LLVM 23.1.1; `cargo -V`: 1.101.0-nightly (3d7cf6e93). Installed rustfmt/Clippy; ADR-0079 |
 | allocative | 0.3.6 with local upstream never-type backport (`third_party/allocative`) | 2026-09-28 | Published manifest/source and upstream commit `9711293c6de502d50583cafb12e4a7b764094d3a`; eight-line duplicate impl/obsolete feature removal, ADR-0079 |
-| datafusion | =55.1.0 | 2026-09-29 | `family_smoke` (Arrow batches queried by DataFusion SQL) passed; single version in `Cargo.lock`. The delta-rs family and `datafusion-federation` were removed with the Delta store (plan P1.4, ADR-0090) |
+| datafusion | =55.1.0 | 2026-09-29 | `family_smoke` (Arrow batches queried by DataFusion SQL) passed; single version in `Cargo.lock`. The delta-rs family and `datafusion-federation` were removed with the Delta store (plan P1.4, ADR-0118) |
 | arrow-*, parquet | =59.3.0; `parquet` is a direct dependency since H1 P6 (`default-features = false, features = ["zstd"]`: the codec was already compiled) | 2026-09-23 | same; `data_files_are_zstd` |
 | object_store | 0.13.2, held by `Cargo.lock` (no crate depends on it directly, so a workspace pin would pin nothing; H1 O2) and kept single by `check_family.py` | 2026-09-23 | `Cargo.lock`; `cargo shear` in `just deps` |
 | petgraph | =0.8.3, default features plus `serde-1`, no `rayon`; immutable typed graph snapshots (ADR-0103) | 2026-09-30 | pinned source `graph_impl/serialization.rs` inspected; four focused snapshot controls passed (including 70,000-node multi-chunk roundtrip); full gate at Q |
@@ -57,35 +57,34 @@ Exact pins at the versions `Cargo.lock` already held, so none moved; `just deps`
 | Component | Pin | Verified | How |
 |---|---|---|---|
 | tokio | =1.53.1 (`macros`, `rt-multi-thread`) | 2026-09-23 | `Cargo.lock`; `just deps` |
-| base64 | =0.22.1: `RECORD` hashes (Stage A, ADR-0046) | 2026-09-23 | same (already in the graph at this version) |
+| base64 | =0.22.1: `RECORD` hashes (Stage A, ADR-0117) | 2026-09-23 | same (already in the graph at this version) |
 | getrandom | =0.3.4: each attempt's `snapshot_id` (§3.4.1) | 2026-09-23 | same |
 | futures | =0.3.34 (the validation stream, H1 P2) | 2026-09-23 | same |
 | serde_json | =1.0.151 | 2026-09-23 | same |
-| thiserror | =2.0.20 | 2026-09-23 | same |
+| thiserror | =2.0.21 | 2026-10-03 | Pyrefly dev3 manifest requires ^2.0.21; targeted Cargo.lock update |
 | url | =2.5.8 | 2026-09-23 | same |
 | insta | =1.48.0 (dev) | 2026-09-23 | same |
 | proptest | =1.11.0 (dev) | 2026-09-23 | same |
 | tempfile | =3.27.0 (dev) | 2026-09-23 | same |
 
-## Analyzers (ADR-0046)
+## Analyzers (ADR-0117)
 
 Both analyzers are workspace dependencies since increment 1, slice 1 (`Cargo.toml`, `Cargo.lock`).
 These rows record what spike `spike/pyrefly-inproc` (`d00bab5`) read, built and checked.
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
-| pyrefly (library): `pyrefly`, `pyrefly_build`, `pyrefly_config`, `pyrefly_python`, `pyrefly_types`, `pyrefly_util` | git `github.com/paul-heyse/pyrefly` rev `a07b7baead9e0c7b496346d879b88e2fff9cbda7`, in-process. That is tag 1.3.1 (`3e3177d0f4755b56c2d5a710d830eed89b14c2e3`) plus `third_party/pyrefly-1.3.1.patch` (sha256 `fc18dc4a884a8593220370ba053968fd10de65c020ef257931f97b91426fdb73`; 8 files, 54 changed lines (42+/12−): visibility, a `write_files` switch, a `pysa_reporter()` borrow; C4's `ClassField::dataclass_flags_of` and `Transaction::get_wildcard`; H1 D6's `Answers::get_annotation`, composing `key_to_idx_hashed_opt` and `get_idx`: still no logic change and under ADR-0046's ~60-line trigger). Published 2026-09-23 as branch `lctx/1.3.1-r3`; `lctx/1.3.1-r2` (`6a93da34`) and `lctx/1.3.1` (`b9f28575`) stay, so older commits of this repository still build | 2026-09-23 | `git ls-remote https://github.com/paul-heyse/pyrefly.git 'refs/heads/lctx/*'` gives `a07b7bae` for `r3` (and `6a93da34`, `b9f28575` unchanged). `git format-patch -1 --stdout` on the clone the branch was pushed from gives the patch sha256. Its parent is the 1.3.1 tag (`check_pyrefly_fork.py`). The pilot's outputs were fingerprint-identical on the patched fork before the push |
-| pyrefly (CLI) | 1.3.1 (uv dev group). **Parity-test oracle only** | 2026-09-22 | `uv run pyrefly --version`; spike S4 |
-| ruff library crates | `=0.0.11`, in-process: the line pyrefly 1.3.1 requires (`ruff_python_ast`, `ruff_python_parser`, `ruff_source_file`, `ruff_text_size`, `ruff_notebook`, `ruff_annotate_snippets`; from slice 2.2's review, `ruff_python_stdlib` for the usage patterns' builtins, whose bitflags and unicode-ident were already locked) | 2026-09-22 (stdlib 2026-09-23, `Cargo.lock`) | pyrefly 1.3.1 `pyrefly/Cargo.toml` L69–L74 (`"0.0.11"`, which is exact on the 0.0.x line); the spike `Cargo.lock` resolves only 0.0.11. The python-analyzers skill indexes pyrefly 1.4.0-dev.3 with its embedded ruff **0.0.14** (the planned shift target, re-pinned 2026-10-02) and, separately, ruff's own **0.0.16** line (2026-10-03). Until the shift, check its migration page (`show migration`) before transferring a claim: 0.0.11 → 0.0.14 reshaped `ExprCompare` (`operands`) and `ExprDictComp.generators`, and `Arguments.args` became a `ThinVec` |
-| blake3 | `=1.8.6` (pyrefly's exact pin; DataFusion's `"1.8"` accepts it) | 2026-09-22 | pyrefly 1.3.1 `pyrefly/Cargo.toml` L40; spike `Cargo.lock` |
-| git sources | `github.com/paul-heyse/pyrefly`; `github.com/yangdanny97/lsp-types` rev `395d6bfcd6c3696a64cfe9cd93b86f981fb85112` (used by `pyrefly_python` and `pyrefly_util`) | 2026-09-22 | spike `deny.toml` `allow-git`. Licenses pyrefly adds: 0BSD, ISC, Unicode-DFS-2016, BSL-1.0 |
-| the flow provider (ADR-0045, ADR-0046): `ty_python_core`, `ty_module_resolver`, `ty_vendored`, `ruff_db`, and ruff's `ruff_python_ast`, `ruff_python_parser` and `ruff_text_size` (workspace keys `ruff_python_ast_ty`, `ruff_python_parser_ty`, `ruff_text_size_ty`; the parser for the rename's tokens) | `=0.0.14`, in-process, **only in `cpg-flow`** (a declared extra family: `scripts/check_family.py` `EXTRA_FAMILIES`). `salsa` `=0.28.2`, with `salsa-macros` and `salsa-macro-rules` held at 0.28.2 in `Cargo.lock` (`cargo update -p <crate> --precise 0.28.2`): 0.28.3 and 0.28.4 break ruff 0.0.14 | 2026-09-24 | Each crate's `Cargo.toml` in `~/.cargo/registry/src` reads `version = "0.0.14"`, and salsa's `0.28.2`; `just deps` (the family check with the extra family's scope and pins). The Stage 2.1 spike built the same set; `cargo nextest run -p cpg-flow` 14/14 (`flow_shapes` known answers). The python-analyzers skill indexes the planned target, ty crates 0.0.16 with ruff 0.0.16 and salsa 0.28.5 (2026-10-03); its migration page lists what moving changes. On a fresh lock, `salsa-macro-rules` floats to 0.28.5 even with `salsa = "=0.28.2"`, so hold all three with `--precise`. `ruff_db` reads `TY_MAX_PARALLELISM` and `RAYON_NUM_THREADS`: parallelism only, and the index is built per file on the driver thread, so they are output-neutral (the Stage 2 review's O2) |
-| research-input revisions | ruff `660350be…`, pyrefly `9733bdcf…` (1.4.0-dev.1) | — | **not adopted**: untagged; revisit when 1.4.x is on PyPI |
-| planned shift target | pyrefly tag `1.4.0-dev.3` = `80cec3f57364bc11d4a39a419f6894a8eabcaa00` (PyPI `1.4.0.dev3`), ruff crates `0.0.14` (ruff 0.16.8) | 2026-10-02 | **not adopted yet**; indexed by the python-analyzers skill. A scratch trial migration compiled `cpg-extract --all-targets` with the rebased patch (42 lines, change 1 obsolete) and `thiserror =2.0.21`; `typed_types` 5/5. Pilot facts not_run. Details: the skill's `show migration` |
-| planned shift target (flow provider) | ty crates `0.0.16` (`ty_python_core`, `ty_module_resolver`, `ty_vendored`) with `ruff_db` and the `ruff_*_ty` aliases at `=0.0.16`, from ruff tag `0.16.10` = `3265ed1f944c98bb4c04d632fbefb1257cdb583d`; `salsa`, `salsa-macros`, `salsa-macro-rules` `=0.28.5` | 2026-10-03 | **not adopted yet**; indexed by the python-analyzers skill. Index diff 0.0.14 → 0.0.16 (2026-10-03): no public path removed, no enum variant added or removed; one compile break on our surface (`TokenKind::Name` → `Identifier` in `cpg-flow` `rename`); a fresh lock resolves the salsa trio to 0.28.5 without `--precise` holds. Not built here; `cpg-flow` tests not_run. Details: the skill's `show migration` |
-| planned shift target (dev ruff CLI) | `ruff==0.16.10` (library crates 0.0.16), from `0.16.7` | 2026-10-03 | **not adopted yet**; the python-analyzers skill indexes 0.16.10. Changes lint and format results only |
+| pyrefly (library): `pyrefly`, `pyrefly_build`, `pyrefly_bundled`, `pyrefly_config`, `pyrefly_python`, `pyrefly_types`, `pyrefly_util`, `tsp_types` | 1.4.0-dev.3, fork rev `72bb34d6d67c2bc14720c77e2ad7eff6b89d360f`, exact parent/tag `80cec3f57364bc11d4a39a419f6894a8eabcaa00`; `third_party/pyrefly-1.4.0-dev.3.patch`, sha256 `8edb905a630440b82baec9df453b26ee93db86f9ad346f73d86ad6fe80c1a077` | 2026-10-03 | Source manifests, immutable remote tag peel, patch-id/apply check and isolated release native-session/paired upstream parity **passed**. Production migration in progress; workspace/CLI parity not_run. Old published refs remain for historical checkout reproducibility, not runtime fallback |
+| pyrefly (CLI) | `1.4.0.dev3`, uv dev group; parity oracle only | 2026-10-03 | `uv run --no-sync pyrefly --version` **passed**: 1.4.0-dev.3 after scoped uv sync; native/CLI parity pending |
+| embedded Ruff library crates | registry `=0.0.14`, only Pyrefly's native adapter; workspace `ruff_python_ast`, `ruff_python_parser`, `ruff_source_file`, `ruff_text_size` | 2026-10-03 | Pyrefly dev3 manifests and Cargo.lock read; no salsa feature on this family. Equal bytes do not make its AST the canonical latest AST |
+| latest independent Ruff/ty library family: `ruff_*`, `ty_*` | Ruff tag `0.16.10`, mostly Rust crates `0.0.16`, `ruff_linter` **0.16.10**; one fork rev `8f01d80020921d3867f255ee5f919dd2d329b730`, parent `3265ed1f944c98bb4c04d632fbefb1257cdb583d`; `third_party/ruff-0.16.10.patch`, sha256 `7da3c6617b8979bb5760c59a4def6fdb72fe177eff02b2aa229ff46d9bf0ff74` | 2026-10-03 | Exact upstream/fork manifests read, remote peel verified; isolated Checker/parsed reuse/cancellation/lint-parity and ty precision controls **passed**. Production producers/consumers not yet qualified |
+| latest Ruff workspace adapters | `ruff_linter`, `ruff_python_ast_latest`, `ruff_python_parser_latest`, `ruff_text_size_latest`; flow aliases `ruff_python_ast_ty`, `ruff_python_parser_ty`, `ruff_text_size_ty`, `ruff_db`; same exact fork source | 2026-10-03 | Cargo.lock source identities read after targeted cargo update; family source/scope controls in progress |
+| salsa, salsa-macros, salsa-macro-rules | exactly `0.28.5` | 2026-10-03 | Fork manifest and updated Cargo.lock read; latest ty requires this line. Embedded Ruff's salsa feature stays off |
+| blake3 | `=1.8.6` | 2026-10-03 | Unchanged exact workspace and Pyrefly requirement; Cargo.lock read |
+| analyzer git sources | `github.com/paul-heyse/pyrefly`, `github.com/paul-heyse/ruff`; immutable reviewed revisions above | 2026-10-03 | Updated Cargo.lock; unused yangdanny97/lsp-types retired, upstream now uses published gen-lsp-types 0.11.0 |
 
-## Analyzed libraries (ADR-0046; the pilot per ADR-0021)
+
+## Analyzed libraries (ADR-0117; the pilot per ADR-0021)
 
 Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.python-version`,
 `uv.lock`); these rows only summarize. `uv lock --project libraries/<name> --check` confirms a lock.
@@ -125,7 +124,7 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | Tool | Version | Verified | How |
 |---|---|---|---|
 | Python | 3.14.7 (`.python-version`, uv default) | 2026-09-22 | `uv run python --version` |
-| ruff | 0.16.7 (uv dev group) | 2026-09-22 | `uv run ruff --version` |
+| ruff | 0.16.10 (uv dev group) | 2026-10-03 | `uv run --no-sync ruff --version` **passed** after uv sync --no-install-workspace |
 | pyrefly | 1.3.1 (uv dev group) | 2026-09-22 | `uv run pyrefly --version` |
 | pytest | 9.1.1 (`uv.lock`) | 2026-09-22 | `uv sync` |
 | Hypothesis | 6.168.1 (uv dev group; runtime soundness oracle only) | 2026-09-24 | `uv add --dev 'hypothesis==6.168.1'`; `uv.lock` resolves sortedcontainers 2.4.0; generated programs execute under CPython 3.14.7 in an isolated worker |
@@ -133,7 +132,7 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | cargo-hakari | 0.9.39 | 2026-09-28 | `cargo hakari --version`; exact-release upstream configuration source and generated CLI feature union; `just build-features` / `just deps` (ADR-0079) |
 | sccache | 0.17.0 (required by `.cargo/config.toml`) | 2026-09-24 | `sccache --version`; cache wrapper; target-environment effect tested 2026-09-28 (cache evidence) |
 | cargo-insta | 1.48.0 | 2026-09-22 | `just doctor` |
-| cargo-deny | 0.20.2 (sees dev-only duplicates only for named crates; see ADR-0090) | 2026-09-22 | tested with a synthetic duplicate |
+| cargo-deny | 0.20.2 (sees dev-only duplicates only for named crates; see ADR-0118) | 2026-09-22 | tested with a synthetic duplicate |
 | ast-grep | 0.45.3 | 2026-09-22 | `just doctor` |
 | just | 1.58.0 | 2026-09-22 | `just --version` |
 

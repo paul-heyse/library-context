@@ -36,8 +36,9 @@ pub fn build_digest(sources: &[&str]) -> ContentHash {
     digest.part(b"lockfile", include_str!("../../../Cargo.lock").as_bytes());
     digest.part(
         b"pyrefly-patch",
-        include_str!("../../../third_party/pyrefly-1.3.1.patch").as_bytes(),
+        include_str!("../../../third_party/pyrefly-1.4.0-dev.3.patch").as_bytes(),
     );
+    digest.part(b"ruff-patch", include_str!("../../../third_party/ruff-0.16.10.patch").as_bytes());
     for source in sources {
         digest.part(b"source", source.as_bytes());
     }

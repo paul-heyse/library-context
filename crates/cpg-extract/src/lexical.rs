@@ -447,7 +447,7 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
                 pushed.scope = true;
             }
             N::ExprListComp(_) | N::ExprSetComp(_) | N::ExprDictComp(_) | N::ExprGenerator(_) => {
-                let generators = match node {
+                let generators: &[ruff_python_ast::Comprehension] = match node {
                     N::ExprListComp(x) => &x.generators,
                     N::ExprSetComp(x) => &x.generators,
                     N::ExprDictComp(x) => &x.generators,

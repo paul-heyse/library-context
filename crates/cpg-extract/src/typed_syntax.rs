@@ -557,8 +557,8 @@ fn fields(node: AnyNodeRef<'_>) -> Vec<(SyntaxField, TextRange)> {
             }
         }
         AnyNodeRef::ExprCompare(e) => {
-            add(F::Left, Some(e.left.range()));
-            for c in &e.comparators {
+            add(F::Left, Some(e.first_operand().range()));
+            for c in e.comparators() {
                 add(F::Right, Some(c.range()));
             }
         }
@@ -867,8 +867,8 @@ fn syntax_kind(k: NodeKind) -> SyntaxKind {
 }
 
 /// The pinned Pyrefly fork commit and the Ruff line its retained AST comes from.
-pub const PYREFLY_REVISION: &str = "a07b7baead9e0c7b496346d879b88e2fff9cbda7;ruff=0.0.11";
+pub const PYREFLY_REVISION: &str = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f;ruff=0.0.14";
 
 /// The exact native source patch participates in the declared producer build fingerprint.
 pub const PYREFLY_PATCH_SHA256: &str =
-    "fc18dc4a884a8593220370ba053968fd10de65c020ef257931f97b91426fdb73";
+    "8edb905a630440b82baec9df453b26ee93db86f9ad346f73d86ad6fe80c1a077";

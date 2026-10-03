@@ -35,9 +35,9 @@ Paths in this reference table are relative to the repository root.
 | `crates/` | Single Rust workspace: `lctx-model` owns semantic/wire declarations, policies and shared invariants; `cpg-extract` acquires/captures and produces pinned native facts; `cpg-flow` supplies ty flow; `cpg-core` adapts cumulative stages and generation-bound DataFusion readers; `lctx-analytics` supplies pure native kernels; `lctx-embed` supplies the embedding effect; `lctx-postgres` owns generation/store/lease effects and retained services; `lctx` is the CLI. Current serving shapes, wire/native contracts and ranking derive from `lctx-model`; the old schema/bundle authorities are retired |
 | `python/` | `lctx_mcp` FastMCP transport and numerical library adapter; `lctx_semantics` exposes model-derived pure wire helpers; `lctx_storage` owns the generation service and native execution lifetime. Phase 5 qualification/activation is pending |
 | `eval/` | `behavior/` pre-registered question sets, `gold/` evaluation-only gold extract and freeze, `heldout/` sealed until increment 5 |
-| `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0046). Environments go to `build/envs/` (gitignored) |
+| `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0117). Environments go to `build/envs/` (gitignored) |
 | `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
-| `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0046, `docs/pins.md`) |
+| `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0117, `docs/pins.md`) |
 | `scripts/` | `adr.py`, `design_sections.py` and `docs.py` (documentation), `check_family.py`, `check_agents.py`, and gold/eval scripts |
 | `rules/`, `rule-tests/` | ast-grep rules. They grow only from design-review findings |
 

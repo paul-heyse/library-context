@@ -22,9 +22,10 @@ Legacy code is removed at the ownership boundary; no compatibility adapters, leg
 Phases 0–3 are implemented within their recorded qualification boundaries. Phase 4 typed analysis/catalog and cumulative compilation are implemented; mapped legacy retirement and Q0 acceptance are complete within the recorded scope, 2026-10-01. Phase 5 current serving is implemented in the working tree; qualification and operator activation are pending. Product work (PR6, new features) pauses until phase 5. STATUS and the current Phase 5 plan own acceptance, not an implementation label alone.
 
 The pieces:
-- **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
-  in-process over one parse (ADR-0046). The one exception is the flow facts: `cpg-flow` reads ty's
-  semantic index over a second parse, joined by byte range (ADR-0046, ADR-0045). The
+- **Extraction:** the accepted code-facts target links independent latest Ruff/ty and native
+  Pyrefly in-process (ADR-0117/0118). Latest Ruff owns canonical syntax; Pyrefly's embedded Ruff
+  stays inside its adapter, and ty's runtime view has explicit source/role correspondence.
+  Migration is in progress: current pins/acceptance are in docs/pins and the code-facts coordinator. The
   Pyrefly CLI is only a parity-test oracle. Catalog compilation is the default (ADR-0078);
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts:** the typed model (`lctx-model::domain`) is the contract and PostgreSQL generations
@@ -38,7 +39,7 @@ The pieces:
   pipeline or the query path.
 
 The pilot library is FastMCP 4.0.5. Every analyzed library, the pilot included, is a pinned uv
-project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0046); the project's own
+project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0117); the project's own
 environment is never an analysis input.
 
 This is a personal project with one operator. Process is deliberately light (ADR-0079). Keep
@@ -87,7 +88,7 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 | The real library, end to end | `lctx compile fastmcp --through facts|normalized|analysis|catalog --profile catalog|behavioral`; reports an unselected generation. Run real-library qualification only when authorized. Upper-frontier fixture qualification passed within the Phase 4 receipt; real-library upper pilots are not_run; serving code is implemented, with activation and real-library qualification stopped. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
-| Dependency policy | `just deps`, a `hygiene` check: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
+| Dependency policy | `just deps`, a `hygiene` check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; the end-of-turn hook regenerates the index; `just adr-lint` runs within `just hygiene` |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` (publication) runs within `just hygiene`. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
 | After every turn (automatic) | The end-of-turn hook (`scripts/after_turn.py`, ADR-0110, wired in `.claude/settings.json` and `.codex/hooks.json`) runs once the main agent stops: `just skills-sync`, `just adr index`, `just build-features` after dependency changes and `just fmt` (with ruff's safe auto-fixes); then, in the background, missing PostgreSQL images and tools, and `just library-catalog` last. The operator, never the model, sees failed steps; the next prompt never waits. The hook runs no other checks and fixes nothing: clippy, pyrefly type errors, lint, rules, ADR and agent lint, fixtures, gold, `docs-check`, `deps` and `store-check` findings are yours, through `just hygiene` at scope end. Don't run the formatters or generators yourself |

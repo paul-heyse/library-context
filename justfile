@@ -89,11 +89,12 @@ oracles:
 # `structured-eval`, `score` and `ranking-check` read served generations; they return with serving
 # (cutover phase 5).
 
-# Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0046)
+# Pinned nominal families and exact observational forks (ADR-0117/0118).
 deps:
     uv run python scripts/check_family.py Cargo.lock
     cargo deny --log-level error check bans sources licenses
     uv run python scripts/check_pyrefly_fork.py
+    uv run python scripts/check_ruff_fork.py
     # A dependency no crate uses pins nothing (H1 O2).
     cargo shear --exclude lctx-workspace-hack
     cargo hakari generate --diff

@@ -946,7 +946,8 @@ impl Builder<'_, '_> {
                     }
                 }
             }
-            Type::CallableResidual(_) => (self.opaque(ty, "callable_residual"), true),
+            Type::Overloaded(_) => (self.opaque(ty, "overloaded_values"), true),
+            Type::NamedInts(_) => (self.opaque(ty, "named_ints"), true),
             Type::TypeLevelDslCall(_) => (self.opaque(ty, "type_level_dsl_call"), true),
             Type::ShapedArray(_) => (self.opaque(ty, "shaped_array"), true),
             Type::IntTuple(_) => (self.opaque(ty, "int_tuple"), true),
@@ -1103,18 +1104,15 @@ pub fn records<'a>(
                 )?;
             }
         }
-        let annotated = ctx
-            .answers
-            .get_annotation(
-                &ctx.bindings,
-                &KeyAnnotation::ReturnAnnotation(f.undecorated.identifier),
-            )
-            .and_then(|a| a.ty.clone());
+        let annotation = KeyAnnotation::ReturnAnnotation(f.undecorated.identifier);
+        let annotated = ctx.bindings().keys::<KeyAnnotation>()
+            .find(|idx| ctx.bindings().idx_to_key(*idx) == &annotation)
+            .and_then(|idx| ctx.answers.get_annotation_type_at(idx));
         if let Some(ty) = annotated {
             b.observe(declaration, TypeRole::Return, true, &ty)?;
         } else {
             let idx = ctx
-                .bindings
+                .bindings()
                 .key_to_idx(&Key::ReturnType(f.undecorated.identifier));
             if let Some(ty) = ctx.answers.get_type_at(idx) {
                 b.observe(declaration, TypeRole::Return, false, &ty)?;
@@ -1238,7 +1236,7 @@ pub fn records<'a>(
                         get_class_field_from_current_class_only(declaring, &pname, declaring_ctx)
                     {
                         let range = declaring_ctx
-                            .bindings
+                            .bindings()
                             .metadata()
                             .get_class(declaring.index())
                             .fields

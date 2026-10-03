@@ -9,10 +9,10 @@ edition = "2024"
 rust-version = "1.98.1"
 publish = false
 
-# The pinned dependency family (DESIGN §7, ADR-0090). Arrow, DataFusion and
+# The pinned dependency family (DESIGN §7, ADR-0118). Arrow, DataFusion and
 # object_store must resolve to exactly one version each;
 # `just deps` enforces that with scripts/check_family.py (not deny.toml, which
-# misses dev-only duplicates — ADR-0090).
+# misses dev-only duplicates — ADR-0118).
 [workspace.dependencies]
 syn = "=2.0.119"
 quote = "=1.0.47"
@@ -50,30 +50,31 @@ unicode-segmentation = "=1.13.3"
 # feature; the version object_store already locks, and no package is added.
 reqwest = { version = "=0.12.28", default-features = false }
 
-# Analyzers (ADR-0012, docs/pins.md): Pyrefly 1.3.1 + third_party/pyrefly-1.3.1.patch from the
-# fork, and the ruff crate line it compiles against. One version each (scripts/check_family.py).
-pyrefly = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7baead9e0c7b496346d879b88e2fff9cbda7" }
-pyrefly_build = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7baead9e0c7b496346d879b88e2fff9cbda7" }
-pyrefly_config = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7baead9e0c7b496346d879b88e2fff9cbda7" }
-pyrefly_python = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7baead9e0c7b496346d879b88e2fff9cbda7" }
-pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7baead9e0c7b496346d879b88e2fff9cbda7" }
-pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "a07b7baead9e0c7b496346d879b88e2fff9cbda7" }
-ruff_python_ast = "=0.0.11"
-ruff_python_parser = "=0.0.11"
-ruff_source_file = "=0.0.11"
-ruff_text_size = "=0.0.11"
-# The flow provider (ADR-0022 §The flow provider, ADR-0012 amendment; docs/pins.md): ty's
-# semantic index and the ruff 0.0.14 line it compiles against, confined to `cpg-flow` by the
-# declared extra family in scripts/check_family.py. salsa, salsa-macros and salsa-macro-rules are
-# held at exactly 0.28.2 in Cargo.lock: 0.28.3 and 0.28.4 break ruff 0.0.14.
-ty_python_core = "=0.0.14"
-ty_module_resolver = "=0.0.14"
-ty_vendored = "=0.0.14"
-ruff_db = { version = "=0.0.14", default-features = false }
-ruff_python_ast_ty = { package = "ruff_python_ast", version = "=0.0.14" }
-ruff_text_size_ty = { package = "ruff_text_size", version = "=0.0.14" }
-ruff_python_parser_ty = { package = "ruff_python_parser", version = "=0.0.14" }
-salsa = { version = "=0.28.2", default-features = false, features = ["compact_str", "macros", "salsa_unstable", "inventory", "ordermap"] }
+# ADR-0117/0118: native Pyrefly keeps embedded registry Ruff 0.0.14.
+# Latest Ruff/ty use one nominal fork source; no AST type crosses the adapter boundary.
+pyrefly = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
+pyrefly_build = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
+pyrefly_config = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
+pyrefly_python = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
+pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
+pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
+ruff_python_ast = "=0.0.14"
+ruff_python_parser = "=0.0.14"
+ruff_source_file = "=0.0.14"
+ruff_text_size = "=0.0.14"
+# Independent Ruff/ty source; salsa and both macro crates stay exactly 0.28.5.
+ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ty_module_resolver = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_db = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730", default-features = false }
+ruff_python_ast_ty = { package = "ruff_python_ast", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_text_size_ty = { package = "ruff_text_size", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_parser_ty = { package = "ruff_python_parser", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+salsa = { version = "=0.28.5", default-features = false, features = ["compact_str", "macros", "salsa_unstable", "inventory", "ordermap"] }
+ruff_linter = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_ast_latest = { package = "ruff_python_ast", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_parser_latest = { package = "ruff_python_parser", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_text_size_latest = { package = "ruff_text_size", git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
 # Id derivation (DESIGN §3.4.1); Pyrefly pins the same exact version.
 blake3 = "=1.8.6"
 serde_json = "=1.0.151"
@@ -113,7 +114,7 @@ anyhow = "=1.0.104"
 walkdir = "=2.5.0"
 tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread"] }
 futures = "=0.3.34"
-thiserror = "=2.0.20"
+thiserror = "=2.0.21"
 url = "=2.5.8"
 # PostgreSQL effect boundary (ADR-0068); one driver, pool and migration owner.
 sqlx = { version = "=0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "tls-rustls-ring-native-roots"] }
@@ -163,3 +164,33 @@ opt-level = 2
 # Backport the upstream never-type fix without upgrading Pyrefly's dependency graph (ADR-0079).
 [patch.crates-io]
 allocative = { path = "third_party/allocative" }
+
+# Keep all reachable published latest-family crates at the same nominal source.
+ruff_annotate_snippets = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_cache = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_db = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_diagnostics = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_index = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_linter = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_macros = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_memory_usage = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_notebook = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_ast = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_codegen = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_edits = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_importer = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_index = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_literal = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_parser = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_semantic = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_stdlib = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_python_trivia = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_ranged_value = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_source_file = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ruff_text_size = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ty_combine = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ty_module_resolver = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ty_site_packages = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ty_static = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }
+ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "8f01d80020921d3867f255ee5f919dd2d329b730" }

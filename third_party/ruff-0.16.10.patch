@@ -1,0 +1,787 @@
+From 8f01d80020921d3867f255ee5f919dd2d329b730 Mon Sep 17 00:00:00 2001
+From: paul-heyse <paul@heyse.io>
+Date: Sat, 3 Oct 2026 07:53:41 -0400
+Subject: [PATCH] Expose owned semantic facts and sticky ty precision metadata;
+ focused checks passed
+
+---
+ crates/ruff_linter/src/checkers/ast/mod.rs    | 115 +++++-
+ crates/ruff_linter/src/lib.rs                 |   3 +
+ crates/ruff_linter/src/semantic_facts.rs      | 389 ++++++++++++++++++
+ crates/ruff_linter/src/settings/mod.rs        |   7 +-
+ .../src/narrowing_constraints.rs              |  65 +++
+ 5 files changed, 561 insertions(+), 18 deletions(-)
+ create mode 100644 crates/ruff_linter/src/semantic_facts.rs
+
+diff --git a/crates/ruff_linter/src/checkers/ast/mod.rs b/crates/ruff_linter/src/checkers/ast/mod.rs
+index 344f6ae..cbea1fe 100644
+--- a/crates/ruff_linter/src/checkers/ast/mod.rs
++++ b/crates/ruff_linter/src/checkers/ast/mod.rs
+@@ -249,6 +249,7 @@ pub(crate) struct Checker<'a> {
+     /// Errors collected by the `semantic_checker`.
+     semantic_errors: RefCell<Vec<SemanticSyntaxError>>,
+     context: &'a LintContext<'a>,
++    observation: Option<&'a dyn crate::semantic_facts::Observer>,
+ }
+ 
+ impl<'a> Checker<'a> {
+@@ -306,6 +307,7 @@ impl<'a> Checker<'a> {
+             semantic_checker: SemanticSyntaxChecker::new(),
+             semantic_errors: RefCell::default(),
+             context,
++            observation: None,
+         }
+     }
+ }
+@@ -999,8 +1001,21 @@ impl SemanticSyntaxContext for Checker<'_> {
+     }
+ }
+ 
++impl Checker<'_> {
++    fn observation_active(&self) -> bool {
++        self.observation.as_ref().is_none_or(|observation| observation.is_active())
++    }
++
++    fn observation_checkpoint(&mut self) -> bool {
++        self.observation.is_none_or(|observation| observation.checkpoint())
++    }
++}
++
+ impl<'a> Visitor<'a> for Checker<'a> {
+     fn visit_stmt(&mut self, stmt: &'a Stmt) {
++        if !self.observation_checkpoint() {
++            return;
++        }
+         // Step 0: Pre-processing
+         self.semantic.push_node(stmt);
+ 
+@@ -1672,7 +1687,11 @@ impl<'a> Visitor<'a> for Checker<'a> {
+                 self.visit_boolean_test(test);
+ 
+                 self.semantic.push_branch();
+-                if typing::is_type_checking_block(stmt_if, &self.semantic) {
++                let type_checking = typing::is_type_checking_block(stmt_if, &self.semantic);
++                if let Some(observation) = &self.observation {
++                    observation.branch(stmt_if.range(), self.semantic.scope_id, type_checking);
++                }
++                if type_checking {
+                     if self.semantic.at_top_level() {
+                         self.importer.visit_type_checking_block(stmt);
+                     }
+@@ -1710,6 +1729,9 @@ impl<'a> Visitor<'a> for Checker<'a> {
+         // Step 3: Clean-up
+ 
+         // Step 4: Analysis
++        if let Some(observation) = &self.observation {
++            observation.node(stmt.into(), &self.semantic, None);
++        }
+         analyze::statement(stmt, self);
+ 
+         self.semantic.flags = flags_snapshot;
+@@ -1725,6 +1747,9 @@ impl<'a> Visitor<'a> for Checker<'a> {
+     }
+ 
+     fn visit_expr(&mut self, expr: &'a Expr) {
++        if !self.observation_checkpoint() {
++            return;
++        }
+         self.with_semantic_checker(|semantic, context| semantic.visit_expr(expr, context));
+ 
+         // Step 0: Pre-processing
+@@ -2379,6 +2404,9 @@ impl<'a> Visitor<'a> for Checker<'a> {
+         }
+ 
+         self.semantic.flags = flags_snapshot;
++        if let Some(observation) = &self.observation {
++            observation.node(expr.into(), &self.semantic, Some(expr));
++        }
+         analyze::expression(expr, self);
+         self.semantic.pop_node();
+     }
+@@ -3503,6 +3531,30 @@ pub(crate) fn check_ast(
+     target_version: TargetVersion,
+     context: &LintContext,
+ ) -> Vec<SemanticSyntaxError> {
++    check_ast_with_observation(
++        parsed, locator, stylist, indexer, noqa_line_for, settings, noqa, path, package,
++        source_type, cell_offsets, notebook_index, target_version, context, None,
++    ).0
++}
++
++#[expect(clippy::too_many_arguments)]
++pub(crate) fn check_ast_with_observation<'a>(
++    parsed: &'a Parsed<ModModule>,
++    locator: &'a Locator<'a>,
++    stylist: &'a Stylist<'a>,
++    indexer: &'a Indexer,
++    noqa_line_for: &'a NoqaMapping,
++    settings: &'a LinterSettings,
++    noqa: flags::Noqa,
++    path: &'a Path,
++    package: Option<PackageRoot<'a>>,
++    source_type: PySourceType,
++    cell_offsets: Option<&'a CellOffsets>,
++    notebook_index: Option<&'a NotebookIndex>,
++    target_version: TargetVersion,
++    context: &'a LintContext<'a>,
++    observation: Option<crate::semantic_facts::Observation<'_>>,
++) -> (Vec<SemanticSyntaxError>, Result<crate::semantic_facts::TraversalStats, crate::semantic_facts::Incomplete>) {
+     let module_path = package
+         .map(PackageRoot::path)
+         .and_then(|package| to_module_path(package, path));
+@@ -3526,6 +3578,7 @@ pub(crate) fn check_ast(
+     };
+ 
+     let allocator = typed_arena::Arena::new();
++    let observation = observation.map(RefCell::new);
+     let mut checker = Checker::new(
+         parsed,
+         &allocator,
+@@ -3544,35 +3597,63 @@ pub(crate) fn check_ast(
+         target_version,
+         context,
+     );
++    checker.observation = observation.as_ref().map(|value| value as &dyn crate::semantic_facts::Observer);
+     // Iterate over the AST.
+     checker.visit_module(parsed.suite());
+-    checker.visit_body(parsed.suite());
++    if checker.observation_active() {
++        checker.visit_body(parsed.suite());
++    }
+ 
+     // Visit any deferred syntax nodes. Take care to visit in order, such that we avoid adding
+     // new deferred nodes after visiting nodes of that kind. For example, visiting a deferred
+     // function can add a deferred lambda, but the opposite is not true.
+-    checker.visit_deferred();
+-    checker.visit_exports();
++    if checker.observation_active() {
++        checker.visit_deferred();
++    }
++    if checker.observation_active() {
++        checker.visit_exports();
++    }
+ 
+     // Check docstrings, bindings, and unresolved references.
+-    analyze::deferred_lambdas(&mut checker);
+-    analyze::deferred_for_loops(&mut checker);
+-    analyze::deferred_comprehensions(&mut checker);
+-    analyze::definitions(&mut checker);
+-    analyze::bindings(&checker);
+-    analyze::unresolved_references(&checker);
+-    analyze::deferred_with_statements(&mut checker);
++    if checker.observation_active() {
++        analyze::deferred_lambdas(&mut checker);
++    }
++    if checker.observation_active() {
++        analyze::deferred_for_loops(&mut checker);
++    }
++    if checker.observation_active() {
++        analyze::deferred_comprehensions(&mut checker);
++    }
++    if checker.observation_active() {
++        analyze::definitions(&mut checker);
++    }
++    if checker.observation_active() {
++        analyze::bindings(&checker);
++    }
++    if checker.observation_active() {
++        analyze::unresolved_references(&checker);
++    }
++    if checker.observation_active() {
++        analyze::deferred_with_statements(&mut checker);
++    }
+ 
+     // Reset the scope to module-level, and check all consumed scopes.
+     checker.semantic.scope_id = ScopeId::global();
+     checker.analyze.scopes.push(ScopeId::global());
+-    analyze::deferred_scopes(&checker);
+-
+-    let Checker {
+-        semantic_errors, ..
+-    } = checker;
++    if checker.observation_active() {
++        analyze::deferred_scopes(&checker);
++    }
+ 
+-    semantic_errors.into_inner()
++    if let Some(observation) = &checker.observation {
++        observation.finish(&checker.semantic, locator.contents());
++    }
++    let semantic_errors = std::mem::take(checker.semantic_errors.get_mut());
++    drop(checker);
++    let observation_result = observation.map_or_else(
++        || Ok(crate::semantic_facts::TraversalStats::default()),
++        |value| value.into_inner().into_result(),
++    );
++    (semantic_errors, observation_result)
+ }
+ 
+ /// A type for collecting diagnostics in a given file.
+diff --git a/crates/ruff_linter/src/lib.rs b/crates/ruff_linter/src/lib.rs
+index f971c43..dd30314 100644
+--- a/crates/ruff_linter/src/lib.rs
++++ b/crates/ruff_linter/src/lib.rs
+@@ -94,3 +94,6 @@ mod tests {
+         assert_eq!(fixed.source_code(), code);
+     }
+ }
++
++/// Owned lexical observations from the existing semantic traversal.
++pub mod semantic_facts;
+diff --git a/crates/ruff_linter/src/semantic_facts.rs b/crates/ruff_linter/src/semantic_facts.rs
+new file mode 100644
+index 0000000..76e80fd
+--- /dev/null
++++ b/crates/ruff_linter/src/semantic_facts.rs
+@@ -0,0 +1,389 @@
++//! Owned, bounded lexical observations from Ruff's existing Checker traversal.
++//!
++//! IDs are local to one invocation; ranges are source bytes. Node callbacks capture the active
++//! context, while binding/reference/export rows are emitted only after deferred passes. Ruff
++//! lexical qualified names are not filesystem or instance-member resolution. A failed invocation
++//! leaves only partial sink output: consumers must publish it as incomplete or discard it.
++
++use std::path::{Path, PathBuf};
++
++use ruff_python_ast::{AnyNodeRef, Expr, NodeKind, PySourceType, PythonVersion};
++use ruff_python_codegen::Stylist;
++use ruff_python_index::Indexer;
++use ruff_python_parser::{ParseOptions, Parsed, parse_unchecked};
++use ruff_python_semantic::{BindingKind, Definition, ExecutionContext, Imported, ScopeId, ScopeKind, SemanticModel};
++use ruff_text_size::{Ranged, TextRange};
++
++use crate::checkers::ast::{LintContext, check_ast_with_observation};
++use crate::noqa::NoqaMapping;
++use crate::package::PackageRoot;
++use crate::settings::{LinterSettings, TargetVersion, flags};
++use crate::Locator;
++
++/// Every fact-affecting input is explicit. No config files, imports or environment are discovered.
++/// Platform is recorded, not evaluated: Ruff's lexical traversal does not fold platform branches.
++#[derive(Debug, Clone)]
++pub struct Settings {
++    pub path: PathBuf,
++    pub package_root: Option<PathBuf>,
++    pub source_type: PySourceType,
++    pub python_version: PythonVersion,
++    pub platform: String,
++    pub typing_modules: Vec<String>,
++    pub custom_builtins: Vec<String>,
++    pub max_rows: usize,
++    pub max_node_visits: usize,
++}
++
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct TraversalStats {
++    pub rows: usize,
++    /// Includes callbacks attempted while a current traversal pass drains after cancellation.
++    pub node_visits: usize,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum StopReason {
++    Cancelled,
++    RowBudget,
++    WorkBudget,
++    Sink(String),
++    InvalidSyntax,
++    UnsupportedSyntax,
++    UnsupportedSourceKind,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Incomplete {
++    pub reason: StopReason,
++    pub stats: TraversalStats,
++}
++
++/// Fallible owned row receiver. Checkpoints support cancellation even between emitted rows.
++pub trait Sink {
++    fn checkpoint(&mut self) -> Result<(), StopReason> { Ok(()) }
++    fn observe(&mut self, fact: Fact) -> Result<(), StopReason>;
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum NodeOrigin {
++    Source,
++    /// Parsed inside an annotation string by the existing driver; not canonical source syntax.
++    StringAnnotation,
++}
++
++#[derive(Debug, Clone)]
++pub struct Node {
++    pub range: TextRange,
++    pub kind: NodeKind,
++    pub expr_context: Option<ruff_python_ast::ExprContext>,
++    pub origin: NodeOrigin,
++    pub scope: u32,
++    pub definition: u32,
++    pub flags: u32,
++    pub context: ExecutionContext,
++    /// Lexical name-load resolution at this phase; final references are authoritative.
++    pub binding: Option<u32>,
++    pub qualified_name: Option<Vec<String>>,
++}
++
++#[derive(Debug, Clone)]
++pub struct Scope {
++    pub id: u32,
++    pub parent: Option<u32>,
++    pub kind: &'static str,
++    pub range: Option<TextRange>,
++}
++
++#[derive(Debug, Clone)]
++pub struct Binding {
++    pub id: u32,
++    pub name: String,
++    pub range: TextRange,
++    pub scope: u32,
++    pub kind: &'static str,
++    pub context: ExecutionContext,
++    pub flags: u16,
++    pub qualified_name: Option<Vec<String>>,
++    pub shadowed: Option<u32>,
++    pub outer_shadowed: Option<u32>,
++    pub definition_scope: Option<u32>,
++}
++
++#[derive(Debug, Clone)]
++pub struct Reference {
++    pub id: u32,
++    pub binding: u32,
++    pub scope: u32,
++    pub range: TextRange,
++    pub is_load: bool,
++    pub typing_context: bool,
++    pub typing_only_annotation: bool,
++    pub runtime_annotation: bool,
++    pub string_annotation: bool,
++    pub type_checking: bool,
++}
++
++#[derive(Debug, Clone)]
++pub enum Fact {
++    Input(Settings),
++    Node(Node),
++    /// The classifier's answer at the actual if-test phase, before branch traversal/rebinding.
++    /// False means Ruff did not classify this as TYPE_CHECKING, not a constant-false branch.
++    Branch { range: TextRange, scope: u32, type_checking: bool },
++    Scope(Scope),
++    Definition { id: u32, parent: Option<u32>, name: Option<String>, range: Option<TextRange>, kind: &'static str },
++    Binding(Binding),
++    Reference(Reference),
++    Unresolved { range: TextRange, name: String, wildcard_import: bool, annotation_binding: Option<u32> },
++    Export { binding: u32, range: TextRange, name: String },
++}
++
++/// Parse and observe a Python module with no diagnostic rules or fixes. A successful return only
++/// certifies completion of Ruff's semantic passes, not completeness of Python runtime semantics.
++/// Notebook cells require Ruff's notebook orchestration and are explicitly unsupported here.
++pub fn semantic_facts(source: &str, settings: &Settings, sink: &mut dyn Sink) -> Result<TraversalStats, Incomplete> {
++    // Check before the upstream parser's indivisible call as well as during observation.
++    sink.checkpoint().map_err(|reason| Incomplete { reason, stats: TraversalStats::default() })?;
++    if settings.source_type.is_ipynb() {
++        return Err(Incomplete { reason: StopReason::UnsupportedSourceKind, stats: TraversalStats::default() });
++    }
++    if settings.max_rows == 0 {
++        return Err(Incomplete { reason: StopReason::RowBudget, stats: TraversalStats::default() });
++    }
++    let parsed = parse_unchecked(source, ParseOptions::from(settings.source_type).with_target_version(settings.python_version))
++        .try_into_module().expect("Python source types parse as modules");
++    observe_parsed(source, &parsed, settings, sink)
++}
++
++/// Observe an already parsed module using the same driver and validation as [`semantic_facts`].
++/// This lets callers reuse the latest Ruff parse for a canonical syntax walk and lexical facts.
++/// `source` must be the exact text that produced `parsed`, parsed with the supplied source kind
++/// and Python version. The caller owns this snapshot agreement: `Parsed` does not retain text or
++/// parse options. Node ranges and parsed string annotations rely on that precondition.
++pub fn observe_parsed(source: &str, parsed: &Parsed<ruff_python_ast::ModModule>, settings: &Settings, sink: &mut dyn Sink) -> Result<TraversalStats, Incomplete> {
++    if settings.source_type.is_ipynb() {
++        return Err(Incomplete { reason: StopReason::UnsupportedSourceKind, stats: TraversalStats::default() });
++    }
++    let mut observation = Observation::new(sink, settings.max_rows, settings.max_node_visits);
++    observation.emit(Fact::Input(settings.clone()));
++    if !observation.is_active() { return observation.into_result(); }
++    if !parsed.errors().is_empty() {
++        observation.stop(StopReason::InvalidSyntax);
++        return observation.into_result();
++    }
++    if !parsed.unsupported_syntax_errors().is_empty() {
++        observation.stop(StopReason::UnsupportedSyntax);
++        return observation.into_result();
++    }
++    run(parsed, source, settings, observation)
++}
++
++fn run(parsed: &Parsed<ruff_python_ast::ModModule>, source: &str, settings: &Settings, observation: Observation<'_>) -> Result<TraversalStats, Incomplete> {
++    let project_root = settings.package_root.clone().unwrap_or_else(|| settings.path.parent().unwrap_or(Path::new(".")).to_path_buf());
++    let mut lint = LinterSettings::new_with_src(&project_root, vec![project_root.clone()]);
++    lint.rules = crate::settings::rule_table::RuleTable::empty();
++    lint.builtins.clone_from(&settings.custom_builtins);
++    lint.typing_modules.clone_from(&settings.typing_modules);
++    lint.unresolved_target_version = TargetVersion(Some(settings.python_version));
++    let locator = Locator::new(source);
++    let stylist = Stylist::from_tokens(parsed.tokens(), source);
++    let indexer = Indexer::from_tokens(parsed.tokens(), source);
++    let noqa = NoqaMapping::default();
++    let context = LintContext::new(&settings.path, source, &lint);
++    let (semantic_errors, result) = check_ast_with_observation(
++        parsed, &locator, &stylist, &indexer, &noqa, &lint, flags::Noqa::Disabled,
++        &settings.path, settings.package_root.as_deref().map(PackageRoot::root), settings.source_type,
++        None, None, lint.unresolved_target_version, &context, Some(observation),
++    );
++    match result {
++        Ok(stats) if !semantic_errors.is_empty() => Err(Incomplete { reason: StopReason::InvalidSyntax, stats }),
++        result => result,
++    }
++}
++
++pub(crate) struct Observation<'a> {
++    sink: &'a mut dyn Sink,
++    max_rows: usize,
++    max_node_visits: usize,
++    stats: TraversalStats,
++    reason: Option<StopReason>,
++}
++
++impl<'a> Observation<'a> {
++    fn new(sink: &'a mut dyn Sink, max_rows: usize, max_node_visits: usize) -> Self {
++        Self { sink, max_rows, max_node_visits, stats: TraversalStats::default(), reason: None }
++    }
++
++    pub(crate) fn is_active(&self) -> bool { self.reason.is_none() }
++
++    fn stop(&mut self, reason: StopReason) { if self.reason.is_none() { self.reason = Some(reason); } }
++
++    pub(crate) fn checkpoint(&mut self) -> bool {
++        self.stats.node_visits = self.stats.node_visits.saturating_add(1);
++        if !self.is_active() { return false; }
++        if self.stats.node_visits > self.max_node_visits { self.stop(StopReason::WorkBudget); return false; }
++        if let Err(reason) = self.sink.checkpoint() { self.stop(reason); }
++        self.is_active()
++    }
++
++    fn emit(&mut self, fact: Fact) {
++        if !self.is_active() { return; }
++        if self.stats.rows >= self.max_rows { self.stop(StopReason::RowBudget); return; }
++        if let Err(reason) = self.sink.checkpoint() { self.stop(reason); return; }
++        match self.sink.observe(fact) {
++            Ok(()) => self.stats.rows += 1,
++            Err(reason) => self.stop(reason),
++        }
++    }
++
++    pub(crate) fn into_result(self) -> Result<TraversalStats, Incomplete> {
++        match self.reason { Some(reason) => Err(Incomplete { reason, stats: self.stats }), None => Ok(self.stats) }
++    }
++
++    pub(crate) fn node(&mut self, node: AnyNodeRef<'_>, semantic: &SemanticModel<'_>, expr: Option<&Expr>) {
++        if !self.is_active() { return; }
++        self.emit(Fact::Node(Node {
++            range: node.range(), kind: node.kind(), expr_context: expr.and_then(Expr::as_name_expr).map(|name| name.ctx), scope: semantic.scope_id.as_u32(),
++            definition: semantic.definition_id.as_u32(), origin: if semantic.in_string_type_definition() { NodeOrigin::StringAnnotation } else { NodeOrigin::Source }, flags: semantic.flags.bits(), context: semantic.execution_context(),
++            binding: expr.and_then(Expr::as_name_expr).and_then(|name| semantic.resolve_name(name)).map(|id| id.as_u32()),
++            qualified_name: expr.and_then(|expr| semantic.resolve_qualified_name(expr)).map(|name| name.segments().iter().map(|segment| (*segment).to_owned()).collect()),
++        }));
++    }
++
++    pub(crate) fn branch(&mut self, range: TextRange, scope: ScopeId, type_checking: bool) {
++        self.emit(Fact::Branch { range, scope: scope.as_u32(), type_checking });
++    }
++
++    pub(crate) fn finish(&mut self, semantic: &SemanticModel<'_>, source: &str) {
++        if !self.is_active() { return; }
++        for (id, scope) in semantic.scopes.iter_enumerated() {
++            if !self.is_active() { return; }
++            let (kind, range) = match scope.kind {
++                ScopeKind::Module => ("Module", None), ScopeKind::Class(node) => ("Class", Some(node.range())),
++                ScopeKind::Function(node) => ("Function", Some(node.range())), ScopeKind::Lambda(node) => ("Lambda", Some(node.range())),
++                ScopeKind::Generator { .. } => ("Generator", None), ScopeKind::Type => ("Type", None), ScopeKind::DunderClassCell => ("DunderClassCell", None),
++            };
++            self.emit(Fact::Scope(Scope { id: id.as_u32(), parent: semantic.scopes.ancestor_ids(id).nth(1).map(|id| id.as_u32()), kind, range }));
++        }
++        for (id, definition) in semantic.definitions.iter_enumerated() {
++            if !self.is_active() { return; }
++            let (parent, range, kind) = match definition {
++                Definition::Module(_) => (None, None, "Module"),
++                Definition::Member(member) => (Some(member.parent.as_u32()), Some(member.range()), match member.kind {
++                    ruff_python_semantic::MemberKind::Class(_) => "Class", ruff_python_semantic::MemberKind::NestedClass(_) => "NestedClass",
++                    ruff_python_semantic::MemberKind::Function(_) => "Function", ruff_python_semantic::MemberKind::NestedFunction(_) => "NestedFunction",
++                    ruff_python_semantic::MemberKind::Method(_) => "Method",
++                }),
++            };
++            self.emit(Fact::Definition { id: id.as_u32(), parent, name: definition.name().map(str::to_owned), range, kind });
++        }
++        for (id, binding) in semantic.bindings.iter_enumerated() {
++            if !self.is_active() { return; }
++            let kind = binding_kind(&binding.kind);
++            self.emit(Fact::Binding(Binding {
++                id: id.as_u32(), name: if binding.kind.is_builtin() {
++                    semantic.scopes[binding.scope].all_bindings().find_map(|(name, candidate)| (candidate == id).then(|| name.to_owned())).unwrap_or_default()
++                } else { binding.name(source).to_owned() }, range: binding.range, scope: binding.scope.as_u32(), kind,
++                context: binding.context, flags: binding.flags.bits(),
++                qualified_name: binding.as_any_import().map(|import| import.qualified_name().segments().iter().map(|segment| (*segment).to_owned()).collect()),
++                shadowed: semantic.scopes[binding.scope].shadowed_binding(id).map(|id| id.as_u32()),
++                outer_shadowed: semantic.shadowed_bindings.get(&id).map(|id| id.as_u32()),
++                definition_scope: match binding.kind { BindingKind::ClassDefinition(scope) | BindingKind::FunctionDefinition(scope) => Some(scope.as_u32()), _ => None },
++            }));
++            for reference_id in binding.references() {
++                if !self.is_active() { return; }
++                let reference = semantic.reference(reference_id);
++                self.emit(Fact::Reference(Reference {
++                    id: reference_id.as_u32(), binding: id.as_u32(), scope: reference.scope_id().as_u32(), range: reference.range(),
++                    is_load: reference.is_load(), typing_context: reference.in_typing_context(), typing_only_annotation: reference.in_typing_only_annotation(),
++                    runtime_annotation: reference.in_runtime_evaluated_annotation(), string_annotation: reference.in_string_type_definition(), type_checking: reference.in_type_checking_block(),
++                }));
++            }
++            if let BindingKind::Export(export) = &binding.kind {
++                for name in &export.names {
++                    if !self.is_active() { return; }
++                    self.emit(Fact::Export { binding: id.as_u32(), range: name.range(), name: name.name().to_owned() });
++                }
++            }
++        }
++        for reference in semantic.unresolved_references() {
++            if !self.is_active() { return; }
++            self.emit(Fact::Unresolved { range: reference.range(), name: reference.name(source).to_owned(), wildcard_import: reference.is_wildcard_import(), annotation_binding: reference.annotation_binding_id().map(|id| id.as_u32()) });
++        }
++    }
++}
++
++fn binding_kind(kind: &BindingKind<'_>) -> &'static str {
++    match kind {
++        BindingKind::Annotation => "Annotation", BindingKind::Argument => "Argument", BindingKind::NamedExprAssignment => "NamedExprAssignment",
++        BindingKind::Assignment => "Assignment", BindingKind::TypeParam => "TypeParam", BindingKind::LoopVar => "LoopVar", BindingKind::WithItemVar => "WithItemVar",
++        BindingKind::Global(_) => "Global", BindingKind::Nonlocal(_, _) => "Nonlocal", BindingKind::Builtin => "Builtin", BindingKind::ClassDefinition(_) => "ClassDefinition",
++        BindingKind::FunctionDefinition(_) => "FunctionDefinition", BindingKind::Export(_) => "Export", BindingKind::FutureImport => "FutureImport", BindingKind::Import(_) => "Import",
++        BindingKind::FromImport(_) => "FromImport", BindingKind::SubmoduleImport(_) => "SubmoduleImport", BindingKind::Deletion => "Deletion", BindingKind::BoundException => "BoundException",
++        BindingKind::UnboundException(_) => "UnboundException", BindingKind::DunderClassCell => "DunderClassCell",
++    }
++}
++
++// Erase the sink lifetime before lending the observer to the locally allocated Checker.
++// RefCell only mediates synchronous callbacks; no model or AST borrow escapes a callback.
++pub(crate) trait Observer {
++    fn is_active(&self) -> bool;
++    fn checkpoint(&self) -> bool;
++    fn node(&self, node: AnyNodeRef<'_>, semantic: &SemanticModel<'_>, expr: Option<&Expr>);
++    fn branch(&self, range: TextRange, scope: ScopeId, type_checking: bool);
++    fn finish(&self, semantic: &SemanticModel<'_>, source: &str);
++}
++
++impl Observer for std::cell::RefCell<Observation<'_>> {
++    fn is_active(&self) -> bool { self.borrow().is_active() }
++    fn checkpoint(&self) -> bool { self.borrow_mut().checkpoint() }
++    fn node(&self, node: AnyNodeRef<'_>, semantic: &SemanticModel<'_>, expr: Option<&Expr>) { self.borrow_mut().node(node, semantic, expr); }
++    fn branch(&self, range: TextRange, scope: ScopeId, type_checking: bool) { self.borrow_mut().branch(range, scope, type_checking); }
++    fn finish(&self, semantic: &SemanticModel<'_>, source: &str) { self.borrow_mut().finish(semantic, source); }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::registry::Rule;
++
++    #[test]
++    fn no_observer_lint_parity() {
++        struct Rows(Vec<Fact>);
++        impl Sink for Rows {
++            fn observe(&mut self, fact: Fact) -> Result<(), StopReason> { self.0.push(fact); Ok(()) }
++        }
++        for source in [
++            "import os\nmissing\n",
++            "from __future__ import annotations\nfrom typing import TYPE_CHECKING as TC\nif TC:\n    import json\ndef f(x: Later):\n    return unresolved\nclass Later:\n    pass\n",
++        ] {
++            let path = Path::new("/explicit/module.py");
++            let parsed = ruff_python_parser::parse_module(source).unwrap();
++            let settings = LinterSettings::for_rules([Rule::UnusedImport, Rule::UndefinedName]);
++            let locator = Locator::new(source);
++            let stylist = Stylist::from_tokens(parsed.tokens(), source);
++            let indexer = Indexer::from_tokens(parsed.tokens(), source);
++            let noqa = NoqaMapping::default();
++            let context = LintContext::new(path, source, &settings);
++            let plain_errors = crate::checkers::ast::check_ast(
++                &parsed, &locator, &stylist, &indexer, &noqa, &settings, flags::Noqa::Disabled,
++                path, None, PySourceType::Python, None, None, settings.unresolved_target_version, &context,
++            );
++            let plain = context.into_diagnostics();
++            let context = LintContext::new(path, source, &settings);
++            let mut rows = Rows(vec![]);
++            let (observed_errors, result) = check_ast_with_observation(
++                &parsed, &locator, &stylist, &indexer, &noqa, &settings, flags::Noqa::Disabled,
++                path, None, PySourceType::Python, None, None, settings.unresolved_target_version, &context,
++                Some(Observation::new(&mut rows, 10000, 10000)),
++            );
++            result.unwrap();
++            let observed = context.into_diagnostics();
++            assert!(!plain.is_empty());
++            assert!(!rows.0.is_empty());
++            assert_eq!(format!("{plain:?}"), format!("{observed:?}"));
++            assert_eq!(format!("{plain_errors:?}"), format!("{observed_errors:?}"));
++        }
++    }
++}
+diff --git a/crates/ruff_linter/src/settings/mod.rs b/crates/ruff_linter/src/settings/mod.rs
+index 1868e19..183afe6 100644
+--- a/crates/ruff_linter/src/settings/mod.rs
++++ b/crates/ruff_linter/src/settings/mod.rs
+@@ -793,6 +793,11 @@ impl LinterSettings {
+     }
+ 
+     pub fn new(project_root: &Path) -> Self {
++        Self::new_with_src(project_root, vec![fs::get_cwd().to_path_buf(), fs::get_cwd().join("src")])
++    }
++
++    /// Construct from explicit source roots without reading the process working directory.
++    pub(crate) fn new_with_src(project_root: &Path, src: Vec<PathBuf>) -> Self {
+         Self {
+             exclude: FilePatternSet::default(),
+             unresolved_target_version: TargetVersion(None),
+@@ -816,7 +821,7 @@ impl LinterSettings {
+             per_file_ignores: CompiledPerFileIgnoreList::default(),
+             fix_safety: FixSafetyTable::default(),
+ 
+-            src: vec![fs::get_cwd().to_path_buf(), fs::get_cwd().join("src")],
++            src,
+             // Needs duplicating
+             tab_size: IndentWidth::default(),
+             line_length: LineLength::default(),
+diff --git a/crates/ty_python_core/src/narrowing_constraints.rs b/crates/ty_python_core/src/narrowing_constraints.rs
+index 44f3ad5..3283b1e 100644
+--- a/crates/ty_python_core/src/narrowing_constraints.rs
++++ b/crates/ty_python_core/src/narrowing_constraints.rs
+@@ -94,6 +94,7 @@ pub struct InteriorNode {
+ 
+ #[derive(Debug, PartialEq, Eq, get_size2::GetSize)]
+ pub struct NarrowingConstraints {
++    precision_lost: bool,
+     used_interiors: Box<[InteriorNode]>,
+     used_indices: Option<RankBitBox>,
+ }
+@@ -105,11 +106,17 @@ impl NarrowingConstraints {
+     /// [`NarrowingConstraintsBuilder`].
+     pub fn from_test_nodes(nodes: Vec<InteriorNode>) -> Self {
+         Self {
++            precision_lost: false,
+             used_interiors: nodes.into_boxed_slice(),
+             used_indices: None,
+         }
+     }
+ 
++    /// Whether an existing resource-limit fallback dropped narrowing in this scope.
++    pub const fn precision_lost(&self) -> bool {
++        self.precision_lost
++    }
++
+     pub(crate) fn is_empty(&self) -> bool {
+         self.used_interiors.is_empty()
+     }
+@@ -131,6 +138,7 @@ impl NarrowingConstraints {
+ 
+ #[derive(Debug, Default)]
+ pub struct NarrowingConstraintsBuilder {
++    precision_lost: bool,
+     interiors: InternedNodes<ScopedNarrowingConstraint, InteriorNode>,
+     interior_used: RankBitBoxVec,
+     and_cache: FxHashMap<
+@@ -147,6 +155,7 @@ impl NarrowingConstraintsBuilder {
+     pub(crate) fn build(self) -> NarrowingConstraints {
+         if self.interior_used.first_zero().is_none() {
+             NarrowingConstraints {
++                precision_lost: self.precision_lost,
+                 used_interiors: self.interiors.into_nodes_boxed_slice(),
+                 used_indices: None,
+             }
+@@ -159,6 +168,7 @@ impl NarrowingConstraintsBuilder {
+                 .collect();
+             let used_indices = RankBitBox::from_bits(self.interior_used);
+             NarrowingConstraints {
++                precision_lost: self.precision_lost,
+                 used_interiors,
+                 used_indices: Some(used_indices),
+             }
+@@ -285,6 +295,7 @@ impl NarrowingConstraintsBuilder {
+             return cached;
+         }
+         if self.interiors.len() >= MAX_INTERIOR_NODES {
++            self.precision_lost = true;
+             return ALWAYS_TRUE;
+         }
+ 
+@@ -308,6 +319,7 @@ impl NarrowingConstraintsBuilder {
+             return *cached;
+         }
+         if self.interiors.len() >= MAX_INTERIOR_NODES {
++            self.precision_lost = true;
+             return ALWAYS_TRUE;
+         }
+ 
+@@ -365,6 +377,7 @@ impl NarrowingConstraintsBuilder {
+             return *cached;
+         }
+         if self.interiors.len() >= MAX_INTERIOR_NODES {
++            self.precision_lost = true;
+             return ALWAYS_TRUE;
+         }
+ 
+@@ -458,6 +471,58 @@ mod tests {
+         }
+     }
+ 
++    fn at_limit() -> NarrowingConstraintsBuilder {
++        let mut constraints = NarrowingConstraintsBuilder::default();
++        for index in 0..MAX_INTERIOR_NODES {
++            constraints.add_atom(predicate(index));
++        }
++        assert!(!constraints.precision_lost);
++        constraints
++    }
++
++    #[test]
++    fn precision_loss_marks_all_existing_fallbacks() {
++        let mut constraints = at_limit();
++        let a = constraints.add_atom(predicate(0));
++        let b = constraints.add_atom(predicate(1));
++        // Cached/terminal operations at the limit retain exactness.
++        assert_eq!(constraints.add_or_constraint(a, ALWAYS_FALSE), a);
++        assert!(!constraints.precision_lost);
++        assert_eq!(constraints.add_or_constraint(a, b), ALWAYS_TRUE);
++        assert!(constraints.precision_lost);
++        constraints.precision_lost = false;
++        assert_eq!(constraints.add_and_constraint(a, b), ALWAYS_TRUE);
++        assert!(constraints.precision_lost);
++        constraints.precision_lost = false;
++        assert_eq!(constraints.add_conditional(predicate(MAX_INTERIOR_NODES), a, b), ALWAYS_TRUE);
++        assert!(constraints.precision_lost);
++        // Subsequent exact shortcuts cannot erase an earlier fallback.
++        assert_eq!(constraints.add_and_constraint(ALWAYS_FALSE, a), ALWAYS_FALSE);
++        assert!(constraints.build().precision_lost()); // compacted branch: interiors unused
++    }
++
++    #[test]
++    fn precision_loss_survives_uncompacted_build_and_exact_controls() {
++        let mut constraints = at_limit();
++        let a = constraints.add_atom(predicate(0));
++        let b = constraints.add_atom(predicate(1));
++        constraints.add_or_constraint(a, b);
++        for index in 0..MAX_INTERIOR_NODES {
++            constraints.mark_used(ScopedNarrowingConstraint::new(index));
++        }
++        let built = constraints.build();
++        assert!(built.used_indices.is_none());
++        assert!(built.precision_lost());
++
++        let mut exact = NarrowingConstraintsBuilder::default();
++        let a = exact.add_atom(predicate(0));
++        let b = exact.add_atom(predicate(1));
++        let union = exact.add_or_constraint(a, b);
++        exact.mark_used(union);
++        assert!(!exact.build().precision_lost());
++        assert!(!NarrowingConstraints::from_test_nodes(vec![]).precision_lost());
++    }
++
+     #[test]
+     fn boolean_operations_match_their_truth_tables() {
+         let mut constraints = NarrowingConstraintsBuilder::default();

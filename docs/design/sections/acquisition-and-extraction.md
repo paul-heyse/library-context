@@ -9,7 +9,7 @@ Both profiles run documents and deployment. Publication never selects a generati
 
 Current producers are `crates/cpg-extract/src/acquisition.rs`, `typed_syntax.rs`, `lexical.rs`,
 `symbol_records.rs`, `call_records.rs`, `type_records.rs`, `ty_flow.rs`, `document_parser.rs` and
-`deployment.rs`; `pyrefly_stage.rs` composes one Pyrefly/Ruff parse per input, and `cpg-flow`
+`deployment.rs`; `pyrefly_stage.rs` currently composes native Pyrefly facts per input, and `cpg-flow`
 provides transient native flow data over ty's separate parse. `cpg-core/src/facts.rs` owns stage
 composition, admission and publication; `crates/lctx/src/compile.rs` drives the cumulative frontier CLI.
 Focused receipts and qualification status are in the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md).
@@ -174,7 +174,7 @@ generation under the original read-only lease. `lctx compile` reports its unsele
 Failed/interrupted staging is inspected through generation metadata and compilation receipts,
 not a published-reader bypass. [Storage §6](storage-and-publication.md) owns admission and reset.
 
-> Decision: ADR-0046, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
+> Decision: ADR-0117, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
 
 
 ### §4.1 Stages
@@ -197,12 +197,19 @@ unresolved rows; no compatibility store is retained. Facts/Normalized/Analysis c
 remain explicit and compilation never selects a generation. [§15](semantic-model.md) owns the
 layer/declaration contract; [§11](synthesis-and-serving.md) owns serving.
 
-> Decision: ADR-0046, ADR-0086, ADR-0073
+> Decision: ADR-0117, ADR-0086, ADR-0073
 
 
 ### §4.2 Extraction
 
-> Decision: ADR-0046
+> Decision: ADR-0117
+
+**Accepted target, 2026-10-03:** latest independent Ruff owns canonical syntax/contextual
+semantics, Pyrefly supplies native typing/callable/member/public evidence, and ty supplies requested
+flow/index/timing observations. Narrow observational forks preserve upstream behavior. M0–M3
+in the [code-facts coordinator](../../plans/code-facts-expansion-plan_2026-10-03.md) own production
+adoption and acceptance. The pre-migration behavior below remains the current implementation
+until those packages integrate; its earlier receipts do not establish target acceptance.
 
 **Implemented** in `cpg-extract` and `cpg-flow`, and **Tested** by `crates/cpg-extract/tests` and
 `crates/cpg-flow/tests` (2026-09-22 onward), where each test names the claim it checks: the
@@ -227,8 +234,8 @@ everything below happens in one process.
 | markdown-rs over the corpus documents (`markdown-rs`) and our mention recognizer (`lctx-docs`) | `native_traversal`, `recognizer` | the `docs` family (§3.2) |
 | ty's semantic index through `cpg-flow` (`ty-flow`) | `native_traversal` | the `flow` family (§3.2) |
 
-**The flow provider** (ADR-0046, ADR-0045). `cpg-flow` links the ty/ruff 0.0.14 line, a declared
-extra dependency family confined to that crate (ADR-0090). It parses each release module a second
+**The flow provider** (ADR-0117, ADR-0045). `cpg-flow` links the ty/ruff 0.0.14 line, a declared
+extra dependency family confined to that crate (ADR-0118). It parses each release module a second
 time, from the text Pyrefly read with every `TYPE_CHECKING` name token renamed to a same-length
 sentinel, so no byte range moves. **Pyrefly's parse stays the parse of record:** every syntax id,
 span and fact outside the `flow` family comes from it, and flow facts join ours by module and
@@ -270,29 +277,27 @@ RF/F11).
 6. **Extract** per module, in sorted order (§4.2.2–§4.2.3). Then emit coverage (§3.7).
 
 
-### §4.2.2 Syntax: one walk over Pyrefly's parse
+### §4.2.2 Canonical syntax and provider correspondence
 
-- **Order.** Per module the Pysa collectors run, then the walk. Placement depends on the source
-  alone: every statement, clause and expression outside annotations is placed (`syntax_nodes`,
-  §3.2), and Pysa's sites are matched to those nodes in Stage C.
-- **One walk.** A single `SourceOrderVisitor` walks `Transaction::get_ast(handle)`, the unmodified
-  ruff parse Pyrefly analyzed, which is kept at `Require::Everything`. The text is
-  `get_module_info(handle)`'s contents. The only other parse is the flow provider's (§4.2).
-- **Built-ins used:** `SourceOrderVisitor` with `walk_annotation`, `Arguments::iter_source_order`,
-  `ArgOrKeyword` and `StringLiteralValue::to_str`.
-- **Ours:**
-  - the parameter list (the five lists in declaration order, which is source order) and the
-    docstring check (a first-statement string literal), a few lines each;
-  - the structural occurrence path (each ancestor's ruff `NodeKind` name and child ordinal).
-    Ruff's `node_index` is always unset, so it can't be used;
-  - the qualified-name stack;
-  - the `@overload` decorator match.
-- **Recovered and unreadable files.** A module whose acquired bytes fail our own UTF-8 check is
-  `unavailable` for every family; Pyrefly would load it as an empty module, which must not read as
-  "no API". Parse errors are read from Pyrefly's per-module errors (the `parse-error` kind). A
-  recovered tree still yields facts, but **every** family of that module is `partial`, with a
-  `boundaries` row, so recovery artefacts never read as complete.
+**Accepted target, 2026-10-03:** parse the captured snapshot with latest Ruff once, then reuse
+that parsed module for the canonical SourceOrderVisitor and populated Checker observer. The
+observer emits owned node/context/branch and final binding/reference/export rows after deferred
+passes. Work/row/cancellation/sink limits become explicit Partial coverage; initial parsing is
+an indivisible upstream call. String-annotation nodes retain their distinct origin.
 
+Pyrefly's retained embedded AST supplies native adapter queries. Owned correspondence checks
+snapshot/view, range, model node kind, role, context and uniqueness. Containers, formal declarations
+and native/synthetic slots have distinct identities. Varargs may be their own formal; missing
+or ambiguous attachment never uses a parent/name guess. Source traversal assigns structural
+paths independently of provider-local node indexes. Source defaults and typed defaults remain
+distinct observations. The ty runtime view is separately labelled even when byte ranges match.
+
+**Current implementation:** syntax still walks Pyrefly's retained AST until M2 adopts latest
+Ruff. Unreadable bytes remain unavailable and recovered syntax remains Partial; no recovered
+empty module certifies absence. Producer→first-operation→output fixture controls qualify the
+new source contract; a fork compile alone does not.
+
+> Decision: ADR-0117
 
 ### §4.2.3 Semantics: Pyrefly's own collectors
 
@@ -373,7 +378,9 @@ RF/F11).
   branches it decides statically (`TYPE_CHECKING`, `sys.version_info`), so a rebinding there is
   invisible.
 
-**Deferred:** Ruff's full semantic model, which nothing public drives ([§13](../DESIGN.md#section-13)).
+**Accepted target, 2026-10-03:** native populated Ruff contextual observations supplement this
+source-history recognizer; lexical resolution/screening does not itself establish runtime execution.
+M2 owns adoption; a bespoke port of Ruff's semantic model remains deferred.
 
 
 ### §4.2.5 Failure, determinism and the parity oracle
@@ -383,7 +390,7 @@ RF/F11).
   (§6.1). There is no `catch_unwind`: Pyrefly treats its state as unsupported after any panic (a
   poisoned lock, unpublished cycle answers), so continuing with the next module is unsafe.
   - Load and parse errors are not panics; they still become coverage rows (§4.2.2). Per-module
-    isolation would need ADR-0046's rejected sidecar-process alternative.
+    isolation would need ADR-0117's rejected sidecar-process alternative.
 - **Determinism oracle.** Reruns, reversed module order, separate processes and perturbed ambient
   variables give byte-identical sorted tables (**Tested**, 2026-09-22).
 - **Harness-equivalence oracle.** A test runs the pinned Pyrefly CLI (the `uv` dev group, same
@@ -398,22 +405,21 @@ RF/F11).
   production input.
 
 
-### §4.2.6 Upgrading Pyrefly
+### §4.2.6 Upgrading the analyzer families
 
-1. Rebase the fork commit onto the new tag and regenerate `third_party/pyrefly-<ver>.patch`.
-   - A **logic change** is anything beyond visibility changes, accessors that borrow or compose
-     existing upstream queries, and fields whose default reproduces upstream behaviour.
-   - A patch that needs a logic change, or grows past about 60 changed lines, needs an ADR
-     (ADR-0046's revisit trigger).
-2. `just deps` checks that `Cargo.lock`, the driver's `PYREFLY_REV`/`PYREFLY_PATCH_SHA256` and
-   `docs/pins.md` name one revision, that it is the tag plus the patch, and that every `env::var`
-   read in the pinned source is classified against the refused list (§4.2.1).
-3. Move the ruff pin to the line the new Pyrefly compiles against (`pin-check`).
-4. Fix compile errors in the mappers, and append codebook values where exhaustive matches demand
-   them. Record how many lines the Pyrefly-facing module changed, because port cost is also a
-   revisit trigger.
-5. Run the harness-equivalence and determinism oracles, and record the pin with its date in
-   `docs/pins.md`.
+1. Read exact upstream/tag manifests and the pinned python-analyzers source contracts. Independently
+   choose latest Ruff/ty and Pyrefly's embedded adapter line; one never imposes a ceiling on the other.
+2. Rebase one aggregate fork patch per provider, preserving ordinary upstream semantic behavior.
+   Inspect changed native queries/callback phase and record patch size, immutable revision/digest,
+   environment reads and paired parity. New inference/lint algorithms require another decision.
+3. Move exact manifests/lock and CLI pins using pin-check. Check nominal Cargo source as well as
+   version, scoped family reachability and feature isolation; remove unused older family consumers.
+4. Migrate owned adapters and append model codes as needed. Source/role attachment failures remain
+   explicit, never casts, string parsing or silent old-pin fallback.
+5. Run focused native/current adapter parity and deterministic fixtures, then the scope-end full
+   functional and hygiene gates. Record dated pins/limits in docs/pins and the coordinator.
+
+> Decision: ADR-0117, ADR-0118
 
 
 ### §4.3 Fact construction and persistence

@@ -78,7 +78,7 @@ real-provider fixtures, served round trips) are kept separate from derived valid
 `ORDER BY`; every `row_number()` ends in a unique tie-break; every cast in validation code uses
 `safe: false`.
 
-> Decision: ADR-0086, ADR-0046, ADR-0015
+> Decision: ADR-0086, ADR-0117, ADR-0015
 
 ### §8.1 Independent oracles (the validation lane)
 
@@ -162,4 +162,4 @@ failures to those slots, an ADR may add a local compile-time generation model un
 grounding. That research evaluation is no first-product prerequisite; no generative pipeline or
 query-path feature is selected by ADR-0071.
 
-> Decision: ADR-0071, ADR-0046, ADR-0020
+> Decision: ADR-0071, ADR-0117, ADR-0020

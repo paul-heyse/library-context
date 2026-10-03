@@ -14,7 +14,8 @@ workspace-members = [
   "cpg-flow", "cpg-core", "cpg-extract", "lctx-analytics", "lctx-embed",
   "lctx-model", "lctx-model-macros", "lctx-postgres", "lctx-semantics", "lctx-storage",
 ]
-# Keep the second Ruff family reachable only through cpg-flow (ADR-0022).
+# ADR-0118: keep the embedded registry family inside the Pyrefly adapter.
+# Latest Ruff/ty share their exact git source; never unify features across family identities.
 third-party = [
   { name = "ruff_source_file", version = "=0.0.14" },
   { name = "ruff_text_size", version = "=0.0.14" },

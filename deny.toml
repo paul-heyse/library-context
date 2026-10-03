@@ -6,7 +6,7 @@
 # it (0.20.2 does catch dev-only duplicates with `multiple-versions-include-dev`,
 # corrected 2026-09-23 by the library-leverage review), but only for crates it is
 # told by name: the family is 78 crates today, and an upgrade adds sub-crates a
-# name list would miss. The script's patterns cover them (ADR-0090).
+# name list would miss. The script's patterns cover them (ADR-0118).
 
 [graph]
 all-features = false
@@ -24,9 +24,9 @@ unknown-git = "deny"
 allow-git = [
     # Owned DF55 provider and bounded pool patch (ADR-0068).
     "https://github.com/paul-heyse/datafusion-table-providers",
-    # Pyrefly fork (ADR-0012) and the lsp-types fork Pyrefly depends on.
+    # Native analyzer forks (ADR-0117/0118).
     "https://github.com/paul-heyse/pyrefly",
-    "https://github.com/yangdanny97/lsp-types",
+    "https://github.com/paul-heyse/ruff",
 ]
 
 [licenses]

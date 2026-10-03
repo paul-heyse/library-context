@@ -82,7 +82,7 @@ C1–C12 consumers enter this series. A catalogue entry is not an instruction to
 
 ## 4. Execution dependencies and ownership
 
-All packages below start **open**. Companion documents describe delivery, not a second status list.
+Package status and dated scoped receipts are in §7; unlisted packages remain **open**. Companion documents describe delivery, not a second status list.
 Prerequisites denote working, tested contract slices, not merely agreed type sketches.
 
 | Package | Working prerequisite | Delivered boundary / implementation responsibility |
@@ -227,7 +227,22 @@ absence does not block fixture/test/hygiene completion and cannot support a Meas
 
 ## 7. Current checkpoint and next action
 
-Plan authoring is complete; production work is **not started** by this document. All package
-acceptance commands and real-library follow-up are **not_run**. The next implementation action
-is M0 plus N0/P0, while B0 prepares the assumption contract and N4a/P2a repair independent defects.
-Authoring publication outcome is recorded in STATUS; it is separate from production acceptance.
+Execution is in progress, 2026-10-03. M0 fork seams are implemented and passed their isolated
+native controls; workspace migration/consumers remain open. ADR-0117/0118 accept independent
+canonical Ruff and scoped nominal source families; acceptance does not establish M1/M2 closure.
+
+| Package / command, 2026-10-03 | Outcome and boundary |
+|---|---|
+| N0/P0: `cargo check --release -p lctx-model --quiet` | **passed**; shared model-owned container→formal→native-slot attachment; analytic parameter/type/receiver joins use it |
+| N0/P0: `cargo nextest run --release -p lctx-model --test parameter_correspondence --test domain_selection --test serving_contracts` | **passed**, 32 controls including all five source parameter kinds, same-range distinct containers, descriptor/context/owner controls, missing/ambiguous/cross-source refusal |
+| P0: `cargo nextest run --release -p cpg-core --test analytic -E 'test(selected_algorithms_publish_actual_nominal_results) or test(selected_vector_failures_remain_visible)'` | **passed**, two actual disposable-PG analytic journeys; eight value parameters, defaulted flag, typed incidences and exactly six release-class type-layer pairs per frame |
+| P2a same model/wire controls | **passed**; shared predicate validation refuses unsupported facets before classification/request admission. First wire test failed because search_capabilities has no selection input; corrected to compare_operations, named rerun passed. Python adapter control is added, **not_run** until current native refresh/Q0 |
+| M0 Pyrefly isolated release native session + paired unmodified-tag parity | **passed**; normal/exceptional exit, per-route applicability/async status, terminal guard controls, invalid locations, no residual Type::Var and identical native traces/hover/diagnostics; current-tree consumer acceptance **not_run** |
+| M0 Ruff isolated release harness, no-observer lint parity, ty narrowing controls | **passed**, eight owned-observer controls, one lint parity and six precision/algebra controls; canonical parsed reuse and explicit-src configuration; current-tree consumers **not_run** |
+
+Fork sources/receipts are retained under `/home/paul/.cache/lctx-code-facts/`. Immutable Pyrefly
+revision `72bb34d6d67c2bc14720c77e2ad7eff6b89d360f` has parent `80cec3f57364bc11d4a39a419f6894a8eabcaa00`;
+Ruff revision `8f01d80020921d3867f255ee5f919dd2d329b730` has parent `3265ed1f944c98bb4c04d632fbefb1257cdb583d`.
+These are provider seam receipts, not full-series acceptance. N4a is in an isolated executor
+worktree; B0 and production migration follow. All other functional packages and Q0/full hygiene
+are **not_run**. Real-library reconstruction/activation remain separately authorized follow-up.

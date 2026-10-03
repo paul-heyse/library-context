@@ -1,6 +1,6 @@
 """Fail if a pinned-family crate resolves to more than one version in a lockfile.
 
-The pinned family is DESIGN §7 / ADR-0090. Two Arrows (or DataFusions) in one
+The pinned family is DESIGN §7 / ADR-0118. Two Arrows (or DataFusions) in one
 dependency graph compile, but their types are incompatible at every boundary,
 which is the failure Initial_plan §7.4 warns about. This reads Cargo.lock
 directly so dev-dependencies count too.
@@ -18,72 +18,94 @@ from pathlib import Path
 
 FAMILY = re.compile(
     r"^(arrow(-.+)?|parquet|datafusion(-.+)?|object_store|petgraph"
-    # Analyzers (ADR-0012): two ruff versions would split the AST types Pyrefly shares.
+    # Nominal analyzer families are declared below; no native AST crosses their boundary.
     r"|ruff_.+|pyrefly(_.+)?|tsp_types|blake3"
-    # The flow provider's line (ADR-0022, ADR-0012 amendment).
+    # The flow provider and its exact salsa family.
     r"|ty_.+|salsa(-.+)?)$"
 )
 
-# Declared extra families (ADR-0090, restating the 2026-09-24 ADR-0002 amendment):
-# a second version of a family crate is
-# allowed only in the declared scope. Each entry: the crates it covers (a pattern), the one extra
-# version, the exact versions its own dependencies must hold, and the only packages that may depend
-# on it from outside the family itself.
+# ADR-0118: exact nominal sources, not just equal crate version strings.
+REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+RUFF_REVISION = "8f01d80020921d3867f255ee5f919dd2d329b730"
+RUFF_SOURCE = f"git+https://github.com/paul-heyse/ruff?rev={RUFF_REVISION}#{RUFF_REVISION}"
 EXTRA_FAMILIES = [
     {
-        "name": "the flow provider (ty_python_core 0.0.14; ADR-0022, ADR-0012 amendment)",
+        "name": "latest independent Ruff/ty",
         "crates": re.compile(r"^(ruff_.+|ty_.+)$"),
+        "version": "0.0.16",
+        "versions": {"ruff_linter": "0.16.10"},
+        "source": RUFF_SOURCE,
+        "pinned": {"salsa": "0.28.5", "salsa-macros": "0.28.5", "salsa-macro-rules": "0.28.5"},
+        "dependents": {"cpg-extract", "cpg-flow"},
+    },
+    {
+        "name": "Pyrefly embedded Ruff",
+        "crates": re.compile(r"^ruff_.+$"),
         "version": "0.0.14",
-        # 0.28.3 and 0.28.4 break ruff 0.0.14 in a patch release.
-        "pinned": {"salsa": "0.28.2", "salsa-macros": "0.28.2", "salsa-macro-rules": "0.28.2"},
-        "dependents": {"cpg-flow"},
+        "versions": {},
+        "source": REGISTRY,
+        "pinned": {},
+        "dependents": {"cpg-extract"},
     },
 ]
 
 
-def _extra(name: str, version: str) -> dict | None:
+def _extra(name: str, version: str, source: str | None) -> dict | None:
     for extra in EXTRA_FAMILIES:
-        if extra["crates"].match(name) and version == extra["version"]:
+        expected = extra["versions"].get(name, extra["version"])
+        if extra["crates"].match(name) and version == expected and source == extra["source"]:
             return extra
     return None
 
 
 def duplicates(lockfile: Path) -> dict[str, list[str]]:
     packages = tomllib.loads(lockfile.read_text())["package"]
-    versions: dict[str, set[str]] = defaultdict(set)
+    identities: dict[str, set[tuple[str, str | None]]] = defaultdict(set)
     for pkg in packages:
-        if FAMILY.match(pkg["name"]) and _extra(pkg["name"], pkg["version"]) is None:
-            versions[pkg["name"]].add(pkg["version"])
-    return {name: sorted(v) for name, v in versions.items() if len(v) > 1}
+        if FAMILY.match(pkg["name"]) and _extra(pkg["name"], pkg["version"], pkg.get("source")) is None:
+            identities[pkg["name"]].add((pkg["version"], pkg.get("source")))
+    result = {}
+    for name, values in identities.items():
+        if len(values) > 1:
+            versions = {v for v, _ in values}
+            result[name] = sorted(versions) if len(versions) == len(values) else sorted(f"{v} ({source or 'workspace'})" for v, source in values)
+    return result
+
+
+def _dependency(dep: str, packages: list[dict]) -> list[dict]:
+    parts = dep.split(" ", 2)
+    name = parts[0]
+    version = parts[1] if len(parts) > 1 else None
+    source = parts[2].removeprefix("(").removesuffix(")") if len(parts) > 2 else None
+    return [p for p in packages if p["name"] == name and (version is None or p["version"] == version) and (source is None or p.get("source") == source)]
 
 
 def extra_scope(lockfile: Path) -> list[str]:
-    """A declared extra family's crates reached only from its declared dependents, and its pins."""
+    """Check source identity, unique dependency resolution, family edges and salsa pins."""
     packages = tomllib.loads(lockfile.read_text())["package"]
+    problems = []
     have = defaultdict(set)
     for pkg in packages:
         have[pkg["name"]].add(pkg["version"])
-    problems = []
-    for extra in EXTRA_FAMILIES:
-        for name, version in extra["pinned"].items():
-            if name in have and have[name] != {version}:
-                found = ", ".join(sorted(have[name]))
-                problems.append(
-                    f"{name} resolves to {found}; {extra['name']} needs exactly {version}"
-                )
-        for pkg in packages:
-            for dep in pkg.get("dependencies", []):
-                parts = dep.split(" ")
-                dep_name = parts[0]
-                versions = [parts[1]] if len(parts) > 1 else sorted(have[dep_name])
-                if not any(_extra(dep_name, v) is extra for v in versions):
-                    continue
-                inside = _extra(pkg["name"], pkg["version"]) is extra
-                if not inside and pkg["name"] not in extra["dependents"]:
-                    problems.append(
-                        f"{pkg['name']} {pkg['version']} depends on {dep_name} "
-                        f"{extra['version']}, outside {extra['name']}"
-                    )
+        if re.match(r"^(ruff_.+|ty_.+)$", pkg["name"]) and _extra(pkg["name"], pkg["version"], pkg.get("source")) is None:
+            problems.append(f"{pkg['name']} {pkg['version']} has undeclared analyzer source {pkg.get('source')!r}")
+    for name, version in EXTRA_FAMILIES[0]["pinned"].items():
+        if name in have and have[name] != {version}:
+            problems.append(f"{name} resolves to {', '.join(sorted(have[name]))}; latest independent Ruff/ty needs exactly {version}")
+    for pkg in packages:
+        parent = _extra(pkg["name"], pkg["version"], pkg.get("source"))
+        for dep in pkg.get("dependencies", []):
+            candidates = _dependency(dep, packages)
+            if len(candidates) != 1:
+                problems.append(f"{pkg['name']} {pkg['version']} has {'ambiguous' if candidates else 'unresolved'} dependency {dep}")
+                continue
+            child = candidates[0]
+            family = _extra(child["name"], child["version"], child.get("source"))
+            if family is None:
+                continue
+            pyrefly = family["name"] == "Pyrefly embedded Ruff" and re.fullmatch(r"pyrefly(_.+)?", pkg["name"])
+            if parent is not family and pkg["name"] not in family["dependents"] and not pyrefly:
+                problems.append(f"{pkg['name']} {pkg['version']} depends on {dep}, outside {family['name']}")
     return problems
 
 

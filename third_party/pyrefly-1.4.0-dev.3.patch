@@ -1,0 +1,546 @@
+From 72bb34d6d67c2bc14720c77e2ad7eff6b89d360f Mon Sep 17 00:00:00 2001
+From: paul-heyse <paul@heyse.io>
+Date: Sat, 3 Oct 2026 07:47:24 -0400
+Subject: [PATCH] lctx: expose collectors and located native exit and terminal
+ observations
+
+Rebase the minimal embedding visibility patch on 1.4.0-dev.3, retire obsolete annotation exposure, and add query-scoped owned normal/error exit and qualified terminal observations. Native reachability, hover traces and diagnostics remain unchanged.
+
+Tested 2026-10-03: pinned-nightly release State/Transaction/Answers harness passed 6 exit and 6 terminal controls, invalid-location and unforced-variable controls, before/after query parity, and byte-identical unmodified-tag inference/hover/diagnostic parity. No product qualification run.
+---
+ pyrefly/lib/alt.rs                       |   1 +
+ pyrefly/lib/alt/class/class_field.rs     |   2 +-
+ pyrefly/lib/alt/observations.rs          |  77 +++++++++++++
+ pyrefly/lib/alt/solve.rs                 | 135 +++++++++++++++++++++--
+ pyrefly/lib/commands/coverage.rs         |   2 +-
+ pyrefly/lib/commands/coverage/collect.rs |  10 +-
+ pyrefly/lib/error/collector.rs           |   9 ++
+ pyrefly/lib/lib.rs                       |   4 +-
+ pyrefly/lib/report/pysa.rs               |   6 +
+ pyrefly/lib/report/pysa/call_graph.rs    |   4 +-
+ pyrefly/lib/state/state.rs               |  41 ++++++-
+ 11 files changed, 267 insertions(+), 24 deletions(-)
+ create mode 100644 pyrefly/lib/alt/observations.rs
+
+diff --git a/pyrefly/lib/alt.rs b/pyrefly/lib/alt.rs
+index de6387444..3d92e161b 100644
+--- a/pyrefly/lib/alt.rs
++++ b/pyrefly/lib/alt.rs
+@@ -21,6 +21,7 @@ pub mod map_int_tuples;
+ pub mod narrow;
+ pub mod nn_module_specials;
+ pub mod operators;
++pub mod observations;
+ pub mod overload;
+ pub mod polars_specials;
+ pub mod regex;
+diff --git a/pyrefly/lib/alt/class/class_field.rs b/pyrefly/lib/alt/class/class_field.rs
+index 1e95411c5..d1936cb9d 100644
+--- a/pyrefly/lib/alt/class/class_field.rs
++++ b/pyrefly/lib/alt/class/class_field.rs
+@@ -1188,7 +1188,7 @@ impl ClassField {
+         }
+     }
+ 
+-    fn dataclass_flags_of(&self, heap: &TypeHeap) -> DataclassFieldKeywords {
++    pub fn dataclass_flags_of(&self, heap: &TypeHeap) -> DataclassFieldKeywords {
+         match &self.0 {
+             ClassFieldInner::Property { .. } => DataclassFieldKeywords::new(),
+             ClassFieldInner::Descriptor { descriptor, .. } => match &descriptor.initialization {
+diff --git a/pyrefly/lib/alt/observations.rs b/pyrefly/lib/alt/observations.rs
+new file mode 100644
+index 000000000..820cab09c
+--- /dev/null
++++ b/pyrefly/lib/alt/observations.rs
+@@ -0,0 +1,77 @@
++/*
++ * Copyright (c) Meta Platforms, Inc. and affiliates.
++ * This source code is licensed under the MIT license found in the LICENSE file.
++ */
++
++//! Query-scoped native observations. Types must be encoded with the live transaction;
++//! these records are not runtime suppression or termination policies.
++use pyrefly_config::error_kind::ErrorKind;
++use pyrefly_types::types::Type;
++use ruff_python_ast::name::Name;
++use ruff_text_size::TextRange;
++use crate::binding::binding::IsAsync;
++
++#[derive(Debug, Clone)]
++pub struct NativeDiagnostic {
++    pub range: TextRange,
++    pub kind: ErrorKind,
++    pub message: String,
++    pub details: Option<String>,
++}
++
++/// A diagnostic-free check is not proof of runtime applicability, especially for Any.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum NativeCallStatus { NoHardDiagnostics, HardDiagnostics }
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum ContextExitAwaitStatus { Synchronous, Awaitable, NotAwaitable }
++
++#[derive(Debug, Clone)]
++pub struct ContextExitCallObservation {
++    pub result: Type,
++    pub status: NativeCallStatus,
++    pub awaitability: ContextExitAwaitStatus,
++    pub diagnostics: Vec<NativeDiagnostic>,
++}
++
++#[derive(Debug, Clone)]
++pub struct ContextExitObservation {
++    pub range: TextRange,
++    pub kind: IsAsync,
++    pub receiver: Type,
++    pub member_name: Name,
++    pub member: Type,
++    pub member_diagnostics: Vec<NativeDiagnostic>,
++    pub normal: ContextExitCallObservation,
++    pub exceptional: ContextExitCallObservation,
++    /// Awaitability errors are emitted outside the argument collectors by the native solver.
++    pub await_diagnostics: Vec<NativeDiagnostic>,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum TerminalCallDecision {
++    DeclaredOrInferredDivergence,
++    NarrowedNeverCallee,
++    InferredMethodReturn,
++    NotImplementedBody,
++    NonDivergentCallable,
++    NoNativeCallableSignature,
++}
++
++#[derive(Debug, Clone)]
++pub struct TerminalCallObservation {
++    pub range: TextRange,
++    pub callee: Type,
++    /// The signature exposed by native `to_callable`; None does not prove non-callability.
++    pub return_type: Option<Type>,
++    /// None means the resolved callee has no top-level function metadata.
++    pub return_is_inferred: Option<bool>,
++    pub is_bound_method: bool,
++    pub decision: TerminalCallDecision,
++}
++
++impl TerminalCallObservation {
++    pub fn is_diverging(&self) -> bool {
++        self.decision == TerminalCallDecision::DeclaredOrInferredDivergence
++    }
++}
+diff --git a/pyrefly/lib/alt/solve.rs b/pyrefly/lib/alt/solve.rs
+index 9f64166a1..ece3b7454 100644
+--- a/pyrefly/lib/alt/solve.rs
++++ b/pyrefly/lib/alt/solve.rs
+@@ -1825,9 +1825,22 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+         errors: &ErrorCollector,
+         context: Option<&dyn Fn() -> ErrorContext>,
+     ) -> ContextExit {
++        self.context_value_exit_observed(context_manager_type, kind, range, errors, context, None)
++    }
++
++    fn context_value_exit_observed(
++        &self,
++        context_manager_type: &Type,
++        kind: IsAsync,
++        range: TextRange,
++        errors: &ErrorCollector,
++        context: Option<&dyn Fn() -> ErrorContext>,
++        observer: Option<&mut dyn FnMut(&Type, &ErrorCollector, crate::alt::observations::ContextExitAwaitStatus, &Type, &ErrorCollector, crate::alt::observations::ContextExitAwaitStatus)>,
++    ) -> ContextExit {
++        use crate::alt::observations::ContextExitAwaitStatus;
+         // Call `__exit__` or `__aexit__` and unwrap the results if async, swallowing any errors from the call itself
+         let call_exit = |exit_arg_types, swallow_errors| match kind {
+-            IsAsync::Sync => self.call_method_or_error(
++            IsAsync::Sync => (self.call_method_or_error(
+                 context_manager_type,
+                 &kind.context_exit_dunder(),
+                 range,
+@@ -1835,7 +1848,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                 &[],
+                 swallow_errors,
+                 context,
+-            ),
++            ), ContextExitAwaitStatus::Synchronous),
+             IsAsync::Async => match self.unwrap_awaitable(&self.call_method_or_error(
+                 context_manager_type,
+                 &kind.context_exit_dunder(),
+@@ -1845,15 +1858,15 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                 swallow_errors,
+                 context,
+             )) {
+-                Some(ty) => ty,
++                Some(ty) => (ty, ContextExitAwaitStatus::Awaitable),
+                 // We emit this error directly, since it's different from type checking the arguments
+-                None => self.error_with_context(
++                None => (self.error_with_context(
+                     errors,
+                     range,
+                     ErrorKind::NotAsync,
+                     format!("Expected `{}` to be async", dunder::AEXIT),
+                     context,
+-                ),
++                ), ContextExitAwaitStatus::NotAwaitable),
+             },
+         };
+         let base_exception_class_type = self.heap.mk_type_of(
+@@ -1881,8 +1894,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+         let exit_with_error_errors =
+             ErrorCollector::new(errors.module().clone(), ErrorStyle::Delayed);
+         let exit_with_ok_errors = ErrorCollector::new(errors.module().clone(), ErrorStyle::Delayed);
+-        let error_args_result = call_exit(&exit_with_error_args, &exit_with_error_errors);
+-        let ok_args_result = call_exit(&exit_ok_args, &exit_with_ok_errors);
++        let (error_args_result, error_awaitability) = call_exit(&exit_with_error_args, &exit_with_error_errors);
++        let (ok_args_result, ok_awaitability) = call_exit(&exit_ok_args, &exit_with_ok_errors);
++        if let Some(observer) = observer {
++            observer(&error_args_result, &exit_with_error_errors, error_awaitability, &ok_args_result, &exit_with_ok_errors, ok_awaitability);
++        }
+         // If the call only has one error we can directly forward it
+         // If there is more than one error, we emit a generic error instead of emitting one error for each mismatched argument
+         if exit_with_error_errors.len() <= 1 {
+@@ -1916,6 +1932,57 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+         }
+     }
+ 
++    pub(crate) fn observe_context_exit(
++        &self,
++        range: TextRange,
++        kind: IsAsync,
++    ) -> Option<crate::alt::observations::ContextExitObservation> {
++        use crate::alt::observations::{ContextExitAwaitStatus, ContextExitCallObservation, ContextExitObservation, NativeCallStatus};
++        let context_idx = self.bindings().keys::<Key>().find_map(|idx| {
++            match self.bindings().get(idx) {
++                Binding::ContextValue(_, context_idx, context_range, context_kind)
++                    if *context_range == range && *context_kind == kind => Some(*context_idx),
++                _ => None,
++            }
++        })?;
++        self.without_tracing(|| {
++            let mut receiver = self.get_idx(context_idx).ty().clone();
++            self.current().solver().force_mut(&mut receiver);
++            let member_errors = ErrorCollector::new(self.module().clone(), ErrorStyle::Delayed);
++            let member_name = kind.context_exit_dunder();
++            let mut member = self.attr_infer_for_type(&receiver, &member_name, range, &member_errors, None);
++            self.current().solver().force_mut(&mut member);
++            let await_errors = ErrorCollector::new(self.module().clone(), ErrorStyle::Delayed);
++            let mut calls = None;
++            self.context_value_exit_observed(&receiver, kind, range, &await_errors, None, Some(&mut |exceptional, exceptional_errors, exceptional_awaitability, normal, normal_errors, normal_awaitability| {
++                let make = |ty: &Type, errors: &ErrorCollector, awaitability| {
++                    let mut result = ty.clone();
++                    self.current().solver().force_mut(&mut result);
++                    let mut diagnostics = errors.native_observation_diagnostics();
++                    if awaitability == ContextExitAwaitStatus::NotAwaitable {
++                        diagnostics.extend(await_errors.native_observation_diagnostics().into_iter().filter(|d| d.kind == ErrorKind::NotAsync));
++                    }
++                    ContextExitCallObservation {
++                        result, awaitability,
++                        status: if errors.has_hard() || awaitability == ContextExitAwaitStatus::NotAwaitable { NativeCallStatus::HardDiagnostics } else { NativeCallStatus::NoHardDiagnostics },
++                        diagnostics,
++                    }
++                };
++                calls = Some((make(exceptional, exceptional_errors, exceptional_awaitability), make(normal, normal_errors, normal_awaitability)));
++            }));
++            let (exceptional, normal) = calls?;
++            // Remove argument diagnostics already represented before collapse. The remaining
++            // native NotAsync diagnostics belong to awaitability, not argument applicability.
++            let await_diagnostics = await_errors.native_observation_diagnostics().into_iter()
++                .filter(|diagnostic| diagnostic.kind == ErrorKind::NotAsync).collect();
++            Some(ContextExitObservation {
++                range, kind, receiver, member_name, member,
++                member_diagnostics: member_errors.native_observation_diagnostics(),
++                normal, exceptional, await_diagnostics,
++            })
++        })
++    }
++
+     fn context_value(
+         &self,
+         context_manager_type: &Type,
+@@ -4390,11 +4457,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+         //   inconsistent override, so it stays trusted.
+         // - `raise NotImplementedError`, the abstract placeholder, which describes unimplemented
+         //   code rather than code that genuinely diverges.
+-        let callee_is_a_method = matches!(callee, Type::BoundMethod(_));
+-        if callee.toplevel_func_metadata().is_some_and(|meta| {
+-            meta.flags.body_kind == BodyKind::RaiseNotImplementedError
+-                || (callee_is_a_method && meta.flags.is_return_inferred)
+-        }) {
++        if Self::terminal_call_exclusion(&callee).is_some() {
+             return false;
+         }
+         callee
+@@ -4402,6 +4465,54 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+             .is_some_and(|callable| callable.ret.is_never())
+     }
+ 
++    fn terminal_call_exclusion(callee: &Type) -> Option<crate::alt::observations::TerminalCallDecision> {
++        use crate::alt::observations::TerminalCallDecision;
++        let metadata = callee.toplevel_func_metadata()?;
++        if metadata.flags.body_kind == BodyKind::RaiseNotImplementedError {
++            Some(TerminalCallDecision::NotImplementedBody)
++        } else if matches!(callee, Type::BoundMethod(_)) && metadata.flags.is_return_inferred {
++            Some(TerminalCallDecision::InferredMethodReturn)
++        } else {
++            None
++        }
++    }
++
++    pub(crate) fn observe_terminal_call(
++        &self,
++        result: Idx<Key>,
++    ) -> Option<crate::alt::observations::TerminalCallObservation> {
++        use crate::alt::observations::{TerminalCallDecision, TerminalCallObservation};
++        let Binding::StmtExpr(expr, _) = self.bindings().get(result) else { return None };
++        let Expr::Call(call) = &**expr else { return None };
++        // Keep reachability inference out of hover and overload traces, as upstream does.
++        let callee = self.without_tracing(|| self.expr_infer(&call.func, &self.error_swallower()));
++        let is_bound_method = matches!(callee, Type::BoundMethod(_));
++        let metadata = callee.toplevel_func_metadata();
++        let return_is_inferred = metadata.map(|meta| meta.flags.is_return_inferred);
++        let return_type = callee.clone().to_callable().map(|callable| callable.ret);
++        let decision = if let Some(exclusion) = Self::terminal_call_exclusion(&callee) {
++            exclusion
++        } else if return_type.as_ref().is_some_and(Type::is_never) {
++            TerminalCallDecision::DeclaredOrInferredDivergence
++        } else if callee.is_never() {
++            TerminalCallDecision::NarrowedNeverCallee
++        } else if return_type.is_some() {
++            TerminalCallDecision::NonDivergentCallable
++        } else {
++            TerminalCallDecision::NoNativeCallableSignature
++        };
++        let mut observation = TerminalCallObservation {
++            range: call.range(), callee, return_type, return_is_inferred, is_bound_method, decision,
++        };
++        // Decide using exactly the native checks above, then force owned copies while the
++        // answer context is live. Quantified identities remain structural, not inference vars.
++        self.current().solver().force_mut(&mut observation.callee);
++        if let Some(return_type) = &mut observation.return_type {
++            self.current().solver().force_mut(return_type);
++        }
++        Some(observation)
++    }
++
+     /// Whether every path ending in one of these expressions diverges, so control never gets
+     /// past them. `Binding::ReturnImplicit` asks this of a whole function body, and a
+     /// `GateCondition::SomePathReturns` asks it of a single compound statement. They want
+diff --git a/pyrefly/lib/commands/coverage.rs b/pyrefly/lib/commands/coverage.rs
+index 8bbc3b42c..bd324f8af 100644
+--- a/pyrefly/lib/commands/coverage.rs
++++ b/pyrefly/lib/commands/coverage.rs
+@@ -6,7 +6,7 @@
+  */
+ 
+ mod check;
+-mod collect;
++pub mod collect;
+ pub(crate) mod report;
+ mod types;
+ 
+diff --git a/pyrefly/lib/commands/coverage/collect.rs b/pyrefly/lib/commands/coverage/collect.rs
+index 80c8c4a4f..85db60683 100644
+--- a/pyrefly/lib/commands/coverage/collect.rs
++++ b/pyrefly/lib/commands/coverage/collect.rs
+@@ -251,12 +251,12 @@ fn classify_annotation(
+ 
+ /// Returns true if the name is public: does not start with `_`, or is a dunder (`__x__`).
+ /// Matches typestats `is_public_name`.
+-fn is_public_name(name: &str) -> bool {
++pub fn is_public_name(name: &str) -> bool {
+     !name.starts_with('_') || name.ends_with("__")
+ }
+ 
+ /// A module is public when every dotted-path component is public.
+-fn is_public_module(module: ModuleName) -> bool {
++pub fn is_public_module(module: ModuleName) -> bool {
+     module.as_str().split('.').all(is_public_name)
+ }
+ 
+@@ -279,7 +279,7 @@ fn is_public_fqn(fqn: &str, module_prefix: &str, public_fqns: &HashSet<String>)
+ }
+ 
+ /// Module-level dunders that typestats always excludes from the report.
+-const EXCLUDED_MODULE_DUNDERS: &[&str] = &[
++pub const EXCLUDED_MODULE_DUNDERS: &[&str] = &[
+     // User-level module hooks.
+     "__all__",
+     "__dir__",
+@@ -301,7 +301,7 @@ const EXCLUDED_MODULE_DUNDERS: &[&str] = &[
+ ];
+ 
+ /// Walk re-exports to the defining module's handle and name, `None` on cycle/miss.
+-fn trace_export_origin(
++pub fn trace_export_origin(
+     handle: &Handle,
+     mut cur_name: Name,
+     transaction: &Transaction,
+@@ -333,7 +333,7 @@ fn trace_export_origin(
+ 
+ /// Collect origin FQNs of all publicly exported names across public modules, plus the deduped
+ /// handles of cross-module re-export origins.
+-fn compute_public_fqns(
++pub fn compute_public_fqns(
+     handles: &[Handle],
+     transaction: &Transaction,
+ ) -> (HashSet<String>, SmallSet<Handle>) {
+diff --git a/pyrefly/lib/error/collector.rs b/pyrefly/lib/error/collector.rs
+index 2f59fe3ba..8cb066f5b 100644
+--- a/pyrefly/lib/error/collector.rs
++++ b/pyrefly/lib/error/collector.rs
+@@ -223,6 +223,15 @@ impl ErrorCollector {
+ 
+     /// Count of errors excluding soft diagnostics (which should not
+     /// influence overload selection or type-inference decisions).
++    pub(crate) fn native_observation_diagnostics(&self) -> Vec<crate::alt::observations::NativeDiagnostic> {
++        self.errors.lock().iter().map(|error| crate::alt::observations::NativeDiagnostic {
++            range: error.range(),
++            kind: error.error_kind(),
++            message: error.msg_header().to_owned(),
++            details: error.msg_details().map(str::to_owned),
++        }).collect()
++    }
++
+     pub fn len_hard(&self) -> usize {
+         self.errors.lock().len_hard()
+     }
+diff --git a/pyrefly/lib/lib.rs b/pyrefly/lib/lib.rs
+index b40693e20..cd72dcab9 100644
+--- a/pyrefly/lib/lib.rs
++++ b/pyrefly/lib/lib.rs
+@@ -34,7 +34,7 @@ mod compat;
+ #[doc(hidden)]
+ pub mod embed;
+ mod error;
+-mod export;
++pub mod export;
+ #[doc(hidden)]
+ pub mod lsp;
+ mod memory_project;
+@@ -42,7 +42,7 @@ mod memory_project;
+ pub mod module;
+ pub mod playground;
+ pub mod query;
+-mod report;
++pub mod report;
+ // Re-export the generated Cap'n Proto module at crate root, because the generated
+ // code references types via `crate::pysa_report_capnp::...`.
+ #[allow(clippy::all)]
+diff --git a/pyrefly/lib/report/pysa.rs b/pyrefly/lib/report/pysa.rs
+index 7cbd586ff..8018d0173 100644
+--- a/pyrefly/lib/report/pysa.rs
++++ b/pyrefly/lib/report/pysa.rs
+@@ -220,6 +220,8 @@ pub struct PysaReporter {
+     pub type_of_expressions_directory: PathBuf,
+     pub call_graphs_directory: PathBuf,
+     pub format: PysaFormat,
++    /// lctx: `false` keeps Pysa solutions in memory without writing report files.
++    pub write_files: bool,
+ }
+ 
+ impl PysaReporter {
+@@ -248,6 +250,7 @@ impl PysaReporter {
+             type_of_expressions_directory,
+             call_graphs_directory,
+             format,
++            write_files: true,
+         }))
+     }
+ 
+@@ -262,6 +265,9 @@ impl PysaReporter {
+     ///
+     /// This can perform cross-module lookups using the `transaction` (wrapped in `PysaResolver`).
+     pub fn report_module(&self, handle: &Handle, transaction: &Transaction) {
++        if !self.write_files {
++            return;
++        }
+         let info_filename = match handle.path().details() {
+             ModulePathDetails::Namespace(_) => None,
+             _ => Some(PathBuf::from(format!(
+diff --git a/pyrefly/lib/report/pysa/call_graph.rs b/pyrefly/lib/report/pysa/call_graph.rs
+index d79b3fff5..f92283439 100644
+--- a/pyrefly/lib/report/pysa/call_graph.rs
++++ b/pyrefly/lib/report/pysa/call_graph.rs
+@@ -169,8 +169,8 @@ impl std::fmt::Display for OriginKind {
+ 
+ #[derive(Debug, PartialEq, Eq, Clone, Serialize, Hash, PartialOrd, Ord)]
+ pub struct Origin {
+-    kind: OriginKind,
+-    location: PysaLocation,
++    pub kind: OriginKind,
++    pub location: PysaLocation,
+ }
+ 
+ #[derive(Debug, PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
+diff --git a/pyrefly/lib/state/state.rs b/pyrefly/lib/state/state.rs
+index 2cf7ec113..e130e8250 100644
+--- a/pyrefly/lib/state/state.rs
++++ b/pyrefly/lib/state/state.rs
+@@ -864,6 +864,11 @@ impl<'a> Transaction<'a> {
+         self.data.pysa_reporter.take()
+     }
+ 
++    /// lctx: borrow the installed pysa reporter (its `ModuleIds`) while modules still solve lazily.
++    pub fn pysa_reporter(&self) -> Option<&crate::report::pysa::PysaReporter> {
++        self.data.pysa_reporter.as_deref()
++    }
++
+     /// Set the cinderx reporter for inline extraction during type checking.
+     pub fn set_cinderx_reporter(
+         &mut self,
+@@ -2320,6 +2325,33 @@ impl<'a> Transaction<'a> {
+         let _ = self.run_internal(handles, require, custom_thread_pool);
+     }
+ 
++    /// Observe the native normal/error exit calls for an actual located context binding.
++    /// Requires retained Answers (`Require::Everything`); returns None for a missing binding.
++    /// Encode the native Types while this transaction remains live.
++    pub fn observe_context_exit(
++        &self,
++        handle: &Handle,
++        range: ruff_text_size::TextRange,
++        kind: crate::binding::binding::IsAsync,
++    ) -> Option<crate::alt::observations::ContextExitObservation> {
++        self.ad_hoc_solve(handle, "observe_context_exit", |solver| solver.observe_context_exit(range, kind)).flatten()
++    }
++
++    /// Observe the solver's qualified divergence checks on a bound call statement.
++    /// A Never call result alone is deliberately not used as divergence evidence.
++    pub fn observe_terminal_call(
++        &self,
++        handle: &Handle,
++        range: ruff_text_size::TextRange,
++    ) -> Option<crate::alt::observations::TerminalCallObservation> {
++        self.ad_hoc_solve(handle, "observe_terminal_call", |solver| {
++            let idx = solver.bindings().keys::<crate::binding::binding::Key>().find(|idx| {
++                matches!(solver.bindings().idx_to_key(*idx), crate::binding::binding::Key::StmtExpr(r) if *r == range)
++            })?;
++            solver.observe_terminal_call(idx)
++        }).flatten()
++    }
++
+     pub(crate) fn ad_hoc_solve<R: Sized, F: FnOnce(AnswersSolver<TransactionHandle>) -> R>(
+         &self,
+         handle: &Handle,
+@@ -2699,9 +2731,16 @@ impl<'a> Transaction<'a> {
+         builtin_module_for_name(&self.lookup(module_data), handle.module(), name)
+     }
+ 
+-    pub(crate) fn get_exports_data(&self, handle: &Handle) -> Arc<Exports> {
++    pub fn get_exports_data(&self, handle: &Handle) -> Arc<Exports> {
++        let module_data = self.get_module(handle);
++        self.lookup_export(module_data)
++    }
++
++    /// The names `from <module> import *` binds.
++    pub fn get_wildcard(&self, handle: &Handle) -> Arc<SmallSet<Name>> {
+         let module_data = self.get_module(handle);
+         self.lookup_export(module_data)
++            .wildcard(&self.lookup(module_data))
+     }
+ 
+     pub fn get_module_docstring_range(&self, handle: &Handle) -> Option<TextRange> {
+-- 
+2.43.0
+

@@ -59,7 +59,7 @@ use crate::db::FlowDb;
 use crate::predicate::{Translator, diagram, runtime_in_diagram};
 
 /// The provider, as `producers.revision` names it (ADR-0022 §Identity).
-pub const PROVIDER: &str = "ty_python_core 0.0.14 (ruff 0.0.14, salsa 0.28.2)";
+pub const PROVIDER: &str = "ty_python_core 0.0.16 (ruff 0.0.16, salsa 0.28.5)";
 /// The word ty decides at index time, and the same-length name it is renamed to.
 pub const WORD: &[u8] = b"TYPE_CHECKING";
 pub const SENTINEL: &[u8] = b"TYPE_CHECKIN_";
@@ -287,7 +287,7 @@ impl SkipCounts {
 }
 
 /// Rename every `TYPE_CHECKING` name token to [`SENTINEL`] (ADR-0022 §The flow provider).
-/// Tokens come from ruff 0.0.14's lexer over the module, so strings and comments keep their text;
+/// Tokens come from ruff 0.0.16's lexer over the module, so strings and comments keep their text;
 /// names inside f-string replacement fields are names. A module that already uses the sentinel as
 /// a name is refused.
 pub fn rename(text: &str) -> Result<(String, u32), String> {
@@ -297,7 +297,7 @@ pub fn rename(text: &str) -> Result<(String, u32), String> {
     let mut out = text.as_bytes().to_vec();
     let mut n = 0;
     for t in parsed.tokens() {
-        if t.kind() != TokenKind::Name {
+        if t.kind() != TokenKind::Identifier {
             continue;
         }
         let r = t.range();

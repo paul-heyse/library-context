@@ -18,6 +18,7 @@ pub mod natives;
 pub mod public_records;
 pub mod pyrefly_stage;
 mod runtime_scripts;
+pub mod ruff_context;
 pub mod symbol_records;
 pub mod syntax_records;
 pub mod ty_flow;
