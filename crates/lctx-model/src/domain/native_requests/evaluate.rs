@@ -44,6 +44,7 @@ pub fn unexamined(
     proof.sort();
     proof.dedup();
     Ok(Assessment {
+        qualification:path.qualification.id(),
         path: path.identity,
         original_condition: path.condition.id(),
         restricted_result: None,
@@ -90,6 +91,7 @@ pub fn assess(
         ));
     }
     let mut out = Assessment {
+        qualification:path.qualification.id(),
         path: path.identity,
         original_condition: path.condition.id(),
         restricted_result: None,

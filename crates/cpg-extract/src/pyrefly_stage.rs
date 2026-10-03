@@ -637,6 +637,7 @@ fn session<S: StageSink + 'static>(
         context.emit(typed_module)?;
         root_modules.insert(natives.module(&module_name, handle.path())?);
         let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: analysis.id(),
             scope: scope.id(),
             condition: condition.id(),
@@ -1052,6 +1053,7 @@ fn session<S: StageSink + 'static>(
         input: captured.revision().id(),
     };
     let input_qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: analysis.id(),
         scope: input_scope.id(),
         condition: condition.id(),

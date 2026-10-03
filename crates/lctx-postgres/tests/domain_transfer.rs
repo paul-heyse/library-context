@@ -5,6 +5,7 @@ use lctx_model::domain::{
     analysis::{expected::CoverageAdmission, local, sources::CapturedSources},
     artifact::*,
     assertion::*,
+    assumptions::*,
     attribution::*,
     calls::*,
     conditions::*,
@@ -202,6 +203,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         let diagram = Diagram::from_atom(atom.id());
         let (condition, nodes) = diagram.records();
         let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: condition.id(),
@@ -279,6 +281,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         macro_rules! copy { ($($row:expr),+ $(,)?) => { $(copy_rows(&mut access, &attempt, &model, vec![$row.clone()], &mut native_inventory).await.unwrap();)+ }; }
         macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(copy_rows(&mut access, &attempt, &model, $rows.clone(), &mut native_inventory).await.unwrap();)+ }; }
         copy!(
+            AssumptionSet::empty(),
             input,
             origin,
             acquisition,
@@ -311,6 +314,9 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             provider_coverage
         );
         copies!(computations, normalized_coverage);
+        copy_rows::<Assumption>(&mut access, &attempt, &model, vec![], &mut native_inventory).await.unwrap();
+        copy_rows::<AssumptionUniverse>(&mut access, &attempt, &model, vec![], &mut native_inventory).await.unwrap();
+        copy_rows::<AssumptionSetMember>(&mut access, &attempt, &model, vec![], &mut native_inventory).await.unwrap();
         copies!(
             vec![foundation.use_.clone(), control_foundation.use_.clone()],
             vec![
@@ -716,6 +722,10 @@ fn transfer_schedule(model: &ValidatedModel) -> Schedule {
         EvaluationAtom,
         Condition,
         AssertionQualification,
+        AssumptionSet,
+        AssumptionSetMember,
+        Assumption,
+        AssumptionUniverse,
         Evidence,
         Occurrence,
         PlaceRoot,

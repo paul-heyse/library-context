@@ -101,9 +101,36 @@ packet!(DeploymentPacket {deployment:Id<catalog::evidence::CatalogDeployment>,fi
 packet!(RelationshipPacket {target:Id<catalog::CatalogMember>,analysis:Id<attribution::AnalysisContext>,#[doc = "Declared relationship or support role; interpret it within the accompanying evidence context."] role:selection::RelationRole,#[doc = "Fidelity of the declared relationship; unresolved correspondence is not exact identity."] fidelity:selection::Fidelity,witnesses:Vec<Id<selection::Witness>>,proof:Vec<ProofReference>});
 packet!(ConflictPacket {requirement:selection::Requirement,#[doc = "Declared canonical reason for this result; interpret it with the accompanying status and evidence."] reason:selection::Reason,contexts:Vec<Id<selection::Context>>,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>});
 packet!(AssertionSupportPacket {support:Id<synthesis::assertions::ProgrammaticAssertionSupport>,#[doc = "Declared relationship or support role; interpret it within the accompanying evidence context."] role:analysis::policy::SupportRole,source:Id<synthesis::assertions::AssertionSource>,proof:Vec<ProofReference>});
-packet!(AssertionPacket {assertion:Id<synthesis::assertions::ProgrammaticAssertion>,#[doc = "Finite canonical kind; the numeric codebook lists supported choices."] kind:analysis::policy::AssertionKind,#[doc = "Authored brief section to which the assertion belongs."] section:analysis::policy::BriefSection,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,qualification:Id<assertion::AssertionQualification>,text:Text<0,262144>,supports:Vec<AssertionSupportPacket>});
+// Fully resolved premises of a conditional claim. Empty is an explicit canonical set row.
+packet!(ClaimBasisPacket {set:Id<assumptions::AssumptionSet>,members_digest:ContentHash,definitions:Vec<ClaimAssumptionPacket>});
+packet!(AssumptionNativeSupportPacket {support:ProofReference,run:Id<attribution::ProviderRun>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,environment:ContentHash,provider:Name,provider_revision:Name,provider_build:ContentHash,surface:Name,evidence:AssumptionEvidencePacket,fidelity:attribution::Fidelity});
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
+#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+pub enum AssumptionEvidencePacket {
+    Invocation { run:Id<attribution::ProviderRun> },
+    Source { artifact:Id<source::SourceArtifact>,path:Name,content:ContentHash,start:i64,end:i64 },
+}
+packet!(AssumptionUniversePacket {universe:Id<assumptions::AssumptionUniverse>,context:Id<attribution::AnalysisContext>,input:Id<input::InputRevision>,environment:ContentHash,model_definition:ContentHash,support:Id<assumptions_universe::AssumptionUniverseSupport>,catalog:Id<models::ModelCatalog>,model:Id<models::AuthoredModel>,source_name:Name,format:i64,source:Text<0,262144>});
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
+#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+pub enum ClaimAssumptionPacket {
+    TypeConformance { assumption:Id<assumptions::Assumption>,observation:Id<types::TypeObservation>,subject:Id<source::Occurrence>,role:types::TypeRole,declared:bool,term:Id<types::TypeTerm>,support:AssumptionNativeSupportPacket },
+    NoExtraOverrides { assumption:Id<assumptions::Assumption>,class:Id<symbols::ClassTraitObservation>,symbol:Id<calls::ProviderSymbol>,synthesized:bool,dataclass:bool,named_tuple:bool,typed_dict:bool,support:AssumptionNativeSupportPacket,universe:AssumptionUniversePacket },
+}
+impl ClaimAssumptionPacket {
+    pub fn assumption(&self) -> Id<assumptions::Assumption> { match self { Self::TypeConformance {assumption,..}|Self::NoExtraOverrides {assumption,..} => *assumption } }
+}
+impl ClaimBasisPacket {
+    pub fn from_canonical(basis:&assumptions::ResolvedAssumptions, mut definitions:Vec<ClaimAssumptionPacket>) -> Result<Self,ModelError> {
+        basis.check(basis.set.id())?;
+        definitions.sort_by_key(ClaimAssumptionPacket::assumption);
+        if definitions.iter().map(ClaimAssumptionPacket::assumption).collect::<Vec<_>>() != basis.members.iter().map(|m|m.assumption).collect::<Vec<_>>() { return Err(ModelError::Invalid("packet assumption definitions missing or differ".into())); }
+        Ok(Self {set:basis.set.id(),members_digest:basis.set.members,definitions})
+    }
+}
+packet!(AssertionPacket {assertion:Id<synthesis::assertions::ProgrammaticAssertion>,#[doc = "Finite canonical kind; the numeric codebook lists supported choices."] kind:analysis::policy::AssertionKind,#[doc = "Authored brief section to which the assertion belongs."] section:analysis::policy::BriefSection,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,qualification:Id<assertion::AssertionQualification>,claim_basis:ClaimBasisPacket,text:Text<0,262144>,supports:Vec<AssertionSupportPacket>});
 packet!(CapabilityPacket {capability:Id<synthesis::briefs::Brief>,title:Name,rendered:Text<0,262144>,assertions:Vec<AssertionPacket>,originals:Vec<OriginalRange>,#[doc = "Section availability; unavailable or not-requested data must not be interpreted as absence."] availability:Availability,unreviewed:bool,documentation_only:bool});
-packet!(BehaviorPacket {condition:Id<conditions::Condition>,#[doc = "Model-qualified verdict, never proof of unrestricted runtime behavior."] verdict:obligation::Verdict,model:Id<models::ModelCatalog>,proof:Vec<ProofReference>,presentation:RenderedConditionPacket,presentation_truncated:bool});
+packet!(BehaviorPacket {claim_basis:ClaimBasisPacket,condition:Id<conditions::Condition>,#[doc = "Model-qualified verdict, never proof of unrestricted runtime behavior."] verdict:obligation::Verdict,model:Id<models::ModelCatalog>,proof:Vec<ProofReference>,presentation:RenderedConditionPacket,presentation_truncated:bool});
 packet!(OperationPacket {core:OperationCore,scenarios:SectionPage<ScenarioPacket>,deployment:SectionPage<DeploymentPacket>,relationships:SectionPage<RelationshipPacket>,conflicts:SectionPage<ConflictPacket>,briefs:SectionPage<CapabilityPacket>,behavior:SectionPage<BehaviorPacket>});
 packet!(RequirementWitnessPacket {context:Id<selection::Context>,#[doc = "Canonical evidence or derivation basis for this result, rather than a confidence score."] basis:selection::EvidenceBasis,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>});
 packet!(RequirementResult {claims:Vec<RequirementWitnessPacket>,closure:Vec<Id<selection::Witness>>,requirement:selection::Requirement,#[doc = "Selection outcome; unresolved evidence stays separate from conflicting and supported results."] outcome:selection::Outcome,#[doc = "Declared canonical reason for this result; interpret it with the accompanying status and evidence."] reason:selection::Reason,contexts:Vec<Id<selection::Context>>,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>,corpus_complete:bool,analyzer_complete:bool,examined:u64,total:Nullable<u64>});
@@ -236,10 +263,11 @@ impl LiteralPacket {
         })
     }
 }
-packet!(TypePresentationPacket {presentation:Id<types::TypePresentation>,term:Id<types::TypeTerm>,qualification:Id<assertion::AssertionQualification>,display:Text<0,262144>,detail:Nullable<Text<0,262144>>});
+packet!(TypePresentationPacket {presentation:Id<types::TypePresentation>,term:Id<types::TypeTerm>,qualification:Id<assertion::AssertionQualification>,claim_basis:ClaimBasisPacket,display:Text<0,262144>,detail:Nullable<Text<0,262144>>});
 impl TypePresentationPacket {
-    pub fn from_canonical(row: &types::TypePresentation) -> Result<Self, WireError> {
+    pub fn from_canonical(row: &types::TypePresentation, claim_basis:ClaimBasisPacket) -> Result<Self, WireError> {
         Ok(Self {
+            claim_basis,
             presentation: row.id(),
             term: row.term,
             qualification: row.qualification,
@@ -255,7 +283,7 @@ impl CapabilityPacket {
         let mut text = self.rendered.as_str().to_owned();
         text.push_str("\n\n## Assertion evidence\n");
         for assertion in &self.assertions {
-            let metadata = serde_json::json!({"assertion":assertion.assertion,"status":assertion.status,"status_name":format!("{:?}",assertion.status),"kind":assertion.kind,"qualification":assertion.qualification,"text":assertion.text,"supports":assertion.supports});
+            let metadata = serde_json::json!({"assertion":assertion.assertion,"status":assertion.status,"status_name":format!("{:?}",assertion.status),"kind":assertion.kind,"qualification":assertion.qualification,"claim_basis":assertion.claim_basis,"text":assertion.text,"supports":assertion.supports});
             text.push_str("\n```json\n");
             text.push_str(&serde_json::to_string(&metadata)?);
             text.push_str("\n```\n");

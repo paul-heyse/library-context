@@ -185,19 +185,16 @@ impl CatalogService {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
-        let (presentations, evidence) = e
+        let (presentations, evidence, claim_bases) = e
             .query(move |lease| {
                 Box::pin(async move {
                     let mut scope = super::packet_reads::PacketLease::new::<OperationCore>(lease);
                     let lease = &mut scope;
-                    Ok((
-                        lease
-                            .read_for::<types::TypePresentation, types::TypeTerm>("term", &terms)
-                            .await?,
-                        lease
-                            .read_ids::<CatalogOptionEvidence>(&evidence_ids)
-                            .await?,
-                    ))
+                    let presentations = lease.read_for::<types::TypePresentation, types::TypeTerm>("term", &terms).await?;
+                    let qualifications = lease.read_ids::<assertion::AssertionQualification>(&presentations.rows().iter().map(|r|r.qualification).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>()).await?;
+                    let mut claim_bases = std::collections::BTreeMap::new();
+                    for q in qualifications.rows() { claim_bases.insert(q.id(), lease.claim_basis(q).await?); }
+                    Ok((presentations, lease.read_ids::<CatalogOptionEvidence>(&evidence_ids).await?, claim_bases))
                 })
             })
             .await?;
@@ -235,7 +232,7 @@ impl CatalogService {
                     for row in presentations.rows() {
                         if this.core_has_presentation(core, row) {
                             core.type_presentations.push(
-                                TypePresentationPacket::from_canonical(row).map_err(wire_error)?,
+                                TypePresentationPacket::from_canonical(row, claim_bases.get(&row.qualification).ok_or(Error::Contract)?.clone()).map_err(wire_error)?,
                             );
                         }
                     }

@@ -72,6 +72,7 @@ fn fixture() -> (EntityData, ResourceBudget, ProviderSymbol) {
     data.symbols.insert(symbol.clone()).unwrap();
     let (condition, _) = Diagram::always().records();
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: context.id(),
         scope: CoverageScope::Artifact {
             artifact: source.id(),

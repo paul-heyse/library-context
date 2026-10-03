@@ -26,6 +26,7 @@ fn frame<R: Record>(rows: &[R]) -> (&'static str, RecordBatch) {
 }
 fn facts() -> Vec<(&'static str, RecordBatch)> {
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: nominal(1),
         scope: nominal(2),
         condition: nominal(3),

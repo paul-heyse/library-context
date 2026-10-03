@@ -145,6 +145,11 @@ pub async fn apply(
         owner::AnalysisCoveragePremise,
         owner::CoverageSource,
         ModelRun,
+        assumptions_universe::AssumptionUniverseSupport,
+        assumptions::AssumptionSet,
+        assumptions::AssumptionSetMember,
+        assumptions::Assumption,
+        assumptions::AssumptionUniverse,
         ModelApplication,
         ApplicationPremise,
         ApplicationBoundary,
@@ -257,6 +262,11 @@ pub async fn apply(
         let records = apply_all(&data, &invocation, definition, profile, budget)?;
         macro_rules! write{($($field:ident,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
         write!(
+            assumption_sets,
+            assumption_members,
+            assumptions,
+            assumption_universes,
+            universe_supports,
             applications,
             application_premises,
             boundaries,

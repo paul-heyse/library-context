@@ -220,6 +220,7 @@ fn all_four_families_preserve_original_setup_execution_and_release_scope() {
         .core
         .qualifications
         .insert(AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: id(2),
             scope: CoverageScope::Artifact { artifact: a.id() }.id(),
             condition: conditions::Diagram::always().id(),

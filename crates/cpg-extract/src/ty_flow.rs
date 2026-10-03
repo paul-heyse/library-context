@@ -896,6 +896,7 @@ impl<S: StageSink + 'static> Writer<'_, S> {
             self.context.contribute(node)?;
         }
         let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: self.analysis.id(),
             scope: self.scope.id(),
             condition: condition.id(),

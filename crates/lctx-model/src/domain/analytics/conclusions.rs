@@ -187,6 +187,7 @@ pub(super) fn produce(
         let sf = need(&d.structural.frames, frame.structural)?;
         let parent = need(&d.structural_invocations, sf.invocation)?;
         let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: parent.context,
             scope: source::CoverageScope::Input {
                 input: parent.input,

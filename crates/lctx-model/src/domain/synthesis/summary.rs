@@ -528,6 +528,7 @@ mod tests {
             conditions::Diagram::always()
         };
         let q = assertion::AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: inv.context,
             scope: source::CoverageScope::Artifact { artifact: id(71) }.id(),
             condition: condition.id(),

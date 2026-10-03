@@ -61,6 +61,7 @@ fn fixture() -> (
         .core
         .qualifications
         .insert(AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context,
             scope: CoverageScope::Artifact {
                 artifact: source.id(),
@@ -645,6 +646,7 @@ fn release_declarations_require_exact_ownership_and_passed_interpretation() {
         .core
         .qualifications
         .insert(AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: c,
             scope: CoverageScope::Input {
                 input: source.input,

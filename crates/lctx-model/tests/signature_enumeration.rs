@@ -9,6 +9,7 @@ fn nominal<T>(value: u8) -> Id<T> {
 }
 fn fixture() -> (AssertionQualification, ProviderSymbol, Vec<Signature>) {
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: nominal(1),
         scope: nominal(2),
         condition: nominal(3),

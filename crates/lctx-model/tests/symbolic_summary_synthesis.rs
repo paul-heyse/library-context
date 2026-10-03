@@ -44,6 +44,7 @@ fn fixture(reason: ObligationKind) -> Fixture {
     let invocation = owner::Invocation::new(nominal(1), nominal(2), nominal(3), None, []).0;
     let reader_condition = Diagram::from_atom(nominal(4));
     let constructor = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: invocation.context,
         scope: CoverageScope::Artifact {
             artifact: nominal(5),

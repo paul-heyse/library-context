@@ -209,6 +209,7 @@ macro_rules! projection_inventory {($($f:ident:$t:ty,)*)=>{fn projection_inputs(
 crate::summary_projection_inputs!(projection_inventory);
 #[macro_export]
 macro_rules! summary_vocabulary{($apply:ident)=>{$apply!{
+ assumption_sets:$crate::domain::assumptions::AssumptionSet,assumption_members:$crate::domain::assumptions::AssumptionSetMember,assumptions:$crate::domain::assumptions::Assumption,assumption_universes:$crate::domain::assumptions::AssumptionUniverse,
  roots:$crate::domain::value::PlaceRoot,places:$crate::domain::value::Place,paths:$crate::domain::value::AccessPath,segments:$crate::domain::value::PathSegment,literals:$crate::domain::value::Literal,predicates:$crate::domain::value::Predicate,atoms:$crate::domain::conditions::EvaluationAtom,qualifications:$crate::domain::assertion::AssertionQualification,conditions:$crate::domain::conditions::Condition,nodes:$crate::domain::conditions::ConditionNode,
 }};}
 macro_rules! vocabulary{($($field:ident:$ty:ty,)*)=>{pub struct Vocabulary{$(pub $field:ChargedMap<Id<$ty>,$ty>,)*charge:StateCharge}impl Vocabulary{pub(super) fn new(b:&ResourceBudget)->Self{Self{$($field:Default::default(),)*charge:StateCharge::new(b,"summary-vocabulary")}}pub(super) fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{$(if n==<$ty>::NAME{for row in <$ty>::decode(b)?{self.$field.insert(&mut self.charge,row.id(),row)?;}})*Ok(())}fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]).at_epoch(stages::PublicationBoundary::Model),)*]}}};}
@@ -318,6 +319,7 @@ impl WorkBranch {
         d.approximation.encode(&mut k);
         d.kind.encode(&mut k);
         self.qualification().condition.encode(&mut k);
+        self.qualification().assumptions.encode(&mut k);
         k.finish()
     }
 }
@@ -330,6 +332,7 @@ impl Vocabulary {
     }
     fn catalog(&self) -> CompositionCatalog<'_> {
         CompositionCatalog {
+            assumptions: assumptions::AssumptionCatalog { sets: &self.assumption_sets, members: &self.assumption_members, definitions: &self.assumptions },
             guards: self.guards(),
             paths: &self.paths,
             segments: place_composition::PathCatalog {
@@ -361,7 +364,7 @@ impl Vocabulary {
     fn composition(&mut self, rows: &CompositionRecords) -> Result<(), ModelError> {
         macro_rules! rows{($($f:ident),*)=>{$(for row in &rows.$f{self.$f.insert(&mut self.charge,row.id(),row.clone())?;})*};}
         rows!(
-            roots, places, paths, segments, literals, predicates, atoms, conditions, nodes
+            roots, places, paths, segments, literals, predicates, atoms, conditions, nodes, assumption_sets, assumption_members
         );
         if let Some(q) = &rows.qualification {
             self.qualifications
@@ -1256,7 +1259,7 @@ fn publish(
     component_id: ContentHash,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let mut members = charged::ChargedMap::<Id<TransferKey>, BTreeSet<ProofId>>::default();
+    let mut members = charged::ChargedMap::<(Id<TransferKey>, ContentHash), BTreeSet<ProofId>>::default();
     let mut charge = StateCharge::new(budget, "summary-publication-members");
     for branch in progress.branches.values().filter(|b| {
         component.binary_search(&b.descriptor().owner).is_ok()
@@ -1266,7 +1269,7 @@ fn publish(
             )
     }) {
         charge.grow(size_of::<ProofId>() + 64)?;
-        members.update(&mut charge, branch.branch.key().id(), |rows| {
+        members.update(&mut charge, (branch.branch.key().id(), analysis::support::alternative_basis(branch.qualification())), |rows| {
             rows.insert(branch.id())
         })?;
     }
@@ -1424,10 +1427,11 @@ fn publish_members(
                 .qualifications
                 .get(&influence.qualification)
                 .ok_or_else(|| invalid("Summary influence qualification absent"))?;
-            if (iq.scope, iq.context)
+            if (iq.scope, iq.context, iq.assumptions)
                 == (
                     qualified.qualification.scope,
                     qualified.qualification.context,
+                    qualified.qualification.assumptions,
                 )
             {
                 out.selections.insert(Selection {
@@ -2023,4 +2027,35 @@ fn inherited_partial(
     lower!(enriched_invocations, enriched_outcomes);
     lower!(source_invocations, source_outcomes);
     Ok(incomplete)
+}
+
+#[cfg(test)]
+mod assumption_controls {
+    use super::*;
+    fn id<R>(n:u8)->Id<R> { serde_json::from_value(serde_json::json!(vec![n;16])).unwrap() }
+    #[test]
+    fn actual_summary_publication_preserves_separate_conditional_and_unconditional_alternatives() {
+        let budget=ResourceBudget::fixed(32 << 20).unwrap();
+        let (_,definition)=super::super::configuration::summaries(id(1),Default::default()).unwrap();
+        let (invocation,_)=owner::AnalysisInvocation::new(id(2),id(3),definition.id(),None,[]);
+        let mut out=SummaryRecords::new(invocation.id(),&budget);
+        let mut progress=Progress::new(Default::default(),&budget);
+        let condition=Diagram::always();
+        let a=assumptions::Assumption::TypeConformance{observation:id(4),support:id(5)};
+        let basis=assumptions::AssumptionSet::new([a.id()]).unwrap();
+        let q=AssertionQualification{assumptions:assumptions::AssumptionSet::empty_id(),context:invocation.context,scope:id(6),condition:condition.id(),modality:attribution::Modality::Definite,approximation:Approximation::Exact};
+        let key=TransferKey::from_descriptor(TransferDescriptor{owner:id(7),input:id(8),output:id(9),context:q.context,scope:q.scope,modality:q.modality,approximation:q.approximation,kind:TransferKind::Derived,call_site:None,provenance:ProvenanceClass::Composed});
+        for q in [q.clone(),AssertionQualification{assumptions:basis.set.id(),..q}] {
+            let witness=SummaryWitness{invocation:invocation.id(),transfer:key.id(),qualification:q.id(),caller:id(10),callee:id(11),target:id(12),signature:id(13),callee_declaration:id(14),attempt:id(15),bindings:ContentHash::of(b"bindings"),status:analysis::policy::EvidenceStatus::StructurallyObserved,heuristic:false};
+            let premise=SummaryPremise::Witness{witness:witness.id()};
+            let branch=WorkBranch{branch:TransferBranch::new(key.clone(),q,condition.clone(),&budget).unwrap(),premise,origin:id(16),facts:witness.source_facts(),cost:ProofCost::SOURCE};
+            out.witnesses.insert(witness).unwrap();progress.admit(&branch).unwrap();
+        }
+        // Both enter and leave the actual finite Summary publication, including derivations and contributions.
+        publish(&mut out,&invocation,&definition,&progress,&[key.owner],ContentHash::of(b"component"),&budget).unwrap();
+        assert_eq!(out.alternatives.len(),2);assert_eq!(out.derivations.len(),2);assert_eq!(out.contributions.len(),2);
+        let bases=out.vocabulary.qualifications.values().map(|q|q.assumptions).collect::<BTreeSet<_>>();
+        assert_eq!(bases,BTreeSet::from([assumptions::AssumptionSet::empty_id(),basis.set.id()]));
+        assert_eq!(out.keys.len(),1);assert_eq!(progress.branches.len(),2);
+    }
 }

@@ -91,6 +91,7 @@ fn occurrences() -> (Vec<Occurrence>, Vec<u8>) {
         qualified_name: "owner".into(),
     };
     let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: context.id(),
         scope: CoverageScope::Module {
             module: module.id(),

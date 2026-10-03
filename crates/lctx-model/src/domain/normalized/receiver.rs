@@ -728,6 +728,7 @@ mod tests {
         };
         let scope = CoverageScope::Input { input: input.id() };
         let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: conditions::Diagram::always().id(),

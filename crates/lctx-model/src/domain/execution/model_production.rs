@@ -133,7 +133,7 @@ pub struct ModelRun {
     pub refused: i64,
 }
 
-macro_rules! output_rows{($apply:ident)=>{$apply!{applications:ModelApplication,application_premises:ApplicationPremise,boundaries:ApplicationBoundary,targets:TargetAssessment,rules:AppliedRule,channels:ChannelAssessment,operations:ModeledOperation,resources:ResourceIdentity,paths:ModelValuePath,action_assessments:ActionAssessment,action_sources:ActionSource,postconditions:ActionPostcondition,
+macro_rules! output_rows{($apply:ident)=>{$apply!{assumption_sets:assumptions::AssumptionSet,assumption_members:assumptions::AssumptionSetMember,assumptions:assumptions::Assumption,assumption_universes:assumptions::AssumptionUniverse,universe_supports:assumptions_universe::AssumptionUniverseSupport,applications:ModelApplication,application_premises:ApplicationPremise,boundaries:ApplicationBoundary,targets:TargetAssessment,rules:AppliedRule,channels:ChannelAssessment,operations:ModeledOperation,resources:ResourceIdentity,paths:ModelValuePath,action_assessments:ActionAssessment,action_sources:ActionSource,postconditions:ActionPostcondition,
  context_transfers:super::model_context_transfer::ContextTransferWitness,context_resources:super::model_protocol::ContextResource,context_values:super::model_protocol::ContextEntryValue,context_postconditions:super::model_protocol::ContextPostcondition,transfer_witnesses:super::model_transfer::ModelTransferWitness,transfer_keys:transfer::model::TransferKey,transfer_alternatives:transfer::model::TransferAlternative,transfer_supports:transfer::model::TransferSupport,
  transfer_roots:value::PlaceRoot,transfer_places:value::Place,qualifications:assertion::AssertionQualification,conditions:conditions::Condition,condition_nodes:conditions::ConditionNode,
  subjects:publication::ObligationSubject,support_sources:publication::SupportSource,derivations:publication::AnalysisDerivation,propositions:publication::AnalysisProposition,derivation_premises:publication::AnalysisDerivationPremise,}};}
@@ -804,6 +804,7 @@ impl PublicationCheck for ProfileCheck {
 }
 pub fn relations() -> Vec<Relation> {
     let mut rows = vec![
+        Relation::of::<assumptions_universe::AssumptionUniverseSupport>(),
         Relation::of::<ModelApplication>(),
         Relation::of::<ApplicationPremise>(),
         Relation::of::<ApplicationBoundary>(),
@@ -850,6 +851,10 @@ pub fn stage(
         Relation::of::<value::PlaceRoot>(),
         Relation::of::<value::Place>(),
         Relation::of::<assertion::AssertionQualification>(),
+        Relation::of::<assumptions::AssumptionSet>(),
+        Relation::of::<assumptions::AssumptionSetMember>(),
+        Relation::of::<assumptions::Assumption>(),
+        Relation::of::<assumptions::AssumptionUniverse>(),
         Relation::of::<conditions::Condition>(),
         Relation::of::<conditions::ConditionNode>(),
     ]);

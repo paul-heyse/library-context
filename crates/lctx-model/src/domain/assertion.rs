@@ -51,6 +51,8 @@ pub struct AssertionQualification {
     pub modality: Modality,
     #[model(key)]
     pub approximation: Approximation,
+    #[model(key)]
+    pub assumptions: Id<super::assumptions::AssumptionSet>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "provider_surfaces", validate = validate_surface)]
@@ -451,24 +453,27 @@ impl DerivedSupportIndex<NoDerivedSource> for NoDerivedIndex {
 }
 
 fn qualification_invariants() -> Vec<Invariant> {
+    let mut inputs = super::assumptions::AssumptionIndex::inputs();
+    inputs.extend([
+        ValidationInput::of::<EvaluationAtom>(&["id"]),
+        ValidationInput::of::<ConditionNode>(&["id"]),
+        ValidationInput::of::<Condition>(&["id"]),
+        ValidationInput::of::<AssertionQualification>(&["id"]),
+    ]);
     vec![Invariant {
         name: "qualification_condition_context",
-        inputs: vec![
-            ValidationInput::of::<EvaluationAtom>(&["id"]),
-            ValidationInput::of::<ConditionNode>(&["id"]),
-            ValidationInput::of::<Condition>(&["id"]),
-            ValidationInput::of::<AssertionQualification>(&["id"]),
-        ],
+        inputs,
         create: std::sync::Arc::new(|budget| {
             Box::new(QualificationCheck {
                 charge: StateCharge::new(budget, "qualification_condition_context"),
-                ..Default::default()
+                assumptions: super::assumptions::AssumptionIndex::new(budget),
+                atoms: Default::default(), nodes: Default::default(), contexts: Default::default()
             })
         }),
     }]
 }
-#[derive(Default)]
 struct QualificationCheck {
+    assumptions: super::assumptions::AssumptionIndex,
     charge: StateCharge,
     atoms: ChargedMap<Id<EvaluationAtom>, Id<AnalysisContext>>,
     nodes: ChargedMap<Id<ConditionNode>, ConditionNode>,
@@ -480,6 +485,7 @@ impl InvariantCheck for QualificationCheck {
         relation: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
+        if self.assumptions.visit(relation, batch)? { return Ok(()); }
         if relation == EvaluationAtom::NAME {
             for row in EvaluationAtom::decode(batch)? {
                 self.atoms.insert(&mut self.charge, row.id(), row.context)?;
@@ -507,6 +513,7 @@ impl InvariantCheck for QualificationCheck {
             }
         } else if relation == AssertionQualification::NAME {
             for row in AssertionQualification::decode(batch)? {
+                self.assumptions.resolve(row.assumptions)?;
                 let contexts = self
                     .contexts
                     .get(&row.condition)

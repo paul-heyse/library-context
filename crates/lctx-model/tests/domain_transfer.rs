@@ -108,6 +108,7 @@ impl Fixture {
         };
         let diagram = Diagram::from_atom(atom.id());
         let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: diagram.id(),
@@ -329,6 +330,7 @@ fn store_foundation(
 }
 fn records(f: &Fixture) -> BTreeMap<&'static str, arrow_array::RecordBatch> {
     let mut data = BTreeMap::new();
+    insert(f, &mut data, vec![assumptions::AssumptionSet::empty()]);
     macro_rules! one { ($($row:expr),+ $(,)?) => { $(insert(f,&mut data,vec![$row.clone()]);)+ }; }
     one!(
         f.input,

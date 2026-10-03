@@ -73,6 +73,7 @@ impl Fixture {
         let evidence = Evidence::Invocation { run: run.id() };
         let scope = CoverageScope::Input { input: input.id() };
         let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: Diagram::always().id(),

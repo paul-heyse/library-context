@@ -21,6 +21,7 @@ fn setup() -> (ResourceBudget, AspectData, AssertionQualification) {
     let b = ResourceBudget::fixed(16 << 20).unwrap();
     let mut d = AspectData::new(&b);
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: nominal(1),
         scope: nominal(2),
         condition: conditions::Diagram::always().id(),

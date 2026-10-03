@@ -237,6 +237,7 @@ pub struct CalleeFrame<'a> {
 }
 /// Existing rows the composer reads; lookups verify identity.
 pub struct CompositionCatalog<'a> {
+    pub assumptions: assumptions::AssumptionCatalog<'a>,
     pub guards: GuardCatalog<'a>,
     pub paths: &'a BTreeMap<Id<AccessPath>, AccessPath>,
     pub segments: PathCatalog<'a>,
@@ -244,6 +245,8 @@ pub struct CompositionCatalog<'a> {
 /// The rows a composition adds, including restated guards and the derivation step.
 #[derive(Debug, Default)]
 pub struct CompositionRecords {
+    pub assumption_sets: Vec<assumptions::AssumptionSet>,
+    pub assumption_members: Vec<assumptions::AssumptionSetMember>,
     pub literals: Vec<Literal>,
     pub segments: Vec<PathSegment>,
     pub paths: Vec<AccessPath>,
@@ -875,7 +878,16 @@ pub fn compose_call(
         .approximation
         .join(callee.qualification().approximation)
         .join(call.qualification.approximation);
+    let _basis_scratch = budget.reserve("composition_assumption_union", assumptions::MAX_ASSUMPTIONS.saturating_mul(4 * size_of::<assumptions::AssumptionSetMember>()))?;
+    let basis_ids = BTreeSet::from([call.qualification.assumptions, caller.qualification().assumptions, callee.qualification().assumptions]);
+    let basis = if basis_ids.len() > 1 {
+        use assumptions::AssumptionResolver;
+        let resolved = basis_ids.into_iter().map(|id| catalog.assumptions.resolve(id)).collect::<Result<Vec<_>, _>>()?;
+        Some(assumptions::ResolvedAssumptions::union(&resolved)?)
+    } else { None };
+    let basis_id = basis.as_ref().map_or(call.qualification.assumptions, |b| b.set.id());
     let final_q = AssertionQualification {
+        assumptions: basis_id,
         context: caller_key.context,
         scope: caller.qualification().scope,
         condition: condition.id(),
@@ -961,9 +973,11 @@ pub fn compose_call(
             segments: shared.segments.clone(),
             ..Default::default()
         };
+        if let Some(basis) = &basis { records.assumption_sets.push(basis.set.clone()); records.assumption_members.extend(basis.members.iter().cloned()); }
         let input = place_row(&mut records, caller_root.clone(), input_path.clone());
         let output = place_row(&mut records, out_root, out_path);
         let qualification = AssertionQualification {
+            assumptions: basis_id,
             context: caller_key.context,
             scope: caller.qualification().scope,
             condition: condition.id(),
@@ -994,7 +1008,8 @@ pub fn compose_call(
         let retained = budget.reserve(
             "call_composition_output",
             composition_allowance(caller, callee, call, catalog)?
-                .saturating_add(condition.allocation_allowance()),
+                .saturating_add(condition.allocation_allowance())
+                .saturating_add(basis.as_ref().map_or(0, |b| size_of::<assumptions::AssumptionSet>() + b.heap_bytes())),
         )?;
         let (condition_row, nodes) = condition.records();
         records.atoms.extend(atoms.iter().cloned());

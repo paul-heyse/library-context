@@ -6,7 +6,7 @@ use super::{
     synthesis::{
         support::{
             EvidenceIndex, EvidencePremise, QualificationOperation, QualifiedPremise,
-            QualifiedResult, qualify,
+            QualifiedResult, qualify_with_basis,
         },
         *,
     },
@@ -103,6 +103,26 @@ pub fn emit(
     ),
     ModelError,
 > {
+    emit_with_basis(invocation,kind,subject,members,coverage,evidence,None,budget)
+}
+pub fn emit_with_basis(
+    invocation: Id<Invocation>,
+    kind: FindingKind,
+    subject: Id<ObligationSubject>,
+    members: &[(MemberRole, Id<ObligationSubject>)],
+    coverage: &Coverage,
+    evidence: &[FindingEvidence<'_>],
+    basis: Option<&dyn assumptions::AssumptionResolver>,
+    budget: &resources::ResourceBudget,
+) -> Result<
+    (
+        Finding,
+        Vec<FindingMember>,
+        Vec<FindingSupport>,
+        QualifiedResult,
+    ),
+    ModelError,
+> {
     let mut charge = charged::StateCharge::new(budget, "finding_emitter");
     let mut member_set = charged::ChargedSet::default();
     let mut source_set = charged::ChargedSet::default();
@@ -134,7 +154,7 @@ pub fn emit(
             condition: e.premise.premise.condition,
         })
         .collect::<Vec<_>>();
-    let qualification = qualify(QualificationOperation::Conjunction, &premises, budget)?;
+    let qualification = qualify_with_basis(QualificationOperation::Conjunction, &premises, basis, budget)?;
     if (coverage.invocation, coverage.scope, coverage.context)
         != (
             invocation,
@@ -356,13 +376,14 @@ impl InvariantCheck for FindingCheck {
                 .coverage
                 .get(&row.coverage)
                 .ok_or_else(|| invalid("finding coverage absent"))?;
-            if emit(
+            if emit_with_basis(
                 row.invocation,
                 row.kind,
                 row.subject,
                 &members.iter().copied().collect::<Vec<_>>(),
                 coverage,
                 &evidence,
+                Some(&self.evidence.assumptions),
                 budget,
             )?
             .0 != *row

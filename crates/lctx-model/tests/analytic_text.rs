@@ -26,6 +26,7 @@ fn fixture(budget: &resources::ResourceBudget) -> TextData {
         artifact: source.id(),
     };
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: context.id(),
         scope: scope.id(),
         condition: Diagram::always().id(),

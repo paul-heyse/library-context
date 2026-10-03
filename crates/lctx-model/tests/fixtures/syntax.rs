@@ -171,6 +171,7 @@ impl Fixture {
         };
         let (condition, nodes) = Diagram::always().records();
         let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: condition.id(),
@@ -512,6 +513,7 @@ impl Fixture {
             qualification,
             names
         );
+        fixture.put(vec![assumptions::AssumptionSet::empty()]);
         fixture.put(vec![scope.clone()]);
         fixture.put(run_families);
         fixture.put(nodes);

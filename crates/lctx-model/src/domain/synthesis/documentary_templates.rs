@@ -449,6 +449,7 @@ pub fn build(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), Model
                 })?;
                 let text = documentary::read_range(d, c, cs, ce, b)?;
                 let qualification = assertion::AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
                     context: inv.context,
                     scope: (source::CoverageScope::Input { input: inv.input }).id(),
                     condition: conditions::Diagram::always().id(),

@@ -144,6 +144,7 @@ impl Fixture {
         let diagram = rebased.condition;
         let (condition, nodes) = diagram.records();
         let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: condition.id(),

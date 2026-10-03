@@ -785,6 +785,7 @@ fn document<S: StageSink + 'static>(
         context.contribute(node)?;
     }
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: analysis.id(),
         scope: scope.id(),
         condition: condition.id(),

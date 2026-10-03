@@ -518,6 +518,7 @@ pub fn build(
                             source_input: need(&docs.artifacts, source)?.input,
                         };
                         let q = assertion::AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
                             context: inv.context,
                             scope: (source::CoverageScope::Input { input: inv.input }).id(),
                             condition: conditions::Diagram::always().id(),
@@ -747,6 +748,7 @@ pub(crate) mod tests {
             docs.chunks.insert(chunk).unwrap();
         }
         let q = assertion::AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: core.context,
             scope: CoverageScope::Artifact {
                 artifact: artifact.id(),

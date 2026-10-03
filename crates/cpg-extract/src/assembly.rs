@@ -71,7 +71,7 @@ impl Declared for Assemble {
 impl<S: StageSink + 'static> ProviderStage<S> for Assemble {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
         use lctx_model::domain::{
-            assertion::*, attribution::*, conditions::*, source::CoverageScope, syntax::*, value::*,
+            assertion::*, assumptions::*, attribution::*, conditions::*, source::CoverageScope, syntax::*, value::*,
         };
         macro_rules! declare { ($($ty:ty),+) => { $( context.declare::<$ty>()?; )+ }; }
         declare!(
@@ -80,6 +80,10 @@ impl<S: StageSink + 'static> ProviderStage<S> for Assemble {
             LiteralSet,
             LiteralSetMember,
             SyntaxDetail,
+            Assumption,
+            AssumptionUniverse,
+            AssumptionSet,
+            AssumptionSetMember,
             AssertionQualification,
             Condition,
             ConditionNode,
@@ -100,6 +104,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for Assemble {
             Predicate,
             EvaluationAtom
         );
+        context.emit(AssumptionSet::empty())?;
         let captured = context.captured();
         let acquisition = crate::acquisition::acquisition_provider();
         context.emit(acquisition.clone())?;
@@ -165,7 +170,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for Assemble {
 pub fn vocabulary() -> Vec<lctx_model::domain::stages::RelationUse> {
     use lctx_model::domain::stages::RelationUse;
     use lctx_model::domain::{
-        assertion::*, attribution::*, conditions::*, source::CoverageScope, syntax::*, value::*,
+        assertion::*, assumptions::*, attribution::*, conditions::*, source::CoverageScope, syntax::*, value::*,
     };
     macro_rules! uses { ($($ty:ty),+) => { vec![$(RelationUse::of::<$ty>()),+] }; }
     uses!(
@@ -174,6 +179,10 @@ pub fn vocabulary() -> Vec<lctx_model::domain::stages::RelationUse> {
         LiteralSet,
         LiteralSetMember,
         SyntaxDetail,
+        Assumption,
+        AssumptionUniverse,
+        AssumptionSet,
+        AssumptionSetMember,
         AssertionQualification,
         Condition,
         ConditionNode,

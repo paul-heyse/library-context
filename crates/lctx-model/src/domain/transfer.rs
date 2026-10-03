@@ -265,6 +265,7 @@ impl TransferBranch<local::TransferKey> {
         if influence.qualification != q.id()
             || q.context != self.qualification().context
             || q.scope != self.qualification().scope
+            || q.assumptions != self.qualification().assumptions
         {
             return Err(invalid("control influence crosses transfer context/scope"));
         }
@@ -289,6 +290,7 @@ fn same_frame(key: &TransferDescriptor, q: &AssertionQualification) -> bool {
 #[derive(Debug)]
 pub struct MergedTransfer<K: TransferKeyRecord = local::TransferKey> {
     pub key: K,
+    pub assumptions: Id<assumptions::AssumptionSet>,
     pub condition: Diagram,
     pub alternatives: BTreeSet<Id<K::Alternative>>,
     _condition_charge: Box<dyn Reservation>,
@@ -319,7 +321,7 @@ pub fn merge<K: TransferKeyRecord>(
     branches: impl IntoIterator<Item = TransferBranch<K>>,
     budget: &ResourceBudget,
 ) -> Result<TransferAggregation<K>, TransferError> {
-    let mut merged: BTreeMap<Id<K>, MergedTransfer<K>> = BTreeMap::new();
+    let mut merged: BTreeMap<(Id<K>, ContentHash), MergedTransfer<K>> = BTreeMap::new();
     let mut charge = StateCharge::new(budget, "transfer_aggregation");
     let mut count = 0usize;
     for branch in branches {
@@ -329,7 +331,7 @@ pub fn merge<K: TransferKeyRecord>(
                 ObligationKind::SummaryPairWorkLimit,
             ));
         }
-        let id = branch.key().id();
+        let id = (branch.key().id(), analysis::support::alternative_basis(branch.qualification()));
         let alternative = branch.alternative().id();
         match merged.get_mut(&id) {
             Some(existing) => {
@@ -372,6 +374,7 @@ pub fn merge<K: TransferKeyRecord>(
                     id,
                     MergedTransfer {
                         key: branch.key().clone(),
+                        assumptions: branch.qualification().assumptions,
                         condition: branch.condition().clone(),
                         alternatives: BTreeSet::from([alternative]),
                         _condition_charge: reservation,

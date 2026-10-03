@@ -217,6 +217,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     };
     let (condition, nodes) = Diagram::always().records();
     let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: context.id(),
         scope: scope.id(),
         condition: condition.id(),

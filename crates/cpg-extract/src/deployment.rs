@@ -315,6 +315,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for Deployment {
             };
             let (condition, nodes) = Diagram::always().records();
             let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
                 context: analysis.id(),
                 scope: scope.id(),
                 condition: condition.id(),

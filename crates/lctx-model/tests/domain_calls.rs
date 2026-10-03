@@ -60,6 +60,7 @@ impl Fixture {
         .unwrap();
         let scope = CoverageScope::Input { input: input.id() };
         let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: Diagram::always().id(),
@@ -1056,6 +1057,7 @@ fn local_variable_places_are_shared_within_a_scope_and_distinct_across_scopes() 
         lock_digest: None,
     };
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: context.id(),
         scope: CoverageScope::Input { input: input.id() }.id(),
         condition: Diagram::always().id(),

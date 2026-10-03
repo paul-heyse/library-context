@@ -1225,6 +1225,7 @@ mod tests {
             owner::AnalysisInvocation::new(nominal(1), nominal(2), definition.id(), None, []);
         let condition = Diagram::never();
         let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: invocation.context,
             scope: nominal(3),
             condition: condition.id(),
@@ -1367,6 +1368,7 @@ mod tests {
         let no = Diagram::never();
         let conditional = Diagram::from_atom(nominal(3));
         let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: nominal(1),
             scope: nominal(2),
             condition: yes.id(),

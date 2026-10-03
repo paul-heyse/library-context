@@ -1437,7 +1437,7 @@ fn distinct_unexamined_causes_survive_model_packet_serialization_without_assignm
         (ObligationKind::EntryValueUnknown, 49),
     ] {
         let assessment = unexamined(&request, &entry, cause, &path, &case.f.budget).unwrap();
-        let packet = serving::NativeAssessmentPacket::from_canonical(&assessment);
+        let packet = serving::NativeAssessmentPacket::from_canonical(&assessment, serving::ClaimBasisPacket::from_canonical(&assumptions::ResolvedAssumptions::empty(),vec![]).unwrap());
         let json = serde_json::to_value(&packet).unwrap();
         assert_eq!(json["reason"], serde_json::json!(code));
         assert_eq!(json["exact"], "unknown");

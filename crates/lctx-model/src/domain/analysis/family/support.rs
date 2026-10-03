@@ -1,6 +1,6 @@
 use super::*;
 use crate::domain::analysis::{native::NativeQualification,policy::EvidenceStatus,support::{SourceFacts,inferred_status}};
-pub use crate::domain::analysis::support::{QualificationOperation,QualifiedResult};
+pub use crate::domain::analysis::support::{QualificationOperation,QualifiedResult,qualify_with_basis};
 pub use super::SupportSource;
 pub type QualifiedPremise<'a>=crate::domain::analysis::support::QualifiedPremise<'a,SupportSource>;
 pub fn qualify(operation:QualificationOperation,premises:&[QualifiedPremise<'_>],budget:&resources::ResourceBudget)->Result<QualifiedResult,ModelError> {crate::domain::analysis::support::qualify(operation,premises,budget)}
@@ -50,12 +50,15 @@ pub(super) fn input_digest(sources:&std::collections::BTreeSet<Id<SupportSource>
 impl AnalysisDerivation {
     #[allow(clippy::too_many_arguments,reason="Derivation emission binds the invocation, definition, subject, channel, phase, operation and premises")]
     pub fn emit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,subject:Id<ObligationSubject>,channel:AnalysisChannel,phase:CallPhase,operation:QualificationOperation,premises:&[EvidencePremise<'_>],budget:&resources::ResourceBudget)->Result<(Self,AnalysisProposition,Vec<AnalysisDerivationPremise>,QualifiedResult),ModelError> {
+        Self::emit_with_basis(invocation,definition,subject,channel,phase,operation,premises,None,budget)
+    }
+    pub fn emit_with_basis(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,subject:Id<ObligationSubject>,channel:AnalysisChannel,phase:CallPhase,operation:QualificationOperation,premises:&[EvidencePremise<'_>],basis:Option<&dyn assumptions::AssumptionResolver>,budget:&resources::ResourceBudget)->Result<(Self,AnalysisProposition,Vec<AnalysisDerivationPremise>,QualifiedResult),ModelError> {
         if invocation.definition!=definition.id() {return Err(invalid("derivation changes analysis definition"));}
         let mut charge=charged::StateCharge::new(budget,"analysis_derivation_emit");let mut sources=charged::ChargedSet::default();
         for premise in premises {if !sources.insert(&mut charge,premise.premise.source.id())? {return Err(invalid("duplicate qualified derivation source"));}}
         let _buffer=budget.reserve("analysis_derivation_emit",premises.len().checked_mul(size_of::<QualifiedPremise<'_>>()+size_of::<AnalysisDerivationPremise>()).ok_or_else(||invalid("derivation buffer overflow"))?)?;
         let qualified=premises.iter().map(|p|QualifiedPremise {source:p.premise.source,qualification:p.premise.qualification,condition:p.premise.condition}).collect::<Vec<_>>();
-        let result=qualify(operation,&qualified,budget)?;
+        let result=qualify_with_basis(operation,&qualified,basis,budget)?;
         if result.qualification.context!=invocation.context {return Err(invalid("derivation qualification crosses invocation"));}
         let proposition=AnalysisProposition {subject,channel,phase,qualification:result.qualification.id()};
         let row=Self {invocation:invocation.id(),proposition:proposition.id(),qualification:result.qualification.id(),operation,inputs:input_digest(&sources),status:inferred_status(definition.interpretation,premises.iter().map(|p|p.facts.status)),heuristic:definition.interpretation==Interpretation::Heuristic || premises.iter().any(|p|p.facts.heuristic)};
@@ -63,11 +66,12 @@ impl AnalysisDerivation {
         Ok((row,proposition,members,result))
     }
 }
-fn support_inputs()->Vec<ValidationInput> {let mut inputs=vec![ValidationInput::of::<AnalysisProposition>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<conditions::Condition>(&["id"]),ValidationInput::of::<conditions::ConditionNode>(&["id"]),ValidationInput::of::<NativeQualification>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"]),ValidationInput::of::<SupportSource>(&["id"]),ValidationInput::of::<AnalysisDerivationPremise>(&["id"])];predecessor_support_inputs(&mut inputs);for input in ownership::ScopeIndex::inputs() {if !inputs.iter().any(|r|r.name()==input.name()) {inputs.push(input);}}inputs}
+fn support_inputs()->Vec<ValidationInput> {let mut inputs=vec![ValidationInput::of::<AnalysisProposition>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<conditions::Condition>(&["id"]),ValidationInput::of::<conditions::ConditionNode>(&["id"]),ValidationInput::of::<NativeQualification>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"]),ValidationInput::of::<SupportSource>(&["id"]),ValidationInput::of::<AnalysisDerivationPremise>(&["id"])];predecessor_support_inputs(&mut inputs);inputs.extend(assumptions::AssumptionIndex::inputs());for input in ownership::ScopeIndex::inputs() {if !inputs.iter().any(|r|r.name()==input.name()) {inputs.push(input);}}inputs}
 fn support_invariants()->Vec<Invariant> {vec![Invariant {name:owner_table!("qualified_derivation"),inputs:support_inputs(),create:std::sync::Arc::new(|budget|Box::new(SupportCheck::new(budget)))}]}
 struct SupportCheck {
     charge:charged::StateCharge,
     ownership:ownership::ScopeIndex,
+    assumptions:assumptions::AssumptionIndex,
     propositions:charged::ChargedMap<Id<AnalysisProposition>,AnalysisProposition>,
     invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,
     definitions:charged::ChargedMap<Id<AnalysisDefinition>,AnalysisDefinition>,
@@ -80,11 +84,12 @@ struct SupportCheck {
     members:charged::ChargedMap<Id<AnalysisDerivation>,std::collections::BTreeSet<Id<SupportSource>>>,
 }
 impl SupportCheck {
-    fn new(budget:&resources::ResourceBudget)->Self {Self {charge:charged::StateCharge::new(budget,"qualified_analysis_derivation"),ownership:ownership::ScopeIndex::new(budget,"qualified_analysis_derivation"),propositions:Default::default(),invocations:Default::default(),definitions:Default::default(),qualifications:Default::default(),conditions:Default::default(),nodes:Default::default(),facts:Default::default(),sources:Default::default(),derivations:Default::default(),members:Default::default()}}
+    fn new(budget:&resources::ResourceBudget)->Self {Self {charge:charged::StateCharge::new(budget,"qualified_analysis_derivation"),ownership:ownership::ScopeIndex::new(budget,"qualified_analysis_derivation"),assumptions:assumptions::AssumptionIndex::new(budget),propositions:Default::default(),invocations:Default::default(),definitions:Default::default(),qualifications:Default::default(),conditions:Default::default(),nodes:Default::default(),facts:Default::default(),sources:Default::default(),derivations:Default::default(),members:Default::default()}}
     fn source_facts(&self,source:&SupportSource)->Result<SourceFacts,ModelError> {match source {SupportSource::AnalysisDerivation {derivation}=>self.derivations.get(derivation).map(|r|r.facts()),_=>self.facts.get(&source.reference()).copied()}.ok_or_else(||invalid("support source evidence absent"))}
 }
 impl InvariantCheck for SupportCheck {
     fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
+        if self.assumptions.visit(relation,batch)? {return Ok(());}
         if self.ownership.visit(relation,batch)? {return Ok(());}
         macro_rules! insert {($r:ty,$field:ident)=>{if relation==<$r>::NAME {for row in <$r>::decode(batch)? {if self.$field.insert(&mut self.charge,row.id(),row)?.is_some() {return Err(ModelError::Conflict(<$r>::NAME));}}return Ok(());}};}
         insert!(AnalysisProposition,propositions);insert!(AnalysisInvocation,invocations);insert!(AnalysisDefinition,definitions);insert!(AssertionQualification,qualifications);insert!(conditions::Condition,conditions);insert!(conditions::ConditionNode,nodes);insert!(SupportSource,sources);insert!(AnalysisDerivation,derivations);
@@ -108,7 +113,7 @@ impl InvariantCheck for SupportCheck {
             let nodes=self.nodes.values().cloned().collect::<Vec<_>>();let mut diagrams=Vec::with_capacity(members.len());let mut evidence=Vec::with_capacity(members.len());
             for member in members {let source=self.sources.get(member).ok_or_else(||invalid("derivation source absent"))?;let facts=self.source_facts(source)?;let q=self.qualifications.get(&facts.qualification).ok_or_else(||invalid("source qualification absent"))?;let condition=self.conditions.get(&q.condition).ok_or_else(||invalid("source condition absent"))?;diagrams.push(conditions::Diagram::from_records(condition,&nodes)?);evidence.push((source,q,facts));}
             let premises=evidence.iter().zip(&diagrams).map(|((source,q,_),condition)|QualifiedPremise {source,qualification:q,condition}).collect::<Vec<_>>();
-            if qualify(row.operation,&premises,budget)?.qualification!=*q || row.status!=inferred_status(definition.interpretation,evidence.iter().map(|(_,_,f)|f.status)) || row.heuristic!=(definition.interpretation==Interpretation::Heuristic || evidence.iter().any(|(_,_,f)|f.heuristic)) {return Err(invalid("derivation strengthens qualification or evidence lineage"));}
+            if qualify_with_basis(row.operation,&premises,Some(&self.assumptions),budget)?.qualification!=*q || row.status!=inferred_status(definition.interpretation,evidence.iter().map(|(_,_,f)|f.status)) || row.heuristic!=(definition.interpretation==Interpretation::Heuristic || evidence.iter().any(|(_,_,f)|f.heuristic)) {return Err(invalid("derivation strengthens qualification or evidence lineage"));}
         }
         for id in self.members.keys() {if !self.derivations.contains_key(id) {return Err(invalid("orphan derivation membership"));}}
         for source in self.sources.values() {self.source_facts(source)?;}
@@ -138,11 +143,12 @@ impl assertion::DerivedSupportIndex<SupportSource> for CompanionIndex {
 }
 /// Read-only projection from already validated nominal source rows. Each concrete owner supplies
 /// its finite predecessor adapters; inference remains the shared qualification/status policy.
-pub struct EvidenceIndex {charge:charged::StateCharge,sources:charged::ChargedMap<Id<SupportSource>,SupportSource>,facts:charged::ChargedMap<derivation::RowRef,SourceFacts>}
+pub struct EvidenceIndex {pub assumptions:assumptions::AssumptionIndex,charge:charged::StateCharge,sources:charged::ChargedMap<Id<SupportSource>,SupportSource>,facts:charged::ChargedMap<derivation::RowRef,SourceFacts>}
 impl EvidenceIndex {
-    pub fn new(budget:&resources::ResourceBudget)->Self {Self {charge:charged::StateCharge::new(budget,"analysis_source_index"),sources:Default::default(),facts:Default::default()}}
-    pub fn inputs()->Vec<ValidationInput> {let mut inputs=vec![ValidationInput::of::<SupportSource>(&["id"]),ValidationInput::of::<NativeQualification>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"])];predecessor_support_inputs(&mut inputs);inputs}
+    pub fn new(budget:&resources::ResourceBudget)->Self {Self {assumptions:assumptions::AssumptionIndex::new(budget),charge:charged::StateCharge::new(budget,"analysis_source_index"),sources:Default::default(),facts:Default::default()}}
+    pub fn inputs()->Vec<ValidationInput> {let mut inputs=vec![ValidationInput::of::<SupportSource>(&["id"]),ValidationInput::of::<NativeQualification>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"])];predecessor_support_inputs(&mut inputs);inputs.extend(assumptions::AssumptionIndex::inputs());inputs}
     pub fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {
+        if self.assumptions.visit(relation,batch)? {return Ok(true);}
         if relation==SupportSource::NAME {for row in SupportSource::decode(batch)? {self.sources.insert(&mut self.charge,row.id(),row)?;}return Ok(true);}
         if relation==NativeQualification::NAME {for row in NativeQualification::decode(batch)? {self.facts.insert(&mut self.charge,derivation::RowRef::of(row.premise),SourceFacts {qualification:row.qualification,status:row.status,heuristic:false})?;}return Ok(true);}
         if relation==AnalysisDerivation::NAME {for row in AnalysisDerivation::decode(batch)? {self.facts.insert(&mut self.charge,derivation::RowRef::of(row.id()),row.facts())?;}return Ok(true);}

@@ -796,6 +796,7 @@ impl EntryValueWitness {
                     && c.family == FactFamily::Flow
             }) {
                 let q = AssertionQualification {
+        assumptions: need(&data.qualifications, use_observation.qualification)?.assumptions,
                     context: request.context,
                     scope: row.scope,
                     condition: need(&data.qualifications, use_observation.qualification)?.condition,

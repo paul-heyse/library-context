@@ -227,6 +227,7 @@ mod tests {
         let node = DocumentNode::CodeBlock { span, ordinal: 0 };
         d.nodes.insert(node.clone()).unwrap();
         let q = assertion::AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context,
             scope: (source::CoverageScope::Artifact { artifact: doc.id() }).id(),
             condition: conditions::Diagram::always().id(),

@@ -978,6 +978,8 @@ impl CatalogService {
                     let qualifications = lease
                         .read_ids::<assertion::AssertionQualification>(&qualification_ids)
                         .await?;
+                    let mut claim_bases = std::collections::BTreeMap::new();
+                    for q in qualifications.rows() { claim_bases.insert(q.id(), lease.claim_basis(q).await?); }
                     let proofs = lease
                         .read_ids::<ClaimProof>(
                             &conclusions
@@ -1087,6 +1089,7 @@ impl CatalogService {
                         page,
                         conclusions,
                         qualifications,
+                        claim_bases,
                         proofs,
                         invocations,
                         definitions,
@@ -1106,6 +1109,7 @@ impl CatalogService {
                 page,
                 conclusions,
                 qualifications,
+                claim_bases,
                 proofs,
                 invocations,
                 definitions,
@@ -1169,6 +1173,7 @@ impl CatalogService {
                     proof.push(ProofReference::from_canonical(derivation::RowRef::of(id)));
                 }
                 let packet = BehaviorPacket {
+                    claim_basis:claim_bases.get(&qualification.id()).ok_or(Error::Contract)?.clone(),
                     condition: condition.id(),
                     verdict: facet.verdict,
                     model,

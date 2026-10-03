@@ -4,6 +4,8 @@ pub mod analysis;
 pub mod analytics;
 pub mod artifact;
 pub mod assertion;
+pub mod assumptions;
+pub mod assumptions_universe;
 pub mod attachment;
 pub mod attribution;
 pub mod batching;
@@ -270,6 +272,7 @@ pub fn analysis_relations() -> Vec<Relation> {
 /// observations and the vocabulary they use (cutover phases 0–2).
 pub fn facts_relations() -> Vec<Relation> {
     use assertion::*;
+    use assumptions::*;
     use attribution::*;
     use calls::*;
     use conditions::*;
@@ -282,6 +285,10 @@ pub fn facts_relations() -> Vec<Relation> {
     use types::*;
     use value::*;
     vec![
+        Relation::of::<Assumption>(),
+        Relation::of::<AssumptionUniverse>(),
+        Relation::of::<AssumptionSet>(),
+        Relation::of::<AssumptionSetMember>(),
         Relation::of::<ReportCollection>(),
         Relation::of::<ReportValue>(),
         Relation::of::<ReportEntry>(),

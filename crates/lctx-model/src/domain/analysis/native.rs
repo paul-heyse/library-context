@@ -52,6 +52,7 @@ macro_rules! native_pairs {
                 let _decode = self.budget.reserve("native-inventory-decode", allowance)?;
                 if name == AssertionQualification::NAME {
                     for row in AssertionQualification::decode(batch)? {
+                        if row.assumptions != assumptions::AssumptionSet::empty_id() { return Err(invalid("native qualification needs explicit empty assumption basis")); }
                         self.qualifications.insert(&mut self.charge, row.id())?;
                     }
                     return Ok(());

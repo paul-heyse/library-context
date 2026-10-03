@@ -45,6 +45,7 @@ fn invocation() -> Invocation {
 }
 fn q(inv: &Invocation, condition: &Diagram) -> AssertionQualification {
     AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: inv.context,
         scope: CoverageScope::Input { input: inv.input }.id(),
         condition: condition.id(),
@@ -110,6 +111,7 @@ fn emitter_keeps_partial_frame_and_refuses_forged_stored_status() {
         frame(&[q]),
         frame(&[stored]),
         frame(&nodes),
+        frame(&[lctx_model::domain::assumptions::AssumptionSet::empty()]),
     ];
     check(frames.clone()).unwrap();
     let mut forged = frames;

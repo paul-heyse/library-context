@@ -13,7 +13,8 @@ use lctx_model::domain::{
 };
 fn id<T>(n: u8) -> Id<T> { serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap() }
 fn qualification(context: Id<AnalysisContext>) -> AssertionQualification {
-    AssertionQualification { context, scope: id(2), condition: id(3), modality: Modality::Definite, approximation: Approximation::Exact }
+    AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(), context, scope: id(2), condition: id(3), modality: Modality::Definite, approximation: Approximation::Exact }
 }
 fn occurrence(kind: SyntaxKind, path: i32) -> Occurrence {
     Occurrence { source: id(4), start: 10, end: 30, syntax_kind: kind, role: OccurrenceRole::Parameter, structural_path: vec![path] }

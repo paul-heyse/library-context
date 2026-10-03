@@ -48,6 +48,7 @@ impl World {
             input: InputRevision::from_entries(vec![]).unwrap().id(),
         };
         let base = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: Diagram::always().id(),

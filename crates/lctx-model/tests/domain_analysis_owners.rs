@@ -199,6 +199,7 @@ fn native_projection_feeds_shared_join_and_stored_lineage_refuses_strengthening(
     let scope = CoverageScope::Input { input: inv.input };
     let condition = Diagram::always();
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: inv.context,
         scope: scope.id(),
         condition: condition.id(),
@@ -246,6 +247,7 @@ fn native_projection_feeds_shared_join_and_stored_lineage_refuses_strengthening(
         frame(&[q]),
         frame(&[stored_condition]),
         frame(&nodes),
+        frame(&[assumptions::AssumptionSet::empty()]),
     ];
     check::<Derivation>(frames.clone()).unwrap();
     let mut forged = derivation;
@@ -304,6 +306,7 @@ fn bdd_qualification_refuses_budget_and_keeps_shared_weakest_policy() {
     let a = Diagram::from_atom(nominal(1));
     let b = a.not().unwrap();
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: nominal(2),
         scope: nominal(3),
         condition: a.id(),

@@ -464,6 +464,7 @@ impl PublicationOrder {
 pub fn is_vocabulary(name: &str) -> bool {
     use super::{
         assertion::AssertionQualification,
+        assumptions::{Assumption, AssumptionSet, AssumptionSetMember, AssumptionUniverse},
         conditions::{Condition, ConditionNode, EvaluationAtom},
         value::{
             AccessPath, Literal, LiteralSet, LiteralSetMember, PathSegment, Place, PlaceRoot,
@@ -471,6 +472,10 @@ pub fn is_vocabulary(name: &str) -> bool {
         },
     };
     [
+        Assumption::NAME,
+        AssumptionSet::NAME,
+        AssumptionSetMember::NAME,
+        AssumptionUniverse::NAME,
         Literal::NAME,
         LiteralSet::NAME,
         LiteralSetMember::NAME,

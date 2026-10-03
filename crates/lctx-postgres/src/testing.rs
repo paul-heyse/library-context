@@ -226,6 +226,10 @@ impl Harness {
                     conditions::EvaluationAtom,
                     conditions::ConditionNode,
                     conditions::Condition,
+                    assumptions::AssumptionSet,
+                    assumptions::AssumptionSetMember,
+                    assumptions::Assumption,
+                    assumptions::AssumptionUniverse,
                     assertion::AssertionQualification
                 )
             };
@@ -337,6 +341,7 @@ impl Harness {
                 ($($ty:ty),*) => { $(output.declare::<$ty>()?;)* };
             }
             vocabulary!(declare);
+            if *name == "empty_facts" { output.push(assumptions::AssumptionSet::empty()).await?; }
             output.finish(ProviderOutcome::Complete).await?;
         }
         let mut output = StageOutput::new(
@@ -820,6 +825,10 @@ pub mod fixtures {
                     stage(
                         "assemble",
                         uses!(
+                            assumptions::AssumptionSet,
+                            assumptions::AssumptionSetMember,
+                            assumptions::Assumption,
+                            assumptions::AssumptionUniverse,
                             ProviderCoverage,
                             CoverageScope,
                             Provider,
@@ -915,7 +924,7 @@ pub mod fixtures {
                         empty!(access, attempt, model; TaskReportObservation, TaskReportSupport, DeploymentObservation, DeploymentSupport)
                     }
                     "assemble" => {
-                        rows!(access, attempt, model; ProviderCoverage => coverage.clone(), CoverageScope => vec![scope.clone()],
+                        rows!(access, attempt, model; assumptions::AssumptionSet => vec![assumptions::AssumptionSet::empty()], ProviderCoverage => coverage.clone(), CoverageScope => vec![scope.clone()],
                         Provider => vec![self.capture.clone(), self.pyrefly.clone(),self.deploy.clone()], AnalysisContext => vec![self.context.clone()],
                         ProviderRun => vec![capture_run.clone(),signature_run.clone(), deploy_run.clone()], RunFamily => capture_families.iter().chain(&signature_families).chain(&deploy_families).cloned().collect())
                     }

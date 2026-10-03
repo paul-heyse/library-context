@@ -90,6 +90,7 @@ pub fn qualification(
     approximation: Approximation,
 ) -> AssertionQualification {
     AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: invocation.context,
         scope: CoverageScope::Input {
             input: invocation.input,

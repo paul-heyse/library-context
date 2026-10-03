@@ -857,6 +857,7 @@ pub fn mention_sentence(
 /// Static association: source qualifications remain on their exact earlier native premises.
 fn association_qualification(i: &analysis::catalog_core::Invocation) -> AssertionQualification {
     AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: i.context,
         scope: CoverageScope::Input { input: i.input }.id(),
         condition: conditions::Diagram::always().id(),
@@ -1108,6 +1109,7 @@ pub(crate) mod tests {
             })
             .unwrap();
         let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: id(2),
             scope: CoverageScope::Artifact {
                 artifact: source.id(),
@@ -1306,6 +1308,7 @@ pub(crate) mod tests {
         d.artifacts.insert(artifact.clone()).unwrap();
         let context = d.core_invocations.iter().next().unwrap().context;
         let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context,
             scope: CoverageScope::Artifact {
                 artifact: artifact.id(),

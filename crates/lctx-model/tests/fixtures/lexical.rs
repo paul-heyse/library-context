@@ -73,6 +73,7 @@ impl Fixture {
         };
         let (condition, nodes) = Diagram::always().records();
         let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: coverage_scope.id(),
             condition: condition.id(),
@@ -245,6 +246,7 @@ impl Fixture {
             fixture.resolution,
             fixture.resolution_support
         );
+        fixture.put(vec![assumptions::AssumptionSet::empty()]);
         fixture.put(families);
         fixture.put(nodes);
         fixture.put(vec![source.clone(), other.clone()]);

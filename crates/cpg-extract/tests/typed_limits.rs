@@ -55,6 +55,7 @@ fn input(text: &str) -> Input {
         qualified_name: "big".into(),
     };
     let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: context.id(),
         scope: CoverageScope::Module {
             module: module.id(),

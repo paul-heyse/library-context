@@ -32,6 +32,7 @@ fn fixture(b: &ResourceBudget) -> (CatalogData, AssertionQualification, Module) 
         qualified_name: "api".into(),
     };
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: nominal(2),
         scope: CoverageScope::Artifact {
             artifact: source.id(),

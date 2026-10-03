@@ -66,6 +66,7 @@ fn qualified_assertions_preserve_alternatives_and_require_typed_attribution() {
     };
     let (condition, nodes) = Diagram::always().records();
     let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: ctx.id(),
         scope: scope.id(),
         condition: condition.id(),
@@ -131,6 +132,7 @@ fn qualified_assertions_preserve_alternatives_and_require_typed_attribution() {
         roundtrip.rows()
     );
     let mut base = BTreeMap::new();
+    insert(&model, &mut base, vec![assumptions::AssumptionSet::empty()]);
     insert(&model, &mut base, nodes);
     insert(&model, &mut base, vec![condition]);
     insert(&model, &mut base, vec![source.clone(), other.clone()]);
@@ -391,6 +393,7 @@ fn assertion_condition_context_and_evidence_bounds_are_stored_invariants() {
         artifact: source.id(),
     };
     let mut batches = BTreeMap::new();
+    insert(&model, &mut batches, vec![assumptions::AssumptionSet::empty()]);
     insert(&model, &mut batches, vec![atom]);
     insert(&model, &mut batches, nodes);
     insert(&model, &mut batches, vec![condition.clone()]);
@@ -399,6 +402,7 @@ fn assertion_condition_context_and_evidence_bounds_are_stored_invariants() {
             &model,
             &mut batches,
             vec![AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
                 context,
                 scope: scope.id(),
                 condition: condition.id(),

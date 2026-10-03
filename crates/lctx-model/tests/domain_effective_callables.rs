@@ -73,6 +73,7 @@ fn fixture() -> (
         .unwrap();
     let (condition, _) = Diagram::always().records();
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: context.id(),
         scope: scope.id(),
         condition: condition.id(),

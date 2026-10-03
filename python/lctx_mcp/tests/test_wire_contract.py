@@ -136,3 +136,19 @@ def test_unsupported_facets_are_refused_by_native_request_admission():
     }
     with pytest.raises(ValueError, match="facet membership"):
         wire_decode("find_operations", json.dumps(request))
+
+
+def test_native_response_requires_resolved_claim_assumption_basis():
+    schema = json.loads(wire_schema("inspect_value_paths", True))
+    definitions = schema["$defs"]
+    packet = definitions["NativeAssessmentPacket"]
+    assert "claim_basis" in packet["required"]
+    basis = definitions["ClaimBasisPacket"]
+    assert {"set", "members_digest", "definitions"}.issubset(basis["required"])
+    premise = definitions["ClaimAssumptionPacket"]
+    arms = premise.get("oneOf", premise.get("anyOf", []))
+    assert len(arms) == 2
+    for arm in arms:
+        assert "support" in arm["required"]
+    universe = definitions["AssumptionUniversePacket"]
+    assert {"model_definition", "source", "support", "catalog", "model"}.issubset(universe["required"])

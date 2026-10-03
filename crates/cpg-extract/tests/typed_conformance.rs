@@ -423,6 +423,7 @@ fn changed_text_is_refused_before_emission() {
         name: "s".into(),
     };
     let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: context.id(),
         scope: CoverageScope::Artifact {
             artifact: source.id(),

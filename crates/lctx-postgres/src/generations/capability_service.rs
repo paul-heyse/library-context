@@ -226,7 +226,8 @@ impl super::packet_reads::PacketLease<'_> {
                 .iter()
                 .find(|a| a.id() == id)
                 .ok_or(Error::Contract)?;
-            need(&q, value.qualification())?;
+            let qualification = need(&q, value.qualification())?;
+            let claim_basis = self.claim_basis(&qualification).await?;
             let mut claim_supports = Vec::new();
             for support in supports.rows().iter().filter(|s| s.assertion == id) {
                 let source = need(&sources, support.source)?;
@@ -261,6 +262,7 @@ impl super::packet_reads::PacketLease<'_> {
                 section: value.section(),
                 status: value.status(),
                 qualification: value.qualification(),
+                claim_basis,
                 text: Text::new(value.text()).map_err(wire)?,
                 supports: claim_supports,
             });

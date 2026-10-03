@@ -32,6 +32,7 @@ fn discharge_matches_the_exact_question_and_keeps_partial_negative_and_candidate
     let inv = invocation();
     let condition = Diagram::always();
     let q = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
         context: inv.context,
         scope: CoverageScope::Input { input: inv.input }.id(),
         condition: condition.id(),

@@ -34,6 +34,8 @@ macro_rules! code_schema { ($($ty:ty),* $(,)?)=>{$(
     }
 )*}; }
 code_schema!(
+    attribution::Fidelity,
+    types::TypeRole,
     selection::EvidenceBasis,
     selection::Mode,
     selection::JointPolicy,
