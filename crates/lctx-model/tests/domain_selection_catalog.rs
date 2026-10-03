@@ -1574,3 +1574,14 @@ fn exact_exception_raises_uses_runtime_summary_and_never_native_typing_absence()
     data.facts.exception_outcomes.insert(SummaryExceptionOutcome { exception: None, ..result }).unwrap();
     assert_eq!(classify(&data, ExactRuntimeException::ValueError).outcome, Outcome::Contradicted, "normal admitted body supplies its own finite absence evidence");
 }
+
+#[test]
+fn later_unreferenced_qualification_does_not_expand_c2_witness_closure() {
+    let (b, mut d, _, _, _) = fixture();
+    let expected = lctx_model::domain::selection::build::build(&d, &b).unwrap();
+    let mut later = d.source.core.qualifications.iter().next().unwrap().clone();
+    later.condition = conditions::Diagram::never().id();
+    d.source.core.qualifications.insert(later).unwrap();
+    let replayed = lctx_model::domain::selection::build::build(&d, &b).unwrap();
+    expected.matches(&replayed).unwrap();
+}

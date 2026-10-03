@@ -618,7 +618,10 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
     }
     // Request-time answers only reference persisted canonical witness rows. These rows
     // characterize available facts; context admission and truth remain evaluator decisions.
-    for row in d.source.core.qualifications.iter(){out.witnesses.insert(Witness::Qualification{qualification:row.id()})?;}
+    // Later stages append vocabulary rows. Only qualifications referenced by these
+    // immutable native inputs belong to C2's located-typing witness universe.
+    for row in d.source.core.native_signatures.iter(){need(&d.source.core.qualifications,row.qualification)?;out.witnesses.insert(Witness::Qualification{qualification:row.qualification})?;}
+    for row in d.facts.generic_specializations.iter(){need(&d.source.core.qualifications,row.qualification)?;out.witnesses.insert(Witness::Qualification{qualification:row.qualification})?;}
     for row in d.source.core.signature_types.iter(){out.witnesses.insert(Witness::SignatureTypeObservation{observation:row.id()})?;}
     for row in d.facts.type_observations.iter(){out.witnesses.insert(Witness::TypeObservation{observation:row.id()})?;}
     for row in d.facts.generic_specializations.iter(){out.witnesses.insert(Witness::GenericSpecialization{observation:row.id()})?;}
