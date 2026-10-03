@@ -1,10 +1,11 @@
 # Semantic-model incremental alignment — coordinated implementation plan
 
-**Proposed · 2026-10-02.** This series converts the
+**Implemented; scoped Tested acceptance complete · 2026-10-03.** This series converts the
 [incremental alignment review](../design_review/reviews/design_review_semantic-model-incremental-alignment_2026-10-02.md)
 into bounded implementation work. It retains the implemented semantic model and its single
-owner, hard compilation layers and PostgreSQL generation lifecycle. Publishing this series
-implements the requested planning work; production corrections require execution authorization.
+owner, hard compilation layers and PostgreSQL generation lifecycle. Execution is authorized;
+§7 owns actual implementation state and acceptance receipts. The original plan-authoring
+receipt remains scoped to authoring.
 Phase 5 real-library qualification and activation remain stopped at the operator's request.
 
 ## 1. Purpose, baseline and foundation assessment
@@ -240,26 +241,28 @@ prerequisite to serving activation; never call a stale generation validated for 
 
 ## 7. Current disposition — sole execution owner
 
-All remedies are **Scheduled / Proposed**, 2026-10-02; implementation checks are **not_run**.
+All remedies are **closed / scoped Tested**, 2026-10-03. The final complete functional gate
+passed on production commit `50f58ffa`; every hygiene constituent passed through named repairs.
+The receipt below preserves the failed first run, actual controls and qualification limits.
 These rows own subsequent state and closure evidence. Source review §§7/9 remain the dated
 diagnoses/opportunities. O1–O6 are local shorthand for its numbered §9 entries, not new defects.
 
-| Source ID | Scheduled correction | Closure boundary / current evidence |
+| Source ID | Scheduled correction | Closure boundary / current evidence, 2026-10-03 |
 |---|---|---|
-| F01 | N0 exact native refusal | Exact causes and unknown/original-identity preservation, including legitimate defaulted formal; Proposed |
-| F02 | N1–N3 pure native preparation | All semantic composition moved, store admission retained, independent legitimate/tamper cases; Proposed |
-| F03 | E3 one retained analytic policy | Records/identity/kernel settings and all forty community runs preserved; Proposed |
-| F04 | E0 finite binding | Every upper route, phase, graph need and publication group integrated; Proposed |
-| F05 | E1–E2 exact closure/grants | Four builders/loaders migrated, distinct epochs and validator order preserved; Proposed |
-| F06 | T0 gate composition | All intended controls retained, one integrated workspace execution; Proposed |
-| F07 | D0 meaningful discovery | Finite serving inventory and actual tools/list explain numeric choices; Proposed |
-| F08 | T2 owner reconciliation | Current navigation/labels with interrupted qualification retained; Proposed |
-| O1 (§9.1) | E4 borrowed CPU/progress | Heartbeat, fallback, cancellation boundary and retained drain controls; Proposed |
-| O2 (§9.2) | E5 shared S0 analytic parents | Three relations decoded/retained once; independent replay scope unchanged; Proposed |
-| O3 (§9.3) | D1 typed packet bindings | All bindings, empty attempted reads, child and prepared coverage; Proposed |
-| O4 (§9.4) | T1 declared runtime scripts | Owned-input mutation and unrelated-script stability controls; conservative other roots retained; Proposed |
-| O5 (§9.5) | D2 admitted safe failure metadata | Actual tool/resource payloads and complete admitted error envelopes; early-error limit retained; Proposed |
-| O6 (§9.6) | T2 guidance + E0/E1/E2/D0 extension controls | Existing owners plus independent binding/invariant/epoch/schema challenges; Proposed |
+| F01 | N0 exact native refusal | **closed / Tested**; native model and actual service/transport controls preserve exact causes, Unknown and original IDs, including legitimate defaulted formals |
+| F02 | N1–N3 pure native preparation | **closed / Tested**; composition/formal resolution has one model owner; store admission/membership/tamper controls and both profile native fixtures pass |
+| F03 | E3 one retained analytic policy | **closed / Tested**; record/identity/kernel mutation controls and analytic integration pass; all forty community runs retained |
+| F04 | E0 finite binding | **closed / Tested**; closed stage/graph/publication binding and missing-route controls pass; both profile upper-frontier fixture compilation passes |
+| F05 | E1–E2 exact closure/grants | **closed / Tested**; four builders/loaders migrated; extra invariant, distinct epoch/order, visible Catalog and missing checkpoint controls pass |
+| F06 | T0 gate composition | **closed / Tested**; dry inventory and final complete gate retain one workspace execution plus real PG, Python/oracles, doctests and fresh native adapters |
+| F07 | D0 meaningful discovery | **closed / Tested**; finite route/codebook/annotation schema controls and actual tools/list pass |
+| F08 | T2 owner reconciliation | **closed / Tested**; current owner/navigation labels and extension guidance published; docs/ADR/agent checks pass, stopped qualification retained |
+| O1 (§9.1) | E4 borrowed CPU/progress | **closed / Tested**; heartbeat, inline fallback, sampler stop and cancellation/drain controls pass; hard cancellation and speed remain unclaimed |
+| O2 (§9.2) | E5 shared S0 analytic parents | **closed / Tested**; one decoded parent inventory, synthesis/documentary and independent replay controls pass |
+| O3 (§9.3) | D1 typed packet bindings | **closed / Tested**; typed binding/child/prepared coverage, empty attempted reads and actual packet controls pass; canonical admission remains independent |
+| O4 (§9.4) | T1 declared runtime scripts | **closed / Tested**; declared-input mutation/deployment and unrelated-script stability controls pass; conservative other roots retained |
+| O5 (§9.5) | D2 admitted safe failure metadata | **closed / Tested**; actual legacy/modern HTTP/stdio tool/resource failure bytes and original-grant complete envelope controls pass; early-error limit retained |
+| O6 (§9.6) | T2 guidance + E0/E1/E2/D0 extension controls | **closed / Tested**; existing owner guidance plus independent stage/invariant/epoch/schema challenges pass; no universal registry introduced |
 
 Older findings retain their identities/disposition at
 [parent cutover §8](semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition) and
@@ -318,3 +321,88 @@ obligations to enduring owners and retire it under the current-working-set polic
 Four plans and the independent Proposed-target review are published. The coordinator owns
 scheduled disposition; companion contracts, current-work navigation and STATUS agree. This
 receipt establishes documentation completion, not any scheduled production correction.
+
+
+### Implementation receipt, 2026-10-03 — scoped acceptance complete
+
+Execution began on main `ed2d68d7` with unrelated library-utilization changes preserved.
+T1/ADR-0115 is committed as `d84a2287`, T0 gate composition as `761687bd`, and the integrated
+N/E/D implementation, architectural owners, ADR-0116 and independent review as `e3e7c78d`.
+Adapter freshness is committed as `2a03adc8`; final transport/deadline control corrections as
+`50f58ffa`. Concurrent operator guidance `628b018d` and unrelated role/catalog edits are preserved.
+The [independent implementation review](../design_review/reviews/design_review_semantic-model-alignment-implementation_2026-10-02.md),
+including Appendix C dated 2026-10-03, accepts the bounded design at **Implemented** strength.
+Runtime acceptance is established separately by the commands below.
+
+Persistent receipts reside in
+`/home/paul/.cache/lctx-alignment-execution/receipts-2026-10-03/`; each completed command has a
+log and exit file. Bare Cargo/uv commands use `python3 scripts/build_environment.py --` to
+normalize artifact paths. Tests retain release settings, Cargo jobs16, frontend1 and
+Nextest8 test processes. PostgreSQL controls use real disposable PostgreSQL 18.
+
+| Current command / boundary, 2026-10-03 | Outcome and receipt |
+|---|---|
+| `cargo nextest run --release -p lctx-model --test dependency_closure -p cpg-core --lib -p lctx-postgres --test stage_validation --no-fail-fast` | **passed**, 109, zero skipped; `focused-controls.log`; includes extra invariant/epoch, visible Catalog rejection, missing checkpoint rejection, explicit granted read and CPU drain controls |
+| `uv run --no-sync pytest -q python/lctx_mcp/tests/test_transport_envelope.py python/lctx_mcp/tests/test_wire_contract.py` | **passed**, nine; `wire-final.log` |
+| `uv run --no-sync pytest -q tests/scripts/test_build_environment.py` | **passed**, nine; `native-build-inputs-rerun.log`; content changes, non-newest deletion, unrelated stability, member scope and shell exports |
+| Uncached locked refresh of both native adapters, then `just native-adapter-ready` | **passed**; `abi-uncached.log`, `native-adapter-ready.log`; installed storage and CLI match all 240 captured current model sources in `adapter-source-agreement.json` |
+| `just --dry-run test-all` | **passed**; `test-all-dry-final.log`; images, CLI, adapter readiness, one workspace Nextest, Python/oracles and doctests retained |
+| First `NEXTEST_TEST_THREADS=8 just test-all` | **failed**; `test-all.log`, exit100; 944 run, 942 passed, two failed, two measurement controls skipped; Nextest ID `cd7780ff-daad-4249-a512-9fac259cdbe3`; Python/doctests not reached |
+| Final `NEXTEST_TEST_THREADS=8 just test-all` | **passed**, exit0; `test-all-final.log`; Nextest ID `908dbabc-3b27-4703-8ee1-eb63df80e7b9`; 944 Rust passed, two optional measurement controls skipped, 230 Python/oracle passed, 32 doctests passed (20 compile-fail, 12 positive); includes adapter readiness |
+| `just hygiene` and named repairs | **composite passed**; `hygiene-v2.log` stopped at Ruff; repaired Ruff and all remaining named checks passed; agent/ADR lint, fixtures, gold, rules scan/test, types, docs, deps, full workspace all-target Clippy and store-check are passing |
+| `just clippy`, `just ruff`, `just types` after final control corrections | **passed**; `clippy-final.log`, `ruff-header.log`, `types-header.log` |
+| `just docs-check` | **passed** after final disposition/handoff publication; `docs-final.log`, exit0; 269 canonical pages, 9513 links checked, zero offline link errors |
+| `target/release/lctx store reset --confirm lctx`, `just store-check` | **passed**; `store-reset.log`, `store-check.log`; current model installed, zero generations and zero findings |
+| FastMCP Q0, reconstruction, serving activation, R4 and performance/retrieval measurements | **not_run**; prior operator stop and separate qualification boundaries retained |
+
+The first complete workspace execution exposed two control defects, corrected in `50f58ffa`:
+modern HTTP resources supplied the tool name in the MCP routing header, and the cumulative
+CPU deadline stopwatch started after admission while asserting the entire original duration.
+The resource header now names its URI; the CPU control compares elapsed work against the
+actual admitted remaining deadline and still challenges cumulative refusal/drain. These fixes
+change test controls, not production runtime behavior. The first run's CPython served-path
+soundness and shared embedding replay controls passed; its failures remain recorded rather
+than being presented as an initially clean gate.
+
+Earlier targeted integration failures established the repairs rather than closure: Catalog
+inferred ordinary fact requirements retain the frozen Facts checkpoint while actual reads
+retain sufficient grants; visible Catalog contributors are rejected within the consumed
+vocabulary prefix. A1 typed projection dispatch follows its complete owner macro. The current
+109-test receipt independently challenges those requirements, epoch distinctions and missing
+checkpoint refusal. Earlier model/native/store/script and actual packet receipts remain
+bounded to their dated source; the final full gate is the combined acceptance boundary.
+A host restart interrupted initial checks and removed temporary logs; no pass is inferred for
+those interrupted commands.
+
+The final model digest is
+`12242a5558134418fc3b54fdb526628d1715720e60e6199a8a6079f6066582da`.
+The model-describe snapshot changes were inspected and accepted as a **schema migration**:
+model digest and S0 input ordering changed, with no relation fields or existing codes changed.
+Native adapter startup subsequently refused a stale storage capture despite a reported
+successful build. The uncached refresh repaired it; explicit capture agreement supplies the
+freshness receipt. Declared uv file patterns and per-member content/membership fingerprints
+now cover transitive model/macros/store sources and embedded image specifications. Readiness
+runs before Nextest while fixture invocation remains no-sync; no broad cache cleanup or
+build serialization policy was introduced. Installed uv was 0.12.22; historical documentation
+was not treated as proof of that installed version's behavior.
+
+Retirement was scoped to one old unselected staging generation,
+`de1e0c2b09a319134fcef595a9bcbe89`, after checking that there were no connected readers or serving
+vectors/artifacts. Before mutation, `retirement-controls.json` preserved all 14 control tables,
+204 stage receipts, nine outcomes, one checkpoint, 12 epoch receipts and 124 read checks.
+SHA-256: `49dc3c2e4863df869151194544edfe3caf8a457f2e1b4fa3c5ae639ad00d0fa3`.
+The reset dry run refused with expected exit2 after listing that generation; confirmed reset
+and named store-check passed. No obsolete runtime authority remains in the local project
+store. The archive remains outside runtime state; reconstruction from final pinned inputs is
+still a prerequisite to activation and was not used to restart stopped real-library work.
+
+Acceptance is scoped to these incremental corrections and fixture/transport controls. Failure
+seams force operation outcomes through the actual native service, original grant and transport;
+they do not establish physical backend fault behavior. Borrowed CPU placement does not promise
+hard kernel cancellation. Early failures without an admitted request retain their existing
+safe path; universal early-error bounds, retrieval quality, speed and total RSS are unmeasured.
+The two skipped optional measurement controls require `LCTX_P0E_INPUT` or
+`LCTX_PROJECTION_GENERATION`/`LCTX_PROJECTION_RECEIPT`; their absence does not close R4 or
+real-library serving qualification. All scheduled functional corrections are complete within
+this scoped acceptance. The next product/qualification action remains operator-authorized Q0
+and reconstruction, rather than additional alignment implementation.

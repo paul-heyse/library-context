@@ -1,9 +1,10 @@
 # Execution foundations and preparation reuse
 
-**Proposed implementation plan · 2026-10-02.** This companion develops F03–F05 and
+**Implementation contract · 2026-10-02.** This companion develops F03–F05 and
 opportunities §9.1/§9.2 of the [incremental review](../design_review/reviews/design_review_semantic-model-incremental-alignment_2026-10-02.md).
 The [coordinator](semantic-model-incremental-alignment-plan_2026-10-02.md) owns current
-disposition, shared editing scope and combined acceptance. No remediation has been implemented.
+disposition, shared editing scope and combined acceptance. See coordinator §7 for implemented
+state and actual receipts; this companion retains the approved contract.
 
 ## 1. Baseline and design constraints
 
@@ -113,7 +114,11 @@ Required behavior:
    Do not implicitly inherit every target’s epoch from its referring row.
 3. Directly consumed facts remain requirements/grants. The existing omission of inferred ordinary
    fact dependencies is an explicit lower-layer rule, never permission to erase invariant
-   declarations or the operation’s actual consumed inputs.
+   declarations or the operation’s actual consumed inputs. Implementation clarification,
+   2026-10-02: inferred ordinary fact invariant premises remain exact validation requirements;
+   grant projection omits them because the admitted, frozen Facts checkpoint supplies their
+   validation proof. Store admission refuses an uncovered premise. This also preserves Catalog
+   Flow NotRequested without creating an empty Flow writer or a fabricated read receipt.
 4. A transitive ordinary dependency on the producer’s unfinished output refuses. Filtering roots
    used only for output validation is explicit; it cannot authorize an actual read. An earlier
    vocabulary prefix remains legitimate when this stage subsequently extends that vocabulary.

@@ -1,120 +1,83 @@
 # Status
 
-_Updated 2026-10-02 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-03 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Phase 5 implementation is sufficient for now by operator instruction, 2026-10-02.** Further
-qualification is stopped; serving activation is not qualified.
-The [incremental alignment review](docs/design_review/reviews/design_review_semantic-model-incremental-alignment_2026-10-02.md)
-is **Revise / Implemented**, 2026-10-02: bounded corrections, no wholesale redesign.
-The [four-plan alignment series](docs/plans/semantic-model-incremental-alignment-plan_2026-10-02.md) now owns F01–F08 and six substantiated opportunities, all Scheduled / Proposed.
-Next: authorize execution of its dependency-ordered packages; plan authoring performed no production remediation or renewed qualification.
-[Phase 5 plan §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
-owns package receipts and current assembled-review dispositions. The
-[parent cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
-owns cross-phase findings. PR6 remains paused until the serving cutover is qualified.
+**Incremental alignment is complete within scoped Tested acceptance.** The authorized
+[four-plan alignment series](docs/plans/semantic-model-incremental-alignment-plan_2026-10-02.md)
+owns current execution; coordinator §7 is the sole mutable F01–F08/O1–O6 disposition. All N/E/D
+and T0/T1/T2 packages are integrated, with current complete functional and composite hygiene receipts.
 
-**Skill checkpoint, 2026-10-02:** shared `pyrefly-ruff` indexes the planned pyrefly shift target (1.4.0-dev.3
-`80cec3f5`, ruff 0.0.14) with a library-context layer; `show migration` lists the rebased patch, nine compile
-breaks and fact-moving changes. Pins unchanged; skill verify 8/8, probes 21/21, docs-check passed (`29fa7c3f`).
+**Phase 5 real-library qualification and activation remain stopped by operator instruction.**
+Do not resume FastMCP Q0 without authorization. [Phase 5 §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
+retains prior receipts/limits; [parent cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
+owns older findings. PR6 remains paused until serving is qualified. R4 simultaneous multi-variant
+Summary qualification is not_run; retrieval quality, speed and total RSS remain unmeasured.
 
-The implemented target uses `lctx-model::domain` as semantic owner, PostgreSQL as canonical
-storage, and DataFusion as compute. [ADR-0114](docs/adr/0114-generation-serving-contracts.md)
-accepts the closed serving contracts. Current serving code uses an original generation guard,
-shared preparation, canonical typed packet/evidence/native hydration and model-owned ranking.
-Python supplies numerical effects and validated FastMCP transport. Compilation never selects.
-Catalog Flow remains NotRequested; Behavioral uncertainty and all five verdicts stay explicit.
-Finite association establishes no allocation, alias, mutation or temporal heap identity.
+The model remains the single semantic owner, PostgreSQL the canonical relation store and
+DataFusion in-process compute. Pure native preparation/formal resolution now live in the model;
+storage retains receipt/membership/guard checks and resource admission. Exact dependency
+requirements, finite upper-stage bindings, one fixed analytic policy and typed packet bindings
+replace duplicate authorities. Catalog Flow stays NotRequested, default stability remains
+Unknown, and finite-association/five-verdict limits survive. Python owns transport effects.
 
-## Current implementation and receipts
+The analyzer-skill checkpoint remains dated 2026-10-02: the planned pyrefly/ruff shift
+is indexed by the shared skill; pins are unchanged. Its verify/probe/docs receipts (`29fa7c3f`)
+remain separate from alignment acceptance and do not activate that migration.
 
-Phase 5 contracts, lifecycle, services, bridges, CLI, controls and retirement are committed
-through `91751d1c`; normalization/qualification repairs as `3591b68c`, hygiene/automatic output
-as `38efdd4b` / `8e10d256`, scoped review/documentation as `eeabf906`.
-Plan §10 retains individual package commits and receipts. Full Q0 is deferred.
+## Current implementation and acceptance
 
-X0 removed 375 unchanged inventoried source files and 21 obsolete query metadata entries,
-including the retired schema, bundle, native IPC and old serving authorities. Three obsolete
-wire assets were subsequently inventoried and removed. There is no compatibility reader.
-Independent expectations now belong to current model, store, CLI and actual transport controls.
-Protected gold, heldout inputs, preregistration and benchmark captures remain preserved.
+Execution began at `ed2d68d7`, preserving unrelated library-utilization edits and concurrent
+operator guidance `628b018d`. T1/ADR-0115 is `d84a2287`; T0 gate composition is `761687bd`;
+N/E/D, architectural owners, ADR-0116 and independent review are `e3e7c78d`. Adapter freshness
+is `2a03adc8`; final transport/deadline control corrections are `50f58ffa`. The final documentation commit records receipt/handoff
+publication. Concurrent role/catalog edits remain outside this work's commits.
 
-The [assembled review](docs/design_review/reviews/design_review_phase5-assembled_2026-10-02.md)
-was Revise at its original inspected boundary. Appendices A/B accept its codec and assertion
-corrections; both findings are Closed / scoped Tested in plan §10. Final Appendix C is
-Accept scoped at Implemented maturity, with full Q0 still pending. Authored BriefDocument bytes stay
-canonical; resources append attributed assertion status/kind/qualification/text/support metadata.
+The [independent implementation review](docs/design_review/reviews/design_review_semantic-model-alignment-implementation_2026-10-02.md),
+including Appendix C dated 2026-10-03, accepts the bounded design at **Implemented** strength.
+Actual runtime acceptance and failures are recorded separately in coordinator §8.
 
-| Current Phase 5 command / boundary, 2026-10-02 | Outcome |
+| Last verified command / boundary, 2026-10-03 | Outcome |
 |---|---|
-| Normalized `cargo nextest run --release -p lctx-model --test serving_contracts --test ranking_policy` | **composite passed**, 32 / zero skipped; missing test dev dependency repaired |
-| Original `cargo nextest run --release -p lctx --test serving_native`, before latest ordering fix | **composite passed**, 1 / zero skipped, 177.59s; both profiles each passed ten actual transport controls |
-| Original `cargo nextest run --release -p lctx --test serving_vectors` | **composite passed**, 1 / zero skipped, 120.119s; controlled numerical HTTP seam |
-| Focused compile-facts/packets/retrieval/evidence/soundness command | **failed**, nine passed, one failed, one timed out; original receipt retained |
-| Corrected `cargo nextest run --release -p lctx --test serving_evidence` | **passed**, 1 / zero skipped, 92.778s; actual BaseEvaluation parent, original bytes and damaged-view controls |
-| CPython served-path oracle with scoped 900s harness | **failed**, 833.640s; native preparation exposed receipt/validator row-order conflict |
-| Current ordering-discriminator native fixture | **passed**, 1 / zero skipped, 200.266s; both profiles and all original transport/tamper controls |
-| Original generated CPython oracle after ordering repair | **passed**, 1 / zero skipped, 795.987s; unchanged original assertions |
-| First Phase 5 `NEXTEST_TEST_THREADS=8 just test-all` | **failed at compile**, duplicate service-test import; no workspace test result |
-| Corrected `NEXTEST_TEST_THREADS=8 just test-all` | **failed**, Rust 916 passed / eight failed / two skipped; downstream Python, separate PG and doctests not_run |
-| Final `NEXTEST_TEST_THREADS=8 PYO3_PYTHON=.venv/bin/python just test-all` | **interrupted at operator request**; workspace 927 passed / two skipped; Python 228 passed; separate PG 349 passed / eight SIGINT / two skipped / 27 not_run; doctests not_run |
-| Current model/native/wire repair controls | **passed**, 51 selected; signed-cursor and final cache envelope covered |
-| CLI exact attempt-ID parser | **passed**, original one selected control |
-| Phase 5 `just hygiene` | **composite passed**, all current source/policy checks including workspace/all-target Clippy; live store reset and final zero-finding CLI check passed |
-| Fresh pinned FastMCP Catalog compile | **interrupted at operator request**, exit 130; unselected staging generation and receipts retained |
-| Behavioral compile, vector preparation, real-library MCP journeys and activation | **not_run**, operator stopped qualification |
-| Live query embedding | **blocked**, configured endpoint absent; controlled seams establish no live quality |
+| Normalized release model/core/real-store focused Nextest | **passed**, 109, zero skipped; invariant/epoch, visible Catalog, checkpoint and CPU drain controls |
+| Python wire/schema and build-environment controls | **passed**, nine each |
+| Locked uncached native refresh, then `just native-adapter-ready` | **passed**; current CLI/installed storage match all 240 model-source captures |
+| First `NEXTEST_TEST_THREADS=8 just test-all` | **failed**, 942 passed, two failed, two optional measurement controls skipped; control defects repaired |
+| Final `NEXTEST_TEST_THREADS=8 just test-all` | **passed**, exit0; 944 Rust, 230 Python/oracle and 32 doctests (20 compile-fail); two optional measurements skipped |
+| `just hygiene` plus named repair checks | **composite passed**; all constituents including full workspace/all-target `just clippy` passed |
+| `just docs-check` | **passed** after final disposition/handoff publication; 269 canonical pages, zero offline link errors |
+| Confirmed `lctx store reset`, then `just store-check` | **passed**, current empty model, zero generations/findings |
+| Q0, reconstruction, activation, R4 and measurements | **not_run**, stopped/separate qualification boundaries |
 
-The focused nine passes include all packet controls, direct mixed-status canonical comparison,
-actual eligibility and ranked-winner original bytes, original guard loss/cancellation and the
-cumulative 30-second deadline. The evidence fixture originally asked for Local AnalysisInput
-parents although Local declares none; the corrected actual BaseEvaluation witness retains all
-canonical receipt, damaged-view and captured-byte assertions. Plan §10 owns commands and logs.
+Persistent command logs/exit receipts are under
+`/home/paul/.cache/lctx-alignment-execution/receipts-2026-10-03/`.
+The model digest is `12242a5558134418fc3b54fdb526628d1715720e60e6199a8a6079f6066582da`.
+The reviewed model-describe snapshot is a schema migration for digest/S0 input ordering;
+relation fields and existing codes are unchanged. Declared uv inputs and per-member
+content/membership fingerprints prevent stale native adapters; readiness precedes Nextest.
+The first full gate's defects were resource routing metadata and an admission-relative timer
+assertion; repairs alter test controls, preserving production deadline/transport contracts.
 
-The CPython oracle retains nine grouped programs / 52 functions and independent observations.
-Its published retry failed preparation: receipt content requires increasing IDs while a
-shared validator requires call/ordinal groups.
-The correction hashes in ID order, then streams declared grouping order when different, inside
-one read-only repeatable-read transaction on the original leased connection. Both passes remain
-bounded. No product budget, deadline, guard or oracle assertion was weakened. The actual native
-fixture now has two eight-argument calls demonstrating the order difference before preparation.
+## Retirement, limits and next action
 
-The earlier pinned FastMCP 4.0.5 Catalog compile was quiesced with a scoped SIGINT after source
-and model changed. It stopped after 2h50 elapsed / 2h36 CPU in callable normalization. Its 204 original receipt records were
-captured before the scoped reset retired that unselected staging generation. This
-is an interrupted obsolete-source preliminary journey, not a stage failure or final-tree Q0.
-A charged, byte-preserving inventory cache and span candidate index now have scoped controls
-and static integration acceptance; original native symbolic/summary controls passed six, and
-exact PostgreSQL service/installation controls passed 17. No speedup is claimed.
+No readers were connected before retiring the old unselected staging generation
+`de1e0c2b09a319134fcef595a9bcbe89`. No serving vectors/artifacts existed. The preserved
+`retirement-controls.json` contains all 14 control tables and 204 stage receipts; SHA-256
+`49dc3c2e4863df869151194544edfe3caf8a457f2e1b4fa3c5ae639ad00d0fa3`.
+Reset installed the current model and named store-check passed. Reconstruction from pinned
+inputs remains an activation prerequisite; no old runtime authority or compatibility reader remains.
 
-## Prior qualification and standing limits
+Next action is the operator’s choice of further qualification: authorize reconstruction/Q0
+before serving activation or PR6. No alignment implementation remains open; stopped work
+was not resumed as part of closure.
+Actual transport failure seams exercise the service/original grant and complete response bytes;
+they do not qualify physical backend faults or universal early errors without an admitted request.
+Borrowed CPU kernels drain; hard cancellation and performance improvements are not claimed.
 
-Foundation F1–F3 are **Accept scoped / Tested** within the
-[companion plan §5.4](docs/plans/semantic-model-foundation-enhancements_2026-10-01.md#5-coordination-verification-and-current-state)
-source boundary and [assembled review](docs/design_review/reviews/design_review_semantic-foundations-assembled_2026-10-02.md).
-Its final `NEXTEST_TEST_THREADS=8 just test-all` passed: workspace 1,000 passed / 12 skipped,
-Python 238 passed / 56 skipped, separate PG 376 passed / two skipped, doctests 34 passed /
-two ignored; hygiene was composite passed. Subsequent hook formatting and Phase 5 edits need
-fresh qualification. The stopped external probe is no longer a known container prerequisite.
+Prior Phase 5 tests retain their dated incomplete boundary: workspace 927 and Python 228 passed
+before the operator stopped the gate; separate PG was stopped and doctests not_run. Current
+alignment acceptance does not silently extend that receipt to real-library serving. Foundation
+and Phase 4 receipts remain at their owners. Gold, heldout data and benchmark captures are untouched.
 
-Phase 4 remains Implemented / Tested within its
-[2026-10-01 receipt](docs/design_review/evidence/2026-10-01_phase4-qualification/README.md).
-Phases 0–2 retain their [facts receipt](docs/design_review/evidence/2026-09-30_facts-qualification/README.md),
-and Phase 3 [its scoped receipt](docs/design_review/evidence/2026-09-30_phase3-qualification/README.md).
-R4's simultaneous two-variant Summary qualification remains **not_run / open**; revisit before
-broadening current complete uniquely Bound admission. Retrieval quality, comparisons, preparation
-speed, hydration and total RSS remain unmeasured and are not invented Phase 5 completion gates.
-
-Cargo keeps pinned release profiles, stable shared intermediates, 16 jobs and the default single
-frontend thread. Nextest8 caps test processes; it does not request eight threads per process.
-A verified cross-worktree Cargo artifact lock cycle is avoided by serializing builds; no cache cleanup. Earlier compiler SIGTERM remains unexplained, not a proven threading failure.
-
-No further qualification is running. Model `dac961ba` and both rebuilt CPython ABIs are current; the accepted digest snapshot control passed.
-Final workspace run `768e3cf4` passed 927; separate PG run `1fce640e` stopped by scoped SIGINT,
-exit 100 (`/tmp/lctx-phase5-test-all-final_2026-10-02.log`). Its eight signal exits are user-requested
-cancellation, not eight newly diagnosed code defects. No complete `just test-all` pass is claimed.
-FastMCP staging generation `de1e0c2b09a319134fcef595a9bcbe89` remains unselected, with 204 receipts;
-callable-aspect normalization stopped before output. Its compiler/backend/locks are gone.
-Interruption receipt: `/tmp/lctx-phase5-q0-final-interruption_2026-10-03.json` (UTC filename). Resume only on operator request; plan §10 retains the omitted Q0 scope and activation boundary.
-The old staging generation was inventoried, receipts captured, and retired by the resumable reset. Local PostgreSQL uses `max_locks_per_transaction=512` after operator restart; reset and its zero-finding CLI check passed.
-The earlier eight functional gate defects passed the final workspace run; full Q0 is deferred.
-Plan authoring preserves the 117 initial dirty tracked paths at `42551010`; document-only verification is recorded in the alignment coordinator. ADR indexing/formatting and the authorized feature-union refresh completed; generators remain hook-owned.
+Cargo retains pinned release settings, stable shared intermediates, jobs16 and default frontend1.
+Nextest8 limits test processes. Independent builds may overlap under Cargo's artifact locking.
+The automatic end-of-turn hook owns formatting and generated indexes; no cache cleanup is needed.

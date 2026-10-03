@@ -1,10 +1,10 @@
 # Serving discovery, packet bindings and safe failure metadata
 
-**Proposed implementation plan · 2026-10-02.** This companion develops F07 and
+**Implementation contract · 2026-10-02.** This companion develops F07 and
 opportunities §9.3/§9.5 of the [incremental review](../design_review/reviews/design_review_semantic-model-incremental-alignment_2026-10-02.md).
 The [coordinator](semantic-model-incremental-alignment-plan_2026-10-02.md) owns current
-disposition, shared identities and combined acceptance. No serving remediation is implemented
-by publishing this document.
+disposition, shared identities and combined acceptance. See coordinator §7 for implemented
+state and actual receipts; this companion retains the approved contract.
 
 ## 1. Baseline and intended result
 
