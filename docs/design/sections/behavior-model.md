@@ -34,10 +34,10 @@ outside the restored finite behavioral envelope.
 
 ## The flow provider
 
-`cpg-flow` links ty's pinned semantic index over the declared second parse. Its boundary contains
+`cpg-flow` links ty's pinned semantic index over its separate declared runtime-view parse. Its boundary contains
 source ranges and model-owned flow observations, never ty, salsa or a second Ruff family's
 internal types. It describes reaching definitions, uses, regions, predicate leaves and value
-sources. Pyrefly/Ruff own occurrence identity; an indexed exact attachment joins ty observations
+sources. Independent Ruff owns canonical occurrence identity; an indexed exact attachment joins ty observations
 to those occurrences. Ambiguous or unmatched attachment records its candidates and Partial
 coverage rather than choosing the nearest source event.
 

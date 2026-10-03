@@ -72,15 +72,15 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a d
 
 | ID | Binding decision (DESIGN.md §2 is authoritative) | Bears on |
 |---|---|---|
-| §B1 | Ruff and Pyrefly are the only semantic front ends, over one parse; `cpg-flow`'s flow facts from ty are the declared exception, joined by range under parity rules | DP-01, DP-08, DP-14, DP-16, CI-02 · G1, G7 |
+| §B1 | Independent latest Ruff owns canonical syntax/lexical facts; Pyrefly owns typing within its embedded Ruff family, and ty owns the declared runtime flow view. Provider-local parsing and exact source/role attachment preserve nominal boundaries (ADR-0117) | DP-01, DP-08, DP-14, DP-16, CI-02 · G1, G7 |
 | §B2 | `lctx-model` typed domain declarations own facts and derive Arrow/PostgreSQL contracts; codebooks are append-only (ADR-0085–0088); the Phase 5 legacy schema/IPC consumers are retired | DP-01, DP-02, DP-03, DP-16, DP-24 · G1, G2 |
 | §B3 | Shared model invariant validators serve tests and publication; DataFusion is in-process compute; normalized derivations return in P3 | DP-03, DP-08, DP-18, DP-23 · G3 |
 | §B4 | Graph algorithms have named owners and named consumers | DP-07, DP-11, DP-13, DP-21, CI-05, CI-07, CI-09 · G6, G8 |
 | §B5 | Python semantics are custom Rust passes with stated abstractions | DP-05, DP-08, DP-11, DP-22, CI-06 · G2, G7, CI-G1 |
 | §B6 | Facts are first-class assertions with run, origin, fidelity and model; disagreement is retained; analysis results carry provenance in-row | DP-01, DP-02, DP-05, DP-21, CI-01 · G1, G2, CI-G1 |
 | §B7 | Immutable PostgreSQL generations, attempt-owned seal/validate/publish with admission and pinned reader leases; publication and selection are distinct | DP-04, DP-19 · G5 |
-| §B8 | Pyrefly and Ruff linked in-process from a pinned fork with a constructed, explicit config | DP-09, DP-14, DP-15, DP-18, DP-21, CI-10 · G2, G4, G6 |
-| §B9 | One pinned Rust dependency family | DP-09, DP-15, DP-21 · G6, G7 |
+| §B8 | Independent Ruff/ty and Pyrefly link in-process at exact fork revisions, with observational seams and explicitly constructed configurations (ADR-0117/0118) | DP-09, DP-14, DP-15, DP-18, DP-21, CI-10 · G2, G4, G6 |
+| §B9 | One pinned compute family and two exact, source-scoped analyzer families (ADR-0118) | DP-09, DP-15, DP-21 · G6, G7 |
 | §B10 | The standing exclusions | DP-16 · — |
 | §B11 | Insight synthesis is programmatic; no generative model in v1, and never in the query path | DP-02, DP-08, DP-11, DP-22, CI-11 · G2, G7, CI-G2 |
 | §B12 | One PostgreSQL relational store; facts generations are implemented, serving views/indexes return in P5 without a second semantic store | DP-01, DP-19, CI-13 · G1, G5 |
