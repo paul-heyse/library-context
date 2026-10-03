@@ -13,6 +13,10 @@ owns package receipts and current assembled-review dispositions. The
 [parent cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
 owns cross-phase findings. PR6 remains paused until the serving cutover is qualified.
 
+**Skill checkpoint, 2026-10-02:** shared `pyrefly-ruff` indexes the planned pyrefly shift target (1.4.0-dev.3
+`80cec3f5`, ruff 0.0.14) with a library-context layer; `show migration` lists the rebased patch, nine compile
+breaks and fact-moving changes. Pins unchanged; skill verify 8/8, probes 21/21, docs-check passed (`29fa7c3f`).
+
 The implemented target uses `lctx-model::domain` as semantic owner, PostgreSQL as canonical
 storage, and DataFusion as compute. [ADR-0114](docs/adr/0114-generation-serving-contracts.md)
 accepts the closed serving contracts. Current serving code uses an original generation guard,
@@ -102,8 +106,7 @@ speed, hydration and total RSS remain unmeasured and are not invented Phase 5 co
 
 Cargo keeps pinned release profiles, stable shared intermediates, 16 jobs and the default single
 frontend thread. Nextest8 caps test processes; it does not request eight threads per process.
-A verified cross-worktree Cargo artifact lock cycle is avoided by serializing builds; no cache cleanup.
-Earlier compiler SIGTERM remains unexplained, not a proven threading failure.
+A verified cross-worktree Cargo artifact lock cycle is avoided by serializing builds; no cache cleanup. Earlier compiler SIGTERM remains unexplained, not a proven threading failure.
 
 No further qualification is running. Model `dac961ba` and both rebuilt CPython ABIs are current; the accepted digest snapshot control passed.
 Final workspace run `768e3cf4` passed 927; separate PG run `1fce640e` stopped by scoped SIGINT,
@@ -111,10 +114,7 @@ exit 100 (`/tmp/lctx-phase5-test-all-final_2026-10-02.log`). Its eight signal ex
 cancellation, not eight newly diagnosed code defects. No complete `just test-all` pass is claimed.
 FastMCP staging generation `de1e0c2b09a319134fcef595a9bcbe89` remains unselected, with 204 receipts;
 callable-aspect normalization stopped before output. Its compiler/backend/locks are gone.
-Interruption receipt: `/tmp/lctx-phase5-q0-final-interruption_2026-10-03.json` (UTC filename).
-Resume only on operator request; plan §10 retains the omitted Q0 scope and activation boundary.
-The old staging generation was inventoried, receipts captured, and retired by the resumable reset.
-Local PostgreSQL uses `max_locks_per_transaction=512` after operator restart; reset and its zero-finding CLI check passed.
+Interruption receipt: `/tmp/lctx-phase5-q0-final-interruption_2026-10-03.json` (UTC filename). Resume only on operator request; plan §10 retains the omitted Q0 scope and activation boundary.
+The old staging generation was inventoried, receipts captured, and retired by the resumable reset. Local PostgreSQL uses `max_locks_per_transaction=512` after operator restart; reset and its zero-finding CLI check passed.
 The earlier eight functional gate defects passed the final workspace run; full Q0 is deferred.
-Plan authoring preserves the 117 initial dirty tracked paths at `42551010`; document-only verification is recorded in the alignment coordinator.
-ADR indexing/formatting and the authorized feature-union refresh completed; generators remain hook-owned.
+Plan authoring preserves the 117 initial dirty tracked paths at `42551010`; document-only verification is recorded in the alignment coordinator. ADR indexing/formatting and the authorized feature-union refresh completed; generators remain hook-owned.
