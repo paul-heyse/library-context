@@ -389,7 +389,7 @@ during the P4 DTO migration (older compiled model/new consumer). The assembled s
 `p2-facets-p4-b1-controls.log` **failed**, 41 passed and four failed. The replay probe passed
 all twelve controls; remaining failures were the shared decorator projection, duplicate C2 input
 registration in two service controls, and the actual conditional atom→Summary journey. No
-conditional atom→Summary pass is claimed yet.
+conditional atom→Summary pass followed in the bounded repaired receipt below.
 
 
 Narrow M2 correction integrated `fe942fe1` (executor `07aa8570`), 2026-10-03. Populated Ruff
@@ -431,7 +431,7 @@ produce Summary transfer witnesses. Original failed receipts remain retained.
 `cargo check -p lctx-model -p cpg-core -p lctx --all-targets` **passed** after adding the
 explicit Summary owned restriction input (`p2-witness-b1-integration-check-repair.log`).
 Subsequent shared-projection replay repair and service witness-row assertions are under
-`p2-witness-b1-p4-repair-controls.log`, **not_run** until the running release controls finish.
+`p2-witness-b1-p4-repair-controls.log`, **failed** during test compilation; repairs and reruns are below.
 Full `just test-all`, `just hygiene`, adapter readiness and Q0 remain **not_run** while
 M2/P3, B2/B3 and the final P4 cascade are being integrated.
 
@@ -450,6 +450,26 @@ The freshly compiled repaired release `domain_selection_catalog-8c112cc7a0538668
 classification preparation inventory and canonical replay. Native three/model seventeen are
 a composite scoped receipt, independent of the still-open PG packet/conditional Summary cascade.
 `p2-witness-b1-p4-repair-controls.log` drained **failed** (exit101, test assertion compile);
-`p2-witness-b1-p4-repair-controls2.log` is the corrected queued Nextest rerun. The freshly
-compiled Summary binary is separately exercising its exact behavioral PG control in
-`b1-summary-direct-repair-control.log`; outcome pending, 2026-10-03.
+`p2-witness-b1-p4-repair-controls2.log` was **interrupted** (exit130) before tests while its
+pre-M2 baseline was queued/rebuilding; only the root Cargo process was stopped. The current
+merged output rerun is `p4-m2-merged-output-controls.log`, outcome pending.
+
+B1 repaired atom→Summary publication **passed**, 2026-10-03: freshly compiled release
+`summary_publication-151e47f63420a12f behavioral_summaries_publish_finite_proofs_and_validate --exact --nocapture`
+ran the actual disposable-PG journey and all twelve replay controls (196.92s), log
+`b1-summary-direct-repair-control.log`. Conditional restricted and conservative empty-basis
+alternatives remain separate. This does not establish final S0/packet cascade acceptance.
+
+Remaining M2 native lexical metadata integrated `f36441c7` (executor `b8ee625f`), 2026-10-03.
+Native bindings/definitions, same-scope resolution and explicit outer/builtin uncertainty feed
+normalized reference/declaration characterization. Context52 FinalUnresolved does not fabricate
+missing flags. Release controls **passed** 17/17; all-target check **passed** before integration,
+then the executor merged main and checked again (51.18s). Receipt:
+`/home/paul/.cache/lctx-code-facts/m2-native-lexical-receipt.json`. P3 remains open.
+
+P4 conditional Summary wording and shared fresh-binding admission integrated `b86ef8c7`: S0 and
+brief rendering consume the exact qualification and name a nonempty premise basis; an empty
+basis remains explicit. SourceCall fresh-binding evidence now refuses nonempty assumptions,
+preserving its independent runtime question. `cargo check -p lctx-model -p cpg-core --all-targets`
+**passed** (`p4-conditional-synthesis-check-final.log`, 42.10s) after migrating text callers.
+The focused model/core/service release rerun is pending; full-series gates remain **not_run**.
