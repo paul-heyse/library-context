@@ -160,6 +160,8 @@ fn outputs() -> Vec<RelationUse> {
         ParameterDeclarationSupport,
         SymbolSequence,
         SymbolSequenceMember,
+        lctx_model::domain::captures::CaptureObservation,
+        lctx_model::domain::captures::CaptureSupport,
         SymbolObservation,
         SymbolSupport,
         FunctionTraitObservation,
@@ -215,7 +217,13 @@ fn outputs() -> Vec<RelationUse> {
         FunctionBodyObservation,
         FunctionBodySupport,
         RecordFieldObservation,
-        RecordFieldSupport
+        RecordFieldSupport,
+        lctx_model::domain::protocols::NativeExitObservation,
+        lctx_model::domain::protocols::NativeExitSupport,
+        lctx_model::domain::protocols::NativeTerminalObservation,
+        lctx_model::domain::protocols::NativeTerminalSupport,
+        lctx_model::domain::protocols::NativeExitDiagnostic,
+        lctx_model::domain::protocols::NativeExitDiagnosticSupport
     )
 }
 impl Declared for Pyrefly {
@@ -307,7 +315,9 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             ParameterDeclarationSupport,
             SymbolSequence,
             SymbolSequenceMember,
-            SymbolObservation,
+            lctx_model::domain::captures::CaptureObservation,
+        lctx_model::domain::captures::CaptureSupport,
+        SymbolObservation,
             SymbolSupport,
             FunctionTraitObservation,
             FunctionTraitSupport,
@@ -362,7 +372,13 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             FunctionBodyObservation,
             FunctionBodySupport,
             RecordFieldObservation,
-            RecordFieldSupport
+            RecordFieldSupport,
+        lctx_model::domain::protocols::NativeExitObservation,
+        lctx_model::domain::protocols::NativeExitSupport,
+        lctx_model::domain::protocols::NativeTerminalObservation,
+        lctx_model::domain::protocols::NativeTerminalSupport,
+        lctx_model::domain::protocols::NativeExitDiagnostic,
+        lctx_model::domain::protocols::NativeExitDiagnosticSupport
         );
         let provider = pyrefly_provider();
         let (condition, nodes) = Diagram::always().records();
@@ -873,6 +889,7 @@ fn session<S: StageSink + 'static>(
                     &ruff_run,
                     &ruff_surface,
                     root,
+                    &ast,
                 )?;
                 types_partial = native_parse_error || !types.boundaries.is_empty();
                 unattached.1 += types.signatures.iter().filter(|(s, _, _)| s.form == SignatureForm::NativeUnavailable).count();
@@ -1591,7 +1608,7 @@ fn definitions(
         }
         kept
     });
-    symbol_records::records(
+    let mut records=symbol_records::records(
         &definitions,
         this,
         qualification,
@@ -1602,7 +1619,9 @@ fn definitions(
         linking,
         kept.as_ref(),
         budget,
-    )
+    )?;
+    records.captures=Some(crate::capture_records::records(&definitions,&captured,this,current,handle.module(),qualification,natives,budget)?);
+    Ok(records)
 }
 
 /// Emit one module's parameter documentation with its supports; an unlocated description is a
@@ -1677,6 +1696,10 @@ fn write_symbols<S: StageSink + 'static>(
             })?;
             context.emit(row)?;
         }};
+    }
+    if let Some(captures)=records.captures {
+        use lctx_model::domain::captures::CaptureSupport;
+        for row in captures.rows {pysa!(CaptureSupport,row,invocation.id(),Fidelity::NativeStructural);}
     }
     for (sequence, members) in records.sequences {
         context.emit(sequence)?;
@@ -2296,6 +2319,7 @@ fn types(
     run: &ProviderRun,
     surface: &ProviderSurface,
     root: &Path,
+    ast: &ruff_python_ast_latest::ModModule,
 ) -> Result<crate::type_records::Records, ModelError> {
     use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
     let module_ids = &transaction
@@ -2376,6 +2400,7 @@ fn types(
             .and_then(|s| s.event(range, Some(SyntaxKind::ExprName))))
     };
     crate::type_records::records(
+        (transaction,handle,ast),
         &context,
         qualification,
         provider,
@@ -2474,6 +2499,12 @@ fn write_types<S: StageSink + 'static>(
     }
     for (row, fidelity) in records.fields {
         supported!(RecordFieldSupport, row, fidelity);
+    }
+    if let Some(protocols)=records.protocols {
+        use lctx_model::domain::protocols::{NativeExitSupport,NativeTerminalSupport,NativeExitDiagnosticSupport};
+        for (row,fidelity) in protocols.exits {supported!(NativeExitSupport,row,fidelity);}
+        for (row,fidelity) in protocols.terminals {supported!(NativeTerminalSupport,row,fidelity);}
+        for row in protocols.diagnostics {supported!(NativeExitDiagnosticSupport,row,Fidelity::NativeStructural);}
     }
     for (subject, reason, detail) in records.boundaries {
         context.contribute(SubjectBoundary {

@@ -149,6 +149,10 @@ macro_rules! native_analysis_pairs {
         51: SignatureEnumerationObservation => $crate::domain::calls::SignatureEnumerationObservation, $crate::domain::calls::SignatureEnumerationSupport;
         52: RuffContextObservation => $crate::domain::ruff::RuffContextObservation, $crate::domain::ruff::RuffContextSupport;
         58: FlowNarrowing => $crate::domain::flow::FlowNarrowingObservation, $crate::domain::flow::FlowNarrowingSupport;
+        60: NativeExit => $crate::domain::protocols::NativeExitObservation, $crate::domain::protocols::NativeExitSupport;
+        61: NativeTerminal => $crate::domain::protocols::NativeTerminalObservation, $crate::domain::protocols::NativeTerminalSupport;
+        63: Capture => $crate::domain::captures::CaptureObservation, $crate::domain::captures::CaptureSupport;
+        62: NativeExitDiagnostic => $crate::domain::protocols::NativeExitDiagnostic, $crate::domain::protocols::NativeExitDiagnosticSupport;
         59: FlowSourceView => $crate::domain::flow::FlowSourceViewObservation, $crate::domain::flow::FlowSourceViewSupport;
         53: NativeSignatureObservation => $crate::domain::types::NativeSignatureObservation, $crate::domain::types::NativeSignatureSupport;
         54: SignatureTypeObservation => $crate::domain::types::SignatureTypeObservation, $crate::domain::types::SignatureTypeSupport;

@@ -169,6 +169,7 @@ fn formals(parameters: &FunctionParameters) -> (SignatureForm, Vec<Formal>) {
 /// One module's symbol records, all under the module's qualification.
 #[derive(Default)]
 pub struct SymbolRecords {
+    pub captures: Option<crate::capture_records::Records>,
     pub symbols: Vec<SymbolObservation>,
     pub functions: Vec<FunctionTraitObservation>,
     pub classes: Vec<ClassTraitObservation>,

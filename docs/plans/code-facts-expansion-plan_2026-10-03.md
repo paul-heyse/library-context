@@ -266,8 +266,13 @@ roles. Exact structural reference attachment repaired those mismatches. The fina
 --test domain_stages --test domain_admission` **passed**, 34/34, zero skipped. Earlier native
 controls for owner/limits/conformance/per-alias/type/parity also passed within the composite
 receipt. These are scoped controls, not complete M2 enrichment or Q0 acceptance. ADR-0120
-accepts required canonical assumption bases before conditional behavior activation; B0 integration
-remains pending.
+accepts required canonical assumption bases before conditional behavior activation. B0 is
+integrated at `23c9dd87`, with source/fixture ports at `e7211c7b`. Its isolated four-crate
+check, 16 model controls, 22 existing qualification/native/transfer controls, actual Summary
+alternative publication, both premise arms through PostgreSQL packets, transfer-store lifecycle
+and Python required-wire controls **passed**. The initial root workspace check found a fixture
+catalog constructor and newly appended predicate renderer/default variant; these are ported.
+This is a composite scoped receipt, not full gate acceptance.
 M3 flow payloads now preserve separate narrowing formulas, typed nonterminal/iterable/exit
 predicates and the exact transformed TYPE_CHECKING view identity. `cargo check --release
 -p cpg-flow -p cpg-extract --all-targets` **passed**. `cargo nextest run --release -p cpg-flow
@@ -275,6 +280,20 @@ predicates and the exact transformed TYPE_CHECKING view identity. `cargo check -
 134/134, zero skipped, including actual native narrowing/source-view extraction and uncertainty,
 polarity and precision-loss controls. Pyrefly exit/terminal/capture payloads and first behavioral
 interpretation remain open; this is not M3 closure.
-B0 required assumption sets/composition and N1/N2 callable variants/generics remain in isolated
-executor worktrees. Remaining M2 native enrichments, M3, downstream packages and Q0/full hygiene
+N1 is integrated at `cf0731db`: source/effective/synthesized roles, native slot/return ports,
+chosen-overload versus candidate traces and ordered result-value Overloaded terms. Its isolated
+three-crate all-target check **passed**; composite native/model/selection/real-PG receipt passed
+68/69, then the failed Arguments-range lookup was repaired and the native binary rerun **passed**
+2/2. N3/N5 is integrated at `bdddd079`/`b3fbdf87`; final frozen
+`cargo test --release -p cpg-extract --test typed_class_metadata -p cpg-core --test catalog_core
+-- --nocapture` **passed**, two actual native controls and one real-PG catalog journey.
+M3 now emits owned located Pyrefly exit/terminal observations and native capture origins in both
+profiles, preserving diagnostic phases, guarded decisions and unknown timing/mutation. The
+initial protocol/metadata/B0 native integration **passed** 26/26. After N1/capture integration,
+`cargo nextest run --release -p cpg-extract --test typed_protocols --test typed_captures
+--test native_callable_variants --test typed_class_metadata --test typed_flow -p lctx-model
+--test domain_admission --test domain_assumptions` **passed**, 29/29, zero skipped. No concrete
+capture-value bridge, runtime suppression or unconditional divergence follows from these raw rows.
+N2, B4 and P1 remain in isolated executor worktrees. Remaining M2 native enrichments, M3 timing
+and first behavioral consumers, downstream packages and Q0/full hygiene
 remain open/not_run. Real-library reconstruction/activation remain separately authorized follow-up.

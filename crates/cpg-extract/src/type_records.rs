@@ -55,6 +55,7 @@ fn native_field_receiver(ty: &Type) -> NativeReceiver {
 pub type ResolveModule<'a> =
     dyn FnMut(&mut Natives, ModuleName) -> Result<Id<ProviderModule>, ModelError> + 'a;
 pub struct Records {
+    pub protocols: Option<crate::protocol_records::Records>,
     charge: StateCharge,
     pub class_metadata: Vec<ClassMetadataObservation>,
     pub class_members: Vec<(ClassMemberObservation, Fidelity)>,
@@ -84,6 +85,7 @@ pub struct Records {
 impl Records {
     fn new(budget: &ResourceBudget) -> Self {
         Self {
+            protocols:None,
             charge: StateCharge::new(budget, "native_type_records"),
             class_metadata: vec![],
             class_members: vec![],
@@ -1103,6 +1105,7 @@ impl Builder<'_, '_> {
     reason = "Native provider callbacks borrow the current module session"
 )]
 pub fn records<'a>(
+    protocol: (&pyrefly::state::state::Transaction<'_>, &pyrefly_build::handle::Handle, &ruff_python_ast_latest::ModModule),
     context: &'a ModuleContext<'a>,
     qualification: &'a AssertionQualification,
     provider: &'a Provider,
@@ -1584,6 +1587,11 @@ pub fn records<'a>(
             "native class/member metadata and record solutions unavailable".into(),
         )?;
     }
+    let protocols=crate::protocol_records::records(protocol.0,protocol.1,protocol.2,spans,qualification,budget,|ty| {
+        let built=b.term(ty,0)?;Ok((built.id,built.fidelity()))
+    })?;
+    for (subject,reason,detail) in &protocols.boundaries {b.boundary(*subject,*reason,detail.clone())?;}
+    b.out.protocols=Some(protocols);
     Ok(b.out)
 }
 impl Builder<'_, '_> {

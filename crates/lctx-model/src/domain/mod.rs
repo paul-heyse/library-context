@@ -12,6 +12,7 @@ pub mod batching;
 pub mod calls;
 pub mod class_metadata;
 pub mod catalog;
+pub mod captures;
 pub mod charged;
 pub mod composition;
 pub mod conditions;
@@ -39,6 +40,7 @@ pub mod occurrence_owner;
 mod ownership;
 pub mod place_composition;
 pub mod projection;
+pub mod protocols;
 mod record;
 pub mod resources;
 pub mod retrieval;
@@ -307,6 +309,14 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<DeploymentObservation>(),
         Relation::of::<DeploymentSupport>(),
         Relation::of::<TypeVariable>(),
+        Relation::of::<captures::CaptureObservation>(),
+        Relation::of::<captures::CaptureSupport>(),
+        Relation::of::<protocols::NativeExitObservation>(),
+        Relation::of::<protocols::NativeExitSupport>(),
+        Relation::of::<protocols::NativeTerminalObservation>(),
+        Relation::of::<protocols::NativeTerminalSupport>(),
+        Relation::of::<protocols::NativeExitDiagnostic>(),
+        Relation::of::<protocols::NativeExitDiagnosticSupport>(),
         Relation::of::<TypeTerm>(),
         Relation::of::<TypeSequence>(),
         Relation::of::<TypeSequenceMember>(),

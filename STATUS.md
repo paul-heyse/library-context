@@ -88,16 +88,13 @@ are published at exact immutable revisions. Native seam/parity controls passed i
 The working tree resolves Pyrefly 1.4.0-dev.3, Ruff 0.16.10/crates 0.0.16 and ty 0.0.16/salsa
 0.28.5, retaining embedded Ruff 0.0.14. Release extraction/flow all-target compile checks and
 19 source-family/fork policy controls and 14 current-tree native runtime controls passed.
-N4a per-alias/root module resolution passed 43 focused controls in its executor worktree,
-including real PostgreSQL; root integration is committed at `ef7a50ed` and is being requalified. B0 required canonical assumption sets
-and composition are being implemented in an isolated executor worktree. Canonical latest-Ruff
-syntax/context and ADR-0119 per-family coverage grants are implemented in the working tree;
-workspace/all-target release compilation passed. Final focused admission/context/syntax/document
-controls passed 34/34 after fixture and exact reference-role repairs. ADR-0120 accepts required
-claim bases; B0/N1/N2 and N3/N5 are in isolated executor worktrees; remaining
-characterization/behavior/product packages are open. M3 separate narrowing/typed predicates
-and transformed-view identity passed 134 focused native/model controls; protocol/capture and
-first behavioral consumers remain open.
+N4a is integrated (`ef7a50ed`, 43 scoped native/PG controls). M2 canonical Ruff and finite
+family/provider grants are committed (`789cd0ac`, 34 controls). B0 required bases are integrated
+(`23c9dd87`, composite model/Summary/PG/wire receipt). N1 callable roles/ports are integrated
+(`cf0731db`, composite native/model/PG controls); N3/N5 metadata/located queries are integrated
+(`bdddd079`/`b3fbdf87`, final two native + one PG controls). M3 narrowing/view identity passed
+134 controls; protocol/capture integration in both profiles passed 29/29. N2/B4/P1 are isolated
+active packages. Remaining characterization, timing, behavioral and product consumers stay open.
 Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
 Real-library reconstruction/activation remain a separately authorized follow-up. The prior
