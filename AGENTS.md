@@ -142,15 +142,20 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
 - `datafusion` (DataFusion, Arrow, object_store)
 - `rust-graphs` (petgraph plus rustworkx-core, leiden-rs, graphops and others: which library, how
   to reach it from a petgraph graph, and each one's silent failures)
-- `pyrefly-ruff` (pyrefly 1.4.0-dev.3 and ruff 0.16.8 / crates 0.0.14, the planned shift target;
-  we link pyrefly 1.3.1 and ruff 0.0.11 until the shift, so check `show migration` before
-  transferring a claim). It carries a labeled library-context layer: how each pyrefly/ruff
-  capability is used here and why, its in-process API (`State`/`Transaction`, Pysa collectors),
-  an opportunity register and the migration impact. Start with `show project`; from an emitted
+- `python-analyzers` (pyrefly 1.4.0-dev.3 with its embedded ruff 0.0.14; ruff 0.16.10 / crates
+  0.0.16; ty crates 0.0.16 plus its unpublished IDE, project and server crates and a CLI built
+  from the same tag; salsa 0.28.5: the planned shift targets. We link pyrefly 1.3.1 with ruff
+  0.0.11, and in `cpg-flow` ty 0.0.14 with ruff 0.0.14 and salsa =0.28.2, until the shifts, so
+  check `show migration` before transferring a claim). It covers ty in full beside pyrefly and
+  ruff (semantic index, use-def, reachability and narrowing, module resolution, the salsa pin
+  trap, and types, classes, calls, navigation, diagnostics, project and server) and maps every
+  code fact the three output (`show facts`: per-concept providers, duplications, blanks). It
+  carries a labeled library-context layer: how each capability is used here and why, its
+  in-process APIs (`State`/`Transaction`, Pysa collectors, `SemanticIndex`/`UseDefMap`), an
+  opportunity register and the migration impact. Start with `show project`; from an emitted
   boundary or a plan finding, `show boundary:<ObligationKind|detail>` / `show finding:<key>`; for
-  linked APIs we do not call yet, `show unused:<owner>`; to estimate an integration, `show anatomy`
-- `ty-flow` (the ty 0.0.14 / ruff_db / salsa =0.28.2 line that `cpg-flow` links: use-def maps,
-  reachability and narrowing, module resolution, the salsa pin trap)
+  linked APIs we do not call yet, `show unused:<owner>`; to estimate an integration, `show anatomy`;
+  for which facts we consume, `show facts:<concept>`
 - `rust-reasoning` (biodivine-lib-bdd, OxiDD, z3 0.21.1 on Z3 5.1.0, ascent, datafrog, fcars: the
   condition kernel, full z3 capability coverage incl. what needs raw z3-sys, Datalog fixpoints and
   the FCA oracle)

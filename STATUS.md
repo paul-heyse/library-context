@@ -20,9 +20,12 @@ requirements, finite upper-stage bindings, one fixed analytic policy and typed p
 replace duplicate authorities. Catalog Flow stays NotRequested, default stability remains
 Unknown, and finite-association/five-verdict limits survive. Python owns transport effects.
 
-The analyzer-skill checkpoint remains dated 2026-10-02: the planned pyrefly/ruff shift
-is indexed by the shared skill; pins are unchanged. Its verify/probe/docs receipts (`29fa7c3f`)
-remain separate from alignment acceptance and do not activate that migration.
+Analyzer-skill checkpoint, 2026-10-03: the shared `pyrefly-ruff` and `ty-flow` skills merged into
+`python-analyzers`. It indexes the planned shift targets (pyrefly 1.4.0-dev.3 on ruff 0.0.14; ruff
+0.16.10 / crates 0.0.16; ty 0.0.16, salsa 0.28.5) plus a code-facts model, and its `show migration`
+now also covers `cpg-flow`'s ty move. Pins are unchanged and neither shift has started. The skill's
+`build/verify.py --repo` (11 checks), 75/75 probes, `just docs-check` and `just lint-agents`
+passed on 2026-10-03. Those receipts are separate from alignment acceptance.
 
 ## Current implementation and acceptance
 

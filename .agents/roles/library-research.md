@@ -15,7 +15,7 @@ locations this repository's AGENTS.md names, one new dated topic folder per inve
 README; (2) the source of a shared library skill the brief assigns, under
 `~/.local/share/library-skills/skills/<name>/`, following that skill's maintenance guide (shared
 skills stay repository-independent: no repository names, paths, ADRs or design sections, except
-`pyrefly-ruff`'s labeled library-context layer; one writer per skill; do not edit other skills or
+`python-analyzers`' labeled library-context layer; one writer per skill; do not edit other skills or
 the store's own files unless assigned); (3) scratch outside
 the repository. Never edit production code, tests, design documents, ADRs, plans, STATUS, pins,
 configuration, generated paths or another worker's folder. Do not commit, push or run hook-owned

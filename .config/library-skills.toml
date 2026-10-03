@@ -9,7 +9,7 @@ enabled = [
   "fastmcp",
   "pyomo-and-solvers",
   "pyo3",
-  "pyrefly-ruff",
+  "python-analyzers",
   "python-oracles",
   "rust-code-model",
   "rust-graphs",
@@ -17,6 +17,5 @@ enabled = [
   "salsa",
   "serde-arrow",
   "sqlx-postgres",
-  "ty-flow",
   "typer-rich",
 ]
