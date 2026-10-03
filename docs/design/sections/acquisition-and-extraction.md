@@ -259,8 +259,9 @@ The implemented usage cascade joins exact native call sites to normalized events
 source. It preserves arguments, receivers, binding roles, API association or unresolved targets,
 and separate chosen/candidate traces. Higher-order targets remain potential callback
 characterization, without invocation/effect authority. Source grants do not expand to reveal
-foreign or outside locations. Scoped native controls are **Tested**; actual diagnostic/usage
-original-evidence service qualification remains open in the code-facts coordinator. The typed
+foreign or outside locations. Scoped native and actual disposable-PG diagnostic/usage
+original-evidence controls are **Tested**, 2026-10-03, as a composite receipt in the code-facts
+coordinator §7; current-tree assembled qualification remains open. The typed
 model owns payloads and attachments.
 
 

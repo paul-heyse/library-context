@@ -281,7 +281,11 @@ required premise definitions and real native/source supports through the selecte
 
 Typed structural facet values validate their evaluation domain before effects. Supported source
 async/decorator, class/deprecation and raised-type questions consume attributed observations;
-raised-type characterization is separate from finite runtime exception behavior. Decorator identity
+raised-type characterization is separate from finite runtime exception behavior. A matching
+raised typing observation remains usable under partial coverage; a negative requires complete
+native Types coverage for the same source artifact and analysis context, retained as a closure
+witness. Missing raise traces stay unresolved. This correction is **Implemented**, 2026-10-03;
+its scoped and assembled acceptance are owned by the code-facts coordinator §7. Decorator identity
 selection is shared with analytics and follows normalized references before supported qualified-name
 metadata. C2 persists canonical witness rows, and request-time classification refuses an unstored
 citation. Incomplete metadata and unsupported runtime meanings remain Unknown or explicit refusal.

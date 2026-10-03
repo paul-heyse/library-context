@@ -757,6 +757,21 @@ with no production or schema relaxation. Receiver/applicability/chosen/candidate
 higher-order Potential and source-grant controls passed in that journey. This closes the
 bounded P3 consumer receipt, not assembled Q0 or full-series gates.
 
+P3 final bounded-text control **passed**, 2026-10-03: `cargo nextest run --locked --release
+-p lctx-postgres --lib -E 'test(native_source_text_preserves_literal_bytes_and_refuses_indivisible_overflow)'`
+(one selected control, three outside-filter; run `b7103db6-2a15-412e-bd8d-8be5fde82f96`,
+`p3-source-characterization-text-controls.log`). This scoped receipt does not establish a
+fresh native adapter or current-tree assembled qualification.
+
+Raised-type closure correction is integrated at `c8d0bf4b`, 2026-10-03. Independent static
+review confirmed the bounded use of existing artifact/context native Types coverage; complete
+Signatures coverage alone cannot close omitted native raise traces. Append-only selection
+witness27 retains the closure row. `cargo check --release -p lctx-model --tests` **passed**
+(43.17s, `f01-raised-types-check-repaired.log`), after the retained initial test-import failure
+(`f01-raised-types-check.log`). `cargo check --release -p lctx --test raised_type_selection`
+**passed** (25.29s, `f01-raised-types-service-check.log`). Unit and actual mixed/complete native
+inventory serving controls remain pending; actual runtime needs the final matching CLI.
+
 
 Frozen direct capture output integrated as `16827a31` (executor `c5a26787`), with
 `3b8a4a69` sharing the already registered P3 Modality/Approximation schema implementations.
