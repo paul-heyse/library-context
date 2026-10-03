@@ -3,26 +3,35 @@ use super::*;
 use crate::domain::{self, *};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-macro_rules! packet {($name:ident {$($field:ident:$ty:ty),*$(,)?})=>{
+macro_rules! packet {($name:ident {$($(#[$attr:meta])* $field:ident:$ty:ty),*$(,)?})=>{
     #[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
-    #[serde(deny_unknown_fields)] pub struct $name {$ (pub $field:$ty,)*}
+    #[serde(deny_unknown_fields)] pub struct $name {$ ($(#[$attr])* pub $field:$ty,)*}
 };}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Availability {
     Available {},
-    Partial { reason: Name },
+    Partial {
+        #[doc = "Declared canonical reason for this result; interpret it with the accompanying status and evidence."]
+        reason: Name,
+    },
     NotRequested {},
-    Unavailable { reason: Name },
+    Unavailable {
+        #[doc = "Declared canonical reason for this result; interpret it with the accompanying status and evidence."]
+        reason: Name,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SectionPage<T> {
+    /// Section availability; unavailable or not-requested data must not be interpreted as absence.
     pub availability: Availability,
     pub items: Vec<T>,
     #[serde(default, skip_serializing_if = "Optional::is_absent")]
     pub continuation: Optional<CursorToken>,
+    /// Number of results omitted from this page; pagination retains the original request identity.
     pub omitted: u64,
+    /// The page omitted results because of its declared bound.
     pub truncated: bool,
 }
 packet!(PacketLimits {
@@ -31,7 +40,7 @@ packet!(PacketLimits {
     signature_indivisible: bool
 });
 packet!(ReleaseIdentity {input:Id<input::InputRevision>,release:Id<input::Release>,distribution:Name,version:Name});
-packet!(AccessProvenance {module:Id<source::Module>,path:Vec<Name>,exposures:Vec<Id<catalog::CatalogExposure>>,candidates:Vec<Id<catalog::CatalogCandidate>>,basis:Nullable<catalog::CatalogContractBasis>});
+packet!(AccessProvenance {module:Id<source::Module>,path:Vec<Name>,exposures:Vec<Id<catalog::CatalogExposure>>,candidates:Vec<Id<catalog::CatalogCandidate>>,#[doc = "Canonical evidence or derivation basis for this result, rather than a confidence score."] basis:Nullable<catalog::CatalogContractBasis>});
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DefaultValue {
@@ -58,11 +67,11 @@ impl DefaultValue {
         }
     }
 }
-packet!(ParameterPacket {parameter:Id<calls::SignatureParameter>,slot:Nullable<Id<normalized::callables::SignatureSlot>>,formals:Vec<Id<normalized::entities::ParameterEntity>>,ordinal:i64,name:Nullable<Name>,kind:calls::ParameterKind,required:bool,types:Vec<Id<types::TypeTerm>>,default:DefaultValue});
-packet!(SignaturePacket {source:Id<calls::Signature>,variant:Id<normalized::callables::SignatureVariant>,analysis:Id<attribution::AnalysisContext>,form:calls::SignatureForm,adjustment:normalized::callables::SignatureAdjustment,parameters:Vec<ParameterPacket>,effective_parameters:Vec<ParameterPacket>,return_types:Vec<Id<types::TypeTerm>>,complete:bool});
-packet!(InvocationPacket {callable:Id<catalog::CatalogCallable>,invocation:Id<catalog::CatalogInvocation>,assessment:Id<normalized::callables::EffectiveCallableAssessment>,analysis:Id<attribution::AnalysisContext>,knowledge:normalized::callables::Knowledge,form:Nullable<selection::InvocationForm>});
+packet!(ParameterPacket {parameter:Id<calls::SignatureParameter>,slot:Nullable<Id<normalized::callables::SignatureSlot>>,formals:Vec<Id<normalized::entities::ParameterEntity>>,ordinal:i64,name:Nullable<Name>,#[doc = "Finite canonical kind; the numeric codebook lists supported choices."] kind:calls::ParameterKind,required:bool,types:Vec<Id<types::TypeTerm>>,default:DefaultValue});
+packet!(SignaturePacket {source:Id<calls::Signature>,variant:Id<normalized::callables::SignatureVariant>,analysis:Id<attribution::AnalysisContext>,#[doc = "Declared canonical signature form."] form:calls::SignatureForm,#[doc = "Normalized signature adjustment applied to the effective callable, preserving the source signature."] adjustment:normalized::callables::SignatureAdjustment,parameters:Vec<ParameterPacket>,effective_parameters:Vec<ParameterPacket>,return_types:Vec<Id<types::TypeTerm>>,complete:bool});
+packet!(InvocationPacket {callable:Id<catalog::CatalogCallable>,invocation:Id<catalog::CatalogInvocation>,assessment:Id<normalized::callables::EffectiveCallableAssessment>,analysis:Id<attribution::AnalysisContext>,#[doc = "Completeness of the effective callable evidence; unknown does not mean absent."] knowledge:normalized::callables::Knowledge,#[doc = "Declared invocation or signature form; an absent value means form evidence is unavailable."] form:Nullable<selection::InvocationForm>});
 packet!(OptionPacket {option:Id<catalog::CatalogOption>,subject:Id<catalog::CatalogOptionSubject>,evidence:Id<catalog::CatalogOptionEvidence>,default:DefaultValue});
-packet!(OperationCore {member:Id<catalog::CatalogMember>,name:Name,release:ReleaseIdentity,access:AccessProvenance,invocations:Vec<InvocationPacket>,signatures:Vec<SignaturePacket>,signature_knowledge:normalized::callables::Knowledge,options:Vec<OptionPacket>,literal_values:Vec<LiteralPacket>,type_presentations:Vec<TypePresentationPacket>,limits:PacketLimits});
+packet!(OperationCore {member:Id<catalog::CatalogMember>,name:Name,release:ReleaseIdentity,access:AccessProvenance,invocations:Vec<InvocationPacket>,signatures:Vec<SignaturePacket>,#[doc = "Completeness of signature evidence; unknown signatures remain visible."] signature_knowledge:normalized::callables::Knowledge,options:Vec<OptionPacket>,literal_values:Vec<LiteralPacket>,type_presentations:Vec<TypePresentationPacket>,limits:PacketLimits});
 /// Address an actual stored nominal source; wrappers are not manufactured during serving.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -87,18 +96,18 @@ pub enum OriginalReference {
     },
 }
 packet!(OriginalRange {source:OriginalReference,artifact:Id<source::SourceArtifact>,start:u64,end:u64,digest:ContentHash,encoding:Name,release:Id<input::Release>,context:Id<attribution::AnalysisContext>});
-packet!(ScenarioPacket {scenario:Id<catalog::evidence::CatalogScenario>,intent:catalog::evidence::Intent,basis:catalog::evidence::AssociationBasis,spans:Vec<OriginalRange>,parse:deployment::CheckStatus,binding:deployment::CheckStatus,environment:deployment::CheckStatus,execution:deployment::CheckStatus});
+packet!(ScenarioPacket {scenario:Id<catalog::evidence::CatalogScenario>,#[doc = "Declared scenario intent; choose a scenario according to its original evidence and check results."] intent:catalog::evidence::Intent,#[doc = "Canonical evidence or derivation basis for this result, rather than a confidence score."] basis:catalog::evidence::AssociationBasis,spans:Vec<OriginalRange>,#[doc = "Parse check status from the pinned deployment evidence; not-run is distinct from a failed check."] parse:deployment::CheckStatus,#[doc = "Binding check status; passing parsing alone does not establish correct binding."] binding:deployment::CheckStatus,#[doc = "Environment check status under the recorded pinned deployment context."] environment:deployment::CheckStatus,#[doc = "Execution check status; not-requested or unavailable evidence does not establish a successful run."] execution:deployment::CheckStatus});
 packet!(DeploymentPacket {deployment:Id<catalog::evidence::CatalogDeployment>,field:Name,name:Name,value:Text<0,8192>,originals:Vec<OriginalRange>});
-packet!(RelationshipPacket {target:Id<catalog::CatalogMember>,analysis:Id<attribution::AnalysisContext>,role:selection::RelationRole,fidelity:selection::Fidelity,witnesses:Vec<Id<selection::Witness>>,proof:Vec<ProofReference>});
-packet!(ConflictPacket {requirement:selection::Requirement,reason:selection::Reason,contexts:Vec<Id<selection::Context>>,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>});
-packet!(AssertionSupportPacket {support:Id<synthesis::assertions::ProgrammaticAssertionSupport>,role:analysis::policy::SupportRole,source:Id<synthesis::assertions::AssertionSource>,proof:Vec<ProofReference>});
-packet!(AssertionPacket {assertion:Id<synthesis::assertions::ProgrammaticAssertion>,kind:analysis::policy::AssertionKind,section:analysis::policy::BriefSection,status:analysis::policy::EvidenceStatus,qualification:Id<assertion::AssertionQualification>,text:Text<0,262144>,supports:Vec<AssertionSupportPacket>});
-packet!(CapabilityPacket {capability:Id<synthesis::briefs::Brief>,title:Name,rendered:Text<0,262144>,assertions:Vec<AssertionPacket>,originals:Vec<OriginalRange>,availability:Availability,unreviewed:bool,documentation_only:bool});
-packet!(BehaviorPacket {condition:Id<conditions::Condition>,verdict:obligation::Verdict,model:Id<models::ModelCatalog>,proof:Vec<ProofReference>,presentation:RenderedConditionPacket,presentation_truncated:bool});
+packet!(RelationshipPacket {target:Id<catalog::CatalogMember>,analysis:Id<attribution::AnalysisContext>,#[doc = "Declared relationship or support role; interpret it within the accompanying evidence context."] role:selection::RelationRole,#[doc = "Fidelity of the declared relationship; unresolved correspondence is not exact identity."] fidelity:selection::Fidelity,witnesses:Vec<Id<selection::Witness>>,proof:Vec<ProofReference>});
+packet!(ConflictPacket {requirement:selection::Requirement,#[doc = "Declared canonical reason for this result; interpret it with the accompanying status and evidence."] reason:selection::Reason,contexts:Vec<Id<selection::Context>>,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>});
+packet!(AssertionSupportPacket {support:Id<synthesis::assertions::ProgrammaticAssertionSupport>,#[doc = "Declared relationship or support role; interpret it within the accompanying evidence context."] role:analysis::policy::SupportRole,source:Id<synthesis::assertions::AssertionSource>,proof:Vec<ProofReference>});
+packet!(AssertionPacket {assertion:Id<synthesis::assertions::ProgrammaticAssertion>,#[doc = "Finite canonical kind; the numeric codebook lists supported choices."] kind:analysis::policy::AssertionKind,#[doc = "Authored brief section to which the assertion belongs."] section:analysis::policy::BriefSection,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,qualification:Id<assertion::AssertionQualification>,text:Text<0,262144>,supports:Vec<AssertionSupportPacket>});
+packet!(CapabilityPacket {capability:Id<synthesis::briefs::Brief>,title:Name,rendered:Text<0,262144>,assertions:Vec<AssertionPacket>,originals:Vec<OriginalRange>,#[doc = "Section availability; unavailable or not-requested data must not be interpreted as absence."] availability:Availability,unreviewed:bool,documentation_only:bool});
+packet!(BehaviorPacket {condition:Id<conditions::Condition>,#[doc = "Model-qualified verdict, never proof of unrestricted runtime behavior."] verdict:obligation::Verdict,model:Id<models::ModelCatalog>,proof:Vec<ProofReference>,presentation:RenderedConditionPacket,presentation_truncated:bool});
 packet!(OperationPacket {core:OperationCore,scenarios:SectionPage<ScenarioPacket>,deployment:SectionPage<DeploymentPacket>,relationships:SectionPage<RelationshipPacket>,conflicts:SectionPage<ConflictPacket>,briefs:SectionPage<CapabilityPacket>,behavior:SectionPage<BehaviorPacket>});
-packet!(RequirementWitnessPacket {context:Id<selection::Context>,basis:selection::EvidenceBasis,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>});
-packet!(RequirementResult {claims:Vec<RequirementWitnessPacket>,closure:Vec<Id<selection::Witness>>,requirement:selection::Requirement,outcome:selection::Outcome,reason:selection::Reason,contexts:Vec<Id<selection::Context>>,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>,corpus_complete:bool,analyzer_complete:bool,examined:u64,total:Nullable<u64>});
-packet!(OperationCandidate {member:Id<catalog::CatalogMember>,analysis:Id<attribution::AnalysisContext>,name:Name,requirements:Vec<RequirementResult>,joint:selection::JointApplicability,signature_knowledge:normalized::callables::Knowledge});
+packet!(RequirementWitnessPacket {context:Id<selection::Context>,#[doc = "Canonical evidence or derivation basis for this result, rather than a confidence score."] basis:selection::EvidenceBasis,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>});
+packet!(RequirementResult {claims:Vec<RequirementWitnessPacket>,closure:Vec<Id<selection::Witness>>,requirement:selection::Requirement,#[doc = "Selection outcome; unresolved evidence stays separate from conflicting and supported results."] outcome:selection::Outcome,#[doc = "Declared canonical reason for this result; interpret it with the accompanying status and evidence."] reason:selection::Reason,contexts:Vec<Id<selection::Context>>,positive:Vec<Id<selection::Witness>>,negative:Vec<Id<selection::Witness>>,corpus_complete:bool,analyzer_complete:bool,examined:u64,total:Nullable<u64>});
+packet!(OperationCandidate {member:Id<catalog::CatalogMember>,analysis:Id<attribution::AnalysisContext>,name:Name,requirements:Vec<RequirementResult>,#[doc = "Whether the requirements have a shared applicable context; separate supported results alone do not prove joint applicability."] joint:selection::JointApplicability,#[doc = "Completeness of signature evidence; unknown signatures remain visible."] signature_knowledge:normalized::callables::Knowledge});
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "extent", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SelectionExtent {
@@ -133,12 +142,15 @@ pub struct EvidenceBodyPage {
     pub bytes: Vec<u8>,
     #[serde(default, skip_serializing_if = "Optional::is_absent")]
     pub continuation: Optional<CursorToken>,
+    /// Number of results omitted from this page; pagination retains the original request identity.
     pub omitted: u64,
+    /// The page omitted results because of its declared bound.
     pub truncated: bool,
 }
-packet!(EvidencePacket {original:OriginalRange,body:EvidenceBodyPage,status:analysis::policy::EvidenceStatus,derivation:SectionPage<DerivationStep>});
+packet!(EvidencePacket {original:OriginalRange,body:EvidenceBodyPage,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,derivation:SectionPage<DerivationStep>});
 packet!(DerivationStep {source:ProofReference,rule:Name,conclusion:ProofReference,premises:Vec<PremisePacket>});
 packet!(PremisePacket {
+    #[doc = "Declared relationship or support role; interpret it within the accompanying evidence context."]
     role: Name,
     premise: ProofReference
 });
@@ -168,7 +180,7 @@ pub enum BrowseEntry {
 }
 packet!(ComparisonEntry {requested:OperationSelector,candidates:Vec<OperationCandidate>,ambiguous:bool});
 packet!(RenderedAtom {atom:Id<conditions::EvaluationAtom>,value:bool});
-packet!(RenderedConditionPacket {terms:Vec<Vec<RenderedAtom>>,truncated:bool});
+packet!(RenderedConditionPacket {terms:Vec<Vec<RenderedAtom>>,#[doc = "The finite condition rendering exceeded its declared bound; the canonical condition remains unchanged."] truncated:bool});
 impl RenderedConditionPacket {
     pub fn from_canonical(value: &conditions::RenderedCondition) -> Self {
         Self {

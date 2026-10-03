@@ -760,8 +760,9 @@ fn briefs(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), ModelErr
 pub fn mandatory_inputs(
     profile: Profile,
     model: &ValidatedModel,
+    order: &stages::PublicationOrder,
 ) -> Result<Vec<RelationUse>, ModelError> {
-    let parent = c1::build::stage(profile, model)?;
+    let parent = c1::build::stage(profile, model, order)?;
     let mut inputs = parent.inputs;
     inputs.extend(parent.outputs.into_iter().map(|r| r.completed_store()));
     inputs.extend(Facts::uses());

@@ -73,7 +73,7 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a d
 | ID | Binding decision (DESIGN.md §2 is authoritative) | Bears on |
 |---|---|---|
 | §B1 | Ruff and Pyrefly are the only semantic front ends, over one parse; `cpg-flow`'s flow facts from ty are the declared exception, joined by range under parity rules | DP-01, DP-08, DP-14, DP-16, CI-02 · G1, G7 |
-| §B2 | `lctx-model` typed domain declarations own facts and derive Arrow/PostgreSQL contracts; codebooks are append-only (ADR-0085–0088); `cpg-schema` remains only for dormant P3–P5 consumers | DP-01, DP-02, DP-03, DP-16, DP-24 · G1, G2 |
+| §B2 | `lctx-model` typed domain declarations own facts and derive Arrow/PostgreSQL contracts; codebooks are append-only (ADR-0085–0088); the Phase 5 legacy schema/IPC consumers are retired | DP-01, DP-02, DP-03, DP-16, DP-24 · G1, G2 |
 | §B3 | Shared model invariant validators serve tests and publication; DataFusion is in-process compute; normalized derivations return in P3 | DP-03, DP-08, DP-18, DP-23 · G3 |
 | §B4 | Graph algorithms have named owners and named consumers | DP-07, DP-11, DP-13, DP-21, CI-05, CI-07, CI-09 · G6, G8 |
 | §B5 | Python semantics are custom Rust passes with stated abstractions | DP-05, DP-08, DP-11, DP-22, CI-06 · G2, G7, CI-G1 |
@@ -121,7 +121,7 @@ concrete change-propagation or testability defect can require revision without a
 | Architectural judgments | Core §E, A1–A3; report separately from gate verdicts |
 | Correctness/fidelity gate verdicts | Core §A and profile gates |
 | Check execution outcomes | AGENTS.md Reporting; each outcome names its command |
-| Domain fidelity, verdicts and boundary reasons | `lctx-model::domain` and DESIGN §15 (ADR-0085–0088); dormant `cpg-schema`/§3/§9 carry only P3–P5 reconstruction obligations |
+| Domain fidelity, verdicts and boundary reasons | `lctx-model::domain` and DESIGN §15 (ADR-0085–0088); §3/§9 preserve typed provider and finite analysis obligations |
 
 Select scenarios from the active plan. The recurring architectural questions are:
 
@@ -178,24 +178,24 @@ Review quality is established by scenario reasoning and calibration, not by a ne
 
 ## 5. The code-intelligence graph rules, mapped to the design
 
-The operator's graph guidelines now live in the code-intelligence profile (lineage in §8). This
-table keeps the mechanism that meets each rule in this repository and the checks already in
-place (ADR-0086, which carries the retired canonical-snapshot record's surviving clauses). The target mechanisms are DESIGN §15
-(ADR-0085); rows change as their cutover phase exits.
+The operator's graph guidelines live in the code-intelligence profile. These are current
+implementation routes, **Implemented / interface-checked, 2026-10-02**; linked receipts establish
+only their named Tested boundaries. [§15](../../../design/sections/semantic-model.md) and the
+[alignment plan](../../../plans/semantic-model-incremental-alignment-plan_2026-10-02.md#7-current-disposition--sole-execution-owner)
+own current contracts and correction acceptance.
 
-| Profile | Guideline rule | Mechanism | DESIGN | Checks in place |
-|---|---|---|---|---|
-| CI-03 | §2 relationships have a persistent `edge_id`, typed endpoints, a relation kind, evidence and snapshot scope; `(src, dst)` is not an identity | `edges` from the registry; content-derived `edge_id` with a discriminator; `edge_kind` codebook | §3.4.1, §3.8 | `key:edges`; the parallel-sites test; the endpoint and evidence rules |
-| CI-03 | §2 isolates survive through an explicit node relation | `nodes` from per-kind existence sources, independent of edges | §3.1, §3.8 | the `graph_shapes` isolate; the graph-readiness reader |
-| CI-02, CI-04 | §2 extracted, resolved, derived and heuristic stay distinguishable; unknown targets explicit | a derivation class per edge kind, published in `edge_kinds`; `facts` provenance; candidate sets kept (name resolution, lexical mentions); external and synthetic nodes; unresolved remainders and provider reasons, no catch-all; `types` boundaries for what Pyrefly does not type; `graph_gaps` for rows not yet in the graph (empty since C3) | §3.2, §3.5, §3.6, §3.7, §3.8 | lineage rules (the edit guards among them declared, §8); `typed:*` rules and their injected-violation tests (`every_rule_kind_rejects_its_violation`, `the_types_rules_reject_their_violations`, `the_corpus_rules_reject_their_violations`, `each_graph_rule_rejects_a_doctored_catalog`); `partition:pysa_calls-remainders` and its case; `every_rule_is_exercised_or_declared_an_edit_guard`; `edge_kinds` in the derivations snapshot |
-| CI-05 | §3 a projection's spec; separate output selector and universe; declared direction; weight semantics | `cpg_schema::projection::ProjectionSpec` (slice 1.4): vertex universe apart from arcs, edge kinds, accepted modalities, origins and fidelities, candidate, unknown-target and weight policies, generated SQL, a digest on every invocation | §3.7, §3.8, §5 | `pass_a_finds_the_known_answers_on_analysis_shapes`; the adapter test |
-| CI-05, DP-04 | §4 graph-local indices never become identities; simplification preserves the question  | §5's three identities; the catalogs hold no indices | §3.8, §5 | the graph-readiness reader; `the_adapter_keeps_parallel_arcs_isolates_and_refuses_disorder`; the first projection's tests |
-| CI-08, CI-04 | §7 no eager closures or path enumeration; partial is not complete | the catalogs hold direct relations only; coverage, boundaries, external and synthetic nodes and `graph_gaps` state where the graph stops | §3.7, §3.8 | review question 13; `partition:pysa_calls-remainders` (the gaps partition is an edit guard over an empty table, §8) |
-| CI-06, CI-09 | §8 exact, conservative and heuristic results stay apart; method, parameters, seed, convergence recorded or reported unavailable | `FINDING_STATUS` per finding kind; `analysis_invocations` records seed, iterations, residual, convergence and quality history, null meaning unavailable | §9 | `semantic:finding-status-policy` |
-| CI-07 | §9 an explicit DataFusion ↔ graph boundary | projection SQL on the attempt's session, cast to declared schemas, then `lctx-analytics` (Arrow in, Arrow out; no DataFusion or Delta), rows written back through the attempt | §4.1, §5 | `lctx-analytics` tests run with no store |
-| CI-01, DP-21 | §10 results carry run and projection lineage and evidence | `analysis_invocations` (method, parameters JSON, projection digest, library versions, diagnostics), `findings`, `finding_members`, `witnesses` with `edge_id` lineage; provenance in-row (ADR-0086) | §3.2, §9 | `semantic:invocation-model-producer`, `semantic:witness-chain`, `semantic:finding-status-policy`, `semantic:invocation-run-is-compiler`, each with an injected case |
-| DP-19 | §11 Delta read through a pinned snapshot; a manifest after validation; retention for files live snapshots need | `snapshots` append; pinned `with_version` reads with a `snapshot_id` filter; cleanup off, retention verified at open. An attempt holds one run per release (the library, its corpus); what both assert is one node | §3.4, §6.1, §6.2 | the reader tests; the retention test; `unique:release-paths`, `unique:type_terms` |
-| DP-23, DP-22 | §12 known-answer shapes (isolates, parallel edges, self-loops, reconvergence, cross-file cycles, unresolved, mixed configuration); lineage; per-stage instrumentation | the `graph_shapes`, `syntax_shapes`, `lexical_shapes`, `type_shapes` and `docs_shapes` fixtures; generated lineage rules; `lctx compile` stage metrics, with validation's slowest rules | §3.8, §4.3 | insta catalog snapshots; `just pilot` and the C6 measurement, with its allocator setting stated (§4.3) |
+| Profile | Governing distinction | Current mechanism / independent control route |
+|---|---|---|
+| CI-03 | Canonical relation identity, typed endpoints and isolates; endpoint pair is not identity | Model records and declared projections; `normalized_projections`, `projection_hydration` and graph-shape controls |
+| CI-02, CI-04 | Attributed facts, normalized resolution, derivation and heuristic remain distinct; unknown is explicit | Typed support/coverage and nominal outcomes; native/normalization/selection controls |
+| CI-05, DP-04 | Projection universe versus output selection; graph-local indices never escape | Model projection definitions and lineage; materialized graph/source-bound adapter controls |
+| CI-08, CI-04 | Bounded paths and incomplete results never imply complete absence | Finite Summary/native path operations and explicit coverage; independent native/oracle controls |
+| CI-06, CI-09 | Exact-under-context versus heuristic; method/settings/run observations explicit | Model policy/definitions and nominal outcomes; `analytics_settings`, `domain_analytics`, `ranking_policy` |
+| CI-07 | Compute/graph boundary never acquires store meaning | Completed PostgreSQL sources registered with DataFusion, borrowed model kernels; actual stage/graph adapter controls |
+| CI-01, DP-21 | Results retain source, invocation and proof identity | Typed derivation sources/shared invariants and actual stored-row admission; publication and serving tamper controls |
+| DP-19 | Original immutable generation, acknowledged epoch receipts and publication after validation | `lctx-postgres` generation lifecycle and guards; `generation_stages`, `stage_reads`, `vocabulary_epochs`, serving lifecycle controls |
+| DP-23, DP-22 | Independent known answers and operational measurement boundaries | Model/core/store fixtures and CPython oracles; separate stage/RSS/reservation observations, no current performance claim |
+
 
 ## 6. Where defect shapes tend to land in this codebase
 
@@ -205,48 +205,27 @@ to reach for where doubt remains.
 
 | Pattern | Shape | Principles · gate | Cheap check |
 |---|---|---|---|
-| An extractor or decoder re-declaring a table's columns instead of using the `cpg-schema` spec | Second authority | DP-01, DP-16 · G1 | test: extractor output schema equals the spec, metadata included |
-| A pass writing `nodes`/`edges` directly instead of its family table, so the derived view and the family disagree | Second authority | DP-01 · G1 | test: regenerated views equal the stored ones on a fixture; `ast-grep` rule on writes to view tables |
-| A validator's SQL duplicated in a test instead of calling the shared library function | Second authority | DP-01, DP-23 · G1 | `ast-grep` rule flagging inline validation SQL in tests |
-| A `HAS_TYPE` edge materialized as its own mutable table instead of a view over `type_observations` | Second authority | DP-01 · G1 | test: view and observations agree on a fixture |
-| An assertion citing a finding or evidence id from another snapshot, or a public symbol absent from `exports` | Ungrounded claim | CI-11, DP-03, DP-21 · G1/G3/CI-G2 | test: the §10.4 grounding validator on a fixture with a stale id |
-| A codebook code reassigned or reordered | Silent migration | DP-24 · G1/G2 | test: codebook append-only snapshot |
-| A schema change without a reviewed snapshot diff | Silent migration | DP-24 · G2 | test: insta schema snapshots under `INSTA_UPDATE=no` |
-| An inner join in stage C/D dropping unmapped provider endpoints | Silent degradation | CI-04, DP-02, DP-15 · G2/CI-G1 | test: fixture with an unresolvable target yields a `boundaries` row |
-| A module an extractor never reached having no `coverage` row | Silent degradation | CI-04, DP-02, DP-19 · G2/CI-G1 | validator: coverage completeness per declared family × module |
-| A Pyrefly type kept only as its display string where Pysa gave structure | Silent degradation | CI-02, DP-15, DP-02 · G2/CI-G1 | test: `fidelity` is `display_only` whenever structure is absent |
-| Pysa `ifCalled` targets emitted as call targets, or `artificial-call` sites without `synthetic_model` origin | Silent reinterpretation | CI-02, DP-05, DP-08 · G2/CI-G1 | test on a higher-order-call fixture |
-| Glean caller→callee pairs used for `calls` (they drop unresolved calls) | Silent degradation | CI-04, DP-02, DP-15 · G2/CI-G1 | test: an unresolved call on a fixture yields a `resolutions` row with a reason |
-| A Pass B guard or forwarding site promoted despite an earlier binding of the parameter's name | Silent reinterpretation | CI-06, DP-08, DP-22 · G2/CI-G1 | test: the "guard after parameter rebinding" fixture yields `ambiguous_binding` |
-| A template emitting a control, limit or behavioral claim from a `statistically_derived` finding | Unbacked claim | CI-09, DP-02, DP-22 · G2/G7/CI-G1 | test over the assertion builder; validator query rejecting statistical status on control/limit assertions |
-| A brief's conditions or limits hydrated by a second semantic search instead of deterministic joins on `(snapshot_id, brief_id)` | Optional warning | CI-11, DP-02, DP-01 · G2 | test: every limit of a selected brief is returned regardless of query wording |
-| A deterministic ID built from a span alone, or including a tempdir path or timestamp | Incomplete / volatile key | DP-04, DP-09 · G6 | proptest: same-range syntax nodes get distinct IDs; IDs stable across two runs |
-| A run identity missing the analyzer revision, adapter build, search paths or config digests | Incomplete reuse key | DP-09, DP-21 · G6 | test: changing one input changes `run_id` |
-| Community detection, FCA or witness selection depending on input row order, an unrecorded seed, or an unpinned `rand` | Nondeterminism | CI-09, DP-18, DP-11 · G6 | test: shuffled-input fixture gives byte-identical findings |
-| A traversal relying on `Bfs`/`Dfs` sibling order or `edges_directed` order instead of sorting by canonical key | Nondeterminism | DP-11 · G6 | test: same projection built in two insertion orders yields identical witnesses |
-| Dense petgraph indices persisted as, or joined to, canonical IDs | Leaked temporary coordinate | CI-05, DP-04, DP-11 · G6 | `ast-grep` rule on projection-index writes outside the projection module |
-| A parallel-arc collapse that drops the arc-to-fact mapping | Lost lineage | CI-03, DP-21 · G6 | test on a parallel-arcs fixture |
-| A query-time embedding produced or accepted without checking the generation's `spec_hash`, or a cached vector reused after the spec changed | Invalid reuse | CI-13, DP-09 · G6 | test: conformance vectors across the Rust and Python clients; a spec-mismatch fixture is rejected |
-| A reader loading a Delta table at "latest", building a provider on an already-loaded handle, or omitting the `snapshot_id` filter | Inconsistent revision | DP-19 · G5 | `ast-grep` rule on `DeltaTable` loads outside the reader module; test with an unpublished attempt present |
-| A `snapshots` row appended before validation passes, or an attempt retried under the same `snapshot_id` after a write error | Unguarded commit | DP-19 · G5 | test: an injected validation or write failure publishes nothing |
-| The MCP server swapping generations mid-process, or a generation manifest not naming its snapshot | Inconsistent revision | CI-13, DP-04, DP-19 · G5 | test: `Client(mcp)` sees one generation key across calls; manifest schema test |
-| A raw Parquet directory scan of a Delta table | Hidden semantics change | DP-18, DP-08 · G4 | `ast-grep` rule on `read_parquet` over table paths |
-| An analyzer run that discovers its own config or reads an ambient environment | Hidden input | CI-10, DP-18, DP-09 · G4 | test: the Pyrefly invocation carries an explicit config; `context_id` changes when the config changes |
-| Gold-reference paths (`.claude/skills/**`) read by the compiler, or analytics parameters tuned against the gold | Hidden input; circular evaluation | CI-12, DP-18, DP-22 · G4/CI-G3 | `ast-grep` rule on skill paths in compiler code; test that no library definition (`libraries/*/pyproject.toml`) or environment path points into `.claude/skills/` |
-| `unwrap` / `expect` in a report decoder or at a bundle or IPC boundary | Unguarded boundary | DP-03, DP-15 · G3 | test with a malformed report; clippy |
-| A FastMCP tool returning a bare list, or anything printing to stdout under stdio | Protocol degradation | DP-15 · G2 | test: `Client(mcp)` asserts object `structured_content` in both protocol modes; `ast-grep` rule on `print(` in `python/lctx_mcp` |
-| A second Arrow, DataFusion or delta-rs version entering the lockfile | Dependency drift | DP-09 · G6 | `just deps` (exists) |
-| An extractor advertising a fact family it only partly extracts | Unbacked capability | CI-04, CI-04, DP-15 · G7 | test: coverage rows per family on the fixture corpus |
-| An analytic technique kept although its ablation changes no published output | Unearned machinery | DP-16 · — | the §9.8 ablation diff |
-| A check reported `passed` without its command having run, or a mocked provider counted as a pass | Unbacked capability | DP-22 · G7 | prose (`AGENTS.md`); no mechanical oracle |
-| A benchmark measuring one stage while the claim is end-to-end | — | DP-22 | name the conditions, or relabel the claim |
+| An extractor/decoder copying model columns or semantics | Second authority | DP-01, DP-16 · G1 | Typed codec/schema equality and independent provider cases |
+| A packet reading a relation outside its typed output/child/prepared binding, including an empty read | Undeclared consumption | DP-01, DP-03 · G1/G3 | Scoped packet-reader refusal with a real generation |
+| A validator replacing the shared owner operation with test-only SQL | Second authority | DP-01, DP-23 · G1 | Injected invalid-input controls through the production validator |
+| An assertion/proof citing an absent or foreign-generation row | Ungrounded claim | CI-11, DP-03, DP-21 · G1/G3/CI-G2 | Actual proof-row membership and damaged-receipt controls |
+| Reordered codebook codes or unreviewed schema snapshot change | Silent migration | DP-24 · G2 | Append-only codebook snapshots and reviewed `.snap.new` diff |
+| Name-only dependency dedup merging different vocabulary epochs or stream orders | Lost source universe | DP-04, DP-09 · G2/G6 | Exact closure/consumed-source and epoch controls |
+| Known default formals disappearing because native assignment is unsupported | Invalid validity inference | DP-02, CI-04 · G2 | Required/default public-formal twin with retained refusal |
+| Statistical/heuristic evidence promoted to behavioral proof | Unbacked claim | CI-09, DP-02 · G2/G7/CI-G1 | Typed status/qualification and synthesis replay controls |
+| Query relevance used as eligibility or evidence truth | Changed question | CI-11, DP-02 · G2 | Eligibility-before-ranking and original evidence controls |
+| Reused vector/spec or graph/parent inventory from another acknowledged source | Invalid reuse | CI-13, DP-09 · G6 | Codec/spec mismatch, source/budget and independent replay controls |
+| Serving swaps generation/guard mid-process, or publishes before validation | Inconsistent authority | CI-13, DP-04, DP-19 · G5 | Original-guard loss/replacement and failed-publication controls |
+| Borrowed CPU access/charges released while an opaque kernel executes | Invalid lifetime | DP-10, DP-19 · G5/G6 | Heartbeat and cancel/drain controls |
+| A failure emits backend detail, acquires a replacement grant or recursively encodes | Unsafe failure boundary | DP-03, DP-19 · G3/G5 | Actual tool/resource complete-envelope and fallback-once controls |
+| Result/rendering drift across batches or valid string assumptions strengthened without premises | Nondeterminism / incorrect restriction | DP-24, CI-04 · G2 | Batch-order, shuffled-input and independent native/oracle controls |
 
 ## 7. Stack notes and known conflicts
 
 - **Library specifics** from the graph guidelines' §5 (petgraph container choices, graphops
   naming and version caveats, leiden-rs data model, rustworkx-core scope) belong to the
-  `rust-graphs` skill; DataFusion operator and provider rules to `datafusion`; Delta snapshot and
-  retention rules to `deltalake`. The profile names no library.
+  `rust-graphs` skill; DataFusion operator and provider rules to `datafusion`; PostgreSQL generation and
+  receipt/lease rules to `sqlx-postgres`. The profile names no library.
 
 | # | Standard says | Repository text says | Resolution |
 |---|---|---|---|
@@ -277,5 +256,5 @@ readers translate ids cited by older material.
 | Graph guidelines §8 | CI-06, CI-09 |
 | Graph guidelines §9 | CI-07, DP-10, DP-20 (operator rules: `datafusion` skill) |
 | Graph guidelines §10 | CI-01, DP-09, DP-21 |
-| Graph guidelines §11 | DP-19, DP-04 (Delta rules: `deltalake` skill) |
+| Graph guidelines §11 | DP-19, DP-04 (PostgreSQL generation rules: `sqlx-postgres` skill) |
 | Graph guidelines §12 | Profile review additions (slot 4 analysis record, slot 10 known-answer shapes) |

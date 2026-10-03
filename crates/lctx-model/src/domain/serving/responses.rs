@@ -3,9 +3,9 @@ use super::*;
 use crate::domain::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-macro_rules! response {($name:ident {$($field:ident:$ty:ty),*$(,)?})=>{
+macro_rules! response {($name:ident {$($(#[$attr:meta])* $field:ident:$ty:ty),*$(,)?})=>{
     #[derive(Debug,Clone,PartialEq,Serialize,Deserialize,JsonSchema)]
-    #[serde(deny_unknown_fields)] pub struct $name {pub generation:GenerationKey,$(pub $field:$ty,)*}
+    #[serde(deny_unknown_fields)] pub struct $name {pub generation:GenerationKey,$($(#[$attr])* pub $field:$ty,)*}
 };}
 response!(SearchOperationsResponse {results:SectionPage<OperationCandidate>,extent:SelectionExtent,channels:ChannelState,ranking:Vec<ranking::RankedHit>});
 response!(FindOperationsResponse {supported:SectionPage<OperationCandidate>,unresolved:SectionPage<OperationCandidate>,conflicting:SectionPage<OperationCandidate>,extent:SelectionExtent});
@@ -37,14 +37,19 @@ response!(GetCapabilityResponse {
 #[serde(deny_unknown_fields)]
 pub struct NativeAssessmentPacket {
     pub path: ProofReference,
+    /// Original stored condition identity; request restriction has a separate result identity.
     pub original_condition: Id<conditions::Condition>,
     pub restricted_result: Nullable<ContentHash>,
+    /// Model-qualified verdict, never proof of unrestricted runtime behavior.
     pub verdict: obligation::Verdict,
     pub exact: native_requests::ExactOutcome,
+    /// Canonical evidence or derivation basis for this result, rather than a confidence score.
     pub basis: native_requests::Basis,
+    /// Explicit finite assumptions for exact scalar restriction; no Python is executed.
     pub assumptions: native_requests::Assumptions,
     pub proof: Vec<ProofReference>,
     pub work: native_requests::Work,
+    /// Canonical reason for this result; when absent there is no additional diagnosed refusal.
     pub reason: Nullable<obligation::ObligationKind>,
     pub unexamined: u64,
     pub presentation: Nullable<RenderedConditionPacket>,

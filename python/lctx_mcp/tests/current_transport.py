@@ -79,7 +79,12 @@ async def test_real_list_call_original_evidence_and_resource_template(current_fi
         }
         templates = await client.list_resource_templates()
         assert [
-            {"uri_template": t.uri_template, "name": t.name, "mime_type": t.mime_type}
+            {
+                "uri_template": t.uri_template,
+                "name": t.name,
+                "mime_type": t.mime_type,
+                "description": t.description,
+            }
             for t in templates
         ] == json.loads(wire_resources())
         found = await client.call_tool("find_operations", {"library": fixture["library"]})
@@ -603,9 +608,240 @@ async def test_live_native_assessment_keeps_original_proofs_and_path_local_outco
                 assert path["proof"]
                 assert len(path["path"]["row"]) == 16
                 assert all(proof["relation"] and len(proof["row"]) == 16 for proof in path["proof"])
+        default = native["default"]
+        refused = await client.call_tool(
+            "inspect_value_paths",
+            {
+                **request,
+                "member": default["member"],
+                "analysis": default["analysis"],
+                "inputs": [
+                    {"formal": default["formal"], "value": {"kind": "integer", "decimal": "1"}}
+                ],
+            },
+        )
+        assert refused.structured_content is not None
+        default_paths = refused.structured_content["paths"]
+        if current_fixture["profile"] == "catalog":
+            assert default_paths["availability"]["status"] == "not_requested"
+        else:
+            assert default_paths["availability"] == {
+                "status": "partial",
+                "reason": "native_context_unavailable",
+            }
+            assert default_paths["items"]
+            assert all(
+                path["reason"] == 32
+                and path["exact"] == "unknown"
+                and path["basis"] == "unexamined"
+                and path["work"]["assignments_applied"] == 0
+                and path["proof"]
+                for path in default_paths["items"]
+            )
         invalid = {
             **request,
             "inputs": [{"formal": native["formal"], "value": {"kind": "integer", "decimal": "-0"}}],
         }
         with pytest.raises(ToolError):
             await client.call_tool("inspect_value_paths", invalid)
+
+
+@pytest.mark.parametrize("protocol", ["2025-11-25", "2026-07-28"])
+async def test_http_admitted_failures_use_safe_metadata_and_exact_original_envelopes(
+    current_fixture, monkeypatch, protocol
+):
+    from failure_seam import KINDS, install
+
+    import lctx_mcp.server as owner
+
+    monkeypatch.setattr(owner, "open_generation", owner.open_generation)
+    observed = install()
+    configured = server(current_fixture)
+    app = configured.http_app(path="/mcp", json_response=True)
+    async with (
+        app.lifespan(app),
+        httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app), base_url="http://localhost"
+        ) as client,
+    ):
+        headers = {
+            "accept": "application/json, text/event-stream",
+            "mcp-protocol-version": protocol,
+        }
+        if protocol == "2025-11-25":
+            initialized = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": protocol,
+                        "capabilities": {},
+                        "clientInfo": {"name": "failure-control", "version": "0"},
+                    },
+                },
+            )
+            assert initialized.status_code == 200, initialized.text
+            if "mcp-session-id" in initialized.headers:
+                headers["mcp-session-id"] = initialized.headers["mcp-session-id"]
+            await client.post(
+                "/mcp",
+                headers=headers,
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            )
+        for resource in (False, True):
+            for index, kind in enumerate(KINDS):
+                method = "resources/read" if resource else "tools/call"
+                params = (
+                    {"uri": "lctx://capability/" + current_fixture["capability"]}
+                    if resource
+                    else {
+                        "name": "find_operations",
+                        "arguments": {"library": current_fixture["library"]},
+                    }
+                )
+                if protocol == "2026-07-28":
+                    params["_meta"] = {
+                        PROTOCOL_VERSION_META_KEY: protocol,
+                        CLIENT_CAPABILITIES_META_KEY: {},
+                    }
+                response = await client.post(
+                    "/mcp",
+                    headers={**headers, "mcp-method": method, "mcp-name": "find_operations"},
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": f"failure-λ-{resource}-{index}",
+                        "method": method,
+                        "params": params,
+                    },
+                )
+                assert response.status_code == 200, response.text
+                assert "SECRET" not in response.text and "postgres://" not in response.text
+                envelope = response.json()
+                if resource:
+                    assert envelope["error"]["data"]["kind"] == kind, envelope
+                    assert "result" not in envelope
+                else:
+                    assert envelope["result"]["isError"] is True
+                    assert envelope["result"]["_meta"]["lctx_failure"]["kind"] == kind
+                    assert "structuredContent" not in envelope["result"]
+                captured_http = observed[-1]["http"]
+                assert isinstance(captured_http, str)
+                assert response.content == bytes.fromhex(captured_http), (
+                    "pinned writer emits exactly the complete admitted envelope"
+                )
+        assert len(observed) == 8
+
+
+@pytest.mark.parametrize("protocol", ["2025-11-25", "2026-07-28"])
+async def test_stdio_admitted_failures_use_safe_metadata_and_exact_original_envelopes(
+    current_fixture, tmp_path, protocol
+):
+    from failure_seam import KINDS
+
+    receipt = tmp_path / "admitted-envelopes.json"
+    tests = Path(__file__).resolve().parent
+    script = (
+        "import sys, runpy;"
+        f"sys.path.insert(0,{str(tests)!r});"
+        "from failure_seam import install;"
+        f"install({str(receipt)!r});"
+        f"sys.argv=['lctx_mcp','--config',{str(current_fixture['config'])!r},"
+        f"'--generation',{current_fixture['generation']!r}];"
+        "runpy.run_module('lctx_mcp',run_name='__main__')"
+    )
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        script,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        limit=1024 * 1024,
+        env={**os.environ, "FASTMCP_CHECK_FOR_UPDATES": "off"},
+    )
+    assert process.stdin is not None and process.stdout is not None
+    answers = []
+    try:
+        if protocol == "2025-11-25":
+            initialize = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": protocol,
+                    "capabilities": {},
+                    "clientInfo": {"name": "failure-control", "version": "0"},
+                },
+            }
+            process.stdin.write((json.dumps(initialize) + "\n").encode())
+            await process.stdin.drain()
+            initial = json.loads(await asyncio.wait_for(process.stdout.readline(), 60))
+            assert initial["result"]["protocolVersion"] == protocol
+            process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+        for resource in (False, True):
+            for index, kind in enumerate(KINDS):
+                params = (
+                    {"uri": "lctx://capability/" + current_fixture["capability"]}
+                    if resource
+                    else {
+                        "name": "find_operations",
+                        "arguments": {"library": current_fixture["library"]},
+                    }
+                )
+                if protocol == "2026-07-28":
+                    params["_meta"] = {
+                        PROTOCOL_VERSION_META_KEY: protocol,
+                        CLIENT_CAPABILITIES_META_KEY: {},
+                    }
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": f"failure-λ-{resource}-{index}",
+                    "method": "resources/read" if resource else "tools/call",
+                    "params": params,
+                }
+                process.stdin.write((json.dumps(payload) + "\n").encode())
+                await process.stdin.drain()
+                while True:
+                    raw = await asyncio.wait_for(process.stdout.readline(), 60)
+                    assert raw, "actual stdio service exited"
+                    envelope = json.loads(raw)
+                    if envelope.get("id") == payload["id"]:
+                        break
+                assert b"SECRET" not in raw and b"postgres://" not in raw
+                if resource:
+                    assert envelope["error"]["data"]["kind"] == kind
+                    assert "result" not in envelope
+                else:
+                    assert envelope["result"]["isError"] is True
+                    assert envelope["result"]["_meta"]["lctx_failure"]["kind"] == kind
+                    assert "structuredContent" not in envelope["result"]
+                answers.append(raw)
+        admitted = json.loads(receipt.read_text())
+        assert len(admitted) == len(answers) == 8
+        assert answers == [bytes.fromhex(row["stdio"]) for row in admitted]
+    finally:
+        process.stdin.close()
+        try:
+            await asyncio.wait_for(process.wait(), 10)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+
+
+async def test_failure_envelope_refusal_falls_back_once_without_replacing_grant(
+    current_fixture, monkeypatch
+):
+    from failure_seam import install
+
+    import lctx_mcp.server as owner
+
+    monkeypatch.setattr(owner, "open_generation", owner.open_generation)
+    observed = install(fallback=True)
+    async with Client(server(current_fixture)) as client:
+        with pytest.raises(ToolError) as failure:
+            await client.call_tool("find_operations", {"library": current_fixture["library"]})
+        assert "SECRET" not in str(failure.value)
+    assert observed == [{"refused": True}], "one error envelope attempt, no recursion"

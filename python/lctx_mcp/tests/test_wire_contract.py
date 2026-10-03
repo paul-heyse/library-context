@@ -78,6 +78,8 @@ async def test_real_mcp_listing_preserves_the_sole_native_inventory():
         for tool in listed:
             declared = next(row for row in declarations if row["name"] == tool.name)
             metadata = json.loads(wire_tool(tool.name))
+            assert tool.description == declared["description"]
+            assert tool.description
             assert tool.input_schema == declared["request_schema"] == metadata["parameters"]
             assert tool.output_schema == declared["response_schema"] == metadata["output_schema"]
             assert tool.annotations is not None
@@ -89,7 +91,12 @@ async def test_real_mcp_listing_preserves_the_sole_native_inventory():
         assert await client.list_resources() == []
         templates = await client.list_resource_templates()
         assert [
-            {"uri_template": t.uri_template, "name": t.name, "mime_type": t.mime_type}
+            {
+                "uri_template": t.uri_template,
+                "name": t.name,
+                "mime_type": t.mime_type,
+                "description": t.description,
+            }
             for t in templates
         ] == json.loads(wire_resources())
 

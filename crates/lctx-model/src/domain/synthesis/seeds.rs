@@ -202,6 +202,7 @@ pub fn relations() -> Vec<Relation> {
 }
 struct Check {
     automatic: super::automatic::Data,
+    analytic: super::frames::AnalyticParents,
     docs: documentary::Output,
     budget: ResourceBudget,
     data: documentary::Data,
@@ -216,6 +217,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = documentary::Data::validation_inputs();
     inputs.extend(Output::validation_inputs());
     inputs.extend(super::automatic::Data::inputs());
+    inputs.extend(super::frames::AnalyticParents::inputs());
     inputs.extend(documentary::Output::validation_inputs());
     inputs.extend([
         ValidationInput::of::<AnalyticsConfiguration>(&["id"]),
@@ -232,6 +234,7 @@ pub fn invariants() -> Vec<Invariant> {
         create: std::sync::Arc::new(|b| {
             Box::new(Check {
                 automatic: super::automatic::Data::new(b),
+                analytic: super::frames::AnalyticParents::new(b),
                 docs: documentary::Output::new(b),
                 budget: b.clone(),
                 data: documentary::Data::new(b),
@@ -252,8 +255,9 @@ impl InvariantCheck for Check {
         let d = self.data.visit(n, b)?;
         let o = self.output.visit(n, b)?;
         let a = self.automatic.visit(n, b)?;
+        let analytic = self.analytic.visit(n, b)?;
         let docs = self.docs.visit(n, b)?;
-        if !d && !o && !a && !docs {
+        if !d && !o && !a && !docs && !analytic {
             return Err(invalid("undeclared seed replay input"));
         }
         Ok(())
@@ -286,6 +290,7 @@ impl InvariantCheck for Check {
                 &self.structural_frames,
                 &self.structural_invocations,
                 &self.automatic,
+                &self.analytic,
                 settings,
                 inv,
                 &mut out,

@@ -729,3 +729,37 @@ fn capability_assertion_status_is_structured_and_visible_without_rewriting_autho
     let encoded = response.to_json().unwrap();
     assert!(tool_result("get_capability", &encoded, false).is_ok());
 }
+
+#[test]
+fn discovery_explains_codes_and_closed_packet_bindings_cover_composition() {
+    for declaration in tools() {
+        assert!(!declaration.description.is_empty());
+    }
+    let selection = schema_for::<selection::Selection>(false).to_string();
+    assert!(selection.contains("Discovery"));
+    assert!(selection.contains("Strict"));
+    assert!(selection.contains("integer"));
+    assert!(selection.contains("RequireCompatible"));
+    let native = mappings::PacketKind::NativeAssessmentPacket.binding();
+    assert!(native.permits::<conditions::Condition>());
+    assert!(
+        !mappings::PacketKind::OperationCore
+            .binding()
+            .permits::<retrieval::consumption::RetrievalEmbeddingUse>()
+    );
+    let operation = mappings::PacketKind::OperationPacket.binding();
+    assert!(operation.permits::<catalog::evidence::ScenarioSpan>());
+    assert!(operation.permits::<source::SourceArtifact>());
+    assert!(
+        mappings::PacketKind::EvidenceHit
+            .binding()
+            .permits::<retrieval::OriginalAnchor>()
+    );
+    for kind in FailureKind::ALL {
+        let failure = PublicFailure::new(kind);
+        assert_eq!(failure.kind.name(), kind.name());
+        assert_eq!(failure.message, kind.message());
+        assert!(failure.message.len() < 100);
+    }
+    assert!(FailureKind::from_name("driver-secret").is_none());
+}

@@ -28,7 +28,7 @@ The [foundation review](../../design_review/reviews/design_review_phase4-foundat
 is **Accept scoped**. The [P4B3-F01 corrective reinspection](../../design_review/reviews/design_review_phase4-symbolic-reinspection_2026-10-01.md)
 and [assembled Design/Target review](../../design_review/reviews/design_review_phase4-assembled_2026-10-01.md)
 are **Accept scoped**, 2026-10-01; Q0 passed within the recorded finite envelope.
-Phase 5 current serving is **Implemented in the working tree / qualification pending**, 2026-10-02. No live embedding, real-library upper-frontier
+Phase 5 current serving is **Implemented / scoped qualification; real-library qualification stopped**, 2026-10-02. No live embedding, real-library upper-frontier
 pilot, comparative product, hydration-cost or total-RSS measurement is claimed.
 
 **Current state.** PostgreSQL is the sole canonical relational store; DataFusion supplies in-process
@@ -39,8 +39,8 @@ extraction/native flow have no `cpg-schema` dependency. Legacy Phase 4 engine re
 replacement controls; Q0 passed within the recorded scope, 2026-10-01. Phase 5 has retired `cpg-schema`, the dormant `cpg-core::bundle` and their obsolete serving/IPC consumers; current qualification is pending.
 
 **Execution owner.** The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
-owns layer sequencing, cross-phase finding disposition and deletion obligations. The Phase 4 plan
-owns current qualification and remaining work; STATUS is the restart/handoff entrypoint. Canonical
+owns layer sequencing, cross-phase finding disposition and deletion obligations. The Phase 5 and incremental alignment plans
+own their current qualification and remaining work; STATUS is the restart/handoff entrypoint. Canonical
 catalog construction is independent of optional analysis success and brief selection. Exact
 source/effective defaults, signature variants, predicate-specific selection closure and original
 evidence remain typed. Symbolic source associations retain Unknown/no-proof reader outcomes;
@@ -377,8 +377,9 @@ body admission: it also needs a compatible structural signature and exact, non-e
 body evidence. Candidate/approximate evidence cannot grant this authority. Receiver adjustments
 are presentation metadata; raw formals remain intact for N5's sole argument algorithm. Default
 slots identify definition-time slots without asserting runtime values. The charged pure operation
-is invoked through the common completed-stage reader and resource owner; dormant catalog surface
-code remains only for the inventoried later-layer consumers until X/P4 retirement.
+is invoked through the common completed-stage reader and resource owner. Catalog serving now
+hydrates canonical typed relations; the inventoried dormant later-layer consumers were retired
+in Phase 5. Serving activation and real-library qualification remain stopped.
 
 **Call bindings.** One pure binder in `lctx-model` produces **call bindings**, keyed by
 call site × target alternative × signature variant × actual → formal place. Each binding has a kind
@@ -825,6 +826,16 @@ The same scoped operation is available over the private facts checkpoint before 
 
 > Decision: ADR-0086, ADR-0089, ADR-0094, ADR-0105
 
+**Execution alignment (Implemented, 2026-10-02; ADR-0116).** Model dependency closure retains
+exact relation/publication-prefix/stream-order requirements and lowers a separate sufficient
+grant using scheduler ordinals. Direct facts and explicit invariant epochs survive inference;
+unfinished ordinary outputs refuse. C1/C2, Analytic and S0 consume this operation. The compiler's
+finite upper-stage binding supplies declaration, phase, publication membership, graph needs and
+runner; preflight checks routes and cross-phase dependencies before effects. Actual adapters read
+acknowledged sources in separate sessions, coalescing only identical source universes.
+
+> Decision: ADR-0116
+
 <a id="section-15-12"></a>
 
 ## §15.12 Serving
@@ -862,10 +873,29 @@ provisioning credentials. Its opaque selection owner verifies consumed content a
 source/epoch receipts on the original leased connection, retains the lease and memory through
 shared ownership, and terminally refuses classification after guard loss. Pure selection controls
 and both-profile actual Catalog admission controls passed on 2026-10-02; foundation qualification passed with the composite receipt in companion §5.4. The later hook
-formatting belongs to Phase 5’s fresh current-tree qualification. This is the minimal reusable foundation consumer; process admission, route mappings,
-ranking, native reconstruction and MCP remain Phase 5 scope.
+formatting belongs to Phase 5’s fresh current-tree qualification. This is the reusable foundation consumer; Phase 5 implements process admission, route mappings,
+ranking, native reconstruction and MCP with scoped receipts. Real-library qualification remains stopped.
 
 > Decision: ADR-0086; ADR-0114
+
+**Prepared native owner (Implemented, 2026-10-02; ADR-0116).** `native_requests::PreparationInputs`
+names typed hydrated relations; `PreparedNativeSemantics` owns Entry replay, full structural
+correspondence, checked atoms, Local/rebase/Summary/path composition and exact refused contexts.
+Its independently prepared public formal domain includes valid defaulted formals even when exact
+assignment is unsupported. Refusals preserve the constructor's actual cause. Storage owns shared
+validator execution, content/epoch receipts, actual proof membership, retained charges and the
+original guard; it releases the lease mutex before pure CPU preparation and reconfirms that guard
+before publishing state. Pure helper agreement never admits a generation or invented proof row.
+
+**Existing extension routes (Implemented guidance, 2026-10-02).** A new finite model extends its
+checked construction, declared typed inputs and production/replay path; an independent matching
+and refused-context twin challenges it. A new selection predicate extends the finite model
+vocabulary, classification/evaluation algebra and generated schema; supported, unresolved and
+conflicting results remain separate. A new packet composes its typed output binding and canonical
+hydrator with attempted-read controls. Do not add a second Python meaning table or generic extension
+registry. [§4.3](acquisition-and-extraction.md#section-4-3) owns the analogous fact-family route.
+
+> Decision: ADR-0116
 
 <a id="section-15-13"></a>
 

@@ -51,10 +51,16 @@ impl super::GenerationGuard {
             .budget
             .reserve("selection-admitted-owner", size_of::<State>() + 64)?;
         let profile = lease.selection_envelope().await?;
+        let binding = lctx_model::domain::serving::mappings::prepared_binding(
+            lctx_model::domain::serving::mappings::PreparedDependency::Selection,
+        );
         let mut data = ClassificationData::new(&lease.budget);
         let mut output = Output::new(&lease.budget);
         let mut admission = AdmissionData::new(&lease.budget);
         for input in ClassificationData::inputs() {
+            if !binding.permits_relation(input.name()) {
+                return Err(Error::Contract);
+            }
             lease
                 .selection_read(&input, |batch| {
                     if !data.visit(input.name(), &batch)? {
@@ -65,6 +71,9 @@ impl super::GenerationGuard {
                 .await?;
         }
         for input in Output::inputs() {
+            if !binding.permits_relation(input.name()) {
+                return Err(Error::Contract);
+            }
             lease
                 .selection_read(&input, |batch| {
                     if !output.visit(input.name(), &batch)? {
@@ -75,6 +84,9 @@ impl super::GenerationGuard {
                 .await?;
         }
         for input in AdmissionData::inputs() {
+            if !binding.permits_relation(input.name()) {
+                return Err(Error::Contract);
+            }
             lease
                 .selection_read(&input, |batch| {
                     if !admission.visit(input.name(), &batch)? {
@@ -322,7 +334,10 @@ impl GenerationLease {
         a: &AdmissionData,
         profile: Profile,
     ) -> Result<(), Error> {
-        let stage = selection::build::stage(profile, &self.model)?;
+        let order =
+            super::vocabulary::publication_order(&mut self.connection, self.contract.generation())
+                .await?;
+        let stage = selection::build::stage(profile, &self.model, &order)?;
         let _declarations = self.budget.reserve(
             "selection-source-declarations",
             stage
@@ -330,9 +345,6 @@ impl GenerationLease {
                 .len()
                 .saturating_mul(size_of::<stages::RelationUse>() + 256),
         )?;
-        let order =
-            super::vocabulary::publication_order(&mut self.connection, self.contract.generation())
-                .await?;
         let consumed = ClassificationData::inputs();
         for invocation in a.invocations.iter() {
             let bytes = a

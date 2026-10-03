@@ -30,7 +30,13 @@ brief selection. A seed without an admissible documentary Outcome produces `NoDo
 omission while its catalog member and evidence remain available. Unrequested techniques or
 missing optional embeddings do not erase the public universe.
 
-> Decision: ADR-0049, ADR-0071, ADR-0078, ADR-0086, ADR-0106, ADR-0108
+**Implemented reuse, 2026-10-02.** S0 frame admission and automatic selection borrow one
+`AnalyticParents` inventory containing exactly analytic frames, invocations and technique results.
+Each operation retains its own declared inputs; seed replay constructs its independent parent
+inventory. Actual consumed relations retain their acknowledged epochs through separate sessions;
+sharing does not authorize an unfinished or different source universe.
+
+> Decision: ADR-0049, ADR-0071, ADR-0078, ADR-0086, ADR-0106, ADR-0108, ADR-0116
 
 <a id="section-10-1"></a>
 
@@ -211,7 +217,7 @@ uses the artifact/chunk owner; E0 introduces no second body store. RetrievalEmbe
 later consumption event, distinct from AnalysisEmbeddingUse. Required corruption refuses and
 optional vector absence remains lexical-only availability.
 
-**Phase 5 query behavior remains unavailable.** Exact-name promotion, eligibility-before-ranking,
+**Phase 5 query behavior is Implemented, 2026-10-02; real-library qualification and activation remain stopped.** Exact-name promotion, eligibility-before-ranking,
 BM25, exact pgvector scoring, family-normalized RRF60, winning-unit witnesses, policy/channel
 metadata and generation/request-bound cursors are serving contracts. A best fragment ranks its
 unit; duplicate evidence cannot inflate family votes. Structured requirement witnesses are
@@ -265,14 +271,28 @@ continuations or resource refusal; they do not silently shorten a signature. Cur
 generation, canonical request, section/group, policy and representation. Python lexical fusion
 and Markdown presentation cannot change requirement outcome or evidence status.
 
-> Decision: ADR-0114, ADR-0025, ADR-0049, ADR-0071, ADR-0073, ADR-0077, ADR-0078, ADR-0081, ADR-0086, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063
+**Incremental alignment (Implemented, 2026-10-02).** Generated discovery labels each numeric
+code from its append-only codebook and exposes model route/predicate meanings. Numeric shape
+and existing defaults remain unchanged. Typed packet output bindings compose direct reads,
+child packets and startup preparation inputs; permission is checked before every attempted
+canonical read, including empty ID lists. Immutable declaration metadata is shared. Canonical
+proof membership and generation receipts remain separate admission obligations.
+
+The model owns the four coarse failure categories and fixed public messages. After the actual
+request ID is admitted, a recognized failure makes one complete pinned tool/resource envelope
+attempt on the original grant. Tool failures use error-result metadata outside the success schema;
+resource failures use JSON-RPC error data. Guard/deadline/budget refusal can prevent admission and
+falls back once through the existing safe exception path. Driver text and configuration never
+supply the public message. This does not promise universally bounded early framework errors.
+
+> Decision: ADR-0114, ADR-0116, ADR-0025, ADR-0049, ADR-0071, ADR-0073, ADR-0077, ADR-0078, ADR-0081, ADR-0086, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063
 
 <a id="section-11-4"></a>
 
 ### §11.4 PostgreSQL serving and conditional workflows
 
-**Accepted Phase 5 contract; unavailable during Phase 4 qualification.** The single generation
-store already owns publication, selection and lease protocols. Serving views, grants and lookup
+**Implemented Phase 5 contract, 2026-10-02; activation and real-library qualification remain
+stopped.** The single generation store owns publication, selection and lease protocols. Serving views, grants and lookup
 indexes are derived over those canonical relations; they do not copy records into another
 semantic store. Generation readiness and operator selection remain separate transitions.
 Readers retain leases, so cancellation, retirement, recovery and concurrent replacement must

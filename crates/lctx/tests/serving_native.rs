@@ -241,7 +241,7 @@ async fn canonical_native_restriction_both_profiles_and_request_binding() {
                 (
                     "defaulted",
                     default_formal,
-                    obligation::ObligationKind::EntryValueUnknown,
+                    obligation::ObligationKind::DefaultStabilityUnknown,
                 ),
                 (
                     "computed",
@@ -277,6 +277,13 @@ async fn canonical_native_restriction_both_profiles_and_request_binding() {
                     )
                     .await
                     .unwrap();
+                if name == "defaulted" {
+                    assert!(
+                        matches!(&boundary.paths.availability, Availability::Partial { reason } if reason.as_str() == lctx_model::domain::native_requests::UNAVAILABLE_REASON)
+                    );
+                } else {
+                    assert_eq!(boundary.paths.availability, Availability::Available {});
+                }
                 assert!(
                     !boundary.paths.items.is_empty(),
                     "actual canonical {name} paths remain visible"
@@ -418,7 +425,7 @@ async fn canonical_native_restriction_both_profiles_and_request_binding() {
             .env("LCTX_SERVING_TEST_LIBRARY","demo").env("LCTX_SERVING_TEST_PROFILE",profile)
             .env("LCTX_SERVING_TEST_CAPABILITY",capability.hex())
             .env("LCTX_SERVING_TEST_ARTIFACT",serde_json::to_string(&artifact).unwrap())
-            .env("LCTX_SERVING_TEST_NATIVE",serde_json::json!({"member":candidate.member,"analysis":candidate.analysis,"formal":formal}).to_string()).output().unwrap();
+            .env("LCTX_SERVING_TEST_NATIVE",serde_json::json!({"member":candidate.member,"analysis":candidate.analysis,"formal":formal,"default": {"member": found.supported.items.iter().chain(&found.unresolved.items).find(|r| r.name.as_str().ends_with("defaulted")).unwrap().member,"analysis":found.supported.items.iter().chain(&found.unresolved.items).find(|r| r.name.as_str().ends_with("defaulted")).unwrap().analysis,"formal":default_formal}}).to_string()).output().unwrap();
         println!(
             "{profile} transport: {}",
             String::from_utf8_lossy(&transport.stdout)

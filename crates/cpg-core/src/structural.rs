@@ -171,15 +171,21 @@ pub async fn produce(
             runtime.budget(),
             key(projection::ProjectionName::DefinitionContainment),
         )?;
-        results.extend(build::produce(
-            &data,
-            &frame,
-            context.invocations.get(frame.invocation).unwrap(),
-            &settings,
-            call,
-            definition,
-            runtime.budget(),
+        results.extend(crate::stage_runtime::borrowed_cpu(
+            access.stage().name,
+            || {
+                build::produce(
+                    &data,
+                    &frame,
+                    context.invocations.get(frame.invocation).unwrap(),
+                    &settings,
+                    call,
+                    definition,
+                    runtime.budget(),
+                )
+            },
         )?)?;
+        tokio::task::yield_now().await;
     }
     let access_profile = access.profile();
     let mut output = StageOutput::new(

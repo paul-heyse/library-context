@@ -91,14 +91,17 @@ pub async fn produce(
             &coverage,
             budget,
         )?;
-        let result = execution::summary_production::produce(
-            &data,
-            &invocation,
-            definition,
-            access.profile(),
-            graph,
-            budget,
-        )?;
+        let result = crate::stage_runtime::borrowed_cpu(access.stage().name, || {
+            execution::summary_production::produce(
+                &data,
+                &invocation,
+                definition,
+                access.profile(),
+                graph,
+                budget,
+            )
+        })?;
+        tokio::task::yield_now().await;
         frame_charge.grow(
             size_of::<(owner::AnalysisInvocation, SummaryRecords)>()
                 + 4096

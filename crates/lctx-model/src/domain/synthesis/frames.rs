@@ -27,10 +27,47 @@ macro_rules! synthesis_frame_inputs {($apply:ident)=>{$apply!{
  evidence:$crate::domain::analysis::catalog_evidence::Invocation,evidence_outcomes:$crate::domain::analysis::catalog_evidence::AnalysisOutcome,evidence_sources:$crate::domain::analysis::catalog_evidence::InvocationSource,evidence_inputs:$crate::domain::analysis::catalog_evidence::AnalysisInput,
  selection:$crate::domain::analysis::selection::Invocation,selection_outcomes:$crate::domain::analysis::selection::AnalysisOutcome,selection_sources:$crate::domain::analysis::selection::InvocationSource,selection_inputs:$crate::domain::analysis::selection::AnalysisInput,
  structural:$crate::domain::structural::StructuralFrame,structural_invocations:$crate::domain::analysis::structural::Invocation,structural_outcomes:$crate::domain::analysis::structural::AnalysisOutcome,
- analytic:$crate::domain::analytics::AnalyticFrame,analytic_invocations:$crate::domain::analysis::analytic::Invocation,analytic_outcomes:$crate::domain::analysis::analytic::AnalysisOutcome,analytic_results:$crate::domain::analytics::TechniqueResult,
+ analytic_outcomes:$crate::domain::analysis::analytic::AnalysisOutcome,
  summary:$crate::domain::analysis::summary::Invocation,summary_outcomes:$crate::domain::analysis::summary::AnalysisOutcome,
 }};}
-macro_rules! data{($($f:ident:$ty:ty,)*)=>{pub struct Data{$(pub $f:Rows<$ty>,)*}impl Data{pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}}};}
+/// The three analytic parent relations shared by frame verification and automatic selection.
+pub struct AnalyticParents {
+    pub frames: Rows<analytics::AnalyticFrame>,
+    pub invocations: Rows<analysis::analytic::Invocation>,
+    pub results: Rows<analytics::TechniqueResult>,
+}
+impl AnalyticParents {
+    pub fn new(b: &ResourceBudget) -> Self {
+        Self {
+            frames: Rows::new(b),
+            invocations: Rows::new(b),
+            results: Rows::new(b),
+        }
+    }
+    pub fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
+        if n == analytics::AnalyticFrame::NAME {
+            self.frames.decode(b)?;
+            return Ok(true);
+        }
+        if n == analysis::analytic::Invocation::NAME {
+            self.invocations.decode(b)?;
+            return Ok(true);
+        }
+        if n == analytics::TechniqueResult::NAME {
+            self.results.decode(b)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    pub fn inputs() -> Vec<ValidationInput> {
+        vec![
+            ValidationInput::of::<analytics::AnalyticFrame>(&["id"]),
+            ValidationInput::of::<analysis::analytic::Invocation>(&["id"]),
+            ValidationInput::of::<analytics::TechniqueResult>(&["id"]),
+        ]
+    }
+}
+macro_rules! data{($($f:ident:$ty:ty,)*)=>{pub struct Data{pub analytic_parents:AnalyticParents,$(pub $f:Rows<$ty>,)*}impl Data{pub fn new(b:&ResourceBudget)->Self{Self{analytic_parents:AnalyticParents::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{if self.analytic_parents.visit(n,b)? {return Ok(true);}$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{let mut inputs=vec![$(ValidationInput::of::<$ty>(&["id"]),)*];inputs.extend(AnalyticParents::inputs());inputs}}};}
 crate::synthesis_frame_inputs!(data);
 fn invalid(s: &str) -> ModelError {
     ModelError::Invalid(s.into())
@@ -225,20 +262,21 @@ pub fn parents(d: &Data, b: &ResourceBudget) -> Result<Vec<Parents>, ModelError>
             structural: sf.id(),
             configuration: settings.id(),
         };
-        if d.analytic.get(af.id()) != Some(&af) {
+        if d.analytic_parents.frames.get(af.id()) != Some(&af) {
             return Err(invalid("synthesis exact analytic frame absent"));
         }
         for method in analytics::build::METHODS {
             let def = d.authored(analytics::build::definition(settings, method)?)?;
             let inv = fixed!(
-                d.analytic_invocations,
+                d.analytic_parents.invocations,
                 d.analytic_outcomes,
                 def,
                 input,
                 context
             );
             let mut results = d
-                .analytic_results
+                .analytic_parents
+                .results
                 .iter()
                 .filter(|r| r.frame == af.id() && r.method == method);
             let result = results
@@ -555,7 +593,7 @@ pub(crate) mod tests {
             structural: sf.id(),
             configuration: settings.id(),
         };
-        d.analytic.insert(af.clone()).unwrap();
+        d.analytic_parents.frames.insert(af.clone()).unwrap();
         for method in analytics::build::METHODS {
             let def = authored(
                 &mut d,
@@ -577,8 +615,8 @@ pub(crate) mod tests {
             d.analytic_outcomes
                 .insert(analytics::frames::outcome(&r))
                 .unwrap();
-            d.analytic_results.insert(r).unwrap();
-            d.analytic_invocations.insert(inv).unwrap();
+            d.analytic_parents.results.insert(r).unwrap();
+            d.analytic_parents.invocations.insert(inv).unwrap();
         }
         // This pure parent-inventory test assumes the earlier Summary owner already validated its
         // canonical authored definition. It is not an execution or store qualification fixture.
@@ -640,7 +678,14 @@ pub(crate) mod tests {
         let p = parents(&d, &b).unwrap();
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].sources.len(), 13);
-        assert_eq!(d.analytic_results.iter().filter(|r| !r.selected).count(), 5);
+        assert_eq!(
+            d.analytic_parents
+                .results
+                .iter()
+                .filter(|r| !r.selected)
+                .count(),
+            5
+        );
         let (f, i, s, a) = publication(&d, &b);
         verify(&d, &f, &i, &s, &a, &b).unwrap();
     }
@@ -662,7 +707,7 @@ pub(crate) mod tests {
         d.evidence = Rows::new(&b);
         d.selection = Rows::new(&b);
         d.structural = Rows::new(&b);
-        d.analytic = Rows::new(&b);
+        d.analytic_parents.frames = Rows::new(&b);
         d.summary = Rows::new(&b);
         assert!(parents(&d, &b).is_err());
     }
@@ -673,19 +718,20 @@ pub(crate) mod tests {
             match case {
                 0 => d.summary_outcomes = Rows::new(&b),
                 1 => {
-                    let mut r = d.analytic_results.iter().next().unwrap().clone();
+                    let mut r = d.analytic_parents.results.iter().next().unwrap().clone();
                     r.selected = true;
                     let old = d
-                        .analytic_results
+                        .analytic_parents
+                        .results
                         .iter()
                         .filter(|v| v.id() != r.id())
                         .cloned()
                         .collect::<Vec<_>>();
-                    d.analytic_results = Rows::new(&b);
+                    d.analytic_parents.results = Rows::new(&b);
                     for row in old {
-                        d.analytic_results.insert(row).unwrap();
+                        d.analytic_parents.results.insert(row).unwrap();
                     }
-                    d.analytic_results.insert(r).unwrap();
+                    d.analytic_parents.results.insert(r).unwrap();
                 }
                 _ => d.selection_inputs = Rows::new(&b),
             }

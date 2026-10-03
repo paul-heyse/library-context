@@ -159,7 +159,7 @@ async fn run(
         embedding::text::stage(profile, &text_definition).unwrap(),
         embedding::configuration::stage(service.as_ref()),
         embedding::analytic::stage(profile, vectors_requested),
-        analytics::build::stage(profile, &settings, &model).unwrap(),
+        analytics::build::stage(profile, &settings, &model, &fixture_publication_order()).unwrap(),
     ]);
     let facts_members = declarations
         .iter()
@@ -921,4 +921,26 @@ async fn baseline_community_scope_preserves_excluded_isolates_and_official_scope
 #[tokio::test]
 async fn nearest_community_layer_preserves_unrequested_public_neighbours() {
     run(Profile::Catalog, true, true, true, true).await;
+}
+
+fn fixture_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    lctx_model::domain::stages::PublicationOrder::registered(
+        lctx_model::domain::ContentHash::of(b"fixture publication order"),
+        &[
+            (0, lctx_model::domain::stages::PublicationBoundary::Facts),
+            (1, lctx_model::domain::stages::PublicationBoundary::Local),
+            (2, lctx_model::domain::stages::PublicationBoundary::Model),
+            (3, lctx_model::domain::stages::PublicationBoundary::Summary),
+            (
+                4,
+                lctx_model::domain::stages::PublicationBoundary::Structural,
+            ),
+            (5, lctx_model::domain::stages::PublicationBoundary::Analytic),
+            (
+                6,
+                lctx_model::domain::stages::PublicationBoundary::Synthesis,
+            ),
+        ],
+    )
+    .unwrap()
 }

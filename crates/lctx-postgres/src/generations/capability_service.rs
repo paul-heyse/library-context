@@ -1,5 +1,5 @@
 //! Canonical brief hydration, preserving complete authored renderings and actual support rows.
-use super::{Error, GenerationLease, GenerationService, RequestExecution};
+use super::{Error, GenerationService, RequestExecution};
 use lctx_model::domain::{
     serving::*,
     synthesis::{
@@ -34,6 +34,9 @@ impl GenerationService {
         let (brief, assertions, originals) = e
             .query(move |lease| {
                 Box::pin(async move {
+                    let mut scope =
+                        super::packet_reads::PacketLease::new::<CapabilityPacket>(lease);
+                    let lease = &mut scope;
                     let brief = lease.brief(id).await?;
                     retained.retain(
                         "capability-rendered-output",
@@ -75,7 +78,7 @@ impl GenerationService {
         })
     }
 }
-impl GenerationLease {
+impl super::packet_reads::PacketLease<'_> {
     async fn brief(
         &mut self,
         id: Id<Brief>,
@@ -98,6 +101,7 @@ impl GenerationLease {
         let mut parts = documents.rows().iter().collect::<Vec<_>>();
         parts.sort_by_key(|p| p.ordinal);
         let _render_charge = self
+            .lease
             .budget
             .reserve("brief-rendering", brief.bytes as usize * 2)?;
         let mut rendered = String::with_capacity(brief.bytes as usize);
@@ -212,6 +216,7 @@ impl GenerationLease {
             .sum::<usize>()
             .saturating_add(supports.rows().len().saturating_mul(1024));
         let _packets = self
+            .lease
             .budget
             .reserve("capability-attributed-assertions", packet_bytes)?;
         let mut packets = Vec::new();

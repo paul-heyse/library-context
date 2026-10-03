@@ -188,6 +188,8 @@ impl CatalogService {
         let (presentations, evidence) = e
             .query(move |lease| {
                 Box::pin(async move {
+                    let mut scope = super::packet_reads::PacketLease::new::<OperationCore>(lease);
+                    let lease = &mut scope;
                     Ok((
                         lease
                             .read_for::<types::TypePresentation, types::TypeTerm>("term", &terms)

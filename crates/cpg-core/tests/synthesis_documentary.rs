@@ -96,7 +96,7 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
         analysis::preparation::native_stage(profile),
         normalized::callable_aspects::stage(profile),
         build::stage(profile),
-        catalog::evidence::build::stage(profile, &model).unwrap(),
+        catalog::evidence::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         Stage {
             name: "documentary_preparation_control",
             inputs: documentary_inputs(profile, &model),
@@ -537,7 +537,8 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
 }
 
 fn documentary_inputs(profile: Profile, model: &ValidatedModel) -> Vec<RelationUse> {
-    let parent = catalog::evidence::build::stage(profile, model).unwrap();
+    let parent =
+        catalog::evidence::build::stage(profile, model, &fixture_publication_order()).unwrap();
     let mut uses = parent.inputs;
     uses.extend(parent.outputs.into_iter().map(|r| r.completed_store()));
     uses.extend(synthesis::documentary::Data::stage_inputs());
@@ -579,4 +580,26 @@ fn documentary_inputs(profile: Profile, model: &ValidatedModel) -> Vec<RelationU
     uses.sort_by_key(|r| r.name());
     uses.dedup_by_key(|r| r.name());
     uses
+}
+
+fn fixture_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    lctx_model::domain::stages::PublicationOrder::registered(
+        lctx_model::domain::ContentHash::of(b"fixture publication order"),
+        &[
+            (0, lctx_model::domain::stages::PublicationBoundary::Facts),
+            (1, lctx_model::domain::stages::PublicationBoundary::Local),
+            (2, lctx_model::domain::stages::PublicationBoundary::Model),
+            (3, lctx_model::domain::stages::PublicationBoundary::Summary),
+            (
+                4,
+                lctx_model::domain::stages::PublicationBoundary::Structural,
+            ),
+            (5, lctx_model::domain::stages::PublicationBoundary::Analytic),
+            (
+                6,
+                lctx_model::domain::stages::PublicationBoundary::Synthesis,
+            ),
+        ],
+    )
+    .unwrap()
 }

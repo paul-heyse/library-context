@@ -11,14 +11,13 @@ Current producers are `crates/cpg-extract/src/acquisition.rs`, `typed_syntax.rs`
 `symbol_records.rs`, `call_records.rs`, `type_records.rs`, `ty_flow.rs`, `document_parser.rs` and
 `deployment.rs`; `pyrefly_stage.rs` composes one Pyrefly/Ruff parse per input, and `cpg-flow`
 provides transient native flow data over ty's separate parse. `cpg-core/src/facts.rs` owns stage
-composition, admission and publication; `crates/lctx/src/compile.rs` is the facts-only CLI.
+composition, admission and publication; `crates/lctx/src/compile.rs` drives the cumulative frontier CLI.
 Focused receipts and qualification status are in the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md).
 
-**Retained downstream design, unavailable.** The historical Stage C/D and graph/catalog contracts
-below describe obligations for phases 3–5. Earlier implementation/test labels refer to their dated
-pre-cutover evidence, not current runtime availability. Legacy extraction files and ID recipes
-were removed; current source and identity contracts are §15. The acquisition requirements below
-remain applicable where they describe input verification rather than legacy row emission.
+**Current downstream design (Implemented, 2026-10-02).** Normalization, analysis, catalog and
+serving follow the single-model PostgreSQL pipeline in §15. Their dated scoped receipts do not
+establish current real-library qualification or activation; both remain stopped. Acquisition
+requirements describe input verification, while typed row declarations own emission.
 
 > Decision: ADR-0078
 
@@ -169,41 +168,34 @@ model catalog digest also participates because context extraction retains model-
 classes (§3.2). A catalog or runtime-script edit therefore cannot reuse a prior producer or run
 identity.
 
-**Inspecting an attempt.** A published snapshot is inspected with `lctx query --store DIR
---snapshot HEX "SQL"`: read-only, every table at its recorded version, filtered to the snapshot
-(§6.2). `lctx compile` prints the attempt's id first, and `--unpublished` reads an attempt
-validation rejected at the commits carrying its own `lctx.snapshot_id`, found in each table's kept
-log whatever was written after it; a table it did not write is left out, so a query naming it
-fails (`attempt_versions`; `a_rejected_attempt_is_inspected_at_its_own_commits`). This is for
-inspecting a failure, never for a reader.
+**Inspecting a generation (Implemented, 2026-10-02).** `lctx generation show <id>` reports
+its lifecycle and receipts; `lctx query --generation <id> "SQL"` reads an admitted published
+generation under the original read-only lease. `lctx compile` reports its unselected generation.
+Failed/interrupted staging is inspected through generation metadata and compilation receipts,
+not a published-reader bypass. [Storage §6](storage-and-publication.md) owns admission and reset.
 
 > Decision: ADR-0046, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
 
 
 ### §4.1 Stages
 
-**Implemented** and **Tested** end to end by `cpg-core/tests/compile.rs` and the analysis tests.
+**Implemented, 2026-10-02.** The hard cumulative pipeline is executed by
+`cpg-core::compilation`; dated qualification remains with the cutover/phase plans.
 
 | Stage | Owner | Output |
 |---|---|---|
-| A. Source and analysis universe | uv (`lctx acquire`) + `cpg_extract::library` (§4.0) | the verified release files and context; `releases`, `distributions`, `source_files` |
-| B. Typed provider facts | Pyrefly and Ruff in-process, and `cpg-flow` (§4.2) + Arrow builders (§4.3) | raw family batches, written to Delta |
-| C. Provider-local identity | A DataFusion name-span join (`cpg_schema::derived`) | `provider_node_map`, its keys checked unique and injective before publication (after use by D, which is safe because nothing publishes on failure) |
-| D. Semantic relationships | DataFusion over the written raw tables, written back through Delta (§4.3) | derived family tables, then the `nodes`/`edges` catalogs |
-| E. Projections and analytics | DataFusion (projection SQL on the attempt's session) → `lctx-analytics` (petgraph / leiden-rs / FCA; Arrow in, Arrow out) → the attempt's write path (§5, §9) | analysis tables, provenance in-row, with lineage; composed in memory |
-| F. Synthesis | `cpg-core::synth`: evidence, kind policy and status propagation in DataFusion; Rust templates + extractive selection (§10); brief documents embedded through the cache | assertions, briefs; every analysis table written once, after Stage F |
-| G. Publication | Rust (§6) | `snapshots` rows; serving generation |
+| Acquisition | uv and `cpg-extract::library` | Captured pinned release, corpus and attributed input context |
+| Facts | Pyrefly/Ruff in-process and explicitly requested `cpg-flow` | Typed `lctx-model` facts and provider coverage, stored in one PostgreSQL generation |
+| Normalized | `cpg-core::normalize` adapting model operations | Entities, ownership, places, effective signatures and checked binding |
+| Analysis | Finite upper-stage bindings and model-owned operations | Local/Model/Summary, structural and optional analytic results; canonical catalog/evidence/selection |
+| Catalog | Model-owned synthesis and retrieval with compute/effect adapters | Attributed assertions, briefs and addressable evidence units |
+| Publication | `lctx-postgres` generation lifecycle | Shared validation, immutable receipts and one final unselected published generation |
+| Serving | Model contracts, original generation guard and Python MCP adapter | Canonical hydrated packets and bounded admitted wire envelopes |
 
-Unmapped rows stay in the derived table with a null node and, where one applies, a reason
-column. No inner join drops them.
-
-**PR2 catalog boundary Implemented (ADR-0073), 2026-09-28.** The mandatory catalog's
-internal sequence separates exact fact loading and immutable prepared indexes from pure contract/option
-derivation, followed by materialization/embedding/publication. PR3 scenarios extend those inputs. Inputs include truthful
-scanned relations, membership, missing lookups, coverage and policy context. The
-[§14.3 owner](api-and-evidence-product.md#section-14-3) defines these boundaries; suitable bulk joins
-remain in DataFusion. This refines `cpg-core::catalog`, not acquisition or analyzer ownership,
-and preserves the mandatory-catalog/optional-analysis profile boundary from ADR-0078.
+Unknown targets and incomplete provider coverage remain explicit. No identity mapping drops
+unresolved rows; no compatibility store is retained. Facts/Normalized/Analysis checkpoints
+remain explicit and compilation never selects a generation. [§15](semantic-model.md) owns the
+layer/declaration contract; [§11](synthesis-and-serving.md) owns serving.
 
 > Decision: ADR-0046, ADR-0086, ADR-0073
 
@@ -426,70 +418,28 @@ RF/F11).
 
 ### §4.3 Fact construction and persistence
 
-**Implemented** in `cpg-schema` (build, canonicalize, ids, derivation SQL, rules) and `cpg-core`
-(create, open, write, derive, validate, publish, read), and **Tested** there
-(`cpg-core/tests/delta.rs`, `compile.rs`, 2026-09-22 onward): every table round-trips exactly
-through Delta; open refuses drifted schemas and missing or drifted CHECKs; the helper refuses
-writes; the `INSERT INTO` bypass is asserted; the derived tables are snapshot-tested on three
-fixtures; each rule kind rejects an injected violation and nothing publishes. This section says
-which built-in owns each step; §6 and §8 hold the protocol and the rules.
+**Implemented, 2026-10-02.** `lctx-model::domain` owns typed records, schema/codebooks,
+canonical IDs and shared invariants. Provider adapters emit those records through bounded Arrow
+batches. `lctx-postgres` lowers declarations into COPY, constraints, receipts and generation
+publication; `cpg-core` registers completed sources for DataFusion compute. Canonical readers
+verify the actual content and declared publication prefix. Shared validation runs before
+publication; a failed attempt publishes no reader authority. [§6](storage-and-publication.md)
+and [§15.11](semantic-model.md#section-15-11) own the lifecycle and exact consumption contract.
 
-| Stage | Built-in | Ours |
-|---|---|---|
-| Build | Typed builders against the table's `cpg-schema` `SchemaRef` (`FixedSizeBinaryBuilder`, `Int16Builder`, `BooleanBuilder::append_option`, `GenericListBuilder`, `StructBuilder`). `RecordBatch::try_new` with default options is the local type check: exact types, nested names, nullability, metadata | One builder per table. The arrow-json serde path is tests-only: it expects hex for `FixedSizeBinary` |
-| Canonicalize | `lexsort_to_indices` + `take_record_batch` on the table's declared **total** key, over the in-memory batch (Arrow's sort is unstable). The Delta writer may store the rows in another order (it fans partitions into one writer), so readers sort (`read_at`, every rendered query) and never rely on storage order | Key declarations |
-| Ids | The `blake3` crate (the version Pyrefly pins) inside one `IdHasher` (§3.4.1). Not `RowConverter` bytes: the encoding may change between releases. Not SQL `digest`: it can't write length prefixes | `IdHasher` |
-| Create | `DeltaTable::create().with_columns(..).with_configuration_property(TableProperty::AppendOnly, Some("true"))` plus `EnableExpiredLogCleanup = "false"` and `LogRetentionDuration = "interval 36500 days"` (§6.1), then `add_constraint()` with the table's **immutable** per-row CHECKs: span order and non-negative offsets. delta-rs counts a NULL result as a violation (**Tested**), so a CHECK on a nullable column reads `c IS NULL OR …`. Codebook membership is not a CHECK, because codebooks grow (§8). `CreateBuilder` rejects `delta.constraints.*` keys (Interface-checked, 2026-09-22: observed, not asserted by a test) | CHECK declarations |
-| Open | `delta::verify`: when an attempt opens a table, compare its schema with the declared contract, and its `delta.constraints.*`, `delta.appendOnly` and the two retention properties, as exact strings, with the generated set, in delta-rs's normalized form; abort on a mismatch (`SchemaDrift`, `ConstraintMismatch`, …). A table left without its constraints (a crash between create and `add_constraint`) is refused. There is no in-place schema evolution (§6.3) | The verify helper |
-| Write raw | `DeltaTable::write(batches)` (`WriteBuilder`), with `CommitProperties::with_metadata` carrying `lctx.snapshot_id`. That metadata confirms a pinned read's commit (§6.2); `snapshots` stays the authority. **Tested:** CHECK is enforced, `appendOnly` rejects deletes, and the metadata reads back through `history()`. Raw batches are released once written | — |
-| Derive | A session over the attempt's tables at their written versions, each filtered to the snapshot (§6.2). The derivation SQL from `cpg-schema` computes derived ids with the `lctx_id` UDF (§3.4.1) and runs through the one helper, `ctx.sql_with_options` with DDL, DML and statements disallowed; no other code calls `ctx.sql`. The result is collected, cast strictly to the declared schema, sorted canonically and written like a raw table, so it passes the same local type check. Derived tables can be rebuilt from Delta | SQL per derived table |
-| Validate | DataFusion queries generated from the contracts (§8). `validate` reads every registered table once through its pinned, snapshot-filtered Delta view into a `MemTable` (`cached_session`), then runs the rules 8 at a time on spawned tasks, putting violations back in `rules()` order; every session plans on `TARGET_PARTITIONS = 8`. Still one query per rule, the same SQL, the one shared validator (§B3). Per-rule cost is read from each rule's own physical plan (wall time, summed `elapsed_compute`, largest `build_mem_used`), since a process-wide peak delta means nothing under concurrency. No float aggregate exists yet; when one does, its query fixes its own reduction order | The generator, semantic rules, and a finite-float loop (there is no built-in `isfinite`) |
-| Publish | `snapshots.write([rows])` in one commit (§6.1). **Tested:** a rejected append is classified unpublished by re-reading | Classification after an ambiguous error |
-| Read | `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, assert `version()`, then the pinned commit's files (§6.2), `update_datafusion_session`, `table_provider()`. Ids come back through the two-step cast (§3.3). **Tested:** with two snapshots in one table, dropping the version pin or the snapshot filter changes the result. Reading a missing table creates nothing | One helper |
+**Extending a fact family (Implemented route, 2026-10-02).** Add the typed attributed relation
+and append-only codes to its model owner, declare support and provider coverage separately,
+then wire the provider and the frontier's relation closure. Normalization consumes its declared
+facts and emits the corresponding nominal results; shared invariants name their complete ordered
+inputs. Add an independent observed/unknown or missing-evidence twin that challenges the new
+meaning. Do not copy schema fields, infer absence from unavailable coverage, or amend gold to
+agree with extraction. Fields remain executable declarations rather than a second documentation
+registry.
 
-Operations are methods on `DeltaTable`; the pinned delta-rs has no `DeltaOps`.
+**Operational observations (Implemented, 2026-10-02).** Stage measurement reports elapsed time,
+sampled RSS and admitted reservation peaks outside semantic content. A separately spawned sampler
+continues across borrowed CPU regions on the multithread runtime; current-thread/no-runtime CPU
+placement is explicitly inline. Executing opaque kernels retain access and charges until they
+drain. Earlier retired-pipeline measurements do not establish current throughput or total RSS;
+preserved benchmark captures keep their original boundaries.
 
-**Never** (the write, SQL and Parquet-scan items are ast-grep rules):
-- DataFusion `INSERT INTO` or `DataFrame::write_table` into a Delta table. The `DeltaDataSink`
-  path skips CHECK constraints and invariants; a test asserts the bypass at the pinned revision,
-  so an upstream fix gets noticed.
-- delta-rs's low-level `RecordBatchWriter` or `JsonWriter` on fact tables (no constraint
-  handling; Interface-checked).
-- `SaveMode::Ignore`; deletion vectors (they switch off Parquet pushdown); column mapping; raw
-  Parquet scans; vacuum or optimize.
-
-**Metrics** (**Implemented**; DP-22; `cpg_schema::metrics`).
-- `lctx compile` reports, per stage, wall time and the process's peak RSS so far (`VmHWM`, which
-  the kernel updates lazily, so it only grows approximately; it includes allocator retention):
-  acquire, Stage A, the Pyrefly check, per-module extraction (with its Ruff walk and Pysa
-  collectors), public names, the dependency check and definitions, raw write per table, derive
-  per table, validate (with the three slowest rules) and publish.
-- They are returned with the published attempt and never stored in Delta: they are not content.
-- The binaries use jemalloc as their global allocator (ADR-0016), so the reported peak tracks the
-  working set rather than glibc arena retention.
-
-**Scale that bounds the triggers below** (**Measured**, `just pilot` on a fresh store, FastMCP
-4.0.5 and its corpus, 2026-09-23; the last whole-CPG measurement, taken before the behavior-model
-families; the current tree has not been re-measured):
-
-| Stage | Time |
-|---|---|
-| Total | 29.9 s (29.9–33.4 s across three runs) |
-| Extraction | 25.7 s (library: check 1.8 s, per-module 4.2 s, dependencies 3.1 s; corpus: check 3.1 s, per-module 6.7 s, dependencies 3.0 s, documents 0.2 s) |
-| Raw writes | 0.95 s |
-| Derivation | 2.24 s (`edges` 1.02 s, `nodes` 0.50 s) |
-| Validation | 0.90 s (the slowest rule's compute 0.28 s, `key:edges`; the largest hash build 160 MiB) |
-| Peak RSS (`VmHWM`) | 3,646 MiB, flat from extraction on (3,640–3,649 MiB across runs) |
-| Store (`du -h`) | 235 MiB |
-
-**Deferred, with triggers.**
-- `datafusion-tracing`: until per-operator spans are needed.
-- **Streaming derive:** `WriteBuilder::with_input_plan(LogicalPlan)` streams per partition and
-  still enforces CHECKs (read in the pinned source, 2026-09-22). It would need its own schema and
-  foreign-snapshot checks and row counts from write metrics, and a streamed write split across
-  commits would break §6.2's one-commit invariant. Reopen when derivation dominates the per-stage
-  time or its working set dominates the peak; above, derivation is under a tenth of the wall time.
-- **Peak memory:** reopen when the peak nears the host's memory (ADR-0016 owns the allocator's own
-  trigger).
-
-> Decision: ADR-0086, ADR-0016
+> Decision: ADR-0086, ADR-0016, ADR-0116

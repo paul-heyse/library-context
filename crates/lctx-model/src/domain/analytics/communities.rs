@@ -77,7 +77,7 @@ pub fn partition(
 ) -> Result<Partition, ModelError> {
     let work = (vertices.len() as u64)
         .checked_add(pairs.len() as u64)
-        .and_then(|n| n.checked_mul(4000))
+        .and_then(|n| n.checked_mul(super::policy::RETAINED.community_work_multiplier()?))
         .ok_or_else(|| invalid("Leiden work overflow"))?;
     if work > max_work {
         return Err(invalid("Leiden declared work bound reached"));
@@ -124,15 +124,15 @@ pub fn partition(
         builder.add_edge(a, b, w).map_err(ModelError::codec)?;
     }
     let graph = builder.build().map_err(ModelError::codec)?;
-    for resolution in [0.5, 1.0, 2.0, 4.0] {
+    for resolution in super::policy::RETAINED.resolutions {
         let start = out.runs.len();
-        for seed in 0..10 {
+        for seed in 0..super::policy::RETAINED.seeds {
             let r = Leiden::new(LeidenConfig {
                 resolution,
                 seed: Some(seed),
                 quality: QualityType::RBER,
-                max_iterations: 100,
-                epsilon: 1e-10,
+                max_iterations: super::policy::RETAINED.iterations,
+                epsilon: super::policy::RETAINED.tolerance,
                 track_quality_history: true,
                 ..Default::default()
             })
@@ -143,7 +143,7 @@ pub fn partition(
                 resolution: FiniteF64::new(resolution)?,
                 seed,
                 iterations,
-                converged: iterations < 100,
+                converged: iterations < super::policy::RETAINED.iterations,
                 quality: r
                     .quality_history
                     .into_iter()
@@ -185,7 +185,7 @@ pub fn partition(
             communities: sizes.len(),
             degenerate,
         });
-        if resolution == 1.0 && !degenerate {
+        if resolution == super::policy::RETAINED.selected_resolution && !degenerate {
             out.chosen = true;
         }
     }
@@ -239,9 +239,10 @@ pub fn normalize(
             _reservation: reservation,
         });
     }
-    let threshold = positive
-        [((positive.len() as f64 * 0.95).ceil() as usize).clamp(1, positive.len()) - 1]
-        as f64;
+    let threshold = positive[((positive.len() as f64 * super::policy::RETAINED.hub_percentile)
+        .ceil() as usize)
+        .clamp(1, positive.len())
+        - 1] as f64;
     let raw = pairs
         .into_iter()
         .map(|((a, b), c)| {

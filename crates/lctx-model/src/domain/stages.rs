@@ -128,6 +128,9 @@ impl RelationUse {
         self.transport = InputTransport::CompletedStore;
         self
     }
+    pub fn validators(self) -> &'static [&'static str] {
+        self.validators
+    }
     pub fn transport(self) -> InputTransport {
         self.transport
     }
@@ -386,6 +389,27 @@ pub struct PublicationOrder {
     boundaries: Vec<PublicationBoundary>,
 }
 impl PublicationOrder {
+    /// Declaration planning compares ordinals but confers no runtime prefix authority.
+    pub fn planning(groups: &[PublicationGroup]) -> Result<Self, ModelError> {
+        let entries = Self::group_entries(groups)?;
+        Self::registered(ContentHash::of(b"unbound publication order"), &entries)
+    }
+    fn group_entries(
+        groups: &[PublicationGroup],
+    ) -> Result<Vec<(u16, PublicationBoundary)>, ModelError> {
+        groups
+            .iter()
+            .enumerate()
+            .map(|(i, g)| {
+                Ok((
+                    u16::try_from(i)
+                        .map_err(|_| ModelError::Invalid("publication order overflow".into()))?,
+                    g.epoch,
+                ))
+            })
+            .collect()
+    }
+
     pub fn registered(
         schedule: ContentHash,
         entries: &[(u16, PublicationBoundary)],
@@ -525,13 +549,8 @@ impl Schedule {
         for group in &mut groups {
             group.stages.sort_unstable();
         }
-        let entries: Vec<_> = groups
-            .iter()
-            .enumerate()
-            .map(|(i, g)| (i as u16, g.epoch))
-            .collect();
-        let raw_order =
-            PublicationOrder::registered(ContentHash::of(b"unbound publication order"), &entries)?;
+        let entries = PublicationOrder::group_entries(&groups)?;
+        let raw_order = PublicationOrder::planning(&groups)?;
         let mut grouped = BTreeMap::new();
         for (index, group) in groups.iter().enumerate() {
             if group.stages.is_empty() {
@@ -1319,6 +1338,9 @@ pub struct StageAccess<'e, 's> {
     finished: bool,
 }
 impl StageAccess<'_, '_> {
+    pub fn publication_order(&self) -> &PublicationOrder {
+        self.execution.schedule.publication_order()
+    }
     pub fn profile(&self) -> Profile {
         self.execution.schedule.profile()
     }

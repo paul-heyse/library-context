@@ -110,7 +110,15 @@ pub fn inventory() -> Vec<Mapping> {
 pub fn identity() -> MappingIdentity {
     let mut sink = KeySink::new("serving-mappings/v1");
     identity_for(&inventory()).0.encode(&mut sink);
-    for mapping in packet_inventory() {
+    for kind in PacketKind::ALL {
+        let binding = kind.binding();
+        for child in binding.children {
+            sink.part(b"child", child.binding().mapping.name.as_bytes());
+        }
+        for prepared in binding.prepared {
+            sink.part(b"prepared", format!("{prepared:?}").as_bytes());
+        }
+        let mapping = binding.lowered();
         sink.part(b"transformation", mapping.name.as_bytes());
         sink.part(b"output", mapping.output_type.as_bytes());
         sink.part(b"revision", &mapping.revision.to_le_bytes());
@@ -182,181 +190,486 @@ pub struct PacketMapping {
     pub output_type: &'static str,
     pub revision: u32,
 }
-pub fn packet_inventory() -> Vec<PacketMapping> {
-    use domain::{catalog as c, catalog::evidence as e};
-    macro_rules! sources {($($ty:ty),*$(,)?)=>{vec![$(Relation::of::<$ty>()),*]};}
-    macro_rules! mapping {
-        ($name:literal,$out:literal,$caps:expr,$sources:expr) => {
-            PacketMapping {
-                name: $name,
-                sources: $sources,
-                minimum_frontier: Frontier::Catalog,
-                required_capabilities: $caps,
-                output_type: $out,
-                revision: 1,
-            }
-        };
-    }
-    vec![
-        mapping!(
-            "operation_core",
-            "OperationCore",
-            &[Capability::Catalog],
-            sources!(
-                c::CatalogMember,
-                c::CatalogExposure,
-                c::CatalogCandidate,
-                c::CatalogCallable,
-                c::CatalogInvocation,
-                c::CatalogOption,
-                c::CatalogOptionSubject,
-                c::CatalogDefault,
-                c::CatalogOptionEvidence,
-                domain::normalized::callables::EffectiveCallableAssessment,
-                domain::normalized::callables::SignatureVariant,
-                domain::normalized::callables::SignatureSlot,
-                domain::normalized::callables::SignatureSlotEntity,
-                domain::normalized::entities::ParameterEntityLink,
-                domain::calls::Signature,
-                domain::calls::SignatureParameter,
-                domain::calls::ParameterShape,
-                domain::types::TypeObservation,
-                domain::types::TypeTerm,
-                domain::types::TypePresentation,
-                domain::value::Literal,
-                domain::source::Module,
-                domain::input::ArtifactOwnership,
-                domain::input::DistributionVerification,
-                domain::input::InputDistribution,
-                domain::input::Release,
-                domain::input::Package
-            )
-        ),
-        mapping!(
-            "original_evidence",
-            "EvidencePacket",
-            &[Capability::Catalog],
-            sources!(
-                e::OriginalSource,
-                domain::source::Occurrence,
-                domain::source::SourceArtifact,
-                domain::artifact::ArtifactChunk,
-                domain::input::ArtifactOwnership,
-                domain::input::DistributionVerification,
-                domain::input::InputDistribution,
-                domain::input::CorpusLibrary,
-                domain::input::Release,
-                domain::attribution::AnalysisContext,
-                domain::attribution::ProviderRun,
-                domain::assertion::Evidence,
-                domain::retrieval::OriginalAnchor,
-                domain::retrieval::AnchorSource,
-                domain::synthesis::documentary::ProseSlice,
-                domain::synthesis::documentary::ProseSource
-            )
-        ),
-        mapping!(
-            "scenario",
-            "ScenarioPacket",
-            &[Capability::Catalog],
-            sources!(
-                e::CatalogScenario,
-                e::ScenarioSource,
-                e::ScenarioSpan,
-                e::ScenarioAssociation,
-                e::ScenarioCheck
-            )
-        ),
-        mapping!(
-            "deployment",
-            "DeploymentPacket",
-            &[Capability::Catalog],
-            sources!(
-                e::CatalogDeployment,
-                e::ReleaseDeployment,
-                domain::deployment::DeploymentObservation
-            )
-        ),
-        mapping!(
-            "selection",
-            "OperationCandidate",
-            &[Capability::Catalog],
-            sources!(
-                domain::selection::SelectionDomain,
-                domain::selection::DomainContext,
-                domain::selection::DomainClosure,
-                domain::selection::DomainEvidence,
-                domain::selection::Context,
-                domain::selection::Witness
-            )
-        ),
-        mapping!(
-            "retrieval",
-            "EvidenceHit",
-            &[Capability::Catalog],
-            sources!(
-                domain::retrieval::Unit,
-                domain::retrieval::CorpusText,
-                domain::retrieval::OriginalAnchor,
-                domain::retrieval::AnchorSource,
-                domain::retrieval::UnitSubject,
-                domain::retrieval::Subject
-            )
-        ),
-        mapping!(
-            "capability",
-            "CapabilityPacket",
-            &[Capability::Catalog, Capability::Briefs],
-            sources!(
-                domain::synthesis::briefs::Brief,
-                domain::synthesis::briefs::BriefAssertion,
-                domain::synthesis::briefs::BriefDocument,
-                domain::synthesis::briefs::BriefSource,
-                domain::synthesis::assertions::ProgrammaticAssertion,
-                domain::synthesis::assertions::ProgrammaticAssertionSupport,
-                domain::synthesis::assertions::AssertionSource,
-                domain::assertion::AssertionQualification
-            )
-        ),
-        mapping!(
-            "relationships",
-            "RelationshipPacket",
-            &[Capability::Catalog],
-            sources!(
-                domain::normalized::events::NormalizedCallEvent,
-                domain::normalized::events::CallPolicyAssessment,
-                domain::normalized::events::CallPolicyAdmission,
-                domain::normalized::events::NormalizedCallAlternative,
-                domain::normalized::entities::OccurrenceOwnership,
-                domain::catalog::CatalogCallable,
-                domain::catalog::CatalogClass
-            )
-        ),
-        mapping!(
-            "behavior",
-            "BehaviorPacket",
-            &[Capability::Catalog],
-            sources!(
-                domain::synthesis::summary::SummaryFacet,
-                domain::execution::summary_consequences::ClaimConclusion,
-                domain::execution::summary_consequences::ClaimProof,
-                domain::analysis::summary::AnalysisInvocation,
-                domain::analysis::AnalysisDefinition,
-                domain::analysis::MethodParameters,
-                domain::assertion::AssertionQualification,
-                domain::conditions::Condition,
-                domain::conditions::ConditionNode,
-                domain::models::ModelCatalog
-            )
-        ),
-        mapping!(
-            "native_assessment",
-            "NativeAssessmentPacket",
-            &[Capability::Catalog, Capability::Native],
-            sources!(
-                domain::conditions::Condition,
-                domain::conditions::EvaluationAtom
-            )
-        ),
-    ]
+/// A closed binding couples an actual packet output to direct reads, children and prepared owners.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreparedDependency {
+    Selection,
+    CatalogIdentity,
+    Retrieval,
+    Native,
+    CanonicalProof,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketKind {
+    OperationCore,
+    EvidencePacket,
+    ScenarioPacket,
+    DeploymentPacket,
+    OperationCandidate,
+    EvidenceHit,
+    CapabilityPacket,
+    RelationshipPacket,
+    BehaviorPacket,
+    NativeAssessmentPacket,
+    OriginalRange,
+    OperationPacket,
+}
+#[derive(Debug, Clone)]
+pub struct PacketBinding {
+    pub kind: PacketKind,
+    pub mapping: PacketMapping,
+    pub children: &'static [PacketKind],
+    pub prepared: &'static [PreparedDependency],
+}
+mod sealed {
+    pub trait Sealed {}
+}
+pub trait PacketOutput: sealed::Sealed {
+    fn binding() -> &'static PacketBinding;
+}
+impl PacketKind {
+    pub const ALL: [Self; 12] = [
+        Self::OperationCore,
+        Self::EvidencePacket,
+        Self::ScenarioPacket,
+        Self::DeploymentPacket,
+        Self::OperationCandidate,
+        Self::EvidenceHit,
+        Self::CapabilityPacket,
+        Self::RelationshipPacket,
+        Self::BehaviorPacket,
+        Self::NativeAssessmentPacket,
+        Self::OriginalRange,
+        Self::OperationPacket,
+    ];
+    pub fn binding(self) -> &'static PacketBinding {
+        match self {
+            Self::OperationCore => <super::OperationCore as PacketOutput>::binding(),
+            Self::EvidencePacket => <super::EvidencePacket as PacketOutput>::binding(),
+            Self::ScenarioPacket => <super::ScenarioPacket as PacketOutput>::binding(),
+            Self::DeploymentPacket => <super::DeploymentPacket as PacketOutput>::binding(),
+            Self::OperationCandidate => <super::OperationCandidate as PacketOutput>::binding(),
+            Self::EvidenceHit => <super::EvidenceHit as PacketOutput>::binding(),
+            Self::CapabilityPacket => <super::CapabilityPacket as PacketOutput>::binding(),
+            Self::RelationshipPacket => <super::RelationshipPacket as PacketOutput>::binding(),
+            Self::BehaviorPacket => <super::BehaviorPacket as PacketOutput>::binding(),
+            Self::NativeAssessmentPacket => {
+                <super::NativeAssessmentPacket as PacketOutput>::binding()
+            }
+            Self::OriginalRange => <super::OriginalRange as PacketOutput>::binding(),
+            Self::OperationPacket => <super::OperationPacket as PacketOutput>::binding(),
+        }
+    }
+}
+impl PacketBinding {
+    /// Check before starting a canonical read, including an empty attempted read.
+    pub fn permits<R: Record>(&self) -> bool {
+        (self.prepared.contains(&PreparedDependency::CanonicalProof)
+            && canonical_declarations()
+                .relations()
+                .iter()
+                .any(|r| r.type_id() == std::any::TypeId::of::<R>()))
+            || self
+                .mapping
+                .sources
+                .iter()
+                .any(|r| r.type_id() == std::any::TypeId::of::<R>())
+            || self.children.iter().any(|k| k.binding().permits::<R>())
+    }
+    pub fn permits_relation(&self, name: &str) -> bool {
+        (self.prepared.contains(&PreparedDependency::CanonicalProof)
+            && canonical_declarations()
+                .relations()
+                .iter()
+                .any(|r| r.name() == name))
+            || self.mapping.sources.iter().any(|r| r.name() == name)
+            || self
+                .children
+                .iter()
+                .any(|k| k.binding().permits_relation(name))
+    }
+    pub fn lowered(&self) -> PacketMapping {
+        let mut mapping = self.mapping.clone();
+        if self.prepared.contains(&PreparedDependency::CanonicalProof) {
+            mapping
+                .sources
+                .extend(canonical_declarations().relations().iter().cloned());
+        }
+        for child in self.children {
+            mapping.sources.extend(child.binding().lowered().sources);
+        }
+        mapping.sources.sort_by_key(Relation::name);
+        mapping.sources.dedup_by_key(|r| r.name());
+        mapping
+    }
+}
+/// Immutable finite schema metadata is shared process-wide; no per-read model construction.
+fn canonical_declarations() -> &'static domain::ValidatedModel {
+    static MODEL: std::sync::OnceLock<domain::ValidatedModel> = std::sync::OnceLock::new();
+    MODEL.get_or_init(|| domain::model().expect("valid canonical packet source declarations"))
+}
+fn dependency_sources(dependencies: &[PreparedDependency]) -> Vec<Relation> {
+    let mut inputs = Vec::new();
+    for dependency in dependencies {
+        match dependency {
+            PreparedDependency::Selection => {
+                inputs.extend(domain::selection::classification::ClassificationData::inputs());
+                inputs.extend(domain::selection::build::Output::inputs());
+                inputs.extend(domain::selection::admission::AdmissionData::inputs());
+            }
+            PreparedDependency::CatalogIdentity => {
+                inputs.extend([
+                    domain::ValidationInput::of::<domain::input::InputDistribution>(&["id"]),
+                    domain::ValidationInput::of::<domain::input::ArtifactOwnership>(&["id"]),
+                    domain::ValidationInput::of::<domain::input::DistributionVerification>(&["id"]),
+                ]);
+            }
+            PreparedDependency::Retrieval => {
+                macro_rules! input {($($field:ident:$ty:ty,)*)=>{inputs.extend(vec![$(domain::ValidationInput::of::<$ty>(&["id"]),)*]);};}
+                crate::serving_retrieval_inputs!(input);
+            }
+            PreparedDependency::Native => {
+                inputs.extend(domain::native_requests::NativeInventory::inputs());
+                inputs.extend(domain::native_requests::PreparationRows::inputs());
+                inputs.extend(
+                    domain::normalized::binding_normalization::BindingData::validation_inputs(),
+                );
+                inputs.extend(
+                    domain::normalized::binding_normalization::BindingOutput::validation_inputs(),
+                );
+                for invariant in domain::native_requests::preparation_invariants() {
+                    inputs.extend(invariant.inputs);
+                }
+            }
+            PreparedDependency::CanonicalProof => {}
+        }
+    }
+    if inputs.is_empty() {
+        return vec![];
+    }
+    let model = canonical_declarations();
+    model
+        .relations()
+        .iter()
+        .filter(|r| inputs.iter().any(|i| i.type_id() == r.type_id()))
+        .cloned()
+        .collect()
+}
+macro_rules! sources {($($ty:ty),*$(,)?)=>{vec![$(Relation::of::<$ty>()),*]};}
+macro_rules! binding {
+    ($name:literal,$out:ident,$caps:expr,$sources:expr,$children:expr,$prepared:expr) => {
+        impl sealed::Sealed for super::$out {}
+        impl PacketOutput for super::$out {
+            fn binding() -> &'static PacketBinding {
+                static BINDING: std::sync::OnceLock<PacketBinding> = std::sync::OnceLock::new();
+                BINDING.get_or_init(|| {
+                    let prepared: &'static [PreparedDependency] = $prepared;
+                    let mut sources = $sources;
+                    sources.extend(dependency_sources(prepared));
+                    sources.sort_by_key(Relation::name);
+                    sources.dedup_by_key(|r| r.name());
+                    PacketBinding {
+                        kind: PacketKind::$out,
+                        children: $children,
+                        prepared,
+                        mapping: PacketMapping {
+                            name: $name,
+                            sources,
+                            minimum_frontier: Frontier::Catalog,
+                            required_capabilities: $caps,
+                            output_type: std::any::type_name::<super::$out>()
+                                .rsplit("::")
+                                .next()
+                                .expect("packet type"),
+                            revision: 1,
+                        },
+                    }
+                })
+            }
+        }
+    };
+}
+use domain::{catalog as c, catalog::evidence as e};
+binding!(
+    "operation_core",
+    OperationCore,
+    &[Capability::Catalog],
+    sources!(
+        c::CatalogMember,
+        c::CatalogExposure,
+        c::CatalogCandidate,
+        c::CatalogCallable,
+        c::CatalogInvocation,
+        c::CatalogOption,
+        c::CatalogOptionSubject,
+        c::CatalogDefault,
+        c::CatalogOptionEvidence,
+        domain::normalized::callables::EffectiveCallableAssessment,
+        domain::normalized::callables::SignatureVariant,
+        domain::normalized::callables::SignatureSlot,
+        domain::normalized::callables::SignatureSlotEntity,
+        domain::normalized::entities::ParameterEntityLink,
+        domain::calls::Signature,
+        domain::calls::SignatureParameter,
+        domain::calls::ParameterShape,
+        domain::types::TypeObservation,
+        domain::types::TypeTerm,
+        domain::types::TypePresentation,
+        domain::value::Literal,
+        domain::source::Module,
+        domain::input::ArtifactOwnership,
+        domain::input::DistributionVerification,
+        domain::input::InputDistribution,
+        domain::input::Release,
+        domain::input::Package
+    ),
+    &[],
+    &[
+        PreparedDependency::Selection,
+        PreparedDependency::CatalogIdentity
+    ]
+);
+binding!(
+    "original_evidence",
+    EvidencePacket,
+    &[Capability::Catalog],
+    sources!(
+        e::OriginalSource,
+        domain::source::Occurrence,
+        domain::source::SourceArtifact,
+        domain::artifact::ArtifactChunk,
+        domain::input::ArtifactOwnership,
+        domain::input::DistributionVerification,
+        domain::input::InputDistribution,
+        domain::input::CorpusLibrary,
+        domain::input::Release,
+        domain::attribution::AnalysisContext,
+        domain::attribution::ProviderRun,
+        domain::assertion::Evidence,
+        domain::retrieval::OriginalAnchor,
+        domain::retrieval::AnchorSource,
+        domain::synthesis::documentary::ProseSlice,
+        domain::synthesis::documentary::ProseSource
+    ),
+    &[],
+    &[PreparedDependency::CanonicalProof]
+);
+binding!(
+    "scenario",
+    ScenarioPacket,
+    &[Capability::Catalog],
+    sources!(
+        e::CatalogScenario,
+        e::ScenarioSource,
+        e::ScenarioSpan,
+        e::ScenarioAssociation,
+        e::ScenarioCheck
+    ),
+    &[PacketKind::OriginalRange],
+    &[]
+);
+binding!(
+    "deployment",
+    DeploymentPacket,
+    &[Capability::Catalog],
+    sources!(
+        e::CatalogDeployment,
+        e::ReleaseDeployment,
+        domain::deployment::DeploymentObservation
+    ),
+    &[PacketKind::OriginalRange],
+    &[]
+);
+binding!(
+    "selection",
+    OperationCandidate,
+    &[Capability::Catalog],
+    sources!(
+        domain::selection::SelectionDomain,
+        domain::selection::DomainContext,
+        domain::selection::DomainClosure,
+        domain::selection::DomainEvidence,
+        domain::selection::Context,
+        domain::selection::Witness
+    ),
+    &[],
+    &[
+        PreparedDependency::Selection,
+        PreparedDependency::CatalogIdentity
+    ]
+);
+binding!(
+    "retrieval",
+    EvidenceHit,
+    &[Capability::Catalog],
+    sources!(
+        domain::retrieval::Unit,
+        domain::retrieval::CorpusText,
+        domain::retrieval::OriginalAnchor,
+        domain::retrieval::AnchorSource,
+        domain::retrieval::UnitSubject,
+        domain::retrieval::Subject
+    ),
+    &[PacketKind::EvidencePacket],
+    &[PreparedDependency::Retrieval]
+);
+binding!(
+    "capability",
+    CapabilityPacket,
+    &[Capability::Catalog, Capability::Briefs],
+    sources!(
+        domain::synthesis::briefs::Brief,
+        domain::catalog::CatalogMemberInvocation,
+        domain::synthesis::seeds::SelectedSeed,
+        domain::synthesis::documentary::DocumentaryConclusion,
+        domain::synthesis::documentary::ProseSlice,
+        domain::synthesis::documentary::ProseSource,
+        domain::synthesis::briefs::BriefAssertion,
+        domain::synthesis::briefs::BriefDocument,
+        domain::synthesis::briefs::BriefSource,
+        domain::synthesis::assertions::ProgrammaticAssertion,
+        domain::synthesis::assertions::ProgrammaticAssertionSupport,
+        domain::synthesis::assertions::AssertionSource,
+        domain::assertion::AssertionQualification
+    ),
+    &[PacketKind::OriginalRange],
+    &[]
+);
+binding!(
+    "relationships",
+    RelationshipPacket,
+    &[Capability::Catalog],
+    sources!(
+        domain::normalized::events::NormalizedCallEvent,
+        domain::normalized::events::CallPolicyAssessment,
+        domain::normalized::events::CallPolicyAdmission,
+        domain::normalized::events::NormalizedCallAlternative,
+        domain::normalized::entities::OccurrenceOwnership,
+        domain::catalog::CatalogCallable,
+        domain::catalog::CatalogClass
+    ),
+    &[],
+    &[PreparedDependency::Selection]
+);
+binding!(
+    "behavior",
+    BehaviorPacket,
+    &[Capability::Catalog],
+    sources!(
+        domain::catalog::CatalogMemberInvocation,
+        domain::analysis::summary::AnalysisOutcome,
+        domain::synthesis::summary::SummaryFacet,
+        domain::execution::summary_consequences::ClaimConclusion,
+        domain::execution::summary_consequences::ClaimProof,
+        domain::analysis::summary::AnalysisInvocation,
+        domain::analysis::AnalysisDefinition,
+        domain::analysis::MethodParameters,
+        domain::assertion::AssertionQualification,
+        domain::conditions::Condition,
+        domain::conditions::ConditionNode,
+        domain::models::ModelCatalog
+    ),
+    &[],
+    &[]
+);
+binding!(
+    "native_assessment",
+    NativeAssessmentPacket,
+    &[Capability::Catalog, Capability::Native],
+    sources!(
+        domain::conditions::Condition,
+        domain::conditions::EvaluationAtom
+    ),
+    &[],
+    &[PreparedDependency::Native]
+);
+binding!(
+    "original_range",
+    OriginalRange,
+    &[Capability::Catalog],
+    sources!(
+        e::OriginalSource,
+        domain::source::Occurrence,
+        domain::source::SourceArtifact,
+        domain::artifact::ArtifactChunk,
+        domain::input::ArtifactOwnership,
+        domain::input::DistributionVerification,
+        domain::input::InputDistribution,
+        domain::input::CorpusLibrary,
+        domain::input::Release,
+        domain::attribution::AnalysisContext,
+        domain::attribution::ProviderRun,
+        domain::assertion::Evidence,
+        domain::retrieval::OriginalAnchor,
+        domain::retrieval::AnchorSource,
+        domain::synthesis::documentary::ProseSlice,
+        domain::synthesis::documentary::ProseSource
+    ),
+    &[],
+    &[]
+);
+binding!(
+    "operation",
+    OperationPacket,
+    &[Capability::Catalog],
+    vec![],
+    &[
+        PacketKind::OperationCore,
+        PacketKind::ScenarioPacket,
+        PacketKind::DeploymentPacket,
+        PacketKind::RelationshipPacket,
+        PacketKind::OperationCandidate,
+        PacketKind::CapabilityPacket,
+        PacketKind::BehaviorPacket
+    ],
+    &[]
+);
+pub fn packet_inventory() -> Vec<PacketMapping> {
+    PacketKind::ALL
+        .into_iter()
+        .map(|k| k.binding().lowered())
+        .collect()
+}
+pub fn prepared_binding(dependency: PreparedDependency) -> &'static PacketBinding {
+    static BINDINGS: std::sync::OnceLock<[PacketBinding; 5]> = std::sync::OnceLock::new();
+    let all = BINDINGS.get_or_init(|| {
+        [
+            PreparedDependency::Selection,
+            PreparedDependency::CatalogIdentity,
+            PreparedDependency::Retrieval,
+            PreparedDependency::Native,
+            PreparedDependency::CanonicalProof,
+        ]
+        .map(|dependency| PacketBinding {
+            kind: PacketKind::OperationCandidate,
+            children: &[],
+            prepared: match dependency {
+                PreparedDependency::Selection => &[PreparedDependency::Selection],
+                PreparedDependency::CatalogIdentity => &[PreparedDependency::CatalogIdentity],
+                PreparedDependency::Retrieval => &[PreparedDependency::Retrieval],
+                PreparedDependency::Native => &[PreparedDependency::Native],
+                PreparedDependency::CanonicalProof => &[PreparedDependency::CanonicalProof],
+            },
+            mapping: PacketMapping {
+                name: "prepared_dependency",
+                sources: dependency_sources(&[dependency]),
+                minimum_frontier: Frontier::Catalog,
+                required_capabilities: &[Capability::Catalog],
+                output_type: "prepared owner",
+                revision: 1,
+            },
+        })
+    });
+    &all[match dependency {
+        PreparedDependency::Selection => 0,
+        PreparedDependency::CatalogIdentity => 1,
+        PreparedDependency::Retrieval => 2,
+        PreparedDependency::Native => 3,
+        PreparedDependency::CanonicalProof => 4,
+    }]
+}
+
+#[macro_export]
+macro_rules! serving_retrieval_inputs {($m:ident)=>{$m!{
+ units:$crate::domain::retrieval::Unit,fragments:$crate::domain::retrieval::Fragment,subjects:$crate::domain::retrieval::Subject,unit_subjects:$crate::domain::retrieval::UnitSubject,anchors:$crate::domain::retrieval::OriginalAnchor,origins:$crate::domain::retrieval::Origin,uses:$crate::domain::retrieval::consumption::RetrievalEmbeddingUse,parents:$crate::domain::input::CorpusLibrary,
+}};}

@@ -1021,8 +1021,11 @@ impl InvariantCheck for LinkCheck {
         Ok(())
     }
 }
-pub fn stage(profile: Profile, model: &ValidatedModel) -> Result<Stage, ModelError> {
-    use std::collections::BTreeSet;
+pub fn stage(
+    profile: Profile,
+    model: &ValidatedModel,
+    order: &stages::PublicationOrder,
+) -> Result<Stage, ModelError> {
     let parent = catalog::build::stage(profile);
     let mut inputs = parent.inputs;
     inputs.extend(parent.outputs.into_iter().map(|r| r.completed_store()));
@@ -1048,51 +1051,31 @@ pub fn stage(profile: Profile, model: &ValidatedModel) -> Result<Stage, ModelErr
         CoverageRequirement,
         CoverageRequiredSource
     );
-    let own = outputs.iter().map(|r| r.name()).collect::<BTreeSet<_>>();
-    let facts = facts_relations()
+    let roots = inputs
         .iter()
-        .map(Relation::name)
-        .collect::<BTreeSet<_>>();
-    let relation = |name| {
-        model
-            .relations()
-            .iter()
-            .find(|r| r.name() == name)
-            .ok_or_else(|| invalid(format!("C1 relation absent: {name}")))
-    };
-    let mut pending = inputs.iter().map(|r| r.name()).collect::<Vec<_>>();
-    while let Some(name) = pending.pop() {
-        let row = relation(name)?;
-        for required in row
-            .fields()
-            .iter()
-            .filter_map(|f| f.target().map(|(_, n)| n))
-            .chain(
-                row.invariants()
-                    .iter()
-                    .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
-            )
-        {
-            if own.contains(required) {
-                return Err(invalid(format!(
-                    "C1 predecessor requires own output: {required}"
-                )));
+        .map(|r| {
+            let relation = model
+                .relations()
+                .iter()
+                .find(|row| row.name() == r.name())
+                .ok_or_else(|| invalid("closure root absent"))?;
+            let mut input = ValidationInput::of_relation(relation, &["id"]);
+            if let Some(epoch) = r.prefix() {
+                input = input.at_epoch(epoch);
             }
-            if (!facts.contains(required) || is_vocabulary(required))
-                && !inputs.iter().any(|r| r.name() == required)
-            {
-                inputs.push(RelationUse::of_relation(relation(required)?).completed_store());
-                pending.push(required);
-            }
-        }
-    }
-    for input in &mut inputs {
-        if is_vocabulary(input.name()) {
-            *input = (*input).at_epoch(PublicationBoundary::Local);
-        }
-    }
-    inputs.sort_by_key(|r| r.name());
-    inputs.dedup_by_key(|r| r.name());
+            Ok(input)
+        })
+        .collect::<Result<Vec<_>, ModelError>>()?;
+    let inputs = dependency_closure::DependencyClosure::build(
+        model,
+        roots,
+        inputs,
+        &outputs,
+        PublicationBoundary::Local,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        order,
+    )?
+    .grants;
     Ok(Stage {
         name: "catalog_evidence",
         inputs,

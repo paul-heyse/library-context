@@ -5,12 +5,13 @@ use crate::domain::{KeySink, selection};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:ident),*$(,)?)=>{
+macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:ident,$description:literal),*$(,)?)=>{
     #[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
     #[serde(rename_all="snake_case")]
     pub enum Tool {$($variant),*}
     impl Tool {
         pub const ALL:[Self;10]=[$(Self::$variant),*];
+        pub fn description(self)->&'static str {match self{$(Self::$variant=>$description),*}}
         pub fn name(self)->&'static str {match self{$(Self::$variant=>$name),*}}
         pub fn from_name(name:&str)->Result<Self,WireError>{match name{$($name=>Ok(Self::$variant),)*_=>Err(WireError::UnknownTool(name.into()))}}
         pub fn request_schema(self)->Value{match self{$(Self::$variant=>schema_for::<$request>(false)),*}}
@@ -88,16 +89,16 @@ impl std::io::Write for CountBytes {
     }
 }
 routes! {
-    SearchOperations:"search_operations"=>SearchOperationsRequest,SearchOperationsResponse,
-    FindOperations:"find_operations"=>FindOperationsRequest,FindOperationsResponse,
-    GetOperation:"get_operation"=>GetOperationRequest,GetOperationResponse,
-    BrowseLibrary:"browse_library"=>BrowseLibraryRequest,BrowseLibraryResponse,
-    GetEvidence:"get_evidence"=>GetEvidenceRequest,GetEvidenceResponse,
-    SearchEvidence:"search_evidence"=>SearchEvidenceRequest,SearchEvidenceResponse,
-    CompareOperations:"compare_operations"=>CompareOperationsRequest,CompareOperationsResponse,
-    SearchCapabilities:"search_capabilities"=>SearchCapabilitiesRequest,SearchCapabilitiesResponse,
-    GetCapability:"get_capability"=>GetCapabilityRequest,GetCapabilityResponse,
-    InspectValuePaths:"inspect_value_paths"=>InspectValuePathsRequest,InspectValuePathsResponse,
+    SearchOperations:"search_operations"=>SearchOperationsRequest,SearchOperationsResponse,"Search pinned public APIs using lexical and optional vector navigation, with finite selection evidence and unresolved results disclosed.",
+    FindOperations:"find_operations"=>FindOperationsRequest,FindOperationsResponse,"Find public APIs by declared predicates. Discovery preserves supported, unresolved and conflicting candidates; Strict retains supported candidates.",
+    GetOperation:"get_operation"=>GetOperationRequest,GetOperationResponse,"Resolve a canonical member or exact public path and inspect its signature, options and explicitly requested evidence sections. Ambiguity remains explicit.",
+    BrowseLibrary:"browse_library"=>BrowseLibraryRequest,BrowseLibraryResponse,"Browse declared library, module or class members and finite vocabulary. Unknown ownership remains visible.",
+    GetEvidence:"get_evidence"=>GetEvidenceRequest,GetEvidenceResponse,"Read original attributed bytes and their canonical derivation. Continuations remain bound to the original generation and source.",
+    SearchEvidence:"search_evidence"=>SearchEvidenceRequest,SearchEvidenceResponse,"Search original evidence in the selected finite families; ranking does not establish API support or behavioral feasibility.",
+    CompareOperations:"compare_operations"=>CompareOperationsRequest,CompareOperationsResponse,"Compare declared API requirements across selected operations while retaining each operation and context outcome.",
+    SearchCapabilities:"search_capabilities"=>SearchCapabilitiesRequest,SearchCapabilitiesResponse,"Search authored capability briefs assembled from canonical assertions; optional vector navigation is disclosed.",
+    GetCapability:"get_capability"=>GetCapabilityRequest,GetCapabilityResponse,"Read a canonical authored capability brief with its assertions and original evidence; no generative model runs.",
+    InspectValuePaths:"inspect_value_paths"=>InspectValuePathsRequest,InspectValuePathsResponse,"Inspect finite native paths for exact public formal inputs without executing Python. Defaults and missing contexts retain explicit refusal reasons and original conditions.",
 }
 pub fn schema_for<T: JsonSchema>(output: bool) -> Value {
     let settings = schemars::generate::SchemaSettings::draft2020_12();
@@ -133,6 +134,7 @@ pub fn admit_envelope(encoded: &str, expanded: bool) -> Result<(), WireError> {
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolDeclaration {
     pub name: &'static str,
+    pub description: &'static str,
     pub request_schema: Value,
     pub response_schema: Value,
     pub read_only: bool,
@@ -143,6 +145,7 @@ pub fn tools() -> Vec<ToolDeclaration> {
         .into_iter()
         .map(|tool| ToolDeclaration {
             name: tool.name(),
+            description: tool.description(),
             request_schema: tool.request_schema(),
             response_schema: tool.response_schema(),
             read_only: true,
@@ -157,18 +160,30 @@ pub struct ResourceDeclaration {
     pub uri_template: &'static str,
     pub name: &'static str,
     pub mime_type: &'static str,
+    pub description: &'static str,
 }
 pub fn resources() -> Vec<ResourceDeclaration> {
     vec![ResourceDeclaration {
         uri_template: CAPABILITY_RESOURCE_TEMPLATE,
         name: "capability",
         mime_type: "text/markdown",
+        description: "Canonical authored capability body with attributed assertion evidence, bound to the served generation.",
     }]
 }
 pub fn wire_identity() -> WireIdentity {
     let mut sink = KeySink::new("serving-wire/v1");
+    sink.part(
+        b"failure-schema",
+        &serde_json::to_vec(&schema_for::<PublicFailure>(true)).expect("failure schema"),
+    );
+    for kind in FailureKind::ALL {
+        sink.part(b"failure-kind", kind.name().as_bytes());
+        sink.part(b"failure-message", kind.message().as_bytes());
+    }
+    sink.part(b"failure-envelope",b"admitted-original-grant/tool-isError-meta-lctx_failure/resource-error-data/internal-error/v1");
     for tool in Tool::ALL {
         sink.part(b"tool", tool.name().as_bytes());
+        sink.part(b"description", tool.description().as_bytes());
         sink.part(
             b"decode-schema",
             &serde_json::to_vec(&tool.request_schema()).expect("schema bytes"),

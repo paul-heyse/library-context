@@ -1,10 +1,9 @@
 //! Single S0 writer; rendering never reconstructs graphs or invents completed parents.
 use crate::{
     generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    model_runtime::AttemptRuntime,
     synthesis_preparation,
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{self, synthesis::*},
     normalized::Rows,
@@ -13,24 +12,7 @@ use lctx_model::domain::{
     *,
 };
 use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
-use std::{collections::BTreeSet, sync::Arc};
-async fn load<R: Record>(
-    session: &StageSession,
-    data: &mut Data,
-    permit: &ReadPermit<'_, R>,
-    admission: &mut analysis::expected::CoverageAdmission<'_>,
-) -> Result<(), ModelError> {
-    let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        admission.visit_if_expected(permit, &batch)?;
-        data.visit(R::NAME, &batch)?;
-    }
-    Ok(())
-}
+use std::sync::Arc;
 pub async fn produce(
     access: StageAccess<'_, '_>,
     attempt: &GenerationAttempt,
@@ -49,11 +31,19 @@ pub async fn produce(
     )
     .await
     .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
     let mut data = Data::new(runtime.budget());
-    let mut read = BTreeSet::new();
-    let mut read_charge = charged::StateCharge::new(runtime.budget(), "synthesis-read-registry");
-    macro_rules! read{($($f:ident:$ty:ty,)*)=>{$(if !read.contains(<$ty>::NAME){read_charge.grow(size_of::<&str>()+64)?;read.insert(<$ty>::NAME);let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data,&permit,&mut admission).await?;})*};}
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(
+        Data::consumed_inputs(access.profile()),
+        runtime.budget(),
+    )?;
+    macro_rules! read{($($f:ident:$ty:ty,)*)=>{$(while let Some((_input,permit))=consumed.next::<$ty>(&access)? {
+        let session=runtime.session(&access);
+        crate::consumed_rows::stream(&permit,&reader,&session,|permit,batch| {
+            admission.visit_if_expected(permit,batch)?;
+            data.visit(<$ty>::NAME,batch)?;
+            Ok(())
+        }).await?;
+    })*};}
     lctx_model::synthesis_frame_inputs!(read);
     lctx_model::synthesis_documentary_inputs!(read);
     lctx_model::synthesis_automatic_inputs!(read);
@@ -67,10 +57,8 @@ pub async fn produce(
     lctx_model::synthesis_control_text_inputs!(named_read);
     read! {public:structural::PublicCandidate,}
     lctx_model::expected_domain_inputs!(named_read);
-    drop(session);
+    consumed.finish()?;
     reader.close().await.map_err(ModelError::codec)?;
-    drop(read);
-    drop(read_charge);
     let (_, definition) = synthesis::build::definition();
     let settings = data.frames.configuration()?;
     if access.stage().configuration != ContentHash::of(settings.id().bytes()) {
@@ -128,6 +116,7 @@ pub async fn produce(
             &data.frames.structural,
             &data.frames.structural_invocations,
             &data.automatic,
+            &data.frames.analytic_parents,
             settings,
             &invocation,
             &mut selected,

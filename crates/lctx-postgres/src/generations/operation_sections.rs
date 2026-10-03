@@ -286,6 +286,8 @@ impl CatalogService {
         let spans = e
             .query(move |lease| {
                 Box::pin(async move {
+                    let mut scope = super::packet_reads::PacketLease::new::<ScenarioPacket>(lease);
+                    let lease = &mut scope;
                     lease
                         .read_for::<ScenarioSpan, CatalogScenario>("scenario", &scenario_ids)
                         .await
@@ -369,6 +371,9 @@ impl CatalogService {
         let links = e
             .query(move |lease| {
                 Box::pin(async move {
+                    let mut scope =
+                        super::packet_reads::PacketLease::new::<DeploymentPacket>(lease);
+                    let lease = &mut scope;
                     lease
                         .read_for::<ReleaseDeployment, input::Release>("release", &[release])
                         .await
@@ -512,6 +517,9 @@ impl CatalogService {
         let (events, policies, admissions, alternatives) = e
             .query(move |lease| {
                 Box::pin(async move {
+                    let mut scope =
+                        super::packet_reads::PacketLease::new::<RelationshipPacket>(lease);
+                    let lease = &mut scope;
                     let events = lease
                         .read_for::<NormalizedCallEvent, OccurrenceOwnership>("owner", &owners)
                         .await?;
@@ -819,7 +827,7 @@ impl CatalogService {
         r: &GetOperationRequest,
         member: Id<catalog::CatalogMember>,
     ) -> Result<SectionPage<CapabilityPacket>, Error> {
-        let briefs=e.query(move|lease|Box::pin(async move{let members=lease.read_for::<catalog::CatalogMemberInvocation,catalog::CatalogMember>("member",&[member]).await?;let seeds=lease.read_for::<synthesis::seeds::SelectedSeed,catalog::CatalogMemberInvocation>("member",&ids(members.rows())).await?;lease.read_for::<synthesis::briefs::Brief,synthesis::seeds::SelectedSeed>("seed",&ids(seeds.rows())).await})).await?;
+        let briefs=e.query(move|lease|Box::pin(async move { let mut scope=super::packet_reads::PacketLease::new::<CapabilityPacket>(lease);let lease=&mut scope;let members=lease.read_for::<catalog::CatalogMemberInvocation,catalog::CatalogMember>("member",&[member]).await?;let seeds=lease.read_for::<synthesis::seeds::SelectedSeed,catalog::CatalogMemberInvocation>("member",&ids(members.rows())).await?;lease.read_for::<synthesis::briefs::Brief,synthesis::seeds::SelectedSeed>("seed",&ids(seeds.rows())).await})).await?;
         let this = self.clone();
         let request = r.clone();
         let page = e
@@ -868,7 +876,7 @@ impl CatalogService {
             .get(member)
             .ok_or(Error::Contract)?
             .input;
-        let (facets,outcomes)=e.query(move|lease|Box::pin(async move{
+        let (facets,outcomes)=e.query(move|lease|Box::pin(async move { let mut scope=super::packet_reads::PacketLease::new::<BehaviorPacket>(lease);let lease=&mut scope;
             let members=lease.read_for::<catalog::CatalogMemberInvocation,catalog::CatalogMember>("member",&[member]).await?;
             let facets=lease.read_for::<synthesis::summary::SummaryFacet,catalog::CatalogMemberInvocation>("member",&ids(members.rows())).await?;
             let invocations=lease.read_for::<analysis::summary::AnalysisInvocation,input::InputRevision>("input",&[input]).await?;
@@ -935,7 +943,9 @@ impl CatalogService {
         let facts = e
             .query(move |lease| {
                 Box::pin(async move {
-                    let id_charge = lease.budget.reserve(
+                    let mut scope = super::packet_reads::PacketLease::new::<BehaviorPacket>(lease);
+                    let lease = &mut scope;
+                    let id_charge = lease.lease.budget.reserve(
                         "behavior-page-id-sets",
                         page.items.len().saturating_mul(2048),
                     )?;
@@ -1034,8 +1044,9 @@ impl CatalogService {
                     // Shared roots are read once at each frontier. Each rendered condition retains its
                     // existing 4096-node bound; the page union cannot exceed the sum of those bounds.
                     let maximum_nodes = page.items.len().saturating_mul(4096);
-                    let mut nodes = normalized::Rows::new(&lease.budget);
-                    let mut node_scratch = lease.budget.reserve("behavior-node-frontiers", 0)?;
+                    let mut nodes = normalized::Rows::new(&lease.lease.budget);
+                    let mut node_scratch =
+                        lease.lease.budget.reserve("behavior-node-frontiers", 0)?;
                     let mut frontier = conditions
                         .rows()
                         .iter()

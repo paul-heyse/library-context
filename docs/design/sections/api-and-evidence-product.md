@@ -1,10 +1,10 @@
 # API and evidence product target
 
-**Phase 4 Implemented; qualification in progress, 2026-10-01.** The accepted
+**Implemented across Phases 4–5, 2026-10-02; scoped receipts retain their original boundaries.** The accepted
 [semantic model](semantic-model.md) owns the catalog, associations, selection, synthesis and
 retrieval contracts. Their Phase 4 construction uses typed `lctx-model` owners, native computation
-and `cpg-core` PostgreSQL generation adapters. Phase 5 serving remains unavailable. PR6 comparative
-product work remains paused until that boundary is delivered.
+and `cpg-core` PostgreSQL generation adapters. Generation-bound serving is implemented. Real-library qualification and activation remain stopped;
+PR6 comparative product work remains paused until that boundary is qualified.
 
 <a id="section-14"></a>
 
@@ -18,11 +18,11 @@ exit criterion.
 
 PR1–PR5 define the retained product contract. Their earlier pipeline qualification does not qualify
 the replacement typed pipeline or make its agent interface available. Phase 4 now constructs the
-catalog and evidence needed by that interface; Phase 5 must connect them to serving and qualify the
-result. Neither implementation establishes an advantage over Context7.
+catalog and evidence needed by that interface; Phase 5 connects them to serving; its real-library qualification remains stopped. Neither implementation establishes an advantage over Context7.
 
 The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) and
-[Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md) own current delivery and
+[Phase 5 plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md) and
+[alignment coordinator](../../plans/semantic-model-incremental-alignment-plan_2026-10-02.md) own current delivery and
 qualification. The [forward plan](../../plans/behavioral-model-forward-plan_2026-09-24.md) owns the
 retained product sequence and product findings. New product behavior remains **Proposed** unless
 its owning implementation and qualification are explicitly identified. Logical domain contracts
@@ -89,7 +89,7 @@ comparison serve the same product contract rather than expanding general analysi
 > Decision: ADR-0071, ADR-0073, ADR-0074, ADR-0085, ADR-0078
 
 The flow is pinned sources and metadata → attributed facts → normalized relations → typed Phase 4
-analysis/catalog owners → validated PostgreSQL generations. Phase 5 will consume those generations
+analysis/catalog owners → validated PostgreSQL generations. Phase 5 consumes those generations
 for typed selection, bounded hydration, ranking and MCP presentation.
 
 | Owner | Responsibility | Consumer boundary |
@@ -102,7 +102,7 @@ for typed selection, bounded hydration, ranking and MCP presentation.
 | S0 synthesis, retrieval and embedding | Assertions/briefs/code boundaries; contextual units and explicit vector consumers | Grounded source/support closure; spec-qualified vectors |
 | `cpg-core` | Stage read grants, decode/compute/validate/publication adapters | Real generation-store writes, no parallel semantic policy |
 | `lctx-postgres` | Generation state, physical schema, typed storage and read/write grants | One relational store; readiness distinct from selection |
-| Phase 5 Rust/native and `lctx_mcp` adapters | Typed requests, bounded hydration, optional semantic loading and presentation | Serving unavailable until its own implementation/qualification; Python does not restate semantics |
+| Phase 5 Rust/native and `lctx_mcp` adapters | Typed requests, bounded hydration, optional semantic loading and presentation | Serving implemented with scoped controls; activation awaits qualification; Python does not restate semantics |
 | Evaluation tooling | Pinned task environments, independent checks and paired runs | No task answers or skill-derived gold enter compiler inputs |
 
 The catalog is a compiled projection of canonical evidence, not an authored knowledge store.
@@ -246,11 +246,11 @@ and lifetime controls passed in both profiles on 2026-10-02; foundation qualific
 These foundations do not activate catalog routes or MCP serving.
 
 **Accepted serving target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
-and the [Phase 5 plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md) develop
+and the [Phase 5 plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md) implement
 process-wide preparation and the remaining request, lifecycle and representation contracts.
 They establish no new predicate semantics.
 
-Phase 4 C2 owns pure typed selection and contextual witnesses. Phase 5 must adapt those contracts
+Phase 4 C2 owns pure typed selection and contextual witnesses. Phase 5 adapts those contracts
 to PostgreSQL selection/hydration and MCP requests. Rust owns decoding/classification; Python
 transports/presents it. Arbitrary SQL, an unconstrained predicate DSL and a second classifier are
 outside the interface.
@@ -311,7 +311,7 @@ its final limit; bounded ranking never claims exhaustiveness.
 places fusion and winning-witness decisions in one model operation over library numerical scores.
 Its narrow disposable exact-vector artifact derives from canonical embedding-use bytes/specs;
 semantic units, contextual membership and evidence remain canonical. Physical admission, cleanup
-and actual retrieval journeys remain Phase 5 implementation/qualification.
+and real-library retrieval journeys remain stopped Phase 5 qualification.
 
 Phase 4 retrieval constructs addressable units with typed subjects, evidence origins, family,
 rendering/input identity and source context. The four families are API/options,
@@ -332,7 +332,7 @@ than finding an approximate explanation afterward. A ranking witness is distinct
 that establishes a requirement. Eligibility precedes ranking.
 
 Phase 4 unit/embedding construction does not establish live embedding service availability,
-retrieval quality or MCP search. Phase 5 must admit its physical indexes and query policy against
+retrieval quality or MCP search. Phase 5 admits its physical indexes and query policy against
 canonical generation/spec identity; an ANN route needs separate qualification. Serving artifacts
 are derived from typed generations rather than another canonical bundle/import store.
 
@@ -346,9 +346,10 @@ are derived from typed generations rather than another canonical bundle/import s
 and [Phase 5 packages](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md#8-dependency-ordered-execution-packages)
 specify a process generation guard distinct from request SQL occupancy, one CPU admission owner,
 current model-derived wire mappings and bounded native exact-input reconstruction. The ten retained
-routes and indivisible mandatory packet contract remain the target; implementation is not_run.
+routes and indivisible mandatory packet contract are Implemented with scoped controls; real-library
+qualification and activation remain stopped.
 
-**Accepted Phase 5 contract; serving unavailable.** Ten retained routes are `search_operations`,
+**Implemented Phase 5 contract, 2026-10-02; real-library qualification stopped.** Ten retained routes are `search_operations`,
 `find_operations`, `get_operation`, `browse_library`, `get_evidence`, `search_evidence`,
 `compare_operations`, `search_capabilities`, `get_capability` and `inspect_value_paths`.
 They are not newly qualified by Phase 4. Proposed concept/explanation tools remain separate scope.
@@ -400,7 +401,7 @@ Phase 4 adapters read complete granted input closures, compute typed results and
 validation before publishing through the generation store. Coverage, readiness and availability are
 different: unknown effective signature, absent scenario, unselected analysis and corrupt required
 artifact cannot collapse to the same empty result. Advertised semantic closure must validate.
-Phase 5 must check those capabilities before loading native execution; corrupt claimed artifacts
+Phase 5 checks those capabilities before loading native execution; corrupt claimed artifacts
 cannot fall back to a different backend.
 
 Coarse dependency-aware reuse remains the accepted rebuild contract:
@@ -531,7 +532,7 @@ required for a broad superiority claim. The earlier semantic suite retains its o
 
 ## §14.13 Migration and immediate implementation priority
 
-**Phase 4 Implemented; qualification in progress, 2026-10-01.** The current delivery is typed Local,
+**Implemented across Phases 4–5, 2026-10-02; scoped receipts retain their original boundaries.** The current delivery is typed Local,
 execution/transfer, Model, Summary, Structural, Analytic, C0/C1/C2, S0, retrieval and embedding owners
 with real PostgreSQL generation adapters. The Phase 4 plan owns review/Q0 outcomes and any remaining
 qualification. This section does not promote that status to acceptance, a FastMCP pilot, live

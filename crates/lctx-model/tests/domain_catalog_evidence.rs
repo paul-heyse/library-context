@@ -875,7 +875,12 @@ fn release_requirements_are_owned_once_and_never_matched_by_distribution_spellin
 #[test]
 fn completed_stage_inventory_requires_core_and_original_receipts_without_flow_or_briefs() {
     let model = lctx_model::domain::model().unwrap();
-    let stage = stage(stages::Profile::Catalog, &model).unwrap();
+    let order = stages::PublicationOrder::planning(&[
+        stages::PublicationGroup::new(stages::PublicationBoundary::Facts, vec!["facts"]),
+        stages::PublicationGroup::new(stages::PublicationBoundary::Local, vec!["local"]),
+    ])
+    .unwrap();
+    let stage = stage(stages::Profile::Catalog, &model, &order).unwrap();
     let names = stage
         .inputs
         .iter()

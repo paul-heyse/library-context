@@ -171,7 +171,7 @@ fn calculate(
     let covered = api.values().copied().collect::<BTreeSet<_>>();
     let keys = api.keys().copied().collect::<Vec<_>>();
     let targets = documents.iter().copied().collect::<Vec<_>>();
-    let floor = FiniteF64::new(0.5)?;
+    let floor = FiniteF64::new(super::policy::RETAINED.neighbour_floor)?;
     if incomplete || covered != *public {
         r.status = analysis::AnalysisStatus::Partial;
         r.stop = Stop::VectorsUnavailable;
@@ -259,7 +259,7 @@ fn calculate(
                         .total_cmp(&x.score.get())
                         .then_with(|| a.cmp(c))
                 });
-                for (_, m) in rows.into_iter().take(3) {
+                for (_, m) in rows.into_iter().take(super::policy::RETAINED.neighbours) {
                     if docs {
                         out.document_neighbours.insert(DocumentNeighbour {
                             result: r.id(),
@@ -374,7 +374,12 @@ pub fn labels(
             status: nearest.status,
             stop: nearest.stop,
         };
-        let matched = match p.centroid(&keys, &documents, FiniteF64::new(0.5)?, build::MAX_WORK) {
+        let matched = match p.centroid(
+            &keys,
+            &documents,
+            FiniteF64::new(super::policy::RETAINED.neighbour_floor)?,
+            build::MAX_WORK,
+        ) {
             Ok(v) => v,
             Err(neighbours::Error::WorkLimit { .. }) => {
                 a.status = analysis::AnalysisStatus::Partial;

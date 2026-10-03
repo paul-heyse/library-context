@@ -38,7 +38,17 @@ Defaults keep communities, PageRank, FCA/RCA, analytic kNN and extra community l
 requires FCA; extra community layers require communities. Technique recovery does not establish
 product benefit or activate performance/ablation campaigns.
 
-> Decision: ADR-0044, ADR-0045, ADR-0071, ADR-0086, ADR-0106
+**Implemented, 2026-10-02 (ADR-0116).** `domain::analytics::policy::RETAINED` is the one fixed
+policy for parameters, complete definition identity and executable kernel settings. It retains
+PageRank damping/tolerance/work, all four community resolutions and ten seeds with their quality
+histories, concept support/bounds and neighbor floor/count. Method records do not pretend the
+forty community runs are one run. The human recipe is generated from the structured policy.
+`DependencyClosure` preserves exact ordered epoch requirements independently of sufficient stage
+grants. Analytic consumption resolves those source receipts through separate sessions. Prepared
+graphs remain borrowed and checked for each consumer. CPU placement and independent RSS sampling
+are operational; they do not change analytic content or establish a speed benefit.
+
+> Decision: ADR-0044, ADR-0045, ADR-0071, ADR-0086, ADR-0106, ADR-0116
 
 <a id="section-9-1"></a>
 

@@ -160,12 +160,19 @@ fn canonical_unexamined_path_keeps_original_frame_without_admitting_default_scal
         value: &value,
         assumptions: Assumptions::default(),
     };
-    let result = unexamined(&request, &entry, &path, &case.f.budget).unwrap();
+    let result = unexamined(
+        &request,
+        &entry,
+        ObligationKind::DefaultStabilityUnknown,
+        &path,
+        &case.f.budget,
+    )
+    .unwrap();
     assert_eq!(result.verdict, Verdict::Unknown);
     assert_eq!(result.exact, ExactOutcome::Unknown);
     assert_eq!(result.original_condition, path.original_condition());
     assert_eq!(result.path, path.identity());
-    assert_eq!(result.reason, Some(ObligationKind::EntryValueUnknown));
+    assert_eq!(result.reason, Some(ObligationKind::DefaultStabilityUnknown));
     assert!(result.restricted_result.is_none());
     assert_eq!(result.work, Work::default());
     case.assert_proof_resolves(&result);
@@ -176,7 +183,14 @@ fn canonical_unexamined_path_keeps_original_frame_without_admitting_default_scal
     }
     .id();
     assert!(
-        unexamined(&request, &entry, &path, &case.f.budget).is_err(),
+        unexamined(
+            &request,
+            &entry,
+            ObligationKind::DefaultStabilityUnknown,
+            &path,
+            &case.f.budget
+        )
+        .is_err(),
         "the unknown boundary does not admit a foreign formal"
     );
 }
@@ -1401,4 +1415,159 @@ fn admitted_derived_path_is_unknown_with_original_condition_and_finite_proof() {
     assert_eq!(result.work.assignments_applied, 0);
     assert!(result.restricted_result.is_none());
     assert!(result.proof.contains(&result.path));
+}
+
+#[test]
+fn distinct_unexamined_causes_survive_model_packet_serialization_without_assignment() {
+    let case = Case::new(Predicate::IsNone, vec![], None);
+    let entry = case.f.guard_entry().unwrap();
+    let path = NativePath::guard(&entry, &case.f.data, &case.f.budget).unwrap();
+    let value = str_("ready");
+    let request = ExactRequest {
+        generation: serving::GenerationKey([1; 16]),
+        owner: case.f.request.owner,
+        formal: case.f.request.formal,
+        value: &value,
+        assumptions: Assumptions::default(),
+    };
+    for (cause, code) in [
+        (ObligationKind::MissingEvidence, 7),
+        (ObligationKind::DefaultStabilityUnknown, 32),
+        (ObligationKind::IncompatibleContexts, 44),
+        (ObligationKind::EntryValueUnknown, 49),
+    ] {
+        let assessment = unexamined(&request, &entry, cause, &path, &case.f.budget).unwrap();
+        let packet = serving::NativeAssessmentPacket::from_canonical(&assessment);
+        let json = serde_json::to_value(&packet).unwrap();
+        assert_eq!(json["reason"], serde_json::json!(code));
+        assert_eq!(json["exact"], "unknown");
+        assert_eq!(json["basis"], "unexamined");
+        assert_eq!(json["work"]["assignments_applied"], 0);
+        assert!(json["restricted_result"].is_null());
+        assert_eq!(packet.original_condition, path.original_condition());
+        assert!(!packet.proof.is_empty());
+    }
+}
+
+#[test]
+fn pure_preparation_preserves_context_causes_and_requires_coverage_before_publication() {
+    fn inputs(case: &Case, mutation: &str, coverage: bool) -> PreparationInputs {
+        let mut inputs = PreparationInputs::new(&case.f.budget);
+        macro_rules! entries {($($field:ident:$ty:ty,)*)=>{$(inputs.native.visit(<$ty>::NAME,&<$ty as Record>::encode(&case.f.data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+        macro_rules! theory {($($field:ident:$ty:ty,)*)=>{$(inputs.native.visit(<$ty>::NAME,&<$ty as Record>::encode(&case.theory.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+        lctx_model::entry_value_inputs!(entries);
+        lctx_model::local_theory_inputs!(theory);
+        if mutation != "missing" {
+            inputs
+                .native
+                .effective
+                .insert(case.effective.clone())
+                .unwrap();
+        }
+        let mut variant = case.variant.clone();
+        if mutation == "crossed" {
+            variant.callable =
+                Some(serde_json::from_value(serde_json::json!(vec![255; 16])).unwrap());
+        }
+        let mut slot = case.slot.clone();
+        slot.variant = variant.id();
+        if mutation == "default" {
+            slot.default = DefaultSlot::DefinitionTime;
+        }
+        inputs.native.variants.insert(variant).unwrap();
+        inputs.native.slots.insert(slot).unwrap();
+        let mut invocation = case.invocation.clone();
+        invocation.subject = None;
+        inputs.rows.invocations.insert(invocation.clone()).unwrap();
+        let entry = case.f.guard_entry().unwrap();
+        let leaf = case.f.data.leaves.iter().next().unwrap();
+        let support = case
+            .f
+            .data
+            .leaf_supports
+            .iter()
+            .find(|r| r.assertion == leaf.id())
+            .unwrap();
+        let source =
+            EntryAccessSource::guard(&case.f.data, case.f.request, leaf.id(), support.id())
+                .unwrap();
+        inputs.rows.entries.insert(entry.witness().clone()).unwrap();
+        inputs.rows.sources.insert(source).unwrap();
+        if coverage {
+            inputs
+                .rows
+                .coverage
+                .insert(local::AnalysisCoverage {
+                    invocation: invocation.id(),
+                    capability: analysis::AnalysisCapability::Transfers,
+                    scope: case.f.coverage.scope,
+                    context: case.f.request.context,
+                    premises: ContentHash::of(b"pure native fixture"),
+                    availability: normalized::coverage::EvidenceAvailability::Complete,
+                    reason: None,
+                })
+                .unwrap();
+        }
+        inputs
+    }
+    let case = Case::new(Predicate::IsNone, vec![], None);
+    let classification = selection::classification::ClassificationData::new(&case.f.budget);
+    for (mutation, cause) in [
+        ("required", None),
+        ("default", Some(ObligationKind::DefaultStabilityUnknown)),
+        ("missing", Some(ObligationKind::MissingEvidence)),
+        ("crossed", Some(ObligationKind::IncompatibleContexts)),
+    ] {
+        let prepared = PreparedNativeSemantics::prepare(
+            inputs(&case, mutation, true),
+            &classification,
+            &case.f.budget,
+        )
+        .unwrap();
+        assert_eq!(
+            prepared.unexamined(
+                case.f.request.owner,
+                case.f.request.formal,
+                case.f.request.context
+            ),
+            cause.is_some(),
+            "{mutation}"
+        );
+        assert!(
+            prepared
+                .path_count(
+                    case.f.request.owner,
+                    case.f.request.formal,
+                    case.f.request.context
+                )
+                .unwrap()
+                > 0
+        );
+        if let Some(cause) = cause {
+            let value = str_("ready");
+            let request = ExactRequest {
+                generation: serving::GenerationKey([1; 16]),
+                owner: case.f.request.owner,
+                formal: case.f.request.formal,
+                value: &value,
+                assumptions: Assumptions::default(),
+            };
+            let result = prepared
+                .assess_path(&request, case.f.request.context, 0, &case.f.budget)
+                .unwrap();
+            assert_eq!(result.reason, Some(cause));
+            assert_eq!(result.work.assignments_applied, 0);
+            assert_eq!(result.exact, ExactOutcome::Unknown);
+            assert!(!result.proof.is_empty());
+        }
+    }
+    assert!(
+        PreparedNativeSemantics::prepare(
+            inputs(&case, "default", false),
+            &classification,
+            &case.f.budget
+        )
+        .is_err(),
+        "missing required coverage cannot publish an unexamined default path"
+    );
 }

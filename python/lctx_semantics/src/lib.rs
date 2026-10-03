@@ -46,6 +46,13 @@ fn admit_envelope(py: Python<'_>, encoded: &str, expanded: bool) -> PyResult<()>
     py.detach(|| serving::admit_envelope(encoded, expanded))
         .map_err(error)
 }
+#[pyfunction]
+fn wire_failure(kind: &str) -> PyResult<String> {
+    let kind = serving::FailureKind::from_name(kind)
+        .ok_or_else(|| PyValueError::new_err("unrecognized public failure kind"))?;
+    serde_json::to_string(&serving::PublicFailure::new(kind))
+        .map_err(|_| PyValueError::new_err("failure encoding"))
+}
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(canonical_embedding_spec, m)?)?;
@@ -53,6 +60,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(wire_decode, m)?)?;
     m.add_function(wrap_pyfunction!(wire_tool, m)?)?;
     m.add_function(wrap_pyfunction!(wire_tools, m)?)?;
+    m.add_function(wrap_pyfunction!(wire_failure, m)?)?;
     m.add_function(wrap_pyfunction!(wire_resources, m)?)?;
     m.add_function(wrap_pyfunction!(wire_tool_result, m)?)?;
     m.add_function(wrap_pyfunction!(admit_envelope, m)?)?;

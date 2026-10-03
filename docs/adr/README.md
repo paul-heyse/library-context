@@ -67,6 +67,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0113](0113-agent-permissions-by-contract.md) | Role contracts are the only bound on agent effects; native role files carry no tool lists or sandbox settings | 2026-10-01 | [§1.2](../design/DESIGN.md#section-1-2) | Implemented | ADR-0112 |
 | [ADR-0114](0114-generation-serving-contracts.md) | Derive serving from canonical generations and prepare bounded consumers | 2026-10-02 | [§15.12](../design/sections/semantic-model.md#section-15-12), [§11](../design/sections/synthesis-and-serving.md#section-11), [§14.7](../design/sections/api-and-evidence-product.md#section-14-7), [§14.8](../design/sections/api-and-evidence-product.md#section-14-8), [§14.9](../design/sections/api-and-evidence-product.md#section-14-9) | Proposed |  |
 | [ADR-0115](0115-producer-runtime-script-capture.md) | Capture declared embedded runtime scripts while retaining conservative semantic source roots | 2026-10-02 | [§4.0](../design/sections/acquisition-and-extraction.md#section-4-0) | Implemented |  |
+| [ADR-0116](0116-bounded-semantic-preparation-and-consumption.md) | Keep preparation, exact consumption and serving meaning with their declared owners | 2026-10-02 | [§9](../design/sections/analytics.md#section-9), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3), [§15.11](../design/sections/semantic-model.md#section-15-11), [§15.12](../design/sections/semantic-model.md#section-15-12) | Implemented |  |
 
 ## Proposed: open choices, not accepted decisions
 

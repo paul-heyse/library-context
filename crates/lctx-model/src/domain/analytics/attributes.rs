@@ -689,7 +689,10 @@ pub fn concepts(
         let incidence_list = incidences.into_iter().collect::<Vec<_>>();
         let context =
             super::concepts::Context::new(&object_list, &attribute_list, &incidence_list, b)?;
-        let lattice = context.analyse(2, 20_000)?;
+        let lattice = context.analyse(
+            super::policy::RETAINED.concept_support,
+            super::policy::RETAINED.concept_bound,
+        )?;
         let scope = ConceptScope {
             result: result.id(),
             access,

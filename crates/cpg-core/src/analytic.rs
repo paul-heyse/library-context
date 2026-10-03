@@ -2,9 +2,8 @@
 use crate::{
     analysis_graphs::PreparedGraphs,
     generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    model_runtime::AttemptRuntime,
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{self, analytic as owner},
     analytics::{self as semantic, build, frames},
@@ -12,31 +11,7 @@ use lctx_model::domain::{
     *,
 };
 use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
-use std::{collections::BTreeSet, sync::Arc};
-async fn load<R: Record>(
-    access: &StageAccess<'_, '_>,
-    reader: &AttemptSession,
-    session: &StageSession,
-    data: &mut build::Data,
-    admission: &mut analysis::expected::CoverageAdmission<'_>,
-    seen: &mut BTreeSet<&'static str>,
-) -> Result<(), ModelError> {
-    if !access.stage().reads::<R>() || !seen.insert(R::NAME) {
-        return Ok(());
-    }
-    let permit = access.read::<R>()?;
-    session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
-    let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        data.visit(R::NAME, &batch)?;
-        admission.visit_if_expected(&permit, &batch)?;
-    }
-    Ok(())
-}
+use std::sync::Arc;
 pub async fn produce(
     access: StageAccess<'_, '_>,
     attempt: &GenerationAttempt,
@@ -56,21 +31,35 @@ pub async fn produce(
     )
     .await
     .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
     let mut data = build::Data::new(runtime.budget());
-    let mut seen = BTreeSet::new();
-    macro_rules! read{($($t:ty),*)=>{$(load::<$t>(&access,&reader,&session,&mut data,&mut admission,&mut seen).await?;)*};}
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(
+        build::Data::consumed_inputs(access.profile()),
+        runtime.budget(),
+    )?;
+    macro_rules! read{($($t:ty),*)=>{$(while let Some((input,permit))=consumed.next::<$t>(&access)? {
+        let session=runtime.session(&access);
+        crate::consumed_rows::stream(&permit,&reader,&session,|permit,batch| {
+            data.visit_input(&input,batch)?;
+            admission.visit_if_expected(permit,batch)?;
+            Ok(())
+        }).await?;
+    })*};}
     macro_rules! inventory{($($f:ident:$t:ty,)*)=>{read!($($t),*);};}
     lctx_model::normalized_binding_inputs!(inventory);
     lctx_model::structural_outputs!(inventory);
     lctx_model::analytic_extra_inputs!(inventory);
     lctx_model::analytic_consumption_inputs!(inventory);
-    read!(projection::ProjectionSourceAssessment);
+    lctx_model::projection_outputs!(inventory);
     lctx_model::expected_domain_inputs!(inventory);
-    drop(session);
+    consumed.finish()?;
     reader.close().await.map_err(ModelError::codec)?;
     let settings = data.configuration()?.clone();
-    let declared = build::stage(access.profile(), &settings, model)?;
+    let declared = build::stage(
+        access.profile(),
+        &settings,
+        model,
+        access.publication_order(),
+    )?;
     if declared.code != access.stage().code
         || declared.configuration != access.stage().configuration
         || declared.name != access.stage().name
@@ -138,13 +127,11 @@ pub async fn produce(
                 name: projection::ProjectionName::CallableInvocation,
             },
         )?;
-        results.extend(build::produce(
-            &data,
-            &frame,
-            &context.invocations,
-            graph,
-            runtime.budget(),
+        results.extend(crate::stage_runtime::borrowed_cpu(
+            access.stage().name,
+            || build::produce(&data, &frame, &context.invocations, graph, runtime.budget()),
         )?)?;
+        tokio::task::yield_now().await;
     }
     let mut output = StageOutput::new(
         access,

@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 pub fn unexamined(
     request: &ExactRequest<'_>,
     entry: &crate::domain::conditions::entry::DerivedEntryValue,
+    cause: ObligationKind,
     path: &NativePath,
     budget: &ResourceBudget,
 ) -> Result<Assessment, ModelError> {
@@ -52,7 +53,7 @@ pub fn unexamined(
         assumptions: request.assumptions,
         proof,
         work: Work::default(),
-        reason: Some(ObligationKind::EntryValueUnknown),
+        reason: Some(cause),
         unexamined: path.condition.support().len(),
         rendered: None,
         presentation_truncated: false,

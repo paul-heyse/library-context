@@ -4,10 +4,7 @@ use super::{CatalogService, Error, RequestExecution, VectorArtifact};
 use lctx_model::domain::resources;
 use lctx_model::domain::{
     normalized::Rows,
-    retrieval::{
-        self, Fragment, Origin, OriginalAnchor, Subject, Unit, UnitSubject,
-        consumption::RetrievalEmbeddingUse,
-    },
+    retrieval::{self, Origin, Subject, Unit},
     serving::{
         ranking::{
             self, Channel, ChannelBinding, DocumentScore, LexicalCorpus, MemberLexicalCorpus,
@@ -27,30 +24,11 @@ const FAMILIES: [retrieval::Family; 4] = [
     retrieval::Family::Scenario,
     retrieval::Family::Source,
 ];
-struct Data {
-    units: Rows<Unit>,
-    fragments: Rows<Fragment>,
-    subjects: Rows<Subject>,
-    unit_subjects: Rows<UnitSubject>,
-    anchors: Rows<OriginalAnchor>,
-    origins: Rows<Origin>,
-    uses: Rows<RetrievalEmbeddingUse>,
-    parents: Rows<input::CorpusLibrary>,
-}
-impl Data {
-    fn new(b: &resources::ResourceBudget) -> Self {
-        Self {
-            units: Rows::new(b),
-            fragments: Rows::new(b),
-            subjects: Rows::new(b),
-            unit_subjects: Rows::new(b),
-            anchors: Rows::new(b),
-            origins: Rows::new(b),
-            uses: Rows::new(b),
-            parents: Rows::new(b),
-        }
-    }
-}
+macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{
+    struct Data {$(pub $field:Rows<$ty>,)*}
+    impl Data {fn new(b:&resources::ResourceBudget)->Self {Self {$($field:Rows::new(b),)*}}}
+};}
+lctx_model::serving_retrieval_inputs!(inventory);
 struct State {
     catalog: CatalogService,
     data: Data,
@@ -94,8 +72,9 @@ impl RetrievalService {
         let mut held = guard.state.lease.lock().await;
         let lease = held.as_mut().ok_or(Error::State)?;
         let mut data = Data::new(&lease.budget);
-        macro_rules! load{($($field:ident:$ty:ty),*$(,)?)=>{$(lease.visit_verified::<$ty>(|batch|{for row in batch.rows(){data.$field.insert(row.clone())?;}Ok(())}).await?;)*};}
-        load!(units:Unit,fragments:Fragment,subjects:Subject,unit_subjects:UnitSubject,anchors:OriginalAnchor,origins:Origin,uses:RetrievalEmbeddingUse,parents:input::CorpusLibrary);
+        let binding = mappings::prepared_binding(mappings::PreparedDependency::Retrieval);
+        macro_rules! load{($($field:ident:$ty:ty,)*)=>{$(if !binding.permits::<$ty>() {return Err(Error::Contract);}lease.visit_verified::<$ty>(|batch|{for row in batch.rows(){data.$field.insert(row.clone())?;}Ok(())}).await?;)*};}
+        lctx_model::serving_retrieval_inputs!(load);
         let budget = lease.budget.clone();
         drop(held);
         let generation = GenerationKey(*catalog.service().generation().bytes());

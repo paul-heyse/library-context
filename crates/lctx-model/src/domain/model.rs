@@ -586,6 +586,14 @@ impl ValidationInput {
     pub fn order(&self) -> &[&'static str] {
         &self.order
     }
+    pub fn of_relation(relation: &Relation, order: &[&'static str]) -> Self {
+        Self {
+            type_id: relation.type_id(),
+            name: relation.name(),
+            order: order.to_vec(),
+            prefix: None,
+        }
+    }
     pub fn of<R: Record>(order: &[&'static str]) -> Self {
         Self {
             type_id: TypeId::of::<R>(),

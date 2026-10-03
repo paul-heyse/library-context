@@ -30,7 +30,7 @@ impl JsonSchema for ContentHash {
 macro_rules! code_schema { ($($ty:ty),* $(,)?)=>{$(
     impl JsonSchema for $ty {
         fn schema_name()->Cow<'static,str>{ stringify!($ty).replace("::","_").into() }
-        fn json_schema(_: &mut SchemaGenerator)->Schema {json_schema!({"type":"integer","enum":<$ty as FieldValue>::codes().iter().map(|(c,_)| *c).collect::<Vec<_>>()})}
+        fn json_schema(_: &mut SchemaGenerator)->Schema {json_schema!({"type":"integer","enum":<$ty as FieldValue>::codes().iter().map(|(c,_)| *c).collect::<Vec<_>>(),"description":<$ty as FieldValue>::codes().iter().map(|(c,label)|format!("{c} = {label}")).collect::<Vec<_>>().join("; ")})}
     }
 )*}; }
 code_schema!(
@@ -68,6 +68,13 @@ code_schema!(
     obligation::Verdict,
     obligation::ObligationKind
 );
+fn annotated(mut schema: Value, description: &str) -> Value {
+    schema
+        .as_object_mut()
+        .expect("schema object")
+        .insert("description".into(), Value::String(description.into()));
+    schema
+}
 fn object(fields: Vec<(&str, Value)>) -> Value {
     let required: Vec<_> = fields.iter().map(|(n, _)| n.to_string()).collect();
     let properties: serde_json::Map<_, _> = fields
@@ -120,7 +127,7 @@ impl JsonSchema for selection::Requirement {
             ),
             (
                 "quantifier",
-                g.subschema_for::<selection::Quantifier>().to_value(),
+                annotated(g.subschema_for::<selection::Quantifier>().to_value(), "Choose whether any or all declared candidates must satisfy this predicate; missing evidence remains unresolved."),
             ),
         ])
         .try_into()
@@ -137,10 +144,10 @@ impl JsonSchema for selection::Selection {
                 "requirements",
                 g.subschema_for::<Vec<selection::Requirement>>().to_value(),
             ),
-            ("mode", g.subschema_for::<selection::Mode>().to_value()),
+            ("mode", annotated(g.subschema_for::<selection::Mode>().to_value(), "Discovery (default) retains supported, unresolved and conflicting candidates. Strict retains only supported results; incomplete evidence is not rejection.")),
             (
                 "joint",
-                g.subschema_for::<selection::JointPolicy>().to_value(),
+                annotated(g.subschema_for::<selection::JointPolicy>().to_value(), "Independent requirements may use different declarations; joint applicability requires their declared shared context. Select the policy for the comparison you need."),
             ),
         ])
         .try_into()

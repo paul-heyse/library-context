@@ -2,6 +2,7 @@
 pub mod communities;
 pub mod concepts;
 pub mod neighbours;
+pub mod policy;
 pub mod ranking;
 mod records;
 pub use records::*;

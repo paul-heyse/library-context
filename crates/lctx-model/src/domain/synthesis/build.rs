@@ -48,6 +48,7 @@ pub fn stage(
     profile: crate::domain::stages::Profile,
     settings: &settings::AnalyticsConfiguration,
     model: &crate::domain::ValidatedModel,
+    order: &stages::PublicationOrder,
 ) -> Result<crate::domain::stages::Stage, crate::domain::ModelError> {
-    super::production::stage(profile, settings, model)
+    super::production::stage(profile, settings, model, order)
 }

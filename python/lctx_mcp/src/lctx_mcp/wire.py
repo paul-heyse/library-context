@@ -9,21 +9,25 @@ from fastmcp.exceptions import ResourceError, ToolError, ValidationError
 from fastmcp.resources import Resource, ResourceContent, ResourceResult, ResourceTemplate
 from fastmcp.server.dependencies import get_context
 from fastmcp.tools import Tool, ToolResult
+from mcp.shared.exceptions import MCPError
 from mcp_types import (
+    INTERNAL_ERROR,
     SERVER_INFO_META_KEY,
     CallToolResult,
+    ErrorData,
     Implementation,
+    JSONRPCError,
     JSONRPCResponse,
     ReadResourceResult,
     ToolAnnotations,
 )
 from mcp_types.methods import serialize_server_result
-from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from pydantic import PrivateAttr
 
 
 def response_encodings(
-    result: CallToolResult | ReadResourceResult,
+    result: CallToolResult | ReadResourceResult | ErrorData,
     request_id: int | str,
     *,
     protocol_version: str | None = None,
@@ -31,7 +35,7 @@ def response_encodings(
 ) -> tuple[bytes, bytes]:
     """Pinned SDK stdio and modern HTTP writers, including the actual JSON-RPC ID."""
     shaped = result.model_dump(by_alias=True, mode="json", exclude_none=True)
-    if protocol_version is not None:
+    if protocol_version is not None and not isinstance(result, ErrorData):
         method = "tools/call" if isinstance(result, CallToolResult) else "resources/read"
         # The pinned SDK owns version field omission and order. Its runner stamps
         # modern serverInfo after this public surface serializer has shaped the result.
@@ -42,17 +46,26 @@ def response_encodings(
                 shaped["_meta"] = {SERVER_INFO_META_KEY: server_info}
             elif isinstance(meta, dict) and meta.get(SERVER_INFO_META_KEY) is None:
                 shaped["_meta"] = {**meta, SERVER_INFO_META_KEY: server_info}
-    envelope = JSONRPCResponse(jsonrpc="2.0", id=request_id, result=shaped)
-    stdio = (envelope.model_dump_json(by_alias=True, exclude_unset=True) + "\n").encode("utf-8")
-    http = json.dumps(
-        envelope.model_dump(by_alias=True, mode="json", exclude_none=True),
-        separators=(",", ":"),
-    ).encode("utf-8")
+    envelope = (
+        JSONRPCError(jsonrpc="2.0", id=request_id, error=result)
+        if isinstance(result, ErrorData)
+        else JSONRPCResponse(jsonrpc="2.0", id=request_id, result=shaped)
+    )
+    serialized = envelope.model_dump_json(by_alias=True, exclude_unset=True).encode("utf-8")
+    stdio = serialized + b"\n"
+    http = (
+        serialized
+        if protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
+        else json.dumps(
+            envelope.model_dump(by_alias=True, mode="json", exclude_none=True),
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
     return stdio, http
 
 
 def negotiated_encodings(
-    result: CallToolResult | ReadResourceResult,
+    result: CallToolResult | ReadResourceResult | ErrorData,
     request_id: int | str,
     protocol_version: str,
     server,
@@ -68,6 +81,10 @@ def negotiated_encodings(
     )
 
 
+class _ResourceRefusedToolError(ToolError):
+    kind: str = "resource_refused"
+
+
 async def admit_request_id(
     service, grant, request_context, expanded: bool, byte_limits: dict[str, int]
 ) -> int | str:
@@ -76,7 +93,7 @@ async def admit_request_id(
     # An ID alone is a lower bound on both envelopes. Avoid an unbounded copy before
     # checking the Rust-declared limit; native admission checks both full encodings.
     if isinstance(request_id, str) and len(request_id) > bound:
-        raise ToolError("resource_refused: final MCP request ID bytes")
+        raise _ResourceRefusedToolError("resource_refused: final MCP request ID bytes")
 
     def encode_id():
         encoded = json.dumps(request_id).encode("utf-8")
@@ -84,6 +101,48 @@ async def admit_request_id(
 
     await service.encode_envelope(grant, encode_id, expanded)
     return request_id
+
+
+def public_failure(exc) -> dict[str, str] | None:
+    from lctx_semantics import wire_failure
+
+    kind = getattr(exc, "kind", None)
+    if not isinstance(kind, str):
+        return None
+    try:
+        return json.loads(wire_failure(kind))
+    except ValueError:
+        return None
+
+
+def safe_storage_text(exc) -> str:
+    from lctx_semantics import wire_failure
+
+    failure = public_failure(exc) or json.loads(wire_failure("unavailable"))
+    return f"{failure['kind']}: {failure['message']}"
+
+
+async def admitted_failure(
+    service, grant, failure, request_id, protocol_version, server, expanded, *, resource
+) -> CallToolResult | ErrorData:
+    """One attempt on the original admitted grant; no recursive failure encoding."""
+    result = (
+        ErrorData(code=INTERNAL_ERROR, message=failure["message"], data=failure)
+        if resource
+        else CallToolResult.model_validate(
+            {
+                "content": [{"type": "text", "text": failure["message"]}],
+                "isError": True,
+                "_meta": {"lctx_failure": failure},
+            }
+        )
+    )
+    await service.encode_envelope(
+        grant,
+        lambda: negotiated_encodings(result, request_id, protocol_version, server),
+        expanded,
+    )
+    return result
 
 
 class SchemaTool(Tool):
@@ -102,7 +161,9 @@ class SchemaTool(Tool):
         try:
             grant = await served.service.admit()
         except StorageError as exc:
-            raise ToolError(str(exc)) from exc
+            raise ToolError(safe_storage_text(exc)) from exc
+        request_id: int | str | None = None
+        expanded = False
         try:
             raw = await served.service.encode_request(
                 grant,
@@ -138,10 +199,30 @@ class SchemaTool(Tool):
             assert wrapped is not None
             return wrapped
         except StorageError as exc:
-            raise ToolError(str(exc)) from exc
+            failure = public_failure(exc)
+            if request_id is not None and failure is not None:
+                try:
+                    encoded_failure = await admitted_failure(
+                        served.service,
+                        grant,
+                        failure,
+                        request_id,
+                        protocol_version,
+                        server,
+                        expanded,
+                        resource=False,
+                    )
+                    assert isinstance(encoded_failure, CallToolResult)
+                    return ToolResult.from_mcp_result(encoded_failure)
+                except StorageError, ValueError:
+                    pass
+            raise ToolError(safe_storage_text(exc)) from exc
         except ValueError as exc:
             if str(exc).startswith("resource_refused:"):
-                raise ToolError(str(exc)) from exc
+                from lctx_semantics import wire_failure
+
+                failure = json.loads(wire_failure("resource_refused"))
+                raise ToolError(f"{failure['kind']}: {failure['message']}") from exc
             raise ValidationError(str(exc)) from exc
         finally:
             # Native in-flight work retains its own handle until actual completion.
@@ -164,7 +245,8 @@ class CapabilityResource(Resource):
         try:
             grant = await served.service.admit()
         except StorageError as exc:
-            raise ResourceError(str(exc)) from exc
+            raise ResourceError(safe_storage_text(exc)) from exc
+        request_id: int | str | None = None
         try:
             request_id = await admit_request_id(
                 served.service, grant, request_context, True, self._byte_limits
@@ -184,9 +266,31 @@ class CapabilityResource(Resource):
             assert result is not None
             return result
         except StorageError as exc:
-            raise ResourceError(str(exc)) from exc
+            failure = public_failure(exc)
+            if request_id is not None and failure is not None:
+                try:
+                    encoded_failure = await admitted_failure(
+                        served.service,
+                        grant,
+                        failure,
+                        request_id,
+                        protocol_version,
+                        server,
+                        True,
+                        resource=True,
+                    )
+                except StorageError, ValueError:
+                    pass
+                else:
+                    assert isinstance(encoded_failure, ErrorData)
+                    raise MCPError(
+                        code=encoded_failure.code,
+                        message=encoded_failure.message,
+                        data=encoded_failure.data,
+                    ) from exc
+            raise ResourceError(safe_storage_text(exc)) from exc
         except ToolError as exc:
-            raise ResourceError(str(exc)) from exc
+            raise ResourceError(safe_storage_text(exc)) from exc
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
         finally:
@@ -212,7 +316,7 @@ def register(server) -> None:
         contract = json.loads(wire_tool(name))
         tool = SchemaTool(
             name=name,
-            description=f"{name}: generation-bound API and original evidence result.",
+            description=declaration["description"],
             parameters=declaration["request_schema"],
             output_schema=declaration["response_schema"],
             annotations=ToolAnnotations(
@@ -229,6 +333,7 @@ def register(server) -> None:
             uri_template=declaration["uri_template"],
             name=declaration["name"],
             mime_type=declaration["mime_type"],
+            description=declaration["description"],
             parameters={
                 "type": "object",
                 "properties": {"capability": {"type": "string"}},

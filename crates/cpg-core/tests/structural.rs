@@ -136,8 +136,8 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             analysis::preparation::native_stage(profile),
             normalized::callable_aspects::stage(profile),
             build::stage(profile),
-            catalog::evidence::build::stage(profile, &model).unwrap(),
-            selection::build::stage(profile, &model).unwrap(),
+            catalog::evidence::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
+            selection::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         ]);
         declarations.extend(catalog_runtime::stages(profile, &model));
         declarations.push(structural::build::stage(profile, &settings, &model).unwrap());
@@ -538,4 +538,26 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
         drop(captured);
         assert_eq!(budget.reserved(), 0);
     }
+}
+
+fn fixture_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    lctx_model::domain::stages::PublicationOrder::registered(
+        lctx_model::domain::ContentHash::of(b"fixture publication order"),
+        &[
+            (0, lctx_model::domain::stages::PublicationBoundary::Facts),
+            (1, lctx_model::domain::stages::PublicationBoundary::Local),
+            (2, lctx_model::domain::stages::PublicationBoundary::Model),
+            (3, lctx_model::domain::stages::PublicationBoundary::Summary),
+            (
+                4,
+                lctx_model::domain::stages::PublicationBoundary::Structural,
+            ),
+            (5, lctx_model::domain::stages::PublicationBoundary::Analytic),
+            (
+                6,
+                lctx_model::domain::stages::PublicationBoundary::Synthesis,
+            ),
+        ],
+    )
+    .unwrap()
 }

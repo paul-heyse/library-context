@@ -23,12 +23,9 @@ pub struct Parameters {
 }
 impl Parameters {
     pub fn retained(max_work: u64) -> Self {
-        Self {
-            damping: FiniteF64::new(0.85).expect("finite"),
-            tolerance: FiniteF64::new(1e-10).expect("finite"),
-            max_iterations: 100,
-            max_work,
-        }
+        let mut policy = super::policy::RETAINED;
+        policy.max_work = max_work;
+        policy.ranking().expect("retained finite analytic policy")
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

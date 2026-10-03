@@ -89,3 +89,35 @@ fn explicit_empty_seeds_and_zero_budget_preserve_mandatory_catalog_configuration
         .is_err()
     );
 }
+
+#[test]
+fn fixed_policy_changes_records_identity_and_executable_bindings_together() {
+    use analytics::{build, policy::RETAINED};
+    let settings = AnalyticsConfiguration::parse(CONFIG, Techniques::default()).unwrap();
+    let (parameters, definition) =
+        build::definition(&settings, analysis::AnalysisMethod::PageRank).unwrap();
+    assert_eq!(parameters.damping.unwrap().get(), 0.85);
+    assert_eq!(RETAINED.ranking().unwrap().damping.get(), 0.85);
+    assert_eq!(RETAINED.community_work_multiplier(), Some(4000));
+    let mut changed = RETAINED;
+    changed.damping = 0.9;
+    changed.seeds = 5;
+    let (new_parameters, new_definition) =
+        build::definition_with_policy(&settings, analysis::AnalysisMethod::PageRank, changed)
+            .unwrap();
+    assert_eq!(new_parameters.damping.unwrap().get(), 0.9);
+    assert_eq!(changed.ranking().unwrap().damping.get(), 0.9);
+    assert_ne!(parameters.id(), new_parameters.id());
+    assert_ne!(definition.id(), new_definition.id());
+    assert_eq!(changed.community_work_multiplier(), Some(2000));
+    let (_, original) =
+        build::definition(&settings, analysis::AnalysisMethod::Communities).unwrap();
+    let (_, updated) =
+        build::definition_with_policy(&settings, analysis::AnalysisMethod::Communities, changed)
+            .unwrap();
+    assert_ne!(original.id(), updated.id());
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&RETAINED.recipe().unwrap()).unwrap()["resolutions"],
+        serde_json::json!([0.5, 1.0, 2.0, 4.0])
+    );
+}

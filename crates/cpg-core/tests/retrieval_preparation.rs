@@ -31,7 +31,8 @@ fn mandatory_reader_inputs(profile: Profile, model: &ValidatedModel) -> Vec<Rela
     // and shared invariants must be eligible inputs too, just as in the final E0 stage.
     // Facts references already belong to the validated checkpoint; every later row below
     // must instead have a completed producer in this fixture's actual schedule.
-    let mut inputs = retrieval::build::mandatory_inputs(profile, model).unwrap();
+    let mut inputs =
+        retrieval::build::mandatory_inputs(profile, model, &fixture_publication_order()).unwrap();
     let facts = facts_relations()
         .iter()
         .map(Relation::name)
@@ -147,7 +148,7 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         analysis::preparation::native_stage(profile),
         normalized::callable_aspects::stage(profile),
         build::stage(profile),
-        catalog::evidence::build::stage(profile, &model).unwrap(),
+        catalog::evidence::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         Stage {
             name: "retrieval_mandatory_control",
             inputs: mandatory_reader_inputs(profile, &model),
@@ -492,4 +493,26 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     drop(configuration);
     drop(captured);
     assert_eq!(budget.reserved(), 0);
+}
+
+fn fixture_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    lctx_model::domain::stages::PublicationOrder::registered(
+        lctx_model::domain::ContentHash::of(b"fixture publication order"),
+        &[
+            (0, lctx_model::domain::stages::PublicationBoundary::Facts),
+            (1, lctx_model::domain::stages::PublicationBoundary::Local),
+            (2, lctx_model::domain::stages::PublicationBoundary::Model),
+            (3, lctx_model::domain::stages::PublicationBoundary::Summary),
+            (
+                4,
+                lctx_model::domain::stages::PublicationBoundary::Structural,
+            ),
+            (5, lctx_model::domain::stages::PublicationBoundary::Analytic),
+            (
+                6,
+                lctx_model::domain::stages::PublicationBoundary::Synthesis,
+            ),
+        ],
+    )
+    .unwrap()
 }

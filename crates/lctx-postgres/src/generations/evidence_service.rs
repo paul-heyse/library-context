@@ -1,6 +1,6 @@
 //! Original captured bytes and bounded, relation-qualified proof expansion.
 use super::catalog_service::retain;
-use super::{Error, GenerationLease, GenerationService, RequestExecution, qualified};
+use super::{Error, GenerationService, RequestExecution, qualified};
 use arrow_array::{Array, FixedSizeBinaryArray};
 use lctx_model::domain::{
     artifact::{ARTIFACT_CHUNK_BYTES, ArtifactChunk, ArtifactVerifier},
@@ -35,7 +35,7 @@ fn unique<T: Copy + Ord>(values: impl IntoIterator<Item = T>) -> Result<T, Error
     }
     Ok(*values.first().ok_or(Error::Contract)?)
 }
-impl GenerationLease {
+impl super::packet_reads::PacketLease<'_> {
     async fn resolve_original(
         &mut self,
         source: OriginalReference,
@@ -211,7 +211,11 @@ impl GenerationService {
         }
         let result = execution
             .query(move |lease| {
-                Box::pin(async move { lease.resolve_original(source, context).await })
+                Box::pin(async move {
+                    let mut scope = super::packet_reads::PacketLease::new::<OriginalRange>(lease);
+                    let lease = &mut scope;
+                    lease.resolve_original(source, context).await
+                })
             })
             .await?;
         retain(execution, &result)?;
@@ -268,6 +272,8 @@ impl GenerationService {
         let bytes = execution
             .query(move |lease| {
                 Box::pin(async move {
+                    let mut scope = super::packet_reads::PacketLease::new::<EvidencePacket>(lease);
+                    let lease = &mut scope;
                     let artifact = required(
                         &lease
                             .read_ids::<SourceArtifact>(&[captured.artifact])
@@ -277,6 +283,7 @@ impl GenerationService {
                     let mut verifier = ArtifactVerifier::new(&artifact)?;
                     let mut body = Vec::new();
                     let _charge = lease
+                        .lease
                         .budget
                         .reserve("original-byte-page", (page_end - page_start) as usize)?;
                     lease
@@ -406,7 +413,13 @@ impl GenerationService {
         }
         let retained = execution.clone();
         execution
-            .query(move |lease| Box::pin(async move { lease.explain(root, &retained).await }))
+            .query(move |lease| {
+                Box::pin(async move {
+                    let mut scope = super::packet_reads::PacketLease::new::<EvidencePacket>(lease);
+                    let lease = &mut scope;
+                    lease.explain(root, &retained).await
+                })
+            })
             .await
     }
 }
@@ -416,27 +429,33 @@ fn reference(relation: String, id: Vec<u8>) -> Result<ProofReference, Error> {
         row: id.try_into().map_err(|_| Error::Contract)?,
     })
 }
-impl GenerationLease {
+impl super::packet_reads::PacketLease<'_> {
     async fn verify_proof_rows(
         &mut self,
         refs: &BTreeSet<(String, [u8; 16])>,
     ) -> Result<(), Error> {
         let mut groups: BTreeMap<&str, Vec<Vec<u8>>> = BTreeMap::new();
         for (relation, id) in refs {
-            if !self.relations.contains(relation.as_str())
-                || !self.model.relations().iter().any(|r| r.name() == relation)
+            if !self.lease.relations.contains(relation.as_str())
+                || !self
+                    .lease
+                    .model
+                    .relations()
+                    .iter()
+                    .any(|r| r.name() == relation)
             {
                 return Err(Error::Contract);
             }
             groups.entry(relation).or_default().push(id.to_vec());
         }
         for (relation, ids) in groups {
+            self.check_relation(relation)?;
             let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT count(*) FROM {} WHERE id=ANY($1)",
-                qualified(self.generation(), relation)
+                qualified(self.lease.generation(), relation)
             )))
             .bind(&ids)
-            .fetch_one(&mut *self.connection)
+            .fetch_one(&mut *self.lease.connection)
             .await?;
             if count != ids.len() as i64 {
                 return Err(Error::Contract);
@@ -450,7 +469,7 @@ impl GenerationLease {
         retained: &RequestExecution,
     ) -> Result<SectionPage<DerivationStep>, Error> {
         let limits = ResourceLimits::default();
-        let _charge = self.budget.reserve(
+        let _charge = self.lease.budget.reserve(
             "bounded-explanation",
             512 + limits.explanation_nodes as usize * 4096
                 + limits.explanation_edges as usize * 2048,
@@ -469,12 +488,13 @@ impl GenerationLease {
             // browsing views cannot hide an entire support chain or substitute a valid foreign
             // premise: nominal fields supply every conclusion, role and target here.
             let mut rows = BTreeMap::new();
-            let model = self.model.clone();
+            let model = self.lease.model.clone();
             for declaration in model
                 .relations()
                 .iter()
-                .filter(|r| self.relations.contains(r.name()) && r.derivation().is_some())
+                .filter(|r| self.lease.relations.contains(r.name()) && r.derivation().is_some())
             {
+                self.check_relation(declaration.name())?;
                 let rule = declaration.derivation().ok_or(Error::Contract)?;
                 let (target, field) = rule
                     .conclusion
@@ -489,17 +509,17 @@ impl GenerationLease {
                     continue;
                 }
                 let maximum = limits.explanation_nodes as usize;
-                let generation = self.generation();
-                let expected:Option<(i64,Vec<u8>)>=sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.receipts WHERE generation_id=$1 AND relation_name=$2").bind(generation.bytes().to_vec()).bind(declaration.name()).fetch_optional(&mut *self.connection).await?;
+                let generation = self.lease.generation();
+                let expected:Option<(i64,Vec<u8>)>=sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.receipts WHERE generation_id=$1 AND relation_name=$2").bind(generation.bytes().to_vec()).bind(declaration.name()).fetch_optional(&mut *self.lease.connection).await?;
                 let expected = expected.ok_or(Error::Contract)?;
                 let mut hash = declaration.content();
                 super::visit_named(
-                    &mut self.connection,
+                    &mut self.lease.connection,
                     generation,
                     declaration,
                     declaration.name(),
                     &["id"],
-                    &self.budget,
+                    &self.lease.budget,
                     |batch| {
                         let batch = declaration.canonical(&batch)?;
                         declaration.hash_rows(&batch, &mut hash)?;

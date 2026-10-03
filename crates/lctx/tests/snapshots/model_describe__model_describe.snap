@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "dac961ba186c11b01144120a749e0be4d3c7aec8fe7bd908a052850955fbf025",
+  "digest": "12242a5558134418fc3b54fdb526628d1715720e60e6199a8a6079f6066582da",
   "relations": [
     {
       "name": "access_paths",
@@ -98192,12 +98192,12 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "structural_frames",
         "structural_analysis_invocations",
         "structural_analysis_outcomes",
-        "analytic_frames",
-        "analytic_analysis_invocations",
         "analytic_analysis_outcomes",
-        "analytic_technique_results",
         "summary_analysis_invocations",
         "summary_analysis_outcomes",
+        "analytic_frames",
+        "analytic_analysis_invocations",
+        "analytic_technique_results",
         "synthesis_frames",
         "synthesis_analysis_invocations",
         "synthesis_invocation_sources",

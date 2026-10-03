@@ -76,6 +76,15 @@ impl CatalogService {
         guard.check().await?;
         let mut held = guard.state.lease.lock().await;
         let lease = held.as_mut().ok_or(Error::State)?;
+        let binding = lctx_model::domain::serving::mappings::prepared_binding(
+            lctx_model::domain::serving::mappings::PreparedDependency::CatalogIdentity,
+        );
+        if !binding.permits::<input::InputDistribution>()
+            || !binding.permits::<input::ArtifactOwnership>()
+            || !binding.permits::<input::DistributionVerification>()
+        {
+            return Err(Error::Contract);
+        }
         let mut distributions = Rows::new(&lease.budget);
         lease
             .visit_verified::<input::InputDistribution>(|batch| {

@@ -3,10 +3,15 @@
 mod evaluate;
 mod ingress;
 mod inventory;
+mod preparation;
 mod scalar;
 pub use evaluate::{assess, unexamined};
 pub use ingress::{CheckedAtom, NativeContext, NativePath};
 pub use inventory::NativeInventory;
+pub use preparation::{
+    FormalDomain, PreparationInputs, PreparationRows, PreparedNativeSemantics,
+    preparation_invariants,
+};
 pub use scalar::{Assumptions, BuiltinNamespace, ExactScalar};
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +23,8 @@ use crate::domain::{
     obligation::{ObligationKind, Verdict},
 };
 
+/// Section availability is neutral; each unexamined path retains its exact refusal cause.
+pub const UNAVAILABLE_REASON: &str = "native_context_unavailable";
 pub const MODEL_REVISION: u16 = 1;
 /// Native-operation meaning participates in request derivation identity independently of stored
 /// Condition identity. Preparation may use this same digest for its consumer invalidation.
@@ -27,6 +34,8 @@ pub fn definition() -> ContentHash {
     for source in [
         include_bytes!("scalar.rs").as_slice(),
         include_bytes!("ingress.rs").as_slice(),
+        include_bytes!("inventory.rs").as_slice(),
+        include_bytes!("preparation.rs").as_slice(),
         include_bytes!("evaluate.rs").as_slice(),
         include_bytes!("../local_theory.rs").as_slice(),
         include_bytes!("../conditions/entry.rs").as_slice(),

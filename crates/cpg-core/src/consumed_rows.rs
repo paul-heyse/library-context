@@ -8,7 +8,7 @@ use std::{any::TypeId, collections::BTreeMap};
 /// is identical. The same relation at distinct immutable epochs remains two consumed sources.
 pub struct ConsumedInputs {
     declarations: Vec<ValidationInput>,
-    dispatched: charged::ChargedSet<(&'static str, Option<u8>)>,
+    dispatched: charged::ChargedSet<usize>,
     sources: BTreeMap<(&'static str, Option<u16>), CompletedRelation>,
     charge: charged::StateCharge,
 }
@@ -17,8 +17,10 @@ impl ConsumedInputs {
         mut declarations: Vec<ValidationInput>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        declarations.sort_by_key(|i| (i.name(), i.prefix()));
-        declarations.dedup_by_key(|i| (i.name(), i.prefix()));
+        declarations.sort_by_key(|i| (i.name(), i.prefix(), i.order().to_vec()));
+        declarations.dedup_by(|a, b| {
+            a.name() == b.name() && a.prefix() == b.prefix() && a.order() == b.order()
+        });
         let mut charge = charged::StateCharge::new(budget, "consumed-inputs");
         charge.grow(
             declarations
@@ -42,19 +44,13 @@ impl ConsumedInputs {
         access: &'a StageAccess<'_, '_>,
     ) -> Result<Option<(ValidationInput, ReadPermit<'a, R>)>, ModelError> {
         loop {
-            let Some(input) = self.declarations.iter().find(|i| {
-                i.type_id() == TypeId::of::<R>()
-                    && !self
-                        .dispatched
-                        .contains(&(i.name(), i.prefix().map(|e| e as u8)))
+            let Some((index, input)) = self.declarations.iter().enumerate().find(|(index, i)| {
+                i.type_id() == TypeId::of::<R>() && !self.dispatched.contains(index)
             }) else {
                 return Ok(None);
             };
             let mut input = input.clone();
-            self.dispatched.insert(
-                &mut self.charge,
-                (input.name(), input.prefix().map(|e| e as u8)),
-            )?;
+            self.dispatched.insert(&mut self.charge, index)?;
             let permit = match input.prefix() {
                 Some(epoch) => access.read_at_epoch::<R>(epoch)?,
                 None => access.read::<R>()?,
@@ -85,9 +81,16 @@ impl ConsumedInputs {
     /// Refuse a typed dispatch that omitted an owned consumed declaration.
     pub fn finish(self) -> Result<(), ModelError> {
         if self.dispatched.len() != self.declarations.len() {
-            return Err(ModelError::Invalid(
-                "consumed input has no typed loader".into(),
-            ));
+            return Err(ModelError::Invalid(format!(
+                "consumed input has no typed loader: {}",
+                self.declarations
+                    .iter()
+                    .enumerate()
+                    .find(|(i, _)| !self.dispatched.contains(i))
+                    .expect("undispatched input")
+                    .1
+                    .name()
+            )));
         }
         Ok(())
     }
@@ -114,4 +117,90 @@ pub async fn stream<R: Record>(
         tokio::task::yield_now().await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lctx_model::domain::{input::Package, memory::MemoryGeneration, value::Literal};
+    #[tokio::test]
+    async fn two_acknowledged_epochs_remain_distinct_while_same_source_aliases_coalesce() {
+        let model =
+            ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+                .unwrap();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let stage = |name, inputs, outputs| Stage {
+            name,
+            inputs,
+            outputs,
+            contributes: vec![],
+            coverage: vec![],
+            provider: None,
+            profiles: vec![Profile::Catalog],
+            effect: Effect::Pure,
+            code: ContentHash::of(b"consumption control"),
+            configuration: ContentHash::of(b"fixture"),
+        };
+        let schedule = Schedule::build_with_publications(
+            &model,
+            vec![
+                stage("facts", vec![], vec![RelationUse::of::<Literal>()]),
+                stage("local", vec![], vec![RelationUse::of::<Literal>()]),
+                stage(
+                    "reader",
+                    vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Local)],
+                    vec![RelationUse::of::<Package>()],
+                ),
+            ],
+            &[],
+            Profile::Catalog,
+            vec![
+                PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+                PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+            ],
+        )
+        .unwrap();
+        let mut execution = schedule.execute();
+        let sink = MemoryGeneration::bind(&model, &budget, &mut execution).unwrap();
+        for (name, row) in [
+            ("facts", Literal::None),
+            ("local", Literal::Bool { value: true }),
+        ] {
+            let batch = Batch::new(&model, vec![row], &budget).unwrap();
+            let mut access = execution.begin(name).unwrap();
+            access
+                .write::<Literal, _>(async |permit| sink.copy(permit, &batch).await)
+                .await
+                .unwrap();
+            access
+                .complete(&sink, ProviderOutcome::Complete)
+                .await
+                .unwrap();
+        }
+        let access = execution.begin("reader").unwrap();
+        let mut inputs = ConsumedInputs::new(
+            vec![
+                ValidationInput::of::<Literal>(&["id"]).at_epoch(PublicationBoundary::Facts),
+                ValidationInput::of::<Literal>(&["id"]).at_epoch(PublicationBoundary::Local),
+                ValidationInput::of::<Literal>(&["kind", "id"])
+                    .at_epoch(PublicationBoundary::Local),
+            ],
+            &budget,
+        )
+        .unwrap();
+        let mut observed = std::collections::BTreeMap::new();
+        while let Some((input, permit)) = inputs.next::<Literal>(&access).unwrap() {
+            let source = permit.source().unwrap();
+            observed.insert(input.prefix().unwrap(), source.receipt().rows);
+        }
+        inputs.finish().unwrap();
+        assert_eq!(observed.len(), 2);
+        assert_eq!(observed[&PublicationBoundary::Facts], 1);
+        assert_eq!(observed[&PublicationBoundary::Local], 2);
+        assert!(
+            access
+                .read_at_epoch::<Literal>(PublicationBoundary::Structural)
+                .is_err()
+        );
+    }
 }

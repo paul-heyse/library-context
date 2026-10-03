@@ -99,13 +99,15 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
                 execution::model_production::stage(profile, &pairs[5].1, &model).unwrap(),
                 execution::summary_replay::stage(profile, &pairs[6].1, &model).unwrap(),
                 catalog::build::stage(profile),
-                catalog::evidence::build::stage(profile, &model).unwrap(),
+                catalog::evidence::build::stage(profile, &model, &fixture_publication_order())
+                    .unwrap(),
                 embedding::configuration::stage(None),
                 embedding::text::stage(profile, &embedding::text::TextDefinition::builtin())
                     .unwrap(),
                 embedding::analytic::stage(profile, false),
                 structural::build::stage(profile, &settings, &model).unwrap(),
-                analytics::build::stage(profile, &settings, &model).unwrap(),
+                analytics::build::stage(profile, &settings, &model, &fixture_publication_order())
+                    .unwrap(),
                 analysis::frontier::stage(profile, analysis::frontier::Target::Analysis, &model)
                     .unwrap(),
             ];
@@ -119,8 +121,14 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
             ];
             if target == analysis::frontier::Target::Catalog {
                 stages.extend([
-                    selection::build::stage(profile, &model).unwrap(),
-                    synthesis::build::stage(profile, &settings, &model).unwrap(),
+                    selection::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
+                    synthesis::build::stage(
+                        profile,
+                        &settings,
+                        &model,
+                        &fixture_publication_order(),
+                    )
+                    .unwrap(),
                     retrieval::build::stage(
                         profile,
                         config.retrieval().iter().next().unwrap(),
@@ -157,4 +165,26 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
         }
     }
     assert_eq!(b.reserved(), 0);
+}
+
+fn fixture_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    lctx_model::domain::stages::PublicationOrder::registered(
+        lctx_model::domain::ContentHash::of(b"fixture publication order"),
+        &[
+            (0, lctx_model::domain::stages::PublicationBoundary::Facts),
+            (1, lctx_model::domain::stages::PublicationBoundary::Local),
+            (2, lctx_model::domain::stages::PublicationBoundary::Model),
+            (3, lctx_model::domain::stages::PublicationBoundary::Summary),
+            (
+                4,
+                lctx_model::domain::stages::PublicationBoundary::Structural,
+            ),
+            (5, lctx_model::domain::stages::PublicationBoundary::Analytic),
+            (
+                6,
+                lctx_model::domain::stages::PublicationBoundary::Synthesis,
+            ),
+        ],
+    )
+    .unwrap()
 }

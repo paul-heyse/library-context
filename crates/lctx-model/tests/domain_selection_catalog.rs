@@ -1289,7 +1289,12 @@ fn receiver_location_witness_is_retained_without_exact_state_promotion() {
 #[test]
 fn completed_selection_inputs_close_new_lower_coverage_sum_arms() {
     let model = lctx_model::domain::model().unwrap();
-    let stage = selection::build::stage(stages::Profile::Catalog, &model).unwrap();
+    let stage = selection::build::stage(
+        stages::Profile::Catalog,
+        &model,
+        &fixture_publication_order(),
+    )
+    .unwrap();
     let names = stage
         .inputs
         .iter()
@@ -1424,4 +1429,104 @@ fn shuffled_narrow_rows_classify_like_strict_replay() {
             replay.admissible().collect::<Vec<_>>()
         );
     }
+}
+
+fn fixture_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    lctx_model::domain::stages::PublicationOrder::registered(
+        lctx_model::domain::ContentHash::of(b"fixture publication order"),
+        &[
+            (0, lctx_model::domain::stages::PublicationBoundary::Facts),
+            (1, lctx_model::domain::stages::PublicationBoundary::Local),
+            (2, lctx_model::domain::stages::PublicationBoundary::Model),
+            (3, lctx_model::domain::stages::PublicationBoundary::Summary),
+            (
+                4,
+                lctx_model::domain::stages::PublicationBoundary::Structural,
+            ),
+            (5, lctx_model::domain::stages::PublicationBoundary::Analytic),
+            (
+                6,
+                lctx_model::domain::stages::PublicationBoundary::Synthesis,
+            ),
+        ],
+    )
+    .unwrap()
+}
+
+#[test]
+fn prepared_public_formal_domain_survives_absent_native_context_and_refuses_foreign_inputs() {
+    use native_requests::{
+        Assumptions, ExactScalar, FormalDomain, PreparationInputs, PreparedNativeSemantics,
+    };
+    use serving::{ExactInputBinding, InspectValuePathsRequest, PageRequest};
+    let (budget, mut data, member, analysis, source) = fixture();
+    let slot = data.source.core.slots.iter().next().unwrap().clone();
+    assert_eq!(slot.default, DefaultSlot::DefinitionTime);
+    let declaration = data
+        .source
+        .core
+        .occurrences
+        .insert(Occurrence {
+            source: source.id(),
+            start: 8,
+            end: 12,
+            syntax_kind: SyntaxKind::Parameter,
+            role: OccurrenceRole::Syntax,
+            structural_path: vec![8],
+        })
+        .unwrap();
+    let formal = data
+        .source
+        .core
+        .parameters
+        .insert(ParameterEntity::Source { declaration })
+        .unwrap();
+    data.source
+        .core
+        .parameter_links
+        .insert(ParameterEntityLink {
+            parameter: slot.parameter,
+            entity: formal,
+            declaration: None,
+        })
+        .unwrap();
+    let classification = classification::ClassificationData::project(&data, &budget).unwrap();
+    let inputs = PreparationInputs::new(&budget);
+    let prepared = PreparedNativeSemantics::prepare(inputs, &classification, &budget).unwrap();
+    let mut request = InspectValuePathsRequest {
+        member,
+        analysis,
+        inputs: vec![ExactInputBinding {
+            formal,
+            value: ExactScalar::None {},
+        }],
+        assumptions: Assumptions::default(),
+        page: PageRequest::default(),
+    };
+    let owner = prepared.domain().resolve(&mut request).unwrap();
+    assert_eq!(prepared.path_count(owner, formal, analysis), None);
+    assert!(prepared.unexamined(owner, formal, analysis));
+    let mut duplicate = request.clone();
+    duplicate.inputs.push(duplicate.inputs[0].clone());
+    assert!(prepared.domain().resolve(&mut duplicate).is_err());
+    let mut foreign = request.clone();
+    foreign.inputs[0].formal = id(250);
+    assert!(prepared.domain().resolve(&mut foreign).is_err());
+    let mut foreign_analysis = request.clone();
+    foreign_analysis.analysis = id(251);
+    assert!(prepared.domain().resolve(&mut foreign_analysis).is_err());
+    let tiny = ResourceBudget::fixed(8192).unwrap();
+    assert!(FormalDomain::prepare(&classification, &tiny).is_err());
+    assert_eq!(
+        tiny.reserved(),
+        0,
+        "failed index construction releases every charge"
+    );
+    let independent = ResourceBudget::fixed(1 << 20).unwrap();
+    {
+        let index = FormalDomain::prepare(&classification, &independent).unwrap();
+        assert!(index.contains_member(member));
+        assert!(independent.reserved() > 0);
+    }
+    assert_eq!(independent.reserved(), 0);
 }

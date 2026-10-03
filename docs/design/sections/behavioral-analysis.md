@@ -2,12 +2,13 @@
 
 # §9.9 Summaries, models and the capability registry
 
-**Implemented; Phase 4 qualification in progress, 2026-10-01.** `lctx-model::domain::execution`,
+**Implemented / Tested within Phase 4 receipts, 2026-10-01; incremental alignment implemented 2026-10-02.** `lctx-model::domain::execution`,
 `transfer`, `models` and `obligation` own behavioral operations, evidence and replay. Nominal
 analysis families record each producing owner. `cpg-core` loads completed inputs and publishes
 their typed outputs through the generation store; `lctx-analytics`' native entry points re-export
 the model-owned computational kernels. The [Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
-owns scope, independent controls and outstanding qualification. No phase-exit or pilot claim
+owns its scoped independent controls and dated qualification. The alignment coordinator owns
+current corrections; real-library serving qualification remains stopped. No phase-exit or pilot claim
 follows from these implementation descriptions.
 
 The dependency order is Local → BaseEvaluation → BaseCompletion → SourceCall → EnrichedExecution
@@ -93,6 +94,13 @@ premises, model revision, phase and coverage. Unknown or conflicting applicabili
 The canonical definition includes the selected authored catalog and executable source digest.
 
 > Decision: ADR-0055, ADR-0056, ADR-0063, ADR-0106
+
+**Finite model extension route (Implemented guidance, 2026-10-02).** Extend the existing typed
+model case and checked constructors; declare its native/normalized inputs at the owning producer
+and replay validator. Wire the application/summary operation through those checked values, keeping
+source/default binding, exception and path boundaries explicit. Add an independent positive twin
+and a missing/crossed-premise refusal. Model catalogue declaration does not alone establish support
+or checked construction; no store or Python adapter assigns model meaning.
 
 ## Synchronous context protocols
 
@@ -200,7 +208,7 @@ does not establish temporal heap identity or consume a finite recursive call-pat
 
 ## Native serving boundary
 
-**Accepted Phase 5 contract; unavailable during Phase 4 qualification.** The future native executor
+**Implemented Phase 5 contract, 2026-10-02; wider qualification stopped.** The model native preparation
 reads the same pinned PostgreSQL generation and model-owned conditions, proofs and obligations.
 It validates declared required inputs, preserves qualifications and follows bounded derivation
 witnesses. Private/nested callable evidence may support a public operation's proof without entering

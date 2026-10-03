@@ -34,3 +34,6 @@ pub use responses::*;
 pub mod dispatch;
 pub use dispatch::*;
 pub mod ranking;
+
+pub mod failure;
+pub use failure::{FailureKind, PublicFailure};

@@ -168,3 +168,114 @@ async fn owned_invariants_and_nominal_closure_refuse_before_a_read_capability_ex
         attempt.abort().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn inferred_fact_premise_requires_checkpoint_proof_or_an_explicit_source() {
+    use lctx_model::domain::{dependency_closure::*, input::Release};
+    let db = DisposableDatabase::start().await;
+    let model = Arc::new(
+        ValidatedModel::validate(vec![
+            Relation::of::<Package>(),
+            Relation::of::<Release>(),
+            Relation::of::<Anchor>(),
+        ])
+        .unwrap(),
+    );
+    let store = GenerationStore::install(db.owner.clone(), model.clone())
+        .await
+        .unwrap();
+    let order = PublicationOrder::planning(&[PublicationGroup::new(
+        PublicationBoundary::Facts,
+        vec!["source"],
+    )])
+    .unwrap();
+    let stage = |name, inputs, outputs| Stage {
+        name,
+        inputs,
+        outputs,
+        contributes: vec![],
+        coverage: vec![],
+        provider: None,
+        profiles: vec![Profile::Catalog],
+        effect: Effect::Store,
+        code: ContentHash::of(b"checkpoint premise control"),
+        configuration: ContentHash::of(b"fixture"),
+    };
+    for explicit in [false, true] {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let closure = DependencyClosure::build(
+            &model,
+            vec![ValidationInput::of::<Release>(&["id"])],
+            if explicit {
+                vec![RelationUse::stored::<Package>()]
+            } else {
+                vec![]
+            },
+            &[],
+            PublicationBoundary::Facts,
+            LowerLayerPolicy::OmitInferredOrdinaryFacts,
+            &order,
+        )
+        .unwrap();
+        let schedule = Schedule::build(
+            &model,
+            vec![
+                stage(
+                    "source",
+                    vec![],
+                    vec![RelationUse::of::<Package>(), RelationUse::of::<Release>()],
+                ),
+                stage(
+                    "consumer",
+                    closure.grants,
+                    vec![RelationUse::of::<Anchor>()],
+                ),
+            ],
+            &[],
+            Profile::Catalog,
+        )
+        .unwrap();
+        let mut execution = schedule.execute();
+        let attempt = store
+            .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+            .await
+            .unwrap();
+        let mut output = StageOutput::new(
+            execution.begin("source").unwrap(),
+            &attempt,
+            &model,
+            budget,
+            Default::default(),
+        )
+        .unwrap();
+        output.declare::<Package>().unwrap();
+        output.declare::<Release>().unwrap();
+        let package = Package {
+            name: "checkpoint-probe".into(),
+        };
+        output
+            .push(Release {
+                package: package.id(),
+                version: "1.0".into(),
+            })
+            .await
+            .unwrap();
+        output.push(package).await.unwrap();
+        output.finish(ProviderOutcome::Complete).await.unwrap();
+        let consumer = execution.begin("consumer").unwrap();
+        assert_eq!(
+            consumer.read::<Package>().is_ok(),
+            explicit,
+            "closure omission cannot authorize an actual fact read"
+        );
+        let admitted = attempt.read_contract(&consumer).await;
+        assert_eq!(
+            admitted.is_ok(),
+            explicit,
+            "no checkpoint was admitted, so the inferred fact must have an explicit acknowledged source: {admitted:?}"
+        );
+        drop(admitted);
+        drop(consumer);
+        attempt.abort().await.unwrap();
+    }
+}

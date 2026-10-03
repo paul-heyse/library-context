@@ -471,3 +471,5 @@ pub fn facts_relations() -> Vec<Relation> {
 pub mod serving;
 
 pub mod native_requests;
+
+pub mod dependency_closure;

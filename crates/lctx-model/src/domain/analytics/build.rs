@@ -23,7 +23,7 @@ pub const METHODS: [analysis::AnalysisMethod; 5] = [
     analysis::AnalysisMethod::RelationalConcepts,
     analysis::AnalysisMethod::Neighbours,
 ];
-pub const MAX_WORK: u64 = 100_000_000;
+pub const MAX_WORK: u64 = policy::RETAINED.max_work;
 pub fn selected(s: &AnalyticsConfiguration, m: analysis::AnalysisMethod) -> bool {
     match m {
         analysis::AnalysisMethod::PageRank => s.pagerank,
@@ -50,6 +50,13 @@ pub fn definition(
     settings: &AnalyticsConfiguration,
     method: analysis::AnalysisMethod,
 ) -> Result<(analysis::MethodParameters, analysis::AnalysisDefinition), ModelError> {
+    definition_with_policy(settings, method, policy::RETAINED)
+}
+pub fn definition_with_policy(
+    settings: &AnalyticsConfiguration,
+    method: analysis::AnalysisMethod,
+    policy: policy::RetainedPolicy,
+) -> Result<(analysis::MethodParameters, analysis::AnalysisDefinition), ModelError> {
     settings.validate()?;
     capability(method)?;
     let numeric = matches!(
@@ -58,33 +65,7 @@ pub fn definition(
             | analysis::AnalysisMethod::Communities
             | analysis::AnalysisMethod::Neighbours
     );
-    let p = analysis::MethodParameters {
-        depth: Some(256),
-        proof_steps: matches!(
-            method,
-            analysis::AnalysisMethod::Concepts | analysis::AnalysisMethod::RelationalConcepts
-        )
-        .then_some(20_000),
-        work: Some(MAX_WORK as i64),
-        members: None,
-        seed: (method == analysis::AnalysisMethod::Communities).then_some(0),
-        iterations: matches!(
-            method,
-            analysis::AnalysisMethod::PageRank | analysis::AnalysisMethod::Communities
-        )
-        .then_some(100),
-        threshold: Some(FiniteF64::new(
-            if method == analysis::AnalysisMethod::Neighbours {
-                0.5
-            } else {
-                1e-10
-            },
-        )?),
-        resolution: (method == analysis::AnalysisMethod::Communities)
-            .then_some(FiniteF64::new(1.0)?),
-        damping: (method == analysis::AnalysisMethod::PageRank).then_some(FiniteF64::new(0.85)?),
-        model_catalog: None,
-    };
+    let p = policy.parameters(method)?;
     let mut key = KeySink::new("analytic-model-v1");
     settings.id().encode(&mut key);
     method.encode(&mut key);
@@ -92,10 +73,11 @@ pub fn definition(
     analysis::ProjectionDefinition::builtin(projection::ProjectionName::CallableInvocation)
         .id()
         .encode(&mut key);
-    "petgraph0.8.3/leiden0.8.1/fixedbitset0.5.7;directed-count-rank;undirected-hub95-equal-layers;RBER-resolutions0.5,1,2,4-seeds0..10;FCA-support2;one-RCA-step;kNN3-floor0.5".to_owned().encode(&mut key);
+    policy.recipe()?.encode(&mut key);
     for bytes in [
         include_bytes!("build.rs").as_slice(),
         include_bytes!("mod.rs"),
+        include_bytes!("policy.rs"),
         include_bytes!("records.rs"),
         include_bytes!("communities.rs"),
         include_bytes!("ranking.rs"),
@@ -155,6 +137,44 @@ macro_rules! data{($($f:ident:$t:ty,)*)=>{
  }
 };}
 crate::analytic_extra_inputs!(data);
+impl Data {
+    pub fn consumed_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
+        let mut inputs = Self::validation_inputs();
+        inputs.retain(|i| {
+            ![
+                projection::ProjectionSnapshot::NAME,
+                projection::ProjectionSnapshotChunk::NAME,
+            ]
+            .contains(&i.name())
+                && (profile != stages::Profile::Catalog
+                    || ![
+                        flow::FlowValuePathObservation::NAME,
+                        flow::FlowCallStep::NAME,
+                        flow::FlowTestLeafObservation::NAME,
+                    ]
+                    .contains(&i.name()))
+        });
+        for method in METHODS {
+            inputs.extend(analysis::expected::inputs(method));
+        }
+        inputs
+    }
+    pub fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        if stages::is_vocabulary(input.name())
+            && input.prefix() == Some(stages::PublicationBoundary::Facts)
+        {
+            self.native.visit(input.name(), batch)?;
+            return Ok(());
+        }
+        self.visit(input.name(), batch)?;
+        Ok(())
+    }
+}
+
 pub fn digest<R: Key>(label: &str, rows: &[R]) -> ContentHash {
     let mut key = KeySink::new(label);
     for row in rows {
@@ -330,12 +350,7 @@ pub fn produce(
                 weight: 1,
             })
             .collect::<Vec<_>>();
-        let r = ranking::rank(
-            &vertices,
-            &pairs,
-            ranking::Parameters::retained(MAX_WORK),
-            b,
-        )?;
+        let r = ranking::rank(&vertices, &pairs, policy::RETAINED.ranking()?, b)?;
         ranking.iterations = r.iterations() as i64;
         ranking.examined = r.work() as i64;
         ranking.residual = r.residual();
@@ -552,7 +567,11 @@ pub fn produce(
         }
         let vertices = touched.iter().copied().collect::<Vec<_>>();
         let required = (vertices.len() as u64 + pairs.len() as u64)
-            .checked_mul(4000)
+            .checked_mul(
+                policy::RETAINED
+                    .community_work_multiplier()
+                    .ok_or_else(|| invalid("Leiden policy work overflow"))?,
+            )
             .and_then(|n| {
                 n.checked_add(
                     (public.len() as u64)
@@ -650,6 +669,7 @@ pub fn stage(
     profile: stages::Profile,
     settings: &AnalyticsConfiguration,
     model: &ValidatedModel,
+    order: &stages::PublicationOrder,
 ) -> Result<stages::Stage, ModelError> {
     use stages::*;
     settings.validate()?;
@@ -714,36 +734,26 @@ pub fn stage(
         }
         inputs.push(use_);
     }
-    let facts = facts_relations()
+    let roots = inputs
         .iter()
-        .map(Relation::name)
-        .collect::<BTreeSet<_>>();
-    let mut pending = inputs.iter().map(|r| r.name()).collect::<Vec<_>>();
-    while let Some(name) = pending.pop() {
-        let r = relation(name)?;
-        for required in r
-            .fields()
-            .iter()
-            .filter_map(|f| f.target().map(|(_, name)| name))
-            .chain(
-                r.invariants()
-                    .iter()
-                    .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
-            )
-        {
-            if own.contains(required) {
-                return Err(invalid(format!(
-                    "analytic predecessor requires own output: {required}"
-                )));
+        .map(|r| {
+            let mut i = ValidationInput::of_relation(relation(r.name())?, &["id"]);
+            if let Some(epoch) = r.prefix() {
+                i = i.at_epoch(epoch);
             }
-            if (!facts.contains(required) || is_vocabulary(required))
-                && !inputs.iter().any(|r| r.name() == required)
-            {
-                inputs.push(RelationUse::of_relation(relation(required)?).completed_store());
-                pending.push(required);
-            }
-        }
-    }
+            Ok(i)
+        })
+        .collect::<Result<Vec<_>, ModelError>>()?;
+    let inputs = dependency_closure::DependencyClosure::build(
+        model,
+        roots,
+        inputs,
+        &outputs,
+        PublicationBoundary::Structural,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        order,
+    )?
+    .grants;
     let mut key = KeySink::new("analytic-stage");
     settings.id().encode(&mut key);
     for method in METHODS {
@@ -751,16 +761,7 @@ pub fn stage(
     }
     Ok(Stage {
         name: "analyze_analytic",
-        inputs: {
-            for input in &mut inputs {
-                if is_vocabulary(input.name()) {
-                    *input = (*input).at_epoch(PublicationBoundary::Structural);
-                }
-            }
-            inputs.sort_by_key(|i| i.name());
-            inputs.dedup_by_key(|i| i.name());
-            inputs
-        },
+        inputs,
         outputs,
         contributes: vec![],
         coverage: vec![],

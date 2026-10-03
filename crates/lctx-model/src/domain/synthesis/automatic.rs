@@ -47,8 +47,12 @@ pub struct Decision {
 macro_rules! synthesis_automatic_inputs{($m:ident)=>{$m!{
  usage:$crate::domain::structural::UsageScore,analytic_frames:$crate::domain::analytics::AnalyticFrame,results:$crate::domain::analytics::TechniqueResult,analytic_invocations:$crate::domain::analysis::analytic::Invocation,ranks:$crate::domain::analytics::RankScore,communities:$crate::domain::analytics::Community,community_members:$crate::domain::analytics::CommunityMember,
 }};}
+#[macro_export]
+macro_rules! synthesis_automatic_unique_inputs{($m:ident)=>{$m!{
+ usage:$crate::domain::structural::UsageScore,ranks:$crate::domain::analytics::RankScore,communities:$crate::domain::analytics::Community,community_members:$crate::domain::analytics::CommunityMember,
+}};}
 macro_rules! data{($($f:ident:$t:ty,)*)=>{pub struct Data{$(pub $f:Rows<$t>,)*}impl Data{pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$t>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]}}};}
-crate::synthesis_automatic_inputs!(data);
+crate::synthesis_automatic_unique_inputs!(data);
 fn invalid(s: &str) -> ModelError {
     ModelError::Invalid(s.into())
 }
@@ -57,14 +61,14 @@ fn need<R: Record>(r: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
         .ok_or_else(|| invalid("automatic seed predecessor absent"))
 }
 fn result<'a>(
-    a: &'a Data,
+    a: &'a super::frames::AnalyticParents,
     s: &AnalyticsConfiguration,
     frame: Id<structural::StructuralFrame>,
     inv: &owner::Invocation,
     method: analysis::AnalysisMethod,
 ) -> Result<Option<&'a analytics::TechniqueResult>, ModelError> {
     let mut frames = a
-        .analytic_frames
+        .frames
         .iter()
         .filter(|f| f.structural == frame && f.configuration == s.id());
     let Some(frame) = frames.next() else {
@@ -82,7 +86,7 @@ fn result<'a>(
         return Err(invalid("automatic seed result ambiguous"));
     }
     if let Some(row) = row {
-        let parent = need(&a.analytic_invocations, row.invocation)?;
+        let parent = need(&a.invocations, row.invocation)?;
         if (parent.input, parent.context) != (inv.input, inv.context)
             || parent.definition != analytics::build::definition(s, method)?.1.id()
         {
@@ -106,6 +110,7 @@ pub fn complete(
     frames: &Rows<structural::StructuralFrame>,
     parents: &Rows<analysis::structural::Invocation>,
     a: &Data,
+    analytic: &super::frames::AnalyticParents,
     s: &AnalyticsConfiguration,
     inv: &owner::Invocation,
     out: &mut seeds::Output,
@@ -156,7 +161,13 @@ pub fn complete(
             }
             .id(),
         );
-        let rank_result = result(a, s, sf.id(), inv, analysis::AnalysisMethod::PageRank)?;
+        let rank_result = result(
+            analytic,
+            s,
+            sf.id(),
+            inv,
+            analysis::AnalysisMethod::PageRank,
+        )?;
         let rank = if s.pagerank {
             rank_result
                 .filter(|r| r.selected && r.status != analysis::AnalysisStatus::NotRequested)
@@ -168,7 +179,13 @@ pub fn complete(
         } else {
             None
         };
-        let community_result = result(a, s, sf.id(), inv, analysis::AnalysisMethod::Communities)?;
+        let community_result = result(
+            analytic,
+            s,
+            sf.id(),
+            inv,
+            analysis::AnalysisMethod::Communities,
+        )?;
         let mut communities = a
             .community_members
             .iter()
@@ -295,6 +312,30 @@ pub fn complete(
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct TestData {
+        data: Data,
+        parents: super::super::frames::AnalyticParents,
+    }
+    impl TestData {
+        fn new(b: &ResourceBudget) -> Self {
+            Self {
+                data: Data::new(b),
+                parents: super::super::frames::AnalyticParents::new(b),
+            }
+        }
+    }
+    impl std::ops::Deref for TestData {
+        type Target = Data;
+        fn deref(&self) -> &Data {
+            &self.data
+        }
+    }
+    impl std::ops::DerefMut for TestData {
+        fn deref_mut(&mut self) -> &mut Data {
+            &mut self.data
+        }
+    }
+
     fn id<T>(n: u8) -> Id<T> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
             _,
@@ -311,7 +352,7 @@ mod tests {
         Rows<structural::PublicCandidate>,
         Rows<structural::StructuralFrame>,
         Rows<analysis::structural::Invocation>,
-        Data,
+        TestData,
         AnalyticsConfiguration,
         owner::Invocation,
     );
@@ -365,7 +406,7 @@ mod tests {
         let mut parents = Rows::new(&b);
         parents.insert(parent).unwrap();
         let mut public = Rows::new(&b);
-        let mut a = Data::new(&b);
+        let mut a = TestData::new(&b);
         for n in 0..count {
             let m = if n == 0 {
                 member.id()
@@ -428,7 +469,7 @@ mod tests {
         fixture_with(count, budget, false, false, false)
     }
     fn analytic(
-        a: &mut Data,
+        a: &mut TestData,
         s: &AnalyticsConfiguration,
         sf: Id<structural::StructuralFrame>,
         i: &owner::Invocation,
@@ -439,7 +480,7 @@ mod tests {
             structural: sf,
             configuration: s.id(),
         };
-        a.analytic_frames.insert(frame.clone()).unwrap();
+        a.parents.frames.insert(frame.clone()).unwrap();
         let inv = analysis::analytic::Invocation::new(
             i.input,
             i.context,
@@ -448,7 +489,7 @@ mod tests {
             [],
         )
         .0;
-        a.analytic_invocations.insert(inv.clone()).unwrap();
+        a.parents.invocations.insert(inv.clone()).unwrap();
         let r = analytics::TechniqueResult {
             frame: frame.id(),
             method,
@@ -469,7 +510,7 @@ mod tests {
             residual: None,
             input_partial: false,
         };
-        a.results.insert(r.clone()).unwrap();
+        a.parents.results.insert(r.clone()).unwrap();
         r
     }
     struct SelectionInputs<'a> {
@@ -478,7 +519,7 @@ mod tests {
         p: &'a Rows<structural::PublicCandidate>,
         f: &'a Rows<structural::StructuralFrame>,
         parents: &'a Rows<analysis::structural::Invocation>,
-        a: &'a Data,
+        a: &'a TestData,
     }
 
     fn select(
@@ -496,7 +537,7 @@ mod tests {
             a,
         } = selection_inputs;
         let mut out = seeds::configured(d, p, f, parents, s, i, b).unwrap();
-        complete(d, docs, p, f, parents, a, s, i, &mut out, b).unwrap();
+        complete(d, docs, p, f, parents, a, &a.parents, s, i, &mut out, b).unwrap();
         out
     }
     #[test]
@@ -628,19 +669,17 @@ mod tests {
         let sf = f.iter().next().unwrap().id();
         let result = analytic(&mut a, &s, sf, &i, analysis::AnalysisMethod::PageRank, true);
         for candidate in p.iter() {
+            let score = 10.0
+                - a.usage
+                    .iter()
+                    .find(|u| u.target == candidate.entity)
+                    .unwrap()
+                    .contributing_sites as f64;
             a.ranks
                 .insert(analytics::RankScore {
                     result: result.id(),
                     target: candidate.entity,
-                    score: FiniteF64::new(
-                        10.0 - a
-                            .usage
-                            .iter()
-                            .find(|u| u.target == candidate.entity)
-                            .unwrap()
-                            .contributing_sites as f64,
-                    )
-                    .unwrap(),
+                    score: FiniteF64::new(score).unwrap(),
                 })
                 .unwrap();
         }
@@ -664,9 +703,10 @@ mod tests {
             .unwrap();
         assert_eq!(chosen.score.get(), 9.0);
         assert_eq!(chosen.basis, RankBasis::SelectedPageRank);
-        let old = a.results.iter().next().unwrap().clone();
-        a.results = Rows::new(&b);
-        a.results
+        let old = a.parents.results.iter().next().unwrap().clone();
+        a.parents.results = Rows::new(&b);
+        a.parents
+            .results
             .insert(analytics::TechniqueResult {
                 selected: false,
                 status: analysis::AnalysisStatus::NotRequested,
@@ -778,15 +818,21 @@ mod tests {
         let (b, d, docs, p, f, parents, mut a, s, i) = fixture_with(1, 1, true, false, false);
         let sf = f.iter().next().unwrap().id();
         analytic(&mut a, &s, sf, &i, analysis::AnalysisMethod::PageRank, true);
-        let old = a.analytic_invocations.iter().next().unwrap().clone();
-        a.analytic_invocations = Rows::new(&b);
-        a.analytic_invocations
+        let old = a.parents.invocations.iter().next().unwrap().clone();
+        a.parents.invocations = Rows::new(&b);
+        a.parents
+            .invocations
             .insert(analysis::analytic::Invocation {
                 context: id(199),
                 ..old
             })
             .unwrap();
         let mut out = seeds::configured(&d, &p, &f, &parents, &s, &i, &b).unwrap();
-        assert!(complete(&d, &docs, &p, &f, &parents, &a, &s, &i, &mut out, &b).is_err());
+        assert!(
+            complete(
+                &d, &docs, &p, &f, &parents, &a, &a.parents, &s, &i, &mut out, &b
+            )
+            .is_err()
+        );
     }
 }
