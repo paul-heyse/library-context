@@ -612,3 +612,12 @@ in `b3-target-refusal.txt`. P4 capture standalone CLI **passed**, 12m46s
 (`p4-capture-cli1.log`); actual PG2 and required-field wire controls are pending. That one build
 used a recorded `-j6` override; subsequent builds retain configured jobs16/frontend1. No
 profile, cache or standing job-policy change was made.
+
+B3 bounded qualification repair `cargo check -p lctx-model -p cpg-core --tests`
+**passed**, 1m09s (`b3-check-6.log`), 2026-10-03. Release model controls **passed** six:
+closure2 (original Candidate retained; separate receiver-based Definite question; competing
+identity/property/incomplete-MRO refusal), read-authority2 (native/recognizer/fidelity and raw
+canonical syntax), protocol/terminal2 (all24 origins/phases and negative terminal twins).
+Receipts `b3-closure-1.log`, `b3-read-1.log`, `b3-model-3.log` and `b3-current-batch.json`
+retain exact commands. Source-binding, actual unchanged three-frontier PG and terminal packets
+remain pending; this is not a B3 package or full-series pass.
