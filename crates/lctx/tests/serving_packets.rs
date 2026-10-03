@@ -698,7 +698,16 @@ class Settings:
  let response=fixture.catalog.operation(&execution,&GetOperationRequest{library:Name::new("demo").unwrap(),operation:path("demo.Settings"),sections:vec![],page:PageRequest{expanded:true,..Default::default()}}).await.unwrap();
  let OperationResolution::Unique{packet}=response.operation else{panic!("generated constructor missing");};
  let generated=packet.core.signatures.iter().find(|s|s.role==SignatureRole::Synthesized&&s.effective_parameters.iter().any(|p|p.name.0.as_ref().is_some_and(|n|n.as_str()=="host"))).unwrap();
- assert!(generated.effective_parameters.iter().any(|p|p.name.0.as_ref().is_some_and(|n|n.as_str()=="host")&&!p.types.is_empty()&&p.formals.is_empty()));
+ let host=generated.effective_parameters.iter().find(|p|p.name.0.as_ref().is_some_and(|n|n.as_str()=="host")).unwrap();
+ assert!(!host.types.is_empty(),"generated host slot retains its native str typing");
+ // Native slot entities are actual normalized identities, not source-formal declarations.
+ let formals=host.formals.clone();
+ let entities=execution.query(move |lease|Box::pin(async move {Ok(lease.read_ids::<lctx_model::domain::normalized::entities::ParameterEntity>(&formals).await?)})).await.unwrap();
+ assert_eq!(entities.rows().len(),host.formals.len());
+ for entity in entities.rows() {
+  let lctx_model::domain::normalized::entities::ParameterEntity::NativeSlot{signature,parameter,..}=entity else {panic!("generated slot invented a source formal: {entity:?}");};
+  assert_eq!(*signature,generated.signature);assert_eq!(*parameter,host.parameter);
+ }
  assert!(generated.typing.iter().any(|t|matches!(t.origin,SignatureTypingOrigin::NativeObserved{..})));
  drop(execution);fixture.finish().await;
 }

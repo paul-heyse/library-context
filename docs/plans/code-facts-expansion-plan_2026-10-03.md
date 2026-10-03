@@ -548,3 +548,13 @@ the explicit `test-cli-build` prerequisite. A stable-main `cargo build --release
 queued (`p4-main-cli-matching-build.log`); the conditional and named role/budget controls will
 be rerun against that matching CLI. This is not packet acceptance or a store reset; only
 disposable fixture databases are involved.
+
+The named P4 service rerun **failed**, 2026-10-03: one passed/one failed, 76.56s
+(`p4-service-oracle-repair-controls.log`). The unchanged default/expanded budget control
+passed. The role/selection questions passed before the generated-constructor control rejected
+its normalized parameter identities. That control now separately requires native host typing
+and resolves each returned identity to the actual `ParameterEntity::NativeSlot` with matching
+signature/parameter; a `Source` entity remains forbidden. A native slot identity is not an
+invented source formal. Focused compile and named rerun are pending; no production mapping
+is relaxed. P3 diagnostics/pytest native rerun passed two controls; its bounded usage-evidence
+cascade is also being implemented rather than closing P3 on diagnostics alone.
