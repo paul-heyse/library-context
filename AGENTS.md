@@ -145,9 +145,9 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
   to reach it from a petgraph graph, and each one's silent failures)
 - `python-analyzers` (pyrefly 1.4.0-dev.3 with its embedded ruff 0.0.14; ruff 0.16.10 / crates
   0.0.16; ty crates 0.0.16 plus its unpublished IDE, project and server crates and a CLI built
-  from the same tag; salsa 0.28.5: the planned shift targets. We link pyrefly 1.3.1 with ruff
-  0.0.11, and in `cpg-flow` ty 0.0.14 with ruff 0.0.14 and salsa =0.28.2, until the shifts, so
-  check `show migration` before transferring a claim). It covers ty in full beside pyrefly and
+  from the same tag; salsa 0.28.5). The workspace now links these families; the code-facts
+  coordinator records scoped migration receipts and remaining consumer qualification. Check
+  `show migration` and `docs/pins.md` before transferring a claim. It covers ty in full beside pyrefly and
   ruff (semantic index, use-def, reachability and narrowing, module resolution, the salsa pin
   trap, and types, classes, calls, navigation, diagnostics, project and server) and maps every
   code fact the three output (`show facts`: per-concept providers, duplications, blanks). It

@@ -208,8 +208,9 @@ layer/declaration contract; [§11](synthesis-and-serving.md) owns serving.
 semantics, Pyrefly supplies native typing/callable/member/public evidence, and ty supplies requested
 flow/index/timing observations. Narrow observational forks preserve upstream behavior. M0–M3
 in the [code-facts coordinator](../../plans/code-facts-expansion-plan_2026-10-03.md) own production
-adoption and acceptance. The pre-migration behavior below remains the current implementation
-until those packages integrate; its earlier receipts do not establish target acceptance.
+adoption and acceptance. The pinned families and canonical parser are now implemented; the coordinator distinguishes
+scoped producer/consumer receipts from remaining enrichment and assembled acceptance. Earlier
+pre-migration receipts retain their original boundary.
 
 **Implemented** in `cpg-extract` and `cpg-flow`, and **Tested** by `crates/cpg-extract/tests` and
 `crates/cpg-flow/tests` (2026-09-22 onward), where each test names the claim it checks: the
@@ -224,7 +225,7 @@ everything below happens in one process.
 | Provider surface (`model_id` suffix) | Mode | Raw tables |
 |---|---|---|
 | The acquired bytes (`source`) | `native_traversal` | `source_files` rows and their text (ADR-0015) |
-| Ruff walk over Pyrefly's parse (`ruff-ast`) | `native_traversal` | `declarations` (with docstrings), `export_syntax`, `parameter_syntax`, `call_syntax`, `arguments`, `syntax_nodes` |
+| Latest independent Ruff canonical walk (`ruff-ast`) | `native_traversal` | `declarations` (with docstrings), `export_syntax`, `parameter_syntax`, `call_syntax`, `arguments`, `syntax_nodes` |
 | Pyrefly's Pysa collectors, in memory (`pyrefly-pysa`) | `native_traversal` | `pysa_functions`, `parameter_semantics`, `pysa_calls`, `class_ancestry`, `pysa_classes`, `context_definitions` |
 | Pyrefly's public-name helpers (`pyrefly-public`) | `native_traversal` | `public_names`. **This defines "public"** |
 | Pyrefly's native types (`pyrefly-types`) | `native_traversal` | `type_terms`, `type_term_args`, `type_observations`, `record_fields` |
@@ -232,18 +233,19 @@ everything below happens in one process.
 | Our local-binding recognizer over the Ruff AST (`lctx-lexical`) | `recognizer` | `scopes`, `bindings`, `references`, `reference_resolutions` |
 | Surface comparison (`compare`) | `relational_derivation` | `boundaries` rows that compare two surfaces |
 | markdown-rs over the corpus documents (`markdown-rs`) and our mention recognizer (`lctx-docs`) | `native_traversal`, `recognizer` | the `docs` family (§3.2) |
-| ty's semantic index through `cpg-flow` (`ty-flow`) | `native_traversal` | the `flow` family (§3.2) |
+| ty's semantic index through `cpg-flow` (`ty-flow`; `python-analyzers` skill) | `native_traversal` | the `flow` family (§3.2) |
 
-**The flow provider** (ADR-0117, ADR-0045). `cpg-flow` links the ty/ruff 0.0.14 line, a declared
-extra dependency family confined to that crate (ADR-0118). It parses each release module a second
-time, from the text Pyrefly read with every `TYPE_CHECKING` name token renamed to a same-length
-sentinel, so no byte range moves. **Pyrefly's parse stays the parse of record:** every syntax id,
-span and fact outside the `flow` family comes from it, and flow facts join ours by module and
-byte range under the two-way parity rules of §3.2. Only byte ranges, place text and our condition
-data cross the crate boundary. **Known gap:** ty's `ProgramSettings` are empty rather than built
-from the run context, so the Python version and platform ty assumes can differ from the recorded
-context; there is no known pilot effect ([plan W14](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
-RF/F11).
+**Implemented flow provider** (ADR-0117, ADR-0045), 2026-10-03. `cpg-flow` links ty/Ruff
+0.0.16 from the independent Ruff fork and salsa 0.28.5 (ADR-0118). It parses captured text
+with every `TYPE_CHECKING` name token renamed to a same-length sentinel. Native source-view
+observations retain both original and view digests/lengths; matching byte ranges do not assert
+identical source bytes. Latest Ruff's original-byte parse owns canonical syntax. Flow joins
+through model-owned range/kind/context correspondence; provider-local IDs remain transient.
+Python version and platform in ty's `ProgramSettings` now come from the analysis context.
+Reachability and narrowing use distinct formulas; precision loss remains explicit Partial
+coverage. Scoped narrowing/source-view controls are **Tested**, 2026-10-03, in coordinator §7;
+capture timing and downstream behavioral interpretation remain pending there.
+
 
 
 ### §4.2.1 Driver
@@ -292,9 +294,11 @@ or ambiguous attachment never uses a parent/name guess. Source traversal assigns
 paths independently of provider-local node indexes. Source defaults and typed defaults remain
 distinct observations. The ty runtime view is separately labelled even when byte ranges match.
 
-**Current implementation:** syntax still walks Pyrefly's retained AST until M2 adopts latest
-Ruff. Unreadable bytes remain unavailable and recovered syntax remains Partial; no recovered
-empty module certifies absence. Producer→first-operation→output fixture controls qualify the
+**Implemented, 2026-10-03:** `CanonicalSyntax` now parses with latest Ruff and reuses the
+borrowed parsed module for structural extraction and contextual observation. Unreadable bytes
+remain unavailable and recovered syntax remains Partial; no recovered empty module certifies
+absence. Final contextual payload adoption and independent parser-unavailability paths remain
+open in M2; cancellation is bounded by upstream pass draining, not a hard interruption. Producer→first-operation→output fixture controls qualify the
 new source contract; a fork compile alone does not.
 
 > Decision: ADR-0117
