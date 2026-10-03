@@ -924,6 +924,7 @@ async fn qualify_generation_runtime(
     // Individually short phases share one deadline; later phases cannot restart its clock.
     let cumulative = service.execution().await.unwrap();
     let began = std::time::Instant::now();
+    let remaining = cumulative.remaining().unwrap();
     for _ in 0..2 {
         cumulative
             .cpu(|_| {
@@ -943,7 +944,7 @@ async fn qualify_generation_runtime(
         final_phase,
         Err(Error::ResourceRefused("request deadline"))
     ));
-    assert!(began.elapsed() >= Duration::from_secs(30));
+    assert!(began.elapsed() >= remaining);
     assert!(cumulative.remaining().is_err());
     drop(cumulative);
     // The last timed-out CPU job keeps its grant until its actual completion.

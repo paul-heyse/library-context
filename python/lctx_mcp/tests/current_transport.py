@@ -707,9 +707,11 @@ async def test_http_admitted_failures_use_safe_metadata_and_exact_original_envel
                         PROTOCOL_VERSION_META_KEY: protocol,
                         CLIENT_CAPABILITIES_META_KEY: {},
                     }
+                route_name = params["uri"] if resource else "find_operations"
+                assert isinstance(route_name, str)
                 response = await client.post(
                     "/mcp",
-                    headers={**headers, "mcp-method": method, "mcp-name": "find_operations"},
+                    headers={**headers, "mcp-method": method, "mcp-name": route_name},
                     json={
                         "jsonrpc": "2.0",
                         "id": f"failure-λ-{resource}-{index}",
