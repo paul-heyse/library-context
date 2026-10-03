@@ -799,7 +799,13 @@ impl Fixture {
         let term = TypeTerm::Callable {function:Some(function.id()),form:CallableForm::List,parameters:list.id(),param_spec:None,returns:self.term.id()};
         let (mut signature, _) = Signature::new(&qualification,SignatureRole::EffectiveTyped,Some(term.id()),function.id(),0,SignatureForm::List,&[]).unwrap();
         if mismatch == "role" {signature.role=SignatureRole::Source;}
-        let native = NativeSignatureObservation {qualification:qualification.id(),signature:signature.id(),scope:qualification.scope,term:if mismatch=="term" {self.term.id()} else {term.id()},family:None,implementation:Some(function.id()),receiver:NativeReceiver::Unbound,complete:true};
+        let mut native = NativeSignatureObservation {qualification:qualification.id(),signature:signature.id(),scope:qualification.scope,term:if mismatch=="term" {self.term.id()} else {term.id()},family:None,implementation:Some(function.id()),metadata_origin:None,deprecation:CallableDeprecation::Unavailable,deprecation_message:None,receiver:NativeReceiver::Unbound,complete:true};
+        match mismatch {
+            "metadata_origin" => native.metadata_origin=Some(function.id()),
+            "not_deprecated_message" => {native.deprecation=CallableDeprecation::NotDeprecated;native.deprecation_message=Some("unexpected".into());}
+            "deprecated_none" => native.deprecation=CallableDeprecation::Deprecated,
+            _ => {},
+        }
         let subject = SignatureTypeSubject::Return {signature:signature.id()};
         let port = SignatureTypeObservation {qualification:qualification.id(),scope:qualification.scope,subject:subject.id(),term:self.term.id()};
         let (run,families)=ProviderRun::new(type_run.provider,type_run.context,type_run.input,type_run.configuration,[FactFamily::Signatures]).unwrap();

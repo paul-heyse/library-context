@@ -400,24 +400,44 @@ impl Builder<'_, '_> {
     #[allow(clippy::wildcard_enum_match_arm, reason = "non-callable native terms retain an opaque signature rather than invented slots")]
     fn signature_variants(&mut self, owner: Id<ProviderSymbol>, role: SignatureRole, ty: &Type, receiver: NativeReceiver) -> Result<(), ModelError> {
         let root = self.term(ty, 0)?;
-        let mut pending = vec![(root.id, root.id, receiver)];
+        let mut pending = vec![(root.id, root.id, receiver, ty.clone())];
         let mut leaves = Vec::new();
-        while let Some((id, origin, receiver)) = pending.pop() {
+        while let Some((id, origin, receiver, native)) = pending.pop() {
             if pending.len() + leaves.len() > 4096 { return Err(invalid("native signature variant work bound")); }
             let term = self.out.terms.iter().find(|t| t.id() == id).cloned().ok_or_else(|| invalid("native callable term absent"))?;
             match term {
-                TypeTerm::Generic { body, .. } => pending.push((body, origin, receiver)),
-                TypeTerm::BoundMethod { function, .. } => pending.push((function, origin, NativeReceiver::Instance)),
+                TypeTerm::Generic { body, .. } => {
+                    let Type::Forall(native) = native else { return Err(invalid("generic signature native origin mismatch")); };
+                    pending.push((body, origin, receiver, native.body.clone().as_type()));
+                }
+                TypeTerm::BoundMethod { function, .. } => {
+                    let Type::BoundMethod(native) = native else { return Err(invalid("bound signature native origin mismatch")); };
+                    pending.push((function, origin, NativeReceiver::Instance, native.func.clone().as_type()));
+                }
                 TypeTerm::Overload { signatures, .. } | TypeTerm::Overloaded { alternatives: signatures } => {
                     let mut children: Vec<_> = self.out.members.iter().filter(|m| m.sequence == signatures).cloned().collect();
                     children.sort_by_key(|m| (m.ordinal, m.id()));
                     children.dedup_by_key(|m| m.id());
-                    for child in children.into_iter().rev() { pending.push((child.child, child.child, receiver)); }
+                    let native_children: Vec<Type> = match native {
+                        Type::Overload(overload) => overload.signatures.iter().map(|s| s.as_type()).collect(),
+                        Type::Overloaded(alternatives) => alternatives.iter().cloned().collect(),
+                        _ => return Err(invalid("overload signature native origin mismatch")),
+                    };
+                    if children.len() != native_children.len() { return Err(invalid("overload signature native alternatives mismatch")); }
+                    for (child, native) in children.into_iter().zip(native_children).rev() { pending.push((child.child, child.child, receiver, native)); }
                 }
-                other => leaves.push((other, origin, receiver)),
+                other => leaves.push((other, origin, receiver, native)),
             }
         }
-        for (ordinal, (term, origin, receiver)) in leaves.into_iter().enumerate() {
+        for (ordinal, (term, origin, receiver, native)) in leaves.into_iter().enumerate() {
+            let (metadata_origin, deprecation, deprecation_message) = if matches!(term, TypeTerm::Callable { .. }) {
+                match native.toplevel_func_metadata() {
+                    Some(metadata) => (self.function(&metadata.kind)?,
+                        if metadata.flags.deprecation.is_some() { CallableDeprecation::Deprecated } else { CallableDeprecation::NotDeprecated },
+                        metadata.flags.deprecation.as_ref().and_then(|deprecation| deprecation.message.clone())),
+                    None => (None, CallableDeprecation::Unavailable, None),
+                }
+            } else { (None, CallableDeprecation::Unavailable, None) };
             let (form, list, returns, implementation) = match &term {
                 TypeTerm::Callable { form, parameters, returns, function, .. } => (*form, Some(*parameters), Some(*returns), *function),
                 _ => (CallableForm::NativeUnavailable, None, None, None),
@@ -442,7 +462,7 @@ impl Builder<'_, '_> {
                 _ => None,
             }).or(implementation);
             let observation = NativeSignatureObservation { qualification: self.qualification.id(), signature: signature.id(), scope: self.qualification.scope, term: origin,
-                family: (origin != root.id).then_some(root.id), implementation, receiver, complete: signature.form == SignatureForm::List && !root.opaque };
+                family: (origin != root.id).then_some(root.id), implementation, metadata_origin, deprecation, deprecation_message, receiver, complete: signature.form == SignatureForm::List && !root.opaque };
             self.out.hold(&observation)?;
             self.out.native_signatures.push((observation, root.fidelity()));
             for (parameter, native) in parameters.iter().zip(&native_slots) {

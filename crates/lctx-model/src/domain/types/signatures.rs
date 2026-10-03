@@ -4,9 +4,13 @@ use crate::domain::calls::{Signature, SignatureParameter};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 pub enum NativeReceiver { Unbound = 0, Instance = 1, Class = 2, Property = 3, Unknown = 4 }
+/// Availability comes from live native function metadata, never source decorator spelling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum CallableDeprecation { Unavailable = 0, NotDeprecated = 1, Deprecated = 2 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "native_signature_observations", invariants = signature_port_invariants)]
-#[assertion(support = NativeSignatureSupport, name = "native_signature_supports", family = FactFamily::Types, subjects(scope, term, family), referents(implementation))]
+#[assertion(support = NativeSignatureSupport, name = "native_signature_supports", family = FactFamily::Types, subjects(scope, term, family), referents(implementation, metadata_origin))]
 pub struct NativeSignatureObservation {
     #[model(key)] pub qualification: Id<AssertionQualification>,
     #[model(key)] pub signature: Id<Signature>,
@@ -15,6 +19,12 @@ pub struct NativeSignatureObservation {
     pub family: Option<Id<TypeTerm>>,
     /// Native function identity, when present. This never grants runtime body admission.
     pub implementation: Option<Id<ProviderSymbol>>,
+    /// Exact native metadata function identity, independent of overload runtime implementation.
+    /// Intrinsic metadata can be available without a named provider symbol.
+    pub metadata_origin: Option<Id<ProviderSymbol>>,
+    pub deprecation: CallableDeprecation,
+    /// Raw native optional message: empty, whitespace and unavailable messages are distinct.
+    pub deprecation_message: Option<String>,
     pub receiver: NativeReceiver,
     pub complete: bool,
 }
@@ -67,6 +77,9 @@ impl InvariantCheck for PortCheck {
                 let s = self.signatures.get(&r.signature).ok_or_else(|| invalid("native signature absent"))?;
                 if s.qualification != r.qualification || s.scope != r.scope || s.native != Some(r.term) || s.role.runtime_source() || (r.complete && s.form != crate::domain::calls::SignatureForm::List) {
                     return Err(invalid("native signature role, origin or qualification mismatch"));
+                }
+                if (r.deprecation == CallableDeprecation::Unavailable && r.metadata_origin.is_some()) || (r.deprecation != CallableDeprecation::Deprecated && r.deprecation_message.is_some()) {
+                    return Err(invalid("callable deprecation availability contradicts origin or message"));
                 }
                 self.native.insert(&mut self.charge, r.signature)?;
             }
