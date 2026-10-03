@@ -265,6 +265,12 @@ async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipt
     assert!(class_metadata.iter().any(|(name, absent, options)| name == "Config" && !absent && *options));
     assert!(class_metadata.iter().any(|(name, absent, options)| name == "Base" && !absent && !options));
     assert!(class_metadata.iter().all(|(_, absent, _)| !absent));
+    let property_kinds: Vec<i16> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT o.kind FROM {s}.catalog_class_members x JOIN {s}.catalog_classes c ON c.id=x.class JOIN {s}.catalog_members m ON m.id=c.member JOIN {s}.class_member_observations o ON o.id=x.observation WHERE m.name='Accessors' AND o.name='value'", s=id.schema()
+    ))).fetch_all(db.owner.pool()).await.unwrap();
+    assert!(!property_kinds.is_empty());
+    assert!(property_kinds.iter().all(|kind| *kind == 0));
+
     let aliases:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(DISTINCT c.member) FROM {s}.catalog_callables c JOIN {s}.catalog_members m ON m.id=c.member WHERE m.name IN ('choose','alias')",s=id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
     assert_eq!(aliases, 2);
     let alias_basis:Vec<i16>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT c.basis FROM {s}.catalog_callables c JOIN {s}.catalog_members m ON m.id=c.member WHERE m.name='alias'",s=id.schema()))).fetch_all(db.owner.pool()).await.unwrap();

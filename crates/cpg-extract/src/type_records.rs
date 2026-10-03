@@ -8,7 +8,7 @@ use lctx_model::domain::{
     assertion::AssertionQualification,
     attribution::{Fidelity, Provider},
     calls::{ParameterKind, ProviderModule, ProviderSymbol, SymbolKind},
-    class_metadata::{ClassMetadataObservation, ClassMemberObservation, MemberKind, MetadataBasis, RecordOptions, RecordTransformDefaults},
+    class_metadata::{ClassMetadataObservation, ClassMemberObservation, MemberKind, MemberOrigin, MetadataBasis, RecordOptions, RecordTransformDefaults, RecordTransformFieldSpecifier, FieldSpecifierKind, field_specifier_shape},
     charged::StateCharge,
     lexical::SyntaxField,
     obligation::ObligationKind,
@@ -42,6 +42,7 @@ pub struct Records {
     pub class_members: Vec<(ClassMemberObservation, Fidelity)>,
     pub record_options: Vec<RecordOptions>,
     pub transforms: Vec<RecordTransformDefaults>,
+    pub transform_specifiers: Vec<RecordTransformFieldSpecifier>,
     pub terms: Vec<TypeTerm>,
     pub sequences: Vec<TypeSequence>,
     pub members: Vec<TypeSequenceMember>,
@@ -66,6 +67,7 @@ impl Records {
             class_members: vec![],
             record_options: vec![],
             transforms: vec![],
+            transform_specifiers: vec![],
             terms: vec![],
             sequences: vec![],
             members: vec![],
@@ -1217,10 +1219,36 @@ pub fn records<'a>(
                 let id = options.id(); b.out.record_options.push(options); Some(id)
             } else { None };
             let transform = if let Some(t) = metadata.dataclass_transform_metadata() {
+                use pyrefly_types::{types::CalleeKind, class::ClassKind};
+                b.out.charge.grow(t.field_specifiers.len().saturating_mul(128))?;
+                let classifications: Vec<_> = t.field_specifiers.iter().map(|specifier| match specifier {
+                    CalleeKind::Callable => (FieldSpecifierKind::Callable, None),
+                    CalleeKind::Function(_) => (FieldSpecifierKind::Function, None),
+                    CalleeKind::Class(kind) => match kind {
+                        ClassKind::StaticMethod(n) => (FieldSpecifierKind::StaticMethod, Some(n.to_string())),
+                        ClassKind::ClassMethod(n) => (FieldSpecifierKind::ClassMethod, Some(n.to_string())),
+                        ClassKind::Property(n) => (FieldSpecifierKind::Property, Some(n.to_string())),
+                        ClassKind::CachedProperty(n) => (FieldSpecifierKind::CachedProperty, Some(n.to_string())),
+                        ClassKind::Class => (FieldSpecifierKind::Class, None),
+                        ClassKind::EnumMember => (FieldSpecifierKind::EnumMember, None),
+                        ClassKind::EnumNonmember => (FieldSpecifierKind::EnumNonmember, None),
+                        ClassKind::DataclassField => (FieldSpecifierKind::DataclassField, None),
+                    },
+                }).collect();
+
                 let defaults = RecordTransformDefaults { eq: t.eq_default, order: t.order_default,
-                    kw_only: t.kw_only_default, frozen: t.frozen_default, field_specifier_count: t.field_specifiers.len() as i64 };
+                    kw_only: t.kw_only_default, frozen: t.frozen_default, field_specifier_count: t.field_specifiers.len() as i64, field_specifier_shape: field_specifier_shape(&classifications),
+                    field_specifier_identity_reason: (!t.field_specifiers.is_empty()).then_some(ObligationKind::NativeUnavailable) };
+                if !t.field_specifiers.is_empty() {
+                    b.boundary(None, ObligationKind::NativeUnavailable, "dataclass transform field-specifier payload retains callee classification, not complete structural type identity".into())?;
+                }
                 b.out.hold(&defaults)?;
-                let id = defaults.id(); b.out.transforms.push(defaults); Some(id)
+                let id = defaults.id();
+                for (ordinal, (kind, name)) in classifications.into_iter().enumerate() {
+                    let specifier = RecordTransformFieldSpecifier { transform: id, ordinal: ordinal as i64, kind, name };
+                    b.out.hold(&specifier)?; b.out.transform_specifiers.push(specifier);
+                }
+                b.out.transforms.push(defaults); Some(id)
             } else { None };
             let row = ClassMetadataObservation { qualification: b.qualification.id(), class: native_class,
                 basis: MetadataBasis::NativeEffective, metaclass, custom_metaclass,
@@ -1248,16 +1276,21 @@ pub fn records<'a>(
                 for name in names {
                     if !seen.insert(name.clone()) { continue; }
                     let Some(field) = get_class_field_from_current_class_only(defining, &name, owner) else { continue; };
-                    let term = b.term(&field.ty(), 0)?;
+                    let ty = field.ty();
+                    let term = b.term(&ty, 0)?;
+                    let enum_value = if let Type::Literal(value) = &ty {
+                        if let Lit::Enum(value) = &value.value { Some(b.term(&value.ty, 0)?) } else { None }
+                    } else { None };
                     let declaration = fields.field_decl_range(&name).map(|r| field_occurrence(defining, r)).transpose()?.flatten();
-                    let basis = if defining != &class { MetadataBasis::Inherited }
-                        else if !fields.contains(&name) { MetadataBasis::Synthesized }
-                        else { MetadataBasis::SourceDeclaration };
+                    let origin = if defining != &class { MemberOrigin::Inherited }
+                        else if !fields.contains(&name) || get_class_field_declaration(defining, &name, owner).is_some_and(|d|
+                            matches!(d.definition, pyrefly::binding::binding::ClassFieldDefinition::DeclaredWithoutAnnotation)) { MemberOrigin::Synthesized }
+                        else { MemberOrigin::Source };
                     let row = ClassMemberObservation { qualification: qualification.id(), class: native_class,
-                        defining_class: b.class(defining)?, name: name.to_string(), basis,
+                        defining_class: b.class(defining)?, name: name.to_string(), basis: MetadataBasis::NativeEffective, origin,
                         kind: if field.is_property() { MemberKind::Property } else if field.is_simple_instance_attribute() { MemberKind::InstanceAttribute } else { MemberKind::Other },
-                        term: term.id, declaration, abstract_declaration: field.is_abstract(), final_declaration: field.is_final() };
-                    b.out.hold(&row)?; b.out.class_members.push((row, term.fidelity()));
+                        term: term.id, enum_value: enum_value.map(|t| t.id), declaration, abstract_declaration: field.is_abstract(), final_declaration: field.is_final() };
+                    b.out.hold(&row)?; b.out.class_members.push((row, if enum_value.is_some_and(|t| t.opaque) { Fidelity::DisplayOnly } else { term.fidelity() }));
                 }
             }
 
@@ -1418,7 +1451,7 @@ pub fn records<'a>(
         b.boundary(
             None,
             ObligationKind::NativeUnavailable,
-            "native record solutions unavailable".into(),
+            "native class/member metadata and record solutions unavailable".into(),
         )?;
     }
     Ok(b.out)

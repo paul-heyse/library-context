@@ -2,7 +2,7 @@
 #[path = "typed_driver/mod.rs"] mod typed_driver;
 use lctx_model::domain::{class_metadata::*, calls::*, types::*, assertion::AssertionQualification, normalized::Rows, *};
 use typed_driver::{files, rows, run};
-inspector!(Metadata, ClassMetadataObservation, ClassMetadataSupport, ClassMemberObservation, ClassMemberSupport, RecordOptions, RecordTransformDefaults, ProviderSymbol, TypeObservation, TypeTerm, AssertionQualification, RecordFieldObservation);
+inspector!(Metadata, ClassMetadataObservation, ClassMetadataSupport, ClassMemberObservation, ClassMemberSupport, RecordOptions, RecordTransformDefaults, RecordTransformFieldSpecifier, ProviderSymbol, TypeObservation, TypeTerm, AssertionQualification, RecordFieldObservation, lctx_model::domain::source::Occurrence, lctx_model::domain::syntax::SyntaxPlacement);
 #[tokio::test]
 async fn native_class_metadata_keeps_effective_options_and_unknown_abstract_absence() {
     let tables = typed_driver::Tables::default();
@@ -35,14 +35,33 @@ async fn native_class_metadata_keeps_effective_options_and_unknown_abstract_abse
     assert!(!plain.protocol && !plain.final_declaration && !plain.enumeration);
     assert_eq!(plain.record_options, None);
     assert!(named("Choice").enumeration);
-    assert!(named("RecordBase").transform.is_some());
+    let transform = rows::<RecordTransformDefaults>(&tables).into_iter().find(|t| Some(t.id()) == named("RecordBase").transform).unwrap();
+    assert_eq!(transform.field_specifier_count, 1);
+    assert!(rows::<RecordTransformFieldSpecifier>(&tables).iter().any(|s| s.transform == transform.id() && s.kind == FieldSpecifierKind::Function));
+    assert_eq!(transform.field_specifier_identity_reason, Some(lctx_model::domain::obligation::ObligationKind::NativeUnavailable));
     assert!(named("Transformed").record_options.is_some());
     let members = rows::<ClassMemberObservation>(&tables);
     let inherited = members.iter().find(|m| m.class == named("Concrete").class && m.name == "read").unwrap();
-    assert_eq!(inherited.basis, MetadataBasis::SourceDeclaration);
+    assert_eq!(inherited.origin, MemberOrigin::Source);
+    assert_eq!(inherited.basis, MetadataBasis::NativeEffective);
     assert!(!inherited.abstract_declaration);
     let method = members.iter().find(|m| m.class == named("Abstract").class && m.name == "read").unwrap();
     assert!(method.abstract_declaration);
+    let inherited_value = members.iter().find(|m| m.class == named("Derived").class && m.name == "value").unwrap();
+    assert_eq!(inherited_value.origin, MemberOrigin::Inherited);
+    assert_eq!(inherited_value.defining_class, named("Access").class);
+    let override_value = members.iter().find(|m| m.class == named("Derived").class && m.name == "computed").unwrap();
+    assert_eq!(override_value.origin, MemberOrigin::Source);
+    assert_eq!(override_value.defining_class, named("Derived").class);
+    let generated = members.iter().find(|m| m.class == named("Config").class && m.name == "__init__").unwrap();
+    assert_eq!(generated.origin, MemberOrigin::Synthesized);
+    let ordinary = members.iter().find(|m| m.class == named("Access").class && m.name == "value").unwrap();
+    let property = members.iter().find(|m| m.class == named("PropertyAccess").class && m.name == "value").unwrap();
+    assert_ne!(ordinary.id(), property.id());
+    assert_ne!(ordinary.kind, MemberKind::Property);
+    assert_eq!(property.kind, MemberKind::Property);
+
+    assert!(members.iter().any(|m| m.class == named("Choice").class && m.name == "FIRST" && m.enum_value.is_some()));
 
 }
 
@@ -73,6 +92,22 @@ async fn located_receiver_queries_keep_properties_separate_and_refuse_any_and_wr
     let any = observations.iter().find(|o| o.role == TypeRole::AttributeBase && matches!(terms.get(o.term), Some(TypeTerm::Any { .. }))).unwrap();
     assert_eq!(receiver_members(any, any.subject, context, "value", &qualifications, &terms, &members), MemberQuery::Unresolved);
     assert!(observations.iter().any(|o| o.role == TypeRole::AssignmentValue));
+    assert!(observations.iter().filter(|o| o.role == TypeRole::AssignmentValue).any(|inferred|
+        observations.iter().any(|expected| expected.subject == inferred.subject && expected.qualification == inferred.qualification
+            && expected.role == TypeRole::Expected && expected.term != inferred.term && !expected.declared)),
+        "a contextual int expectation must not replace the inferred string assignment value");
+
     assert!(observations.iter().any(|o| o.role == TypeRole::ReturnExpression));
     assert!(rows::<RecordFieldObservation>(&tables).iter().any(|f| f.name.as_str() == "size" && f.default_term.is_some()));
+    let invariant = TypeObservation::invariants().into_iter().find(|i| i.name == "selected_type_location_shapes").unwrap();
+    let mut forged = receiver.clone();
+    forged.subject = rows::<lctx_model::domain::source::Occurrence>(&tables).into_iter()
+        .find(|o| o.syntax_kind == lctx_model::domain::source::SyntaxKind::StmtClassDef).unwrap().id();
+    let mut checked = (invariant.create)(&budget);
+    for input in &invariant.inputs {
+        if input.name() == TypeObservation::NAME { checked.visit(input.name(), &TypeObservation::encode(&[forged.clone()]).unwrap()).unwrap(); }
+        else { let guard = tables.lock().unwrap(); checked.visit(input.name(), guard.get(input.name()).unwrap()).unwrap(); }
+    }
+    assert!(matches!(checked.finish(), Err(ModelError::Invalid(message)) if message.contains("wrong source role or context")));
+
 }

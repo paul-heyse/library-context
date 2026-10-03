@@ -196,6 +196,7 @@ fn outputs() -> Vec<RelationUse> {
         ClassMemberSupport,
         RecordOptions,
         RecordTransformDefaults,
+        RecordTransformFieldSpecifier,
         TypeTerm,
         TypeSequence,
         TypeSequenceMember,
@@ -341,6 +342,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
         ClassMemberSupport,
         RecordOptions,
         RecordTransformDefaults,
+        RecordTransformFieldSpecifier,
         TypeTerm,
             TypeSequence,
             TypeSequenceMember,
@@ -2416,6 +2418,7 @@ fn write_types<S: StageSink + 'static>(
     }
     for row in records.record_options { context.emit(row)?; }
     for row in records.transforms { context.emit(row)?; }
+    for row in records.transform_specifiers { context.emit(row)?; }
     for (row, fidelity) in records.class_members { supported!(ClassMemberSupport, row, fidelity); }
     for row in records.class_metadata { supported!(ClassMetadataSupport, row, Fidelity::NativeStructural); }
     for row in records.terms {

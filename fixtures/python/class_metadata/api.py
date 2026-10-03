@@ -28,7 +28,7 @@ class Config:
     size: int = 3
     cache: list[int] = field(default_factory=list)
 
-@dataclass_transform(kw_only_default=True, frozen_default=True)
+@dataclass_transform(kw_only_default=True, frozen_default=True, field_specifiers=(field,))
 class RecordBase: pass
 class Transformed(RecordBase):
     value: int
@@ -56,4 +56,12 @@ def read(receiver: Access) -> int:
     return receiver.value + receiver.computed
 
 def dynamic(receiver: Any) -> Any:
+    return receiver.value
+
+class PropertyAccess:
+    @property
+    def value(self) -> int:
+        return 1
+
+def read_property(receiver: PropertyAccess) -> int:
     return receiver.value

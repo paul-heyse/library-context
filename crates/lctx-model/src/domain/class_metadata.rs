@@ -24,7 +24,7 @@ pub struct RecordOptions {
     #[model(key)] pub attrs_setattr_frozen: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "record_transform_defaults")]
+#[model(name = "record_transform_defaults", validate = validate_transform, invariants = transform_invariants)]
 pub struct RecordTransformDefaults {
     #[model(key)] pub eq: bool,
     #[model(key)] pub order: bool,
@@ -32,6 +32,8 @@ pub struct RecordTransformDefaults {
     #[model(key)] pub frozen: bool,
     /// Field-specifier identity is not reconstructed from rendered native text.
     #[model(key)] pub field_specifier_count: i64,
+    #[model(key)] pub field_specifier_shape: ContentHash,
+    #[model(key)] pub field_specifier_identity_reason: Option<super::obligation::ObligationKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
@@ -67,6 +69,7 @@ fn validate_metadata(row: &ClassMetadataObservation) -> Result<(), ModelError> {
     let sorted = |v: &[String]| v.iter().all(|s| !s.is_empty()) && v.windows(2).all(|w| w[0] < w[1]);
     if !sorted(&row.abstract_members) || !sorted(&row.protocol_members)
         || row.slots.as_deref().is_some_and(|s| !sorted(s))
+        || row.abstract_absence_known
         || (row.runtime_checkable && !row.protocol)
         || (row.deprecation_message.is_some() && !row.deprecated)
         || (row.record_options.is_some() && row.record.is_none()) {
@@ -84,17 +87,23 @@ pub fn record_options(observation: &ClassMetadataObservation, question: Metadata
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 pub enum MemberKind { Property = 0, InstanceAttribute = 1, Other = 2 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum MemberOrigin { Source = 0, Inherited = 1, Synthesized = 2 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "class_member_observations")]
-#[assertion(support = ClassMemberSupport, name = "class_member_supports", family = FactFamily::Types, subjects(class, defining_class, term), referents(declaration))]
+#[model(name = "class_member_observations", validate = validate_member)]
+#[assertion(support = ClassMemberSupport, name = "class_member_supports", family = FactFamily::Types, subjects(class, defining_class, term, enum_value), referents(declaration))]
 pub struct ClassMemberObservation {
     #[model(key)] pub qualification: Id<AssertionQualification>,
     #[model(key)] pub class: Id<ProviderSymbol>,
     #[model(key)] pub name: String,
     pub defining_class: Id<ProviderSymbol>,
     pub basis: MetadataBasis,
+    pub origin: MemberOrigin,
     pub kind: MemberKind,
     pub term: Id<super::types::TypeTerm>,
+    /// The native enum literal keeps its raw assigned value type separately from member identity.
+    pub enum_value: Option<Id<super::types::TypeTerm>>,
     pub declaration: Option<Id<super::source::Occurrence>>,
     pub abstract_declaration: bool,
     pub final_declaration: bool,
@@ -130,4 +139,60 @@ pub fn receiver_members(
         && qualifications.get(m.qualification).is_some_and(|q| q.context == context)).map(Record::id).collect();
     candidates.sort(); candidates.dedup();
     if candidates.is_empty() { MemberQuery::Unresolved } else { MemberQuery::TypedCandidates(candidates) }
+}
+
+fn validate_member(row: &ClassMemberObservation) -> Result<(), ModelError> {
+    if row.name.is_empty() || (row.origin == MemberOrigin::Inherited && row.class == row.defining_class)
+        || (row.origin == MemberOrigin::Source && row.class != row.defining_class) {
+        return Err(ModelError::Invalid("invalid native member origin".into()));
+    }
+    Ok(())
+}
+
+fn validate_transform(row: &RecordTransformDefaults) -> Result<(), ModelError> {
+    if row.field_specifier_count < 0 || ((row.field_specifier_count > 0) != row.field_specifier_identity_reason.is_some()) {
+        return Err(ModelError::Invalid("transform field-specifier identity is explicit when unavailable".into()));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum FieldSpecifierKind { Callable = 0, Function = 1, Class = 2, StaticMethod = 3, ClassMethod = 4, Property = 5, CachedProperty = 6, EnumMember = 7, EnumNonmember = 8, DataclassField = 9 }
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "record_transform_field_specifiers")]
+pub struct RecordTransformFieldSpecifier {
+    #[model(key)] pub transform: Id<RecordTransformDefaults>,
+    #[model(key)] pub ordinal: i64,
+    pub kind: FieldSpecifierKind,
+    /// Native classification label, never a resolved class/function identity.
+    pub name: Option<String>,
+}
+pub fn field_specifier_shape(values: &[(FieldSpecifierKind, Option<String>)]) -> ContentHash {
+    let mut sink = KeySink::new("native-transform-field-specifier-classification");
+    for (kind, name) in values { kind.encode(&mut sink); name.encode(&mut sink); }
+    (values.len() as i64).encode(&mut sink);
+    sink.finish()
+}
+
+fn transform_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "native_transform_specifier_shape", inputs: vec![ValidationInput::of::<RecordTransformDefaults>(&["id"]), ValidationInput::of::<RecordTransformFieldSpecifier>(&["id"])],
+        create: std::sync::Arc::new(|budget| Box::new(TransformCheck { defaults: super::normalized::Rows::new(budget), specifiers: super::normalized::Rows::new(budget) })) }]
+}
+struct TransformCheck { defaults: super::normalized::Rows<RecordTransformDefaults>, specifiers: super::normalized::Rows<RecordTransformFieldSpecifier> }
+impl InvariantCheck for TransformCheck {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        match relation { RecordTransformDefaults::NAME => self.defaults.decode(batch), RecordTransformFieldSpecifier::NAME => self.specifiers.decode(batch), _ => Err(ModelError::Invalid("undeclared transform specifier input".into())) }
+    }
+    fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        for transform in self.defaults.iter() {
+            let mut rows: Vec<_> = self.specifiers.iter().filter(|s| s.transform == transform.id()).collect(); rows.sort_by_key(|s| s.ordinal);
+            let values: Vec<_> = rows.iter().map(|s| (s.kind, s.name.clone())).collect();
+            if rows.len() as i64 != transform.field_specifier_count || rows.iter().enumerate().any(|(ordinal, s)| s.ordinal != ordinal as i64)
+                || field_specifier_shape(&values) != transform.field_specifier_shape {
+                return Err(ModelError::Invalid("native transform field-specifier classification differs".into()));
+            }
+        }
+        Ok(())
+    }
 }

@@ -292,6 +292,7 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<AssumptionSetMember>(),
         Relation::of::<class_metadata::RecordOptions>(),
         Relation::of::<class_metadata::RecordTransformDefaults>(),
+        Relation::of::<class_metadata::RecordTransformFieldSpecifier>(),
         Relation::of::<class_metadata::ClassMetadataObservation>(),
         Relation::of::<class_metadata::ClassMetadataSupport>(),
         Relation::of::<class_metadata::ClassMemberObservation>(),

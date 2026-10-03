@@ -11,6 +11,7 @@ use super::{
     *,
 };
 use crate::{Assertion, Domain, DomainCode, DomainSum};
+pub mod locations;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
@@ -689,7 +690,7 @@ pub enum TypeRole {
     Expected = 11,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "type_observations")]
+#[model(name = "type_observations", invariants = locations::invariants)]
 #[assertion(support = TypeSupport, name = "type_supports", family = FactFamily::Types, subjects(subject, term))]
 pub struct TypeObservation {
     #[model(key)]
