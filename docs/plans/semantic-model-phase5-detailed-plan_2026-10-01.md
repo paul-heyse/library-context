@@ -1,6 +1,6 @@
 # Phase 5: generation-bound serving — detailed design and execution plan
 
-**Lexical-only real-library qualification and local stdio activation authorized / in progress, 2026-10-03.** Full hybrid Q0 is not claimed; live embeddings and real-library vector preparation are deliberately deferred pending inspection of analytical outputs. This plan reconstructs serving after the semantic model
+**Lexical-only qualification stopped at the operator’s code-facts review pivot, 2026-10-03.** Full hybrid Q0 is not claimed; live embeddings and real-library vector preparation are deliberately deferred pending inspection of analytical outputs. This plan reconstructs serving after the semantic model
 cutover. It is subordinate to the [cutover plan](semantic-model-cutover-plan_2026-09-29.md), which
 owns cross-phase sequence and finding disposition. [DESIGN §15.12](../design/sections/semantic-model.md#section-15-12)
 and [§11](../design/sections/synthesis-and-serving.md#section-11) own accepted architecture;
@@ -536,7 +536,7 @@ lowering, manifests, query metadata and final acceptance. No formatting/generato
 | V0 | Implemented / scoped Tested. Full original corrected actual fixture passed 1 / zero skipped, 120.119s, run `ee4c8c95-37b3-45c2-9d3e-3fb002ef230f`; controlled numerical HTTP seam only. Composite receipt retains physical inventory and isolated dependency-sync failures. Later integration is covered by the assembled gate. |
 | N0/N1 | Implemented / scoped Tested. Pure native/condition/selection/evidence controls passed 50. Current ordering-discriminator actual fixture passed 1 / zero skipped, 200.266s; both profiles passed all ten transport controls. The unchanged generated CPython original-path oracle passed 1 / zero skipped, 795.987s after the production ordering repair. |
 | T0/X0 | Implemented / scoped Tested. Current ten-tool/resource bridges and exact final codecs passed in actual transport. 375 inventoried obsolete source files, 21 metadata entries and three obsolete wire assets retired. Independent expectations are re-homed; real retained-service and matcher/preregistration controls passed as scoped composite receipts. Generated-program controls passed 2; actual native oracle now passed. |
-| Q0 | Lexical-only real-library qualification and local stdio activation authorized / in progress, 2026-10-03. Current execution receipt below owns the resumed scope. The prior stop remains a dated incomplete receipt. Alignment subsequently passed a complete functional gate and composite hygiene; it does not establish real-library qualification. Live embeddings, real-library vector artifacts and hybrid retrieval are deliberately deferred pending analytical-output review. |
+| Q0 | Lexical-only real-library qualification stopped at the operator’s code-facts review pivot, 2026-10-03. Current execution receipt below owns the resumed scope. The prior stop remains a dated incomplete receipt. Alignment subsequently passed a complete functional gate and composite hygiene; it does not establish real-library qualification. Live embeddings, real-library vector artifacts and hybrid retrieval are deliberately deferred pending analytical-output review. |
 
 **Build coordination, 2026-10-02:** simultaneous release builds in isolated production worktrees
 formed a verified fine-grain Cargo artifact lock cycle: vector build held shared `allocative` and
@@ -927,7 +927,7 @@ future full Phase 5 qualification claim. Parent finding remainders are not close
 
 The operator authorized execution after selecting local stdio activation with no client-registration
 changes, and deliberately deferred embeddings until the analytical outputs can inform what is
-embedded. Both FastMCP 4.0.5 catalog and behavioral generations include communities, PageRank,
+embedded. The requested FastMCP 4.0.5 catalog and behavioral generations would include communities, PageRank,
 FCA/RCA and type/mention layers. kNN, its community layer and all embeddings are off. This is
 a scoped lexical qualification/activation boundary; full hybrid Q0 remains separate. No new
 semantic authority, public route, vector policy, dependency pin or unrequested analysis is added.
@@ -936,8 +936,8 @@ Baseline is clean main `6885dbf6a8c0083bc95162ac83c91b225680589d`. Persistent so
 manifest and command receipts are under
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/`; `baseline.json` captures manifest,
 lockfile, toolchain and analytic-configuration hashes. The previous interrupted generation
-`de1e0c2b09a319134fcef595a9bcbe89` was retired during alignment after receipt archival; current
-read-only inventory is empty. It cannot be resumed or used to qualify current source.
+`de1e0c2b09a319134fcef595a9bcbe89` was retired during alignment after receipt archival; the initial
+read-only inventory was empty. It cannot be resumed or used to qualify current source.
 
 | Command / scope | Current result |
 |---|---|
@@ -945,9 +945,9 @@ read-only inventory is empty. It cannot be resumed or used to qualify current so
 | `just native-adapter-ready` and explicit embedded-source comparison | **passed**; both locked native members rebuilt/installed; CLI and installed storage match all 240 current model sources (`adapter-source-agreement.json`) |
 | `just postgres-test-ready` | **passed**; both pinned images present |
 | `target/release/lctx store check` | **passed**; zero generations/findings; role configuration files are regular mode0600 |
-| `compile fastmcp --through catalog --profile catalog --embedder none --techniques '+communities,+pagerank,+fca,+rca,+type-layer,+mention-layer,-knn,-knn-layer'` | **in progress**, unselected staging generation `d3a3fa026a1237a1c4e175b9b1019eeb`; `catalog-compile.json/.log/.exit` |
-| Same compilation with `--profile behavioral` | **not_run**; follows catalog acquisition/publication |
-| Real-library runner, journeys, final complete gate/hygiene and stdio selection/activation | **not_run**; runner implementation and publication prerequisites in progress |
+| `compile fastmcp --through catalog --profile catalog --embedder none --techniques '+communities,+pagerank,+fca,+rca,+type-layer,+mention-layer,-knn,-knn-layer'` | **interrupted**, scoped SIGINT/exit130 at the operator pivot; unselected staging `d3a3fa026a1237a1c4e175b9b1019eeb` has 204 stage receipts; `catalog-compile.json/.log/.exit` |
+| Same compilation with `--profile behavioral` | **not_run**; stopped at operator pivot |
+| Real-library runner, journeys, final complete gate/hygiene and stdio selection/activation | **not_run** for real-library journeys/gates/activation; runner focused controls passed, preserved below |
 | Live embedding, real-library vector preparation and hybrid retrieval | **not_run / deliberately deferred**; analytical-output review precedes embedding-target work |
 
 One production writer owns the qualification runner and focused real-PG fixture control; root
@@ -958,3 +958,39 @@ real-library journeys. Requested analytical outcomes are reported faithfully, no
 into success by an empty result or an unavailable optional native model. Production identity
 changes require fresh affected generations. Full gates wait until functional runner/repairs
 are complete; the hook retains formatting/generator ownership.
+
+
+**Operator pivot, 2026-10-03:** qualification stopped in favor of planning a follow-up to the
+[code-facts review](../design_review/reviews/design_review_code-facts-opportunity_2026-10-03.md).
+The new target assumes upgraded Pyrefly and ty plus latest Ruff as an independent fact provider;
+the operator directed removal of the restriction to Pyrefly’s internally linked Ruff version.
+This is target-review scope, not a pin migration or implementation claim. The compile process is
+gone, the generation reports writer `interrupted`, readers zero, and the local database has no other
+sessions. No publication, selection or activation occurred. Stop state and all digests are captured
+in `operator-pivot-interruption.json` and `catalog-interruption-generation.json` in the campaign
+folder above. No staging schema or qualification evidence was deleted.
+
+Preserved uncommitted implementation: `scripts/qualify_serving.py` exercises actual stdio, Rust
+inventory/DTO schemas, complete discovery, independently sourced signatures/defaults and original
+bytes, scalar native requests, all ten tools, lifetime protocol capture and natural shutdown.
+Its real disposable-PG both-profile control passed one / zero skipped, 173.281s, Nextest
+`4f52cfcc-31db-4f12-acb0-72f381019355` (`runner-focused-final.log`); generation/evidence/channel/
+literal-default faults are challenged against received replies. `uv run --no-sync pytest -q
+tests/scripts/test_qualify_serving.py` passed two transcript/redaction controls
+(`runner-transcript-focused.log`). These fixture receipts do not qualify FastMCP.
+
+The runner exposed a source-signature default overwrite: packet hydration replaced an already
+known source literal with the effective slot’s canonical Unknown. Removing that overwrite
+preserves the separate source/effective contracts without altering stored relations/model identity.
+Normalized `INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx
+--test serving_packets -E 'test(mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration)'
+--no-fail-fast` passed one (four outside filter), 62.490s, run
+`1ed7b371-7840-4cd1-90c1-17eb08f48d7f` (`source-default-packet-control.log`).
+`just native-adapter-ready` passed after refreshing storage (`source-default-native-refresh.log`).
+
+Remaining integration on resume: add `serving_qualification` to the explicit PostgreSQL gate
+inventory; reconcile `SearchEvidenceRequest.families=[]` (schema promises route default, retrieval
+currently filters every unit out). The runner explicitly requests Rust-declared families, so its
+pass does not close that default-family defect. Real-library compilation/journeys, assembled
+review, final complete gates/hygiene and selected-startup activation remain not_run. No further
+qualification is scheduled during review planning.

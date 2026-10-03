@@ -7,7 +7,7 @@ _Updated 2026-10-03 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 owns current execution; coordinator §7 is the sole mutable F01–F08/O1–O6 disposition. All N/E/D
 and T0/T1/T2 packages are integrated, with current complete functional and composite hygiene receipts.
 
-**Phase 5 lexical-only real-library qualification and local stdio activation are authorized / in progress.**
+**Phase 5 qualification is stopped at the operator’s code-facts review pivot, 2026-10-03.**
 The operator selected both profiles with communities, PageRank, FCA/RCA and type/mention layers;
 kNN and embeddings are off. Live embedding/vector qualification is deliberately deferred pending
 analytical-output review; client registrations remain unchanged. [Phase 5 §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
@@ -51,7 +51,7 @@ Actual runtime acceptance and failures are recorded separately in coordinator §
 | `just hygiene` plus named repair checks | **composite passed**; all constituents including full workspace/all-target `just clippy` passed |
 | `just docs-check` | **passed** after final disposition/handoff publication; 269 canonical pages, zero offline link errors |
 | Confirmed `lctx store reset`, then `just store-check` | **passed**, current empty model, zero generations/findings |
-| Current lexical-only Q0 reconstruction/activation | **in progress**; preflight passed; catalog compilation running, behavioral/journeys/gates/selection pending |
+| Current lexical-only Q0 reconstruction/activation | **interrupted** at operator pivot, exit130; unselected staging preserved; behavioral/journeys/gates/activation not_run |
 | Live embedding/vector qualification, R4 and measurements | **not_run**, deliberately deferred/separate qualification boundaries |
 
 Persistent command logs/exit receipts are under
@@ -72,12 +72,17 @@ No readers were connected before retiring the old unselected staging generation
 Reset installed the current model and named store-check passed. Reconstruction from pinned
 inputs remains an activation prerequisite; no old runtime authority or compatibility reader remains.
 
-Current execution: finish the real-library runner, compile/qualify both selected profiles, run
-final complete functional/hygiene gates, then select the catalog generation and verify a fresh
-selected-generation stdio launch. Receipt owner is Phase 5 §10; persistent campaign receipts are
-under `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/`. Readiness passed: current CLI,
-both adapters, both images and zero store findings. No alignment implementation remains open.
-PR6 and embedding-target design are separate subsequent work.
+Next: plan the independent follow-up to the
+[code-facts opportunity review](docs/design_review/reviews/design_review_code-facts-opportunity_2026-10-03.md),
+assuming upgraded Pyrefly/ty and independent latest Ruff analysis. Removing the restriction to
+Pyrefly’s internal Ruff is operator-directed target scope; pins and current rules are not yet changed.
+Prior qualification work remains uncommitted: actual stdio runner and source-default packet repair.
+Focused controls passed: real-PG both-profile runner (one), transcript (two), source-default packet
+(one); full gates/hygiene and real-library journeys are not_run for these changes. Phase 5 §10 owns
+receipts and remaining integration. The catalog compile stopped with SIGINT/exit130; staging
+`d3a3fa026a1237a1c4e175b9b1019eeb` has 204 receipts, no readers/writer, and remains unselected.
+`/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
+preserves the stop state. No alignment implementation remains open; PR6 remains separate.
 Actual transport failure seams exercise the service/original grant and complete response bytes;
 they do not qualify physical backend faults or universal early errors without an admitted request.
 Borrowed CPU kernels drain; hard cancellation and performance improvements are not claimed.
