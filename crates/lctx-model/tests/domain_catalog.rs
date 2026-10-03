@@ -67,6 +67,8 @@ fn public(
         context: q.context,
         observation: name.id(),
         origin: name.origin,
+        enumeration: None,
+        publicity: lctx_model::domain::normalized::entities::PublicPathKnowledge::Known,
         status: if entity.is_some() {
             ResolutionStatus::Resolved
         } else {

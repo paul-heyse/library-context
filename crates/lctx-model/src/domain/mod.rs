@@ -463,6 +463,8 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<symbols::ParameterAnnotationSupport>(),
         Relation::of::<symbols::ExportOrigin>(),
         Relation::of::<symbols::PublicNameObservation>(),
+        Relation::of::<symbols::ExportEnumerationObservation>(),
+        Relation::of::<symbols::ExportEnumerationSupport>(),
         Relation::of::<symbols::PublicNameSupport>(),
         Relation::of::<symbols::ParameterDocObservation>(),
         Relation::of::<symbols::ParameterDocSupport>(),

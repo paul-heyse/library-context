@@ -1357,6 +1357,8 @@ fn root_document_candidate_does_not_spread_to_nested_members_or_foreign_contexts
             context: q.context,
             observation: nominal(91),
             origin: nominal(92),
+            enumeration: None,
+            publicity: lctx_model::domain::normalized::entities::PublicPathKnowledge::Known,
             status: ResolutionStatus::Resolved,
             reason: EntityReason::DeclarationAgreement,
         })

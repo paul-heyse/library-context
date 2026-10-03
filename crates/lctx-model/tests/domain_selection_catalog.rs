@@ -145,6 +145,8 @@ fn fixture() -> (
             context,
             observation: id(4),
             origin: id(5),
+            enumeration: None,
+            publicity: lctx_model::domain::normalized::entities::PublicPathKnowledge::Known,
             status: ResolutionStatus::Resolved,
             reason: EntityReason::DeclarationAgreement,
         })

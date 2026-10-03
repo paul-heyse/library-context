@@ -1179,6 +1179,8 @@ pub(crate) mod tests {
                 context: q.context,
                 observation: id(4),
                 origin: id(5),
+                enumeration: None,
+                publicity: crate::domain::normalized::entities::PublicPathKnowledge::Known,
                 status: ResolutionStatus::Unresolved,
                 reason: EntityReason::UntracedExposure,
             })

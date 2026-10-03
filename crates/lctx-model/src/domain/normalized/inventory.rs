@@ -16,6 +16,8 @@ macro_rules! normalized_entity_inputs {
         parameter_declarations: $crate::domain::declarations::ParameterDeclaration => Signatures,
         fields: $crate::domain::types::RecordFieldObservation => Types,
         public_names: $crate::domain::symbols::PublicNameObservation => Exports,
+        export_enumerations: $crate::domain::symbols::ExportEnumerationObservation => Exports,
+        export_enumeration_supports: $crate::domain::symbols::ExportEnumerationSupport => Exports,
         export_origins: $crate::domain::symbols::ExportOrigin => Exports,
         public_supports: $crate::domain::symbols::PublicNameSupport => Exports,
         runs: $crate::domain::attribution::ProviderRun => Artifacts,
@@ -43,6 +45,7 @@ macro_rules! normalized_entity_outputs {
             field_links: $crate::domain::normalized::entities::FieldEntityLink,
             field_declarations: $crate::domain::normalized::entities::FieldDeclarationLink,
             exposures: $crate::domain::normalized::entities::PublicExposure,
+            public_enumerations: $crate::domain::normalized::entities::PublicEnumerationAssessment,
             exposure_candidates: $crate::domain::normalized::entities::PublicExposureCandidate,
         }
     };

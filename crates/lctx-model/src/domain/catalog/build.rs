@@ -433,7 +433,7 @@ fn constructor(
         &data.exposures,
         need(&out.exposures, candidate.exposure)?.exposure,
     )?;
-    let public_known = candidate.alias.is_none() && exposure.status == ResolutionStatus::Resolved;
+    let public_known = candidate.alias.is_none() && exposure.status == ResolutionStatus::Resolved && exposure.publicity == crate::domain::normalized::entities::PublicPathKnowledge::Known;
     for assessment in data
         .assessments
         .iter()

@@ -562,8 +562,18 @@ fn normalize_exposures(
             rows.push(candidate.entity)
         })?;
     }
+    for enumeration in input.export_enumerations.iter() {
+        let q=input.qualifications.get(enumeration.qualification).ok_or_else(||missing("export enumeration qualification"))?;
+        let supported=input.export_enumeration_supports.iter().any(|s|s.assertion==enumeration.id() && input.runs.get(s.run).is_some_and(|r|r.context==q.context) && s.fidelity==crate::domain::attribution::Fidelity::NativeStructural && s.origin==crate::domain::attribution::Origin::AnalyzerAssertion && s.mode==crate::domain::attribution::ExtractionMode::NativeTraversal);
+        let closed=enumeration.status==ExportEnumerationStatus::Complete && exact_public_qualification(q) && supported;
+        output.public_enumerations.insert(PublicEnumerationAssessment {observation:enumeration.id(),access:enumeration.access,context:q.context,closed})?;
+    }
     for public in input.public_names.iter() {
         let context = context(input, public.qualification)?;
+        let q=input.qualifications.get(public.qualification).ok_or_else(||missing("public path qualification"))?;
+        let publicity=if exact_public_qualification(q) {PublicPathKnowledge::Known} else if q.modality==crate::domain::attribution::Modality::Candidate {PublicPathKnowledge::Candidate} else {PublicPathKnowledge::Unknown};
+        let enumerations:Vec<_>=input.export_enumerations.iter().filter(|e|e.access==public.access && input.qualifications.get(e.qualification).is_some_and(|eq|eq.context==context && eq.scope==q.scope)).collect();
+        let enumeration=if enumerations.len()==1 {Some(enumerations[0].id())} else {None};
         let origin = input
             .export_origins
             .get(public.origin)
@@ -646,6 +656,8 @@ fn normalize_exposures(
             context,
             observation: public.id(),
             origin: public.origin,
+            enumeration,
+            publicity,
             status,
             reason: match origin {
                 ExportOrigin::Untraced => EntityReason::UntracedExposure,
@@ -663,6 +675,35 @@ fn normalize_exposures(
         }
     }
     Ok(())
+}
+
+fn exact_public_qualification(q:&AssertionQualification)->bool {
+    q.assumptions==crate::domain::assumptions::AssumptionSet::empty_id() && q.modality==crate::domain::attribution::Modality::Definite && q.approximation==crate::domain::assertion::Approximation::Exact && q.condition==crate::domain::conditions::Diagram::always().id()
+}
+/// First namespace query consumes normalized identity and native enumeration separately.
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub enum PublicPathStatus { Public, NotPublic, Candidate, Unknown }
+#[derive(Debug,Clone,PartialEq,Eq)]
+pub struct PublicPathDecision {
+    pub status:PublicPathStatus,
+    pub path:Option<Id<PublicExposure>>,
+    pub enumeration:Option<Id<PublicEnumerationAssessment>>,
+}
+pub fn public_path_decision(input:&EntityInputs<'_>,output:&EntityOutput,access:Id<Module>,context:Id<crate::domain::attribution::AnalysisContext>,name:&str)->Result<PublicPathDecision,ModelError> {
+    let mut candidate=None;let mut unknown=None;
+    for path in output.exposures.iter().filter(|e|e.access==access && e.context==context) {
+        let row=input.public_names.get(path.observation).ok_or_else(||missing("public query observation"))?;
+        if row.name!=name {continue;}
+        match path.publicity {
+            PublicPathKnowledge::Known=>return Ok(PublicPathDecision {status:PublicPathStatus::Public,path:Some(path.id()),enumeration:output.public_enumerations.iter().find(|e|Some(e.observation)==path.enumeration).map(Record::id)}),
+            PublicPathKnowledge::Candidate=>candidate=Some(path.id()),PublicPathKnowledge::Unknown=>unknown=Some(path.id()),
+        }
+    }
+    let basis=|path|output.exposures.get(path).and_then(|path|output.public_enumerations.iter().find(|e|Some(e.observation)==path.enumeration)).map(Record::id);
+    if let Some(path)=candidate {return Ok(PublicPathDecision {status:PublicPathStatus::Candidate,path:Some(path),enumeration:basis(path)});}
+    if let Some(path)=unknown {return Ok(PublicPathDecision {status:PublicPathStatus::Unknown,path:Some(path),enumeration:basis(path)});}
+    let enumeration=output.public_enumerations.iter().filter(|e|e.access==access && e.context==context).find(|e|e.closed).or_else(||output.public_enumerations.iter().find(|e|e.access==access && e.context==context));
+    Ok(PublicPathDecision {status:if enumeration.is_some_and(|e|e.closed) {PublicPathStatus::NotPublic} else {PublicPathStatus::Unknown},path:None,enumeration:enumeration.map(Record::id)})
 }
 
 /// One authoritative relation-set validator, also used at completed-stage read admission.

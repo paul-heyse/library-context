@@ -229,7 +229,9 @@ fn outputs() -> Vec<RelationUse> {
         lctx_model::domain::protocols::NativeTerminalObservation,
         lctx_model::domain::protocols::NativeTerminalSupport,
         lctx_model::domain::protocols::NativeExitDiagnostic,
-        lctx_model::domain::protocols::NativeExitDiagnosticSupport
+        lctx_model::domain::protocols::NativeExitDiagnosticSupport,
+        ExportEnumerationObservation,
+        ExportEnumerationSupport
     )
 }
 impl Declared for Pyrefly {
@@ -240,7 +242,7 @@ impl Declared for Pyrefly {
             inputs: vec![],
             outputs: outputs(),
             contributes: crate::assembly::vocabulary(),
-            coverage: FAMILIES.to_vec().into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:if family==FactFamily::Syntax {crate::ruff_context::provider().id()} else {provider.id()}}).collect(),
+            coverage: FAMILIES.to_vec().into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:if family==FactFamily::Syntax {crate::ruff_context::provider().id()} else {provider.id()}}).chain(std::iter::once(lctx_model::domain::stages::FamilyCoverage {family:FactFamily::Exports,provider:crate::ruff_context::provider().id()})).collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Extraction,
             code: provider.build_digest,
@@ -386,7 +388,9 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
         lctx_model::domain::protocols::NativeTerminalObservation,
         lctx_model::domain::protocols::NativeTerminalSupport,
         lctx_model::domain::protocols::NativeExitDiagnostic,
-        lctx_model::domain::protocols::NativeExitDiagnosticSupport
+        lctx_model::domain::protocols::NativeExitDiagnosticSupport,
+        ExportEnumerationObservation,
+        ExportEnumerationSupport
         );
         let provider = pyrefly_provider();
         let (condition, nodes) = Diagram::always().records();
@@ -552,12 +556,14 @@ fn session<S: StageSink + 'static>(
         })
         .collect();
     let ruff=crate::ruff_context::provider();
-    let (ruff_run,ruff_families)=ProviderRun::new(ruff.id(),analysis.id(),captured.revision().id(),analysis.config_digest,[FactFamily::Syntax])?;
+    let (ruff_run,ruff_families)=ProviderRun::new(ruff.id(),analysis.id(),captured.revision().id(),analysis.config_digest,[FactFamily::Syntax,FactFamily::Exports])?;
     let ruff_surface=ProviderSurface { provider:ruff.id(),family:FactFamily::Syntax,name:"canonical parse and populated contextual pass".into() };
     context.contribute(ruff)?;
     context.contribute(ruff_run.clone())?;
     for family in ruff_families {context.contribute(family)?;}
     context.contribute(ruff_surface.clone())?;
+    let ruff_exports=ProviderSurface {provider:ruff_surface.provider,family:FactFamily::Exports,name:"canonical per-alias imports and __all__ literal characterization".into()};
+    context.contribute(ruff_exports.clone())?;
     context.contribute(analysis.clone())?;
     context.contribute(run.clone())?;
     for family in families {
@@ -624,7 +630,9 @@ fn session<S: StageSink + 'static>(
     let mut accesses: Vec<(
         usize,
         lctx_model::domain::Id<Module>,
-        lctx_model::domain::Id<AssertionQualification>,
+        AssertionQualification,
+        bool,
+        bool,
     )> = vec![];
     let mut imports: Vec<(usize, syntax_records::ImportLookup)> = vec![];
     let mut root_modules = std::collections::BTreeSet::new();
@@ -689,7 +697,6 @@ fn session<S: StageSink + 'static>(
         let native_ast = transaction.get_ast(handle);
         let info = transaction.get_module_info(handle);
         let native_available = native_ast.is_some() && info.is_some();
-        if native_available { accesses.push((index, module_id, qualification.id())); }
         // Independent syntax remains available when the native typing adapter has no parse.
         // Captured-byte verification in CanonicalSyntax::parse prevents source substitution.
         let _source_charge = if info.is_none() {
@@ -714,8 +721,8 @@ fn session<S: StageSink + 'static>(
         };
         let support = |family: FactFamily, subject: lctx_model::domain::Id<Occurrence>| {
             (
-                if family==FactFamily::Syntax {ruff_run.id()} else {run.id()},
-                if family==FactFamily::Syntax {ruff_surface.id()} else {surfaces[&family].id()},
+                if matches!(family,FactFamily::Syntax|FactFamily::Exports) {ruff_run.id()} else {run.id()},
+                if family==FactFamily::Syntax {ruff_surface.id()} else if family==FactFamily::Exports {ruff_exports.id()} else {surfaces[&family].id()},
                 Evidence::Occurrence {
                     occurrence: subject,
                 }
@@ -793,6 +800,9 @@ fn session<S: StageSink + 'static>(
         .into_iter()
         .flatten()
         .any(|error| error.error_kind() == ErrorKind::ParseError);
+        let native_exports_invalid = [&errors.ordinary,&errors.directives,&errors.suppressed,&errors.disabled,&errors.baseline]
+            .into_iter().flatten().any(|error|error.error_kind()==ErrorKind::BadDunderAll);
+        accesses.push((index,module_id,qualification.clone(),native_parse_error,native_exports_invalid));
         let parse_error = !canonical.parsed().errors().is_empty();
         let mut ruff_context_incomplete = None;
         let (mut unattached, mut unlocated, mut computed_all, mut calls_partial, mut types_partial) =
@@ -937,13 +947,13 @@ fn session<S: StageSink + 'static>(
                 for statement in computed {
                     context.contribute(SubjectBoundary {
                         scope: scope.id(),
-                        provider: provider.id(),
+                        provider: ruff_surface.provider,
                         context: analysis.id(),
                         family: FactFamily::Exports,
                         subject: Some(statement),
                         reason: ObligationKind::OutsideProviderModel,
                         detail: Some(
-                            "__all__ is computed; its names are not stated by the syntax".into(),
+                            "__all__ is computed; canonical syntax retains a known literal subset without set completeness".into(),
                         ),
                     })?;
                 }
@@ -994,7 +1004,7 @@ fn session<S: StageSink + 'static>(
             (
                 CoverageStatus::Partial,
                 Some(ObligationKind::OutsideProviderModel),
-                Some("__all__ is computed; its names are not stated".into()),
+                Some("__all__ is computed; retained literal entries do not establish the complete set".into()),
             )
         } else {
             syntax.clone()
@@ -1069,13 +1079,9 @@ fn session<S: StageSink + 'static>(
         partial |= [&contextual, &syntax, &exports, &signatures, &calls, &types]
             .iter()
             .any(|c| c.0 != CoverageStatus::CompleteUnderStatedModel);
-        context.contribute(coverage(
-            &scope,
-            FactFamily::Exports,
-            exports.0,
-            exports.1,
-            exports.2,
-        ))?;
+        let mut source_exports=coverage(&scope,FactFamily::Exports,exports.0,exports.1,exports.2);
+        source_exports.provider=Some(ruff_surface.provider);source_exports.run=Some(ruff_run.id());
+        context.contribute(source_exports)?;
         context.contribute(coverage(
             &scope,
             FactFamily::Signatures,
@@ -1087,15 +1093,23 @@ fn session<S: StageSink + 'static>(
     // The public names of the analyzed modules, under each module's own qualification.
     let access: Vec<public_records::Access<'_>> = accesses
         .iter()
-        .map(|(index, module, qualification)| public_records::Access {
-            handle: &handles[*index],
-            module: *module,
-            qualification: *qualification,
+        .map(|(index, module, qualification, native_parse_error, native_exports_invalid)| public_records::Access {
+            handle: &handles[*index],module: *module,qualification,native_parse_error:*native_parse_error,native_exports_invalid:*native_exports_invalid,
         })
         .collect();
     let public = public_records::public_names(&access, &transaction, &mut natives)?;
     drop(access);
     let exports = surfaces[&FactFamily::Exports].id();
+    for q in public.qualifications {context.contribute(q)?;}
+    for literal in public.literals {context.contribute(literal)?;}
+    for (set,members) in public.sets {context.contribute(set)?;for member in members {context.contribute(member)?;}}
+    for row in public.enumerations {
+        let q=accesses.iter().find(|(_,module,_,_,_)|*module==row.access).map(|(_,_,q,_,_)|q).ok_or_else(||invalid("native export source qualification absent".into()))?;
+        let status=match row.status {ExportEnumerationStatus::Complete=>CoverageStatus::CompleteUnderStatedModel,ExportEnumerationStatus::Partial=>CoverageStatus::Partial,ExportEnumerationStatus::Unavailable=>CoverageStatus::Unavailable};
+        partial |= status!=CoverageStatus::CompleteUnderStatedModel;
+        context.contribute(ProviderCoverage {scope:q.scope,provider:Some(provider.id()),context:analysis.id(),family:FactFamily::Exports,run:Some(run.id()),status,reason:(status!=CoverageStatus::CompleteUnderStatedModel).then_some(ObligationKind::OutsideProviderModel),diagnostic:(status!=CoverageStatus::CompleteUnderStatedModel).then(||format!("native public enumeration {:?}/{:?}",row.status,row.basis))})?;
+        context.emit(ExportEnumerationSupport {assertion:row.id(),run:run.id(),surface:exports,evidence:pysa_evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;context.emit(row)?;
+    }
     for origin in public.origins {
         context.emit(origin)?;
     }

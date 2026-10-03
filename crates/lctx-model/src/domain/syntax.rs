@@ -208,7 +208,8 @@ fn validate_import(row: &ImportAliasObservation) -> Result<(), ModelError> {
     }
     Ok(())
 }
-/// An `__all__` statement: whether it is a literal list or tuple of strings, and then its names.
+/// An `__all__` statement: complete literal syntax or a retained known literal subset.
+/// `literal=false,names=Some` characterizes a partial computed expression, never a complete set.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "dunder_all_observations", validate = validate_dunder_all)]
 #[assertion(support = DunderAllSupport, name = "dunder_all_supports", family = FactFamily::Exports, subjects(statement))]
@@ -223,8 +224,8 @@ pub struct DunderAllObservation {
     pub names: Option<Id<LiteralSet>>,
 }
 fn validate_dunder_all(row: &DunderAllObservation) -> Result<(), ModelError> {
-    if row.literal != row.names.is_some() {
-        return Err(invalid("exactly a literal __all__ states its names"));
+    if row.literal && row.names.is_none() {
+        return Err(invalid("a literal __all__ states its names"));
     }
     Ok(())
 }

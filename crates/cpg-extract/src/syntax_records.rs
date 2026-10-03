@@ -303,20 +303,25 @@ struct Walker<'a> {
 fn is_dunder_all(expr: &Expr) -> bool {
     matches!(expr, Expr::Name(n) if n.id.as_str() == "__all__")
 }
-/// A literal list or tuple of strings: its strings.
-fn string_sequence(expr: &Expr) -> Option<Vec<String>> {
+/// Known literal string subset, without guessing values from names or arbitrary calls.
+struct StringSubset { literal: bool, names: Vec<String> }
+fn string_sequence(expr: &Expr) -> StringSubset {
     let elements = match expr {
         Expr::List(list) => &list.elts,
         Expr::Tuple(tuple) => &tuple.elts,
-        _ => return None,
+        Expr::BinOp(binary) if binary.op == ruff_python_ast_latest::Operator::Add => {
+            let mut left=string_sequence(&binary.left); let right=string_sequence(&binary.right);
+            left.names.extend(right.names);left.literal=false;return left;
+        }
+        _ => return StringSubset {literal:false,names:vec![]},
     };
-    elements
-        .iter()
-        .map(|e| {
-            e.as_string_literal_expr()
-                .map(|s| s.value.to_str().to_owned())
-        })
-        .collect()
+    let mut out=StringSubset {literal:true,names:vec![]};
+    for element in elements {
+        if let Some(string)=element.as_string_literal_expr() {out.names.push(string.value.to_str().to_owned());}
+        else if let Expr::Starred(starred)=element {out.literal=false;out.names.extend(string_sequence(&starred.value).names);}
+        else {out.literal=false;}
+    }
+    out
 }
 impl Walker<'_> {
     fn occ(&self, range: TextRange, kind: SyntaxKind) -> Result<Id<Occurrence>, ModelError> {
@@ -459,11 +464,12 @@ impl Walker<'_> {
         &mut self,
         statement: TextRange,
         kind: SyntaxKind,
-        names: Option<Vec<String>>,
+        names: StringSubset,
     ) -> Result<(), ModelError> {
         let statement = self.occ(statement, kind)?;
-        match names {
-            Some(names) => {
+        if !names.literal {self.records.computed_all.push(statement);}
+        match (names.literal, names.names) {
+            (literal, names) if literal || !names.is_empty() => {
                 let literals: Vec<Literal> = names
                     .into_iter()
                     .map(|value| Literal::String {
@@ -474,20 +480,19 @@ impl Walker<'_> {
                 self.records.dunder_all.push(DunderAllObservation {
                     qualification: self.qualification,
                     statement,
-                    literal: true,
+                    literal,
                     names: Some(set.id()),
                 });
                 self.records.literals.extend(literals);
                 self.records.sets.push((set, members));
             }
-            None => {
+            _ => {
                 self.records.dunder_all.push(DunderAllObservation {
                     qualification: self.qualification,
                     statement,
                     literal: false,
                     names: None,
                 });
-                self.records.computed_all.push(statement);
             }
         }
         Ok(())
@@ -556,7 +561,7 @@ impl Walker<'_> {
                 self.dunder_all(
                     stmt.range(),
                     SyntaxKind::StmtAnnAssign,
-                    assign.value.as_deref().and_then(string_sequence),
+                    string_sequence(assign.value.as_deref().expect("guarded __all__ value")),
                 )?
             }
             Stmt::Expr(expr) if module_level => {
@@ -574,9 +579,9 @@ impl Walker<'_> {
                     let names = match (attribute.attr.as_str(), argument) {
                         ("extend", Some(argument)) => string_sequence(argument),
                         ("append", Some(Expr::StringLiteral(s))) => {
-                            Some(vec![s.value.to_str().to_owned()])
+                            StringSubset {literal:true,names:vec![s.value.to_str().to_owned()]}
                         }
-                        _ => None,
+                        _ => StringSubset {literal:false,names:vec![]},
                     };
                     self.dunder_all(stmt.range(), SyntaxKind::StmtExpr, names)?;
                 }

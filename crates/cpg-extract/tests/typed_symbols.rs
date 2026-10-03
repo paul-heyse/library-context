@@ -288,7 +288,7 @@ async fn definitions_nest_carry_their_traits_and_attach_at_their_name_spans() {
         .map(|a| a.display)
         .collect();
     assert_eq!(displays, vec!["float".to_owned()]);
-    // Nothing failed to attach: the module's signatures are complete.
+    // Source declarations attached; additional effective variants can be unavailable.
     assert!(
         f.rows::<SubjectBoundary>()
             .iter()
@@ -300,10 +300,13 @@ async fn definitions_nest_carry_their_traits_and_attach_at_their_name_spans() {
         .filter(|c| c.family == FactFamily::Signatures)
         .map(|c| c.status)
         .collect();
-    assert_eq!(
-        signatures,
-        vec![CoverageStatus::CompleteUnderStatedModel; 2]
-    );
+    assert_eq!(signatures.len(),2);
+    for coverage in f.rows::<ProviderCoverage>().into_iter().filter(|c|c.family==FactFamily::Signatures) {
+        if coverage.status==CoverageStatus::Partial {
+            assert!(coverage.diagnostic.as_ref().is_some_and(|d|d.contains("native signature variants are unavailable")),"{coverage:?}");
+            assert!(f.rows::<Signature>().iter().any(|s|s.scope==coverage.scope && !s.role.runtime_source() && s.form==SignatureForm::NativeUnavailable));
+        } else {assert_eq!(coverage.status,CoverageStatus::CompleteUnderStatedModel);}
+    }
 }
 
 #[tokio::test]
@@ -463,13 +466,11 @@ async fn public_names_docs_and_module_resolutions_are_stated() {
     );
     // `from gone import Vanished`: the module does not resolve and keeps its spelling.
     assert_eq!(resolved.get("gone"), Some(&None));
-    // The example's exports are complete.
-    assert!(
-        f.rows::<ProviderCoverage>()
-            .iter()
-            .filter(|c| c.family == FactFamily::Exports)
-            .all(|c| c.status == CoverageStatus::CompleteUnderStatedModel)
-    );
+    // Canonical source enumeration is complete; unavailable explicit targets keep native
+    // enumeration partial, without discarding their declared public paths.
+    let enumerations=f.rows::<ExportEnumerationObservation>();
+    assert!(enumerations.iter().any(|e|e.status==ExportEnumerationStatus::Partial && e.basis==ExportEnumerationBasis::Invalid));
+    assert!(f.rows::<ProviderCoverage>().iter().filter(|c|c.family==FactFamily::Exports).any(|c|c.status==CoverageStatus::CompleteUnderStatedModel));
 }
 
 inspector!(
@@ -502,9 +503,8 @@ async fn a_literal_dunder_all_built_by_assignment_augmentation_and_append_is_the
         BTreeSet::from(["also".to_owned(), "exported".to_owned(), "third".to_owned()])
     );
     // Where Pyrefly's reading differs from the runtime `__all__`, the module's exports are partial.
-    // The runtime `dunder.__all__` is ["alpha", "beta", "top"]; Pyrefly keeps only "top". The runtime
-    // `dunder.dyn.__all__` is ["dyn_public", "dyn_other"]; Pyrefly falls back to every
-    // non-underscore name, so `alpha_call` is over-reported.
+    // The known "top" entry is retained. Additional wildcard and computed fallback names
+    // remain candidates rather than rejecting them against the old CLI helper's subset.
     let of = |module: &str| -> BTreeSet<String> {
         rows::<PublicNameObservation>(&tables)
             .into_iter()
@@ -512,7 +512,10 @@ async fn a_literal_dunder_all_built_by_assignment_augmentation_and_append_is_the
             .map(|p| p.name)
             .collect()
     };
-    assert_eq!(of("dunder"), BTreeSet::from(["top".to_owned()]));
+    assert_eq!(of("dunder"), BTreeSet::from(["alpha","beta","top"].map(str::to_owned)));
+    let qualifications: BTreeMap<_,_>=rows::<assertion::AssertionQualification>(&tables).into_iter().map(|q|(q.id(),q)).collect();
+    for name in rows::<PublicNameObservation>(&tables).into_iter().filter(|p|modules[&p.access]=="dunder" && p.name!="top") {assert_eq!(qualifications[&name.qualification].modality,Modality::Candidate);}
+    for name in rows::<PublicNameObservation>(&tables).into_iter().filter(|p|modules[&p.access]=="dunder.dyn") {assert_eq!(qualifications[&name.qualification].modality,Modality::Candidate);}
     assert_eq!(
         of("dunder.dyn"),
         BTreeSet::from(["alpha_call", "dyn_other", "dyn_public"].map(str::to_owned))

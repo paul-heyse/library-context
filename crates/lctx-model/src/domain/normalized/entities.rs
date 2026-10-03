@@ -4,7 +4,7 @@ use crate::domain::{
     calls::{ProviderModule, ProviderSymbol, Signature, SignatureParameter, SymbolKind},
     declarations::{ParameterDeclaration, SymbolDeclaration, SymbolDeclarationSupport},
     source::{Module, Occurrence, SyntaxKind},
-    symbols::{
+    symbols::{ExportEnumerationObservation,
         ClassTraitObservation, ExportOrigin, FunctionTraitObservation, PublicNameObservation,
     },
     types::{RecordFieldObservation, TypeTerm},
@@ -196,6 +196,18 @@ pub struct FieldDeclarationLink {
     #[model(key)]
     pub binding: Id<crate::domain::lexical::BindingEvent>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum PublicPathKnowledge { Known=0, Candidate=1, Unknown=2 }
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name="public_enumeration_assessments")]
+pub struct PublicEnumerationAssessment {
+    #[model(key)]pub observation:Id<ExportEnumerationObservation>,
+    pub access:Id<Module>,
+    pub context:Id<AnalysisContext>,
+    /// Exactly a supported, unconditional complete enumeration can establish absence.
+    pub closed:bool,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "public_exposures")]
 pub struct PublicExposure {
@@ -206,6 +218,8 @@ pub struct PublicExposure {
     #[model(key)]
     pub observation: Id<PublicNameObservation>,
     pub origin: Id<ExportOrigin>,
+    pub enumeration: Option<Id<ExportEnumerationObservation>>,
+    pub publicity: PublicPathKnowledge,
     pub status: ResolutionStatus,
     pub reason: EntityReason,
 }
@@ -255,6 +269,7 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<FieldEntityLink>(),
         Relation::of::<FieldDeclarationLink>(),
         Relation::of::<PublicExposure>(),
+        Relation::of::<PublicEnumerationAssessment>(),
         Relation::of::<PublicExposureCandidate>(),
     ]
 }

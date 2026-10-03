@@ -158,6 +158,7 @@ macro_rules! native_analysis_pairs {
         54: SignatureTypeObservation => $crate::domain::types::SignatureTypeObservation, $crate::domain::types::SignatureTypeSupport;
         68: TypeQuery => $crate::domain::types::TypeQueryObservation, $crate::domain::types::TypeQuerySupport;
         55: GenericSpecialization => $crate::domain::types::GenericSpecializationObservation, $crate::domain::types::GenericSpecializationSupport;
+        64: ExportEnumeration => $crate::domain::symbols::ExportEnumerationObservation, $crate::domain::symbols::ExportEnumerationSupport;
     } };
 }
 crate::native_analysis_pairs!(native_pairs);

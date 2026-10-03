@@ -44,6 +44,7 @@ macro_rules! syntax_relations {
             Condition,
             ConditionNode,
             AssertionQualification,
+            assumptions::AssumptionSet,
             SourceArtifact,
             ArtifactChunk,
             Occurrence,

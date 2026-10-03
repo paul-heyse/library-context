@@ -200,8 +200,8 @@ fn row_contracts_refuse_impossible_syntax() {
             ..f.dunder_all[0].clone()
         }
         .validate()
-        .is_err(),
-        "a computed __all__ has no names"
+        .is_ok(),
+        "a computed __all__ retains a partial literal subset"
     );
     assert!(
         ParameterSyntaxObservation {
