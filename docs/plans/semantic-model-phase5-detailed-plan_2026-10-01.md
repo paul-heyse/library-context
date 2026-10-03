@@ -1,6 +1,6 @@
 # Phase 5: generation-bound serving — detailed design and execution plan
 
-**Execution authorized, 2026-10-02; implementation in progress.** This plan reconstructs serving after the semantic model
+**Implementation sufficient for now by operator instruction, 2026-10-02; further qualification stopped.** Full Q0 and activation are not claimed. This plan reconstructs serving after the semantic model
 cutover. It is subordinate to the [cutover plan](semantic-model-cutover-plan_2026-09-29.md), which
 owns cross-phase sequence and finding disposition. [DESIGN §15.12](../design/sections/semantic-model.md#section-15-12)
 and [§11](../design/sections/synthesis-and-serving.md#section-11) own accepted architecture;
@@ -536,7 +536,7 @@ lowering, manifests, query metadata and final acceptance. No formatting/generato
 | V0 | Implemented / scoped Tested. Full original corrected actual fixture passed 1 / zero skipped, 120.119s, run `ee4c8c95-37b3-45c2-9d3e-3fb002ef230f`; controlled numerical HTTP seam only. Composite receipt retains physical inventory and isolated dependency-sync failures. Later integration is covered by the assembled gate. |
 | N0/N1 | Implemented / scoped Tested. Pure native/condition/selection/evidence controls passed 50. Current ordering-discriminator actual fixture passed 1 / zero skipped, 200.266s; both profiles passed all ten transport controls. The unchanged generated CPython original-path oracle passed 1 / zero skipped, 795.987s after the production ordering repair. |
 | T0/X0 | Implemented / scoped Tested. Current ten-tool/resource bridges and exact final codecs passed in actual transport. 375 inventoried obsolete source files, 21 metadata entries and three obsolete wire assets retired. Independent expectations are re-homed; real retained-service and matcher/preregistration controls passed as scoped composite receipts. Generated-program controls passed 2; actual native oracle now passed. |
-| Q0 | Corrected complete Rust gate failed: 916 passed / eight failed / two skipped; repairs implemented, final functional qualification pending. Hygiene is composite passed after current-tree source checks, dependency refresh and a scoped local-store reset; full functional qualification remains pending. Original and corrected logs retained in §10. The preliminary pinned FastMCP Catalog compile was interrupted for changed source/model; its unselected staging receipts are preserved. Final-source both-profile journeys, explicit vector preparation and activation remain pending. Live embedding is separately blocked by the absent configured endpoint. |
+| Q0 | Stopped at operator request, 2026-10-02. Final workspace Rust passed 927 / two skipped; Python passed 228. Separate PostgreSQL gate was interrupted after 349 passes; doctests not_run. Hygiene is composite passed, including current all-target Clippy and live store inspection. Final-source FastMCP Catalog compile was interrupted with its unselected staging receipts retained. Behavioral compile, physical artifact preparation, real-library MCP journeys and activation are deferred / not_run. This is accepted as sufficient for now, not complete Q0 qualification. |
 
 **Build coordination, 2026-10-02:** simultaneous release builds in isolated production worktrees
 formed a verified fine-grain Cargo artifact lock cycle: vector build held shared `allocative` and
@@ -625,7 +625,7 @@ passed 9 retained preregistration/matcher/source-span controls; no live product 
 
 **Assembled review, 2026-10-02:** the independent
 [Design/Target review](../design_review/reviews/design_review_phase5-assembled_2026-10-02.md)
-was **Revise** at its initial inspected boundary; Appendix A accepts both corrections at Implemented maturity, with scoped actual transport evidence. Its findings have this one disposition owner:
+was **Revise** at its initial inspected boundary; Appendices A/B accept its corrections with scoped actual transport evidence. Final Appendix C is **Accept scoped** for the assembled design at Implemented maturity, with Q0 and activation pending. Its findings have this one disposition owner:
 
 | Stable source finding | Owner / current disposition | Required closure evidence |
 |---|---|---|
@@ -884,3 +884,40 @@ filter), 0.002 seconds, build 6m03, run `14d92c69-661a-43f5-9da2-a858e9783d4c`, 
 `/tmp/lctx-phase5-attempt-id-parser_2026-10-02.log`. The original control keeps uppercase legal
 hex and rejects signed byte pairs, malformed/Unicode and incorrect widths. Complete Q0 remains
 pending the scoped source stabilization and final ABI/gates/journeys.
+
+**Operator stop and final receipt, 2026-10-02 (local date):** the operator accepted the current
+work as sufficient for now and explicitly stopped further qualification. All owned qualification
+processes are stopped; no new checks, compile or activation are scheduled in this session.
+The implemented scope and scoped assembled acceptance remain; full Q0 is not claimed.
+
+`NEXTEST_TEST_THREADS=8 PYO3_PYTHON=.venv/bin/python just test-all` rebuilt successfully and
+its workspace run `768e3cf4-610c-4e52-bdb8-b50d479fbe30` **passed** 927 / two skipped,
+1145.650s. This covers all earlier eight gate repairs and current native/transport/vector controls;
+the generated CPython oracle passed in 766.063s. Python **passed** 228 in 20.58s.
+The separate PostgreSQL run `1fce640e-74b6-488f-9347-7756c45d0496` was deliberately interrupted:
+349 passed, eight SIGINT exits, two skipped, 27 not_run, 591.635s. Nextest/just exited 100.
+Those signal exits are cancellation, not eight new source defects. Doctests are **not_run**.
+The named complete gate is therefore **interrupted / not completed**, not passed. Complete log:
+`/tmp/lctx-phase5-test-all-final_2026-10-02.log`. Composite hygiene remains **passed**, including
+all-target Clippy. The final assembled review/owner reconciliation docs check passed 260 pages
+and zero link errors (`/tmp/lctx-phase5-q0-reviewed-docs_2026-10-02.log`); this stop handoff did
+not start another check.
+
+The pinned final-source CLI (SHA-256 `924d7db6f0aa5f001400624b0145112ba54895a09c8fb232745cd62d7f8d2beb`)
+ran `compile fastmcp --through catalog --profile catalog --embedder fake --techniques +knn`.
+It was stopped by scoped SIGINT after 38m54s elapsed / 32m02s CPU and exited 130. Its process,
+database backend and locks are gone. Generation `de1e0c2b09a319134fcef595a9bcbe89` remains
+staging / Catalog / unselected, with 204 receipts. Last completed stage was normalize_receivers;
+normalize_callable_aspects had 51 read checks but no outputs. No stage failure is reported.
+Model is `dac961ba186c11b01144120a749e0be4d3c7aec8fe7bd908a052850955fbf025`;
+producer/schedule is `a8d31b6223edfb5d0c505da809aad9d458f51a12e8afab23979fce6b6be39d1f`.
+Interruption receipt: `/tmp/lctx-phase5-q0-final-interruption_2026-10-03.json` (UTC filename);
+raw compile stdout/stderr are `/tmp/lctx-phase5-q0-final-catalog-compile.{json,log}`.
+
+Behavioral compilation, explicit vector preparation, both final real-library native/MCP
+journeys and operator selection/activation are **not_run / deferred at operator request**.
+The controlled fake seam establishes no live embedding or product quality. The current staging
+generation and inactive execution worktrees are preserved as restart context; no reset, abort,
+drop or selection was performed at this stop. Resume only on a new operator request, first
+reconciling this checkpoint with the current tree; omitted gates and journeys still bound any
+future full Phase 5 qualification claim. Parent finding remainders are not closed by this stop.

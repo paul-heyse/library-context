@@ -185,6 +185,9 @@ The [focused target review](../design_review/reviews/design_review_phase5-target
 **Accept scoped, 2026-10-01**, at Proposed maturity, with no new blocking finding. ADR-0114 remains
 accepted, 2026-10-02. This parent retains cross-phase findings. The detailed plan's §10 owns
 current implementation and verification receipts; serving activation remains unqualified.
+The operator accepted implementation as sufficient for now on 2026-10-02 and stopped the remaining
+qualification. Workspace Rust, Python and composite hygiene passed; the complete gate and
+real-library journeys are incomplete. See the detailed plan §10; this does not close P5 finding remainders.
 
 ### 4.1 Execution decisions
 

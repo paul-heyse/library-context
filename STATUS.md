@@ -2,9 +2,10 @@
 
 _Updated 2026-10-02 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Phase 5 implementation is in progress; serving activation is not qualified.** Full execution
-of the [Phase 5 plan](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md) is authorized.
-Its §10 owns package receipts and current assembled-review dispositions. The
+**Phase 5 implementation is sufficient for now by operator instruction, 2026-10-02.** Further
+qualification is stopped; serving activation is not qualified.
+[Phase 5 plan §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
+owns package receipts and current assembled-review dispositions. The
 [parent cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
 owns cross-phase findings. PR6 remains paused until the serving cutover is qualified.
 
@@ -22,7 +23,8 @@ Committed Phase 5 slices include D0 (`a55870c8`), L0 (`5223cf73`), bounded condi
 (`441b9c8f`), retained service/evaluation retirement (`17bfe0e4`), canonical selectors
 (`0bc8ea11`), and additive model serving/native contracts (`4acf8551`). Canonical store services, bridges, CLI, original controls and ownership-boundary retirement
 are committed as `91751d1c`; bounded normalization and qualification repairs are committed
-as `3591b68c`. Complete Q0 qualification remains pending.
+as `3591b68c`. Hygiene repairs/automatic output are committed as `38efdd4b` / `8e10d256`;
+the final scoped review and reconciled documentation as `eeabf906`. Full Q0 is deferred.
 
 X0 removed 375 unchanged inventoried source files and 21 obsolete query metadata entries,
 including the retired schema, bundle, native IPC and old serving authorities. Three obsolete
@@ -31,9 +33,9 @@ Independent expectations now belong to current model, store, CLI and actual tran
 Protected gold, heldout inputs, preregistration and benchmark captures remain preserved.
 
 The [assembled review](docs/design_review/reviews/design_review_phase5-assembled_2026-10-02.md)
-was Revise at its original inspected boundary. Independent Appendices A and B accept its
-codec and per-assertion fidelity corrections; both findings are Closed / scoped Tested in plan
-§10. This is bounded review evidence, not the full Q0 gate. Authored BriefDocument bytes stay
+was Revise at its original inspected boundary. Appendices A/B accept its codec and assertion
+corrections; both findings are Closed / scoped Tested in plan §10. Final Appendix C is
+Accept scoped at Implemented maturity, with full Q0 still pending. Authored BriefDocument bytes stay
 canonical; resources append attributed assertion status/kind/qualification/text/support metadata.
 
 | Current Phase 5 command / boundary, 2026-10-02 | Outcome |
@@ -44,16 +46,16 @@ canonical; resources append attributed assertion status/kind/qualification/text/
 | Focused compile-facts/packets/retrieval/evidence/soundness command | **failed**, nine passed, one failed, one timed out; original receipt retained |
 | Corrected `cargo nextest run --release -p lctx --test serving_evidence` | **passed**, 1 / zero skipped, 92.778s; actual BaseEvaluation parent, original bytes and damaged-view controls |
 | CPython served-path oracle with scoped 900s harness | **failed**, 833.640s; native preparation exposed receipt/validator row-order conflict |
-| Normalized `cargo check --release -p lctx-postgres`, ordering repair | **passed**, 39.63s |
-| CPython 3.14 `cargo build --release -p lctx-storage`, ordering repair | **passed**, 19.18s; rebuilt ABI installed |
 | Current ordering-discriminator native fixture | **passed**, 1 / zero skipped, 200.266s; both profiles and all original transport/tamper controls |
 | Original generated CPython oracle after ordering repair | **passed**, 1 / zero skipped, 795.987s; unchanged original assertions |
 | First Phase 5 `NEXTEST_TEST_THREADS=8 just test-all` | **failed at compile**, duplicate service-test import; no workspace test result |
 | Corrected `NEXTEST_TEST_THREADS=8 just test-all` | **failed**, Rust 916 passed / eight failed / two skipped; downstream Python, separate PG and doctests not_run |
+| Final `NEXTEST_TEST_THREADS=8 PYO3_PYTHON=.venv/bin/python just test-all` | **interrupted at operator request**; workspace 927 passed / two skipped; Python 228 passed; separate PG 349 passed / eight SIGINT / two skipped / 27 not_run; doctests not_run |
 | Current model/native/wire repair controls | **passed**, 51 selected; signed-cursor and final cache envelope covered |
 | CLI exact attempt-ID parser | **passed**, original one selected control |
 | Phase 5 `just hygiene` | **composite passed**, all current source/policy checks including workspace/all-target Clippy; live store reset and final zero-finding CLI check passed |
-| Both-profile fresh pinned FastMCP Catalog journeys and activation | **in progress / not qualified** |
+| Fresh pinned FastMCP Catalog compile | **interrupted at operator request**, exit 130; unselected staging generation and receipts retained |
+| Behavioral compile, vector preparation, real-library MCP journeys and activation | **not_run**, operator stopped qualification |
 | Live query embedding | **blocked**, configured endpoint absent; controlled seams establish no live quality |
 
 The focused nine passes include all packet controls, direct mixed-status canonical comparison,
@@ -98,17 +100,21 @@ speed, hydration and total RSS remain unmeasured and are not invented Phase 5 co
 
 Cargo keeps pinned release profiles, stable shared intermediates, 16 jobs and the default single
 frontend thread. Nextest8 caps test processes; it does not request eight threads per process.
-A verified cross-worktree Cargo artifact lock cycle is avoided by serializing builds, with no
-cache cleanup. Earlier compiler SIGTERM remains unexplained, not a proven threading failure.
+A verified cross-worktree Cargo artifact lock cycle is avoided by serializing builds; no cache cleanup.
+Earlier compiler SIGTERM remains unexplained, not a proven threading failure.
 
-Next: the current model is `dac961ba`; both CPython ABIs are rebuilt and installed.
-The digest-only model snapshot is reviewed/accepted; its original control passed. Run the
-complete functional gate, then final-source both-profile FastMCP Catalog journeys, explicit
-vector preparation and reviewed activation.
+No further qualification is running. Model `dac961ba` and both rebuilt CPython ABIs are current; the accepted digest snapshot control passed.
+Final workspace run `768e3cf4` passed 927; separate PG run `1fce640e` stopped by scoped SIGINT,
+exit 100 (`/tmp/lctx-phase5-test-all-final_2026-10-02.log`). Its eight signal exits are user-requested
+cancellation, not eight newly diagnosed code defects. No complete `just test-all` pass is claimed.
+FastMCP staging generation `de1e0c2b09a319134fcef595a9bcbe89` remains unselected, with 204 receipts;
+callable-aspect normalization stopped before output. Its compiler/backend/locks are gone.
+Interruption receipt: `/tmp/lctx-phase5-q0-final-interruption_2026-10-03.json` (UTC filename).
+Resume only on operator request; plan §10 retains the omitted Q0 scope and activation boundary.
 The old staging generation was inventoried, its receipt metadata captured, and retired by the
 resumable reset. Local PostgreSQL now uses `max_locks_per_transaction=512` after the operator
 restart; reset passed and the final CLI reports zero generations / zero store findings.
-The earlier eight functional gate defects have focused repair receipts; full Q0 remains pending.
-Main preserves all initial 118 dirty paths against snapshot `bd22f66c`. The automatic hook
+The earlier eight functional gate defects passed the final workspace run; full Q0 is deferred.
+Main preserves the initial dirty baseline against snapshot `bd22f66c`; 116 initial tracked paths remain dirty. The automatic hook
 completed ADR indexing/formatting; the authorized feature-union refresh is complete. Formatting
 and generated-file refreshes remain hook-owned; no manual formatter was run.
