@@ -36,9 +36,11 @@ pub struct CheckedSourceBinding {
     status: EvidenceStatus,
     premises: Rows<NativeAssertionPremise>,
     arguments: Vec<(Id<calls::SignatureParameter>, Id<Occurrence>)>,
+    captures: Vec<super::capture_bridge::CheckedCaptureOrigin>,
     _charge: charged::StateCharge,
 }
 impl CheckedSourceBinding {
+    pub(super) fn captures(&self)->&[super::capture_bridge::CheckedCaptureOrigin] {&self.captures}
     pub fn arguments(&self) -> &[(Id<calls::SignatureParameter>, Id<Occurrence>)] {
         &self.arguments
     }
@@ -86,7 +88,7 @@ fn same(left: &Occurrence, right: &Occurrence) -> bool {
         &right.structural_path,
     )
 }
-struct Evidence<'a> {
+pub(super) struct Evidence<'a> {
     data: &'a EvaluationData,
     request: SourceCallRequest,
     source: Id<SourceArtifact>,
@@ -94,7 +96,7 @@ struct Evidence<'a> {
     status: EvidenceStatus,
 }
 impl Evidence<'_> {
-    fn include<R: Record>(
+    pub(super) fn include<R: Record>(
         &mut self,
         row: &R,
         qualification: Id<AssertionQualification>,
@@ -154,7 +156,7 @@ impl Evidence<'_> {
 }
 
 #[derive(Debug)]
-enum HeaderError {
+pub(super) enum HeaderError {
     Boundary(obligation::ObligationKind),
     Model(ModelError),
 }
@@ -176,7 +178,7 @@ impl From<super::evaluation::EvaluationError> for HeaderError {
         }
     }
 }
-fn unique<'a, T>(
+pub(super) fn unique<'a, T>(
     mut values: impl Iterator<Item = &'a T>,
 ) -> Result<&'a T, obligation::ObligationKind> {
     let first = values
@@ -435,44 +437,30 @@ impl CheckedSourceBinding {
             if call_statement.ordinal != definition_placement.ordinal + 1 {
                 return Err(K::EntryValueUnknown.into());
             }
+            let mut literal_prefix=None;
             if definition_placement.ordinal != 0 {
-                if definition_placement.ordinal != 1 {
-                    return Err(K::EntryValueUnknown.into());
+                if definition_placement.ordinal != 1 {return Err(K::EntryValueUnknown.into());}
+                let prefix=unique(bindings.placements.iter().filter(|p|p.parent==Some(caller)&&p.field==SyntaxField::Body&&p.ordinal==0))?;
+                let statement=need(&bindings.occurrences,prefix.occurrence)?;
+                if statement.syntax_kind==SyntaxKind::StmtAssign {
+                    let target=unique(data.placements.iter().filter(|p|p.parent==Some(statement.id())&&p.field==SyntaxField::Target))?;
+                    let value=unique(data.placements.iter().filter(|p|p.parent==Some(statement.id())&&p.field==SyntaxField::Value))?;
+                    if !super::capture_bridge::closed_literal_prefix(data,statement.id(),target.occurrence,value.occurrence)? {return Err(K::EntryValueUnknown.into());}
+                    literal_prefix=Some((statement.id(),value.occurrence));
+                } else {
+                    let caller_declaration=unique(bindings.declarations.iter().filter(|d|d.declaration==caller&&bindings.qualifications.get(d.qualification).is_some_and(|q|q.context==request.context)))?;
+                    let docstring=need(&bindings.occurrences,caller_declaration.docstring.ok_or(K::EntryValueUnknown)?)?;
+                    if statement.syntax_kind!=SyntaxKind::StmtExpr {return Err(K::EntryValueUnknown.into());}
+                    let value=unique(bindings.placements.iter().filter(|p|p.parent==Some(statement.id())&&p.field==SyntaxField::Value))?;
+                    let literal=need(&bindings.occurrences,value.occurrence)?;
+                    if literal.syntax_kind!=SyntaxKind::ExprStringLiteral || literal.source!=docstring.source||literal.start>docstring.start||literal.end<docstring.end {return Err(K::EntryValueUnknown.into());}
+                    evidence.include(caller_declaration,caller_declaration.qualification,None)?;
+                    evidence.include(value,value.qualification,None)?;
                 }
-                let caller_declaration = unique(bindings.declarations.iter().filter(|d| {
-                    d.declaration == caller
-                        && bindings
-                            .qualifications
-                            .get(d.qualification)
-                            .is_some_and(|q| q.context == request.context)
-                }))?;
-                let docstring = need(
-                    &bindings.occurrences,
-                    caller_declaration.docstring.ok_or(K::EntryValueUnknown)?,
-                )?;
-                let prefix = unique(bindings.placements.iter().filter(|p| {
-                    p.parent == Some(caller) && p.field == SyntaxField::Body && p.ordinal == 0
-                }))?;
-                let statement = need(&bindings.occurrences, prefix.occurrence)?;
-                if statement.syntax_kind != SyntaxKind::StmtExpr {
-                    return Err(K::EntryValueUnknown.into());
-                }
-                let value = unique(bindings.placements.iter().filter(|p| {
-                    p.parent == Some(statement.id()) && p.field == SyntaxField::Value
-                }))?;
-                let literal = need(&bindings.occurrences, value.occurrence)?;
-                if literal.syntax_kind != SyntaxKind::ExprStringLiteral
-                    || literal.source != docstring.source
-                    || literal.start > docstring.start
-                    || literal.end < docstring.end
-                {
-                    return Err(K::EntryValueUnknown.into());
-                }
-                evidence.include(caller_declaration, caller_declaration.qualification, None)?;
-                evidence.include(prefix, prefix.qualification, None)?;
-                evidence.include(value, value.qualification, None)?;
+                evidence.include(prefix,prefix.qualification,None)?;
             }
-            // Even an unentered free read captures a cell when the function object is allocated.
+            let mut captures=Vec::new();
+            // Captures outside the bounded own-frame lane retain their original refusal.
             for resolution in bindings.lexical_resolutions.iter().filter(|r| {
                 r.captured
                     && bindings
@@ -486,8 +474,14 @@ impl CheckedSourceBinding {
                     && read.end <= declared.end
                     && read.structural_path.starts_with(&declared.structural_path)
                 {
-                    return Err(K::CapturedStateUnavailable.into());
+                    let proof=super::capture_bridge::CheckedCaptureOrigin::derive(data,flow,bindings,
+                        request,admission.owner_entity(),admission.callee(),caller,declaration,resolution,&mut evidence,budget)?;
+                    charge.grow(size_of::<super::capture_bridge::CheckedCaptureOrigin>()*2)?;
+                    captures.push(proof);
                 }
+            }
+            if literal_prefix.is_some_and(|prefix|!captures.iter().any(|origin|origin.literal_prefix()==Some(prefix))) {
+                return Err(K::CapturedStateUnavailable.into());
             }
             let callee = need(&bindings.occurrences, syntax.callee)?;
             let use_ = unique(flow.uses.iter().filter(|u| {
@@ -616,6 +610,7 @@ impl CheckedSourceBinding {
                 status: evidence.status,
                 premises: evidence.rows,
                 arguments,
+                captures,
                 _charge: charge,
             })
         })();

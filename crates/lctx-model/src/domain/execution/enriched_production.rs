@@ -1,5 +1,6 @@
 //! One finite enriched owner, with independently replayed SourceCall predecessors.
 use super::{
+    capture_bridge::{CapturedEntryBinding,CapturedValueSource,CheckedCapturedEntry},
     context_binding::{BindingMember, BindingSource, CheckedContextBinding, ContextEntryBinding},
     context_execution::*,
     definition::*,
@@ -92,7 +93,7 @@ impl EnrichedData {
 }
 macro_rules! outputs{($apply:ident)=>{$apply!{
  executions:StatementExecution,outcomes:ExecutionOutcome,sources:ExecutionSource,members:ExecutionMember,entered:EnteredStatement,boundaries:ExecutionBoundary,
- modeled_calls:ModeledCallEvaluation,modeled_arguments:ModeledCallArgument,modeled_native:ModeledCallNative,fresh_calls:SourceExecutionInvocation,fresh_arguments:SourceExecutionArgument,definition_evaluations:DefinitionEvaluation,definition_sources:DefinitionSource,definition_members:DefinitionMember,contexts:ContextExecution,context_items:ContextItem,context_sources:ContextSource,context_members:ContextMember,context_bindings:ContextEntryBinding,context_binding_sources:BindingSource,context_binding_members:BindingMember,
+ modeled_calls:ModeledCallEvaluation,modeled_arguments:ModeledCallArgument,modeled_native:ModeledCallNative,fresh_calls:SourceExecutionInvocation,fresh_arguments:SourceExecutionArgument,captured_entries:CapturedEntryBinding,captured_values:CapturedValueSource,definition_evaluations:DefinitionEvaluation,definition_sources:DefinitionSource,definition_members:DefinitionMember,contexts:ContextExecution,context_items:ContextItem,context_sources:ContextSource,context_members:ContextMember,context_bindings:ContextEntryBinding,context_binding_sources:BindingSource,context_binding_members:BindingMember,
  bodies:BodyExecution,body_sources:BodySource,body_members:BodyMember,releases:BodyReleaseInput,body_boundaries:BodyBoundary,
 }};}
 macro_rules! records{($($field:ident:$ty:ty,)*)=>{
@@ -431,6 +432,13 @@ pub fn enrich_all(
                     if frame.has_call(header_row.event) {
                         continue;
                     }
+                    let mut captures=Vec::new();
+                    let _capture_allowance=budget.reserve("captured-active-frame",header.captures().len()*size_of::<CheckedCapturedEntry>()*2)?;
+                    for origin in header.captures() {
+                        let proof=CheckedCapturedEntry::activate(origin,header,header_row,invocation,facts)?;
+                        if output.captured_entries.get(proof.row.id()).is_none() {frame.push_capture(&proof)?;}
+                        captures.push(proof);
+                    }
                     let mut proofs = Vec::new();
                     let mut charge =
                         charged::StateCharge::new(budget, "enriched_fresh_body_completions");
@@ -467,14 +475,11 @@ pub fn enrich_all(
                         budget,
                     )?;
                     let Ok(body) = body else { continue };
-                    let call = super::source_invocation::CheckedSourceInvocation::derive(
-                        facts,
-                        header,
-                        &body,
-                        &data.source.completed,
-                        budget,
+                    let call = super::source_invocation::CheckedSourceInvocation::derive_with_captures(
+                        facts,header,&body,&data.source.completed,&captures,budget,
                     )?;
                     let Ok(call) = call else { continue };
+                    for capture in captures {output.captured_values.insert(capture.source)?;output.captured_entries.insert(capture.row)?;}
                     for proof in &proofs {
                         insert_statement(
                             &mut output,

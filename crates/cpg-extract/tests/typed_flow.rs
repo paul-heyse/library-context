@@ -10,9 +10,14 @@ inspector!(
     Flow,
     FlowUse,
     FlowDefinition,
+    FlowDefinitionObservation,
     FlowReachingObservation,
     FlowNarrowingObservation,
     FlowSourceViewObservation,
+    lctx_model::domain::flow_capture::FlowCaptureTimingObservation,
+    lctx_model::domain::flow_capture::FlowCaptureInventory,
+    lctx_model::domain::flow_capture::FlowCaptureCandidate,
+    lctx_model::domain::flow_capture::FlowCaptureTarget,
     FlowValueObservation,
     FlowCallPath,
     FlowCallStep,
@@ -352,4 +357,37 @@ async fn retired_runtime_resolution_answers_keep_typed_operand_identity() {
     assert!(condition("def checking_module_alias", "return \"checker only\"").is_false());
     assert!(condition("def version_prefix", "above = True").is_true());
     assert!(condition("def version_prefix", "at_most = True").is_false());
+}
+
+#[tokio::test]
+async fn native_capture_timing_keeps_candidate_basis_and_actual_outer_definition() {
+    use lctx_model::domain::{captures::CaptureTiming,flow_capture::*};
+    let source="def outer(value):\n    def inner():\n        return value\n    return inner()\n";
+    let tables=Tables::default();
+    typed_driver::run_behavioral(&BTreeMap::from([("example.py".into(),source.as_bytes().to_vec())]),Flow(tables.clone())).await.unwrap();
+    let snapshots=rows::<FlowCaptureTimingObservation>(&tables);
+    assert_eq!(snapshots.len(),1);
+    let snapshot=&snapshots[0];
+    assert_eq!(snapshot.state,FlowSnapshotState::FoundBindings);
+    assert_eq!(snapshot.timing,CaptureTiming::LazySnapshot);
+    assert_ne!(snapshot.nested_scope,snapshot.enclosing_scope);
+    let qualifications=rows::<AssertionQualification>(&tables);
+    let q=qualifications.iter().find(|q|q.id()==snapshot.qualification).unwrap();
+    assert_eq!(q.modality,Modality::Candidate);
+    assert_eq!(q.assumptions,assumptions::AssumptionSet::empty_id());
+    let candidates=rows::<FlowCaptureCandidate>(&tables);
+    let candidates=candidates.iter().filter(|c|Some(c.inventory)==snapshot.inventory).collect::<Vec<_>>();
+    assert_eq!(candidates.len(),1);
+    let targets=rows::<FlowCaptureTarget>(&tables);
+    let target=targets.iter().find(|t|t.id()==candidates[0].target).unwrap();
+    let FlowCaptureTarget::Bound {definition}=target else {panic!("actual source formal candidate")};
+    let observed=rows::<FlowDefinitionObservation>(&tables);
+    let definition=observed.iter().find(|d|d.definition==*definition).unwrap();
+    assert_eq!(definition.scope,snapshot.enclosing_scope);
+    assert_eq!(definition.kind,lexical::BindingEventKind::Parameter);
+    let supports=rows::<FlowCaptureTimingSupport>(&tables);
+    assert_eq!(supports.iter().filter(|s|s.assertion==snapshot.id()).count(),1);
+    let catalog=Tables::default();
+    typed_driver::run(&BTreeMap::from([("example.py".into(),source.as_bytes().to_vec())]),Flow(catalog.clone())).await.unwrap();
+    assert!(rows::<FlowCaptureTimingObservation>(&catalog).is_empty(),"catalog never requests ty timing");
 }

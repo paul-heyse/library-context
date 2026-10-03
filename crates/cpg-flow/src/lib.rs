@@ -48,13 +48,13 @@ use serde::{Deserialize, Serialize};
 use ty_module_resolver::SearchPathSettings;
 use ty_python_core::ast_ids::HasScopedUseId;
 use ty_python_core::definition::{Definition, DefinitionKind, DefinitionState};
-use ty_python_core::place::PlaceExpr;
+use ty_python_core::place::{PlaceExpr, PlaceExprRef};
 use ty_python_core::platform::PythonPlatform;
 use ty_python_core::predicate::PredicateNode;
 use ty_python_core::program::{FallibleStrategy, Program, ProgramSettings};
 use ty_python_core::reachability_constraints::ScopedReachabilityConstraintId;
 use ty_python_core::scope::{NodeWithScopeKind, NodeWithScopeRef};
-use ty_python_core::{FileScopeId, ProgramFile, UseDefMap, semantic_index};
+use ty_python_core::{EnclosingSnapshotResult, FileScopeId, ProgramFile, UseDefMap, semantic_index};
 
 use crate::db::FlowDb;
 use crate::predicate::{Translator, diagram, runtime_in_diagram};
@@ -155,6 +155,33 @@ pub struct Reach {
     pub loop_carried: bool,
 }
 
+/// Snapshot characterization is independent of runtime capture value authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureOrigin { OuterLocal, Global, Nonlocal }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotState { FoundBindings, FoundConstraint, NotFound, NoLongerInEagerContext }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotBinding { Bound(u32), Undefined, Deleted, Nested, LoopHeader, Unattached }
+#[derive(Debug, Clone)]
+pub struct SnapshotCandidate {
+    pub binding: SnapshotBinding,
+    pub condition: Condition,
+    pub narrowing: Condition,
+    pub precision_lost: bool,
+}
+#[derive(Debug, Clone)]
+pub struct CaptureSnapshot {
+    pub use_ix: u32,
+    pub enclosing: Scope,
+    pub origin: CaptureOrigin,
+    /// Lazy snapshots use upstream AssumeBound and remain candidates.
+    pub lazy: bool,
+    pub state: SnapshotState,
+    pub candidates: Vec<SnapshotCandidate>,
+    pub constraint: Option<Condition>,
+    pub constraint_precision_lost: bool,
+}
+
 /// What kind of value a value source's sink is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Sink {
@@ -238,6 +265,7 @@ pub struct ModuleFlow {
     pub uses: Vec<Use>,
     pub defs: Vec<Def>,
     pub reaching: Vec<Reach>,
+    pub captures: Vec<CaptureSnapshot>,
     pub values: Vec<ValueSource>,
     pub regions: Vec<Region>,
     pub tests: Vec<Test>,
@@ -829,6 +857,7 @@ impl<'db> Walk<'_, 'db> {
             annotation: self.in_annotation || self.lazy(fid),
         });
         self.use_of.insert(span, ix);
+        self.capture_snapshot(e, fid, ix);
         let bindings: Vec<(DefinitionState<'db>, _, _, _)> = self
             .map(fid)
             .bindings_at_use(use_id)
@@ -888,6 +917,63 @@ impl<'db> Walk<'_, 'db> {
                 }
             }
         }
+    }
+
+    /// Ask ty for the actual enclosing snapshot. Never reinterpret AssumeBound as a
+    /// call-time proof and never expand synthetic loop/nested states into convenient values.
+    fn capture_snapshot(&mut self, e: &Expr, nested: FileScopeId, use_ix: u32) {
+        let Expr::Name(name) = e else { return };
+        if nested.is_global() { return; }
+        let table = self.index.place_table(nested);
+        let Some(symbol) = table.symbol_by_name(&name.id) else { return };
+        if symbol.is_local() { return; }
+        let origin = if symbol.is_nonlocal() { CaptureOrigin::Nonlocal }
+            else if self.index.symbol_resolves_to_global_scope(table.symbol_id(&name.id).expect("known symbol"), nested) { CaptureOrigin::Global }
+            else { CaptureOrigin::OuterLocal };
+        let enclosing = self.index.visible_ancestor_scopes(nested).skip(1)
+            .find_map(|(scope, _)| {
+                if origin == CaptureOrigin::Global { return scope.is_global().then_some(scope); }
+                self.index.place_table(scope).symbol_by_name(&name.id)
+                    .filter(|s| s.is_local()).map(|_| scope)
+            });
+        let Some(enclosing) = enclosing else { return };
+        let Some(scope) = self.scope(enclosing) else { return };
+        let lazy = self.index.ancestor_scopes(nested).take_while(|(id, _)| *id != enclosing)
+            .any(|(_, scope)| !scope.is_eager());
+        let mut constraint = None;
+        let mut constraint_precision_lost = false;
+        // Collect before calling mutable mapping helpers: the iterator borrows the index.
+        let (state, bindings) = match self.index.enclosing_snapshot(enclosing, PlaceExprRef::Symbol(symbol), nested) {
+            EnclosingSnapshotResult::FoundBindings(bindings) => (SnapshotState::FoundBindings,
+                bindings.map(|b| (b.binding, b.reachability_constraint,
+                    narrowing::lower(self.t, &b.narrowing_constraint),
+                    b.narrowing_constraint.narrowing_constraints().precision_lost())).collect::<Vec<_>>()),
+            EnclosingSnapshotResult::FoundConstraint(c) => {
+                let evaluator = self.map(enclosing).narrowing_evaluator(c);
+                constraint_precision_lost = evaluator.narrowing_constraints().precision_lost();
+                constraint = Some(narrowing::lower(self.t, &evaluator));
+                (SnapshotState::FoundConstraint, Vec::new())
+            }
+            EnclosingSnapshotResult::NotFound => (SnapshotState::NotFound, Vec::new()),
+            EnclosingSnapshotResult::NoLongerInEagerContext => (SnapshotState::NoLongerInEagerContext, Vec::new()),
+        };
+        let mut candidates = Vec::with_capacity(bindings.len());
+        for (binding, reach, narrowing, precision_lost) in bindings {
+            let condition = self.condition(enclosing, reach);
+            let binding = match binding {
+                DefinitionState::Undefined => SnapshotBinding::Undefined,
+                DefinitionState::Deleted => SnapshotBinding::Deleted,
+                DefinitionState::Defined(d) => match d.kind(self.db) {
+                    DefinitionKind::LoopHeader(_) => SnapshotBinding::LoopHeader,
+                    DefinitionKind::NestedBindings(_) => SnapshotBinding::Nested,
+                    _ => self.scope(d.file_scope(self.db)).and_then(|scope| self.def(scope, d))
+                        .map_or(SnapshotBinding::Unattached, SnapshotBinding::Bound),
+                },
+            };
+            candidates.push(SnapshotCandidate { binding, condition, narrowing, precision_lost });
+        }
+        self.flow.captures.push(CaptureSnapshot { use_ix, enclosing: scope, origin, lazy, state,
+            candidates, constraint, constraint_precision_lost });
     }
 
     /// The loop-body definitions a loop header stands for, nested headers expanded.

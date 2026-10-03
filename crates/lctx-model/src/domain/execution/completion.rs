@@ -269,6 +269,22 @@ impl Kernel<'_, '_, '_> {
         let children = self.syntax.children(site)?;
         let outcome = match kind {
             S::StmtPass if children.is_empty() => PendingOutcome::Normal,
+            S::StmtAssign => {
+                let mut admitted=self.available_headers.iter().filter(|(proof,_)| {
+                    proof.caller()==self.request.owner && proof.request().input==self.request.input
+                        && proof.request().context==self.request.context
+                        && proof.captures().iter().any(|origin|origin.literal_prefix().is_some_and(|(statement,_)|statement==site))
+                });
+                let (proof,row)=admitted.next().ok_or_else(||boundary(ObligationKind::CapturedStateUnavailable))?;
+                if admitted.next().is_some() {return Err(boundary(ObligationKind::AmbiguousBinding));}
+                let value=one(&children,F::Value)?;
+                if !proof.captures().iter().any(|origin|origin.literal_prefix()==Some((site,value))) {return Err(boundary(ObligationKind::CapturedStateUnavailable));}
+                self.expression(value)?;
+                self.charge.grow(size_of::<Id<super::source_call_records::SourceCallHeader>>() * 2)?;
+                self.headers.push(row.id());
+                self.status=analysis::support::inferred_status(analysis::Interpretation::Structural,[self.status,proof.status()]);
+                PendingOutcome::Normal
+            }
             S::StmtWith => {
                 let mut proofs = self.available_contexts.iter().filter(|proof| {
                     proof.record().statement == site && proof.record().owner == self.request.owner

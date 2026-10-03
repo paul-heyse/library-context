@@ -24,6 +24,7 @@ pub mod embedding;
 pub mod execution;
 mod finite;
 pub mod flow;
+pub mod flow_capture;
 mod identity;
 pub mod input;
 pub mod lexical;
@@ -283,6 +284,7 @@ pub fn facts_relations() -> Vec<Relation> {
     use deployment::*;
     use documents::*;
     use flow::*;
+    use flow_capture::*;
     use input::*;
     use lexical::*;
     use source::*;
@@ -357,6 +359,11 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<FlowNarrowingSupport>(),
         Relation::of::<FlowSourceViewObservation>(),
         Relation::of::<FlowSourceViewSupport>(),
+        Relation::of::<FlowCaptureTarget>(),
+        Relation::of::<FlowCaptureInventory>(),
+        Relation::of::<FlowCaptureCandidate>(),
+        Relation::of::<FlowCaptureTimingObservation>(),
+        Relation::of::<FlowCaptureTimingSupport>(),
         Relation::of::<FlowValueObservation>(),
         Relation::of::<FlowValueSupport>(),
         Relation::of::<FlowRegionObservation>(),

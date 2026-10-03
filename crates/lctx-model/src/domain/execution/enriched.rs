@@ -16,6 +16,7 @@ pub enum EvaluationPremise {
     Modeled(Id<super::modeled_call::ModeledCallEvaluation>),
     Fresh(Id<super::enriched_records::SourceExecutionInvocation>),
     ContextBinding(Id<super::context_binding::ContextEntryBinding>),
+    CapturedEntry(Id<super::capture_bridge::CapturedEntryBinding>),
 }
 pub struct EnrichedFrame<'a> {
     data: &'a SourceCallData,
@@ -28,7 +29,13 @@ pub struct EnrichedFrame<'a> {
     budget: &'a ResourceBudget,
     _charge: charged::StateCharge,
 }
-impl EnrichedFrame<'_> {
+impl<'a> EnrichedFrame<'a> {
+    pub(super) fn push_capture(&mut self,proof:&super::capture_bridge::CheckedCapturedEntry)->Result<(),ModelError> {
+        if self.evaluations.iter().any(|(_,p)|*p==EvaluationPremise::CapturedEntry(proof.row.id())) {return Ok(());}
+        let evaluation=super::evaluation::captured_entry_evaluation(&self.data.evaluation,proof,self.budget)?;
+        self._charge.grow(size_of::<(CheckedEvaluation,EvaluationPremise)>()*2)?;
+        self.evaluations.push((evaluation,EvaluationPremise::CapturedEntry(proof.row.id())));Ok(())
+    }
     pub(crate) fn push_binding(
         &mut self,
         proof: super::context_binding::CheckedContextBinding,
@@ -63,7 +70,7 @@ impl EnrichedFrame<'_> {
         self.definitions.push(proof);
         Ok(())
     }
-    pub(crate) fn headers(&self) -> &[(&CheckedSourceBinding, &SourceCallHeader)] {
+    pub(crate) fn headers(&self) -> &[(&'a CheckedSourceBinding, &'a SourceCallHeader)] {
         &self.headers
     }
     pub(crate) fn has_call(&self, event: Id<normalized::events::NormalizedCallEvent>) -> bool {

@@ -51,6 +51,9 @@ pub enum SummaryOrigin {
         #[model(premise)]
         support: Id<transfer::model::TransferSupport>,
     },
+    #[model(code=2)]
+    Captured { #[model(premise)] witness:Id<super::summary_capture::SummaryCaptureWitness> },
+
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="summary_runs",invariants=super::summary_replay::invariants,publication_checks=super::summary_replay::profile_checks)]
@@ -176,6 +179,7 @@ pub struct PairOutcome {
 #[macro_export]
 macro_rules! summary_owned_inputs{($apply:ident)=>{$apply!{
  atom_restrictions:$crate::domain::atom_decision::AtomRestriction,
+ captured_entries:$crate::domain::execution::capture_bridge::CapturedEntryBinding,captured_values:$crate::domain::execution::capture_bridge::CapturedValueSource,fresh_calls:$crate::domain::execution::enriched_records::SourceExecutionInvocation,
  exception_bodies:$crate::domain::execution::enriched_records::BodyExecution,exception_values:$crate::domain::execution::enriched_records::ExecutionOutcome,
  symbolic_classes:$crate::domain::normalized::symbolic_fields::SourceFieldClass,symbolic_stores:$crate::domain::normalized::symbolic_fields::SourceFieldStore,symbolic_associations:$crate::domain::normalized::symbolic_fields::SourceFieldAssociation,symbolic_readers:$crate::domain::normalized::symbolic_fields::SourceFieldReader,symbolic_links:$crate::domain::normalized::symbolic_fields::SourceFieldReaderLink,symbolic_local_stores:$crate::domain::local_symbolic::SymbolicFieldStore,
  local_invocations:$crate::domain::analysis::local::AnalysisInvocation,model_invocations:$crate::domain::analysis::model::AnalysisInvocation,enriched_invocations:$crate::domain::analysis::enriched_execution::AnalysisInvocation,source_invocations:$crate::domain::analysis::source_call::AnalysisInvocation,
@@ -228,6 +232,7 @@ impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{graphs:projection::nor
 crate::summary_owned_inputs!(data);
 #[macro_export]
 macro_rules! summary_outputs{($apply:ident)=>{$apply!{
+ capture_witnesses:$crate::domain::execution::summary_capture::SummaryCaptureWitness,capture_contributions:$crate::domain::execution::summary_capture::SummaryCaptureContribution,
  exception_outcomes:$crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
  symbolic_alternatives:$crate::domain::execution::summary_symbolic::SymbolicFieldAlternative,
  origin_boundaries:$crate::domain::execution::summary_production::OriginBoundary,pair_outcomes:$crate::domain::execution::summary_production::PairOutcome,
@@ -448,6 +453,7 @@ impl SummaryData {
             SummaryPremise::Witness { witness } => {
                 TransferEvidence::witness(need(&out.witnesses, *witness)?, budget)
             }
+            SummaryPremise::Captured {witness}=>TransferEvidence::captured(need(&out.capture_witnesses,*witness)?,budget),
             SummaryPremise::Path { witness } => {
                 TransferEvidence::path(need(&out.path_witnesses, *witness)?, budget)
             }
@@ -461,7 +467,7 @@ impl SummaryData {
     ) -> Result<(Vec<WorkBranch>, Box<dyn Reservation>), ModelError> {
         let charge = budget.reserve(
             "summary-raw-seeds",
-            (self.local_contributions.len().saturating_mul(self.atom_restrictions.len().saturating_add(1)) + self.model_supports.len())
+            self.local_contributions.len().saturating_mul(self.atom_restrictions.len().saturating_add(1)).saturating_add(self.model_supports.len()).saturating_add(self.captured_entries.len())
                 .saturating_mul(size_of::<WorkBranch>() + 512),
         )?;
         let mut seeds = Vec::new();
@@ -556,6 +562,18 @@ impl SummaryData {
                 facts,
                 cost: ProofCost::SOURCE,
             });
+        }
+        let (captures,_captures)=super::summary_capture::seeds(self,invocation,budget)?;
+        for seed in captures {
+            for root in seed.roots {out.vocabulary.roots.insert(&mut out.vocabulary.charge,root.id(),root)?;}
+            for place in seed.places {out.vocabulary.places.insert(&mut out.vocabulary.charge,place.id(),place)?;}
+            let path=AccessPath::empty();out.vocabulary.paths.insert(&mut out.vocabulary.charge,path.id(),path)?;
+            let origin=SummaryOrigin::Captured {witness:seed.witness.id()};
+            out.origins.insert(origin.clone())?;
+            let premise=SummaryPremise::Captured {witness:seed.witness.id()};
+            out.keys.insert(seed.branch.key().clone())?;out.premises.insert(premise.clone())?;
+            let facts=seed.witness.source_facts();out.capture_witnesses.insert(seed.witness)?;
+            seeds.push(WorkBranch {branch:seed.branch,premise,origin:origin.id(),facts,cost:ProofCost::SOURCE});
         }
         seeds.sort_by_key(WorkBranch::id);
         Ok((seeds, charge))
@@ -1275,7 +1293,7 @@ fn publish(
         component.binary_search(&b.descriptor().owner).is_ok()
             && matches!(
                 b.premise,
-                SummaryPremise::Witness { .. } | SummaryPremise::Path { .. }
+                SummaryPremise::Witness { .. } | SummaryPremise::Path { .. } | SummaryPremise::Captured {..}
             )
     }) {
         charge.grow(size_of::<ProofId>() + 64)?;
@@ -1339,6 +1357,7 @@ fn publish_members(
                 owner::SupportSource::TransferWitness { witness }
             }
             SummaryPremise::Path { witness } => owner::SupportSource::PathWitness { witness },
+            SummaryPremise::Captured {witness}=>owner::SupportSource::CaptureWitness {witness},
             _ => unreachable!(),
         };
         proof_sources.insert(source)?;
@@ -1357,6 +1376,7 @@ fn publish_members(
                     owner::SupportSource::PathWitness { witness: a },
                     SummaryPremise::Path { witness: b },
                 ) => a == b,
+                (owner::SupportSource::CaptureWitness {witness:a},SummaryPremise::Captured {witness:b})=>a==b,
                 _ => false,
             })
             .ok_or_else(|| invalid("aggregate witness branch absent"))?;
@@ -1373,6 +1393,7 @@ fn publish_members(
                 branch.qualification(),
                 branch.condition(),
             )?,
+            SummaryPremise::Captured {witness}=>owner::support::EvidencePremise::derived(source,need(&out.capture_witnesses,witness)?,branch.qualification(),branch.condition())?,
             _ => unreachable!(),
         });
     }
@@ -1427,6 +1448,7 @@ fn publish_members(
                     witness,
                 })?;
             }
+            SummaryPremise::Captured {witness}=>{out.capture_contributions.insert(super::summary_capture::SummaryCaptureContribution {alternative:alternative.id(),witness})?;}
             _ => unreachable!(),
         }
     }
@@ -1502,6 +1524,9 @@ pub fn produce(
     let (seeds, _seeds) = data.seeds(invocation, &mut out, budget)?;
     let (guards, _guards) = data.guards(budget)?;
     let mut vocabulary = data.vocabulary.copy(budget)?;
+    for root in out.vocabulary.roots.values() {vocabulary.roots.insert(&mut vocabulary.charge,root.id(),root.clone())?;}
+    for place in out.vocabulary.places.values() {vocabulary.places.insert(&mut vocabulary.charge,place.id(),place.clone())?;}
+    for path in out.vocabulary.paths.values() {vocabulary.paths.insert(&mut vocabulary.charge,path.id(),path.clone())?;}
     let mut progress = Progress::new(limits, budget);
     // Projection omissions remain explicit even when no component can own a seed.
     for seed in &seeds {
@@ -2003,7 +2028,7 @@ pub fn produce(
         out.components.insert(row)?;
     }
     run.components = out.components.len() as i64;
-    run.proofs = (out.witnesses.len() + out.path_witnesses.len()) as i64;
+    run.proofs = (out.witnesses.len() + out.path_witnesses.len()+out.capture_witnesses.len()) as i64;
     run.residuals = out.residuals.len() as i64;
     out.runs.insert(run)?;
     if inherited_partial(data, invocation)?

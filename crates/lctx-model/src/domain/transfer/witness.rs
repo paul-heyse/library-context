@@ -29,6 +29,9 @@ pub enum SummaryPremise {
         #[model(premise)]
         witness: Id<crate::domain::execution::summary_path::SummaryPathWitness>,
     },
+    #[model(code=4)]
+    Captured { #[model(premise)] witness:Id<crate::domain::execution::summary_capture::SummaryCaptureWitness> },
+
 }
 impl SummaryPremise {
     pub fn reference(&self) -> RowRef {
@@ -37,6 +40,7 @@ impl SummaryPremise {
             Self::Model { alternative } => RowRef::of(*alternative),
             Self::Witness { witness } => RowRef::of(*witness),
             Self::Path { witness } => RowRef::of(*witness),
+            Self::Captured {witness}=>RowRef::of(*witness),
         }
     }
 }
@@ -223,6 +227,10 @@ impl TransferEvidence {
             facts: vec![crate::domain::analysis::support::DerivedEvidence::source_facts(row)],
             _charge: charge,
         })
+    }
+    pub fn captured(row:&crate::domain::execution::summary_capture::SummaryCaptureWitness,budget:&ResourceBudget)->Result<Self,ModelError> {
+        let charge=budget.reserve("captured_transfer_evidence",size_of::<Self>()+size_of::<crate::domain::analysis::support::SourceFacts>())?;
+        Ok(Self {premise:SummaryPremise::Captured {witness:row.id()},facts:vec![crate::domain::analysis::support::DerivedEvidence::source_facts(row)],_charge:charge})
     }
     pub fn witness(row: &SummaryWitness, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let charge = budget.reserve(

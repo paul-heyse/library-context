@@ -59,6 +59,8 @@ pub mod production;
 pub mod read_channels;
 pub mod read_dynamic;
 pub mod source_call;
+pub mod capture_bridge;
+pub mod summary_capture;
 pub mod source_call_records;
 pub mod source_invocation;
 

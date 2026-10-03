@@ -907,6 +907,8 @@ pub async fn enrich(
         ModeledCallNative,
         SourceExecutionInvocation,
         SourceExecutionArgument,
+        lctx_model::domain::execution::capture_bridge::CapturedEntryBinding,
+        lctx_model::domain::execution::capture_bridge::CapturedValueSource,
         DefinitionEvaluation,
         DefinitionSource,
         DefinitionMember,
@@ -976,7 +978,7 @@ pub async fn enrich(
         )?;
         let records = enrich_all(&data, &invocation, definition, profile, budget)?;
         macro_rules! write{($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
-        write!(modeled_calls:ModeledCallEvaluation,modeled_arguments:ModeledCallArgument,modeled_native:ModeledCallNative,fresh_calls:SourceExecutionInvocation,fresh_arguments:SourceExecutionArgument,definition_evaluations:DefinitionEvaluation,definition_sources:DefinitionSource,definition_members:DefinitionMember,contexts:ContextExecution,context_items:ContextItem,context_sources:ContextSource,context_members:ContextMember,context_bindings:ContextEntryBinding,context_binding_sources:ContextBindingSource,context_binding_members:ContextBindingMember,executions:StatementExecution,outcomes:ExecutionOutcome,sources:ExecutionSource,members:ExecutionMember,entered:EnteredStatement,boundaries:ExecutionBoundary,bodies:BodyExecution,body_sources:BodySource,body_members:BodyMember,releases:BodyReleaseInput,body_boundaries:BodyBoundary,);
+        write!(modeled_calls:ModeledCallEvaluation,modeled_arguments:ModeledCallArgument,modeled_native:ModeledCallNative,fresh_calls:SourceExecutionInvocation,fresh_arguments:SourceExecutionArgument,captured_entries:lctx_model::domain::execution::capture_bridge::CapturedEntryBinding,captured_values:lctx_model::domain::execution::capture_bridge::CapturedValueSource,definition_evaluations:DefinitionEvaluation,definition_sources:DefinitionSource,definition_members:DefinitionMember,contexts:ContextExecution,context_items:ContextItem,context_sources:ContextSource,context_members:ContextMember,context_bindings:ContextEntryBinding,context_binding_sources:ContextBindingSource,context_binding_members:ContextBindingMember,executions:StatementExecution,outcomes:ExecutionOutcome,sources:ExecutionSource,members:ExecutionMember,entered:EnteredStatement,boundaries:ExecutionBoundary,bodies:BodyExecution,body_sources:BodySource,body_members:BodyMember,releases:BodyReleaseInput,body_boundaries:BodyBoundary,);
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
             output.push(requirement).await?;

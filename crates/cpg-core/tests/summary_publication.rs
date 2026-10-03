@@ -615,6 +615,31 @@ async fn run_fixture(profile: Profile, fixture: &str) {
             assert!(!results.iter().any(|row| row.0 == name), "unsupported body became Summary absence");
         }
     }
+    if fixture=="stable_capture_shapes" && profile==Profile::Behavioral {
+        let rows:Vec<(String,i16,i16,i16,bool)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT spelling.spelling, source.kind, q.modality, q.approximation, capture.under_caller_entry FROM {0}.captured_entry_bindings capture JOIN {0}.captured_value_sources source ON source.id=capture.value_source JOIN {0}.entity_refs er ON er.id=capture.caller JOIN {0}.callable_entities ce ON ce.id=er.callable_callable JOIN {0}.declaration_observations decl ON decl.declaration=ce.source_declaration JOIN {0}.syntax_observations spelling ON spelling.occurrence=decl.name JOIN {0}.assertion_qualifications q ON q.id=capture.qualification ORDER BY 1",id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
+        eprintln!("B2_CAPTURE {rows:?}");
+        assert!(rows.iter().any(|r|r.0=="captured_entry"&&r.1==0));
+        assert!(rows.iter().any(|r|r.0=="captured_literal"&&r.1==1));
+        assert!(rows.iter().all(|r|r.2==0&&r.3==0&&r.4));
+        let summaries:Vec<(String,i16,i16,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT spelling.spelling, k.kind, q.modality, q.approximation FROM {0}.summary_capture_witnesses w JOIN {0}.summary_transfer_keys k ON k.id=w.transfer JOIN {0}.entity_refs er ON er.id=k.owner JOIN {0}.callable_entities ce ON ce.id=er.callable_callable JOIN {0}.declaration_observations decl ON decl.declaration=ce.source_declaration JOIN {0}.syntax_observations spelling ON spelling.occurrence=decl.name JOIN {0}.assertion_qualifications q ON q.id=w.qualification JOIN {0}.summary_capture_contributions c ON c.witness=w.id JOIN {0}.summary_transfer_alternatives a ON a.id=c.alternative JOIN {0}.summary_transfer_supports s ON s.assertion=a.id ORDER BY 1",id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
+        eprintln!("B2_SUMMARY {summaries:?}");
+        assert!(summaries.iter().any(|r|r==&("captured_entry".into(),0,0,0)),"actual supported identity transfer absent");
+        assert!(summaries.iter().any(|r|r==&("captured_literal".into(),0,0,0)),"literal capture transfer absent");
+        for name in ["mutation","call_before_assignment","escaped","delayed","nonlocal_write","global_read","loop_capture","nested_scope"] {
+            assert!(!rows.iter().any(|r|r.0==name),"unsupported capture hydrated: {name}");
+            assert!(!summaries.iter().any(|r|r.0==name),"unsupported capture became Summary: {name}");
+        }
+        let wrong_roots:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {0}.summary_capture_witnesses w JOIN {0}.captured_entry_bindings b ON b.id=w.binding JOIN {0}.captured_value_sources source ON source.id=b.value_source JOIN {0}.summary_transfer_keys k ON k.id=w.transfer JOIN {0}.places p ON p.id=k.input JOIN {0}.place_roots r ON r.id=p.root WHERE (source.kind=0 AND (r.kind<>9 OR r.entry_declaration IS DISTINCT FROM source.entry_declaration)) OR (source.kind=1 AND (r.kind<>7 OR r.occurrence_occurrence IS DISTINCT FROM source.literal_value))",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(wrong_roots,0,"formal and literal sources retain their actual distinct input roots");
+        let formal_origin_edges:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {0}.captured_entry_bindings b JOIN {0}.captured_value_sources source ON source.id=b.value_source JOIN {0}.flow_definition_observations d ON d.id=b.origin JOIN {0}.flow_definitions f ON f.id=d.definition JOIN {0}.occurrences native ON native.id=f.occurrence JOIN {0}.occurrences formal ON formal.id=source.entry_declaration JOIN {0}.syntax_placements p ON p.occurrence=native.id AND p.parent=formal.id WHERE source.kind=0 AND formal.syntax_kind=80 AND formal.role=2 AND native.syntax_kind=93 AND native.id<>formal.id AND native.source=formal.source AND native.start=formal.start AND native.\"end\"=formal.\"end\" AND p.field=24 AND p.ordinal=0",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(formal_origin_edges,1,"same-range Identifier origin must use the actual Parameter child edge while retaining its distinct formal root");
+        let forged:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {0}.entry_value_witnesses w JOIN {0}.occurrence_ownership owner ON owner.occurrence=w.access WHERE owner.entity<>w.owner",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(forged,0,"capture never forges a native caller read");
+    }
     validated.abort().await.unwrap();
     drop(captured);
     assert_eq!(budget.reserved(), 0);
@@ -663,4 +688,9 @@ async fn assert_conditional_atom_summary(pool: &sqlx::PgPool, schema: &str, root
     let start=text.find("def effectful_repeated(").unwrap() as i64;
     let end=text.find("def nonconforming_runtime(").unwrap() as i64;
     assert!(!alternatives.iter().any(|(at,basis,_)|*at>=start && *at<end && *basis>0),"effectful predicate calls cannot inherit a parameter truth premise");
+}
+
+#[tokio::test]
+async fn capture_timing_stable_entries_reach_actual_finite_summaries() {
+    run_fixture(Profile::Behavioral,"stable_capture_shapes").await;
 }

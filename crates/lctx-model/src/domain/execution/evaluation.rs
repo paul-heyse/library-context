@@ -80,6 +80,10 @@ macro_rules! execution_evaluation_inputs {
             binding_events:$crate::domain::lexical::BindingEvent,
             bindings:$crate::domain::lexical::BindingObservation,
             binding_supports:$crate::domain::lexical::BindingSupport,
+            captures:$crate::domain::captures::CaptureObservation,
+            capture_supports:$crate::domain::captures::CaptureSupport,
+            capture_timing:$crate::domain::flow_capture::FlowCaptureTimingObservation,
+            capture_timing_supports:$crate::domain::flow_capture::FlowCaptureTimingSupport,
         }
     };
 }
@@ -1016,6 +1020,34 @@ fn evaluate_prepared(
         Err(EvaluationError::Boundary(reason)) => Ok(Err(reason)),
         Err(EvaluationError::Model(error)) => Err(error),
     }
+}
+
+/// A modeled captured entry uses the active caller's origin certificate, not a native
+/// read witness in the caller or an extra formal in the nested function.
+pub(super) fn captured_entry_evaluation(data:&EvaluationData,proof:&super::capture_bridge::CheckedCapturedEntry,
+    budget:&ResourceBudget)->Result<CheckedEvaluation,ModelError> {
+    let row=&proof.row;
+    let parent=data.occurrences.get(row.read).and_then(|o|data.artifacts.get(o.source))
+        .ok_or_else(||ModelError::Invalid("captured read source absent".into()))?;
+    let request=ExpressionRequest {input:parent.input,context:data.qualifications.get(row.qualification)
+        .ok_or_else(||ModelError::Invalid("captured qualification absent".into()))?.context,owner:row.callee,expression:row.read};
+    with_completion_syntax(data,request,budget,|syntax| {
+        syntax.observe(row.read)?;
+        if syntax.qualification(row.read).map_err(boundary)?!=row.qualification {return Err(boundary(ObligationKind::IncompatibleContexts));}
+        let (native,charge)=syntax.take_admission();
+        let value=match &proof.source {
+            super::capture_bridge::CapturedValueSource::Entry {..}=>Value::Retained,
+            super::capture_bridge::CapturedValueSource::Literal {literal,..}=>match data.literals.get(*literal).ok_or_else(||boundary(ObligationKind::MissingEvidence))? {
+                Literal::None=>Value::None,Literal::Bool {value}=>Value::Bool(*value),
+                Literal::Integer {decimal}=>decimal.parse::<i64>().map(Value::Int).unwrap_or(Value::Literal),
+                Literal::Float {bits}=>Value::Float(f64::from_bits(*bits as u64)),
+                Literal::String {..}|Literal::Bytes {..}=>Value::Literal,
+            }
+        };
+        Ok(CheckedEvaluation {request,value,release:value.release(),
+            call_source:None,exception:None,native,operands:vec![row.read],entries:Vec::new(),_entry_charges:Vec::new(),
+            qualification:row.qualification,status:analysis::policy::EvidenceStatus::StructurallyObserved,_charge:charge})
+    })?.map_err(|reason|ModelError::Invalid(format!("captured entry evaluation refuses: {reason:?}")))
 }
 
 /// Only the actual SourceCall replay callback invokes this lowering. A normal callee outcome

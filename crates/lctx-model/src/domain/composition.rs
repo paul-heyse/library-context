@@ -1228,6 +1228,7 @@ pub(crate) fn composition_invariants() -> Vec<Invariant> {
                 ValidationInput::of::<SummaryPremise>(&["id"]),
                 ValidationInput::of::<SummaryWitness>(&["id"]),
                 ValidationInput::of::<super::execution::summary_path::SummaryPathWitness>(&["id"]),
+                ValidationInput::of::<super::execution::summary_capture::SummaryCaptureWitness>(&["id"]),
                 ValidationInput::of::<SummaryContribution>(&["id"]),
                 ValidationInput::of::<super::transfer::local::TransferSupport>(&["id"]),
                 ValidationInput::of::<super::transfer::model::TransferSupport>(&["id"]),
@@ -1273,6 +1274,7 @@ struct CompositionCheck {
         Id<super::execution::summary_path::SummaryPathWitness>,
         super::execution::summary_path::SummaryPathWitness,
     >,
+    capture_witnesses:ChargedMap<Id<super::execution::summary_capture::SummaryCaptureWitness>,super::execution::summary_capture::SummaryCaptureWitness>,
     contributions: super::charged::ChargedVec<SummaryContribution>,
     binding_data: BindingData,
     binding_output: BindingOutput,
@@ -1323,6 +1325,7 @@ impl CompositionCheck {
             premises: Default::default(),
             witnesses: Default::default(),
             path_witnesses: Default::default(),
+            capture_witnesses:Default::default(),
             contributions: Default::default(),
             binding_data: BindingData::new(budget),
             binding_output: BindingOutput::new(budget),
@@ -1382,6 +1385,12 @@ impl CompositionCheck {
                 self.model_evidence.get(*source).map(|(_, facts)| facts)
             })
             .collect(),
+            SummaryPremise::Captured {witness}=> {
+                let row=Self::get(&self.capture_witnesses,witness,"capture witness absent")?;
+                let parent=Self::get(&self.invocations,&row.invocation,"capture summary invocation absent")?;
+                if (parent.input,parent.context)!=(invocation.input,invocation.context) {return Err(invalid("capture premise crosses invocation frame"));}
+                Ok(vec![super::analysis::support::DerivedEvidence::source_facts(row)])
+            }
             SummaryPremise::Path { witness } => {
                 let row = Self::get(
                     &self.path_witnesses,
@@ -1446,6 +1455,11 @@ impl CompositionCheck {
                 witness,
                 "earlier summary witness absent",
             )?);
+        }
+        if let SummaryPremise::Captured {witness}=source {
+            let row=Self::get(&self.capture_witnesses,witness,"capture witness absent")?;
+            return Ok((Self::get(&self.keys,&RowRef::of(row.transfer),"capture transfer absent")?,
+                Self::get(&self.qualifications,&row.qualification,"capture qualification absent")?));
         }
         if let SummaryPremise::Path { witness } = source {
             let row = Self::get(&self.path_witnesses, witness, "earlier path proof absent")?;
@@ -2092,6 +2106,8 @@ impl InvariantCheck for CompositionCheck {
                 self.path_witnesses
                     .insert(&mut self.charge, row.id(), row)?;
             }
+        } else if relation==super::execution::summary_capture::SummaryCaptureWitness::NAME {
+            for row in super::execution::summary_capture::SummaryCaptureWitness::decode(batch)? {self.capture_witnesses.insert(c,row.id(),row)?;}
         } else if relation == SummaryWitness::NAME {
             for row in SummaryWitness::decode(batch)? {
                 self.witnesses.insert(c, row.id(), row)?;

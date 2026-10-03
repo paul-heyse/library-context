@@ -44,6 +44,7 @@ pub fn summaries(
     ContentHash::of(include_bytes!("../composition.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("../transfer/witness.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_production.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("summary_capture.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_replay.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_path.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_alias.rs")).encode(&mut key);
@@ -121,6 +122,7 @@ pub fn source_calls() -> (MethodParameters, AnalysisDefinition) {
     let parameters = parameters();
     let mut key = KeySink::new("fresh-source-call-rule-set");
     ContentHash::of(include_bytes!("source_call.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("capture_bridge.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("source_call_records.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("source_invocation.rs")).encode(&mut key);
     let definition = AnalysisDefinition {

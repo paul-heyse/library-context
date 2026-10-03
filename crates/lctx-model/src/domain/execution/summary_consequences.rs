@@ -453,6 +453,10 @@ fn facts(
             row.heuristic,
         )?;
     }
+    for row in out.capture_witnesses.iter() {
+        if row.invocation!=invocation.id() {return Err(invalid("capture consequence foreign witness"));}
+        add(need(&out.keys,row.transfer)?.descriptor(),row.qualification,SummaryPremise::Captured {witness:row.id()},row.status,false)?;
+    }
     for row in out.path_witnesses.iter() {
         if row.invocation != invocation.id() {
             return Err(invalid("Summary consequence foreign path"));

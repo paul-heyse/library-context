@@ -85,6 +85,8 @@ pub enum ExecutionSource {
         #[model(premise)]
         binding: Id<super::context_binding::ContextEntryBinding>,
     },
+    #[model(code = 9)]
+    CapturedEntry { #[model(premise)] binding:Id<super::capture_bridge::CapturedEntryBinding> },
     #[model(code = 7)]
     Context {
         #[model(premise)]
@@ -197,6 +199,7 @@ pub(crate) fn emit_statement(
         EvaluationPremise::Modeled(id) => ExecutionSource::ModeledCall { call: *id },
         EvaluationPremise::Fresh(id) => ExecutionSource::FreshSource { call: *id },
         EvaluationPremise::ContextBinding(id) => ExecutionSource::ContextBinding { binding: *id },
+        EvaluationPremise::CapturedEntry(id) => ExecutionSource::CapturedEntry {binding:*id},
     }));
     sources.extend(
         proof
@@ -420,7 +423,7 @@ pub(crate) fn emit_body(
     })
 }
 pub fn relations() -> Vec<Relation> {
-    vec![
+    let mut relations=vec![
         Relation::of::<ExecutionOutcome>(),
         Relation::of::<ExecutionSource>(),
         Relation::of::<StatementExecution>(),
@@ -432,7 +435,9 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<BodyReleaseInput>(),
         Relation::of::<SourceExecutionInvocation>(),
         Relation::of::<SourceExecutionArgument>(),
-    ]
+    ];
+    relations.extend(super::capture_bridge::relations());
+    relations
 }
 
 /// A fresh-source call enters only after an independently completed Enriched body and

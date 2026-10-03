@@ -66,6 +66,17 @@ impl CheckedSourceInvocation {
         earlier: &CompletedEvaluations,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        Self::derive_with_captures(data,header,body,earlier,&[],budget)
+    }
+    pub(super) fn derive_with_captures(data:&EvaluationData,header:&CheckedSourceBinding,body:&CheckedSourceBody,
+        earlier:&CompletedEvaluations,captures:&[super::capture_bridge::CheckedCapturedEntry],budget:&ResourceBudget)
+        ->Result<Result<Self,ObligationKind>,ModelError> {
+        let h=header.request();
+        if captures.iter().any(|c|c.row.caller!=header.caller()||c.row.callee!=header.callee()
+            || data.qualifications.get(c.row.qualification).is_none_or(|q|q.context!=h.context)
+            || !header.captures().iter().any(|origin|origin.read==c.row.read&&origin.source.id()==c.row.value_source)) {
+            return Ok(Err(ObligationKind::IncompatibleContexts));
+        }
         let mut charge = charged::StateCharge::new(budget, "source_call_frame_release");
         charge.grow(
             size_of::<Self>() + header.arguments().len() * size_of::<InvocationArgument>() * 2,
@@ -137,6 +148,7 @@ impl CheckedSourceInvocation {
             if *safety != ReleaseSafety::CallerRetained {
                 return Ok(Err(ObligationKind::FrameExitCleanup));
             }
+            if captures.iter().any(|capture|capture.row.read==*site) {continue;}
             let mut rows = base.evaluations.iter().filter(|row| {
                 row.expression == *site
                     && row.owner == header.callee()
@@ -190,7 +202,7 @@ impl CheckedSourceInvocation {
                     return Ok(Err(ObligationKind::MissingEvidence));
                 };
                 release = *safety;
-                if release == ReleaseSafety::CallerRetained {
+                if release == ReleaseSafety::CallerRetained && !captures.iter().any(|c|c.row.read==value.occurrence) {
                     let row = base
                         .evaluations
                         .iter()
