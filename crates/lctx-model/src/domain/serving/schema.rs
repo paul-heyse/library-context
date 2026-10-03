@@ -66,8 +66,6 @@ code_schema!(
     normalized::bindings::BindingOutcome,normalized::bindings::BindingReason,
     normalized::signature_applicability::BindingAuthority,normalized::signature_applicability::AuthorityReason,
     diagnostics::DiagnosticSeverity,diagnostics::DiagnosticChannel,diagnostics::DiagnosticLocation,diagnostics::SelectedRuffRule,diagnostics::NativeBaselineStatus,diagnostics::DefinitionAnswer,diagnostics::NativeParameterRole,diagnostics::NativeDefinitionMetadata,diagnostics::NativeDefinitionSymbolKind,
-    attribution::Modality,
-    assertion::Approximation,
     captures::CaptureOrigin,
     captures::CaptureTiming,
     flow_capture::FlowCaptureOrigin,
