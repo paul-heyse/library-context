@@ -661,3 +661,15 @@ is AnalyzerAssertion/NativeTraversal/ReportProjection. The bounded packet repair
 source-correspondence proof with its actual qualification/basis/attribution and explicit lack
 of value authority, rather than admitting it through the NativeStructural value-proof helper.
 The native capture/timing/origin checks remain unchanged. Affected actual PG rerun is pending.
+
+
+Frozen P3 usage checkpoint integrated `a862fc29` (executor `ff96c8cc`), 2026-10-03:
+C2 SourceUsage anchors, native alias/re-export/rebinding identity, actual argument/receiver/
+applicability/association evidence, separate chosen/candidate trace availability and explicitly
+potential higher-order channels. Full target qualification/basis survives original-source packet
+hydration; unresolved associations remain visible and grants do not expand to foreign/outside
+spans. Native composite ten controls passed; matching CLI and actual diagnostic/usage PG remain
+pending. This adds required typed schema and no compatibility reader. Aggregate patch SHA-256
+`e38bd426f79170975252036a2d95de1602f5c6221b1bb6b7cc38f0dd0daf0100`;
+receipt `p3-source-usage-receipt.json`, schema diff SHA-256
+`a9d6342c59d2a9ca54b01a3173504bcab7d3c39d69b543522557b5785becfc17`.
