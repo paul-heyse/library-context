@@ -31,11 +31,9 @@ passed on 2026-10-03. Those receipts are separate from alignment acceptance.
 
 ## Current implementation and acceptance
 
-Execution began at `ed2d68d7`, preserving unrelated library-utilization edits and concurrent
-operator guidance `628b018d`. T1/ADR-0115 is `d84a2287`; T0 gate composition is `761687bd`;
-N/E/D, architectural owners, ADR-0116 and independent review are `e3e7c78d`. Adapter freshness
-is `2a03adc8`; final transport/deadline control corrections are `50f58ffa`. The final documentation commit records receipt/handoff
-publication. Concurrent role/catalog edits remain outside this work's commits.
+Alignment gate composition, ADR-0115/0116, adapter freshness and transport/deadline corrections
+are recorded in its coordinator §8; latest functional corrections are `50f58ffa`. Concurrent
+role/catalog edits stayed outside that work's commits.
 
 The [independent implementation review](docs/design_review/reviews/design_review_semantic-model-alignment-implementation_2026-10-02.md),
 including Appendix C dated 2026-10-03, accepts the bounded design at **Implemented** strength.
@@ -93,29 +91,30 @@ family/provider grants are committed (`789cd0ac`, 34 controls). B0 required base
 (`23c9dd87`, composite model/Summary/PG/wire receipt). N1 callable roles/ports are integrated
 (`cf0731db`, composite native/model/PG controls); N3/N5 metadata/located queries are integrated
 (`bdddd079`/`b3fbdf87`, final two native + one PG controls). M3 narrowing/view identity passed
-134 controls; protocol/capture integration in both profiles passed 29/29. N2/B4/P1 are isolated
-active packages. Remaining characterization, timing, behavioral and product consumers stay open.
+134 controls; protocol/capture integration in both profiles passed 29/29. N2 generic specialization
+and native deprecation are integrated (`28e7ba1e`, `92e09afc`) with scoped native/query receipts.
+B1 conditional atom restrictions and M2 per-query availability/source fallback are committed
+(`44f7495d`, `76de5a03`, `f8559226`); initial 82/84 and 41/45 failures/repairs retained in coordinator §7.
+N4b integrated (`f4a77641`, 32 controls passed); B4 integrated (`c115e623`, scoped PG/model passed).
+P1 integrated (`1a7ad33d`, real-PG RCA handoff passed); narrow M2 Lexical fix passed 22/22.
+P2 supported facets/stored witness closure (`d288a6b1`): compile, 17 model and three native controls passed.
+P4 ports/basis (`9cfd5854`, compile passed); actual service/Summary repair controls and B2/B3/M2/P3 are active.
 Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
-Real-library reconstruction/activation remain a separately authorized follow-up. The prior
-278-page authoring docs check and finite inventory verifier receipts establish traceability,
-not semantics. No current full-series acceptance, retrieval-quality or performance claim is made.
-Prior qualification work remains uncommitted: actual stdio runner and source-default packet repair.
+Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
+establish traceability. No current full-series acceptance, retrieval-quality or performance claim.
+Prior stdio qualification runner remains uncommitted; source-default repair integrated with P4.
 Focused controls passed: real-PG both-profile runner (one), transcript (two), source-default packet
 (one); full gates/hygiene and real-library journeys are not_run for these changes. Phase 5 §10 owns
 receipts and remaining integration. The catalog compile stopped with SIGINT/exit130; staging
 `d3a3fa026a1237a1c4e175b9b1019eeb` has 204 receipts, no readers/writer, and remains unselected.
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves the stop state. No alignment implementation remains open; PR6 remains separate.
-Actual transport failure seams exercise the service/original grant and complete response bytes;
-they do not qualify physical backend faults or universal early errors without an admitted request.
+Transport seams exercise grants/response bytes within their recorded limits.
 Borrowed CPU kernels drain; hard cancellation and performance improvements are not claimed.
 
-Prior Phase 5 tests retain their dated incomplete boundary: workspace 927 and Python 228 passed
-before the operator stopped the gate; separate PG was stopped and doctests not_run. Current
-alignment acceptance does not silently extend that receipt to real-library serving. Foundation
-and Phase 4 receipts remain at their owners. Gold, heldout data and benchmark captures are untouched.
+Earlier incomplete Phase 5 and foundation/Phase 4 receipts remain at their owners; current
+alignment acceptance does not extend them to real-library serving. Gold/heldout/benchmarks are untouched.
 
-Cargo retains pinned release settings, stable shared intermediates, jobs16 and default frontend1.
-Nextest8 limits test processes. Independent builds may overlap under Cargo's artifact locking.
+Cargo retains release/shared intermediates/jobs16/frontend1. Nextest8 limits processes; builds may overlap.
 The automatic end-of-turn hook owns formatting and generated indexes; no cache cleanup is needed.

@@ -266,6 +266,20 @@ path inspection preserves the five verdicts, exact conditions, support closure a
 unexamined/truncated work. May-model compatibility is not proof of feasible execution or an
 operation-wide absence claim.
 
+**Code-facts expansion (Implemented; qualification in progress, 2026-10-03).** Signature packets
+retain the explicit Source, EffectiveTyped and Synthesized roles and actual native signature
+identity. Source return annotations and native effective ports remain separate. Generated typed
+slots survive without invented source formals. Each exposed type retains its qualification,
+required premise definitions and real native/source supports through the selected generation lease.
+
+Typed structural facet values validate their evaluation domain before effects. Supported source
+async/decorator, class/deprecation and raised-type questions consume attributed observations;
+raised-type characterization is separate from finite runtime exception behavior. Decorator identity
+selection is shared with analytics and follows normalized references before supported qualified-name
+metadata. C2 persists canonical witness rows, and request-time classification refuses an unstored
+citation. Incomplete metadata and unsupported runtime meanings remain Unknown or explicit refusal.
+The coordinator's §7 records the bounded checks; full series qualification remains open.
+
 Required signatures are indivisible. Packet/evidence row and byte budgets disclose omissions,
 continuations or resource refusal; they do not silently shorten a signature. Cursors bind
 generation, canonical request, section/group, policy and representation. Python lexical fusion

@@ -1,10 +1,12 @@
 # Facts and identity
 
-**Implemented / Tested, 2026-09-30, at the qualified facts frontier.** `lctx-model::domain` owns
+**Implemented; code-facts expansion qualification in progress, 2026-10-03.** `lctx-model::domain` owns
 facts, nominal identities, provider-qualified assertions, typed supports and coverage. PostgreSQL
 generations store them; native provider objects are transient. [§15](semantic-model.md) owns the
 shared contracts and [the cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) owns
-qualification. Phase 4 qualification remains in progress, 2026-10-01; Phase 5 serving is unavailable.
+qualification. Phase 5 serving is implemented within its recorded boundaries; activation and
+real-library qualification are stopped at the 2026-10-03 code-facts pivot. The current
+[code-facts coordinator](../../plans/code-facts-expansion-plan_2026-10-03.md) owns the new series qualification.
 
 ## §3 Fact model
 
@@ -30,8 +32,11 @@ named consumer and remain Proposed unless implemented by a declared owner.
 
 Native acquisition/extraction supplies Artifacts, Exports, Signatures, Calls, Syntax, Lexical,
 Types, Docs, Deployment and, when requested, Flow. `cpg-extract` owns captured pinned input and
-provider adaptation; `cpg-flow` reads ty's semantic index over the second parse. Pyrefly and Ruff
-share the primary parse. Byte coordinates join provider observations to captured occurrences.
+provider adaptation; `cpg-flow` reads ty's semantic index over the independent Ruff parse.
+Pyrefly retains its embedded Ruff line; the latest independent Ruff owns canonical structural
+syntax and native lexical context. Exact byte range, syntax kind and structural parent
+correspondence join those observations; provider-local IDs never cross invocations. Migration
+is Implemented with scoped tests; the current coordinator records its qualification limits.
 
 Assertions state their original context, scope, condition, modality and approximation. Separate
 supports identify provider/run/surface, evidence, origin, extraction mode and fidelity. A precise

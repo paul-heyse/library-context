@@ -337,7 +337,119 @@ verification and separate contextual coverage. These source/query repairs remain
 Implemented checkpoints pending final controls; no B1 acceptance or Summary/packet cascade is claimed. Logs preserve all failures under
 `/home/paul/.cache/lctx-code-facts/b1-*.log`.
 
-B4 and P1 remain in isolated executor worktrees. Their focused PG controls expose admission/
-entry-dependent failures being repaired against the same source contract; acceptance remains
-open. Remaining M2 native enrichments, M3 timing and first behavioral consumers, downstream
-packages and Q0/full hygiene remain open/not_run. Real-library reconstruction/activation remain separately authorized follow-up.
+B4/P1 are integrated with scoped final receipts below. M2 native enrichments, M3 timing,
+remaining consumers and Q0/full gates remain open. Real-library/activation remain separate.
+
+N4b integrated at `f4a77641` (executor `77e8ec5d`), 2026-10-03. Native pair 64 preserves
+Complete/Partial/Unavailable export enumeration and basis; canonical `__all__` retains its
+known source subset independently. PublicExposure separates public-path knowledge from alias
+identity; the first model-owned public-path decision retains enumeration/path proof IDs and
+permits negative absence only under complete exact unconditional native enumeration/support.
+Actual computed/invalid/wildcard/shared/circular/private-positive/namespace/bundled/unresolved
+controls **passed** 32/32 with
+`cargo nextest run --release -p cpg-extract --test native_exports --test normalized_imports --test typed_symbols -p lctx-model --test domain_syntax --test domain_normalized --test domain_catalog`;
+all-target model/extract compile **passed**. Composite failure/repair receipt:
+`/home/paul/.cache/lctx-code-facts/n4b-receipt.json`. PG/persisted contract integration remains Q0.
+
+Root atom/query plus first typed-facet batch `b1-query-p2-controls.log` did not establish a pass:
+it reported missing FacetValue import (repaired), then its Cargo 723342 was interrupted after
+an actual two-process lock cycle with P1 Cargo 792478 was confirmed using owned cwd/cmdline
+and `n4b-locks.json`. Only the root participant received SIGINT; peer checks were preserved.
+The batch is **failed** (exit 101), rerun pending. Root P2 now also implements a located
+SpecializedType query using existing native substitution and the shared structural matcher;
+global Specialized variant queries refuse before effects. This is a working-tree checkpoint,
+**not_run** for the latest change and not P2 acceptance.
+
+B4 integrated at `c115e623` (executor `d2e234a2`), 2026-10-03. Ordered exact builtin
+exception values/handlers, causes/reraising/else/finally, named-handler disposal and finite
+Summary exception selection are implemented. Witness 19 and required BehavioralExceptionPacket
+fields are append-only/hard wire migrations. Final scoped release compile and five controls
+**passed**, including actual disposable-PG body and Summary publication/required stored packet;
+the affected Enriched and Summary regressions **passed** from those unchanged final compiled
+binaries. Exact commands, binary digests and retained failures:
+`/home/paul/.cache/lctx-code-facts/code-facts-b4-receipt.md`. Handler lookup at a conditional
+source-call boundary retains actual refusal 48; it does not fabricate a completed exception
+body. Integrated Q0/service qualification remains **not_run**.
+
+Root `p2-located-controls.log` release batch ran 51 controls: **48 passed, 3 failed**.
+All atom/query, native protocol/deprecation, and located specialization controls passed.
+The remaining controls exposed an obsolete invalid type category (34 now means LiteralString),
+a packet fixture missing the required explicit claim basis, and a wrapper-kind expectation
+that confused a typed callable with a known runtime descriptor. Repairs preserve the actual
+contract: category 35 is invalid, the fixture carries canonical empty basis, wrapper Function
+kind remains Unresolved, while true/false Module facets are specified independently.
+The B4 merge also required preserving both witness 19/20 and removing a duplicated old blanket
+facet-refusal arm. All-target model/extract/core integration compile **passed**; its initial
+unreachable-pattern warning was repaired and is covered by the next compilation.
+`p2-b4-b1-summary-controls.log` ran 84 controls: **82 passed, 2 failed**. All three earlier
+repairs and native specialization controls passed. Failures were the old preparation inventory
+count and the replay probe missing declared atom inputs. Both are repaired; the probe consumes
+shared Summary evidence/projection macros. `b1-summary-repair.log` subsequently failed compilation
+during the P4 DTO migration (older compiled model/new consumer). The assembled scoped rerun
+`p2-facets-p4-b1-controls.log` **failed**, 41 passed and four failed. The replay probe passed
+all twelve controls; remaining failures were the shared decorator projection, duplicate C2 input
+registration in two service controls, and the actual conditional atom→Summary journey. No
+conditional atom→Summary pass is claimed yet.
+
+
+Narrow M2 correction integrated `fe942fe1` (executor `07aa8570`), 2026-10-03. Populated Ruff
+context support uses Lexical independently of structural Syntax coverage. All-target check and
+22/22 release controls **passed** with
+`cargo nextest run --release -p cpg-extract --test ruff_context --test normalized_callables --test native_exports --test typed_symbols -p lctx-model --test domain_normalized`.
+Receipt: `/home/paul/.cache/lctx-code-facts/m2-context-receipt.json`; additional M2/P3 remain open.
+
+P1 integrated `1a7ad33d` (executor `02bbc1b5`), 2026-10-03. Native metadata/decorator/capture/
+protocol characterization, explicit role/receiver policy and deterministic attributes are implemented.
+Final unchanged disposable-PG Catalog metadata/RCA journey **passed** 1/1, including exact prior
+RCA handoff. Four model/three FCA controls passed on the unchanged producer. Composite commands,
+failures and receipt: `/home/paul/.cache/lctx-code-facts/p1-receipt.json`. No full-series or
+behavioral-PG acceptance follows; later B2/B3 facts require their consumers.
+
+P2 checkpoint `6bf7469f` implements typed facets and located specialization; its controls passed
+in the 82/84 batch. Remaining facet consumers share normalized decorator identity with analytics;
+qualification pending. P4 checkpoint `9cfd5854` declares packet role/native signature identity,
+source-declared versus native typed ports, supports and full bases through one packet lease.
+Source-default repair is integrated. Model/store all-target compile **passed**:
+`p4-native-ports-check-final.log`; actual service/wire journey pending. Initial compile attempts
+failed a duplicate command option and misplaced allowance block; repairs/logs retained. Remaining
+facet/P4 model/store/core/CLI all-target check **passed** (`p2-structural-p4-check-repair.log`),
+after derive-macro repair. Generated adapter/Q0/full test-all/hygiene remain **not_run**.
+
+
+2026-10-03 integration repairs (qualification pending): `bc488d1c` declares existing pinned
+Ruff codegen/index/database dependencies for P3; `cargo check -p cpg-extract --lib` **passed**
+(`p3-manifest-prerequisite-check.log`). C2 now registers shared decorator input once, visits
+every declared projection during replay, and persists canonical fact-witness rows before
+request-time classification. The evaluator refuses a citation absent from that output. Source
+qualified decorator names follow selected normalized binding identity and supported declaration
+metadata; source spelling does not select a target. Witness codes 21–26 are appended.
+
+Summary seeds now preserve actual supported Local atom-restriction alternatives alongside
+their conservative original seeds. The real-PG control uses `finite_zero → identity` to
+exercise interprocedural Summary production; direct Local-only return paths do not independently
+produce Summary transfer witnesses. Original failed receipts remain retained.
+`cargo check -p lctx-model -p cpg-core -p lctx --all-targets` **passed** after adding the
+explicit Summary owned restriction input (`p2-witness-b1-integration-check-repair.log`).
+Subsequent shared-projection replay repair and service witness-row assertions are under
+`p2-witness-b1-p4-repair-controls.log`, **not_run** until the running release controls finish.
+Full `just test-all`, `just hygiene`, adapter readiness and Q0 remain **not_run** while
+M2/P3, B2/B3 and the final P4 cascade are being integrated.
+
+P2 native facets **passed**, 2026-10-03, on the freshly compiled repaired release binary:
+`/home/paul/.cargo/build/library-context/release/build/cpg-extract/51baf3cb72e8b073/out/native_callable_variants-51baf3cb72e8b073 --nocapture`
+ran all three controls (`p2-native-direct-repair-controls.log`). This includes positive/negative
+resolved decorator, source async, class metadata, raised-type, declared/effective return and
+deprecation role distinctions. The assembled Nextest build stopped on the new service assertion's
+ID display formatter; debug formatting is repaired. That aggregate is **failed**, not a PG pass.
+The transcript-only Python controls are **blocked** on missing installed `lctx_semantics`;
+`uv run --no-sync python -m pytest tests/scripts/test_qualify_serving.py -q` failed collection
+(`p4-stdio-transcript-controls.log`). Native readiness precedes their final rerun.
+
+The freshly compiled repaired release `domain_selection_catalog-8c112cc7a0538668 --nocapture`
+**passed** all 17 controls (`p2-model-direct-repair-controls.log`), including the exact 78-row
+classification preparation inventory and canonical replay. Native three/model seventeen are
+a composite scoped receipt, independent of the still-open PG packet/conditional Summary cascade.
+`p2-witness-b1-p4-repair-controls.log` drained **failed** (exit101, test assertion compile);
+`p2-witness-b1-p4-repair-controls2.log` is the corrected queued Nextest rerun. The freshly
+compiled Summary binary is separately exercising its exact behavioral PG control in
+`b1-summary-direct-repair-control.log`; outcome pending, 2026-10-03.
