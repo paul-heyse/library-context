@@ -9,13 +9,45 @@ exported CARGO_* paths participate in sccache's Rust key.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shlex
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET_KEYS = ("CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR")
+NATIVE_INPUT_KEYS = ("LCTX_NATIVE_SEMANTICS_INPUTS", "LCTX_NATIVE_STORAGE_INPUTS")
+
+
+def native_input_fingerprints(root: Path) -> dict[str, str]:
+    """Key uv's native builds by the content and membership of their declared inputs."""
+    fingerprints = {}
+    for member, key in zip(("lctx_semantics", "lctx_storage"), NATIVE_INPUT_KEYS, strict=True):
+        package = root / "python" / member
+        project = package / "pyproject.toml"
+        if not project.is_file():
+            continue
+        cache_keys = tomllib.loads(project.read_text())["tool"].get("uv", {}).get("cache-keys", [])
+        if {"env": key} not in cache_keys:
+            continue
+        files = {
+            path.resolve()
+            for entry in cache_keys
+            if "file" in entry
+            for path in package.glob(entry["file"])
+            if path.is_file()
+        }
+        digest = hashlib.sha256()
+        for path in sorted(files):
+            name = path.relative_to(root).as_posix().encode()
+            content = path.read_bytes()
+            for part in (name, content):
+                digest.update(len(part).to_bytes(8, "little"))
+                digest.update(part)
+        fingerprints[key] = digest.hexdigest()
+    return fingerprints
 
 
 def normalized_env(source: dict[str, str], root: Path = ROOT) -> dict[str, str]:
@@ -32,13 +64,14 @@ def normalized_env(source: dict[str, str], root: Path = ROOT) -> dict[str, str]:
     if override and override.strip():
         env["CARGO_TARGET_DIR"] = str((root / override).resolve())
         env.pop("CARGO_BUILD_TARGET_DIR", None)
+    env.update(native_input_fingerprints(root))
     return env
 
 
 def shell_changes(before: dict[str, str], after: dict[str, str]) -> str:
     return "\n".join(
         f"export {key}={shlex.quote(after[key])}" if key in after else f"unset {key}"
-        for key in TARGET_KEYS
+        for key in (*TARGET_KEYS, *NATIVE_INPUT_KEYS)
         if before.get(key) != after.get(key)
     )
 

@@ -70,8 +70,12 @@ store-check:
 # Core Rust tests share the release profile with the shipped binary. Cargo rebuilds only changed
 # Rust inputs; repeated runs execute cached optimized test binaries. Tests own their data state.
 # Snapshots never auto-accept (INSTA_UPDATE=no).
-test *args:
+test *args: native-adapter-ready
     INSTA_UPDATE=no cargo nextest run --release --workspace --no-fail-fast --no-tests=pass {{args}}
+
+# Rust serving fixtures invoke Python without syncing while their native grants are live.
+native-adapter-ready:
+    uv sync --locked
 
 # Python unit/oracle controls; live MCP fixtures are driven by the Rust serving tests
 py-test:
@@ -221,6 +225,5 @@ postgres-test-ready:
 test-cli-build:
     cargo build --release -p lctx
 
-test-postgres: postgres-test-ready test-cli-build
+test-postgres: postgres-test-ready test-cli-build native-adapter-ready
     INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract -p cpg-core -p lctx --no-fail-fast
-

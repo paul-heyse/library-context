@@ -12,3 +12,31 @@ build-backend = "maturin"
 bindings = "pyo3"
 module-name = "lctx_storage._storage"
 python-source = "python"
+
+# The build environment supplies a content/membership key for these same declared files.
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "src/**/*.rs" },
+    { file = "python/**/*.py" },
+    { file = "../../Cargo.toml" },
+    { file = "../../Cargo.lock" },
+    { file = "../../rust-toolchain.toml" },
+    { file = "../../.cargo/config.toml" },
+    { file = "../../scripts/build_environment.py" },
+    { file = "../../crates/lctx-model/Cargo.toml" },
+    { file = "../../crates/lctx-model/build.rs" },
+    { file = "../../crates/lctx-model/src/**/*.rs" },
+    { file = "../../crates/lctx-model/models/**/*.toml" },
+    { file = "../../crates/lctx-model-macros/Cargo.toml" },
+    { file = "../../crates/lctx-model-macros/src/**/*.rs" },
+    { file = "../../crates/lctx-postgres/Cargo.toml" },
+    { file = "../../crates/lctx-postgres/src/**/*.rs" },
+    { file = "../../crates/lctx-postgres/src/**/*.sql" },
+    { file = "../../crates/lctx-postgres/migrations/**/*.sql" },
+    { file = "../../crates/lctx-postgres/sql/**/*.sql" },
+    { file = "../../specs/postgres-image.txt" },
+    { file = "../../specs/postgres-vector-image.txt" },
+    { env = "LCTX_NATIVE_STORAGE_INPUTS" },
+]

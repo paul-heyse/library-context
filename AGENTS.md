@@ -111,6 +111,9 @@ explicit override for an external target. Keep paths and rustflags stable during
 The end-of-turn hook runs `just build-features` after dependency changes, refreshing the CLI's
 Hakari crate; `just deps` checks it. Lower libraries and Python bindings stay outside its dependency closure. Isolated benchmark
 trials own both artifact directories and never clean the shared build directory.
+The build-environment wrapper also derives each native Python adapter's content/membership cache
+key from its declared uv inputs. Test readiness synchronizes those adapters before Rust fixtures
+invoke Python with `--no-sync`; a successful cached build alone does not prove model agreement.
 
 ## PostgreSQL superuser access for agents
 
