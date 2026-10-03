@@ -566,3 +566,19 @@ The capture executor interrupted only its own audited Cargo process (1987503; ru
 `p4-capture-pg1.log`, **interrupted**, not a PG result). Rustc progress resumed after
 that process released its reads. Caches, profiles, stable paths and jobs16 are preserved;
 this recovery does not establish a standing build serialization policy.
+
+P3 diagnostics/pytest checkpoint integrated `9996f81f` (executor `fe6da6ad`),
+2026-10-03: native pairs66/67/69, source characterization, same-range original-evidence
+packets and selected suppression/location/framework roles. Native repaired controls **passed**
+two/zero skipped; all-target compile **passed**. Actual PG remains pending. Duplicate pytest
+fixture names follow the native last-retained definition identity, not invented ambiguity.
+Receipt `/home/paul/.cache/lctx-code-facts/p3-source-characterization-receipt.json`.
+This is a schema migration; snapshots/current Python adapter remain Q0 obligations.
+
+The actual shared macro projection mismatch is resolved in source by `fbbb58ae`
+(executor `13e4e1ba`): `SupportAttribution` exposes stored origin/mode and its generated
+constructor supplies those fields. It adds no stored column or new admission policy.
+Root's idle matching-CLI and test-check builds were audited at their exact main cwd with
+no children, then interrupted (exit130); both receipts are **interrupted**, not passed.
+Aligned main checks are running (`p4-p3-aligned-main-check.log`), followed by a fresh
+standalone CLI and actual packet controls. B3 read eligibility remains separately pending.
