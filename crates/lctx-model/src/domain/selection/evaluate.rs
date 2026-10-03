@@ -50,6 +50,18 @@ impl Prepared {
         b: &ResourceBudget,
     ) -> Result<Classified, ModelError> {
         requirement.predicate.validate()?;
+        if let Predicate::FacetMembership { value, .. } = &requirement.predicate {
+            let _lowering = b.reserve("typed-facet-lowering", size_of::<Requirement>().saturating_add(value.heap_bytes()))?;
+            if let Some(predicate) = value.predicate() {
+                let mut result = self.classify(member, analysis, &Requirement { predicate, quantifier: requirement.quantifier }, b)?;
+                // The equivalent evaluation never substitutes the caller's canonical query identity.
+                result.requirement = requirement.clone();
+                return Ok(result);
+            }
+        }
+        if matches!(&requirement.predicate, Predicate::SpecializedType { .. }) {
+            return self.classify_specialized(member, analysis, requirement, b);
+        }
         let id = self
             .index
             .domain(member, analysis, requirement.predicate.domain())?;
@@ -200,6 +212,39 @@ impl Prepared {
         };
         algebra::classify(requirement, &domain, b)
     }
+    fn classify_specialized(
+        &self, member: Id<catalog::CatalogMember>, analysis: Id<attribution::AnalysisContext>,
+        requirement: &Requirement, b: &ResourceBudget,
+    ) -> Result<Classified, ModelError> {
+        let Predicate::SpecializedType {site, declaration, subject, r#type} = &requirement.predicate else {return Err(ModelError::Invalid("located specialization requires its typed predicate".into()));};
+        let domain_id=self.index.domain(member,analysis,DomainKind::SignatureVariants)?;
+        let stored=need(&self.output.domains,domain_id)?;
+        // The native declaration must be a signature of the requested catalog member.
+        let mut applicable=None;
+        for id in self.index.members(domain_id) {
+            let row=need(&self.output.members,*id)?;
+            let context=need(&self.output.contexts,row.context)?;
+            if let Context::Signature {invocation,..}=context {
+                let variant=need(&self.data.source.core.variants,need(&self.data.source.catalog.invocations,*invocation)?.variant)?;
+                if variant.native==Some(*declaration) {
+                    if applicable.is_some() {return Err(ModelError::Invalid("located specialization has ambiguous catalog invocation".into()));}
+                    applicable=Some(context);
+                }
+            }
+        }
+        let context=applicable.ok_or_else(||ModelError::Invalid("located specialization crosses catalog member or native role".into()))?;
+        let result=self.specialize_port(*site,*declaration,*subject,analysis,b)?;
+        let resolved=result.specialized.status==crate::domain::normalized::generic_specialization::SpecializationStatus::Resolved;
+        let value=if resolved {type_match_overlay(&self.data,Some(&result.specialized.structure),result.specialized.term,r#type,analysis)?} else {None};
+        let _scratch=b.reserve("located-selection-evidence",result.specialized.support.len().saturating_add(2).saturating_mul(size_of::<Witness>()).saturating_add(size_of::<Observation>()))?;
+        let mut evidence=vec![Witness::SignatureTypeObservation {observation:result.observation},Witness::Qualification {qualification:result.specialized.qualification}];
+        evidence.extend(result.specialized.support.iter().map(|observation|Witness::GenericSpecialization {observation:*observation}));
+        let claim=ClaimContext::Declaration(context.clone());
+        let observations=vec![Observation {context:claim.clone(),basis:EvidenceBasis::ProviderDeclaration,value,evidence:evidence.clone(),admissible:if value==Some(true) {vec![claim]} else {vec![]}}];
+        // This closure concerns one located native answer, never all runtime invocations.
+        algebra::classify(requirement,&Domain {corpus_complete:stored.corpus_complete,analyzer_complete:resolved,closure:evidence,observations},b)
+    }
+
 }
 /// All result groups remain available; strict eligibility is a separate finite view.
 pub struct CandidateSelection {
@@ -368,7 +413,16 @@ fn type_match(
     query: &StructuralType,
     analysis: Id<attribution::AnalysisContext>,
 ) -> Result<Option<bool>, ModelError> {
-    let t = need(&d.facts.type_terms, term)?;
+    type_match_overlay(d, None, term, query, analysis)
+}
+pub(super) fn type_match_overlay(
+    d: &classification::ClassificationData,
+    overlay: Option<&crate::domain::normalized::generic_specialization::Graph>,
+    term: Id<types::TypeTerm>,
+    query: &StructuralType,
+    analysis: Id<attribution::AnalysisContext>,
+) -> Result<Option<bool>, ModelError> {
+    let t = overlay.and_then(|g| g.terms.get(term)).or_else(|| d.facts.type_terms.get(term)).ok_or_else(|| ModelError::Invalid("structural term absent from base and specialization".into()))?;
     if matches!(
         t,
         types::TypeTerm::Other { .. }
@@ -379,11 +433,11 @@ fn type_match(
     }
     Ok(match query {
         StructuralType::CanonicalTerm { term: expected } => {
-            d.facts.type_terms.get(*expected).map(|_| term == *expected)
+            overlay.and_then(|g| g.terms.get(*expected)).or_else(|| d.facts.type_terms.get(*expected)).map(|_| term == *expected)
         }
         StructuralType::Category { kind } => Some(t.tag() == *kind),
         StructuralType::DeclaredUnionMember { term: expected }
-            if d.facts.type_terms.get(*expected).is_none() =>
+            if overlay.and_then(|g|g.terms.get(*expected)).or_else(||d.facts.type_terms.get(*expected)).is_none() =>
         {
             None
         }
@@ -392,7 +446,8 @@ fn type_match(
                 d.facts
                     .type_sequences
                     .iter()
-                    .any(|r| r.sequence == *members && r.child == *expected),
+                    .any(|r| r.sequence == *members && r.child == *expected)
+                    || overlay.is_some_and(|g|g.members.iter().any(|r|r.sequence==*members && r.child==*expected)),
             ),
             _ => Some(false),
         },
@@ -1118,6 +1173,6 @@ fn evaluate(
             }
             Ok(consensus(values))
         }
-        Predicate::FacetMembership { .. } => Ok(None),
+        Predicate::FacetMembership { .. } | Predicate::SpecializedType { .. } => Ok(None),
     }
 }

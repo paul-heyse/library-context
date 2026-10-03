@@ -700,7 +700,7 @@ fn evidence_body_pages_omit_terminal_continuation_and_reject_null() {
 
 #[test]
 fn capability_assertion_status_is_structured_and_visible_without_rewriting_authored_bytes() {
-    let claim = json!({"assertion":vec![1u8;16],"kind":0,"section":0,"status":1,"qualification":vec![2u8;16],"text":"Authored result.","supports":[{"support":vec![3u8;16],"role":0,"source":vec![4u8;16],"proof":[{"relation":"programmatic_assertion_sources","row":vec![4u8;16]}]}]});
+    let claim = json!({"assertion":vec![1u8;16],"kind":0,"section":0,"status":1,"qualification":vec![2u8;16],"claim_basis":{"set":lctx_model::domain::assumptions::AssumptionSet::empty_id(),"members_digest":lctx_model::domain::assumptions::AssumptionSet::empty().members,"definitions":[]},"text":"Authored result.","supports":[{"support":vec![3u8;16],"role":0,"source":vec![4u8;16],"proof":[{"relation":"programmatic_assertion_sources","row":vec![4u8;16]}]}]});
     let schema = schema_for::<AssertionPacket>(true);
     let validator = jsonschema::validator_for(&schema).unwrap();
     assert!(validator.is_valid(&claim));
@@ -766,7 +766,7 @@ fn discovery_explains_codes_and_closed_packet_bindings_cover_composition() {
 
 #[test]
 fn unsupported_facets_are_refused_by_every_selection_wire_route() {
-    let selection = json!({"requirements":[{"predicate":{"FacetMembership":{"facet":0,"value":"timeout"}},"quantifier":0}],"mode":0,"joint":1});
+    let selection = json!({"requirements":[{"predicate":{"FacetMembership":{"facet":6,"value":{"ParameterName":{"name":"timeout"}}}},"quantifier":0}],"mode":0,"joint":1});
     for tool in ["search_operations", "find_operations", "browse_library", "compare_operations"] {
         let mut request = json!({"library":"control", "selection":selection});
         if tool.starts_with("search_") { request["query"] = json!("timeout"); }

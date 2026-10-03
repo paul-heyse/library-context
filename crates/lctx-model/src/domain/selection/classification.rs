@@ -409,6 +409,13 @@ impl ClassificationData {
                     return Err(invalid("type witness crosses analysis"));
                 }
             }
+            Witness::GenericSpecialization { observation } => {
+                let row=need(&self.facts.generic_specializations,*observation)?;
+                if need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis() {return Err(invalid("specialization witness crosses analysis"));}
+                let Context::Signature {invocation,..}=c else {return Err(invalid("specialization witness lacks signature context"));};
+                let variant=need(&self.source.core.variants,need(&self.source.catalog.invocations,*invocation)?.variant)?;
+                if variant.native!=Some(row.declaration) {return Err(invalid("specialization witness crosses native declaration"));}
+            }
             Witness::SignatureTypeObservation { observation } => {
                 let row = need(&self.source.core.signature_types, *observation)?;
                 if need(&self.source.core.qualifications, row.qualification)?.context != c.analysis() { return Err(invalid("typed port witness crosses analysis")); }

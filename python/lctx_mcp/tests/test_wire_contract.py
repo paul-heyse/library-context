@@ -128,7 +128,7 @@ def test_unsupported_facets_are_refused_by_native_request_admission():
         "library": "control",
         "selection": {
             "requirements": [
-                {"predicate": {"FacetMembership": {"facet": 0, "value": "timeout"}}, "quantifier": 0}
+                {"predicate": {"FacetMembership": {"facet": 6, "value": {"ParameterName": {"name": "timeout"}}}}, "quantifier": 0}
             ],
             "mode": 0,
             "joint": 1,

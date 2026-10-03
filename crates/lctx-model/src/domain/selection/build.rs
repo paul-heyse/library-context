@@ -728,6 +728,8 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
                 include_bytes!("admission.rs").as_slice(),
                 include_bytes!("vocabulary.rs").as_slice(),
                 include_bytes!("frames.rs").as_slice(),
+                include_bytes!("facets.rs").as_slice(),
+                include_bytes!("specialization.rs").as_slice(),
             ] {
                 ContentHash::of(bytes).encode(&mut k);
             }

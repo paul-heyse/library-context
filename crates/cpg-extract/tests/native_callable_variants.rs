@@ -118,4 +118,14 @@ async fn catalog_selection_distinguishes_declared_and_effective_wrapper_ports() 
     let negative = classify(Predicate::VariantParameterType {role:SignatureRole::EffectiveTyped,name:"value".into(),r#type:StructuralType::NominalIdentity {module:"builtins".into(),name:"int".into()}});
     assert_eq!(negative.outcome,Outcome::Unresolved,"partial enumeration cannot establish absence");
     assert!(negative.witnesses.iter().any(|w|matches!(w,selection::algebra::RequirementWitness::Negative {..})),"the complete observed wrapper still contributes its qualified negative witness");
+    let typed = Predicate::FacetMembership { facet: Facet::ParameterType, value: FacetValue::ParameterType {role:SignatureRole::EffectiveTyped,name:"text".into(),r#type:StructuralType::NominalIdentity {module:"builtins".into(),name:"str".into()}} };
+    let result = classify(typed.clone());
+    assert_eq!(result.outcome, Outcome::Supported, "the effective wrapper exposes str text, without changing declared int value");
+    assert_eq!(result.requirement.predicate, typed, "lowering retains the caller's exact canonical requirement");
+    let unavailable = classify(Predicate::FacetMembership { facet: Facet::ParameterType, value: FacetValue::ParameterType {role:SignatureRole::EffectiveTyped,name:"value".into(),r#type:StructuralType::NominalIdentity {module:"builtins".into(),name:"int".into()}} });
+    assert_eq!(unavailable.outcome, Outcome::Unresolved, "partial invocation inventory cannot prove absence through a facet either");
+    assert_eq!(classify(Predicate::FacetMembership {facet:Facet::Kind,value:FacetValue::MemberKind {kind:MemberKind::Function}}).outcome,Outcome::Unresolved,"a typing callable wrapper does not establish a runtime function descriptor");
+    assert_eq!(classify(Predicate::FacetMembership {facet:Facet::Module,value:FacetValue::ModulePath {module:"api".into()}}).outcome,Outcome::Supported);
+    assert_eq!(classify(Predicate::FacetMembership {facet:Facet::Module,value:FacetValue::ModulePath {module:"other".into()}}).outcome,Outcome::Contradicted);
+    assert_eq!(classify(Predicate::FacetMembership {facet:Facet::Kind,value:FacetValue::MemberKind {kind:MemberKind::Class}}).outcome,Outcome::Contradicted);
 }

@@ -13,6 +13,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
+use super::FacetValue;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
@@ -78,6 +79,8 @@ pub enum Facet {
     Module = 10,
     Kind = 11,
     ReadsSetting = 12,
+    ClassMetadata = 13,
+    Deprecation = 14,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
@@ -321,6 +324,8 @@ pub enum Witness {
     SignatureTypeObservation { observation: Id<types::SignatureTypeObservation> },
     #[model(code = 19)]
     SummaryException { outcome: Id<execution::summary_exceptions::SummaryExceptionOutcome> },
+    #[model(code = 20)]
+    GenericSpecialization { observation: Id<types::GenericSpecializationObservation> },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="catalog_selection_domains",invariants=super::build::invariants,semantic_source=include_bytes!("build.rs"))]
@@ -388,7 +393,7 @@ pub enum Predicate {
     BehavioralRaises { exception: execution::ExactRuntimeException },
     FacetMembership {
         facet: Facet,
-        value: String,
+        value: FacetValue,
     },
     PublicPath {
         path: Vec<String>,
@@ -430,6 +435,7 @@ pub enum Predicate {
     },
     VariantParameterType { role: calls::SignatureRole, name: String, r#type: StructuralType },
     VariantReturnType { role: calls::SignatureRole, r#type: StructuralType },
+    SpecializedType { site: Id<source::Occurrence>, declaration: Id<types::NativeSignatureObservation>, subject: Id<types::SignatureTypeSubject>, r#type: StructuralType },
     DeclaresConfigurationField {
         name: String,
     },
@@ -494,7 +500,7 @@ impl Predicate {
             | Self::ParameterDefaultState { .. }
             | Self::ParameterDefault { .. }
             | Self::ParameterType { .. }
-            | Self::VariantParameterType { .. } | Self::VariantReturnType { .. } => DomainKind::SignatureVariants,
+            | Self::VariantParameterType { .. } | Self::VariantReturnType { .. } | Self::SpecializedType { .. } => DomainKind::SignatureVariants,
             Self::DeclaresConfigurationField { .. }
             | Self::ConfigurationOwner { .. }
             | Self::ConfigurationScope { .. }
@@ -502,7 +508,8 @@ impl Predicate {
             | Self::ConfigurationDefault { .. }
             | Self::ConfigurationLiteral { .. }
             | Self::ConfigurationRelationship { .. } => DomainKind::ConfigurationFields,
-            Self::Relationship { .. } | Self::FacetMembership { .. } => DomainKind::Relationships,
+            Self::Relationship { .. } => DomainKind::Relationships,
+            Self::FacetMembership { value, .. } => value.domain(),
             Self::ScenarioIntent { .. } | Self::ScenarioCheck { .. } => DomainKind::Scenarios,
             Self::SourceAlignment { .. }
             | Self::DeploymentDeclaration {
@@ -553,7 +560,7 @@ impl HeapSize for Predicate {
             | Self::ConfigurationDefault { name, value }
             | Self::ConfigurationLiteral { name, value } => name.heap_bytes() + value.heap_bytes(),
             Self::ParameterType { name, r#type } | Self::VariantParameterType { name, r#type, .. } => name.heap_bytes() + r#type.heap_bytes(),
-            Self::VariantReturnType { r#type, .. } => r#type.heap_bytes(),
+            Self::VariantReturnType { r#type, .. } | Self::SpecializedType { r#type, .. } => r#type.heap_bytes(),
             Self::ReleaseVersion {
                 distribution,
                 version,
@@ -595,14 +602,13 @@ impl Predicate {
             }
             Ok(())
         }
+        if matches!(self, Self::VariantParameterType { role: calls::SignatureRole::Specialized, .. } | Self::VariantReturnType { role: calls::SignatureRole::Specialized, .. }) { return Err(ModelError::Invalid("specialized type requires a located site and native declaration".into())); }
         match self {
             Self::PublicPath { path: p }
             | Self::ClassOwner { path: p }
             | Self::ConfigurationOwner { path: p } => path(p),
             Self::BehavioralRaises { .. } => Ok(()),
-            Self::FacetMembership { .. } => Err(ModelError::Invalid(
-                "facet membership has no supported typed evaluator".into(),
-            )),
+            Self::FacetMembership { facet, value } => value.validate(*facet),
             Self::PublicModule { module } => text(module),
             Self::DeclaresParameter { name }
             | Self::ParameterKind { name, .. }
@@ -629,7 +635,7 @@ impl Predicate {
                     _ => Ok(()),
                 }
             }
-            Self::VariantReturnType { r#type, .. } => {
+            Self::VariantReturnType { r#type, .. } | Self::SpecializedType { r#type, .. } => {
                 // Reuse the same canonical structural pattern validation.
                 Self::ParameterType { name: "return".into(), r#type: r#type.clone() }.validate()
             }

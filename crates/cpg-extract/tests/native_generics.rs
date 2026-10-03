@@ -104,6 +104,28 @@ async fn located_query_specializes_two_receivers_without_changing_declared_catal
         let term=result.specialized.structure.terms.get(result.specialized.term).unwrap();
         let TypeTerm::ClassInstance {class,..}=term else {panic!("specialized return not nominal: {term:?}")};
         observed.insert(d.source.core.symbols.get(*class).unwrap().name.clone());
+        let invocation=d.source.catalog.invocations.iter().find(|i|d.source.core.variants.get(i.variant).is_some_and(|v|v.native==Some(binding.declaration))).expect("native role catalog invocation");
+        let member=d.source.catalog.callables.get(invocation.callable).unwrap().member;
+        let occurrence=d.source.core.occurrences.get(binding.site).unwrap();
+        let artifact=d.source.core.artifacts.get(occurrence.source).unwrap();
+        let inputs=files("native_generics");
+        let source=std::str::from_utf8(&inputs[&artifact.path][occurrence.start as usize..occurrence.end as usize]).unwrap();
+        let expected=match source {"integer_box.get"=>"int","string_box.get"=>"str","Other[bytes](b\"x\").get"=>"bytes",_=>panic!("unexpected native receiver query {source}")};
+        for name in ["int","str","bytes"] {
+            let requirement=selection::Requirement {predicate:selection::Predicate::SpecializedType {site:binding.site,declaration:binding.declaration,subject:subject.id(),r#type:selection::StructuralType::NominalIdentity {module:"builtins".into(),name:name.into()}},quantifier:selection::Quantifier::AnyApplicable};
+            let classified=prepared.classify(member,context,&requirement,&b).unwrap();
+            assert_eq!(classified.outcome,if name==expected {selection::Outcome::Supported} else {selection::Outcome::Contradicted});
+            assert_eq!(classified.requirement,requirement);
+            let facet=selection::Requirement {predicate:selection::Predicate::FacetMembership {facet:selection::Facet::Returns,value:selection::FacetValue::SpecializedReturnType {site:binding.site,declaration:binding.declaration,signature:native.signature,r#type:selection::StructuralType::NominalIdentity {module:"builtins".into(),name:name.into()}}},quantifier:selection::Quantifier::AnyApplicable};
+            let facet_result=prepared.classify(member,context,&facet,&b).unwrap();
+            assert_eq!(facet_result.outcome,classified.outcome);
+            assert_eq!(facet_result.requirement,facet);
+
+            assert!(classified.closure.iter().any(|w|matches!(w,selection::Witness::GenericSpecialization {observation} if *observation==binding.id())));
+            assert!(prepared.classify(serde_json::from_value(serde_json::to_value([255u8;16]).unwrap()).unwrap(),context,&requirement,&b).is_err());
+        }
+        assert!(selection::Predicate::VariantReturnType {role:SignatureRole::Specialized,r#type:selection::StructuralType::Category {kind:0}}.validate().is_err());
+
         let source=d.source.core.signature_types.get(result.observation).unwrap();
         assert_ne!(source.term,result.specialized.term,"declaration stays generic");
         let mut wrong=subject.clone();let SignatureTypeSubject::Return {signature}=&mut wrong else {unreachable!()};
@@ -131,6 +153,10 @@ async fn missing_function_binder_proofs_and_recursive_ports_return_qualified_unk
         }).unwrap();
         let subject=SignatureTypeSubject::Return {signature:native.signature};
         let result=prepared.specialize_port(site,native.id(),subject.id(),context,&b).unwrap();
+        let invocation=d.source.catalog.invocations.iter().find(|i|d.source.core.variants.get(i.variant).is_some_and(|v|v.native==Some(native.id()))).expect("native role catalog invocation");
+        let member=d.source.catalog.callables.get(invocation.callable).unwrap().member;
+        let requirement=selection::Requirement {predicate:selection::Predicate::SpecializedType {site,declaration:native.id(),subject:subject.id(),r#type:selection::StructuralType::Category {kind:0}},quantifier:selection::Quantifier::AnyApplicable};
+        assert_eq!(prepared.classify(member,context,&requirement,&b).unwrap().outcome,selection::Outcome::Unresolved);
         assert_eq!(result.specialized.status,SpecializationStatus::Unknown);assert!(result.specialized.boundaries.contains(&Boundary::MissingNativeBinding));
         if name=="recursive" {assert!(result.specialized.boundaries.iter().any(|b|matches!(b,Boundary::AliasReference(_))));}
         assert_eq!(d.source.core.signature_types.get(result.observation).unwrap().subject,subject.id());

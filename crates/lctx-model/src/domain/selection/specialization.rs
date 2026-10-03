@@ -25,14 +25,17 @@ impl Prepared {
             SignatureTypeSubject::Return {signature} => *signature,
         };
         if signature != native.signature {return Err(invalid("specialized port has foreign native signature subject"));}
-        let ports: Vec<_> = data.source.core.signature_types.iter().filter(|p|p.subject==subject && p.qualification==native.qualification).collect();
-        let [port] = ports.as_slice() else {return Err(invalid("specialized port must have one native typing observation"));};
+        let mut ports = data.source.core.signature_types.iter().filter(|p|p.subject==subject && p.qualification==native.qualification);
+        let port=ports.next().ok_or_else(||invalid("specialized port must have one native typing observation"))?;
+        if ports.next().is_some() {return Err(invalid("specialized port must have one native typing observation"));}
+        let binding_count=data.facts.generic_specializations.iter().filter(|r|r.site==site && r.declaration==declaration).count();
+        let _bindings=budget.reserve("located-native-bindings",binding_count.saturating_mul(size_of::<GenericSpecializationObservation>()))?;
         let bindings: Vec<_> = data.facts.generic_specializations.iter().filter(|r|r.site==site && r.declaration==declaration).cloned().collect();
         let qualification = bindings.first().map_or(native.qualification, |r|r.qualification);
         let q = need(&data.source.core.qualifications, qualification)?;
         if q.context != context {return Err(invalid("specialized site crosses analysis context"));}
         let mut graph = generic::Graph::new(budget);
-        macro_rules! copy {($field:ident,$source:ident)=>{for row in data.facts.$source.iter() {graph.$field.insert(row.clone())?;}};}
+        macro_rules! copy {($field:ident,$source:ident)=>{for row in data.facts.$source.iter() {let _copy=budget.reserve("located-type-copy",size_of_val(row).saturating_add(row.heap_bytes()))?;graph.$field.insert(row.clone())?;}};}
         copy!(terms,type_terms); copy!(sequences,type_sequence_headers); copy!(members,type_sequences);
         copy!(lists,type_callable_lists); copy!(slots,type_callable_slots); copy!(dict_lists,type_dict_lists); copy!(fields,type_dict_fields); copy!(variables,type_variables);
         let environment = generic::Environment {qualification,declaration,site,bindings};
