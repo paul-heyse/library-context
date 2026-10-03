@@ -473,3 +473,25 @@ basis remains explicit. SourceCall fresh-binding evidence now refuses nonempty a
 preserving its independent runtime question. `cargo check -p lctx-model -p cpg-core --all-targets`
 **passed** (`p4-conditional-synthesis-check-final.log`, 42.10s) after migrating text callers.
 The focused model/core/service release rerun is pending; full-series gates remain **not_run**.
+
+
+Merged P4/M2 output batch `p4-m2-merged-output-controls.log` **failed**, 2026-10-03:
+31 controls ran, 24 model/S0 controls passed and all seven actual-PG service/refutation controls
+failed at the same C2 `selection_witnesses` replay closure before serving. Later S0/Analytic
+qualification vocabulary expanded the replay's blanket witness universe. `94d9f92a` bounds
+qualification witnesses to actual immutable native signature/specialization input references;
+an unreferenced later qualification cannot expand C2. All-target model/core/CLI compile
+**passed** (70s, `p2-witness-epoch-repair-check.log`). The affected seven PG controls plus the
+18 declaration controls are being rerun in `p2-witness-epoch-p4-service-repair-controls.log`.
+The new service control independently compares declared int/effective bytes, true/false/unknown
+facets and every returned witness's persisted row. Its focused compile **passed** after fixing
+the comparison selector helper (`p4-role-selection-service-check-repair.log`); runtime pending.
+
+Ruff explicit-root constructor pin integrated `273955e9` (executor `c61f3d42`), 2026-10-03.
+The aggregate fork `f7bdff69e1fb94ab0ed5b340e977aac0d26e9301` has the same upstream parent
+`3265ed1f944c98bb4c04d632fbefb1257cdb583d`; its delta from `8f01d800` is solely exposing
+existing `new_with_src` publicly. Native separate-process explicit-root/CWD controls **passed**
+2/2, exact fork policy **passed**, and locked extraction compile **passed** (60s).
+Aggregate patch sha256 `b7154806d8d5106f02c225d35c4cb8802c869d551af4ce1dd2d391178deaa6f8`;
+receipt `/home/paul/.cache/lctx-code-facts/p3-ruff-fork-receipt.json`. Prior parity receipts keep
+their original revision; P3 consumer and assembled current-pin gates remain open.
