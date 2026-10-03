@@ -15,6 +15,7 @@ pub mod event_normalization;
 pub mod events;
 mod inventory;
 pub mod links;
+pub mod parameter_correspondence;
 pub mod receiver;
 mod receiver_inventory;
 mod relation_inventory;

@@ -27,37 +27,13 @@ fn context(
 fn receiver(
     d: &Data,
     entity: Id<EntityRef>,
-    p: &syntax::ParameterSyntaxObservation,
+    p: &normalized::parameter_correspondence::SourceParameterCorrespondence,
     ctx: Id<attribution::AnalysisContext>,
 ) -> bool {
     let Some(EntityRef::Callable { callable }) = d.native.refs.get(entity) else {
         return false;
     };
-    d.native
-        .callable_variants
-        .iter()
-        .filter(|v| {
-            v.callable == Some(*callable)
-                && v.context == ctx
-                && matches!(
-                    v.adjustment,
-                    normalized::callables::SignatureAdjustment::BindInstanceReceiver
-                        | normalized::callables::SignatureAdjustment::BindClassReceiver
-                        | normalized::callables::SignatureAdjustment::PropertyAccess
-                )
-        })
-        .any(|v| {
-            d.native
-                .callable_slots
-                .iter()
-                .filter(|s| s.variant == v.id() && s.ordinal == 0)
-                .any(|s| {
-                    d.native
-                        .parameter_declarations
-                        .iter()
-                        .any(|r| r.parameter == s.parameter && r.declaration == p.parameter)
-                })
-        })
+    normalized::parameter_correspondence::is_bound_receiver(&d.native, p, *callable, ctx)
 }
 /// Unknown/truncated/recursive aliases are excluded explicitly. The traversal follows modeled
 /// structure, never type rendering, with bounded native lists and per-branch cycle detection.
@@ -233,11 +209,14 @@ pub fn type_layer(
             .iter()
             .filter(|p| p.function == declaration)
         {
-            if receiver(d, *entity, p, parent.context) {
+            let Some(correspondence) = normalized::parameter_correspondence::source_parameter(
+                &d.native, p, parent.context, b,
+            )? else { continue; };
+            if receiver(d, *entity, &correspondence, parent.context) {
                 continue;
             }
             for observation in d.native.type_observations.iter().filter(|o| {
-                o.subject == p.parameter && o.role == types::TypeRole::Parameter && o.declared
+                o.subject == correspondence.formal && o.role == types::TypeRole::Parameter && o.declared
             }) {
                 if !context(d, observation.qualification, parent.context)? {
                     continue;
@@ -438,15 +417,17 @@ fn facts(
             .iter()
             .filter(|p| p.function == declaration)
         {
-            if receiver(d, *entity, p, ctx) || !context(d, p.qualification, ctx)? {
+            let Some(correspondence) = normalized::parameter_correspondence::source_parameter(
+                &d.native, p, ctx, b,
+            )? else { continue; };
+            if receiver(d, *entity, &correspondence, ctx) {
                 continue;
             }
             let shapes = d
                 .native
-                .parameter_declarations
+                .parameters
                 .iter()
-                .filter(|pd| pd.declaration == p.parameter)
-                .filter_map(|pd| d.native.parameters.get(pd.parameter))
+                .filter(|slot| correspondence.parameters.contains(&slot.id()))
                 .filter_map(|p| d.native.shapes.get(p.shape));
             for shape in shapes {
                 if let Some(name) = &shape.name {
@@ -466,7 +447,7 @@ fn facts(
                 }
             }
             for o in d.native.type_observations.iter().filter(|o| {
-                o.subject == p.parameter && o.role == types::TypeRole::Parameter && o.declared
+                o.subject == correspondence.formal && o.role == types::TypeRole::Parameter && o.declared
             }) {
                 if context(d, o.qualification, ctx)? && classes(d, o.term, ctx, b)?.is_some() {
                     facts.push(

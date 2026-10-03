@@ -519,6 +519,25 @@ async fn run(
         .await
         .unwrap();
         assert!(scopes > 0);
+        let parameter_inputs: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT convert_from(a.parameter_name, 'UTF8'), count(DISTINCT i.entity) FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id WHERE a.kind=0 GROUP BY a.parameter_name"
+        )))
+        .fetch_all(db.owner.pool()).await.unwrap();
+        assert!(parameter_inputs.iter().any(|(name, n)| name == "flag" && *n == 1), "defaulted formal must contribute its source parameter attribute");
+        assert!(parameter_inputs.iter().any(|(name, n)| name == "value" && *n == 8), "all eight declared value parameters must contribute independently");
+        let typed_parameters: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(DISTINCT i.entity) FROM {s}.analytic_incidences i JOIN {s}.analytic_attributes a ON a.id=i.attribute JOIN {s}.analytic_incidence_sources p ON p.id=i.source WHERE a.kind=1 AND p.kind=1"
+        )))
+        .fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(typed_parameters, 8, "parameter type subjects attach to formals rather than their containers");
+        if settings.type_layer {
+            let pairs: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT count(*) FROM {s}.analytic_layer_pairs WHERE layer=2 GROUP BY frame"
+            )))
+            .fetch_all(db.owner.pool()).await.unwrap();
+            assert!(!pairs.is_empty());
+            assert!(pairs.iter().all(|count| *count == 6), "two release-class triples supply exactly six pairs; builtin int cannot add a release-class edge");
+        }
         let handoffs: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM {s}.analytic_incidence_sources WHERE kind=4"
         )))
