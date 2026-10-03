@@ -26,6 +26,7 @@
 mod db;
 pub mod native;
 mod predicate;
+mod narrowing;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -146,6 +147,9 @@ pub struct Reach {
     pub def_ix: Option<u32>,
     pub nested: bool,
     pub condition: Condition,
+    /// Native type narrowing is characterization, separate from path reachability.
+    pub narrowing: Condition,
+    pub narrowing_precision_lost: bool,
     /// Reached around a loop's back edge (through ty's loop header): the condition is the use's
     /// side only.
     pub loop_carried: bool,
@@ -243,6 +247,9 @@ pub struct ModuleFlow {
     pub nodes: Vec<native::Node>,
     /// `TYPE_CHECKING` words renamed.
     pub renamed: u32,
+    pub original_content: Option<lctx_model::domain::ContentHash>,
+    pub view_content: Option<lctx_model::domain::ContentHash>,
+    pub view_byte_len: Option<usize>,
     /// Syntax errors ty's parser recovered from: the facts come from a recovered tree, as every
     /// other family's do.
     pub syntax_errors: usize,
@@ -330,7 +337,7 @@ pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
         let path = format!("/flow/{}", input.path);
         prepared.push(rename(&input.text).and_then(|(text, n)| {
             db.write_file(&path, &text)
-                .map(|()| (path, n))
+                .map(|()| (path, n, lctx_model::domain::ContentHash::of(text.as_bytes()), text.len()))
                 .map_err(|e| e.to_string())
         }));
     }
@@ -341,14 +348,16 @@ pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
         .iter()
         .zip(prepared)
         .map(|(input, prepared)| {
-            let result = prepared.and_then(|(path, n)| {
+            let result = prepared.and_then(|(path, n, hash, byte_len)| {
                 module(&db, program, &path, &input.text, &input.runtime, context)
-                    .map(|flow| (flow, n))
+                    .map(|flow| (flow, n, hash, byte_len))
             });
             match result {
-                Ok((flow, n)) => ModuleFlow {
+                Ok((flow, n, hash, byte_len)) => ModuleFlow {
                     path: input.path.clone(),
                     renamed: n,
+                    original_content:Some(lctx_model::domain::ContentHash::of(input.text.as_bytes())),
+                    view_content:Some(hash),view_byte_len:Some(byte_len),
                     ..flow
                 },
                 Err(e) => ModuleFlow {
@@ -820,24 +829,24 @@ impl<'db> Walk<'_, 'db> {
             annotation: self.in_annotation || self.lazy(fid),
         });
         self.use_of.insert(span, ix);
-        let bindings: Vec<(DefinitionState<'db>, _)> = self
+        let bindings: Vec<(DefinitionState<'db>, _, _, _)> = self
             .map(fid)
             .bindings_at_use(use_id)
-            .map(|b| (b.binding, b.reachability_constraint))
+            .map(|b| (b.binding, b.reachability_constraint, narrowing::lower(self.t, &b.narrowing_constraint), b.narrowing_constraint.narrowing_constraints().precision_lost()))
             .collect();
         let lowered = bindings
             .into_iter()
-            .map(|(state, reach)| (state, reach, self.condition(fid, reach)))
+            .map(|(state, reach, narrowing, lost)| (state, reach, self.condition(fid, reach), narrowing, lost))
             .collect::<Vec<_>>();
         // A false-only native inventory can supply an explicit negative candidate. Preserve
         // every state, including Unbound; choosing one definition could fabricate uniqueness.
         // Live/approximate sets keep the existing pruning. Loop headers can expand to no rows,
         // so they stay outside this bounded lane rather than silently dropping a competitor.
-        let retain_false_only = !lowered.is_empty() && lowered.iter().all(|(state, _, c)| {
+        let retain_false_only = !lowered.is_empty() && lowered.iter().all(|(state, _, c, _, _)| {
             c.is_never() && !c.approximated() && !matches!(state,
                 DefinitionState::Defined(d) if matches!(d.kind(self.db), DefinitionKind::LoopHeader(_)))
         });
-        for (state, reach, condition) in lowered {
+        for (state, reach, condition, narrowing, narrowing_precision_lost) in lowered {
             if condition.is_never() && !retain_false_only {
                 let cause = self.skip_cause(fid, reach);
                 self.flow.skips.reach(cause);
@@ -853,6 +862,7 @@ impl<'db> Walk<'_, 'db> {
                                 def_ix,
                                 nested,
                                 condition: condition.clone(),
+                                narrowing: narrowing.clone(),narrowing_precision_lost,
                                 loop_carried: true,
                             });
                         }
@@ -862,7 +872,7 @@ impl<'db> Walk<'_, 'db> {
                             use_ix: ix,
                             def_ix,
                             nested: matches!(d.kind(self.db), DefinitionKind::NestedBindings(_)),
-                            condition,
+                            condition,narrowing,narrowing_precision_lost,
                             loop_carried: false,
                         });
                     }
@@ -872,7 +882,7 @@ impl<'db> Walk<'_, 'db> {
                         use_ix: ix,
                         def_ix: None,
                         nested: false,
-                        condition,
+                        condition,narrowing,narrowing_precision_lost,
                         loop_carried: false,
                     });
                 }

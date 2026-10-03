@@ -95,7 +95,9 @@ syntax/context and ADR-0119 per-family coverage grants are implemented in the wo
 workspace/all-target release compilation passed. Final focused admission/context/syntax/document
 controls passed 34/34 after fixture and exact reference-role repairs. ADR-0120 accepts required
 claim bases; B0/N1/N2 and N3/N5 are in isolated executor worktrees; remaining
-characterization/behavior/product packages are open.
+characterization/behavior/product packages are open. M3 separate narrowing/typed predicates
+and transformed-view identity passed 134 focused native/model controls; protocol/capture and
+first behavioral consumers remain open.
 Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
 Real-library reconstruction/activation remain a separately authorized follow-up. The prior

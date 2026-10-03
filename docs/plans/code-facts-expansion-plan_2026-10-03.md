@@ -251,7 +251,7 @@ and Pyrefly 1.4.0-dev.3 after `uv sync --no-install-workspace`.
 N4a is integrated at `ef7a50ed`; its executor release receipt passed 43 controls including actual
 per-alias extraction, normalization/projection and PostgreSQL roundtrip. Integration against new
 pins is being requalified with M2.
-M2 canonical syntax/context is implemented in the working tree: latest Ruff owns parse/traversal,
+M2 canonical syntax/context is committed at `789cd0ac`: latest Ruff owns parse/traversal,
 owned static branch adapters retain Pyrefly decisions, contextual records preserve active-node
 versus final-reference phases, and overload recognition consumes actual qualified names. The
 initial focused run failed 16 controls on the old single-provider stage coverage assumption.
@@ -268,6 +268,13 @@ controls for owner/limits/conformance/per-alias/type/parity also passed within t
 receipt. These are scoped controls, not complete M2 enrichment or Q0 acceptance. ADR-0120
 accepts required canonical assumption bases before conditional behavior activation; B0 integration
 remains pending.
+M3 flow payloads now preserve separate narrowing formulas, typed nonterminal/iterable/exit
+predicates and the exact transformed TYPE_CHECKING view identity. `cargo check --release
+-p cpg-flow -p cpg-extract --all-targets` **passed**. `cargo nextest run --release -p cpg-flow
+--lib -p cpg-extract --test typed_flow -p lctx-model --test domain_admission` **passed**,
+134/134, zero skipped, including actual native narrowing/source-view extraction and uncertainty,
+polarity and precision-loss controls. Pyrefly exit/terminal/capture payloads and first behavioral
+interpretation remain open; this is not M3 closure.
 B0 required assumption sets/composition and N1/N2 callable variants/generics remain in isolated
 executor worktrees. Remaining M2 native enrichments, M3, downstream packages and Q0/full hygiene
 remain open/not_run. Real-library reconstruction/activation remain separately authorized follow-up.

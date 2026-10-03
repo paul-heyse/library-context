@@ -50,6 +50,10 @@ macro_rules! output_types {
             FlowDefinitionSupport,
             FlowReachingObservation,
             FlowReachingSupport,
+            FlowNarrowingObservation,
+            FlowNarrowingSupport,
+            FlowSourceViewObservation,
+            FlowSourceViewSupport,
             FlowValueObservation,
             FlowValueSupport,
             FlowRegionObservation,
@@ -987,6 +991,10 @@ impl<S: StageSink + 'static> Writer<'_, S> {
             native::Atom::TypeIs { class, .. } => Predicate::TypeIs {
                 class_expression: class.clone(),
             },
+            native::Atom::NonTerminalCall { awaiting } => Predicate::NonTerminalCall { awaiting:*awaiting },
+            native::Atom::NonEmptyIterable => Predicate::NonEmptyIterable,
+            native::Atom::ContextManagerSuppresses { asynchronous } => Predicate::ContextManagerSuppresses { asynchronous:*asynchronous },
+            native::Atom::FinallyNormalPathImpossible => Predicate::FinallyNormalPathImpossible,
             native::Atom::Opaque { text } => Predicate::Opaque { text: text.clone() },
             native::Atom::Evaluated { .. } => {
                 return Err(invalid("nested native evaluation wrapper"));
@@ -1033,6 +1041,22 @@ impl<S: StageSink + 'static> Writer<'_, S> {
     }
     fn write(&mut self) -> Result<(), ModelError> {
         let flow = self.flow;
+        if let (Some(original_content),Some(view_content),Some(byte_len))=(flow.original_content,flow.view_content,flow.view_byte_len) {
+            if original_content!=self.artifact.content || byte_len!=self.artifact.byte_len as usize {
+                return Err(invalid("ty view does not preserve captured source byte geometry"));
+            }
+            let (condition,nodes)=Diagram::always().records();
+            self.context.contribute(condition.clone())?;
+            for node in nodes {self.context.contribute(node)?;}
+            let qualification=AssertionQualification { context:self.analysis.id(),scope:self.scope.id(),condition:condition.id(),modality:Modality::Definite,approximation:Approximation::Exact };
+            self.context.contribute(qualification.clone())?;
+            let row=FlowSourceViewObservation { qualification:qualification.id(),source:self.artifact.id(),original_content,view_content,byte_len:byte_len as i64,renamed_type_checking:i64::from(flow.renamed) };
+            row.validate()?;
+            let evidence=Evidence::SourceSpan {source:self.artifact.id(),start:0,end:byte_len as i64};
+            self.context.contribute(evidence.clone())?;
+            self.context.emit(FlowSourceViewSupport { assertion:row.id(),run:self.run.id(),surface:self.surface.id(),evidence:evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural })?;
+            self.context.emit(row)?;
+        } else {return Err(invalid("native ty source view receipt is missing"));}
         let mut uses = Vec::new();
         let mut definitions = Vec::new();
         let mut rows_charge = StateCharge::new(self.context.budget(), "ty_flow_nominal_rows");
@@ -1184,6 +1208,14 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                 ReachingDefinition::Unbound
             };
             self.context.emit(target.clone())?;
+            if native.narrowing_precision_lost {
+                self.boundary(Some(use_.occurrence),ObligationKind::ResourceRefused,"native narrowing scope lost precision; terminal true is over-approximate")?;
+            }
+            if let Some(q)=self.qualify(&native.narrowing,*scope,Some(use_.occurrence))? {
+                supported!(self,FlowNarrowingObservation,FlowNarrowingSupport,FlowNarrowingObservation {
+                    qualification:q.id(),use_:use_.id(),target:target.id(),precision_lost:native.narrowing_precision_lost
+                },use_.occurrence);
+            }
             if let Some(q) = self.qualify(&native.condition, *scope, Some(use_.occurrence))? {
                 supported!(
                     self,

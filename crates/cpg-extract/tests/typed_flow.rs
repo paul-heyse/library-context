@@ -11,6 +11,8 @@ inspector!(
     FlowUse,
     FlowDefinition,
     FlowReachingObservation,
+    FlowNarrowingObservation,
+    FlowSourceViewObservation,
     FlowValueObservation,
     FlowCallPath,
     FlowCallStep,
@@ -18,6 +20,38 @@ inspector!(
     ProviderCoverage,
     SourceArtifact
 );
+#[tokio::test]
+async fn native_narrowing_and_runtime_source_view_keep_distinct_qualified_meaning() {
+    let source="from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    imported = 1\nelse:\n    imported = 2\ndef narrow(x: int | None):\n    if x is None:\n        return 0\n    return x\n";
+    let input=BTreeMap::from([("example.py".into(),source.as_bytes().to_vec())]);
+    let tables=Tables::default();
+    typed_driver::run_behavioral(&input,Flow(tables.clone())).await.unwrap();
+    let views=rows::<FlowSourceViewObservation>(&tables);
+    assert_eq!(views.len(),1);
+    let original=rows::<SourceArtifact>(&tables).into_iter().find(|row|row.path=="example.py").unwrap();
+    let (runtime,count)=cpg_flow::rename(source).unwrap();
+    assert_eq!(count,2);
+    assert_eq!(views[0].source,original.id());
+    assert_eq!(views[0].original_content,ContentHash::of(source.as_bytes()));
+    assert_eq!(views[0].view_content,ContentHash::of(runtime.as_bytes()));
+    assert_ne!(views[0].view_content,views[0].original_content);
+    assert_eq!(views[0].byte_len,source.len() as i64);
+    assert_eq!(views[0].renamed_type_checking,2);
+    let occurrences=rows::<Occurrence>(&tables);
+    let x=occurrences.iter().find(|row|row.start==source.rfind('x').unwrap() as i64 && row.syntax_kind==SyntaxKind::ExprName).unwrap();
+    let use_=rows::<FlowUse>(&tables).into_iter().find(|row|row.occurrence==x.id()).unwrap();
+    let narrowing=rows::<FlowNarrowingObservation>(&tables);
+    let selected:Vec<_>=narrowing.iter().filter(|row|row.use_==use_.id()).collect();
+    assert!(!selected.is_empty(),"actual native parameter candidate");
+    let qualifications=rows::<AssertionQualification>(&tables);
+    let always=Diagram::always().records().0.id();
+    assert!(selected.iter().any(|row|qualifications.iter().any(|q|q.id()==row.qualification && q.condition!=always && q.approximation==Approximation::Exact)));
+    assert!(selected.iter().all(|row|!row.precision_lost));
+    let predicates=rows::<Predicate>(&tables);
+    assert!(predicates.iter().any(|row|matches!(row,Predicate::IsNone)));
+    let support=rows::<FlowNarrowingSupport>(&tables);
+    assert!(selected.iter().all(|row|support.iter().any(|support|support.assertion==row.id())));
+}
 #[tokio::test]
 async fn reaching_places_keep_the_binding_owner_across_scope_and_member_reads() {
     let cases = [

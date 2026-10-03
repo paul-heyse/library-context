@@ -18,5 +18,8 @@ ruff_python_parser_ty.workspace = true
 salsa.workspace = true
 serde.workspace = true
 
+[dev-dependencies]
+ruff_index_latest.workspace = true
+
 [lints]
 workspace = true

@@ -191,6 +191,16 @@ pub enum Predicate {
     BoundGuard {
         source: Id<super::conditions::EvaluationAtom>,
     },
+    /// Native completion candidate. Its truth requires a separate admitted callee/phase basis.
+    #[model(code = 10)]
+    NonTerminalCall { awaiting: bool },
+    #[model(code = 11)]
+    NonEmptyIterable,
+    /// Exception exit and normal exit result observations remain independent evidence.
+    #[model(code = 12)]
+    ContextManagerSuppresses { asynchronous: bool },
+    #[model(code = 13)]
+    FinallyNormalPathImpossible,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]

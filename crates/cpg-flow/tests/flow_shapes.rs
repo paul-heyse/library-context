@@ -37,6 +37,10 @@ fn atom_label(atom: &Atom) -> String {
         ),
         Atom::IsInstance { place, class } => format!("isinstance({place},{class})"),
         Atom::TypeIs { place, class } => format!("type_is({place},{class})"),
+        Atom::NonTerminalCall { awaiting } => format!("nonterminal(await={awaiting})"),
+        Atom::NonEmptyIterable => "nonempty_iterable".into(),
+        Atom::ContextManagerSuppresses { asynchronous } => format!("suppresses(async={asynchronous})"),
+        Atom::FinallyNormalPathImpossible => "finally_normal_impossible".into(),
         Atom::Opaque { text } => format!("opaque({text:?})"),
         Atom::Evaluated { .. } => unreachable!(),
     }

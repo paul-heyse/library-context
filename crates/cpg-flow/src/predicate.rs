@@ -28,12 +28,6 @@ use crate::{Condition, RuntimeBindings, RuntimeContext, SENTINEL, Span};
 
 /// A predicate ty records but no test decides (an or-pattern's alternative, a star import).
 pub(crate) const UNDECIDED: &str = "<undecided by the flow provider>";
-/// ty's non-empty-iterable predicate (a `for` over `range(...)`).
-const NON_EMPTY: &str = "<the iterable is non-empty>";
-/// ty's context-manager suppression predicate.
-const SUPPRESSES: &str = "<the context manager suppresses the exception>";
-/// ty's finally-normal-path predicate.
-const FINALLY: &str = "<no normal path enters the finally suite>";
 
 pub(crate) struct Translator<'a> {
     pub db: &'a FlowDb,
@@ -472,24 +466,27 @@ impl Translator<'_> {
     }
 
     /// The truth of one predicate, its polarity applied.
-    fn predicate(&self, p: &Predicate, synthetic: &EvaluationSite) -> Condition {
+    pub(crate) fn predicate(&self, p: &Predicate, synthetic: &EvaluationSite) -> Condition {
         let c = match &p.node {
             PredicateNode::Expression(x)
             | PredicateNode::Condition(x)
             | PredicateNode::ChainedComparisonCondition(x) => {
                 self.test(x.node_ref(self.db).node(self.module))
             }
-            PredicateNode::IsNonTerminalCall(_) => Condition::always(),
+            PredicateNode::IsNonTerminalCall(call) => {
+                let expression=call.call_expr(self.db).node_ref(self.db).node(self.module);
+                self.atom(Atom::NonTerminalCall { awaiting:call.is_await(self.db) }, expression)
+            },
             PredicateNode::IsNonEmptyIterable(expression) => {
                 let expression = expression.node_ref(self.db).node(self.module);
-                self.atom(Atom::opaque(NON_EMPTY), expression)
+                self.atom(Atom::NonEmptyIterable, expression)
             }
-            PredicateNode::ContextManagerSuppresses { expression, .. } => {
+            PredicateNode::ContextManagerSuppresses { expression, is_async } => {
                 let expression = expression.node_ref(self.db).node(self.module);
-                self.atom(Atom::opaque(SUPPRESSES), expression)
+                self.atom(Atom::ContextManagerSuppresses { asynchronous:*is_async }, expression)
             }
             PredicateNode::FinallyNormalPathImpossible { .. } => {
-                Condition::atom(Atom::opaque(FINALLY).evaluated(synthetic.clone()))
+                Condition::atom(Atom::FinallyNormalPathImpossible.evaluated(synthetic.clone()))
             }
             PredicateNode::Pattern(pattern) => {
                 let subject = pattern.subject(self.db).node_ref(self.db).node(self.module);

@@ -1347,6 +1347,7 @@ version = "0.1.0"
 dependencies = [
  "lctx-model",
  "ruff_db",
+ "ruff_index",
  "ruff_python_ast 0.0.16",
  "ruff_python_parser 0.0.16",
  "ruff_text_size 0.0.16",
