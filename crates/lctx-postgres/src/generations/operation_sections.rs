@@ -115,7 +115,7 @@ impl CatalogService {
                 "invocation-policy-admitted-direct-target",
                 5u32,
                 "canonical-local-kind-invocation-signature-conflicts",
-                "summary-qualified-facet-original-condition-model",
+                "summary-qualified-facet-original-condition-model-direct-captures/v2",
                 16usize,
                 4096usize,
                 "whole-row-mcp-fit/scenarios-deployment-relationships-conflicts-briefs-behavior",
@@ -1002,6 +1002,20 @@ impl CatalogService {
                                 .collect::<Vec<_>>(),
                         )
                         .await?;
+                    let mut captures = std::collections::BTreeMap::new();
+                    let mut capture_charges = Vec::new();
+                    for conclusion in conclusions.rows() {
+                        let q = borrowed(&qualifications, conclusion.qualification.ok_or(Error::Contract)?)?;
+                        let invocation = borrowed(&invocations, conclusion.invocation)?;
+                        let (packet, charge) = if let Some(id) = conclusion.proof {
+                            super::capture_packets::captures(lease, borrowed(&proofs, id)?, invocation, q,
+                                claim_bases.get(&q.id()).ok_or(Error::Contract)?).await?
+                        } else {
+                            (Vec::new(), lease.lease.budget.reserve("behavior-empty-captures", 0)?)
+                        };
+                        captures.insert(conclusion.id(), packet);
+                        capture_charges.push(charge);
+                    }
                     let definitions = lease
                         .read_ids::<analysis::AnalysisDefinition>(
                             &invocations
@@ -1090,6 +1104,8 @@ impl CatalogService {
                         conclusions,
                         qualifications,
                         claim_bases,
+                        captures,
+                        capture_charges,
                         proofs,
                         invocations,
                         definitions,
@@ -1110,6 +1126,8 @@ impl CatalogService {
                 conclusions,
                 qualifications,
                 claim_bases,
+                captures,
+                _capture_charges,
                 proofs,
                 invocations,
                 definitions,
@@ -1173,6 +1191,7 @@ impl CatalogService {
                     proof.push(ProofReference::from_canonical(derivation::RowRef::of(id)));
                 }
                 let packet = BehaviorPacket {
+                    captures:captures.get(&conclusion.id()).ok_or(Error::Contract)?.clone(),
                     claim_basis:claim_bases.get(&qualification.id()).ok_or(Error::Contract)?.clone(),
                     condition: condition.id(),
                     verdict: facet.verdict,

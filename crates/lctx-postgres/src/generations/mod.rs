@@ -25,6 +25,7 @@ mod retrieval_service;
 pub use retrieval_service::{NumericalCorpus, NumericalQuery, RankingRequest, RetrievalService};
 mod catalog_service;
 mod operation_sections;
+mod capture_packets;
 mod packet_reads;
 mod packet_service;
 pub use catalog_service::CatalogService;

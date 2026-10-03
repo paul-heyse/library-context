@@ -35,6 +35,8 @@ macro_rules! code_schema { ($($ty:ty),* $(,)?)=>{$(
 )*}; }
 code_schema!(
     attribution::Fidelity,
+    attribution::Origin,
+    attribution::ExtractionMode,
     execution::ExactRuntimeException,
     types::TypeRole,
     selection::EvidenceBasis,
@@ -64,6 +66,13 @@ code_schema!(
     normalized::bindings::BindingOutcome,normalized::bindings::BindingReason,
     normalized::signature_applicability::BindingAuthority,normalized::signature_applicability::AuthorityReason,
     diagnostics::DiagnosticSeverity,diagnostics::DiagnosticChannel,diagnostics::DiagnosticLocation,diagnostics::SelectedRuffRule,diagnostics::NativeBaselineStatus,diagnostics::DefinitionAnswer,diagnostics::NativeParameterRole,diagnostics::NativeDefinitionMetadata,diagnostics::NativeDefinitionSymbolKind,
+    attribution::Modality,
+    assertion::Approximation,
+    captures::CaptureOrigin,
+    captures::CaptureTiming,
+    flow_capture::FlowCaptureOrigin,
+    flow_capture::FlowSnapshotState,
+    lexical::BindingEventKind,
     catalog::evidence::Intent,
     deployment::CheckStatus,
     types::RecordKind,
