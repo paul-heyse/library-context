@@ -8,6 +8,7 @@ pub mod frames;
 mod inventory;
 mod preparation;
 mod vocabulary;
+pub mod specialization;
 use crate::domain::*;
 pub use vocabulary::*;
 pub fn relations() -> Vec<Relation> {

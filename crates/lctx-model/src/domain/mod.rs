@@ -328,6 +328,8 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<FunctionBodySupport>(),
         Relation::of::<RecordFieldObservation>(),
         Relation::of::<RecordFieldSupport>(),
+        Relation::of::<GenericSpecializationObservation>(),
+        Relation::of::<GenericSpecializationSupport>(),
         Relation::of::<NativeSignatureObservation>(),
         Relation::of::<NativeSignatureSupport>(),
         Relation::of::<SignatureTypeSubject>(),

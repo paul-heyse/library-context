@@ -75,6 +75,7 @@ impl Fixture {
             origin: TypeVariableOrigin::Pep695,
             kind: TypeVariableKind::TypeVar,
             name: "T".into(),
+            declared_variance: None, inferred_variance: None,
         };
         let variable_term = TypeTerm::TypeVar {
             variable: variable.id(),

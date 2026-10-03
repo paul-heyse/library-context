@@ -209,7 +209,7 @@ fn outputs() -> Vec<RelationUse> {
         TypeVariable,
         TypeVariableRestriction,
         TypeRestrictionSupport,
-        NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport,
+        NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport, GenericSpecializationObservation, GenericSpecializationSupport,
         TypeObservation,
         TypeSupport,
         TypePresentation,
@@ -364,7 +364,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             TypeVariable,
             TypeVariableRestriction,
             TypeRestrictionSupport,
-            NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport,
+            NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport, GenericSpecializationObservation, GenericSpecializationSupport,
         TypeObservation,
             TypeSupport,
             TypePresentation,
@@ -2456,6 +2456,7 @@ fn write_types<S: StageSink + 'static>(
         for member in members { context.emit(member)?; }
     }
     for row in records.port_subjects { context.emit(row)?; }
+    for (row, fidelity) in records.specializations { supported!(GenericSpecializationSupport, row, fidelity); }
     for (row, fidelity) in records.native_signatures { supported!(NativeSignatureSupport, row, fidelity); }
     for (row, fidelity) in records.port_types { supported!(SignatureTypeSupport, row, fidelity); }
     for row in records.terms {

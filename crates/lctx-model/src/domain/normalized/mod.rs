@@ -13,6 +13,7 @@ pub mod entity_normalization;
 mod event_inventory;
 pub mod event_normalization;
 pub mod events;
+pub mod generic_specialization;
 mod inventory;
 pub mod links;
 pub mod parameter_correspondence;

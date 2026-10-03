@@ -13,6 +13,8 @@ use super::{
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 pub mod locations;
 mod signatures;
+mod generics;
+pub use generics::*;
 pub use signatures::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
@@ -68,6 +70,9 @@ pub struct TypeVariable {
     #[model(key)]
     pub kind: TypeVariableKind,
     pub name: String,
+    /// Native declared variance; inference is a separate optional result.
+    pub declared_variance: Option<TypeVariance>,
+    pub inferred_variance: Option<TypeVariance>,
 }
 /// The provider's supported typing special forms. Codes are append-only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]

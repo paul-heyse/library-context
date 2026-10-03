@@ -27,7 +27,7 @@ use pyrefly_types::{
     quantified::{Quantified, QuantifiedKind, QuantifiedOrigin},
     tuple::Tuple,
     type_alias::TypeAliasData,
-    type_var::Restriction,
+    type_var::{Restriction, PreInferenceVariance},
     typed_dict::TypedDict,
     types::{AnyStyle, BoundMethodType, Forallable, NeverStyle, Type},
 };
@@ -52,6 +52,10 @@ fn native_field_receiver(ty: &Type) -> NativeReceiver {
     }
 }
 
+fn native_variance(value: PreInferenceVariance) -> Option<TypeVariance> {
+    match value { PreInferenceVariance::Covariant => Some(TypeVariance::Covariant), PreInferenceVariance::Contravariant => Some(TypeVariance::Contravariant), PreInferenceVariance::Invariant => Some(TypeVariance::Invariant), PreInferenceVariance::Undefined => None }
+}
+
 pub type ResolveModule<'a> =
     dyn FnMut(&mut Natives, ModuleName) -> Result<Id<ProviderModule>, ModelError> + 'a;
 pub struct Records {
@@ -63,6 +67,7 @@ pub struct Records {
     pub transforms: Vec<RecordTransformDefaults>,
     pub transform_specifiers: Vec<RecordTransformFieldSpecifier>,
     pub signatures: Vec<(Signature, Vec<SignatureParameter>, Vec<ParameterShape>)>,
+    pub specializations: Vec<(GenericSpecializationObservation, Fidelity)>,
     pub native_signatures: Vec<(NativeSignatureObservation, Fidelity)>,
     pub port_subjects: Vec<SignatureTypeSubject>,
     pub port_types: Vec<(SignatureTypeObservation, Fidelity)>,
@@ -92,6 +97,7 @@ impl Records {
             record_options: vec![],
             transforms: vec![],
             transform_specifiers: vec![],
+            specializations: vec![],
             signatures: vec![], native_signatures: vec![], port_subjects: vec![], port_types: vec![],
             terms: vec![],
             sequences: vec![],
@@ -479,6 +485,8 @@ impl Builder<'_, '_> {
             origin,
             kind: variable_kind(q.kind),
             name: q.name.to_string(),
+            declared_variance: native_variance(q.variance()),
+            inferred_variance: None,
         };
         let key = row.id();
         if !self.variables.contains(&key) {
@@ -494,6 +502,7 @@ impl Builder<'_, '_> {
         &mut self,
         qname: &QName,
         kind: TypeVariableKind,
+        variance: Option<TypeVariance>,
         restriction: &Restriction,
         default: Option<&Type>,
         depth: usize,
@@ -510,6 +519,8 @@ impl Builder<'_, '_> {
             origin: TypeVariableOrigin::ScopedLegacy,
             kind,
             name: qname.id().to_string(),
+            declared_variance: variance,
+            inferred_variance: None,
         };
         let key = row.id();
         if !self.variables.contains(&key) {
@@ -862,6 +873,7 @@ impl Builder<'_, '_> {
                 let variable = self.declaration_variable(
                     v.qname(),
                     variable_kind(v.kind()),
+                    native_variance(v.variance()),
                     v.restriction(),
                     v.default(),
                     depth,
@@ -878,6 +890,7 @@ impl Builder<'_, '_> {
                 let variable = self.declaration_variable(
                     v.qname(),
                     TypeVariableKind::ParamSpec,
+                    None,
                     &Restriction::Unrestricted,
                     v.default(),
                     depth,
@@ -894,6 +907,7 @@ impl Builder<'_, '_> {
                 let variable = self.declaration_variable(
                     v.qname(),
                     TypeVariableKind::TypeVarTuple,
+                    None,
                     &Restriction::Unrestricted,
                     v.default(),
                     depth,
@@ -1261,6 +1275,30 @@ pub fn records<'a>(
             continue;
         }
         b.trace(call.site, TypeRole::CallResult, spans.range_of(call.site))?;
+        if let Some(Type::BoundMethod(method)) = spans.range_of(call.callee).and_then(|range| ctx.answers.get_type_trace(range)) {
+            let receiver = match &method.obj { Type::ClassType(c) | Type::SelfType(c) => Some(c), _ => None };
+            let kind = match &method.func { BoundMethodType::Function(f) => &f.metadata.kind, BoundMethodType::Forall(f) => &f.body.metadata.kind, BoundMethodType::Overload(f) => &f.metadata.kind };
+            let owner = b.function(kind)?;
+            if let (Some(receiver), Some(owner)) = (receiver, owner) {
+                let declarations: Vec<_> = b.out.native_signatures.iter().filter_map(|(native, _)| {
+                    b.out.signatures.iter().find(|(signature, _, _)| signature.id() == native.signature && signature.symbol == owner).map(|_| native.id())
+                }).collect();
+                if !declarations.is_empty() {
+                    let receiver_term = b.term(&method.obj, 0)?;
+                    for (variable, argument) in receiver.tparams().iter().zip(receiver.targs().as_slice().iter()) {
+                        let variable = b.variable(variable, 0)?;
+                        let argument = b.term(argument, 0)?;
+                        let fidelity = if receiver_term.opaque || argument.opaque { Fidelity::DisplayOnly } else { Fidelity::NativeStructural };
+                        for declaration in &declarations {
+                            let row = GenericSpecializationObservation { qualification: b.qualification.id(), scope: b.qualification.scope, site: call.callee, declaration: *declaration, receiver: receiver_term.id, variable, argument: argument.id };
+                            b.out.hold(&row)?; b.out.specializations.push((row, fidelity));
+                        }
+                    }
+                } else if !receiver.tparams().is_empty() {
+                    b.boundary(Some(call.callee), ObligationKind::MissingEvidence, "native generic receiver lacks emitted signature origin".into())?;
+                }
+            }
+        }
         // Pyrefly overload traces are keyed by the native Arguments range. Attach
         // only through its unique canonical child, retaining the call as subject.
         let mut argument_nodes = spans.nodes().filter_map(|(node, kind)| {
