@@ -594,11 +594,21 @@ They remain **not_run** at this baseline; no full gate or packet runtime pass is
 B3 PG3 **failed**, 2026-10-03, 337.25s (`b3-pg-3.log`): the native/recognizer
 read ambiguity is resolved and declared terminal/native exit controls passed, but the two
 conditional final-class/member frontiers remain absent. Actual source attempts are now
-Bound/SourceInspection/DispatchOpen. Their original Overrides qualification is May/Exact,
-so `typing_target` refuses it at its definite-only runtime-style guard (Approximation48).
-The approved bounded repair keeps that original May target/open runtime alternative unchanged
-and derives a separate TypingConditional question from the actual definite exact receiver
-observation plus receiver conformance and no-extra-overrides premises. Checked identity,
-complete MRO and final metadata remain mandatory; Candidate/approximate/property/unknown
-inputs remain refused. Pure qualification controls and the unchanged three-frontier PG oracle
+Bound/SourceInspection/DispatchOpen. Their original Overrides qualification is Candidate1/Exact0
+(conceptually a may-target), so `typing_target` refuses at its definite-only runtime-style guard
+(Approximation48). The bounded repair retains the original Candidate target/open runtime
+alternative. Only that checked Overrides route can anchor a separate TypingConditional question:
+independent definite receiver typing, unique checked member identity, complete MRO and final
+metadata with receiver-conformance/no-extra-overrides premises must establish the conclusion.
+Candidate is never relabelled or admitted as a definite premise; non-Overrides Candidate,
+Potential, approximate, property, unknown and competing/wrong-member inputs remain refused. Pure qualification controls and the unchanged three-frontier PG oracle
 are pending. No full B3 or series acceptance is claimed.
+
+The MroGap negative fixture is being corrected to an actual contradictory-C3 recovery-prefix
+case. A missing-import base yields native Complete/empty recovery, so its spelling was not
+evidence of a partial MRO. The expected negative operation remains unchanged; no source
+heuristic relabels the upstream status. Decisive candidate/receiver/member provenance is retained
+in `b3-target-refusal.txt`. P4 capture standalone CLI **passed**, 12m46s
+(`p4-capture-cli1.log`); actual PG2 and required-field wire controls are pending. That one build
+used a recorded `-j6` override; subsequent builds retain configured jobs16/frontend1. No
+profile, cache or standing job-policy change was made.
