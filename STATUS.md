@@ -4,6 +4,10 @@ _Updated 2026-10-02 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 **Phase 5 implementation is sufficient for now by operator instruction, 2026-10-02.** Further
 qualification is stopped; serving activation is not qualified.
+The [incremental alignment review](docs/design_review/reviews/design_review_semantic-model-incremental-alignment_2026-10-02.md)
+is **Revise / Implemented**, 2026-10-02: bounded corrections, no wholesale redesign.
+It owns eight new open findings and triggered opportunities; remedies remain Proposed.
+Next: plan the bounded remedies in dependency order and independent packages; this review performed no remediation or renewed qualification.
 [Phase 5 plan §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
 owns package receipts and current assembled-review dispositions. The
 [parent cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
@@ -19,12 +23,10 @@ Finite association establishes no allocation, alias, mutation or temporal heap i
 
 ## Current implementation and receipts
 
-Committed Phase 5 slices include D0 (`a55870c8`), L0 (`5223cf73`), bounded condition allocation
-(`441b9c8f`), retained service/evaluation retirement (`17bfe0e4`), canonical selectors
-(`0bc8ea11`), and additive model serving/native contracts (`4acf8551`). Canonical store services, bridges, CLI, original controls and ownership-boundary retirement
-are committed as `91751d1c`; bounded normalization and qualification repairs are committed
-as `3591b68c`. Hygiene repairs/automatic output are committed as `38efdd4b` / `8e10d256`;
-the final scoped review and reconciled documentation as `eeabf906`. Full Q0 is deferred.
+Phase 5 contracts, lifecycle, services, bridges, CLI, controls and retirement are committed
+through `91751d1c`; normalization/qualification repairs as `3591b68c`, hygiene/automatic output
+as `38efdd4b` / `8e10d256`, scoped review/documentation as `eeabf906`.
+Plan §10 retains individual package commits and receipts. Full Q0 is deferred.
 
 X0 removed 375 unchanged inventoried source files and 21 obsolete query metadata entries,
 including the retired schema, bundle, native IPC and old serving authorities. Three obsolete
@@ -64,9 +66,9 @@ cumulative 30-second deadline. The evidence fixture originally asked for Local A
 parents although Local declares none; the corrected actual BaseEvaluation witness retains all
 canonical receipt, damaged-view and captured-byte assertions. Plan §10 owns commands and logs.
 
-The CPython oracle retains its original nine grouped programs / 52 functions and independent
-observations. Its longer retry compiled and published the generation, then failed preparation:
-receipt content requires increasing IDs while a shared validator requires call/ordinal groups.
+The CPython oracle retains nine grouped programs / 52 functions and independent observations.
+Its published retry failed preparation: receipt content requires increasing IDs while a
+shared validator requires call/ordinal groups.
 The correction hashes in ID order, then streams declared grouping order when different, inside
 one read-only repeatable-read transaction on the original leased connection. Both passes remain
 bounded. No product budget, deadline, guard or oracle assertion was weakened. The actual native
@@ -111,10 +113,8 @@ FastMCP staging generation `de1e0c2b09a319134fcef595a9bcbe89` remains unselected
 callable-aspect normalization stopped before output. Its compiler/backend/locks are gone.
 Interruption receipt: `/tmp/lctx-phase5-q0-final-interruption_2026-10-03.json` (UTC filename).
 Resume only on operator request; plan §10 retains the omitted Q0 scope and activation boundary.
-The old staging generation was inventoried, its receipt metadata captured, and retired by the
-resumable reset. Local PostgreSQL now uses `max_locks_per_transaction=512` after the operator
-restart; reset passed and the final CLI reports zero generations / zero store findings.
+The old staging generation was inventoried, receipts captured, and retired by the resumable reset.
+Local PostgreSQL uses `max_locks_per_transaction=512` after operator restart; reset and its zero-finding CLI check passed.
 The earlier eight functional gate defects passed the final workspace run; full Q0 is deferred.
-Main preserves the initial dirty baseline against snapshot `bd22f66c`; 116 initial tracked paths remain dirty. The automatic hook
-completed ADR indexing/formatting; the authorized feature-union refresh is complete. Formatting
-and generated-file refreshes remain hook-owned; no manual formatter was run.
+Main preserves the initial dirty baseline against snapshot `bd22f66c`; 116 initial tracked paths remain dirty.
+ADR indexing/formatting and the authorized feature-union refresh completed; generators remain hook-owned.
