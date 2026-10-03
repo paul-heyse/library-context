@@ -155,6 +155,7 @@ Old-format stores are refused; reconstruct semantic state from pinned inputs.
 ## Development checks
 
 - `just postgres-test-setup` pulls the pinned images.
+- `just test-all` builds the release CLI and checks both pinned images before one workspace Nextest run covering the real-PG18 controls; Python/oracles and doctests follow. The standalone subset remains available.
 - `just test-postgres` runs the real-PG18 suites through Testcontainers: the store, provider sessions,
   the CLI. Missing Docker or a missing image is `blocked`.
 - The `testing` feature of `lctx-postgres` provides `DisposableDatabase`, which is provisioned like

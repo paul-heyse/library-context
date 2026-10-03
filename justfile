@@ -21,8 +21,8 @@ skills-check:
 # The default functional loop: optimized cached core tests and Python tests
 check: test py-test
 
-# Everything functional: check + real PostgreSQL + compile-fail and doc contracts
-test-all: check test-postgres test-doc
+# Everything functional: one workspace run (including real PostgreSQL), Python/oracles and docs.
+test-all: postgres-test-ready test-cli-build check test-doc
 
 # Canonical serving uses model-derived identifiers and bound runtime queries; no frozen SQLx
 # metadata remains. Agents run hygiene once at scope end, beside `test-all`, and fix what fails
@@ -214,8 +214,13 @@ images-ready:
     done
 
 # Real PostgreSQL 18 (disposable containers): generation store, provider sessions, CLI
-test-postgres:
+postgres-test-ready:
+    @docker image inspect "postgres:$(cat specs/postgres-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
     @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
-    INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract -p cpg-core -p lctx --no-fail-fast
+
+test-cli-build:
     cargo build --release -p lctx
+
+test-postgres: postgres-test-ready test-cli-build
+    INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract -p cpg-core -p lctx --no-fail-fast
 
