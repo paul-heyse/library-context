@@ -70,3 +70,56 @@ class PlainHolder:
 
     def read(self):
         return self.value
+
+
+# Conditional typing answers coexist with the original runtime alternatives.
+from typing import Literal, Never
+
+
+def finite_zero(value: Literal[0]):
+    if value == 0:
+        return identity(value)
+    return None
+
+
+def finite_one(value: Literal[1]):
+    if value == 0:
+        return value
+    return None
+
+
+def uninhabited(value: Never):
+    if value == 0:
+        return value
+    return None
+
+
+def finite_compound(value: Literal[0], gate: bool):
+    if value == 0 and gate:
+        return value
+    return None
+
+
+def finite_repeated(value: Literal[0]):
+    if value == 0:
+        return value
+    if value == 0:
+        return value
+    return None
+
+
+def effectful_repeated(value: Literal[0], predicate):
+    if predicate():
+        return value
+    if predicate():
+        return value
+    return None
+
+
+def nonconforming_runtime():
+    def promised(value: Literal[0]):
+        if value == 0:
+            return value
+        return None
+
+    return promised(1)

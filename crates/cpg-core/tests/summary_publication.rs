@@ -533,6 +533,7 @@ async fn run_fixture(profile: Profile, fixture: &str) {
     .unwrap();
     if profile == Profile::Behavioral { assert!(statuses.iter().all(|s| *s == 1)); }
     if profile == Profile::Behavioral && fixture == "phase4_summaries" {
+        assert_conditional_atom_summary(db.owner.pool(), &id.schema(), &root).await;
         assert!(proofs > 0);
         assert!(statuses.iter().all(|s| *s == 1));
         let alternatives:Vec<(Vec<u8>,Vec<u8>,i64,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -630,4 +631,36 @@ async fn catalog_summaries_are_explicitly_not_requested() {
 #[tokio::test]
 async fn exact_exception_summary_projects_only_actual_completed_bodies() {
     run_fixture(Profile::Behavioral, "exact_exception_shapes").await;
+}
+
+// Independent source locations distinguish repeated evaluations and premises through real storage.
+async fn assert_conditional_atom_summary(pool: &sqlx::PgPool, schema: &str, root: &std::path::Path) {
+    let text=std::fs::read_to_string(root.join("cases.py")).unwrap();
+    let decisions:Vec<(i64,Vec<u8>,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT o.start,d.leaf,d.outcome FROM {schema}.local_atom_decisions d JOIN {schema}.flow_test_leaf_observations l ON l.id=d.leaf JOIN {schema}.occurrences o ON o.id=l.test"
+    ))).fetch_all(pool).await.unwrap();
+    for (function,expected) in [("finite_zero",0_i16),("finite_one",1),("uninhabited",3)] {
+        let start=text.find(&format!("def {function}(")).unwrap();
+        let test=(start+text[start..].find("if value == 0:").unwrap()+3) as i64;
+        assert!(decisions.iter().any(|(at,_,outcome)|*at==test && *outcome==expected),"{function} exact native decision: {decisions:?}");
+    }
+    let start=text.find("def finite_repeated(").unwrap();
+    let end=text[start..].find("def effectful_repeated(").unwrap()+start;
+    let repeated=decisions.iter().filter(|(at,_,_)|(*at as usize)>=start && (*at as usize)<end).map(|(_,leaf,_)|leaf).collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(repeated.len(),2,"repeated equal source predicates remain two evaluations");
+    let forbidden:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM {schema}.local_atom_restrictions r JOIN {schema}.local_atom_decisions d ON d.id=r.decision WHERE d.outcome IN (2,3,4)"
+    ))).fetch_one(pool).await.unwrap();
+    assert_eq!(forbidden,0,"mixed, uninhabited and refused answers never prune");
+    let alternatives:Vec<(i64,i64,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT o.start,b.count,n.kind FROM {schema}.summary_transfer_alternatives a JOIN {schema}.summary_transfer_keys k ON k.id=a.transfer JOIN {schema}.entity_refs e ON e.id=k.owner JOIN {schema}.callable_entities callable ON callable.id=e.callable_callable JOIN {schema}.occurrences o ON o.id=callable.source_declaration JOIN {schema}.assertion_qualifications q ON q.id=a.qualification JOIN {schema}.assumption_sets b ON b.id=q.assumptions JOIN {schema}.conditions c ON c.id=q.condition JOIN {schema}.condition_nodes n ON n.id=c.root"
+    ))).fetch_all(pool).await.unwrap();
+    let start=text.find("def finite_zero(").unwrap() as i64;
+    let end=text.find("def finite_one(").unwrap() as i64;
+    let zero=alternatives.iter().filter(|(at,_,_)|*at>=start && *at<end).collect::<Vec<_>>();
+    assert!(zero.iter().any(|(_,basis,condition)|*basis==1 && *condition==1),"typing premise must change a real Summary guard to true: {zero:?}");
+    assert!(zero.iter().any(|(_,basis,_)|*basis==0),"the unconditional runtime alternative survives: {zero:?}");
+    let start=text.find("def effectful_repeated(").unwrap() as i64;
+    let end=text.find("def nonconforming_runtime(").unwrap() as i64;
+    assert!(!alternatives.iter().any(|(at,basis,_)|*at>=start && *at<end && *basis>0),"effectful predicate calls cannot inherit a parameter truth premise");
 }

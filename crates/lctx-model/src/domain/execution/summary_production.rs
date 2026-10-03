@@ -175,6 +175,7 @@ pub struct PairOutcome {
 }
 #[macro_export]
 macro_rules! summary_owned_inputs{($apply:ident)=>{$apply!{
+ atom_restrictions:$crate::domain::atom_decision::AtomRestriction,
  exception_bodies:$crate::domain::execution::enriched_records::BodyExecution,exception_values:$crate::domain::execution::enriched_records::ExecutionOutcome,
  symbolic_classes:$crate::domain::normalized::symbolic_fields::SourceFieldClass,symbolic_stores:$crate::domain::normalized::symbolic_fields::SourceFieldStore,symbolic_associations:$crate::domain::normalized::symbolic_fields::SourceFieldAssociation,symbolic_readers:$crate::domain::normalized::symbolic_fields::SourceFieldReader,symbolic_links:$crate::domain::normalized::symbolic_fields::SourceFieldReaderLink,symbolic_local_stores:$crate::domain::local_symbolic::SymbolicFieldStore,
  local_invocations:$crate::domain::analysis::local::AnalysisInvocation,model_invocations:$crate::domain::analysis::model::AnalysisInvocation,enriched_invocations:$crate::domain::analysis::enriched_execution::AnalysisInvocation,source_invocations:$crate::domain::analysis::source_call::AnalysisInvocation,
@@ -460,7 +461,7 @@ impl SummaryData {
     ) -> Result<(Vec<WorkBranch>, Box<dyn Reservation>), ModelError> {
         let charge = budget.reserve(
             "summary-raw-seeds",
-            (self.local_contributions.len() + self.model_supports.len())
+            (self.local_contributions.len().saturating_mul(self.atom_restrictions.len().saturating_add(1)) + self.model_supports.len())
                 .saturating_mul(size_of::<WorkBranch>() + 512),
         )?;
         let mut seeds = Vec::new();
@@ -479,12 +480,16 @@ impl SummaryData {
             if self.local_alternatives.get(alternative.id()) != Some(&alternative) {
                 return Err(invalid("Local summary seed alternative absent"));
             }
+            // Local atom restrictions are separate supported typing-world alternatives.
+            // Their original contribution remains a seed in the unconditional runtime world.
+            for selected in self.local_alternatives.iter().filter(|a| a.id()==alternative.id() || self.atom_restrictions.iter().any(|r|r.original==alternative.id() && r.qualification==a.qualification && a.transfer==key.id())) {
+            let q=self.vocabulary.qualifications.get(&selected.qualification).ok_or_else(||invalid("restricted Local seed qualification absent"))?;
             let origin = SummaryOrigin::Local {
                 contribution: contribution.id(),
             };
             out.origins.insert(origin.clone())?;
             let premise = SummaryPremise::Local {
-                alternative: alternative.id(),
+                alternative: selected.id(),
             };
             let evidence = self.evidence(out, &premise, budget)?;
             let facts = SourceFacts {
@@ -507,6 +512,7 @@ impl SummaryData {
                 facts,
                 cost: ProofCost::SOURCE,
             });
+            }
         }
         for support in self.model_supports.iter() {
             let (source, _) = self.model_evidence.get(support.source)?;

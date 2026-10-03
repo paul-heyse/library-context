@@ -134,6 +134,8 @@ pub async fn run(
     lctx_model::entry_value_inputs!(fields);
     lctx_model::summary_path_inputs!(fields);
     lctx_model::summary_owned_inputs!(fields);
+    lctx_model::summary_evidence_inputs!(fields);
+    lctx_model::summary_projection_inputs!(fields);
     lctx_model::summary_vocabulary!(fields);
     lctx_model::summary_outputs!(fields);
     read!(
@@ -159,7 +161,8 @@ pub async fn run(
         replay_inputs
             .iter()
             .all(|i| seen.contains(&(i.name(), i.prefix().map(|e| e as u8)))),
-        "probe must read every declared replay input"
+        "probe must read every declared replay input: {:?}",
+        replay_inputs.iter().filter(|i| !seen.contains(&(i.name(), i.prefix().map(|e| e as u8)))).map(|i| (i.name(), i.prefix())).collect::<Vec<_>>()
     );
     let behavioral = access.profile() == Profile::Behavioral;
     // Unconditional reader and constructor observations may share one qualification.
