@@ -686,6 +686,7 @@ mod tests {
             .unwrap()
             .clone();
         let signature = Signature {
+            role: crate::domain::calls::SignatureRole::Source, native: None,
             qualification: q.id(),
             scope: q.scope,
             symbol: id(151 + ordinal as u8),
@@ -713,7 +714,7 @@ mod tests {
         let subject = if effective {
             let variant = d
                 .option_variants
-                .insert(SignatureVariant {
+                .insert(SignatureVariant { role: crate::domain::calls::SignatureRole::Source, native: None,
                     signature: signature.id(),
                     context: core.context,
                     resolution: id(161),

@@ -220,6 +220,7 @@ fn fixture() -> (
         .facts
         .signatures
         .insert(Signature {
+            role: lctx_model::domain::calls::SignatureRole::Source, native: None,
             qualification: q,
             scope: CoverageScope::Artifact {
                 artifact: source.id(),
@@ -235,7 +236,7 @@ fn fixture() -> (
         .source
         .core
         .variants
-        .insert(SignatureVariant {
+        .insert(SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None,
             signature: sig,
             context,
             resolution: id(7),
@@ -1335,7 +1336,7 @@ fn strict_preparation_owns_metadata_and_reuses_charged_indexes() {
 #[test]
 fn local_preparation_inventory_and_missing_membership_refusal() {
     use selection::classification::ClassificationData;
-    assert_eq!(ClassificationData::inputs().len(), 45);
+    assert_eq!(ClassificationData::inputs().len(), 49);
     assert!(
         ClassificationData::inputs()
             .iter()
@@ -1532,4 +1533,11 @@ fn prepared_public_formal_domain_survives_absent_native_context_and_refuses_fore
         assert!(independent.reserved() > 0);
     }
     assert_eq!(independent.reserved(), 0);
+}
+
+#[test]
+fn an_unobserved_native_role_is_unknown_even_when_source_enumeration_is_complete() {
+    let (b,d,member,context,_) = fixture();
+    let output = lctx_model::domain::selection::build::build(&d,&b).unwrap();
+    assert_eq!(classify(&d,&output,member,context,Predicate::VariantReturnType {role:SignatureRole::EffectiveTyped,r#type:StructuralType::Category {kind:0}},Quantifier::AnyApplicable,&b),Outcome::Unresolved);
 }

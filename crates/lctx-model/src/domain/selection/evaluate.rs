@@ -97,6 +97,23 @@ impl Prepared {
             {
                 continue;
             }
+            let selected_role = match &requirement.predicate {
+                Predicate::ParameterType { .. } => None,
+                Predicate::VariantParameterType { role, .. } | Predicate::VariantReturnType { role, .. } => Some(*role),
+                _ => None,
+            };
+            if matches!(&requirement.predicate, Predicate::ParameterType { .. }) {
+                if let Context::Signature { invocation, .. } = c {
+                    let invocation = need(&self.data.source.catalog.invocations, *invocation)?;
+                    if !need(&self.data.source.core.variants, invocation.variant)?.role.runtime_source() { continue; }
+                }
+            }
+            if let Some(role) = selected_role {
+                if let Context::Signature { invocation, .. } = c {
+                    let invocation = need(&self.data.source.catalog.invocations, *invocation)?;
+                    if need(&self.data.source.core.variants, invocation.variant)?.role != role { continue; }
+                }
+            }
             let mut evidence = Vec::new();
             for id in self.index.evidence(stored.id(), link.context) {
                 let r = need(&self.output.evidence, *id)?;
@@ -146,6 +163,8 @@ impl Prepared {
             };
             let basis = if matches!(c, Context::Scenario { .. }) {
                 EvidenceBasis::ObservedScenario
+            } else if matches!(&requirement.predicate, Predicate::VariantParameterType { .. } | Predicate::VariantReturnType { .. }) {
+                EvidenceBasis::ProviderDeclaration
             } else {
                 EvidenceBasis::SourceDeclaration
             };
@@ -162,9 +181,11 @@ impl Prepared {
             let r = need(&self.output.closure, *id)?;
             closure.push(need(&self.output.witnesses, r.evidence)?.clone());
         }
+        let role_requested = matches!(&requirement.predicate, Predicate::VariantParameterType { .. } | Predicate::VariantReturnType { .. });
+        let role_observed = !observations.is_empty();
         let domain = Domain {
             corpus_complete: stored.corpus_complete,
-            analyzer_complete: stored.analyzer_complete
+            analyzer_complete: (stored.analyzer_complete && (!role_requested || role_observed))
                 || matches!(
                     requirement.predicate,
                     Predicate::PublicPath { .. } | Predicate::PublicModule { .. }
@@ -519,7 +540,7 @@ fn parameter(
         | Predicate::ParameterRequired { name, .. }
         | Predicate::ParameterDefaultState { name, .. }
         | Predicate::ParameterDefault { name, .. }
-        | Predicate::ParameterType { name, .. } => name,
+        | Predicate::ParameterType { name, .. } | Predicate::VariantParameterType { name, .. } => name,
         _ => return Ok(None),
     };
     let mut found = None;
@@ -543,8 +564,13 @@ fn parameter(
     let Some((slot, shape)) = found else {
         let callable = need(&d.source.catalog.callables, invocation.callable)?;
         let assessment = need(&d.source.core.assessments, callable.assessment)?;
+        let complete = if variant.role.runtime_source() {
+            assessment.signatures == Knowledge::Known
+        } else {
+            variant.native.and_then(|id| d.source.core.native_signatures.get(id)).is_some_and(|n| n.complete)
+        };
         return Ok((signature.form == calls::SignatureForm::List
-            && assessment.signatures == Knowledge::Known
+            && complete
             && variant.adjustment != SignatureAdjustment::Unknown)
             .then_some(false));
     };
@@ -563,6 +589,18 @@ fn parameter(
         Predicate::ParameterDefaultState { state, .. } => {
             let mut values = Vec::new();
             for o in d.source.catalog.options.iter().filter(|r|Some(r.member)==c.member() && d.source.catalog.subjects.get(r.subject).is_some_and(|s|matches!(s,catalog::CatalogOptionSubject::Parameter {slot:s} if *s==slot.id()))) {let observed=default_state(d,o)?;values.push(if observed==DefaultState::Unknown {None}else{Some(observed==*state)});}
+            Ok(consensus(values))
+        }
+        Predicate::VariantParameterType { role, r#type, .. } => {
+            if variant.role != *role { return Ok(None); }
+            let mut values = Vec::new();
+            for link in d.source.core.slot_types.iter().filter(|r| r.slot == slot.id()) {
+                let raw = need(&d.source.core.signature_types, link.observation)?;
+                let q = need(&d.source.core.qualifications, raw.qualification)?;
+                if q.context == c.analysis() && q.approximation == assertion::Approximation::Exact && q.modality == attribution::Modality::Definite && q.condition == conditions::Diagram::always().id() {
+                    values.push(type_match(d, raw.term, r#type, c.analysis())?);
+                }
+            }
             Ok(consensus(values))
         }
         Predicate::ParameterType { r#type, .. } => {
@@ -762,7 +800,22 @@ fn evaluate(
         | Predicate::ParameterRequired { .. }
         | Predicate::ParameterDefaultState { .. }
         | Predicate::ParameterDefault { .. }
-        | Predicate::ParameterType { .. } => parameter(d, p, c),
+        | Predicate::ParameterType { .. } | Predicate::VariantParameterType { .. } => parameter(d, p, c),
+        Predicate::VariantReturnType { role, r#type } => {
+            let Context::Signature { invocation, .. } = c else { return Ok(None); };
+            let invocation = need(&d.source.catalog.invocations, *invocation)?;
+            let variant = need(&d.source.core.variants, invocation.variant)?;
+            if variant.role != *role { return Ok(None); }
+            let mut values = Vec::new();
+            for link in d.source.core.return_types.iter().filter(|r| r.variant == variant.id()) {
+                let raw = need(&d.source.core.signature_types, link.observation)?;
+                let q = need(&d.source.core.qualifications, raw.qualification)?;
+                if q.context == c.analysis() && q.approximation == assertion::Approximation::Exact && q.modality == attribution::Modality::Definite && q.condition == conditions::Diagram::always().id() {
+                    values.push(type_match(d, raw.term, r#type, c.analysis())?);
+                }
+            }
+            Ok(consensus(values))
+        },
         Predicate::DeclaresConfigurationField { name }
         | Predicate::ConfigurationDefault { name, .. }
         | Predicate::ConfigurationLiteral { name, .. }

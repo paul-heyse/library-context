@@ -207,6 +207,7 @@ fn outputs() -> Vec<RelationUse> {
         TypeVariable,
         TypeVariableRestriction,
         TypeRestrictionSupport,
+        NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport,
         TypeObservation,
         TypeSupport,
         TypePresentation,
@@ -353,7 +354,8 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             TypeVariable,
             TypeVariableRestriction,
             TypeRestrictionSupport,
-            TypeObservation,
+            NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport,
+        TypeObservation,
             TypeSupport,
             TypePresentation,
             TypePresentationSupport,
@@ -873,6 +875,7 @@ fn session<S: StageSink + 'static>(
                     root,
                 )?;
                 types_partial = native_parse_error || !types.boundaries.is_empty();
+                unattached.1 += types.signatures.iter().filter(|(s, _, _)| s.form == SignatureForm::NativeUnavailable).count();
                 write_types(
                     context,
                     types,
@@ -2421,6 +2424,15 @@ fn write_types<S: StageSink + 'static>(
     for row in records.transform_specifiers { context.emit(row)?; }
     for (row, fidelity) in records.class_members { supported!(ClassMemberSupport, row, fidelity); }
     for row in records.class_metadata { supported!(ClassMetadataSupport, row, Fidelity::NativeStructural); }
+    for (row, members, shapes) in records.signatures {
+        for shape in shapes { context.emit(shape)?; }
+        context.emit(SignatureSupport { assertion: row.id(), run: run.id(), surface: surfaces[&FactFamily::Signatures].id(), evidence: evidence.id(), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural })?;
+        context.emit(row)?;
+        for member in members { context.emit(member)?; }
+    }
+    for row in records.port_subjects { context.emit(row)?; }
+    for (row, fidelity) in records.native_signatures { supported!(NativeSignatureSupport, row, fidelity); }
+    for (row, fidelity) in records.port_types { supported!(SignatureTypeSupport, row, fidelity); }
     for row in records.terms {
         context.emit(row)?;
     }

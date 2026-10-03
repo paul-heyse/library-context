@@ -57,6 +57,7 @@ pub enum DefaultSlot {
     Required = 0,
     DefinitionTime = 1,
     Collector = 2,
+    NativeUnknown = 3,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "effective_callable_assessments", validate = validate_assessment, invariants = super::callable_normalization::invariants)]
@@ -146,6 +147,8 @@ pub struct EffectiveCallableEvidence {
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "signature_variants")]
 pub struct SignatureVariant {
+    pub role: SignatureRole,
+    pub native: Option<Id<crate::domain::types::NativeSignatureObservation>>,
     #[model(key)]
     pub signature: Id<Signature>,
     pub context: Id<AnalysisContext>,
@@ -170,6 +173,18 @@ pub struct SignatureSlotEntity {
     pub slot: Id<SignatureSlot>,
     #[model(key)]
     pub link: Id<ParameterEntityLink>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "signature_slot_types")]
+pub struct SignatureSlotType {
+    #[model(key)] pub slot: Id<SignatureSlot>,
+    #[model(key)] pub observation: Id<crate::domain::types::SignatureTypeObservation>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "signature_return_types")]
+pub struct SignatureReturnType {
+    #[model(key)] pub variant: Id<SignatureVariant>,
+    #[model(key)] pub observation: Id<crate::domain::types::SignatureTypeObservation>,
 }
 pub fn relations() -> Vec<Relation> {
     macro_rules! declare { ($($field:ident: $ty:ty,)*) => { vec![$(Relation::of::<$ty>()),*] }; }

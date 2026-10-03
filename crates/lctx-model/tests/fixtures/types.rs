@@ -785,3 +785,29 @@ impl Fixture {
         self.present(&[&parent], fidelity);
     }
 }
+
+impl Fixture {
+    pub fn native_signature_ports(&mut self, mismatch: &str) {
+        use lctx_model::domain::calls::*;
+        let type_support = self.base.rows::<TypeSupport>()[0].clone();
+        let type_run = self.base.rows::<ProviderRun>().into_iter().find(|r|r.id()==type_support.run).unwrap();
+        let qualification = self.base.rows::<AssertionQualification>()[0].clone();
+        let module = self.variable.module;
+        let function = ProviderSymbol {provider:type_run.provider,context:type_run.context,module,native_key:"native-port".into(),name:"native_port".into(),kind:SymbolKind::Function};
+        let (list, _) = CallableParameterList::new(&[]).unwrap();
+        let term = TypeTerm::Callable {function:Some(function.id()),form:CallableForm::List,parameters:list.id(),param_spec:None,returns:self.term.id()};
+        let (mut signature, _) = Signature::new(&qualification,SignatureRole::EffectiveTyped,Some(term.id()),function.id(),0,SignatureForm::List,&[]).unwrap();
+        if mismatch == "role" {signature.role=SignatureRole::Source;}
+        let native = NativeSignatureObservation {qualification:qualification.id(),signature:signature.id(),scope:qualification.scope,term:if mismatch=="term" {self.term.id()} else {term.id()},family:None,implementation:Some(function.id()),receiver:NativeReceiver::Unbound,complete:true};
+        let subject = SignatureTypeSubject::Return {signature:signature.id()};
+        let port = SignatureTypeObservation {qualification:qualification.id(),scope:qualification.scope,subject:subject.id(),term:self.term.id()};
+        let (run,families)=ProviderRun::new(type_run.provider,type_run.context,type_run.input,type_run.configuration,[FactFamily::Signatures]).unwrap();
+        let surface = ProviderSurface {provider:type_run.provider,family:FactFamily::Signatures,name:"native signature port contract".into()};
+        let signature_support = SignatureSupport {assertion:signature.id(),run:run.id(),surface:surface.id(),evidence:type_support.evidence,origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
+        let native_support = NativeSignatureSupport {assertion:native.id(),run:type_support.run,surface:type_support.surface,evidence:type_support.evidence,origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
+        let port_support = SignatureTypeSupport {assertion:port.id(),run:type_support.run,surface:type_support.surface,evidence:type_support.evidence,origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
+        macro_rules! append {($ty:ty,$rows:expr)=>{let mut rows=self.base.rows::<$ty>();rows.extend($rows);self.base.put(rows);};}
+        append!(ProviderSymbol,vec![function]);append!(TypeTerm,vec![term]);append!(CallableParameterList,vec![list]);append!(ProviderRun,vec![run]);append!(RunFamily,families);append!(ProviderSurface,vec![surface]);
+        self.base.put(vec![signature]);self.base.put(vec![signature_support]);self.base.put(vec![native]);self.base.put(vec![native_support]);self.base.put(vec![subject]);self.base.put(vec![port]);self.base.put(vec![port_support]);
+    }
+}

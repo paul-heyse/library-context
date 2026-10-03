@@ -274,10 +274,27 @@ fn validate_parameter(row: &ParameterShape) -> Result<(), ModelError> {
     }
     Ok(())
 }
+/// Native typing roles never grant runtime body or call-transfer authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
+#[repr(i16)]
+pub enum SignatureRole {
+    Source = 0,
+    EffectiveTyped = 1,
+    Synthesized = 2,
+    Stub = 3,
+    Specialized = 4,
+}
+impl SignatureRole {
+    pub fn runtime_source(self) -> bool { matches!(self, Self::Source | Self::Stub) }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "signature_observations", invariants = signature_invariants)]
 #[assertion(support = SignatureSupport, name = "signature_supports", family = FactFamily::Signatures, subjects(scope))]
 pub struct Signature {
+    #[model(key)]
+    pub role: SignatureRole,
+    #[model(key)]
+    pub native: Option<Id<super::types::TypeTerm>>,
     #[model(key)]
     pub qualification: Id<AssertionQualification>,
     #[model(key)]
@@ -318,6 +335,8 @@ fn parameter_digest(shapes: &[Id<ParameterShape>]) -> ContentHash {
 impl Signature {
     pub fn new(
         qualification: &AssertionQualification,
+        role: SignatureRole,
+        native: Option<Id<super::types::TypeTerm>>,
         symbol: Id<ProviderSymbol>,
         variant: i64,
         form: SignatureForm,
@@ -329,6 +348,7 @@ impl Signature {
         }
         let shapes: Vec<_> = parameters.iter().map(Record::id).collect();
         let row = Self {
+            role, native,
             qualification: qualification.id(),
             scope: qualification.scope,
             symbol,

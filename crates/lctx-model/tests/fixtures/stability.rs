@@ -152,7 +152,7 @@ impl Fixture {
             kind: SymbolKind::Function,
         };
         let (signature, parameters) = Signature::new(
-            &q,
+            &q, lctx_model::domain::calls::SignatureRole::Source, None,
             symbol.id(),
             0,
             SignatureForm::List,

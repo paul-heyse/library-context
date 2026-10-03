@@ -236,18 +236,15 @@ async fn typed_dictionary_keys_are_not_parameter_names() {
                 && c.status == CoverageStatus::Partial
                 && c.reason == Some(ObligationKind::OutsideProviderModel))
     );
+    // Dictionary keys remain record fields. The former collector-derived generated source
+    // signature is retired; it cannot manufacture source formals from mapping keys.
     let signatures = rows::<Signature>(&tables);
     let parameters = rows::<SignatureParameter>(&tables);
     let shapes = rows::<ParameterShape>(&tables);
-    assert!(
-        signatures
-            .iter()
-            .any(|s| s.form == SignatureForm::NativeUnavailable
-                && parameters.iter().any(|p| p.signature == s.id()
-                    && shapes
-                        .iter()
-                        .any(|shape| shape.id() == p.shape && shape.name.as_deref() == Some(""))))
-    );
+    assert!(signatures.iter().filter(|s|s.role.runtime_source()).all(|s|
+        parameters.iter().filter(|p|p.signature == s.id()).all(|p|
+            shapes.iter().find(|shape|shape.id() == p.shape).unwrap().name.as_deref() != Some(""))));
+
 }
 
 #[tokio::test]

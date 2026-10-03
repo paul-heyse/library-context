@@ -68,7 +68,7 @@ pub fn source_parameter(
         let Some(slot) = data.parameters.get(declaration.parameter) else { continue; };
         let Some(signature) = data.signatures.get(slot.signature) else { continue; };
         let Some(shape) = data.shapes.get(slot.shape) else { continue; };
-        if slot.ordinal != parameter.ordinal || shape.kind != parameter.kind || !in_context(signature.qualification) {
+        if !signature.role.runtime_source() || slot.ordinal != parameter.ordinal || shape.kind != parameter.kind || !in_context(signature.qualification) {
             continue;
         }
         if data.entity_declarations.iter().any(|d| {

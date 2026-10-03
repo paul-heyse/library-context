@@ -203,7 +203,7 @@ pub(super) fn callable(
                 if !found {
                     let default = match slot.default {
                         DefaultSlot::Required | DefaultSlot::Collector => CatalogDefault::Absent {},
-                        DefaultSlot::DefinitionTime => CatalogDefault::Unknown {},
+                        DefaultSlot::DefinitionTime | DefaultSlot::NativeUnknown => CatalogDefault::Unknown {},
                     };
                     option(
                         out,

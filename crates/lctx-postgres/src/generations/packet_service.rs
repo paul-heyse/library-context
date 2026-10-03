@@ -547,7 +547,7 @@ impl CatalogService {
                                 DefaultSlot::Required | DefaultSlot::Collector => {
                                     DefaultValue::Absent {}
                                 }
-                                DefaultSlot::DefinitionTime => DefaultValue::Unknown {},
+                                DefaultSlot::DefinitionTime | DefaultSlot::NativeUnknown => DefaultValue::Unknown {},
                             }
                         } else if default_rows.windows(2).all(|w| w[0] == w[1]) {
                             DefaultValue::from_canonical(default_rows[0])

@@ -45,6 +45,10 @@ group!(Catalog, crate::domain::catalog::build::CatalogOutput, {
 group!(Core, crate::domain::catalog::build::CatalogData, {
     modules: crate::domain::source::Module,
     slots: crate::domain::normalized::callables::SignatureSlot,
+    slot_types: crate::domain::normalized::callables::SignatureSlotType,
+    return_types: crate::domain::normalized::callables::SignatureReturnType,
+    signature_types: crate::domain::types::SignatureTypeObservation,
+    native_signatures: crate::domain::types::NativeSignatureObservation,
     fields: crate::domain::normalized::entities::FieldEntity,
     slot_entities: crate::domain::normalized::callables::SignatureSlotEntity,
     parameter_links: crate::domain::normalized::entities::ParameterEntityLink,
@@ -381,6 +385,14 @@ impl ClassificationData {
                 {
                     return Err(invalid("type witness crosses analysis"));
                 }
+            }
+            Witness::SignatureTypeObservation { observation } => {
+                let row = need(&self.source.core.signature_types, *observation)?;
+                if need(&self.source.core.qualifications, row.qualification)?.context != c.analysis() { return Err(invalid("typed port witness crosses analysis")); }
+                let Context::Signature { invocation, .. } = c else { return Err(invalid("typed port witness lacks signature context")); };
+                let variant = need(&self.source.catalog.invocations, *invocation)?.variant;
+                if !self.source.core.return_types.iter().any(|r| r.variant == variant && r.observation == *observation)
+                    && !self.source.core.slot_types.iter().any(|r| r.observation == *observation && self.source.core.slots.get(r.slot).is_some_and(|s| s.variant == variant)) { return Err(invalid("typed port witness crosses signature")); }
             }
             Witness::SignatureSlot { slot } => {
                 let r = need(&self.source.core.slots, *slot)?;

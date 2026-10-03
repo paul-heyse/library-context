@@ -177,7 +177,7 @@ fn fixture() -> (
     };
     data.shapes.insert(shape.clone()).unwrap();
     let (signature, parameters) =
-        Signature::new(&q, symbol.id(), 0, SignatureForm::List, &[shape]).unwrap();
+        Signature::new(&q, lctx_model::domain::calls::SignatureRole::Source, None, symbol.id(), 0, SignatureForm::List, &[shape]).unwrap();
     data.signatures.insert(signature).unwrap();
     for parameter in parameters {
         data.parameters.insert(parameter).unwrap();
@@ -196,7 +196,7 @@ fn inspectable_unknown_forms_never_authorize_effective_body_invocation() {
         if form != SignatureForm::List {
             data.signatures = Rows::new(&budget);
             data.parameters = Rows::new(&budget);
-            let (signature, _) = Signature::new(&q, symbol.id(), 0, form, &[]).unwrap();
+            let (signature, _) = Signature::new(&q, lctx_model::domain::calls::SignatureRole::Source, None, symbol.id(), 0, form, &[]).unwrap();
             data.signatures.insert(signature).unwrap();
         }
         let output = normalize(&data, &budget).unwrap();
@@ -272,7 +272,7 @@ fn cross_provider_signature_agreement_and_conflict_preserve_all_variants() {
         shape.required = conflict;
         data.shapes.insert(shape.clone()).unwrap();
         let (signature, parameters) =
-            Signature::new(&q, other.id(), 0, SignatureForm::List, &[shape]).unwrap();
+            Signature::new(&q, lctx_model::domain::calls::SignatureRole::Source, None, other.id(), 0, SignatureForm::List, &[shape]).unwrap();
         data.signatures.insert(signature).unwrap();
         for parameter in parameters {
             data.parameters.insert(parameter).unwrap();
@@ -417,7 +417,7 @@ fn qualified_signatures_and_async_syntax_do_not_advertise_context_wide_knowledge
         data.qualifications.insert(conditional.clone()).unwrap();
         let shape = data.shapes.iter().next().unwrap().clone();
         let (signature, parameters) =
-            Signature::new(&conditional, symbol.id(), 0, SignatureForm::List, &[shape]).unwrap();
+            Signature::new(&conditional, lctx_model::domain::calls::SignatureRole::Source, None, symbol.id(), 0, SignatureForm::List, &[shape]).unwrap();
         data.signatures = Rows::new(&budget);
         data.parameters = Rows::new(&budget);
         data.signatures.insert(signature).unwrap();

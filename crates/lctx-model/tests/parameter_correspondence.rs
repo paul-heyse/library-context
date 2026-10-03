@@ -28,7 +28,7 @@ fn attach(data: &mut BindingData, q: &AssertionQualification, parent: &Occurrenc
 }
 fn native(data: &mut BindingData, q: &AssertionQualification, p: &ParameterSyntaxObservation, formal: &Occurrence, variant: i64, kind: ParameterKind, function: Id<Occurrence>) -> Id<calls::SignatureParameter> {
     let shape = ParameterShape { name: Some("same_name".into()), kind, required: !matches!(kind, ParameterKind::VarPositional | ParameterKind::VarKeyword) };
-    let (signature, slots) = Signature::new(q, id(6), variant, SignatureForm::List, &[shape.clone()]).unwrap();
+    let (signature, slots) = Signature::new(q, lctx_model::domain::calls::SignatureRole::Source, None, id(6), variant, SignatureForm::List, &[shape.clone()]).unwrap();
     data.shapes.insert(shape).unwrap();
     data.signatures.insert(signature.clone()).unwrap();
     data.parameters.insert(slots[0].clone()).unwrap();
@@ -108,7 +108,7 @@ fn all_source_kinds_and_descriptor_receivers_use_the_same_formal_mapping() {
         let p = syntax(&q, &container, kind);
         let parameter = native(&mut d, &q, &p, &formal, 0, kind, p.function);
         let callable = CallableEntity::Source { declaration: p.function, kind: CallableKind::Function }.id();
-        let mut variant = SignatureVariant { signature: d.parameters.get(parameter).unwrap().signature, context: q.context, resolution: id(10), callable: Some(callable), assessment: None, adjustment: SignatureAdjustment::None };
+        let mut variant = SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None, signature: d.parameters.get(parameter).unwrap().signature, context: q.context, resolution: id(10), callable: Some(callable), assessment: None, adjustment: SignatureAdjustment::None };
         d.callable_variants.insert(variant.clone()).unwrap();
         d.callable_slots.insert(SignatureSlot { parameter, variant: variant.id(), ordinal: 0, default: if matches!(kind, ParameterKind::VarPositional | ParameterKind::VarKeyword) { DefaultSlot::Collector } else { DefaultSlot::Required } }).unwrap();
         let found = source_parameter(&d, &p, q.context, &b).unwrap().unwrap();

@@ -10,7 +10,7 @@ use crate::domain::{
     source::*,
     symbols::FunctionTraitObservation,
     syntax::*,
-    types::FunctionBodyObservation,
+    types::{FunctionBodyObservation, NativeReceiver, SignatureTypeSubject},
     *,
 };
 macro_rules! inputs {
@@ -198,7 +198,7 @@ impl<'a> Index<'a> {
                 }
             }
         }
-        for row in data.signatures.iter() {
+        for row in data.signatures.iter().filter(|s| s.role.runtime_source()) {
             if let Some(resolution) = index.resolutions.get(&row.symbol)
                 && let Some(callable) = callable(data, resolution)
             {
@@ -700,8 +700,18 @@ pub fn normalize(
             Some(DescriptorKind::Property) => SignatureAdjustment::PropertyAccess,
             None => SignatureAdjustment::Unknown,
         };
+        let native = data.native_signatures.iter().find(|n| n.signature == signature.id() && n.qualification == signature.qualification);
+        let adjustment = if let Some(native) = native { match native.receiver {
+            NativeReceiver::Unbound => SignatureAdjustment::None,
+            NativeReceiver::Instance => SignatureAdjustment::BindInstanceReceiver,
+            NativeReceiver::Class => SignatureAdjustment::BindClassReceiver,
+            NativeReceiver::Property => SignatureAdjustment::PropertyAccess,
+            NativeReceiver::Unknown => SignatureAdjustment::Unknown,
+        } } else { adjustment };
         output.variants.insert(SignatureVariant {
             signature: signature.id(),
+            role: signature.role,
+            native: native.map(Record::id),
             context: ctx,
             resolution: resolution.id(),
             callable: target,
@@ -716,6 +726,7 @@ pub fn normalize(
     let mut slots: ChargedMap<Id<SignatureParameter>, Id<SignatureSlot>> = Default::default();
     for parameter in data.parameters.iter() {
         let shape = need(&data.shapes, parameter.shape)?;
+        let signature = need(&data.signatures, parameter.signature)?;
         let default = if matches!(
             shape.kind,
             ParameterKind::VarPositional | ParameterKind::VarKeyword
@@ -723,9 +734,9 @@ pub fn normalize(
             DefaultSlot::Collector
         } else if shape.required {
             DefaultSlot::Required
-        } else {
+        } else if signature.role.runtime_source() {
             DefaultSlot::DefinitionTime
-        };
+        } else { DefaultSlot::NativeUnknown };
         let variant = *variants
             .get(&parameter.signature)
             .ok_or_else(|| invalid("parameter has no total signature variant"))?;
@@ -744,6 +755,12 @@ pub fn normalize(
                 .ok_or_else(|| invalid("parameter link has no signature slot"))?,
             link: link.id(),
         })?;
+    }
+    for observation in data.signature_types.iter() {
+        match need(&data.signature_type_subjects, observation.subject)? {
+            SignatureTypeSubject::Parameter { parameter } => { output.slot_types.insert(SignatureSlotType { slot: *slots.get(parameter).ok_or_else(|| invalid("typed parameter slot absent"))?, observation: observation.id() })?; }
+            SignatureTypeSubject::Return { signature } => { output.return_types.insert(SignatureReturnType { variant: *variants.get(signature).ok_or_else(|| invalid("typed return variant absent"))?, observation: observation.id() })?; }
+        }
     }
     Ok(output)
 }

@@ -766,7 +766,7 @@ mod tests {
             },
         ];
         let (signature, parameters) =
-            Signature::new(&qualification, symbol.id(), 0, SignatureForm::List, &shapes).unwrap();
+            Signature::new(&qualification, crate::domain::calls::SignatureRole::Source, None, symbol.id(), 0, SignatureForm::List, &shapes).unwrap();
         let (call, arguments) = CallSyntax::new(
             qualification.id(),
             site.id(),
@@ -851,7 +851,7 @@ mod tests {
                 asynchronous: Some(false),
                 generator: Some(false),
             };
-            let variant = SignatureVariant {
+            let variant = SignatureVariant { role: crate::domain::calls::SignatureRole::Source, native: None,
                 signature: signature.id(),
                 context: context.id(),
                 resolution: resolution.id(),

@@ -348,7 +348,7 @@ impl Fixture {
             },
         ];
         let (signature, members) = Signature::new(
-            &qualification,
+            &qualification, lctx_model::domain::calls::SignatureRole::Source, None,
             sym["Base.run"].id(),
             0,
             SignatureForm::List,

@@ -317,6 +317,8 @@ pub enum Witness {
     ReceiverLocation { link: Id<FieldLocationLink> },
     #[model(code = 17)]
     ConstructorCandidate { link: Id<ConstructorCandidateLink> },
+    #[model(code = 18)]
+    SignatureTypeObservation { observation: Id<types::SignatureTypeObservation> },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="catalog_selection_domains",invariants=super::build::invariants,semantic_source=include_bytes!("build.rs"))]
@@ -422,6 +424,8 @@ pub enum Predicate {
         name: String,
         r#type: StructuralType,
     },
+    VariantParameterType { role: calls::SignatureRole, name: String, r#type: StructuralType },
+    VariantReturnType { role: calls::SignatureRole, r#type: StructuralType },
     DeclaresConfigurationField {
         name: String,
     },
@@ -484,7 +488,8 @@ impl Predicate {
             | Self::ParameterRequired { .. }
             | Self::ParameterDefaultState { .. }
             | Self::ParameterDefault { .. }
-            | Self::ParameterType { .. } => DomainKind::SignatureVariants,
+            | Self::ParameterType { .. }
+            | Self::VariantParameterType { .. } | Self::VariantReturnType { .. } => DomainKind::SignatureVariants,
             Self::DeclaresConfigurationField { .. }
             | Self::ConfigurationOwner { .. }
             | Self::ConfigurationScope { .. }
@@ -542,7 +547,8 @@ impl HeapSize for Predicate {
             Self::ParameterDefault { name, value }
             | Self::ConfigurationDefault { name, value }
             | Self::ConfigurationLiteral { name, value } => name.heap_bytes() + value.heap_bytes(),
-            Self::ParameterType { name, r#type } => name.heap_bytes() + r#type.heap_bytes(),
+            Self::ParameterType { name, r#type } | Self::VariantParameterType { name, r#type, .. } => name.heap_bytes() + r#type.heap_bytes(),
+            Self::VariantReturnType { r#type, .. } => r#type.heap_bytes(),
             Self::ReleaseVersion {
                 distribution,
                 version,
@@ -602,20 +608,24 @@ impl Predicate {
             | Self::ConfigurationLiteral { name, .. }
             | Self::ConfigurationRelationship { name, .. }
             | Self::DeploymentDeclaration { name, .. } => text(name),
-            Self::ParameterType { name, r#type } => {
+            Self::ParameterType { name, r#type } | Self::VariantParameterType { name, r#type, .. } => {
                 text(name)?;
                 match r#type {
                     StructuralType::NominalIdentity { module, name } => {
                         text(module)?;
                         text(name)
                     }
-                    StructuralType::Category { kind } if !(0..=33).contains(kind) => {
+                    StructuralType::Category { kind } if !(0..=34).contains(kind) => {
                         Err(ModelError::Invalid(
                             "selection type category is outside the canonical codebook".into(),
                         ))
                     }
                     _ => Ok(()),
                 }
+            }
+            Self::VariantReturnType { r#type, .. } => {
+                // Reuse the same canonical structural pattern validation.
+                Self::ParameterType { name: "return".into(), r#type: r#type.clone() }.validate()
             }
             Self::ReleaseVersion {
                 distribution,

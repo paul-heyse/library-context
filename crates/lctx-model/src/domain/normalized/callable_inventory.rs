@@ -12,6 +12,9 @@ macro_rules! normalized_callable_inputs {
             placements: $crate::domain::syntax::SyntaxPlacement,
             traits: $crate::domain::symbols::FunctionTraitObservation,
             bodies: $crate::domain::types::FunctionBodyObservation,
+            native_signatures: $crate::domain::types::NativeSignatureObservation,
+            signature_types: $crate::domain::types::SignatureTypeObservation,
+            signature_type_subjects: $crate::domain::types::SignatureTypeSubject,
             signatures: $crate::domain::calls::Signature,
             parameters: $crate::domain::calls::SignatureParameter,
             shapes: $crate::domain::calls::ParameterShape,
@@ -40,6 +43,8 @@ macro_rules! normalized_callable_outputs {
             variants: $crate::domain::normalized::callables::SignatureVariant,
             slots: $crate::domain::normalized::callables::SignatureSlot,
             slot_entities: $crate::domain::normalized::callables::SignatureSlotEntity,
+            slot_types: $crate::domain::normalized::callables::SignatureSlotType,
+            return_types: $crate::domain::normalized::callables::SignatureReturnType,
         }
     };
 }

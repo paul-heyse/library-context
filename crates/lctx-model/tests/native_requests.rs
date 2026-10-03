@@ -270,7 +270,7 @@ impl Case {
             entity: Some(f.request.owner),
             reason: EntityReason::DeclarationAgreement,
         };
-        let variant = SignatureVariant {
+        let variant = SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None,
             signature,
             context: f.request.context,
             resolution: resolution.id(),

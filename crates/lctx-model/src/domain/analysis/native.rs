@@ -150,6 +150,8 @@ macro_rules! native_analysis_pairs {
         52: RuffContextObservation => $crate::domain::ruff::RuffContextObservation, $crate::domain::ruff::RuffContextSupport;
         58: FlowNarrowing => $crate::domain::flow::FlowNarrowingObservation, $crate::domain::flow::FlowNarrowingSupport;
         59: FlowSourceView => $crate::domain::flow::FlowSourceViewObservation, $crate::domain::flow::FlowSourceViewSupport;
+        53: NativeSignatureObservation => $crate::domain::types::NativeSignatureObservation, $crate::domain::types::NativeSignatureSupport;
+        54: SignatureTypeObservation => $crate::domain::types::SignatureTypeObservation, $crate::domain::types::SignatureTypeSupport;
     } };
 }
 crate::native_analysis_pairs!(native_pairs);

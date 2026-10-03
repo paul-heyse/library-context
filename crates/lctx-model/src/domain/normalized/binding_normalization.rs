@@ -121,7 +121,7 @@ impl<'a> Index<'a> {
             supports: Default::default(),
             _charge: StateCharge::new(budget, "binding-index"),
         };
-        for v in data.callable_variants.iter() {
+        for v in data.callable_variants.iter().filter(|v| v.role.runtime_source()) {
             let raw = need(&data.signatures, v.signature)?;
             s.raw_variants
                 .update(&mut s._charge, raw.symbol, |vs| vs.push(v))?;
@@ -1115,7 +1115,7 @@ fn checked_enumeration<'a>(
             .ok_or_else(|| invalid("bound shape signature absent"))?,
     )?;
     let mut headers = data.signature_enumerations.iter().filter(|e| {
-        e.symbol == signature.symbol && e.qualification == signature.qualification && e.complete
+        e.symbol == signature.symbol && e.qualification == signature.qualification && e.role == signature.role && e.complete
     });
     let Some(header) = headers.next() else {
         return Ok(None);

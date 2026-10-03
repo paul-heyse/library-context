@@ -160,8 +160,8 @@ fn api(
             let v = need(&d.source.core.variants, i.variant)?;
             let signature = need(&d.facts.signatures, v.signature)?;
             text.push_str(&format!(
-                "Signature {:?} adjustment={:?}\n",
-                signature.form, v.adjustment
+                "Signature role={:?} form={:?} adjustment={:?}\n",
+                v.role, signature.form, v.adjustment
             ));
             let mut slots = d
                 .source

@@ -273,7 +273,7 @@ async fn a_bound_source_plus_unknown_variant_or_missing_coverage_never_becomes_u
             vec![]
         };
         let (signature, parameters) = Signature::new(
-            data.qualifications.get(raw.qualification).unwrap(),
+            data.qualifications.get(raw.qualification).unwrap(), lctx_model::domain::calls::SignatureRole::Source, None,
             raw.symbol,
             1,
             form,
@@ -313,7 +313,7 @@ async fn a_bound_source_plus_unknown_variant_or_missing_coverage_never_becomes_u
         let mut variants = data
             .signatures
             .iter()
-            .filter(|s| s.symbol == raw.symbol && s.qualification == raw.qualification)
+            .filter(|s| s.symbol == raw.symbol && s.qualification == raw.qualification && s.role == raw.role)
             .collect::<Vec<_>>();
         variants.sort_by_key(|s| s.variant);
         let (enumeration, members) = SignatureEnumerationObservation::new(

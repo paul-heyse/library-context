@@ -180,7 +180,7 @@ impl Fixture {
         BTreeMap<Id<ParameterShape>, ParameterShape>,
     ) {
         let (signature, members) = Signature::new(
-            &self.qualification,
+            &self.qualification, lctx_model::domain::calls::SignatureRole::Source, None,
             self.symbol.id(),
             0,
             SignatureForm::List,
@@ -1738,7 +1738,7 @@ fn native_positional_kind_order_is_preserved_and_keyword_groups_cannot_go_backwa
     ];
     assert!(
         Signature::new(
-            &f.qualification,
+            &f.qualification, lctx_model::domain::calls::SignatureRole::Source, None,
             f.symbol.id(),
             0,
             SignatureForm::List,
@@ -1757,7 +1757,7 @@ fn unavailable_native_slots_roundtrip_and_refuse_binding() {
     ];
     assert!(
         Signature::new(
-            &f.qualification,
+            &f.qualification, lctx_model::domain::calls::SignatureRole::Source, None,
             f.symbol.id(),
             0,
             SignatureForm::List,
@@ -1766,7 +1766,7 @@ fn unavailable_native_slots_roundtrip_and_refuse_binding() {
         .is_err()
     );
     let (signature, parameters) = Signature::new(
-        &f.qualification,
+        &f.qualification, lctx_model::domain::calls::SignatureRole::Source, None,
         f.symbol.id(),
         0,
         SignatureForm::NativeUnavailable,
@@ -1886,8 +1886,8 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
             signature_resolution.reason = EntityReason::ProviderExternal;
         }
         let (signature, parameters) =
-            Signature::new(&q, symbol.id(), 0, SignatureForm::List, &[]).unwrap();
-        let variant = SignatureVariant {
+            Signature::new(&q, lctx_model::domain::calls::SignatureRole::Source, None, symbol.id(), 0, SignatureForm::List, &[]).unwrap();
+        let variant = SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None,
             signature: signature.id(),
             context: q.context,
             resolution: signature_resolution.id(),

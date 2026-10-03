@@ -256,7 +256,7 @@ async fn definitions_nest_carry_their_traits_and_attach_at_their_name_spans() {
     let signature = f
         .rows::<Signature>()
         .into_iter()
-        .find(|s| s.symbol == f.find("example.py:Base.run"))
+        .find(|s| s.role.runtime_source() && s.symbol == f.find("example.py:Base.run"))
         .unwrap();
     let members: Vec<_> = f
         .rows::<SignatureParameter>()
@@ -333,7 +333,7 @@ async fn keys_are_per_file_and_nested_classes_stay_apart() {
     let signature = f
         .rows::<Signature>()
         .into_iter()
-        .find(|s| s.symbol == f.find("keys/nested.py:use"))
+        .find(|s| s.role.runtime_source() && s.symbol == f.find("keys/nested.py:use"))
         .unwrap();
     let members: Vec<_> = f
         .rows::<SignatureParameter>()

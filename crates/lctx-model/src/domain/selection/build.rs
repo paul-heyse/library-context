@@ -244,6 +244,13 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                             invocation: r.id(),
                             analysis: *context,
                         };
+                        for typed in d.source.core.return_types.iter().filter(|t| t.variant == variant.id()) {
+                            add(&mut out, &mut members, &mut charge, context_row.clone(), Witness::SignatureTypeObservation { observation: typed.observation })?;
+                        }
+                        for typed in d.source.core.slot_types.iter().filter(|t| d.source.core.slots.get(t.slot).is_some_and(|s| s.variant == variant.id())) {
+                            add(&mut out, &mut members, &mut charge, context_row.clone(), Witness::SignatureTypeObservation { observation: typed.observation })?;
+                        }
+
                         for slot in d
                             .source
                             .core

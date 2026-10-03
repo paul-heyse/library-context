@@ -6,7 +6,7 @@ use lctx_model::domain::{
     artifact::*,
     assertion::*,
     attribution::*,
-    calls::{ProviderModule, ProviderSymbol},
+    calls::{ProviderModule, ProviderSymbol, Signature, SignatureSupport, SignatureParameter},
     conditions::*,
     input::*,
     lexical::*,
@@ -61,6 +61,7 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
     for (foreign, opaque, fidelity, callable) in cases {
         let mut fixture = Fixture::new(foreign);
         fixture.vocabulary();
+        fixture.native_signature_ports("none");
         let (fields, body) = fixture.records();
         if opaque {
             fixture.opaque(true, true, fidelity);
@@ -145,6 +146,9 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
             ProviderSymbol,
             Literal,
             TypeVariable,
+            Signature, SignatureSupport, SignatureParameter,
+            NativeSignatureObservation, NativeSignatureSupport,
+            SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport,
             TypeTerm,
             TypeSequence,
             TypeSequenceMember,

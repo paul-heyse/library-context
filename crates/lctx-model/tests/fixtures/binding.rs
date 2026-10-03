@@ -55,7 +55,7 @@ pub fn bind_inspection(c: InspectionCase<'_>) -> Result<BoundCall, BindingFailur
     };
     let target_resolution = resolution(symbol);
     let signature_resolution = resolution(c.signature.symbol);
-    let variant = SignatureVariant {
+    let variant = SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None,
         signature: c.signature.id(),
         context: c.signature_qualification.context,
         resolution: signature_resolution.id(),

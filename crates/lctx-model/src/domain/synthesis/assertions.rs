@@ -1321,6 +1321,7 @@ raise ValueError('flag required')
         let signature = d
             .parameter_signatures
             .insert(calls::Signature {
+            role: crate::domain::calls::SignatureRole::Source, native: None,
                 qualification: q.id(),
                 scope: q.scope,
                 symbol: id(70),

@@ -26,7 +26,7 @@ fn fixture() -> (AssertionQualification, ProviderSymbol, Vec<Signature>) {
     };
     let signatures = (0..3)
         .map(|i| {
-            Signature::new(&q, symbol.id(), i, SignatureForm::List, &[])
+            Signature::new(&q, lctx_model::domain::calls::SignatureRole::Source, None, symbol.id(), i, SignatureForm::List, &[])
                 .unwrap()
                 .0
         })
@@ -71,7 +71,7 @@ fn check(
 #[test]
 fn complete_native_export_is_independent_of_signature_bindability() {
     let (q, symbol, mut signatures) = fixture();
-    signatures[2] = Signature::new(&q, symbol.id(), 2, SignatureForm::NativeUnavailable, &[])
+    signatures[2] = Signature::new(&q, lctx_model::domain::calls::SignatureRole::Source, None, symbol.id(), 2, SignatureForm::NativeUnavailable, &[])
         .unwrap()
         .0;
     let (header, members) =

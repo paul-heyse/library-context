@@ -12,6 +12,8 @@ use super::{
 };
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 pub mod locations;
+mod signatures;
+pub use signatures::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
@@ -271,6 +273,9 @@ pub enum TypeTerm {
     LiteralString,
     #[model(code = 33)]
     TypeForm { target: Id<TypeTerm> },
+    /// Native overloaded result values, retaining alternatives without a fabricated function.
+    #[model(code = 34)]
+    Overloaded { alternatives: Id<TypeSequence> },
 }
 /// A callable's parameter form: a (possibly partial) list, `...`, a materialization, or a prefix
 /// followed by a `ParamSpec`.
@@ -688,6 +693,8 @@ pub enum TypeRole {
     AssignmentValue = 9,
     ReturnExpression = 10,
     Expected = 11,
+    ChosenOverload = 6,
+    OverloadCandidates = 7,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "type_observations", invariants = locations::invariants)]
@@ -1044,7 +1051,7 @@ impl TypeIndex {
                 | TypeTerm::Unpack { target }
                 | TypeTerm::TypeGuard { target, .. }
                 | TypeTerm::TypeAlias { target, .. } => children.push(*target),
-                TypeTerm::Union { members } | TypeTerm::Intersection { members } => {
+                TypeTerm::Overloaded { alternatives: members } | TypeTerm::Union { members } | TypeTerm::Intersection { members } => {
                     children.extend(self.sequence(*members)?.iter().map(|m| m.child))
                 }
                 TypeTerm::Tuple { elements } => {
@@ -1251,12 +1258,16 @@ impl InvariantCheck for TypeIndex {
                         ));
                     }
                 }
+                TypeTerm::Overloaded { alternatives } => {
+                    if roles(alternatives, TypeChildRole::Member)?.is_empty() {return Err(invalid("overloaded values retain nonempty ordered type alternatives"));}
+                }
                 TypeTerm::BoundMethod { function, .. } => {
                     if !matches!(
                         arm(function)?,
                         TypeTerm::Callable { .. }
                             | TypeTerm::Generic { .. }
                             | TypeTerm::Overload { .. }
+                            | TypeTerm::Overloaded { .. }
                             | TypeTerm::Other { .. }
                             | TypeTerm::Truncated { .. }
                     ) {

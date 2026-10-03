@@ -7,8 +7,8 @@ use crate::{
 use lctx_model::domain::{
     assertion::AssertionQualification,
     attribution::{Fidelity, Provider},
-    calls::{ParameterKind, ProviderModule, ProviderSymbol, SymbolKind},
     class_metadata::{ClassMetadataObservation, ClassMemberObservation, MemberKind, MemberOrigin, MetadataBasis, RecordOptions, RecordTransformDefaults, RecordTransformFieldSpecifier, FieldSpecifierKind, field_specifier_shape},
+    calls::{ParameterKind, ProviderModule, ProviderSymbol, SymbolKind, Signature, SignatureParameter, SignatureRole, SignatureForm, ParameterShape},
     charged::StateCharge,
     lexical::SyntaxField,
     obligation::ObligationKind,
@@ -34,6 +34,24 @@ use pyrefly_types::{
 use ruff_text_size::Ranged;
 use std::collections::BTreeSet;
 
+#[allow(clippy::wildcard_enum_match_arm, reason = "only native function metadata grants descriptor adjustment; other callable values remain unbound or unknown")]
+fn native_field_receiver(ty: &Type) -> NativeReceiver {
+    let flags = match ty {
+        Type::Function(f) => Some(&f.metadata.flags),
+        Type::Forall(f) => match &f.body { Forallable::Function(f) => Some(&f.metadata.flags), Forallable::Callable(_) | Forallable::TypeAlias(_) => None },
+        Type::Overload(f) => Some(&f.metadata.flags),
+        Type::Callable(_) => return NativeReceiver::Unbound,
+        _ => None,
+    };
+    match flags {
+        Some(flags) if flags.property_metadata.is_some() || flags.is_cached_property => NativeReceiver::Property,
+        Some(flags) if flags.is_staticmethod => NativeReceiver::Unbound,
+        Some(flags) if flags.is_classmethod => NativeReceiver::Class,
+        Some(_) => NativeReceiver::Instance,
+        None => NativeReceiver::Unknown,
+    }
+}
+
 pub type ResolveModule<'a> =
     dyn FnMut(&mut Natives, ModuleName) -> Result<Id<ProviderModule>, ModelError> + 'a;
 pub struct Records {
@@ -43,6 +61,10 @@ pub struct Records {
     pub record_options: Vec<RecordOptions>,
     pub transforms: Vec<RecordTransformDefaults>,
     pub transform_specifiers: Vec<RecordTransformFieldSpecifier>,
+    pub signatures: Vec<(Signature, Vec<SignatureParameter>, Vec<ParameterShape>)>,
+    pub native_signatures: Vec<(NativeSignatureObservation, Fidelity)>,
+    pub port_subjects: Vec<SignatureTypeSubject>,
+    pub port_types: Vec<(SignatureTypeObservation, Fidelity)>,
     pub terms: Vec<TypeTerm>,
     pub sequences: Vec<TypeSequence>,
     pub members: Vec<TypeSequenceMember>,
@@ -68,6 +90,7 @@ impl Records {
             record_options: vec![],
             transforms: vec![],
             transform_specifiers: vec![],
+            signatures: vec![], native_signatures: vec![], port_subjects: vec![], port_types: vec![],
             terms: vec![],
             sequences: vec![],
             members: vec![],
@@ -364,6 +387,72 @@ impl Builder<'_, '_> {
             },
             opaque,
         ))
+    }
+    /// Consume owned structural native terms, retaining generic origins and overload family.
+    #[allow(clippy::wildcard_enum_match_arm, reason = "non-callable native terms retain an opaque signature rather than invented slots")]
+    fn signature_variants(&mut self, owner: Id<ProviderSymbol>, role: SignatureRole, ty: &Type, receiver: NativeReceiver) -> Result<(), ModelError> {
+        let root = self.term(ty, 0)?;
+        let mut pending = vec![(root.id, root.id, receiver)];
+        let mut leaves = Vec::new();
+        while let Some((id, origin, receiver)) = pending.pop() {
+            if pending.len() + leaves.len() > 4096 { return Err(invalid("native signature variant work bound")); }
+            let term = self.out.terms.iter().find(|t| t.id() == id).cloned().ok_or_else(|| invalid("native callable term absent"))?;
+            match term {
+                TypeTerm::Generic { body, .. } => pending.push((body, origin, receiver)),
+                TypeTerm::BoundMethod { function, .. } => pending.push((function, origin, NativeReceiver::Instance)),
+                TypeTerm::Overload { signatures, .. } | TypeTerm::Overloaded { alternatives: signatures } => {
+                    let mut children: Vec<_> = self.out.members.iter().filter(|m| m.sequence == signatures).cloned().collect();
+                    children.sort_by_key(|m| (m.ordinal, m.id()));
+                    children.dedup_by_key(|m| m.id());
+                    for child in children.into_iter().rev() { pending.push((child.child, child.child, receiver)); }
+                }
+                other => leaves.push((other, origin, receiver)),
+            }
+        }
+        for (ordinal, (term, origin, receiver)) in leaves.into_iter().enumerate() {
+            let (form, list, returns, implementation) = match &term {
+                TypeTerm::Callable { form, parameters, returns, function, .. } => (*form, Some(*parameters), Some(*returns), *function),
+                _ => (CallableForm::NativeUnavailable, None, None, None),
+            };
+            let mut native_slots: Vec<_> = list.into_iter().flat_map(|list| self.out.slots.iter().filter(move |s| s.list == list).cloned()).collect();
+            native_slots.sort_by_key(|s| (s.ordinal, s.id()));
+            native_slots.dedup_by_key(|s| s.id());
+            let shapes: Vec<_> = native_slots.iter().map(|p| ParameterShape { name: p.name.clone(), kind: p.kind, required: p.required.unwrap_or(false) }).collect();
+            let form = match form {
+                CallableForm::List => SignatureForm::List,
+                CallableForm::Ellipsis => SignatureForm::Ellipsis,
+                CallableForm::ParamSpec if shapes.is_empty() => SignatureForm::ParamSpec,
+                _ => SignatureForm::NativeUnavailable,
+            };
+            let (signature, parameters) = match Signature::new(self.qualification, role, Some(origin), owner, ordinal as i64, form, &shapes) {
+                Ok(value) => value,
+                Err(ModelError::Invalid(_)) => Signature::new(self.qualification, role, Some(origin), owner, ordinal as i64, SignatureForm::NativeUnavailable, &shapes)?,
+                Err(error) => return Err(error),
+            };
+            let implementation = self.out.terms.iter().find(|t| t.id() == root.id).and_then(|t| match t {
+                TypeTerm::Overload { function, .. } => Some(*function),
+                _ => None,
+            }).or(implementation);
+            let observation = NativeSignatureObservation { qualification: self.qualification.id(), signature: signature.id(), scope: self.qualification.scope, term: origin,
+                family: (origin != root.id).then_some(root.id), implementation, receiver, complete: signature.form == SignatureForm::List && !root.opaque };
+            self.out.hold(&observation)?;
+            self.out.native_signatures.push((observation, root.fidelity()));
+            for (parameter, native) in parameters.iter().zip(&native_slots) {
+                self.port(SignatureTypeSubject::Parameter { parameter: parameter.id() }, native.term, root.fidelity())?;
+            }
+            if let Some(term) = returns { self.port(SignatureTypeSubject::Return { signature: signature.id() }, term, root.fidelity())?; }
+            self.out.hold(&signature)?;
+            for p in &parameters { self.out.hold(p)?; }
+            for p in &shapes { self.out.hold(p)?; }
+            self.out.signatures.push((signature, parameters, shapes));
+        }
+        Ok(())
+    }
+    fn port(&mut self, subject: SignatureTypeSubject, term: Id<TypeTerm>, fidelity: Fidelity) -> Result<(), ModelError> {
+        let row = SignatureTypeObservation { qualification: self.qualification.id(), subject: subject.id(), term, scope: self.qualification.scope };
+        self.out.hold(&subject)?; self.out.hold(&row)?;
+        self.out.port_subjects.push(subject); self.out.port_types.push((row, fidelity));
+        Ok(())
     }
     fn variable(&mut self, q: &Quantified, depth: usize) -> Result<Id<TypeVariable>, ModelError> {
         let id = q.identity();
@@ -957,7 +1046,10 @@ impl Builder<'_, '_> {
                     }
                 }
             }
-            Type::Overloaded(_) => (self.opaque(ty, "overloaded_values"), true),
+            Type::Overloaded(alternatives) => {
+                let (alternatives, opaque) = self.types(alternatives.as_slice(), TypeChildRole::Member, depth, false)?;
+                (TypeTerm::Overloaded { alternatives }, opaque)
+            },
             Type::NamedInts(_) => (self.opaque(ty, "named_ints"), true),
             Type::TypeLevelDslCall(_) => (self.opaque(ty, "type_level_dsl_call"), true),
             Type::ShapedArray(_) => (self.opaque(ty, "shaped_array"), true),
@@ -1051,6 +1143,31 @@ pub fn records<'a>(
         variables: BTreeSet::new(),
         work: 0,
     };
+    for node in pyrefly::report::pysa::function::get_all_functions(ctx).filter(|node| node.should_export(ctx)) {
+        use pyrefly::report::pysa::function::FunctionNode;
+        let reference = node.as_function_ref(ctx);
+        let module = b.natives.module(&ctx.module_info.name().to_string(), ctx.module_info.path())?;
+        let owner = b.natives.symbol(module, reference.function_id.serialize_to_string(), reference.function_name.to_string(), if matches!(&node, FunctionNode::ClassField { .. }) || matches!(&node, FunctionNode::DecoratedFunction(f) if f.undecorated.defining_cls.is_some()) { SymbolKind::Method } else { SymbolKind::Function })?;
+        let (ty, role, receiver) = match &node {
+            FunctionNode::DecoratedFunction(f) => {
+                let key = ctx.bindings().key_to_idx(&Key::Definition(f.undecorated.identifier));
+                let ty = ctx.answers.get_type_at(key);
+                let receiver = if f.undecorated.defining_cls.is_some() {
+                    ty.as_ref().map(native_field_receiver).unwrap_or(NativeReceiver::Unknown)
+                } else { NativeReceiver::Unbound };
+                (ty, SignatureRole::EffectiveTyped, receiver)
+            }
+            FunctionNode::ClassField { field, .. } => {
+                let ty = field.ty();
+                let receiver = if field.is_property() { NativeReceiver::Property }
+                    else if field.is_simple_instance_attribute() { NativeReceiver::Unbound }
+                    else { native_field_receiver(&ty) };
+                (Some(ty), SignatureRole::Synthesized, receiver)
+            },
+        };
+        if let Some(ty) = ty { b.signature_variants(owner, role, &ty, receiver)?; }
+        else { b.boundary(None, ObligationKind::MissingEvidence, "native effective callable type unavailable".into())?; }
+    }
     for f in get_all_decorated_functions(ctx) {
         let name = spans
             .get(f.undecorated.identifier.range(), SyntaxKind::Identifier)
@@ -1141,6 +1258,19 @@ pub fn records<'a>(
             continue;
         }
         b.trace(call.site, TypeRole::CallResult, spans.range_of(call.site))?;
+        // Pyrefly overload traces are keyed by the native Arguments range. Attach
+        // only through its unique canonical child, retaining the call as subject.
+        let mut argument_nodes = spans.nodes().filter_map(|(node, kind)| {
+            (kind == SyntaxKind::Arguments && spans.parent(node).is_some_and(|(parent, _)| parent == call.site)).then_some(node)
+        });
+        let argument_range = argument_nodes.next().filter(|_| argument_nodes.next().is_none()).and_then(|node| spans.range_of(node));
+        if let Some(range) = argument_range {
+        if let Some(ty) = ctx.answers.get_chosen_overload_trace(range) { b.observe(call.site, TypeRole::ChosenOverload, false, &ty)?; }
+        if let Some((alternatives, _closest_index)) = ctx.answers.get_all_overload_trace(range) {
+            // This index is merely closest in unresolved cases. Never use it as choice evidence.
+            for ty in alternatives { b.observe(call.site, TypeRole::OverloadCandidates, false, &Type::Callable(Box::new(ty)))?; }
+        }
+        }
         for argument in arguments {
             b.trace(
                 argument.value,

@@ -10,6 +10,8 @@ pub const MAX_SIGNATURE_VARIANTS: usize = 4096;
 #[assertion(support = SignatureEnumerationSupport, name = "signature_enumeration_supports", family = FactFamily::Signatures, subjects(scope))]
 pub struct SignatureEnumerationObservation {
     #[model(key)]
+    pub role: SignatureRole,
+    #[model(key)]
     pub qualification: Id<AssertionQualification>,
     #[model(key)]
     pub scope: Id<CoverageScope>,
@@ -57,7 +59,9 @@ impl SignatureEnumerationObservation {
         if signatures.len() > MAX_SIGNATURE_VARIANTS {
             return Err(invalid("signature enumeration work limit"));
         }
+        let role = signatures.clone().next().map_or(SignatureRole::Source, |s| s.role);
         for (ordinal, signature) in signatures.clone().enumerate() {
+            if signature.role != role { return Err(invalid("signature enumeration mixes roles")); }
             if signature.qualification != qualification.id()
                 || signature.scope != qualification.scope
                 || signature.symbol != symbol
@@ -67,6 +71,7 @@ impl SignatureEnumerationObservation {
             }
         }
         let row = Self {
+            role,
             qualification: qualification.id(),
             scope: qualification.scope,
             symbol,
@@ -103,7 +108,7 @@ fn enumeration_invariants() -> Vec<Invariant> {
     }]
 }
 type SignatureGroups =
-    ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>), BTreeMap<i64, Id<Signature>>>;
+    ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>, SignatureRole), BTreeMap<i64, Id<Signature>>>;
 
 #[derive(Default)]
 struct EnumerationCheck {
@@ -141,7 +146,7 @@ impl InvariantCheck for EnumerationCheck {
             }
         } else if relation == Signature::NAME {
             for row in Signature::decode(batch)? {
-                let key = (row.qualification, row.symbol);
+                let key = (row.qualification, row.symbol, row.role);
                 if self
                     .signatures
                     .get(&key)
@@ -199,7 +204,7 @@ impl InvariantCheck for EnumerationCheck {
             let members = self.members.get(&row.id()).unwrap_or(&empty);
             let actual = self
                 .signatures
-                .get(&(row.qualification, row.symbol))
+                .get(&(row.qualification, row.symbol, row.role))
                 .unwrap_or(&empty);
             if members.len() > MAX_SIGNATURE_VARIANTS
                 || members != actual
