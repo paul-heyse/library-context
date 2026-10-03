@@ -590,3 +590,15 @@ projection, P3 diagnostic checkpoint and the generated NativeSlot identity contr
 Main's standalone CLI and actual conditional/generated/diagnostic packet reruns wait for
 the assembled remaining P4 wire fields, avoiding an immediately obsolete binary.
 They remain **not_run** at this baseline; no full gate or packet runtime pass is claimed.
+
+B3 PG3 **failed**, 2026-10-03, 337.25s (`b3-pg-3.log`): the native/recognizer
+read ambiguity is resolved and declared terminal/native exit controls passed, but the two
+conditional final-class/member frontiers remain absent. Actual source attempts are now
+Bound/SourceInspection/DispatchOpen. Their original Overrides qualification is May/Exact,
+so `typing_target` refuses it at its definite-only runtime-style guard (Approximation48).
+The approved bounded repair keeps that original May target/open runtime alternative unchanged
+and derives a separate TypingConditional question from the actual definite exact receiver
+observation plus receiver conformance and no-extra-overrides premises. Checked identity,
+complete MRO and final metadata remain mandatory; Candidate/approximate/property/unknown
+inputs remain refused. Pure qualification controls and the unchanged three-frontier PG oracle
+are pending. No full B3 or series acceptance is claimed.
