@@ -227,9 +227,21 @@ absence does not block fixture/test/hygiene completion and cannot support a Meas
 
 ## 7. Current checkpoint and next action
 
-Execution is in progress, 2026-10-03. M0 fork seams are implemented and passed their isolated
-native controls; workspace migration/consumers remain open. ADR-0117/0118 accept independent
-canonical Ruff and scoped nominal source families; acceptance does not establish M1/M2 closure.
+Execution is in progress, 2026-10-03. The table below owns the current checkpoint;
+the detailed bounded receipts that follow retain their original baselines and failures.
+ADR-0117/0118/0119/0120 govern independent canonical Ruff, scoped nominal source families,
+finite family/provider grants and required assumption bases. Accepted decisions do not establish
+assembled runtime acceptance.
+
+| Current boundary | Implemented state and remaining acceptance |
+|---|---|
+| M0–M3, N0–N5 | Migration and selected normalization are integrated, with scoped native/model/store receipts below. The genuine native ClassTrait support required by B3 is being completed; no report support is relabelled. Current-pin assembled qualification remains open. |
+| B0/B1/B2/B4 | Required bases, conditional atom restrictions, bounded direct captures and exact finite exceptions are integrated. Their scoped producer controls passed; the completed packet cascade still requires assembled acceptance. |
+| B3 | Native/recognizer read eligibility and narrow Candidate source-target routing controls passed. The unchanged final-class/member PG oracle still refuses MissingEvidence until genuine native ClassTrait support is qualified. Terminal serving remains active work. |
+| P0/P1/P2 | Parameter analytics, native characterization/roles, typed facets and stored witnesses are integrated. Scoped analytic/native/model/service controls passed; generated-role control and same-tree assembled journeys remain open. |
+| P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics passed; usage failed because an opaque assignment alias was used as a resolved import-alias oracle. The repair retains assignment/rebound uncertainty and reruns actual evidence serving. |
+| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence serving is frozen for actual PG; terminal output is pending B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
+| Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. Old operator staging and real-library/activation remain excluded. |
 
 | Package / command, 2026-10-03 | Outcome and boundary |
 |---|---|
