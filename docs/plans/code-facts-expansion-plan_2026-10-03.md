@@ -582,3 +582,11 @@ Root's idle matching-CLI and test-check builds were audited at their exact main 
 no children, then interrupted (exit130); both receipts are **interrupted**, not passed.
 Aligned main checks are running (`p4-p3-aligned-main-check.log`), followed by a fresh
 standalone CLI and actual packet controls. B3 read eligibility remains separately pending.
+
+Aligned main `cargo check --release -p lctx --test conditional_output_packets
+--test serving_packets --test source_characterization` **passed**, 2026-10-03,
+7m42s (`p4-p3-aligned-main-check.log`). This includes the two-field attribution
+projection, P3 diagnostic checkpoint and the generated NativeSlot identity control.
+Main's standalone CLI and actual conditional/generated/diagnostic packet reruns wait for
+the assembled remaining P4 wire fields, avoiding an immediately obsolete binary.
+They remain **not_run** at this baseline; no full gate or packet runtime pass is claimed.
