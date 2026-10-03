@@ -50,6 +50,7 @@ pub enum PredicateResult {
     AlwaysFalseUnderTypingModel = 1,
     Mixed = 2,
     Unknown = 3,
+    Uninhabited = 4,
 }
 #[macro_export]
 macro_rules! local_theory_inputs {
@@ -60,6 +61,8 @@ macro_rules! local_theory_inputs {
          sequence_members:$crate::domain::types::TypeSequenceMember,
          type_observations:$crate::domain::types::TypeObservation,
          type_supports:$crate::domain::types::TypeSupport,
+         type_queries:$crate::domain::types::TypeQueryObservation,
+         type_query_supports:$crate::domain::types::TypeQuerySupport,
          literals:$crate::domain::value::Literal,
          sets:$crate::domain::value::LiteralSet,
          set_members:$crate::domain::value::LiteralSetMember,
@@ -770,7 +773,15 @@ pub(crate) fn support<S: Support>(
             && c.provider == Some(run.provider)
     }) {
         if coverage.status != CoverageStatus::CompleteUnderStatedModel {
-            return Err(TheoryReason::IncompleteCoverage);
+            // Partial inventories cannot prove absence. A completed, explicitly located native
+            // type query can still interpret its own term when an unrelated query is missing.
+            // Parse/source/resource losses and partial queries retain the old refusal.
+            let wanted=crate::domain::derivation::RowRef::of(s.assertion());
+            let mut queries=data.type_queries.iter().filter(|query| query.qualification==q.id() && query.status==types::TypeQueryStatus::Available && query.observation.is_some_and(|id|crate::domain::derivation::RowRef::of(id)==wanted));
+            let selected=queries.next();
+            let located=data.type_observations.iter().find(|observation|crate::domain::derivation::RowRef::of(observation.id())==wanted);
+            let local=family==FactFamily::Types && coverage.status==CoverageStatus::Partial && coverage.reason==Some(obligation::ObligationKind::MissingEvidence) && queries.next().is_none() && selected.is_some_and(|query|located.is_some_and(|observation|(query.subject,query.role)==(observation.subject,observation.role)) && data.type_query_supports.iter().any(|support|support.assertion==query.id() && support.run==a.run && support.surface==a.surface && support.origin==Origin::AnalyzerAssertion && support.mode==ExtractionMode::NativeTraversal && support.fidelity==Fidelity::NativeStructural && matches!(data.entry.evidence.get(support.evidence),Some(Evidence::Occurrence {occurrence}) if *occurrence==query.subject)));
+            if !local {return Err(TheoryReason::IncompleteCoverage);}
         }
         covered = true;
     }
@@ -1368,7 +1379,8 @@ fn derive_predicate(
     }
     let result = match (true_, false_) {
         (true, false) => PredicateResult::AlwaysTrueUnderTypingModel,
-        (false, true) | (false, false) => PredicateResult::AlwaysFalseUnderTypingModel,
+        (false, true) => PredicateResult::AlwaysFalseUnderTypingModel,
+        (false, false) => PredicateResult::Uninhabited,
         (true, true) => PredicateResult::Mixed,
     };
     let status = policy::derive_status(&[

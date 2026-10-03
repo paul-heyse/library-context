@@ -31,6 +31,7 @@ pub mod local_fields;
 pub mod local_semantics;
 pub mod local_symbolic;
 pub mod local_theory;
+pub mod atom_decision;
 pub mod memory;
 mod model;
 pub mod models;
@@ -336,6 +337,8 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<SignatureTypeObservation>(),
         Relation::of::<SignatureTypeSupport>(),
         Relation::of::<TypeObservation>(),
+        Relation::of::<types::TypeQueryObservation>(),
+        Relation::of::<types::TypeQuerySupport>(),
         Relation::of::<TypeSupport>(),
         Relation::of::<TypePresentation>(),
         Relation::of::<TypePresentationSupport>(),

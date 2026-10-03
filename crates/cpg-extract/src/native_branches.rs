@@ -11,6 +11,7 @@ pub struct NativeBranches {
     rows: BTreeMap<(u32,u32), Option<(Vec<Option<(u32,u32)>>, Vec<Option<(StaticBranch,bool)>>)>>,
 }
 impl NativeBranches {
+    pub fn unavailable(budget:&ResourceBudget)->Self {Self {_charge:StateCharge::new(budget,"native-branch-adapter"),rows:BTreeMap::new()}}
     pub fn observe(ast: &ModModule, sys: &SysInfo, budget: &ResourceBudget) -> Result<Self,ModelError> {
         use ruff_python_ast::statement_visitor::{StatementVisitor,walk_stmt};
         struct Collect<'a> { output: &'a mut NativeBranches, sys: &'a SysInfo, error: Option<ModelError> }

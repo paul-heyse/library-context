@@ -178,3 +178,35 @@ def rebound_assignment(value):
     value = 1
     alias = value
     return alias
+
+
+from typing import Never
+
+
+def finite_zero(value: Literal[0]):
+    if value:
+        return value
+    return value
+
+
+def finite_one(value: Literal[1]):
+    if value:
+        return value
+    return value
+
+
+def uninhabited(value: Never):
+    if value:
+        return value
+    return value
+
+
+def nonconforming_runtime():
+    # This call violates the typing premise; it cannot erase the conservative branch.
+    return finite_zero(1)
+
+
+def finite_compound(value: Literal[0], gate: bool):
+    if value and gate:
+        return value
+    return value

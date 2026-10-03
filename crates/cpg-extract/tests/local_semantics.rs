@@ -133,7 +133,7 @@ async fn native_local_parameter_receiver_and_class_receiver_return_transfers_are
             .any(|a| a.reason == Some(ObligationKind::CallTransfer))
     );
     assert!(rows.assessments.iter().any(|a| a.reason.is_some()));
-    assert_eq!(rows.contributions.len(), rows.supports.len());
+    assert_eq!(rows.contributions.len() + rows.atom_restrictions.len(), rows.supports.len());
     assert!(
         rows.entry_sources
             .iter()
@@ -718,6 +718,18 @@ async fn native_type_domains_refuse_missing_prefix_mro_partial_coverage_and_fore
         .unwrap(),
         Err(TheoryReason::IncompatibleFrame)
     ));
+    // The compound fixture has an unavailable selected trace. Its module is partial, while
+    // this exact Diamond operand query remains available with native support.
+    assert!(data.entry.coverage.iter().any(|row| row.family==FactFamily::Types && row.status==CoverageStatus::Partial && row.reason==Some(ObligationKind::MissingEvidence)));
+    let queries=std::mem::replace(&mut data.theory.type_queries,Rows::new(&budget));
+    assert!(matches!(TypeDomain::derive(&TheoryData {entry:&data.entry,inventory:&data.theory},&invocation,observation,support,&budget).unwrap(),Err(TheoryReason::IncompleteCoverage)), "partial module cannot grant a missing selected query");
+    for row in queries.iter() {
+        let mut row=row.clone();
+        if row.observation==Some(observation) {row.status=types::TypeQueryStatus::Partial;row.reason=Some(ObligationKind::BudgetReached);}
+        data.theory.type_queries.insert(row).unwrap();
+    }
+    assert!(matches!(TypeDomain::derive(&TheoryData {entry:&data.entry,inventory:&data.theory},&invocation,observation,support,&budget).unwrap(),Err(TheoryReason::IncompleteCoverage)), "a partial selected query cannot certify a domain");
+    data.theory.type_queries=queries;
     let original = std::mem::replace(&mut data.theory.ancestry, Rows::new(&budget));
     assert!(matches!(
         TypeDomain::derive(

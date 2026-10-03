@@ -280,7 +280,7 @@ async fn run(profile: Profile) {
     let counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.local_flow_contributions),(SELECT count(*) FROM {}.local_transfer_alternatives),(SELECT count(*) FROM {}.local_flow_assessments WHERE reason IS NOT NULL)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
     if profile == Profile::Behavioral {
         assert!(counts.0 > 0);
-        assert_eq!(counts.0, counts.1);
+        assert!(counts.1 >= counts.0);
         assert!(counts.2 > 0);
     } else {
         assert_eq!(counts, (0, 0, 0));
@@ -310,6 +310,33 @@ async fn run(profile: Profile) {
     let theory:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.local_type_domains),(SELECT count(*) FROM {}.local_theory_witnesses),(SELECT count(*) FROM {}.local_type_class_members)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
     if profile == Profile::Behavioral {
         assert!(theory.0 > 0 && theory.1 > 0 && theory.2 >= 4);
+        let decisions: Vec<(i64, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT occurrence.start, decision.outcome FROM {0}.local_atom_decisions decision JOIN {0}.flow_test_leaf_observations leaf ON leaf.id=decision.leaf JOIN {0}.occurrences occurrence ON occurrence.id=leaf.test", id.schema()
+        ))).fetch_all(db.owner.pool()).await.unwrap();
+        let text = std::fs::read_to_string(root.join("cases.py")).unwrap();
+        for (function, expected) in [("finite_zero", 1_i16), ("finite_one", 0), ("uninhabited", 3)] {
+            let start = text.find(&format!("def {function}(")).unwrap();
+            let test = start + text[start..].find("if value:").unwrap() + 3;
+            assert!(decisions.contains(&(test as i64, expected)), "missing independent {function} decision at {test}: {decisions:?}");
+        }
+        let refinements: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {0}.local_atom_restrictions r JOIN {0}.local_transfer_alternatives original ON original.id=r.original JOIN {0}.assertion_qualifications oldq ON oldq.id=original.qualification JOIN {0}.assertion_qualifications newq ON newq.id=r.qualification JOIN {0}.assumption_sets oldbasis ON oldbasis.id=oldq.assumptions JOIN {0}.assumption_sets newbasis ON newbasis.id=newq.assumptions WHERE oldbasis.count=0 AND newbasis.count=1 AND oldq.condition<>newq.condition", id.schema()
+        ))).fetch_one(db.owner.pool()).await.unwrap();
+        assert!(refinements >= 2, "true and false refinements must change actual transfers while preserving originals");
+        // Independent branch expectations: both a predicate and its negation are restricted.
+        // The leaf's provider formula is not an ambient guard that excludes the negative arm.
+        let constants: Vec<(i64, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT occurrence.start, node.kind FROM {0}.local_atom_restrictions r JOIN {0}.local_atom_decisions decision ON decision.id=r.decision JOIN {0}.flow_test_leaf_observations leaf ON leaf.id=decision.leaf JOIN {0}.occurrences occurrence ON occurrence.id=leaf.test JOIN {0}.assertion_qualifications q ON q.id=r.qualification JOIN {0}.conditions c ON c.id=q.condition JOIN {0}.condition_nodes node ON node.id=c.root", id.schema()
+        ))).fetch_all(db.owner.pool()).await.unwrap();
+        for function in ["finite_zero", "finite_one"] {
+            let start = text.find(&format!("def {function}(")).unwrap();
+            let test = (start + text[start..].find("if value:").unwrap() + 3) as i64;
+            assert!(constants.contains(&(test, 0)) && constants.contains(&(test, 1)), "both polarities need independent conditional restrictions for {function}: {constants:?}");
+        }
+        let empty_refinements: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {0}.local_atom_restrictions r JOIN {0}.local_atom_decisions d ON d.id=r.decision WHERE d.outcome=3", id.schema()
+        ))).fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(empty_refinements, 0, "Never must not certify either branch");
     } else {
         assert_eq!(theory, (0, 0, 0));
     }

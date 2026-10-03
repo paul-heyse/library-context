@@ -191,6 +191,8 @@ macro_rules! summary_evidence_inputs {($apply:ident)=>{$apply!{
  model_sources:$crate::domain::analysis::model::SupportSource,
  model_derivations:$crate::domain::analysis::model::AnalysisDerivation,
  theory_witnesses:$crate::domain::local_theory::TheoryWitness,
+ atom_decisions:$crate::domain::atom_decision::AtomDecision,
+ atom_restrictions:$crate::domain::atom_decision::AtomRestriction,
  model_applications:$crate::domain::execution::model_production::ModelApplication,
  model_transfer_witnesses:$crate::domain::execution::model_transfer::ModelTransferWitness,
  context_transfer_witnesses:$crate::domain::execution::model_context_transfer::ContextTransferWitness,

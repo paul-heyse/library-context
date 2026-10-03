@@ -278,8 +278,8 @@ predicates and the exact transformed TYPE_CHECKING view identity. `cargo check -
 -p cpg-flow -p cpg-extract --all-targets` **passed**. `cargo nextest run --release -p cpg-flow
 --lib -p cpg-extract --test typed_flow -p lctx-model --test domain_admission` **passed**,
 134/134, zero skipped, including actual native narrowing/source-view extraction and uncertainty,
-polarity and precision-loss controls. Pyrefly exit/terminal/capture payloads and first behavioral
-interpretation remain open; this is not M3 closure.
+polarity and precision-loss controls. First behavioral interpretation and ty capture timing
+remain open; this is not M3 closure.
 N1 is integrated at `cf0731db`: source/effective/synthesized roles, native slot/return ports,
 chosen-overload versus candidate traces and ordered result-value Overloaded terms. Its isolated
 three-crate all-target check **passed**; composite native/model/selection/real-PG receipt passed
@@ -294,6 +294,45 @@ initial protocol/metadata/B0 native integration **passed** 26/26. After N1/captu
 --test native_callable_variants --test typed_class_metadata --test typed_flow -p lctx-model
 --test domain_admission --test domain_assumptions` **passed**, 29/29, zero skipped. No concrete
 capture-value bridge, runtime suppression or unconditional divergence follows from these raw rows.
-N2, B4 and P1 remain in isolated executor worktrees. Remaining M2 native enrichments, M3 timing
-and first behavioral consumers, downstream packages and Q0/full hygiene
-remain open/not_run. Real-library reconstruction/activation remain separately authorized follow-up.
+N2 is frozen in executor commit `1b13a5e`: located receiver/binder mappings, declared variance
+and bounded specialization overlay are exposed through `Prepared::specialize_port`. Its composite
+23-control receipt includes two repaired fixture identity failures and three actual native →
+normalized → prepared-query controls; merged model/extract/postgres all-target check **passed**.
+Ordinary generic functions lacking a native exported binding mapping remain Unknown. Native
+callable deprecation is separately frozen at `3baf387c`: availability, untrimmed optional message
+and exact leaf metadata origin are retained independently of the runtime overload identity.
+`cargo nextest run --release -p cpg-extract --test native_callable_deprecation --test
+native_callable_variants --test native_generics -p lctx-model --test domain_types` with the
+executor's named-test filter **passed**, seven selected controls, fifteen outside-filter skipped.
+Root integrated these slices as `28e7ba1e` and `92e09afc`; neither establishes a complete
+product/series exit.
+
+B1 located atom decisions/restrictions are implemented in the working tree, including a separate
+TypeConformance basis, conservative original alternatives and explicit Uninhabited semantics.
+Initial combined Local/protocol controls **failed** on duplicate global invariant registration;
+registration was repaired. Two subsequent scoped runs **failed**, each nine passed/eight failed,
+on existing source entry/field controls before the new transfer oracle. Investigation found
+N1 source/effective formal-link ambiguity and an M2 placement proof still requiring Ruff's
+provider ID to equal Pyrefly's. `8a31138d` selects source roles and checks canonical placements
+against their own attributed run/surface/family in the exact captured frame. Native declaration
+checks retain their Pyrefly provenance. The revealing native rerun `cargo nextest run --release -p cpg-extract --test local_semantics
+-E 'test(native_local_parameter_receiver_and_class_receiver_return_transfers_are_witnessed)'`
+**passed**, one selected control/twelve outside-filter skipped. Wider Local/PG repair rerun
+**failed**, fourteen passed/seven failed: one unsupported compound type trace made the whole
+module's Types inventory Partial, refusing unrelated available finite domains. A cached native
+isolation control **passed** with only that compound case temporarily absent; the case was restored.
+The repair publishes selected `TypeQueryObservation` availability and admits an available query
+only with its exact observation/subject/role/run/surface when inventory loss is MissingEvidence.
+Missing, partial, source/parser/resource and foreign-frame evidence remain refused; partial
+inventory never proves absence. The extraction/model all-target release check **passed** before
+the final uniqueness/refusal controls. A subsequent compile **failed** on a role tuple cast;
+that cast is repaired and the focused Local/protocol/generic/deprecation suite is running.
+Canonical Ruff syntax now also survives an unavailable native typing parse, with source-byte
+verification and separate contextual coverage. These source/query repairs remain scoped
+Implemented checkpoints pending final controls; no B1 acceptance or Summary/packet cascade is claimed. Logs preserve all failures under
+`/home/paul/.cache/lctx-code-facts/b1-*.log`.
+
+B4 and P1 remain in isolated executor worktrees. Their focused PG controls expose admission/
+entry-dependent failures being repaired against the same source contract; acceptance remains
+open. Remaining M2 native enrichments, M3 timing and first behavioral consumers, downstream
+packages and Q0/full hygiene remain open/not_run. Real-library reconstruction/activation remain separately authorized follow-up.

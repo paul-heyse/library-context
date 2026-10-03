@@ -81,6 +81,7 @@ pub struct Records {
     pub variables: Vec<TypeVariable>,
     pub literals: Vec<Literal>,
     pub observations: Vec<(TypeObservation, Fidelity)>,
+    pub queries: Vec<lctx_model::domain::types::TypeQueryObservation>,
     pub presentations: Vec<(TypePresentation, Fidelity)>,
     pub restrictions: Vec<(TypeVariableRestriction, Fidelity)>,
     pub bodies: Vec<FunctionBodyObservation>,
@@ -108,7 +109,7 @@ impl Records {
             dict_fields: vec![],
             variables: vec![],
             literals: vec![],
-            observations: vec![],
+            observations: vec![], queries: vec![],
             presentations: vec![],
             restrictions: vec![],
             bodies: vec![],
@@ -1117,6 +1118,8 @@ impl Builder<'_, '_> {
             term: term.id,
         };
         self.out.hold(&row)?;
+        let query=lctx_model::domain::types::TypeQueryObservation {qualification:row.qualification,subject:row.subject,role:row.role,observation:Some(row.id()),status:if term.opaque {lctx_model::domain::types::TypeQueryStatus::Partial} else {lctx_model::domain::types::TypeQueryStatus::Available},reason:term.opaque.then_some(ObligationKind::OutsideProviderModel)};
+        self.out.hold(&query)?;self.out.queries.push(query);
         self.out.observations.push((row, term.fidelity()));
         if term.opaque {
             self.boundary(
@@ -1661,11 +1664,11 @@ impl Builder<'_, '_> {
     ) -> Result<(), ModelError> {
         match range.and_then(|range| self.context.answers_context.answers.get_type_trace(range)) {
             Some(ty) => self.observe(subject, role, false, &ty),
-            None => self.boundary(
-                Some(subject),
-                ObligationKind::MissingEvidence,
-                format!("native type trace unavailable for {role:?}"),
-            ),
+            None => {
+                let query=lctx_model::domain::types::TypeQueryObservation {qualification:self.qualification.id(),subject,role,observation:None,status:lctx_model::domain::types::TypeQueryStatus::Unavailable,reason:Some(ObligationKind::MissingEvidence)};
+                self.out.hold(&query)?;self.out.queries.push(query);
+                self.boundary(Some(subject),ObligationKind::MissingEvidence,format!("native type trace unavailable for {role:?}"))
+            },
         }
     }
 }

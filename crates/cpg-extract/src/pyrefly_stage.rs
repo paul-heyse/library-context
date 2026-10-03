@@ -79,6 +79,10 @@ pub fn pyrefly_provider() -> Provider {
             include_str!("symbol_records.rs"),
             include_str!("public_records.rs"),
             include_str!("docstrings.rs"),
+            include_str!("type_records.rs"),
+            include_str!("call_records.rs"),
+            include_str!("protocol_records.rs"),
+            include_str!("capture_records.rs"),
         ]),
     }
 }
@@ -211,6 +215,8 @@ fn outputs() -> Vec<RelationUse> {
         TypeRestrictionSupport,
         NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport, GenericSpecializationObservation, GenericSpecializationSupport,
         TypeObservation,
+        lctx_model::domain::types::TypeQueryObservation,
+        lctx_model::domain::types::TypeQuerySupport,
         TypeSupport,
         TypePresentation,
         TypePresentationSupport,
@@ -366,6 +372,8 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             TypeRestrictionSupport,
             NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport, GenericSpecializationObservation, GenericSpecializationSupport,
         TypeObservation,
+        lctx_model::domain::types::TypeQueryObservation,
+        lctx_model::domain::types::TypeQuerySupport,
             TypeSupport,
             TypePresentation,
             TypePresentationSupport,
@@ -678,17 +686,25 @@ fn session<S: StageSink + 'static>(
             approximation: Approximation::Exact,
         };
         context.contribute(qualification.clone())?;
-        accesses.push((index, module_id, qualification.id()));
-        let native_ast = transaction
-            .get_ast(handle)
-            .ok_or_else(|| invalid("the analyzer did not retain the module's AST".into()))?;
-        let info = transaction
-            .get_module_info(handle)
-            .ok_or_else(|| invalid("the analyzer did not retain the module's text".into()))?;
-        let text = info.lined_buffer().contents().clone();
+        let native_ast = transaction.get_ast(handle);
+        let info = transaction.get_module_info(handle);
+        let native_available = native_ast.is_some() && info.is_some();
+        if native_available { accesses.push((index, module_id, qualification.id())); }
+        // Independent syntax remains available when the native typing adapter has no parse.
+        // Captured-byte verification in CanonicalSyntax::parse prevents source substitution.
+        let _source_charge = if info.is_none() {
+            Some(context.budget().reserve("canonical-source-fallback", usize::try_from(artifact.byte_len).map_err(|_|invalid("source length overflow".into()))?.checked_add(128).ok_or_else(||invalid("source allowance overflow".into()))?)?)
+        } else { None };
+        let text = match &info {
+            Some(info) => info.lined_buffer().contents().clone(),
+            None => std::sync::Arc::new(fs_err::read_to_string(root.join(&artifact.path)).map_err(|error|invalid(error.to_string()))?),
+        };
         let canonical = crate::ruff_context::CanonicalSyntax::parse(artifact, &text, &analysis, selected.config().ruff_settings().clone(), context.budget())?;
         let ast = canonical.module();
-        let static_decisions = crate::native_branches::NativeBranches::observe(&native_ast, &sys, context.budget())?;
+        let static_decisions = match (&native_ast, &info) {
+            (Some(ast), Some(_)) => crate::native_branches::NativeBranches::observe(ast, &sys, context.budget())?,
+            _ => crate::native_branches::NativeBranches::unavailable(context.budget()),
+        };
 
         let invocation = SyntaxInvocation {
             source: artifact,
@@ -822,6 +838,7 @@ fn session<S: StageSink + 'static>(
                 write_lexical(context, lexical, &|subject| {
                     support(FactFamily::Lexical, subject)
                 })?;
+                if let (Some(_), Some(info)) = (&native_ast, &info) {
                 let locator = symbol_records::Locator {
                     line_index: info.lined_buffer().line_index(),
                     text: &text,
@@ -902,7 +919,12 @@ fn session<S: StageSink + 'static>(
                     &run,
                     &surfaces,
                     &pysa_evidence,
+                    !parse_error && !native_parse_error,
                 )?;
+                } else {
+                    calls_partial = true;
+                    types_partial = true;
+                }
                 let docs = symbol_records::parameter_docs(
                     &ast,
                     &text,
@@ -934,8 +956,6 @@ fn session<S: StageSink + 'static>(
                                 .into(),
                         ),
                     )
-                } else if let Some(detail)=ruff_context_incomplete.take() {
-                    (CoverageStatus::Partial,Some(ObligationKind::OutsideProviderModel),Some(detail))
                 } else {
                     (CoverageStatus::CompleteUnderStatedModel, None, None)
                 }
@@ -950,12 +970,15 @@ fn session<S: StageSink + 'static>(
                 }
             },
         };
+        let contextual = if syntax.0 == CoverageStatus::CompleteUnderStatedModel {
+            ruff_context_incomplete.take().map_or_else(||syntax.clone(),|detail|(CoverageStatus::Partial,Some(ObligationKind::OutsideProviderModel),Some(detail)))
+        } else { syntax.clone() };
         context.contribute(coverage(
             &scope,
             FactFamily::Syntax,
-            syntax.0,
-            syntax.1,
-            syntax.2.clone(),
+            contextual.0,
+            contextual.1,
+            contextual.2.clone(),
         ))?;
         context.contribute(coverage(
             &scope,
@@ -976,7 +999,9 @@ fn session<S: StageSink + 'static>(
         } else {
             syntax.clone()
         };
-        let signatures = if complete && unattached.1 > 0 {
+        let signatures = if complete && (!native_available || native_parse_error) {
+            (CoverageStatus::Partial,Some(if native_parse_error {ObligationKind::SyntaxError} else {ObligationKind::MissingEvidence}),Some("native signature parse unavailable or recovered; canonical source remains available".into()))
+        } else if complete && unattached.1 > 0 {
             (
                 CoverageStatus::Partial,
                 Some(ObligationKind::OutsideProviderModel),
@@ -1005,7 +1030,9 @@ fn session<S: StageSink + 'static>(
         } else {
             syntax.clone()
         };
-        let calls = if complete && calls_partial {
+        let calls = if complete && !native_available {
+            (CoverageStatus::Unavailable,Some(ObligationKind::MissingEvidence),Some("native call adapter parse unavailable".into()))
+        } else if complete && (calls_partial || native_parse_error) {
             (
                 CoverageStatus::Partial,
                 Some(ObligationKind::MissingEvidence),
@@ -1021,7 +1048,9 @@ fn session<S: StageSink + 'static>(
             calls.1,
             calls.2.clone(),
         ))?;
-        let types = if complete && types_partial {
+        let types = if complete && !native_available {
+            (CoverageStatus::Unavailable,Some(ObligationKind::MissingEvidence),Some("native type adapter parse unavailable".into()))
+        } else if complete && types_partial {
             (
                 CoverageStatus::Partial,
                 Some(ObligationKind::MissingEvidence),
@@ -1037,7 +1066,7 @@ fn session<S: StageSink + 'static>(
             types.1,
             types.2.clone(),
         ))?;
-        partial |= [&syntax, &exports, &signatures, &calls, &types]
+        partial |= [&contextual, &syntax, &exports, &signatures, &calls, &types]
             .iter()
             .any(|c| c.0 != CoverageStatus::CompleteUnderStatedModel);
         context.contribute(coverage(
@@ -2427,6 +2456,7 @@ fn write_types<S: StageSink + 'static>(
     run: &ProviderRun,
     surfaces: &BTreeMap<FactFamily, ProviderSurface>,
     evidence: &Evidence,
+    source_complete: bool,
 ) -> Result<(), ModelError> {
     let surface = surfaces[&FactFamily::Types].id();
     macro_rules! supported {
@@ -2448,6 +2478,12 @@ fn write_types<S: StageSink + 'static>(
     for row in records.transforms { context.emit(row)?; }
     for row in records.transform_specifiers { context.emit(row)?; }
     for (row, fidelity) in records.class_members { supported!(ClassMemberSupport, row, fidelity); }
+    for mut row in records.queries {
+        if !source_complete && row.observation.is_some() {row.status=lctx_model::domain::types::TypeQueryStatus::Partial;row.reason=Some(ObligationKind::SyntaxError);}
+        let evidence=Evidence::Occurrence {occurrence:row.subject};context.contribute(evidence.clone())?;
+        context.emit(lctx_model::domain::types::TypeQuerySupport {assertion:row.id(),run:run.id(),surface,evidence:evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;
+        context.emit(row)?;
+    }
     for row in records.class_metadata { supported!(ClassMetadataSupport, row, Fidelity::NativeStructural); }
     for (row, members, shapes) in records.signatures {
         for shape in shapes { context.emit(shape)?; }

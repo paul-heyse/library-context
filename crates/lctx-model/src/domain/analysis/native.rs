@@ -156,6 +156,7 @@ macro_rules! native_analysis_pairs {
         59: FlowSourceView => $crate::domain::flow::FlowSourceViewObservation, $crate::domain::flow::FlowSourceViewSupport;
         53: NativeSignatureObservation => $crate::domain::types::NativeSignatureObservation, $crate::domain::types::NativeSignatureSupport;
         54: SignatureTypeObservation => $crate::domain::types::SignatureTypeObservation, $crate::domain::types::SignatureTypeSupport;
+        68: TypeQuery => $crate::domain::types::TypeQueryObservation, $crate::domain::types::TypeQuerySupport;
         55: GenericSpecialization => $crate::domain::types::GenericSpecializationObservation, $crate::domain::types::GenericSpecializationSupport;
     } };
 }

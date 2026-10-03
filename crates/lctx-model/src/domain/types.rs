@@ -1662,3 +1662,6 @@ type VerifiedTypeOwners = ChargedSet<(Id<TypeTerm>, Id<Provider>, Id<AnalysisCon
 
 type RecordFieldIndex =
     ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>), Vec<(i64, RecordKind)>>;
+
+pub mod queries;
+pub use queries::{TypeQueryObservation, TypeQuerySupport, TypeQueryStatus};

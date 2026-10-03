@@ -33,6 +33,7 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
     for code in [
         include_bytes!("local_semantics.rs").as_slice(),
         include_bytes!("local_theory.rs").as_slice(),
+        include_bytes!("atom_decision.rs").as_slice(),
         include_bytes!("local_fields.rs").as_slice(),
         include_bytes!("local_symbolic.rs").as_slice(),
         include_bytes!("conditions/entry.rs").as_slice(),
@@ -443,6 +444,8 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<LocalContribution>(),
         Relation::of::<LocalGuardContribution>(),
         Relation::of::<LocalGuardAssessment>(),
+        Relation::of::<crate::domain::atom_decision::AtomDecision>(),
+        Relation::of::<crate::domain::atom_decision::AtomRestriction>(),
     ]
 }
 fn local_invariants() -> Vec<Invariant> {
@@ -620,6 +623,11 @@ impl InvariantCheck for LocalCheck {
 macro_rules! local_semantic_outputs {
     ($apply:ident) => {
         $apply! {
+         atom_decisions:$crate::domain::atom_decision::AtomDecision,
+         atom_restrictions:$crate::domain::atom_decision::AtomRestriction,
+         assumptions:$crate::domain::assumptions::Assumption,
+         assumption_sets:$crate::domain::assumptions::AssumptionSet,
+         assumption_members:$crate::domain::assumptions::AssumptionSetMember,
          assessments:$crate::domain::local_semantics::LocalAssessment,
          contributions:$crate::domain::local_semantics::LocalContribution,
          guard_assessments:$crate::domain::local_semantics::LocalGuardAssessment,
@@ -762,6 +770,7 @@ pub fn produce(
     produce_fields(data, invocation, &mut records, budget)?;
     produce_symbolic_stores(data, invocation, &mut records, budget)?;
     produce_guards(data, invocation, definition, &mut records, budget)?;
+    crate::domain::atom_decision::produce(data, invocation, definition, &mut records, budget)?;
     for influence in records.influences.iter() {
         for alternative in records.alternatives.iter() {
             let q = records
