@@ -72,10 +72,16 @@ No readers were connected before retiring the old unselected staging generation
 Reset installed the current model and named store-check passed. Reconstruction from pinned
 inputs remains an activation prerequisite; no old runtime authority or compatibility reader remains.
 
-Next: plan the independent follow-up to the
-[code-facts opportunity review](docs/design_review/reviews/design_review_code-facts-opportunity_2026-10-03.md),
-assuming upgraded Pyrefly/ty and independent latest Ruff analysis. Removing the restriction to
-Pyrefly’s internal Ruff is operator-directed target scope; pins and current rules are not yet changed.
+The [expanded analyzer target review](docs/design_review/reviews/design_review_code-facts-expanded-target_2026-10-03.md)
+is complete at **Interface-checked** strength, 2026-10-03: finite coverage is 340 provider facts /
+137 concepts, with twelve fact/first-operation contracts and downstream output implications.
+Inventory consistency and `just docs-check` **passed** (273 pages, zero offline link errors);
+provider seams/remedies remain Proposed; runtime probes and product gates were not_run.
+Decision **Revise** retains the model/store architecture; proposed remedies include independent
+latest Ruff, shared source correspondence, richer signature/metadata roles and explicit premise
+propagation. The review owns unscheduled new F01–F03; original IDs remain at the source review.
+Next: convert these obligations into an implementation plan; no provider migration is started.
+Removing the embedded-Ruff restriction is operator-directed target scope; current rules/pins are unchanged.
 Prior qualification work remains uncommitted: actual stdio runner and source-default packet repair.
 Focused controls passed: real-PG both-profile runner (one), transcript (two), source-default packet
 (one); full gates/hygiene and real-library journeys are not_run for these changes. Phase 5 §10 owns
