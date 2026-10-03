@@ -36,6 +36,7 @@ use lctx_model::domain::{
     assertion::*,
     attribution::*,
     calls::*,
+    class_metadata::*,
     conditions::{Condition, Diagram},
     declarations::{
         ParameterDeclaration, ParameterDeclarationSupport, SymbolDeclaration,
@@ -189,6 +190,12 @@ fn outputs() -> Vec<RelationUse> {
         CallResolution,
         CallResolutionSupport,
         CallResolutionMember,
+        ClassMetadataObservation,
+        ClassMetadataSupport,
+        ClassMemberObservation,
+        ClassMemberSupport,
+        RecordOptions,
+        RecordTransformDefaults,
         TypeTerm,
         TypeSequence,
         TypeSequenceMember,
@@ -328,7 +335,13 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             CallResolution,
             CallResolutionSupport,
             CallResolutionMember,
-            TypeTerm,
+            ClassMetadataObservation,
+        ClassMetadataSupport,
+        ClassMemberObservation,
+        ClassMemberSupport,
+        RecordOptions,
+        RecordTransformDefaults,
+        TypeTerm,
             TypeSequence,
             TypeSequenceMember,
             CallableParameterList,
@@ -2401,6 +2414,10 @@ fn write_types<S: StageSink + 'static>(
             context.emit(row)?;
         }};
     }
+    for row in records.record_options { context.emit(row)?; }
+    for row in records.transforms { context.emit(row)?; }
+    for (row, fidelity) in records.class_members { supported!(ClassMemberSupport, row, fidelity); }
+    for row in records.class_metadata { supported!(ClassMetadataSupport, row, Fidelity::NativeStructural); }
     for row in records.terms {
         context.emit(row)?;
     }

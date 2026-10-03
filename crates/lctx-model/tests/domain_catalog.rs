@@ -540,6 +540,7 @@ fn field_source_expression_and_native_unknown_default_remain_separate() {
         term: nominal(55),
         declared: true,
         declaration: None,
+        default_term: None,
         has_default: Some(true),
         init: Some(true),
         alias: None,

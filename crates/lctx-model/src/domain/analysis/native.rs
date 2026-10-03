@@ -144,6 +144,8 @@ macro_rules! native_analysis_pairs {
         48: TypeVariableRestriction => $crate::domain::types::TypeVariableRestriction, $crate::domain::types::TypeRestrictionSupport;
         49: FunctionBodyObservation => $crate::domain::types::FunctionBodyObservation, $crate::domain::types::FunctionBodySupport;
         50: RecordFieldObservation => $crate::domain::types::RecordFieldObservation, $crate::domain::types::RecordFieldSupport;
+        57: ClassMemberObservation => $crate::domain::class_metadata::ClassMemberObservation, $crate::domain::class_metadata::ClassMemberSupport;
+        56: ClassMetadataObservation => $crate::domain::class_metadata::ClassMetadataObservation, $crate::domain::class_metadata::ClassMetadataSupport;
         51: SignatureEnumerationObservation => $crate::domain::calls::SignatureEnumerationObservation, $crate::domain::calls::SignatureEnumerationSupport;
         52: RuffContextObservation => $crate::domain::ruff::RuffContextObservation, $crate::domain::ruff::RuffContextSupport;
         58: FlowNarrowing => $crate::domain::flow::FlowNarrowingObservation, $crate::domain::flow::FlowNarrowingSupport;

@@ -175,6 +175,9 @@ impl Spans {
             )
         })
     }
+    pub fn kind(&self, id: Id<Occurrence>) -> Option<SyntaxKind> {
+        self.ranges.get(&id).map(|(_, _, kind)| *kind)
+    }
     pub fn nodes(&self) -> impl Iterator<Item = (Id<Occurrence>, SyntaxKind)> + '_ {
         self.ranges.iter().map(|(id, (_, _, kind))| (*id, *kind))
     }

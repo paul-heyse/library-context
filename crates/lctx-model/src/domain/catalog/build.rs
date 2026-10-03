@@ -286,6 +286,24 @@ pub fn build(data: &CatalogData, budget: &ResourceBudget) -> Result<CatalogOutpu
                             candidate: catalog_candidate,
                             class: *class,
                         })?;
+                        for metadata in data.class_metadata.iter() {
+                            let q = need(&data.qualifications, metadata.qualification)?;
+                            if q.context != exposure.context { continue; }
+                            if data.resolutions.iter().any(|r| r.symbol == metadata.class
+                                && r.context == exposure.context && r.status == ResolutionStatus::Resolved
+                                && r.entity.and_then(|e| data.refs.get(e)) == Some(&EntityRef::Class { class: *class })) {
+                                out.class_metadata.insert(CatalogClassMetadata { class: catalog_class, observation: metadata.id() })?;
+                            }
+                        }
+                        for metadata in data.class_members.iter() {
+                            let q = need(&data.qualifications, metadata.qualification)?;
+                            if q.context != exposure.context { continue; }
+                            if data.resolutions.iter().any(|r| r.symbol == metadata.class
+                                && r.context == exposure.context && r.status == ResolutionStatus::Resolved
+                                && r.entity.and_then(|e| data.refs.get(e)) == Some(&EntityRef::Class { class: *class })) {
+                                out.class_members.insert(CatalogClassMember { class: catalog_class, observation: metadata.id() })?;
+                            }
+                        }
                         constructors(data, &mut out, catalog_class, exposure.context)?;
                         fields(data, &mut out, member, *class, exposure.context)?;
                     }

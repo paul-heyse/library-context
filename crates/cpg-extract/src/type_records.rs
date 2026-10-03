@@ -8,6 +8,7 @@ use lctx_model::domain::{
     assertion::AssertionQualification,
     attribution::{Fidelity, Provider},
     calls::{ParameterKind, ProviderModule, ProviderSymbol, SymbolKind},
+    class_metadata::{ClassMetadataObservation, ClassMemberObservation, MemberKind, MetadataBasis, RecordOptions, RecordTransformDefaults},
     charged::StateCharge,
     lexical::SyntaxField,
     obligation::ObligationKind,
@@ -37,6 +38,10 @@ pub type ResolveModule<'a> =
     dyn FnMut(&mut Natives, ModuleName) -> Result<Id<ProviderModule>, ModelError> + 'a;
 pub struct Records {
     charge: StateCharge,
+    pub class_metadata: Vec<ClassMetadataObservation>,
+    pub class_members: Vec<(ClassMemberObservation, Fidelity)>,
+    pub record_options: Vec<RecordOptions>,
+    pub transforms: Vec<RecordTransformDefaults>,
     pub terms: Vec<TypeTerm>,
     pub sequences: Vec<TypeSequence>,
     pub members: Vec<TypeSequenceMember>,
@@ -57,6 +62,10 @@ impl Records {
     fn new(budget: &ResourceBudget) -> Self {
         Self {
             charge: StateCharge::new(budget, "native_type_records"),
+            class_metadata: vec![],
+            class_members: vec![],
+            record_options: vec![],
+            transforms: vec![],
             terms: vec![],
             sequences: vec![],
             members: vec![],
@@ -1019,7 +1028,7 @@ pub fn records<'a>(
     ) -> Result<Option<Id<Occurrence>>, ModelError>,
 ) -> Result<Records, ModelError> {
     use pyrefly::{
-        binding::binding::{Key, KeyAnnotation, KeyClassMetadata},
+        binding::binding::{Key, KeyAnnotation, KeyClassMetadata, KeyAbstractClassCheck, KeyClassSynthesizedFields},
         report::pysa::{
             class::{
                 get_all_classes, get_class_field_declaration,
@@ -1141,6 +1150,22 @@ pub fn records<'a>(
     let mut nodes: Vec<_> = spans.nodes().collect();
     nodes.sort_by_key(|(id, _)| *id);
     for (node, kind) in nodes {
+        if let Some((parent, SyntaxField::Value)) = spans.parent(node) {
+            let parent_kind = spans.kind(parent);
+            let role = match parent_kind {
+                Some(SyntaxKind::ExprAttribute) => Some(TypeRole::AttributeBase),
+                Some(SyntaxKind::StmtAssign | SyntaxKind::StmtAnnAssign) => Some(TypeRole::AssignmentValue),
+                Some(SyntaxKind::StmtReturn) => Some(TypeRole::ReturnExpression),
+                _ => None,
+            };
+            if let Some(role) = role {
+                let range = spans.range_of(node);
+                b.trace(node, role, range)?;
+                if let Some(ty) = range.and_then(|r| ctx.answers.get_expected_type_trace(r)) {
+                    b.observe(node, TypeRole::Expected, false, &ty)?;
+                }
+            }
+        }
         if let Some((parent, SyntaxField::Exc)) = spans.parent(node) {
             b.trace(parent, TypeRole::Raised, spans.range_of(node))?;
         }
@@ -1168,6 +1193,75 @@ pub fn records<'a>(
     if let Some(solutions) = solutions {
         for class in get_all_classes(ctx) {
             let metadata = solutions.get(&KeyClassMetadata(class.index()));
+            let native_class = b.class(&class)?;
+            let metaclass = b.class(metadata.metaclass(&ctx.stdlib).class_object())?;
+            let custom_metaclass = metadata.custom_metaclass().map(|c| b.class(c.class_object())).transpose()?;
+            let mut abstract_members: Vec<_> = solutions.get(&KeyAbstractClassCheck(class.index()))
+                .unimplemented_abstract_methods().iter().map(ToString::to_string).collect();
+            abstract_members.sort();
+            let mut protocol_members: Vec<_> = metadata.protocol_metadata().map(|p| p.members.iter().map(ToString::to_string).collect()).unwrap_or_default();
+            protocol_members.sort();
+            let slots = metadata.slots_info().map(|info| { let mut names: Vec<_> = info.names.iter().map(ToString::to_string).collect(); names.sort(); names });
+            let record = if metadata.is_typed_dict() { Some(RecordKind::TypedDict) }
+                else if metadata.named_tuple_metadata().is_some() { Some(RecordKind::NamedTuple) }
+                else if metadata.is_pydantic_model() { Some(RecordKind::Pydantic) }
+                else if metadata.is_attrs_class() { Some(RecordKind::Attrs) }
+                else if metadata.dataclass_metadata().is_some() { Some(RecordKind::Dataclass) }
+                else { None };
+            let record_options = if let Some(dm) = metadata.dataclass_metadata() {
+                let k = &dm.kws;
+                let options = RecordOptions { init: k.init, eq: k.eq, order: k.order, frozen: k.frozen,
+                    match_args: k.match_args, kw_only: k.kw_only, unsafe_hash: k.unsafe_hash, slots: k.slots,
+                    extra: k.extra, strict: k.strict, auto_attribs: k.auto_attribs, attrs_setattr_frozen: k.attrs_setattr_frozen };
+                b.out.hold(&options)?;
+                let id = options.id(); b.out.record_options.push(options); Some(id)
+            } else { None };
+            let transform = if let Some(t) = metadata.dataclass_transform_metadata() {
+                let defaults = RecordTransformDefaults { eq: t.eq_default, order: t.order_default,
+                    kw_only: t.kw_only_default, frozen: t.frozen_default, field_specifier_count: t.field_specifiers.len() as i64 };
+                b.out.hold(&defaults)?;
+                let id = defaults.id(); b.out.transforms.push(defaults); Some(id)
+            } else { None };
+            let row = ClassMetadataObservation { qualification: b.qualification.id(), class: native_class,
+                basis: MetadataBasis::NativeEffective, metaclass, custom_metaclass,
+                final_declaration: metadata.is_final(), protocol: metadata.is_protocol(),
+                runtime_checkable: metadata.is_runtime_checkable_protocol(), new_type: metadata.is_new_type(),
+                enumeration: metadata.is_enum(), explicitly_abstract: metadata.is_explicitly_abstract(),
+                abstract_members, abstract_absence_known: false, protocol_members,
+                explicit_slots: metadata.has_explicit_slots(), slots, record, record_options, transform,
+                deprecated: metadata.deprecation().is_some(),
+                deprecation_message: metadata.deprecation().and_then(|d| d.message.clone()) };
+            row.validate()?; b.out.hold(&row)?; b.out.class_metadata.push(row);
+            let mut owners = vec![(class.clone(), ctx.clone())];
+            for ancestor in get_class_mro(&class, ctx).ancestors_no_object() {
+                let declaring = ancestor.class_object();
+                let owner = if declaring.module() == &ctx.module_info { Some(ctx.clone()) } else { module_context(declaring) };
+                if let Some(owner) = owner { owners.push((declaring.clone(), owner)); }
+            }
+            let synthesized = solutions.get(&KeyClassSynthesizedFields(class.index()));
+            let mut seen = BTreeSet::new();
+            for (defining, owner) in &owners {
+                let fields = &owner.bindings().metadata().get_class(defining.index()).fields;
+                let mut names: Vec<_> = fields.names().cloned().collect();
+                if defining == &class { names.extend(synthesized.fields().map(|(n, _)| n.clone())); }
+                names.sort(); names.dedup();
+                for name in names {
+                    if !seen.insert(name.clone()) { continue; }
+                    let Some(field) = get_class_field_from_current_class_only(defining, &name, owner) else { continue; };
+                    let term = b.term(&field.ty(), 0)?;
+                    let declaration = fields.field_decl_range(&name).map(|r| field_occurrence(defining, r)).transpose()?.flatten();
+                    let basis = if defining != &class { MetadataBasis::Inherited }
+                        else if !fields.contains(&name) { MetadataBasis::Synthesized }
+                        else { MetadataBasis::SourceDeclaration };
+                    let row = ClassMemberObservation { qualification: qualification.id(), class: native_class,
+                        defining_class: b.class(defining)?, name: name.to_string(), basis,
+                        kind: if field.is_property() { MemberKind::Property } else if field.is_simple_instance_attribute() { MemberKind::InstanceAttribute } else { MemberKind::Other },
+                        term: term.id, declaration, abstract_declaration: field.is_abstract(), final_declaration: field.is_final() };
+                    b.out.hold(&row)?; b.out.class_members.push((row, term.fidelity()));
+                }
+            }
+
+
             let (record, names): (RecordKind, Vec<(String, Option<bool>)>) =
                 if let Some(td) = metadata.typed_dict_metadata() {
                     (
@@ -1295,6 +1389,9 @@ pub fn records<'a>(
                         )
                     }
                 };
+                let default_term = if matches!(record, RecordKind::Dataclass | RecordKind::Attrs | RecordKind::Pydantic) {
+                    field.dataclass_flags_of(answers.heap()).default.as_ref().map(|t| b.term(t, 0)).transpose()?
+                } else { None };
                 let row = RecordFieldObservation {
                     qualification: qualification.id(),
                     class: native_class,
@@ -1305,6 +1402,7 @@ pub fn records<'a>(
                     declared: field.has_explicit_annotation(),
                     declaration,
                     has_default,
+                    default_term: default_term.map(|t| t.id),
                     init,
                     alias,
                     kw_only,
@@ -1312,7 +1410,7 @@ pub fn records<'a>(
                     read_only,
                 };
                 b.out.hold(&row)?;
-                b.out.fields.push((row, term.fidelity()));
+                b.out.fields.push((row, if default_term.is_some_and(|t| t.opaque) { Fidelity::DisplayOnly } else { term.fidelity() }));
                 ordinal += 1;
             }
         }

@@ -946,6 +946,7 @@ fn configuration_literal_domain_is_independent_of_stored_default() {
             term,
             declared: true,
             declaration: None,
+            default_term: None,
             has_default: None,
             init: None,
             alias: None,

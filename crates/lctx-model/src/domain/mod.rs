@@ -10,6 +10,7 @@ pub mod attachment;
 pub mod attribution;
 pub mod batching;
 pub mod calls;
+pub mod class_metadata;
 pub mod catalog;
 pub mod charged;
 pub mod composition;
@@ -289,6 +290,12 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<AssumptionUniverse>(),
         Relation::of::<AssumptionSet>(),
         Relation::of::<AssumptionSetMember>(),
+        Relation::of::<class_metadata::RecordOptions>(),
+        Relation::of::<class_metadata::RecordTransformDefaults>(),
+        Relation::of::<class_metadata::ClassMetadataObservation>(),
+        Relation::of::<class_metadata::ClassMetadataSupport>(),
+        Relation::of::<class_metadata::ClassMemberObservation>(),
+        Relation::of::<class_metadata::ClassMemberSupport>(),
         Relation::of::<ReportCollection>(),
         Relation::of::<ReportValue>(),
         Relation::of::<ReportEntry>(),

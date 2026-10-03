@@ -652,6 +652,7 @@ impl Fixture {
             term: observation.term,
             declared: true,
             declaration: None,
+            default_term: None,
             has_default: Some(false),
             init: Some(true),
             alias: None,

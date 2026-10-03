@@ -683,6 +683,10 @@ pub enum TypeRole {
     Argument = 3,
     Raised = 4,
     TestOperand = 5,
+    AttributeBase = 8,
+    AssignmentValue = 9,
+    ReturnExpression = 10,
+    Expected = 11,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "type_observations")]
@@ -1490,7 +1494,7 @@ pub enum RecordKind {
 /// field's declaration is a reference inside the class that declares it, possibly another module's.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "record_field_observations", validate = validate_record_field, invariants = record_invariants)]
-#[assertion(support = RecordFieldSupport, name = "record_field_supports", family = FactFamily::Types, subjects(class, term), referents(declaration))]
+#[assertion(support = RecordFieldSupport, name = "record_field_supports", family = FactFamily::Types, subjects(class, term, default_term), referents(declaration))]
 pub struct RecordFieldObservation {
     #[model(key)]
     pub qualification: Id<AssertionQualification>,
@@ -1505,6 +1509,9 @@ pub struct RecordFieldObservation {
     pub declared: bool,
     pub declaration: Option<Id<Occurrence>>,
     pub has_default: Option<bool>,
+    /// Native effective default type; default/factory source origin remains independent.
+    #[model(key)]
+    pub default_term: Option<Id<TypeTerm>>,
     pub init: Option<bool>,
     pub alias: Option<String>,
     pub kw_only: Option<bool>,
@@ -1521,6 +1528,7 @@ fn validate_record_field(row: &RecordFieldObservation) -> Result<(), ModelError>
         && (typed_dict || !row.name.is_empty())
         && row.alias.as_ref().is_none_or(|alias| !alias.is_empty())
         && row.has_default.is_some() == !typed_dict
+        && (row.default_term.is_none() || (dataclass_like && row.has_default == Some(true)))
         && row.init.is_some() == dataclass_like
         && (dataclass_like || (row.alias.is_none() && row.kw_only.is_none()))
         && row.required.is_some() == typed_dict
