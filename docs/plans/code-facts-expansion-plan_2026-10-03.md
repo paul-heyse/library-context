@@ -504,3 +504,25 @@ exception packets under body entry. `cargo check --release -p lctx --test condit
 receipt is above. Release PG runs remain pending in `p2-witness-epoch-p4-service-repair-controls.log`
 and `p4-conditional-exception-output-controls.log`. A compiled control does not establish served
 runtime acceptance. Full-series gates remain **not_run**.
+
+B2 integrated `0a29d7cc` (executor `ee8749de`), 2026-10-03: native timing65 remains
+characterization, while the checked direct synchronous caller-frame certificate supplies
+formal-entry or primitive-literal value authority. Canonical Parameter and native Identifier
+identities stay distinct through their actual supported child edge. Actual PostgreSQL control
+**passed**, formal/literal finite Summary and eight refusal shapes (`b2-controls12.log`, 88.93s);
+native/API/adapter/inventory **passed** four controls; Catalog and exact-exception regressions
+**passed** two. Behavioral replay hydration repair's rerun14 remains pending. Root merged
+all-target `cargo check --release -p lctx-model -p cpg-core -p cpg-extract --all-targets`
+**passed** (79s, `b2-merged-all-target-check.log`). Shared Local restricted seeds, owned inputs
+and empty-basis fresh-binding guard are retained. Capture packet cascade remains open.
+
+The witness-epoch PG rerun **failed**, 23/25 passed (`p2-witness-epoch-p4-service-repair-controls.log`,
+119.15s). C2 publication/replay and all five prior service/refutation controls passed; the two
+new/changed controls failed after reaching actual service. Their independent oracles are repaired:
+`AllApplicable` rejects an actual negative counterexample, while `AnyApplicable` absence remains
+Unresolved under Partial coverage with its negative evidence retained. No domain completeness is
+invented. The large-signature fixture is recalibrated to twenty complete long-name parameters,
+with explicit serialized-byte checks between the unchanged default32KiB/expanded256KiB limits;
+required native roles/proof dictionaries made the old seventy-parameter packet exceed both.
+The named two-control rerun is pending (`p4-service-oracle-repair-controls.log`); existing 23 passes
+retain their exact baseline. Full-series acceptance remains **not_run**.

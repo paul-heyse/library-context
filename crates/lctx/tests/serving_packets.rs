@@ -169,7 +169,9 @@ async fn mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration(
 }
 #[tokio::test]
 async fn complete_signature_over_default_budget_refuses_and_expanded_packet_is_complete() {
-    let parameters = (0..70)
+    // Required native roles and premise dictionaries add bytes; keep the complete packet
+    // between the unchanged 32 KiB and 256 KiB response bounds.
+    let parameters = (0..20)
         .map(|i| format!("p{i}_{}: int", "x".repeat(350)))
         .collect::<Vec<_>>()
         .join(",");
@@ -196,9 +198,12 @@ async fn complete_signature_over_default_budget_refuses_and_expanded_packet_is_c
         panic!("huge did not resolve uniquely")
     };
     let signature=packet.core.signatures.iter().find(|s|s.role==lctx_model::domain::calls::SignatureRole::Source).unwrap();
-    assert_eq!(signature.parameters.len(), 70);
-    assert_eq!(signature.effective_parameters.len(), 70);
+    assert_eq!(signature.parameters.len(), 20);
+    assert_eq!(signature.effective_parameters.len(), 20);
     assert!(packet.core.limits.signature_indivisible);
+    let bytes=serde_json::to_vec(&packet).unwrap().len() as u64;
+    let limits=ResourceLimits::default();
+    assert!(bytes>limits.default_response_bytes&&bytes<=limits.expanded_response_bytes,"whole packet must lie between the unchanged byte bounds: {bytes}");
     drop(execution);
     fixture.finish().await;
 }
@@ -673,16 +678,19 @@ class Settings:
  {
   use lctx_model::domain::selection::*;
   let returns=|role,name:&str|Predicate::VariantReturnType{role,r#type:StructuralType::NominalIdentity{module:"builtins".into(),name:name.into()}};
-  for (predicate,expected) in [
-   (returns(SignatureRole::Source,"int"),Outcome::Supported),
-   (returns(SignatureRole::Source,"bytes"),Outcome::Contradicted),
-   (returns(SignatureRole::EffectiveTyped,"bytes"),Outcome::Supported),
-   (returns(SignatureRole::EffectiveTyped,"int"),Outcome::Contradicted),
-   (Predicate::FacetMembership{facet:Facet::Async,value:FacetValue::Async{asynchronous:true}},Outcome::Contradicted),
-   (Predicate::FacetMembership{facet:Facet::ClassMetadata,value:FacetValue::ClassMetadata{trait_kind:ClassFacet::Enumeration,present:true}},Outcome::Unresolved),
+  for (predicate,quantifier,expected) in [
+   (returns(SignatureRole::Source,"int"),Quantifier::AnyApplicable,Outcome::Supported),
+   (returns(SignatureRole::Source,"bytes"),Quantifier::AllApplicable,Outcome::Contradicted),
+   (returns(SignatureRole::EffectiveTyped,"bytes"),Quantifier::AnyApplicable,Outcome::Supported),
+   (returns(SignatureRole::EffectiveTyped,"int"),Quantifier::AllApplicable,Outcome::Contradicted),
+   (Predicate::FacetMembership{facet:Facet::Async,value:FacetValue::Async{asynchronous:true}},Quantifier::AllApplicable,Outcome::Contradicted),
+   (Predicate::FacetMembership{facet:Facet::ClassMetadata,value:FacetValue::ClassMetadata{trait_kind:ClassFacet::Enumeration,present:true}},Quantifier::AnyApplicable,Outcome::Unresolved),
+   // Negative evidence cannot close an existential question under Partial provider coverage.
+   (returns(SignatureRole::Source,"bytes"),Quantifier::AnyApplicable,Outcome::Unresolved),
   ] {
-    let result=fixture.catalog.compare(&execution,&CompareOperationsRequest{library:Name::new("demo").unwrap(),operations:vec![path("demo.changed")],selection:SelectionInput(Selection{requirements:vec![Requirement{predicate:predicate.clone(),quantifier:Quantifier::AnyApplicable}],mode:Mode::Discovery,joint:JointPolicy::IndependentRecords}),page:PageRequest{expanded:true,..Default::default()}}).await.unwrap();
+    let result=fixture.catalog.compare(&execution,&CompareOperationsRequest{library:Name::new("demo").unwrap(),operations:vec![path("demo.changed")],selection:SelectionInput(Selection{requirements:vec![Requirement{predicate:predicate.clone(),quantifier}],mode:Mode::Discovery,joint:JointPolicy::IndependentRecords}),page:PageRequest{expanded:true,..Default::default()}}).await.unwrap();
     assert!(!result.operations[0].candidates.is_empty());
+    if expected==Outcome::Contradicted || matches!(predicate,Predicate::VariantReturnType{role:SignatureRole::Source,..})&&expected==Outcome::Unresolved {assert!(result.operations[0].candidates.iter().all(|r|!r.requirements[0].negative.is_empty()),"actual counterexample evidence must survive");}
     assert!(result.operations[0].candidates.iter().all(|r|r.requirements[0].outcome==expected),"role/facet service answer differs for {predicate:?}: {:?}",result.operations[0].candidates);
   }
  }
