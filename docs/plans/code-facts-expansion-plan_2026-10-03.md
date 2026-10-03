@@ -239,7 +239,7 @@ assembled runtime acceptance.
 | B0/B1/B2/B4 | Required bases, conditional atom restrictions, bounded direct captures and exact finite exceptions are integrated. Their scoped producer controls passed; the completed packet cascade still requires assembled acceptance. |
 | B3 | Native/recognizer read eligibility and narrow Candidate source-target routing controls passed. The unchanged final-class/member PG oracle still refuses MissingEvidence until genuine native ClassTrait support is qualified. Terminal serving remains active work. |
 | P0/P1/P2 | Parameter analytics, native characterization/roles, typed facets and stored witnesses are integrated. Scoped analytic/native/model/service controls passed; generated-role control and same-tree assembled journeys remain open. |
-| P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics passed; usage failed because an opaque assignment alias was used as a resolved import-alias oracle. The repair retains assignment/rebound uncertainty and reruns actual evidence serving. |
+| P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics and repaired usage both passed as a two-control composite; the repair retains opaque module/local assignment negatives alongside direct import/re-export positives. Current-tree assembled qualification remains open. |
 | P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence actual PG passed on its frozen executor tree; required-wire control and main integration are pending. Terminal output is pending B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
 | Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. Old operator staging and real-library/activation remain excluded. |
 
@@ -741,3 +741,17 @@ and negative fault controls. Earlier scoped Phase 5 receipts retain their origin
 current `uv run --no-sync python -m pytest tests/scripts/test_qualify_serving.py -q` failed
 collection on the missing installed `lctx_semantics` (`p4-stdio-transcript-controls.log`). Fresh
 adapter and both-profile runtime qualification remain pending the final assembled model.
+
+
+P3 actual original-evidence composite **passed**, 2026-10-03: diagnostics in
+`p3-source-characterization-pg-controls.log` (72.365s), then the affected usage control with
+`cargo nextest run --release -p lctx --test source_characterization
+-E 'test(actual_usage_aliases_targets_overloads_and_locations_reach_original_evidence)'`
+(80.530s, one passed/one outside-filter skipped, run
+`460f0260-4b73-4724-92f8-76809dff0b20`; `p3-source-usage-pg-repaired2-controls.log`).
+The initial two-control run failed only usage because it treated an opaque module assignment
+as a resolved import alias. `553d200f` integrates executor `8f16edb2`: direct import/re-export
+positives and both module/local opaque-assignment negatives are now independently asserted,
+with no production or schema relaxation. Receiver/applicability/chosen/candidate/full-basis,
+higher-order Potential and source-grant controls passed in that journey. This closes the
+bounded P3 consumer receipt, not assembled Q0 or full-series gates.

@@ -98,9 +98,9 @@ B1 conditional atom restrictions and M2 per-query availability/source fallback a
 N4b integrated (`f4a77641`, 32 controls passed); B4 integrated (`c115e623`, scoped PG/model passed).
 P1 integrated (`1a7ad33d`, real-PG RCA handoff passed); narrow M2 Lexical fix passed 22/22.
 P2 supported facets/stored witness closure (`d288a6b1`): compile, 17 model and three native controls passed.
-M2 metadata/B1 PG passed; P3 diagnostics/pytest/usage integrated (`9996f81f`/`a862fc29`); native10 and diagnostics PG passed; usage PG repair active.
+M2 metadata/B1 PG passed; P3 diagnostics/pytest/usage integrated (`9996f81f`/`a862fc29`); native10 and diagnostic/usage PG composite passed.
 P4 output controls compile passed; conditional PG failed CLI/model admission before assertions;
-Capture actual PG passed; wire/integration and B3 native-final/terminal/usage output remain active. B2 scoped composite passed eight controls.
+Capture actual PG passed; wire/integration and B3 native-final/terminal output remain active. B2 scoped composite passed eight controls.
 Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
 Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
