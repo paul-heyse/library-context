@@ -1,9 +1,10 @@
-From 8f01d80020921d3867f255ee5f919dd2d329b730 Mon Sep 17 00:00:00 2001
+From f7bdff69e1fb94ab0ed5b340e977aac0d26e9301 Mon Sep 17 00:00:00 2001
 From: paul-heyse <paul@heyse.io>
-Date: Sat, 3 Oct 2026 07:53:41 -0400
-Subject: [PATCH] Expose owned semantic facts and sticky ty precision metadata;
- focused checks passed
+Date: Sat, 3 Oct 2026 15:03:11 -0400
+Subject: [PATCH] Expose explicit lint source roots, owned semantic facts and
+ ty precision metadata
 
+Aggregate fork patch on exact Ruff 0.16.10 parent. Existing native traversal and sticky precision metadata are unchanged; make the existing deterministic LinterSettings::new_with_src constructor public for check_path consumers without ambient cwd reads.
 ---
  crates/ruff_linter/src/checkers/ast/mod.rs    | 115 +++++-
  crates/ruff_linter/src/lib.rs                 |   3 +
@@ -624,7 +625,7 @@ index 0000000..76e80fd
 +    }
 +}
 diff --git a/crates/ruff_linter/src/settings/mod.rs b/crates/ruff_linter/src/settings/mod.rs
-index 1868e19..183afe6 100644
+index 1868e19..b5abfee 100644
 --- a/crates/ruff_linter/src/settings/mod.rs
 +++ b/crates/ruff_linter/src/settings/mod.rs
 @@ -793,6 +793,11 @@ impl LinterSettings {
@@ -635,7 +636,7 @@ index 1868e19..183afe6 100644
 +    }
 +
 +    /// Construct from explicit source roots without reading the process working directory.
-+    pub(crate) fn new_with_src(project_root: &Path, src: Vec<PathBuf>) -> Self {
++    pub fn new_with_src(project_root: &Path, src: Vec<PathBuf>) -> Self {
          Self {
              exclude: FilePatternSet::default(),
              unresolved_target_version: TargetVersion(None),
@@ -785,3 +786,6 @@ index 44f3ad5..3283b1e 100644
      #[test]
      fn boolean_operations_match_their_truth_tables() {
          let mut constraints = NarrowingConstraintsBuilder::default();
+-- 
+2.43.0
+
