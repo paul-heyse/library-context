@@ -98,7 +98,7 @@ B1 conditional atom restrictions and M2 per-query availability/source fallback a
 N4b integrated (`f4a77641`, 32 controls passed); B4 integrated (`c115e623`, scoped PG/model passed).
 P1 integrated (`1a7ad33d`, real-PG RCA handoff passed); narrow M2 Lexical fix passed 22/22.
 P2 supported facets/stored witness closure (`d288a6b1`): compile, 17 model and three native controls passed.
-M2 lexical metadata integrated (`f36441c7`, 17 controls passed). B1 actual-PG Summary/replay repair passed.
+M2 metadata/B1 PG passed; P3 diagnostics/pytest integrated (`9996f81f`, native2/2 passed); usage/PG open.
 P4 output controls compile passed; conditional PG failed CLI/model admission before assertions;
 matching CLI build/reruns and B3/P3/capture output remain active. B2 scoped composite passed eight controls.
 Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
