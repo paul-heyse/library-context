@@ -540,3 +540,11 @@ AnalyzerAssertion/NativeTraversal/NativeStructural attribution and matching nati
 fidelity; recognizers remain retained characterization. Native/recognizer twin, recognizer-only,
 mismatched-fidelity and actual B3 PG controls remain pending. Evidence:
 `/home/paul/.cache/lctx-code-facts/b3-read-provenance.txt`; this finding's repair is not yet passed.
+
+P4 conditional/exception service run **failed**, 2026-10-03, before packet assertions
+(`p4-conditional-exception-output-controls.log`, 63.37s): the fixture-installed model and its
+standalone CLI had different contracts after B2 integration. `cargo nextest` does not replace
+the explicit `test-cli-build` prerequisite. A stable-main `cargo build --release -p lctx` is
+queued (`p4-main-cli-matching-build.log`); the conditional and named role/budget controls will
+be rerun against that matching CLI. This is not packet acceptance or a store reset; only
+disposable fixture databases are involved.

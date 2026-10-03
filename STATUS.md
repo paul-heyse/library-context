@@ -99,8 +99,8 @@ N4b integrated (`f4a77641`, 32 controls passed); B4 integrated (`c115e623`, scop
 P1 integrated (`1a7ad33d`, real-PG RCA handoff passed); narrow M2 Lexical fix passed 22/22.
 P2 supported facets/stored witness closure (`d288a6b1`): compile, 17 model and three native controls passed.
 M2 lexical metadata integrated (`f36441c7`, 17 controls passed). B1 actual-PG Summary/replay repair passed.
-P4 ports/basis/conditional wording and output controls compile passed; actual service reruns,
-B3/P3 and P4 capture output remain active. B2 scoped native/PG/replay composite passed eight controls.
+P4 output controls compile passed; conditional PG failed CLI/model admission before assertions;
+matching CLI build/reruns and B3/P3/capture output remain active. B2 scoped composite passed eight controls.
 Coordinator §7 owns dated package receipts; §5 owns all source finding disposition.
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
 Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
