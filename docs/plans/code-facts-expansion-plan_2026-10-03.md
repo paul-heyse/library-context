@@ -239,7 +239,7 @@ assembled runtime acceptance.
 | B0/B1/B2/B4 | Required bases, conditional atom restrictions, bounded direct captures and exact finite exceptions are integrated. Their scoped producer controls passed; the completed packet cascade still requires assembled acceptance. |
 | B3 | Native/recognizer read eligibility and narrow Candidate source-target routing controls passed. Genuine native ClassTrait provenance controls passed; the actual PG fixture now reaches the exact three expected conditional frontiers, retaining contradictory-MRO/open-source/placeholder exclusions. Its later provenance count was scoped to frontier targets and the affected rerun is active. Producer integration and terminal serving remain open. |
 | P0/P1/P2 | Parameter analytics, native characterization/roles, typed facets and stored witnesses are integrated. Scoped analytic/native/model/service controls passed; generated-role control and same-tree assembled journeys remain open. |
-| Raised-type review correction | Independent assembled review found that retained nonmatching raises could incorrectly close an unavailable native raise trace. P2 now requires existing complete Types coverage at the same source/context for a negative, with append-only witness27; matching positives remain valid under partial coverage. Targeted model check passed after a test-import repair; new unit/service controls and final independent review remain open. |
+| Raised-type review correction | Independent assembled review found that retained nonmatching raises could incorrectly close an unavailable native raise trace. P2 now requires existing complete Types coverage at the same source/context for a negative, with append-only witness27; matching positives remain valid under partial coverage. Targeted model/service checks and two units plus the classification inventory control passed; actual mixed/complete native service controls and final independent review remain open. |
 | Corpus mention review correction | The selected-analytics Q0 fixture exposed an Installed/Corpus input mismatch that silently discarded valid official co-mentions. P1 now consumes existing `CorpusLibrary` and follows only exact declared corpus→library links, retaining context, Document role, resolved universe and deduplication. Targeted check passed; actual split-input and unlinked-corpus controls remain open. |
 | P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics and repaired usage both passed as a two-control composite; the repair retains opaque module/local assignment negatives alongside direct import/re-export positives. Current-tree assembled qualification remains open. |
 | P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Same-tree assembled check remains open. Terminal output is pending B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
@@ -776,6 +776,30 @@ partial/missing/foreign-context/foreign-artifact/wrong-family inventories preser
 refuse negatives; a complete set retains the exact closure witness and rejects foreign witness
 replay. Actual mixed/complete native inventory serving controls remain pending; actual runtime
 needs the final matching CLI.
+
+The F01 classification projection inventory control also **passed**, 2026-10-03:
+`cargo test --release -p lctx-model --test domain_selection_catalog
+local_preparation_inventory_and_missing_membership_refusal -- --exact --nocapture`
+(one selected control, `f01-selection-inventory.log`). Classification declares all 79 required
+inputs, including the existing native coverage relation; missing membership stays refused.
+
+Selected-analytics Q0 fixture implementation is integrated at `c79ccf19`/`13e125cd`, 2026-10-03.
+The existing both-profile stdio/fault-control journey now selects communities/PageRank/FCA/RCA
+and type/mention layers explicitly, with kNN/embeddings off, fixed seeds and an official Markdown
+corpus acquired through production code. Its independently specified type/mention pair weights,
+source-default/receiver incidence, public universe, method policy and actual receipt lineage
+remain assertions, not inferred acceptance. Static review confirmed a newly discovered input
+association defect: Installed and Corpus retain separate revisions, so input equality alone
+silently discarded official mentions. `32bcc5a6` consumes existing `CorpusLibrary` and permits
+only its exact directed link; context, Document role, resolved entity scope and deduplication
+remain unchanged. The shared charged mention operation is exposed narrowly for stored-input
+controls. Those controls replay actual persisted rows and reject missing/wrong corpus or library
+links, without alternate interpretation or fabricated source facts. Targeted checks **passed**:
+`cargo check --release -p lctx-model --tests -p cpg-core --test analytic -p lctx
+--test serving_qualification` (35.28s, `f02-corpus-mentions-check.log`, before narrow re-export),
+then `cargo check --release -p lctx --test serving_qualification` (13.49s, executor session78418,
+on `32bcc5a6` plus frozen stored-input controls). Actual both-profile runtime, current adapter
+and the final independent review remain **not_run** until the final assembled CLI.
 
 
 Frozen direct capture output integrated as `16827a31` (executor `c5a26787`), with
