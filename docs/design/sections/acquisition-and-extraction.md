@@ -243,8 +243,20 @@ identical source bytes. Latest Ruff's original-byte parse owns canonical syntax.
 through model-owned range/kind/context correspondence; provider-local IDs remain transient.
 Python version and platform in ty's `ProgramSettings` now come from the analysis context.
 Reachability and narrowing use distinct formulas; precision loss remains explicit Partial
-coverage. Scoped narrowing/source-view controls are **Tested**, 2026-10-03, in coordinator §7;
-capture timing and downstream behavioral interpretation remain pending there.
+coverage. Scoped narrowing/source-view/protocol/capture-timing controls are **Tested**,
+2026-10-03, in coordinator §7. Capture timing characterizes native index snapshots; the
+bounded stable-capture interpretation has its own caller-frame/value certificate and scoped
+native/PG/replay receipts. Capture packet acceptance remains pending in that coordinator.
+
+**Implemented selected source characterization**, 2026-10-03. The independent Ruff parse
+also supplies configured F821/F401/F841 observations, including retained `noqa` suppression.
+Pyrefly supplies native diagnostic category/severity/header/details and selected parameter
+definition answers. Its duplicate fixture lookup follows the actual last-retained definition;
+that is a native answer, not a runtime fixture-registration claim. Missing or foreign locations
+remain unavailable. Catalog original-evidence packets keep the observations inside the same
+source grant; a diagnostic-free source or fixture lookup never certifies execution success.
+Scoped native controls are **Tested**; the actual original-evidence service and usage-association
+cascade remain open in the code-facts coordinator. The typed model owns payloads and attachments.
 
 
 
