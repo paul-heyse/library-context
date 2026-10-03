@@ -11,9 +11,11 @@ const SEEDS: &[&str] = &["demo.api", "demo.first"];
 async fn assert_selected_analytics(fixture: &ServingFixture) {
     use lctx_model::domain::{
         *, analysis::{self, AnalysisMethod as M, AnalysisStatus as S, Interpretation},
-        analytics::*, input::{ArtifactUse, SourceRole}, structural::{PublicCandidate, StructuralFrame},
-        source::{SourceArtifact, CoverageScope}, types::{TypeObservation, TypeRole},
+        analytics::*, input::{ArtifactUse, CorpusLibrary, SourceRole}, structural::{PublicCandidate, StructuralFrame},
+        source::{SourceArtifact, CoverageScope, Module}, types::{TypeObservation, TypeRole},
         documents::{DocumentMentionObservation, MentionClass}, assertion::AssertionQualification,
+        normalized::{Rows, entities::{PublicExposureCandidate, SymbolEntityResolution},
+            links::{MentionEntityAssessment, MentionEntityCandidate}},
     };
     let execution = fixture.service.execution().await.unwrap();
     macro_rules! read {($($var:ident:$ty:ty),*$(,)?) => {$(
@@ -32,6 +34,10 @@ async fn assert_selected_analytics(fixture: &ServingFixture) {
         formal_syntax:syntax::ParameterSyntaxObservation, types:TypeObservation,
         mentions:DocumentMentionObservation, artifacts:SourceArtifact, uses:ArtifactUse,
         qualifications:AssertionQualification, coverage_scopes:CoverageScope,
+        modules:Module, corpus_libraries:CorpusLibrary,
+        structural_invocations:analysis::structural::Invocation,
+        mention_assessments:MentionEntityAssessment, mention_candidates:MentionEntityCandidate,
+        exposure_candidates:PublicExposureCandidate, resolutions:SymbolEntityResolution,
         embeddings:analysis::analytic_embedding::AnalysisOutcome,
         vectors:embedding::analytic::AnalysisEmbeddingUse,
     }
@@ -67,6 +73,59 @@ async fn assert_selected_analytics(fixture: &ServingFixture) {
         let selected = selectors.rows().iter().filter(|s| s.frame == frame.id()).map(|s| s.candidate)
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(selected, candidates.iter().map(|p| p.id()).collect(), "configured seeds cannot shrink public selection");
+        // Actual Installed and Corpus inputs remain distinct. The exact recorded linkage is
+        // the only cross-input admission authority; lexical matches cannot supply that link.
+        let parent = structural_invocations.rows().iter().find(|i| i.id() == predecessor.invocation).unwrap();
+        assert_ne!(parent.input, document.input);
+        assert!(corpus_libraries.rows().iter().any(|link| link.corpus == document.input
+            && link.library == parent.input), "official corpus must name its exact installed library input");
+        let budget = resources::ResourceBudget::scoped(execution.budget(), 8 << 20).unwrap();
+        let mut data = build::Data::new(&budget);
+        data.structural.frames.insert(predecessor.clone()).unwrap();
+        data.structural_invocations.insert(parent.clone()).unwrap();
+        macro_rules! retain {($target:expr, $stored:expr) => {
+            for row in $stored.rows() { $target.insert(row.clone()).unwrap(); }
+        };}
+        retain!(data.native.qualifications, qualifications);
+        retain!(data.native.scopes, coverage_scopes);
+        retain!(data.native.modules, modules);
+        retain!(data.native.mentions, mentions);
+        retain!(data.native.relation_mention_entity_assessments, mention_assessments);
+        retain!(data.native.relation_mention_entity_candidates, mention_candidates);
+        retain!(data.native.entity_exposure_candidates, exposure_candidates);
+        retain!(data.native.symbol_resolutions, resolutions);
+        retain!(data.uses, uses);
+        retain!(data.corpus_libraries, corpus_libraries);
+        let scope = members.iter().filter(|u| u.release_scope).map(|u| u.entity)
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut replay = Output::new(&budget);
+        lctx_model::domain::analytics::mention_layer(&data, frame, &scope, &mut replay, &budget).unwrap();
+        let expected_mentions = contributions.rows().iter().filter(|c| c.frame == frame.id() && c.layer == Layer::Mention)
+            .collect::<Vec<_>>();
+        assert_eq!(expected_mentions.len(), 1, "one exact passage supplies one entity-pair vote");
+        assert_eq!(replay.contributions.len(), 1);
+        assert_eq!(replay.contributions.get(expected_mentions[0].id()), Some(expected_mentions[0]),
+            "shared production operation must reproduce the actual persisted co-mention premise");
+        assert_eq!(replay.pair_sources.len(), 1);
+        let original_source = provenance.rows().iter().find(|p| p.id() == expected_mentions[0].source).unwrap();
+        assert_eq!(replay.pair_sources.get(original_source.id()), Some(original_source));
+        drop(replay);
+        data.corpus_libraries = Rows::new(&budget);
+        let mut unlinked = Output::new(&budget);
+        lctx_model::domain::analytics::mention_layer(&data, frame, &scope, &mut unlinked, &budget).unwrap();
+        assert!(unlinked.contributions.is_empty() && unlinked.pair_sources.is_empty(),
+            "removing actual CorpusLibrary authority must refuse the same stored document and resolutions");
+        drop(unlinked);
+        for wrong in [CorpusLibrary { corpus: document.input, library: document.input },
+            CorpusLibrary { corpus: parent.input, library: parent.input }] {
+            data.corpus_libraries = Rows::new(&budget);
+            data.corpus_libraries.insert(wrong).unwrap();
+            let mut refused = Output::new(&budget);
+            lctx_model::domain::analytics::mention_layer(&data, frame, &scope, &mut refused, &budget).unwrap();
+            assert!(refused.contributions.is_empty() && refused.pair_sources.is_empty(),
+                "a wrong corpus or library identity must not admit the original document");
+        }
+        drop(data);
         for (method, on) in [(M::Communities,true), (M::PageRank,true), (M::Concepts,true),
             (M::RelationalConcepts,true), (M::Neighbours,false)] {
             let result = results.rows().iter().find(|r| r.frame == frame.id() && r.method == method).unwrap();
