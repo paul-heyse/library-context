@@ -160,11 +160,14 @@ the helper-mutation controls, rather than that ordinary pilot alone, establish t
 analysis configuration. `runs` records that. `producers` records the tool, the revision (for the
 extractor: the fork revision and patch digest, which `just deps` checks against `Cargo.lock` and
 the patch file, the ruff line, and the flow provider with its runtime-view version) and the
-adapter build digest: an output version bumped by hand when mapping output changes (the variant
-and id snapshots show it), which also includes the committed model catalog digest, because
-context extraction retains model-named exception classes (§3.2; **Implemented and Tested in
-focused cases**, 2026-09-25; ADR-0045). A catalog edit therefore cannot reuse a prior producer or
-run identity.
+adapter build digest: captured production source membership and bytes, manifests, pinned
+toolchain, specifications and third-party sources. The shared runtime-script declaration supplies
+both embedded runner bytes and their fingerprint paths; unrelated administration scripts are not
+producer inputs (ADR-0115; **Implemented**, 2026-10-02). The declaration and fingerprint helper
+are captured too. This deliberately retains conservative semantic source roots. The committed
+model catalog digest also participates because context extraction retains model-named exception
+classes (§3.2). A catalog or runtime-script edit therefore cannot reuse a prior producer or run
+identity.
 
 **Inspecting an attempt.** A published snapshot is inspected with `lctx query --store DIR
 --snapshot HEX "SQL"`: read-only, every table at its recorded version, filtered to the snapshot
@@ -174,7 +177,7 @@ log whatever was written after it; a table it did not write is left out, so a qu
 fails (`attempt_versions`; `a_rejected_attempt_is_inspected_at_its_own_commits`). This is for
 inspecting a failure, never for a reader.
 
-> Decision: ADR-0046, ADR-0086, ADR-0015, ADR-0018, ADR-0045
+> Decision: ADR-0046, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
 
 
 ### §4.1 Stages

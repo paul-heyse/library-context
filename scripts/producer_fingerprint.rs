@@ -1,6 +1,15 @@
 //! Shared build-time source closure. Paths are workspace-relative; machine paths never enter IDs.
 use std::path::Path;
+#[path = "../crates/cpg-extract/src/runtime_scripts.rs"]
+mod runtime_scripts;
 pub fn files(root: &Path) -> Vec<String> {
+    macro_rules! script_paths {
+        ($($name:ident => $path:literal,)*) => { &[$($path),*] };
+    }
+    files_with_scripts(root, runtime_scripts::runtime_scripts!(script_paths))
+}
+/// Explicit paths are also used by mutation controls; runtime embedding uses the same declaration.
+pub fn files_with_scripts(root: &Path, scripts: &[&str]) -> Vec<String> {
     fn walk(root: &Path, path: &Path, out: &mut Vec<String>) {
         if path.file_name().is_some_and(|name| name == "__pycache__")
             || path.extension().is_some_and(|ext| ext == "pyc")
@@ -41,19 +50,22 @@ pub fn files(root: &Path) -> Vec<String> {
             }
         }
     }
-    // Scripts and specs are embedded runtime inputs too. Include the complete directories,
-    // rather than duplicate the compiler's include_str!/migrate! dependency resolution.
+    // Keep all non-script roots conservative, including unused siblings and input membership.
     for name in [
         "Cargo.toml",
         "Cargo.lock",
         "rust-toolchain.toml",
         "third_party",
-        "scripts",
         "specs",
+        "scripts/producer_fingerprint.rs",
+        "crates/cpg-extract/src/runtime_scripts.rs",
     ] {
         if root.join(name).exists() {
             walk(root, &root.join(name), &mut files);
         }
+    }
+    for script in scripts {
+        walk(root, &root.join(script), &mut files);
     }
     files.sort();
     files.dedup();

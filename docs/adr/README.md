@@ -66,6 +66,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0111](0111-checked-false-native-source-candidates.md) | Retain complete checked-false native candidate evidence for finite negative questions | 2026-10-01 | [§3.9](../design/sections/behavior-model.md#section-3-9), [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§15.6](../design/sections/semantic-model.md#section-15-6) | Tested |  |
 | [ADR-0113](0113-agent-permissions-by-contract.md) | Role contracts are the only bound on agent effects; native role files carry no tool lists or sandbox settings | 2026-10-01 | [§1.2](../design/DESIGN.md#section-1-2) | Implemented | ADR-0112 |
 | [ADR-0114](0114-generation-serving-contracts.md) | Derive serving from canonical generations and prepare bounded consumers | 2026-10-02 | [§15.12](../design/sections/semantic-model.md#section-15-12), [§11](../design/sections/synthesis-and-serving.md#section-11), [§14.7](../design/sections/api-and-evidence-product.md#section-14-7), [§14.8](../design/sections/api-and-evidence-product.md#section-14-8), [§14.9](../design/sections/api-and-evidence-product.md#section-14-9) | Proposed |  |
+| [ADR-0115](0115-producer-runtime-script-capture.md) | Capture declared embedded runtime scripts while retaining conservative semantic source roots | 2026-10-02 | [§4.0](../design/sections/acquisition-and-extraction.md#section-4-0) | Implemented |  |
 
 ## Proposed: open choices, not accepted decisions
 

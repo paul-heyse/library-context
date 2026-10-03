@@ -10,6 +10,12 @@ use lctx_model::domain::{
 };
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeMap;
+macro_rules! embedded_scripts {
+    ($($name:ident => $path:literal,)*) => {
+        $(const $name: &[u8] = include_bytes!(concat!("../../../", $path));)*
+    };
+}
+crate::runtime_scripts::runtime_scripts!(embedded_scripts);
 pub const DEPLOYMENT: &str = "deployment";
 pub struct Deployment;
 pub fn provider() -> Provider {
@@ -254,7 +260,7 @@ fn check_receipt(
     {
         return Err(invalid("receipt does not match interaction policy"));
     }
-    if receipt.runner_sha256 != digest_hex(include_bytes!("../../../scripts/deployment_check.py")) {
+    if receipt.runner_sha256 != digest_hex(DEPLOYMENT_CHECK) {
         return Err(invalid("receipt runner hash differs"));
     }
     if receipt.timeout_seconds != 45
