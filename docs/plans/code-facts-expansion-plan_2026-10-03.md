@@ -558,3 +558,11 @@ signature/parameter; a `Source` entity remains forbidden. A native slot identity
 invented source formal. Focused compile and named rerun are pending; no production mapping
 is relaxed. P3 diagnostics/pytest native rerun passed two controls; its bounded usage-evidence
 cascade is also being implemented rather than closing P3 on diagnostics alone.
+
+Scoped build recovery, 2026-10-03: an actual `/proc/locks` audit found an idle
+worktree lock cycle between B3 and the new capture packet build: capture held model reads
+while waiting for allocative, and B3 held allocative reads while waiting for the model.
+The capture executor interrupted only its own audited Cargo process (1987503; run1
+`p4-capture-pg1.log`, **interrupted**, not a PG result). Rustc progress resumed after
+that process released its reads. Caches, profiles, stable paths and jobs16 are preserved;
+this recovery does not establish a standing build serialization policy.
