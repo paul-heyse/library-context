@@ -6,8 +6,8 @@ _Updated 2026-10-02 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 qualification is stopped; serving activation is not qualified.
 The [incremental alignment review](docs/design_review/reviews/design_review_semantic-model-incremental-alignment_2026-10-02.md)
 is **Revise / Implemented**, 2026-10-02: bounded corrections, no wholesale redesign.
-It owns eight new open findings and triggered opportunities; remedies remain Proposed.
-Next: plan the bounded remedies in dependency order and independent packages; this review performed no remediation or renewed qualification.
+The [four-plan alignment series](docs/plans/semantic-model-incremental-alignment-plan_2026-10-02.md) now owns F01–F08 and six substantiated opportunities, all Scheduled / Proposed.
+Next: authorize execution of its dependency-ordered packages; plan authoring performed no production remediation or renewed qualification.
 [Phase 5 plan §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
 owns package receipts and current assembled-review dispositions. The
 [parent cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
@@ -116,5 +116,5 @@ Resume only on operator request; plan §10 retains the omitted Q0 scope and acti
 The old staging generation was inventoried, receipts captured, and retired by the resumable reset.
 Local PostgreSQL uses `max_locks_per_transaction=512` after operator restart; reset and its zero-finding CLI check passed.
 The earlier eight functional gate defects passed the final workspace run; full Q0 is deferred.
-Main preserves the initial dirty baseline against snapshot `bd22f66c`; 116 initial tracked paths remain dirty.
+Plan authoring preserves the 117 initial dirty tracked paths at `42551010`; document-only verification is recorded in the alignment coordinator.
 ADR indexing/formatting and the authorized feature-union refresh completed; generators remain hook-owned.

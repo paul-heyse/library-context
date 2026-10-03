@@ -167,7 +167,7 @@ The verdict remains conservatively Unknown, but the reported cause is no longer 
 
 **Closure:** independently constructed cases for each reachable refusal must retain its exact code through native packet/transport; the admitted twin must preserve current behavior. This can be corrected before the larger F02 extraction.
 
-**Disposition:** required correction; execution status remains here until an active plan adopts this ID. It does not automatically reopen stopped Q0.
+**Disposition:** required correction; current execution status is at the [alignment coordinator §7](../../plans/semantic-model-incremental-alignment-plan_2026-10-02.md#7-current-disposition--sole-execution-owner). It does not automatically reopen stopped Q0.
 
 ### <a id="F02"></a>F02 — Native prepared semantics are entangled with persistence
 
@@ -326,7 +326,7 @@ A new native prepared operation must be challenged with legitimate unsupported/d
 
 ## 11. Authority, disposition and ordering
 
-This review is a dated assessment, not a competing execution ledger. Until an implementation plan adopts these findings, their status is **open in this review**. A later plan should reference stable IDs and become the single current disposition owner.
+This review is a dated assessment, not a competing execution ledger. The [alignment coordinator §7](../../plans/semantic-model-incremental-alignment-plan_2026-10-02.md#7-current-disposition--sole-execution-owner) adopted F01–F08 and the six §9 opportunities on 2026-10-02 and is their single current disposition owner. The diagnoses, original remedies and assessment below remain dated source evidence; publication of the plans establishes no implementation closure.
 
 Existing cutover findings keep their original identities and disposition at [parent cutover §8](../../plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition) and [Phase 5 plan §10](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state). In particular, semantic-data-model F10 (serving authority) and F05 (served condition remainder) remain at those owners; this review supplies relevant new evidence rather than replacing their status. F02 is a new scoped diagnosis of current native preparation; it does not silently reopen every earlier serving-authority finding or close them by implication. The previous assembled Phase 5 review’s F01/F02 remain closed within their recorded codec/assertion boundaries.
 
