@@ -118,6 +118,7 @@ macro_rules! analytic_extra_inputs {
         $m! {
          members:$crate::domain::catalog::CatalogMember,
          uses:$crate::domain::input::ArtifactUse,
+         corpus_libraries:$crate::domain::input::CorpusLibrary,
          parameter_syntax:$crate::domain::syntax::ParameterSyntaxObservation,
          type_supports:$crate::domain::types::TypeSupport,
          class_metadata:$crate::domain::class_metadata::ClassMetadataObservation,

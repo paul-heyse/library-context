@@ -66,6 +66,7 @@ pub fn relations() -> Vec<Relation> {
     crate::analytic_outputs!(rows)
 }
 mod attributes;
+pub use attributes::mention_layer;
 mod native_attributes;
 mod partitions;
 mod vectors;

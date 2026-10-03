@@ -320,7 +320,9 @@ pub fn mention_layer(
             continue;
         };
         if !d.uses.iter().any(|u| {
-            u.input == parent.input
+            (u.input == parent.input || d.corpus_libraries.iter().any(|link| {
+                link.corpus == u.input && link.library == parent.input
+            }))
                 && u.artifact == artifact
                 && u.role == input::SourceRole::Document
         }) {
