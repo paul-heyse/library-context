@@ -20,6 +20,33 @@ pub struct RetainedPolicy {
     pub neighbour_floor: f64,
     pub neighbours: usize,
     pub mechanics: &'static str,
+    pub attributes: AttributePolicy,
+}
+/// Authored analytic meaning participates in the complete persisted method recipe/digest.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct AttributePolicy {
+    pub signature_roles: SignatureRoles,
+    pub receiver: ReceiverPolicy,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum SignatureRoles { SourceDeclared, EffectiveTyped, Synthesized, AllAvailable }
+impl SignatureRoles {
+    pub fn source(self) -> bool { matches!(self, Self::SourceDeclared | Self::AllAvailable) }
+    pub fn native(self, role: crate::domain::calls::SignatureRole) -> bool {
+        match self {
+            Self::SourceDeclared => false,
+            Self::EffectiveTyped => role == crate::domain::calls::SignatureRole::EffectiveTyped,
+            Self::Synthesized => role == crate::domain::calls::SignatureRole::Synthesized,
+            Self::AllAvailable => !role.runtime_source(),
+        }
+    }
+}
+/// Native slots are already adjusted by their native callable type. Neither policy excludes
+/// them again; adjustment and receiver binding stay labelled in their distinct attributes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum ReceiverPolicy { ExcludeSourceBoundPreserveNative, IncludeSourceBoundPreserveNative }
+impl Default for AttributePolicy {
+    fn default() -> Self { RETAINED.attributes }
 }
 pub const RETAINED: RetainedPolicy = RetainedPolicy {
     depth: 256,
@@ -36,6 +63,7 @@ pub const RETAINED: RetainedPolicy = RetainedPolicy {
     neighbour_floor: 0.5,
     neighbours: 3,
     mechanics: "petgraph0.8.3/leiden0.8.1/fixedbitset0.5.7;directed-count-rank;RBER-quality-history;undirected-equal-retained-layers;canonical-accumulation;one-RCA-step;partition-largest-majority-or-less-than-three-degenerate",
+    attributes: AttributePolicy { signature_roles: SignatureRoles::SourceDeclared, receiver: ReceiverPolicy::ExcludeSourceBoundPreserveNative },
 };
 impl RetainedPolicy {
     pub fn parameters(self, method: AnalysisMethod) -> Result<MethodParameters, ModelError> {

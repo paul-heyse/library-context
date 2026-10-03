@@ -530,6 +530,39 @@ async fn run(
         )))
         .fetch_one(db.owner.pool()).await.unwrap();
         assert_eq!(typed_parameters, 8, "parameter type subjects attach to formals rather than their containers");
+        // Independent fixture oracle: only alpha/beta/gamma declare LeftValue. Its actual
+        // native final/record traits enrich those parameter ports, with no RightValue negatives.
+        let traits: Vec<(String, i16, i16, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT DISTINCT m.name, a.typeclasstrait_role, a.typeclasstrait_basis, a.typeclasstrait_trait_kind FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id JOIN {s}.structural_public_candidates p ON p.entity=i.entity JOIN {s}.catalog_members m ON m.id=p.member WHERE a.kind=8 ORDER BY 1,2,3,4"
+        ))).fetch_all(db.owner.pool()).await.unwrap();
+        let expected: Vec<_> = ["alpha", "beta", "gamma"].into_iter().map(|name| (name.to_owned(), 0_i16, 1_i16, 0_i16)).collect();
+        assert_eq!(traits, expected, "metadata incidence must match the independently enumerated declared-port universe");
+        let records: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT DISTINCT m.name FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id JOIN {s}.structural_public_candidates p ON p.entity=i.entity JOIN {s}.catalog_members m ON m.id=p.member JOIN {s}.record_options o ON o.id=a.typeclassrecord_options WHERE a.kind=9 AND a.typeclassrecord_role=0 AND o.frozen ORDER BY 1"
+        ))).fetch_all(db.owner.pool()).await.unwrap();
+        assert_eq!(records, ["alpha", "beta", "gamma"]);
+        let uncertain: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {s}.analytic_type_metadata_selections WHERE status=1 AND abstract_absence_known IS NULL"
+        ))).fetch_one(db.owner.pool()).await.unwrap();
+        assert!(uncertain > 0, "builtin class metadata is unavailable rather than a negative trait");
+        let known_absence: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {s}.analytic_type_metadata_selections WHERE abstract_absence_known"
+        ))).fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(known_absence, 0);
+        let captures: Vec<(String, i16, Option<bool>, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT DISTINCT m.name, a.capturedependence_origin, a.capturedependence_mutable, a.capturedependence_timing FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id JOIN {s}.structural_public_candidates p ON p.entity=i.entity JOIN {s}.catalog_members m ON m.id=p.member WHERE a.kind=15 AND a.capturedependence_name='GLOBAL' ORDER BY 1"
+        ))).fetch_all(db.owner.pool()).await.unwrap();
+        assert_eq!(captures, [("isolate".to_owned(), 1_i16, None, 0_i16)], "global capture dependence has unknown mutation and snapshot time");
+        let decorators: Vec<(String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT DISTINCT m.name,r.name FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id JOIN {s}.analytic_incidence_sources src ON src.id=i.source JOIN {s}.structural_public_candidates p ON p.entity=i.entity JOIN {s}.catalog_members m ON m.id=p.member JOIN {s}.reference_entity_assessments ra ON ra.id=src.resolveddecorator_assessment JOIN {s}.reference_observations r ON r.id=ra.reference WHERE a.kind=7 AND src.kind=7 ORDER BY 1,2"
+        ))).fetch_all(db.owner.pool()).await.unwrap();
+        assert_eq!(decorators.into_iter().collect::<std::collections::BTreeSet<_>>(),
+            [("isolate".to_owned(), "_marker".to_owned()), ("isolate".to_owned(), "deprecated".to_owned())].into_iter().collect(),
+            "only declared decorator heads supply their resolved identities");
+        let selected_decorators: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {s}.analytic_decorator_selections WHERE status=0"
+        ))).fetch_one(db.owner.pool()).await.unwrap();
+        assert!(selected_decorators > 0);
         if settings.type_layer {
             let pairs: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT count(*) FROM {s}.analytic_layer_pairs WHERE layer=2 GROUP BY frame"
@@ -544,6 +577,21 @@ async fn run(
         .fetch_one(db.owner.pool())
         .await
         .unwrap();
+        if handoffs == 0 {
+            let attempts: Vec<(Option<i16>, i16, i16, i16, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT sig.role,b.authority,b.authority_reason,b.outcome,count(*) FROM {s}.call_binding_attempts b LEFT JOIN {s}.signature_observations sig ON sig.id=b.signature GROUP BY 1,2,3,4 ORDER BY 1,2,3,4"
+            ))).fetch_all(db.owner.pool()).await.unwrap();
+            let effective: Vec<(i16, i16, i16, i16, i16, i16, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT identity,identity_reason,signatures,signature_reason,descriptor,descriptor_reason,count(*) FROM {s}.effective_callable_assessments GROUP BY 1,2,3,4,5,6 ORDER BY 1,2,3,4,5,6"
+            ))).fetch_all(db.owner.pool()).await.unwrap();
+            let coverage: Vec<(i16, i16, Option<String>, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT family,status,diagnostic,count(*) FROM {s}.provider_coverage GROUP BY 1,2,3 ORDER BY 1,2,3"
+            ))).fetch_all(db.owner.pool()).await.unwrap();
+            let a0: Vec<(Option<i16>, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT reason,count(*) FROM {s}.structural_handoff_assessments GROUP BY 1 ORDER BY 1"
+            ))).fetch_all(db.owner.pool()).await.unwrap();
+            eprintln!("handoff attempts {attempts:?}; effective {effective:?}; coverage {coverage:?}; A0 {a0:?}");
+        }
         assert!(handoffs > 0, "RCA must retain exact A0 handoff occurrences");
         if settings.knn && !vectors_available {
             assert!(
@@ -831,6 +879,54 @@ async fn replay_controls(
         c.outcomes.insert(analytics::frames::outcome(r)).unwrap();
     }
     analytics::frames::verify(&d, &c, &out, b).unwrap();
+    assert!(out.attributes.iter().all(|a| !matches!(a, analytics::Attribute::NativeSignature { .. } | analytics::Attribute::NativeParameterType { .. } | analytics::Attribute::NativeReturnType { .. } | analytics::Attribute::NativeDeprecation { .. })), "default source/declared policy must not silently include native variants");
+    // Exercise the public optional projection against actual PostgreSQL/native predecessors.
+    // The eight explicit fixture callables provide the independent entity oracle below.
+    let policy = analytics::policy::AttributePolicy {
+        signature_roles: analytics::policy::SignatureRoles::AllAvailable,
+        receiver: analytics::policy::ReceiverPolicy::ExcludeSourceBoundPreserveNative,
+    };
+    let mut native_context = analytics::frames::Context::new(b);
+    let mut native_output = analytics::Output::new(b);
+    for sf in d.structural.frames.iter() {
+        let parent = d.structural_invocations.get(sf.invocation).unwrap();
+        for method in analytics::build::METHODS {
+            let (parameters, definition) = analytics::build::definition_with_attribute_policy(d.configuration().unwrap(), method, policy).unwrap();
+            assert_ne!(definition.id(), analytics::build::definition(d.configuration().unwrap(), method).unwrap().1.id());
+            let (_, include_receiver) = analytics::build::definition_with_attribute_policy(d.configuration().unwrap(), method,
+                analytics::policy::AttributePolicy { receiver: analytics::policy::ReceiverPolicy::IncludeSourceBoundPreserveNative, ..policy }).unwrap();
+            assert_ne!(definition.id(), include_receiver.id(), "receiver policy participates in persisted definition identity");
+            d.parameters.insert(parameters).unwrap();
+            d.definitions.insert(definition.clone()).unwrap();
+            let parents = analytics::frames::parents(&d, sf, method).unwrap();
+            let (invocation, inputs, _, _) = analysis::analytic::Invocation::admitted(parent.input, parent.context, definition.id(), None,
+                parents.iter().map(Record::id), &sources,
+                [analysis::ProjectionDefinition::builtin(projection::ProjectionName::CallableInvocation).id()], b).unwrap();
+            for row in parents { native_context.sources.insert(row).unwrap(); }
+            for row in inputs { native_context.inputs.insert(row).unwrap(); }
+            native_context.invocations.insert(invocation).unwrap();
+        }
+        let frame = analytics::AnalyticFrame { structural: sf.id(), configuration: d.configuration().unwrap().id() };
+        let graph = graphs.graph(access, b, projection::normalization::ProjectionKey { input: parent.input, context: parent.context,
+            name: projection::ProjectionName::CallableInvocation }).unwrap();
+        native_output.extend(analytics::build::produce_with_policy(&d, &frame, &native_context.invocations, graph, b, policy).unwrap()).unwrap();
+    }
+    for result in native_output.results.iter() { native_context.outcomes.insert(analytics::frames::outcome(result)).unwrap(); }
+    analytics::frames::verify_with_policy(&d, &native_context, &native_output, b, policy).unwrap();
+    assert!(analytics::frames::verify(&d, &native_context, &native_output, b).is_err(), "optional output cannot replay under the default policy");
+    let native_names: std::collections::BTreeSet<_> = native_output.incidences.iter().filter(|i| matches!(native_output.attributes.get(i.attribute),
+        Some(analytics::Attribute::NativeReturnType { role: calls::SignatureRole::EffectiveTyped, .. }))).flat_map(|i|
+            d.structural.public.iter().filter(move |p| p.entity == i.entity).map(|p| d.members.get(p.member).unwrap().name.clone())).collect();
+    assert_eq!(native_names, ["alpha", "beta", "delta", "epsilon", "gamma", "identity", "isolate", "zeta"].into_iter().map(str::to_owned).collect(),
+        "actual effective native return ports must cover exactly the hand-enumerated public callable set");
+    let native_members = &d.members;
+    let deprecated: std::collections::BTreeSet<_> = native_output.incidences.iter().filter_map(|i| match native_output.attributes.get(i.attribute) {
+        Some(analytics::Attribute::NativeDeprecation { role: calls::SignatureRole::EffectiveTyped, basis: class_metadata::MetadataBasis::NativeEffective,
+            availability: types::CallableDeprecation::Deprecated, message }) => Some((i.entity, message.clone())), _ => None,
+    }).flat_map(|(entity, message)| d.structural.public.iter().filter(move |p| p.entity == entity)
+        .map(move |p| (native_members.get(p.member).unwrap().name.clone(), message.clone()))).collect();
+    assert_eq!(deprecated, [("isolate".to_owned(), Some("  use the next isolate  ".to_owned()))].into_iter().collect(),
+        "deprecation must use the live native payload without trimming or spelling inference");
     // The same production replay operates on native predecessors plus serialized/hydrated graph.
     let target = out.ranks.iter().next().unwrap().target;
     for corruption in 0..if out.neighbours.is_empty() && out.layer_neighbours.is_empty() {

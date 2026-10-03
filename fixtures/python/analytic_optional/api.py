@@ -1,7 +1,15 @@
 """Two structural call clusters and an excluded community isolate."""
+from typing import final
+from dataclasses import dataclass
+from warnings import deprecated
+
 __all__ = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'identity', 'isolate', 'LeftValue', 'RightValue']
+@final
+@dataclass(frozen=True)
 class LeftValue:
-    pass
+    value: int
+GLOBAL = 7
+
 class RightValue:
     pass
 
@@ -38,5 +46,10 @@ def zeta(value: RightValue) -> str:
 def identity(value: int) -> int:
     return value
 
+def _marker[T](func: T) -> T:
+    return func
+
+@deprecated("  use the next isolate  ")
+@_marker
 def isolate(value: int) -> int:
-    return value
+    return value + GLOBAL

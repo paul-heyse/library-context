@@ -85,6 +85,11 @@ pub fn verify(
     actual: &Output,
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    verify_with_policy(d, c, actual, b, policy::RETAINED.attributes)
+}
+/// Replay an explicitly selected attribute policy against its corresponding definition identity.
+pub fn verify_with_policy(d: &Data, c: &Context, actual: &Output, b: &ResourceBudget,
+    attributes: policy::AttributePolicy) -> Result<(), ModelError> {
     if d.structural.frames.is_empty() && c.invocations.is_empty() && actual.frames.is_empty() {
         return actual.matches(&Output::new(b));
     }
@@ -101,7 +106,7 @@ pub fn verify(
             configuration: s.id(),
         };
         for method in METHODS {
-            let def = build::definition(s, method)?.1;
+            let def = build::definition_with_attribute_policy(s, method, attributes)?.1;
             let mut invs = c.invocations.iter().filter(|i| {
                 i.input == parent.input
                     && i.context == parent.context
@@ -136,7 +141,7 @@ pub fn verify(
             return Err(invalid("analytic graph snapshot ambiguous"));
         }
         let graph = projection::snapshot::hydrate(header, assessment, &d.graphs.chunks, b)?;
-        expected.extend(build::produce(d, &frame, &c.invocations, &graph, b)?)?;
+        expected.extend(build::produce_with_policy(d, &frame, &c.invocations, &graph, b, attributes)?)?;
     }
     for r in expected.results.iter() {
         outcomes.insert(outcome(r))?;

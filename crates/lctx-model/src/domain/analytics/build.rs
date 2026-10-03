@@ -52,6 +52,11 @@ pub fn definition(
 ) -> Result<(analysis::MethodParameters, analysis::AnalysisDefinition), ModelError> {
     definition_with_policy(settings, method, policy::RETAINED)
 }
+/// Select only the attribute projection; graph mechanics and weights retain their existing policy.
+pub fn definition_with_attribute_policy(settings: &AnalyticsConfiguration, method: analysis::AnalysisMethod,
+    attributes: policy::AttributePolicy) -> Result<(analysis::MethodParameters, analysis::AnalysisDefinition), ModelError> {
+    definition_with_policy(settings, method, policy::RetainedPolicy { attributes, ..policy::RETAINED })
+}
 pub fn definition_with_policy(
     settings: &AnalyticsConfiguration,
     method: analysis::AnalysisMethod,
@@ -86,6 +91,7 @@ pub fn definition_with_policy(
         include_bytes!("frames.rs"),
         include_bytes!("conclusions.rs"),
         include_bytes!("attributes.rs"),
+        include_bytes!("native_attributes.rs"),
         include_bytes!("partitions.rs"),
         include_bytes!("vectors.rs"),
     ] {
@@ -111,9 +117,21 @@ macro_rules! analytic_extra_inputs {
         $m! {
          members:$crate::domain::catalog::CatalogMember,
          uses:$crate::domain::input::ArtifactUse,
-         artifact_chunks:$crate::domain::artifact::ArtifactChunk,
          parameter_syntax:$crate::domain::syntax::ParameterSyntaxObservation,
          type_supports:$crate::domain::types::TypeSupport,
+         class_metadata:$crate::domain::class_metadata::ClassMetadataObservation,
+         metadata_supports:$crate::domain::class_metadata::ClassMetadataSupport,
+         class_members:$crate::domain::class_metadata::ClassMemberObservation,
+         member_supports:$crate::domain::class_metadata::ClassMemberSupport,
+         record_options:$crate::domain::class_metadata::RecordOptions,
+         native_signature_supports:$crate::domain::types::NativeSignatureSupport,
+         port_supports:$crate::domain::types::SignatureTypeSupport,
+         captures:$crate::domain::captures::CaptureObservation,
+         capture_supports:$crate::domain::captures::CaptureSupport,
+         exits:$crate::domain::protocols::NativeExitObservation,
+         exit_supports:$crate::domain::protocols::NativeExitSupport,
+         terminals:$crate::domain::protocols::NativeTerminalObservation,
+         terminal_supports:$crate::domain::protocols::NativeTerminalSupport,
          type_sequences:$crate::domain::types::TypeSequence,
          type_members:$crate::domain::types::TypeSequenceMember,
          callable_type_slots:$crate::domain::types::CallableParameter,
@@ -239,6 +257,11 @@ pub fn produce(
     graph: &MaterializedGraph,
     b: &ResourceBudget,
 ) -> Result<Output, ModelError> {
+    produce_with_policy(d, f, invocations, graph, b, policy::RETAINED.attributes)
+}
+/// Actual optional attribute projection over the same source callable universe and graph frame.
+pub fn produce_with_policy(d: &Data, f: &AnalyticFrame, invocations: &Rows<owner::Invocation>, graph: &MaterializedGraph,
+    b: &ResourceBudget, attributes: policy::AttributePolicy) -> Result<Output, ModelError> {
     let s = d.configuration()?;
     let sf = need(&d.structural.frames, f.structural)?;
     let parent = need(&d.structural_invocations, sf.invocation)?;
@@ -299,7 +322,7 @@ pub fn produce(
     })?;
     let mut methods = BTreeMap::new();
     for method in METHODS {
-        let (parameters, definition) = definition(s, method)?;
+        let (parameters, definition) = definition_with_attribute_policy(s, method, attributes)?;
         if d.parameters.get(parameters.id()) != Some(&parameters)
             || d.definitions.get(definition.id()) != Some(&definition)
         {
@@ -616,7 +639,7 @@ pub fn produce(
     ] {
         let mut r = methods.remove(&(method as i16)).unwrap();
         if r.selected {
-            super::attributes::concepts(d, f, sf, &public, &mut r, &mut out, b)?;
+            super::attributes::concepts(d, f, sf, &public, &mut r, &mut out, b, attributes)?;
         }
         out.results.insert(r)?;
     }

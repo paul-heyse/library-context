@@ -49,6 +49,8 @@ macro_rules! analytic_outputs {
         attributes:$crate::domain::analytics::Attribute,
         incidence_sources:$crate::domain::analytics::IncidenceSource,
         incidences:$crate::domain::analytics::Incidence,
+        metadata_selections:$crate::domain::analytics::TypeMetadataSelection,
+        decorator_selections:$crate::domain::analytics::DecoratorSelection,
         concepts:$crate::domain::analytics::Concept,
         implications:$crate::domain::analytics::Implication,
         }
@@ -64,5 +66,6 @@ pub fn relations() -> Vec<Relation> {
     crate::analytic_outputs!(rows)
 }
 mod attributes;
+mod native_attributes;
 mod partitions;
 mod vectors;

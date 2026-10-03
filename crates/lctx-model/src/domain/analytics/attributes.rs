@@ -166,7 +166,7 @@ fn types(
     path.remove(&term);
     Ok(complete)
 }
-fn classes(
+pub(super) fn classes(
     d: &Data,
     term: Id<types::TypeTerm>,
     ctx: Id<attribution::AnalysisContext>,
@@ -386,10 +386,10 @@ pub fn mention_layer(
     }
     Ok(())
 }
-struct Fact {
-    entity: Id<EntityRef>,
-    attribute: Attribute,
-    source: IncidenceSource,
+pub(super) struct Fact {
+    pub entity: Id<EntityRef>,
+    pub attribute: Attribute,
+    pub source: IncidenceSource,
 }
 impl HeapSize for Fact {
     fn heap_bytes(&self) -> usize {
@@ -405,22 +405,26 @@ fn facts(
     rca: bool,
     out: &Output,
     b: &ResourceBudget,
-) -> Result<(charged::ChargedVec<Fact>, charged::StateCharge), ModelError> {
+    policy: policy::AttributePolicy,
+) -> Result<(charged::ChargedVec<Fact>, charged::ChargedVec<super::native_attributes::Selection>, charged::StateCharge), ModelError> {
     let mut facts = charged::ChargedVec::default();
+    let mut selections = charged::ChargedVec::default();
     let mut charge = charged::StateCharge::new(b, "analytic-concept-incidence");
     for entity in objects {
         let Some(declaration) = declaration(d, *entity)? else {
             continue;
         };
+        super::native_attributes::variants(d, *entity, ctx, b, &mut facts, &mut charge, policy)?;
+        super::native_attributes::dependence(d, *entity, ctx, &mut facts, &mut charge)?;
         for p in d
             .parameter_syntax
             .iter()
-            .filter(|p| p.function == declaration)
+            .filter(|p| p.function == declaration && policy.signature_roles.source())
         {
             let Some(correspondence) = normalized::parameter_correspondence::source_parameter(
                 &d.native, p, ctx, b,
             )? else { continue; };
-            if receiver(d, *entity, &correspondence, ctx) {
+            if policy.receiver == policy::ReceiverPolicy::ExcludeSourceBoundPreserveNative && receiver(d, *entity, &correspondence, ctx) {
                 continue;
             }
             let shapes = d
@@ -460,6 +464,7 @@ fn facts(
                             },
                         },
                     )?;
+                    super::native_attributes::metadata(d, *entity, o, TypePortRole::Parameter, ctx, b, &mut facts, &mut selections, &mut charge)?;
                 }
             }
         }
@@ -467,7 +472,7 @@ fn facts(
             if !context(d, o.qualification, ctx)? {
                 continue;
             }
-            let attribute = if o.subject == declaration
+            let attribute = if policy.signature_roles.source() && o.subject == declaration
                 && o.role == types::TypeRole::Return
                 && o.declared
                 && classes(d, o.term, ctx, b)?.is_some()
@@ -493,6 +498,7 @@ fn facts(
                 None
             };
             if let Some(attribute) = attribute {
+                let returns = matches!(&attribute, Attribute::Returns { .. });
                 facts.push(
                     &mut charge,
                     Fact {
@@ -503,9 +509,11 @@ fn facts(
                         },
                     },
                 )?;
+                if returns {
+                    super::native_attributes::metadata(d, *entity, o, TypePortRole::Return, ctx, b, &mut facts, &mut selections, &mut charge)?;
+                }
             }
         }
-        // Exact decorator symbol spellings from the captured native reference observation; no import.
         for dec in d
             .native
             .decorators
@@ -515,17 +523,7 @@ fn facts(
             if !context(d, dec.qualification, ctx)? {
                 continue;
             }
-            let expression = expression(d, dec.decorator, b)?;
-            facts.push(
-                &mut charge,
-                Fact {
-                    entity: *entity,
-                    attribute: Attribute::Decorator { expression },
-                    source: IncidenceSource::Decorator {
-                        observation: dec.id(),
-                    },
-                },
-            )?;
+            super::native_attributes::decorator(d, *entity, dec, ctx, &mut facts, &mut selections, &mut charge)?;
         }
     }
     if rca {
@@ -609,7 +607,7 @@ fn facts(
             }
         }
     }
-    Ok((facts, charge))
+    Ok((facts, selections, charge))
 }
 pub fn concepts(
     d: &Data,
@@ -619,6 +617,7 @@ pub fn concepts(
     result: &mut TechniqueResult,
     out: &mut Output,
     b: &ResourceBudget,
+    policy: policy::AttributePolicy,
 ) -> Result<(), ModelError> {
     let parent = need(&d.structural_invocations, sf.invocation)?;
     let mut charge = charged::StateCharge::new(b, "analytic-concept-scopes");
@@ -644,13 +643,14 @@ pub fn concepts(
     }
     for ((access, namespace), candidates) in groups {
         let objects = candidates.iter().map(|c| c.entity).collect::<BTreeSet<_>>();
-        let (facts, _charge) = facts(
+        let (facts, selections, _charge) = facts(
             d,
             &objects,
             parent.context,
             result.method == analysis::AnalysisMethod::RelationalConcepts,
             out,
             b,
+            policy,
         )?;
         let _context = b.reserve(
             "analytic-concept-conversion",
@@ -681,6 +681,9 @@ pub fn concepts(
             examined: lattice.examined() as i64,
             partial: lattice.budget_reached(),
         };
+        for selection in selections.iter() {
+            selection.emit(scope.id(), out)?;
+        }
         for candidate in candidates {
             out.objects.insert(ConceptObject {
                 scope: scope.id(),
@@ -749,51 +752,4 @@ pub fn concepts(
         out.scopes.insert(scope)?;
     }
     Ok(())
-}
-
-fn expression(
-    d: &Data,
-    id: Id<source::Occurrence>,
-    b: &ResourceBudget,
-) -> Result<Utf8Text, ModelError> {
-    let o = need(&d.native.occurrences, id)?;
-    let start = usize::try_from(o.start).map_err(ModelError::codec)?;
-    let end = usize::try_from(o.end).map_err(ModelError::codec)?;
-    let length = end
-        .checked_sub(start)
-        .ok_or_else(|| invalid("decorator byte range reversed"))?;
-    let _r = b.reserve(
-        "analytic-decorator-bytes",
-        length
-            .checked_mul(4)
-            .and_then(|n| n.checked_add(256))
-            .ok_or_else(|| invalid("decorator bytes overflow"))?,
-    )?;
-    let mut bytes = Vec::with_capacity(length);
-    let mut fragments = d
-        .artifact_chunks
-        .iter()
-        .filter(|r| r.artifact == o.source)
-        .filter(|r| {
-            usize::try_from(r.ordinal)
-                .ok()
-                .and_then(|n| n.checked_mul(artifact::ARTIFACT_CHUNK_BYTES))
-                .is_some_and(|offset| offset < end && offset.saturating_add(r.body.0.len()) > start)
-        })
-        .collect::<Vec<_>>();
-    fragments.sort_by_key(|r| r.ordinal);
-    for row in fragments {
-        let offset = (row.ordinal as usize)
-            .checked_mul(artifact::ARTIFACT_CHUNK_BYTES)
-            .ok_or_else(|| invalid("artifact chunk overflow"))?;
-        let a = start.max(offset);
-        let z = end.min(offset + row.body.0.len());
-        if a < z {
-            bytes.extend_from_slice(&row.body.0[a - offset..z - offset]);
-        }
-    }
-    if bytes.len() != end - start {
-        return Err(invalid("decorator original bytes absent"));
-    }
-    Ok(String::from_utf8(bytes).map_err(ModelError::codec)?.into())
 }
