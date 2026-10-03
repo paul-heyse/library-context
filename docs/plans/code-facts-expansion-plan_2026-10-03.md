@@ -760,7 +760,7 @@ bounded P3 consumer receipt, not assembled Q0 or full-series gates.
 Frozen direct capture output integrated as `16827a31` (executor `c5a26787`), with
 `3b8a4a69` sharing the already registered P3 Modality/Approximation schema implementations.
 No numeric codes are changed. Required-wire control **passed**, 2026-10-03:
-`cargo test --release -p lctx-model --test serving_contracts direct_capture_packets_are_required_and_typed -- --exact`
+`cargo +nightly-2026-09-29 test -p lctx-model --release --locked --test serving_contracts behavior_requires_explicit_direct_capture_provenance_even_when_empty -- --exact --nocapture`
 (one selected control, eighteen outside-filter controls; `p4-capture-wire1.log`), in addition to
 the actual PG4 and matching CLI/check receipts above. Exact executor receipt:
 `/home/paul/.cache/lctx-code-facts/code-facts-p4-capture-receipt.md`; aggregate patch SHA-256
