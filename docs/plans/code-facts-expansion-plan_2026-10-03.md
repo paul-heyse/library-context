@@ -235,12 +235,12 @@ assembled runtime acceptance.
 
 | Current boundary | Implemented state and remaining acceptance |
 |---|---|
-| M0–M3, N0–N5 | Migration and selected normalization are integrated, with scoped native/model/store receipts below. The genuine native ClassTrait support required by B3 is being completed; no report support is relabelled. Current-pin assembled qualification remains open. |
+| M0–M3, N0–N5 | Migration and selected normalization are integrated, with scoped native/model/store receipts below. Genuine native ClassTrait support for B3 passed its six-class/provenance and disagreement controls in the executor tree; integration and unchanged PG acceptance remain open. No report support is relabelled. Current-pin assembled qualification remains open. |
 | B0/B1/B2/B4 | Required bases, conditional atom restrictions, bounded direct captures and exact finite exceptions are integrated. Their scoped producer controls passed; the completed packet cascade still requires assembled acceptance. |
 | B3 | Native/recognizer read eligibility and narrow Candidate source-target routing controls passed. The unchanged final-class/member PG oracle still refuses MissingEvidence until genuine native ClassTrait support is qualified. Terminal serving remains active work. |
 | P0/P1/P2 | Parameter analytics, native characterization/roles, typed facets and stored witnesses are integrated. Scoped analytic/native/model/service controls passed; generated-role control and same-tree assembled journeys remain open. |
 | P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics passed; usage failed because an opaque assignment alias was used as a resolved import-alias oracle. The repair retains assignment/rebound uncertainty and reruns actual evidence serving. |
-| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence serving is frozen for actual PG; terminal output is pending B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
+| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence actual PG passed on its frozen executor tree; required-wire control and main integration are pending. Terminal output is pending B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
 | Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. Old operator staging and real-library/activation remain excluded. |
 
 | Package / command, 2026-10-03 | Outcome and boundary |
@@ -714,3 +714,20 @@ normal shared-artifact waits (`p4-capture-cli2.log`). Actual capture PG4 and req
 wire controls remain pending. Native class-support producer check **passed**, 54.29s
 (`b3-check-7.log`); native flag/disagreement/provenance controls and unchanged frontier PG5
 remain pending. These results do not establish packet or full-series acceptance.
+
+
+Native ClassTrait support controls **passed**, 2026-10-03, on the frozen B3 executor tree:
+`cargo test --release -p cpg-extract --lib native_class_trait_support_requires_identical_unique_report_payload`
+and `cargo test --release -p cpg-extract --test native_class_traits -- --nocapture`.
+The former checks equality/disagreement refusal; the latter checks six ordinary/record/functional
+class forms and actual native/report attribution with one assertion row. Logs
+`b3-trait-equality.log`, `b3-native-traits.log` and `b3-final-batch.json` retain commands and
+outcomes. Unchanged actual three-frontier PG acceptance and main integration remain pending.
+
+Capture packet PG4 **passed**, 2026-10-03: `cargo +nightly-2026-09-29 test -p lctx
+--release --locked --test capture_question_packets -- --nocapture`, one actual disposable-PG
+journey, 207.33s after 27m30s build (`p4-capture-pg4.log`). The served entry proof preserves
+AnalyzerAssertion/NativeTraversal/ReportProjection source correspondence; capture/timing/origin
+value proofs remain native structural. Literal/formal sources, direct frames, qualifications
+and characterization are checked. Earlier failures/interruption remain a composite scoped
+receipt; required-wire control and main integration remain pending. This is not Q0 acceptance.
