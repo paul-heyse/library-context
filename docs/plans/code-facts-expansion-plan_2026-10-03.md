@@ -673,3 +673,21 @@ pending. This adds required typed schema and no compatibility reader. Aggregate 
 `e38bd426f79170975252036a2d95de1602f5c6221b1bb6b7cc38f0dd0daf0100`;
 receipt `p3-source-usage-receipt.json`, schema diff SHA-256
 `a9d6342c59d2a9ca54b01a3173504bcab7d3c39d69b543522557b5785becfc17`.
+
+
+B3 PG4 **failed**, 2026-10-03, 362.56s (`b3-pg-4.log`); the unchanged three-frontier
+oracle still sees only declared_use. Candidate routing now clears its old approximation refusal
+but stops at MissingEvidence. Decisive retained actual rows in `b3-target-refusal-2.txt` show
+selected source signature, original Overrides destination and native member Callable.function
+have identical symbols. Native metadata/member/receiver evidence is present. The class-trait
+assertion has only ReportProjection support (actual fidelity3), while NoExtraOverrides correctly
+requires NativeStructural evidence. No policy is weakened and no report is relabelled.
+
+The bounded producer repair will add genuine native ClassTrait support from exact
+Bindings KeyClass/BindingClass index and Solutions KeyClassMetadata APIs. Full fields must
+match the existing assertion under its qualification/symbol key; only an additional native
+support is emitted, retaining report provenance. Missing/ambiguous/disagreeing correspondence
+remains an explicit boundary/Partial outcome. Charged native controls will cover ordinary,
+dataclass, NamedTuple, TypedDict and functional synthesized classes plus disagreement refusal,
+then rerun the unchanged PG oracle. This is an implementation prerequisite of C4/B3's accepted
+native NoExtraOverrides contract, not a new admission framework or replacement basis.
