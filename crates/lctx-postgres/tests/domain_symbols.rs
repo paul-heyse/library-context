@@ -7,7 +7,7 @@ mod fixture;
 use fixture::Fixture;
 use lctx_model::domain::{
     artifact::ArtifactChunk, assertion::*, attribution::*, calls::*, conditions::*, input::*,
-    source::*, stages::Profile, symbols::*, *,
+    source::*, stages::Profile, symbols::*, syntax::{ImportAliasObservation, ImportAliasSupport}, *,
 };
 use lctx_postgres::generations::{Error, GenerationStore};
 use lctx_postgres::testing::{DisposableDatabase, Harness, fixtures::budget};
@@ -20,7 +20,7 @@ async fn symbols_publish_and_a_class_in_its_own_mro_is_refused() {
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
-    let valid = Fixture::new();
+    let valid = Fixture::new().with_import_alias();
     let mut own = Fixture::new();
     let sequence = SymbolSequence::new(&[own.sym["Base"].id(), own.sym["Service"].id()]).unwrap();
     own.sequences.push(sequence.clone());
@@ -80,11 +80,11 @@ async fn symbols_publish_and_a_class_in_its_own_mro_is_refused() {
         );
         assert_eq!(
             lease
-                .read::<DependencyModuleObservation>()
+                .read::<ModuleResolutionObservation>()
                 .await
                 .unwrap()
                 .rows(),
-            sorted(fixture.dependencies.clone()).as_slice()
+            sorted(fixture.module_resolutions.clone()).as_slice()
         );
         assert_eq!(
             lease.read::<ProviderModule>().await.unwrap().rows(),

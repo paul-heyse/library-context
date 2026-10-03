@@ -10,7 +10,7 @@
 use arrow_array::RecordBatch;
 use lctx_model::domain::{
     artifact::*, assertion::*, attribution::*, calls::*, conditions::*, input::*,
-    memory::MemoryGeneration, source::*, symbols::*, *,
+    memory::MemoryGeneration, source::*, symbols::*, syntax::{ImportAliasObservation, ImportAliasSupport}, *,
 };
 use std::collections::BTreeMap;
 
@@ -66,8 +66,10 @@ macro_rules! symbol_relations {
             PublicNameSupport,
             ParameterDocObservation,
             ParameterDocSupport,
-            DependencyModuleObservation,
-            DependencyModuleSupport
+            ImportAliasObservation,
+            ImportAliasSupport,
+            ModuleResolutionObservation,
+            ModuleResolutionSupport
         )
     };
 }
@@ -101,7 +103,8 @@ pub struct Fixture {
     pub origins: Vec<ExportOrigin>,
     pub public: Vec<PublicNameObservation>,
     pub docs: Vec<ParameterDocObservation>,
-    pub dependencies: Vec<DependencyModuleObservation>,
+    pub module_resolutions: Vec<ModuleResolutionObservation>,
+    pub imports: Vec<ImportAliasObservation>,
     /// The fidelity every annotation support states.
     pub annotation_fidelity: Fidelity,
     /// Supports state this run and surface family map (the alien provider's for a native-ownership control).
@@ -526,29 +529,35 @@ impl Fixture {
                 text: "Seconds to wait.".into(),
                 description: EvidenceSourceSpanId::of(&description).unwrap(),
             }],
-            dependencies: vec![
-                DependencyModuleObservation {
+            imports: vec![],
+            module_resolutions: vec![
+                ModuleResolutionObservation {
                     qualification: q,
+                    alias: None,
                     module: modules["example"].id(),
                     location: None,
                 },
-                DependencyModuleObservation {
+                ModuleResolutionObservation {
                     qualification: q,
+                    alias: None,
                     module: modules["typing"].id(),
                     location: Some("stdlib/typing.pyi".into()),
                 },
-                DependencyModuleObservation {
+                ModuleResolutionObservation {
                     qualification: q,
+                    alias: None,
                     module: modules["nspkg"].id(),
                     location: Some("nspkg".into()),
                 },
-                DependencyModuleObservation {
+                ModuleResolutionObservation {
                     qualification: q,
+                    alias: None,
                     module: modules["gone"].id(),
                     location: None,
                 },
-                DependencyModuleObservation {
+                ModuleResolutionObservation {
                     qualification: q,
+                    alias: None,
                     module: modules["other"].id(),
                     location: None,
                 },
@@ -601,6 +610,34 @@ impl Fixture {
         fixture.sync();
         fixture
     }
+    /// Actual `Generic` import bytes in the source, attached to a bundled module resolution.
+    pub fn with_import_alias(mut self) -> Self {
+        let start = at("from typing import");
+        let end = text()[start as usize..].find('\n').unwrap() as i64 + start;
+        let statement = Occurrence {
+            source: self.module.source, start, end,
+            syntax_kind: SyntaxKind::StmtImportFrom, role: OccurrenceRole::Syntax,
+            structural_path: vec![90, 0],
+        };
+        let alias = Occurrence {
+            start: at("Generic"), end: at("Generic") + 7,
+            syntax_kind: SyntaxKind::Alias,
+            structural_path: vec![90, 0, 0], ..statement.clone()
+        };
+        self.occ.insert("import_statement", statement.clone());
+        self.occ.insert("import_alias", alias.clone());
+        self.put(self.occ.values().cloned().collect());
+        self.imports.push(ImportAliasObservation {
+            qualification: self.qualification.id(), statement: statement.id(), alias: alias.id(),
+            level: 0, resolved_module: Some("typing".into()),
+        });
+        self.module_resolutions.push(ModuleResolutionObservation {
+            qualification: self.qualification.id(), module: self.modules["typing"].id(),
+            alias: Some(alias.id()), location: Some("stdlib/typing.pyi".into()),
+        });
+        self.sync();
+        self
+    }
     pub fn put<R: Record>(&mut self, rows: Vec<R>) {
         self.batches.insert(
             R::NAME,
@@ -633,6 +670,7 @@ impl Fixture {
             self.description.clone(),
             Evidence::Invocation { run: self.run.id() },
         ];
+        evidence.extend(self.imports.iter().map(|i| Evidence::Occurrence { occurrence: i.alias }));
         evidence.sort_by_key(Record::id);
         evidence.dedup();
         self.put(evidence);
@@ -720,11 +758,18 @@ impl Fixture {
             |row: &ParameterDocObservation| row.description.id()
         );
         with_support!(
-            self.dependencies,
-            DependencyModuleSupport,
-            FactFamily::Signatures,
+            self.imports,
+            ImportAliasSupport,
+            FactFamily::Exports,
             Fidelity::NativeStructural,
-            |_: &DependencyModuleObservation| invocation.id()
+            |row: &ImportAliasObservation| Evidence::Occurrence { occurrence: row.alias }.id()
+        );
+        with_support!(
+            self.module_resolutions,
+            ModuleResolutionSupport,
+            FactFamily::Exports,
+            Fidelity::NativeStructural,
+            |_: &ModuleResolutionObservation| invocation.id()
         );
     }
     /// Support every record by the alien provider's run instead.

@@ -129,7 +129,7 @@ macro_rules! native_analysis_pairs {
         34: ParameterAnnotationObservation => $crate::domain::symbols::ParameterAnnotationObservation, $crate::domain::symbols::ParameterAnnotationSupport;
         35: PublicNameObservation => $crate::domain::symbols::PublicNameObservation, $crate::domain::symbols::PublicNameSupport;
         36: ParameterDocObservation => $crate::domain::symbols::ParameterDocObservation, $crate::domain::symbols::ParameterDocSupport;
-        37: DependencyModuleObservation => $crate::domain::symbols::DependencyModuleObservation, $crate::domain::symbols::DependencyModuleSupport;
+        37: ModuleResolutionObservation => $crate::domain::symbols::ModuleResolutionObservation, $crate::domain::symbols::ModuleResolutionSupport;
         38: SyntaxPlacement => $crate::domain::syntax::SyntaxPlacement, $crate::domain::syntax::SyntaxPlacementSupport;
         39: SyntaxDetailObservation => $crate::domain::syntax::SyntaxDetailObservation, $crate::domain::syntax::SyntaxDetailSupport;
         40: DeclarationObservation => $crate::domain::syntax::DeclarationObservation, $crate::domain::syntax::DeclarationSupport;

@@ -486,7 +486,7 @@ fn a_module_resolution_is_located_by_its_origin() {
         (1, Some("/abs/typing.pyi"), "an absolute bundle path"),
     ] {
         let mut f = Fixture::new();
-        f.dependencies[index].location = location.map(str::to_owned);
+        f.module_resolutions[index].location = location.map(str::to_owned);
         f.sync();
         refused(&f, why, "located by a relative path");
     }
@@ -497,7 +497,7 @@ fn a_module_resolution_is_located_by_its_origin() {
         name: "nspkg".into(),
     };
     f.modules.insert("alien", alien.clone());
-    f.dependencies[2].module = alien.id();
+    f.module_resolutions[2].module = alien.id();
     f.sync();
     refused(
         &f,
@@ -585,4 +585,22 @@ fn a_reexport_is_about_its_access_module_and_refers_to_its_origin() {
         "an origin over bytes this invocation did not capture",
         "invocation input",
     );
+}
+
+#[test]
+fn module_resolution_belongs_to_the_exact_source_alias_and_qualification() {
+    let f = Fixture::new().with_import_alias();
+    f.validate().unwrap();
+    let mut wrong = Fixture::new().with_import_alias();
+    wrong.module_resolutions.last_mut().unwrap().alias = Some(wrong.occ["Base"].id());
+    wrong.sync();
+    refused(&wrong, "a declaration cannot stand in for an alias", "exact import alias and qualification");
+    let mut wrong = Fixture::new().with_import_alias();
+    let candidate = AssertionQualification { modality: Modality::Candidate, ..wrong.qualification.clone() };
+    wrong.imports[0].qualification = candidate.id();
+    wrong.sync();
+    let mut qualifications = wrong.rows::<AssertionQualification>();
+    qualifications.push(candidate);
+    wrong.put(qualifications);
+    refused(&wrong, "an alias in another qualification", "exact import alias and qualification");
 }

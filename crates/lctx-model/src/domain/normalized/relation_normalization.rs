@@ -262,37 +262,32 @@ fn references(
 type QualifiedPath = (Id<AnalysisContext>, Id<input::InputRevision>, String);
 fn imports(
     data: &RelationData,
-    index: &Index<'_>,
+    _index: &Index<'_>,
     output: &mut RelationOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "import-resolution-index");
-    let mut dependencies: ChargedMap<QualifiedPath, Vec<&DependencyModuleObservation>> =
-        Default::default();
-    for row in data.dependencies.iter() {
-        let name = index
-            .modules
-            .get(&row.module)
-            .ok_or_else(|| invalid("dependency provider module missing"))?;
-        dependencies.update(
-            &mut charge,
-            (
-                context(data, row.qualification)?,
-                input(data, row.qualification)?,
-                name.clone(),
-            ),
-            |rows| rows.push(row),
-        )?;
+    let mut resolutions: ChargedMap<(Id<AnalysisContext>, Id<input::InputRevision>, Id<Occurrence>), Vec<&ModuleResolutionObservation>> = Default::default();
+    for row in data.module_resolutions.iter() {
+        need(&data.facts.provider_modules, row.module)?;
+        if let Some(alias) = row.alias {
+            let alias_source = need(&data.facts.occurrences, alias)?;
+            if alias_source.syntax_kind != SyntaxKind::Alias {
+                return Err(invalid("module resolution alias is not an import alias occurrence"));
+            }
+            resolutions.update(
+                &mut charge,
+                (context(data, row.qualification)?, input(data, row.qualification)?, alias),
+                |rows| rows.push(row),
+            )?;
+        }
     }
     for import in data.imports.iter() {
         let mut unique: ChargedSet<Id<ProviderModule>> = Default::default();
         let mut held = StateCharge::new(budget, "import-candidates");
         let context = context(data, import.qualification)?;
         let input = input(data, import.qualification)?;
-        let matches = import
-            .resolved_module
-            .as_ref()
-            .and_then(|name| dependencies.get(&(context, input, name.clone())));
+        let matches = resolutions.get(&(context, input, import.alias));
         let mut unresolved = false;
         for candidate in matches.into_iter().flatten() {
             unique.insert(&mut held, candidate.module)?;

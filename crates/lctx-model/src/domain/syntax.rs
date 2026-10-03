@@ -179,8 +179,9 @@ fn validate_decorator(row: &DeclarationDecorator) -> Result<(), ModelError> {
     Ok(())
 }
 /// One alias of an `import` or `from … import` statement. The module, name and alias texts are the
-/// statement's and alias's bytes; `resolved_module` is the imported module as an absolute name,
+/// statement's and alias's bytes; `resolved_module` is only an absolute source spelling,
 /// relative levels resolved against the importing module, when they do not climb past its top.
+/// Actual per-alias lookup identity is asserted by `ModuleResolutionObservation`.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "import_alias_observations", validate = validate_import)]
 #[assertion(support = ImportAliasSupport, name = "import_alias_supports", family = FactFamily::Exports, subjects(statement, alias))]

@@ -171,8 +171,8 @@ fn outputs() -> Vec<RelationUse> {
         PublicNameSupport,
         ParameterDocObservation,
         ParameterDocSupport,
-        DependencyModuleObservation,
-        DependencyModuleSupport,
+        ModuleResolutionObservation,
+        ModuleResolutionSupport,
         ProviderCallable,
         CallOrigin,
         CallOriginStep,
@@ -309,8 +309,8 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             PublicNameSupport,
             ParameterDocObservation,
             ParameterDocSupport,
-            DependencyModuleObservation,
-            DependencyModuleSupport,
+            ModuleResolutionObservation,
+            ModuleResolutionSupport,
             ProviderCallable,
             CallOrigin,
             CallOriginStep,
@@ -574,7 +574,7 @@ fn session<S: StageSink + 'static>(
         lctx_model::domain::Id<Module>,
         lctx_model::domain::Id<AssertionQualification>,
     )> = vec![];
-    let mut imports: Vec<(usize, String)> = vec![];
+    let mut imports: Vec<(usize, syntax_records::ImportLookup)> = vec![];
     let mut root_modules = std::collections::BTreeSet::new();
     let coverage = |scope: &CoverageScope,
                     family: FactFamily,
@@ -741,13 +741,7 @@ fn session<S: StageSink + 'static>(
                 )?;
                 let computed = records.computed_all.clone();
                 computed_all = !computed.is_empty();
-                imports.extend(
-                    records
-                        .imports
-                        .iter()
-                        .filter_map(|i| i.resolved_module.clone())
-                        .map(|name| (index, name)),
-                );
+                imports.extend(records.import_lookups.iter().cloned().map(|lookup| (index, lookup)));
                 let declared = symbol_records::Declared::new(
                     &records.declarations,
                     &records.parameters,
@@ -1040,22 +1034,21 @@ fn session<S: StageSink + 'static>(
     let mut input_boundaries = (0, 0);
     context.contribute(input_scope.clone())?;
     context.contribute(input_qualification.clone())?;
-    for (index, name) in imports {
-        match transaction
-            .import_handle(
-                &handles[index],
-                pyrefly_python::module_name::ModuleName::from_str(&name),
-                None,
-            )
-            .finding()
-        {
-            Some(found) => {
-                natives.module(&found.module().to_string(), found.path())?;
-            }
-            None => {
-                natives.unresolved(&name)?;
-            }
-        }
+    for (index, lookup) in imports {
+        let resolution = resolve_import(&transaction, &handles[index], &lookup, &mut natives)?;
+        let row = ModuleResolutionObservation {
+            qualification: lookup.qualification,
+            module: resolution.module,
+            alias: Some(lookup.alias),
+            location: resolution.location,
+        };
+        context.emit(ModuleResolutionSupport {
+            assertion: row.id(), run: run.id(), surface: surfaces[&FactFamily::Exports].id(),
+            evidence: Evidence::Occurrence { occurrence: lookup.alias }.id(),
+            origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        })?;
+        context.emit(row)?;
     }
     let mut keep: BTreeMap<
         lctx_model::domain::Id<ProviderModule>,
@@ -1247,23 +1240,23 @@ fn session<S: StageSink + 'static>(
             })?;
         }
     }
-    let signatures = surfaces[&FactFamily::Signatures].id();
+    let exports = surfaces[&FactFamily::Exports].id();
     let resolutions: Vec<_> = natives
         .resolutions
         .values()
-        .filter(|r| !root_modules.contains(&r.module))
         .cloned()
         .collect();
     for resolution in resolutions {
-        let row = DependencyModuleObservation {
+        let row = ModuleResolutionObservation {
             qualification: input_qualification.id(),
             module: resolution.module,
+            alias: None,
             location: resolution.location,
         };
-        context.emit(DependencyModuleSupport {
+        context.emit(ModuleResolutionSupport {
             assertion: row.id(),
             run: run.id(),
-            surface: signatures,
+            surface: exports,
             evidence: pysa_evidence.id(),
             origin: Origin::AnalyzerAssertion,
             mode: ExtractionMode::NativeTraversal,
@@ -1285,6 +1278,42 @@ fn session<S: StageSink + 'static>(
         if input_boundaries.1 > 0 { Some(ObligationKind::OutsideProviderModel) } else if input_boundaries.0 > 0 { Some(ObligationKind::AttachmentUnmatched) } else { None },
         Some("supporting definitions referenced by requested roots: imports, re-exports, call targets and nominal type references".into())))?;
     Ok(partial)
+}
+
+/// Resolve each source alias with actual provider lookups. Native module-valued bindings retain
+/// their target (including re-exported modules); other names require a real export in the found
+/// base module, or a successful submodule lookup. No assumed path is passed to the resolver.
+fn resolve_import(
+    transaction: &pyrefly::state::state::Transaction<'_>,
+    importer: &pyrefly_build::handle::Handle,
+    lookup: &syntax_records::ImportLookup,
+    natives: &mut Natives,
+) -> Result<crate::natives::Resolution, ModelError> {
+    use pyrefly_python::module_name::ModuleName;
+    use pyrefly_types::types::Type;
+    let mut requested = lookup.base.clone().unwrap_or_else(|| lookup.spelling.clone());
+    let found = if let Some(base) = &lookup.base {
+        if let Some(member) = &lookup.member {
+            if let Some(Type::Module(module)) = transaction.get_type_at_preserving_declaration(importer, lookup.binding_position) {
+                requested = module.parts().iter().map(|part| part.as_str()).collect::<Vec<_>>().join(".");
+                transaction.import_handle(importer, ModuleName::from_str(&requested), None).finding()
+            } else if let Some(base_handle) = transaction.import_handle(importer, ModuleName::from_str(base), None).finding() {
+                if member == "*" || transaction.get_exports(&base_handle).contains_key(&ruff_python_ast::name::Name::new(member)) {
+                    Some(base_handle)
+                } else {
+                    requested = format!("{base}.{member}");
+                    transaction.import_handle(importer, ModuleName::from_str(&requested), None).finding()
+                }
+            } else { None }
+        } else {
+            transaction.import_handle(importer, ModuleName::from_str(base), None).finding()
+        }
+    } else { None };
+    let module = match found {
+        Some(found) => natives.module(&found.module().to_string(), found.path())?,
+        None => natives.unresolved(&requested)?,
+    };
+    Ok(natives.resolutions[&module].clone())
 }
 
 /// Pysa's definitions of one module as symbol records: an analyzed module linked to its

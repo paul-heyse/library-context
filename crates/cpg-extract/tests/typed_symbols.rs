@@ -366,7 +366,7 @@ inspector!(
     PublicNameObservation,
     ParameterDocObservation,
     lctx_model::domain::assertion::Evidence,
-    DependencyModuleObservation,
+    ModuleResolutionObservation,
     ProviderCoverage
 );
 
@@ -450,7 +450,7 @@ async fn public_names_docs_and_module_resolutions_are_stated() {
     );
     // `from typing import ...` resolves to the provider's bundled typeshed stub.
     let resolved: BTreeMap<String, Option<String>> = f
-        .rows::<DependencyModuleObservation>()
+        .rows::<ModuleResolutionObservation>()
         .into_iter()
         .map(|d| (f.module(d.module), d.location))
         .collect();

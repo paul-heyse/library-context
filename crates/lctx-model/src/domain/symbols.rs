@@ -5,7 +5,7 @@
 //! - a signature parameter's annotation as the provider displays it;
 //! - a module's public names and where each one traces;
 //! - docstring parameter documentation;
-//! - how a provider resolved a module it did not analyze.
+//! - how a provider resolved modules and located import aliases in its analysis context.
 //!
 //! Symbols are the provider's own (`ProviderSymbol`): every symbol a record names shares the
 //! provider and context of the record's subject, and nothing here equates symbols across
@@ -322,17 +322,21 @@ fn validate_doc(row: &ParameterDocObservation) -> Result<(), ModelError> {
     }
     Ok(())
 }
-/// How a provider resolved a module it references but does not analyze. A bundled stub's
-/// location is its path within the bundle and a namespace package's its directory within its
-/// search root; an acquired module is located by its artifact and an unresolved one nowhere.
+/// A provider module in the analysis context, including analyzed roots and dependencies.
+/// `alias` attaches an actual import lookup to its exact source alias; `None` records a module
+/// retained as supporting context. Names alone never resolve an alias. A bundled stub's location
+/// is within its bundle and a namespace package's within its search root; acquired modules are
+/// located by their artifacts and unresolved modules have no location.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "dependency_module_observations")]
-#[assertion(support = DependencyModuleSupport, name = "dependency_module_supports", family = FactFamily::Signatures, subjects(module))]
-pub struct DependencyModuleObservation {
+#[model(name = "module_resolution_observations")]
+#[assertion(support = ModuleResolutionSupport, name = "module_resolution_supports", family = FactFamily::Exports, subjects(alias), referents(module))]
+pub struct ModuleResolutionObservation {
     #[model(key)]
     pub qualification: Id<AssertionQualification>,
     #[model(key)]
     pub module: Id<ProviderModule>,
+    #[model(key)]
+    pub alias: Option<Id<Occurrence>>,
     pub location: Option<String>,
 }
 
@@ -429,7 +433,8 @@ fn symbol_invariants() -> Vec<Invariant> {
             ValidationInput::of::<ClassAncestryObservation>(&["id"]),
             ValidationInput::of::<ParameterAnnotationObservation>(&["id"]),
             ValidationInput::of::<ParameterDocObservation>(&["id"]),
-            ValidationInput::of::<DependencyModuleObservation>(&["id"]),
+            ValidationInput::of::<syntax::ImportAliasObservation>(&["id"]),
+            ValidationInput::of::<ModuleResolutionObservation>(&["id"]),
         ],
         create: std::sync::Arc::new(|budget| {
             Box::new(SymbolCheck {
@@ -452,6 +457,7 @@ struct SymbolCheck {
     signatures: ChargedMap<Id<Signature>, Id<AssertionQualification>>,
     parameters: ChargedMap<Id<SignatureParameter>, Id<Signature>>,
     sequences: ChargedMap<Id<SymbolSequence>, Vec<Id<ProviderSymbol>>>,
+    import_aliases: ChargedSet<(Id<AssertionQualification>, Id<Occurrence>)>,
     /// Observed symbols and their parents, per qualification.
     observed: ObservedSymbolParents,
     /// Symbols whose parent chain is verified, per qualification.
@@ -693,8 +699,17 @@ impl InvariantCheck for SymbolCheck {
                     return Err(invalid("a parameter description lies inside its def"));
                 }
             }
-        } else if relation == DependencyModuleObservation::NAME {
-            for row in DependencyModuleObservation::decode(batch)? {
+        } else if relation == syntax::ImportAliasObservation::NAME {
+            for row in syntax::ImportAliasObservation::decode(batch)? {
+                self.import_aliases.insert(&mut self.charge, (row.qualification, row.alias))?;
+            }
+        } else if relation == ModuleResolutionObservation::NAME {
+            for row in ModuleResolutionObservation::decode(batch)? {
+                if let Some(alias) = row.alias {
+                    if !self.import_aliases.contains(&(row.qualification, alias)) {
+                        return Err(invalid("module resolution requires its exact import alias and qualification"));
+                    }
+                }
                 let located = match self
                     .modules
                     .get(&row.module)

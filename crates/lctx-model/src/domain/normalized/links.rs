@@ -62,7 +62,7 @@ pub struct ImportModuleCandidate {
     #[model(key)]
     pub assessment: Id<ImportModuleAssessment>,
     #[model(key)]
-    pub observation: Id<symbols::DependencyModuleObservation>,
+    pub observation: Id<symbols::ModuleResolutionObservation>,
     pub module: Id<calls::ProviderModule>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]

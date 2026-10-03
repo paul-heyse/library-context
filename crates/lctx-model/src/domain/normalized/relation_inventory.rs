@@ -8,7 +8,7 @@ macro_rules! normalized_relation_inputs {
             lexical_resolutions: $crate::domain::lexical::LexicalResolution => Lexical,
             lexical_targets: $crate::domain::lexical::LexicalTarget => Lexical,
             imports: $crate::domain::syntax::ImportAliasObservation => Exports,
-            dependencies: $crate::domain::symbols::DependencyModuleObservation => Exports,
+            module_resolutions: $crate::domain::symbols::ModuleResolutionObservation => Exports,
             ancestry: $crate::domain::symbols::ClassAncestryObservation => Signatures,
             sequence_members: $crate::domain::symbols::SymbolSequenceMember => Signatures,
             mentions: $crate::domain::documents::DocumentMentionObservation => Docs,

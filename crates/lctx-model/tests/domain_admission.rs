@@ -195,8 +195,8 @@ fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
         PublicNameSupport,
         ParameterDocObservation,
         ParameterDocSupport,
-        DependencyModuleObservation,
-        DependencyModuleSupport
+        ModuleResolutionObservation,
+        ModuleResolutionSupport
     );
     Ok(())
 }
@@ -271,8 +271,8 @@ fn pyrefly_outputs() -> Vec<RelationUse> {
         PublicNameSupport,
         ParameterDocObservation,
         ParameterDocSupport,
-        DependencyModuleObservation,
-        DependencyModuleSupport
+        ModuleResolutionObservation,
+        ModuleResolutionSupport
     )
 }
 fn write_flow(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {

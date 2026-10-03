@@ -15,7 +15,7 @@ use lctx_model::domain::{
 use pyrefly_python::{docstring::Docstring, module_name::ModuleName};
 use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor};
 use ruff_python_ast::{AnyNodeRef, ArgOrKeyword, Expr, ModModule, Parameters, Stmt, name::Name};
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 use std::collections::HashMap;
 
 fn invalid(message: String) -> ModelError {
@@ -174,12 +174,24 @@ fn kind_of(expr: &Expr) -> SyntaxKind {
     crate::typed_syntax::kind(AnyNodeRef::from(expr).kind())
 }
 
+/// Source inputs for the provider's per-alias lookup, attached by the retained parse.
+#[derive(Debug, Clone)]
+pub struct ImportLookup {
+    pub qualification: Id<AssertionQualification>,
+    pub alias: Id<Occurrence>,
+    pub base: Option<String>,
+    pub member: Option<String>,
+    pub spelling: String,
+    pub binding_position: TextSize,
+}
+
 /// The records of one module, qualified by its artifact's qualification.
 #[derive(Debug, Default, Clone)]
 pub struct Records {
     pub declarations: Vec<DeclarationObservation>,
     pub decorators: Vec<DeclarationDecorator>,
     pub imports: Vec<ImportAliasObservation>,
+    pub import_lookups: Vec<ImportLookup>,
     pub dunder_all: Vec<DunderAllObservation>,
     /// `__all__` statements whose names the syntax does not state.
     pub computed_all: Vec<Id<Occurrence>>,
@@ -446,29 +458,43 @@ impl Walker<'_> {
         match stmt {
             Stmt::Import(import) => {
                 for alias in &import.names {
+                    let occurrence = self.occ(alias.range(), SyntaxKind::Alias)?;
                     self.records.imports.push(ImportAliasObservation {
                         qualification: self.qualification,
                         statement: self.occ(stmt.range(), SyntaxKind::StmtImport)?,
-                        alias: self.occ(alias.range(), SyntaxKind::Alias)?,
+                        alias: occurrence,
                         level: 0,
                         resolved_module: Some(alias.name.to_string()),
+                    });
+                    self.records.import_lookups.push(ImportLookup {
+                        qualification: self.qualification,
+                        alias: occurrence,
+                        base: Some(alias.name.to_string()),
+                        member: None,
+                        spelling: alias.name.to_string(),
+                        binding_position: alias.asname.as_ref().unwrap_or(&alias.name).range().start(),
                     });
                 }
             }
             Stmt::ImportFrom(from) => {
                 for alias in &from.names {
                     let level = i64::from(from.level);
+                    let occurrence = self.occ(alias.range(), SyntaxKind::Alias)?;
+                    let base = absolute_module(self.module, self.is_package, level, from.module.as_deref());
                     self.records.imports.push(ImportAliasObservation {
                         qualification: self.qualification,
                         statement: self.occ(stmt.range(), SyntaxKind::StmtImportFrom)?,
-                        alias: self.occ(alias.range(), SyntaxKind::Alias)?,
+                        alias: occurrence,
                         level,
-                        resolved_module: absolute_module(
-                            self.module,
-                            self.is_package,
-                            level,
-                            from.module.as_deref(),
-                        ),
+                        resolved_module: base.clone(),
+                    });
+                    self.records.import_lookups.push(ImportLookup {
+                        qualification: self.qualification,
+                        alias: occurrence,
+                        base,
+                        member: Some(alias.name.to_string()),
+                        spelling: format!("{}{}{}", ".".repeat(from.level as usize), from.module.as_deref().map(|module| format!("{module}.")).unwrap_or_default(), alias.name),
+                        binding_position: alias.asname.as_ref().unwrap_or(&alias.name).range().start(),
                     });
                 }
             }
