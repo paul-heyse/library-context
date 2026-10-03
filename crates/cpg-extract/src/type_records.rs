@@ -1118,7 +1118,7 @@ impl Builder<'_, '_> {
             term: term.id,
         };
         self.out.hold(&row)?;
-        let query=lctx_model::domain::types::TypeQueryObservation {qualification:row.qualification,subject:row.subject,role:row.role,observation:Some(row.id()),status:if term.opaque {lctx_model::domain::types::TypeQueryStatus::Partial} else {lctx_model::domain::types::TypeQueryStatus::Available},reason:term.opaque.then_some(ObligationKind::OutsideProviderModel)};
+        let query=lctx_model::domain::types::TypeQueryObservation {qualification:row.qualification,subject:row.subject,role:row.role,declared:row.declared,observation:Some(row.id()),status:if term.opaque {lctx_model::domain::types::TypeQueryStatus::Partial} else {lctx_model::domain::types::TypeQueryStatus::Available},reason:term.opaque.then_some(ObligationKind::OutsideProviderModel)};
         self.out.hold(&query)?;self.out.queries.push(query);
         self.out.observations.push((row, term.fidelity()));
         if term.opaque {
@@ -1665,7 +1665,7 @@ impl Builder<'_, '_> {
         match range.and_then(|range| self.context.answers_context.answers.get_type_trace(range)) {
             Some(ty) => self.observe(subject, role, false, &ty),
             None => {
-                let query=lctx_model::domain::types::TypeQueryObservation {qualification:self.qualification.id(),subject,role,observation:None,status:lctx_model::domain::types::TypeQueryStatus::Unavailable,reason:Some(ObligationKind::MissingEvidence)};
+                let query=lctx_model::domain::types::TypeQueryObservation {qualification:self.qualification.id(),subject,role,declared:false,observation:None,status:lctx_model::domain::types::TypeQueryStatus::Unavailable,reason:Some(ObligationKind::MissingEvidence)};
                 self.out.hold(&query)?;self.out.queries.push(query);
                 self.boundary(Some(subject),ObligationKind::MissingEvidence,format!("native type trace unavailable for {role:?}"))
             },

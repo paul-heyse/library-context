@@ -326,7 +326,12 @@ only with its exact observation/subject/role/run/surface when inventory loss is 
 Missing, partial, source/parser/resource and foreign-frame evidence remain refused; partial
 inventory never proves absence. The extraction/model all-target release check **passed** before
 the final uniqueness/refusal controls. A subsequent compile **failed** on a role tuple cast;
-that cast is repaired and the focused Local/protocol/generic/deprecation suite is running.
+that cast was repaired; the focused Local/protocol/generic/deprecation suite **passed** nineteen
+and **failed** two native fixtures on an over-strict availability uniqueness key. Declared versus
+inferred returns and individual overload-candidate answers are distinct native results. Query
+identity now preserves declaredness and the selected observation, rejecting contradictory
+availability for the same result without imposing a single-answer inventory. The affected suite
+and new typed-facet controls are running against that refinement.
 Canonical Ruff syntax now also survives an unavailable native typing parse, with source-byte
 verification and separate contextual coverage. These source/query repairs remain scoped
 Implemented checkpoints pending final controls; no B1 acceptance or Summary/packet cascade is claimed. Logs preserve all failures under

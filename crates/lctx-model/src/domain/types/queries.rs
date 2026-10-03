@@ -12,6 +12,7 @@ pub struct TypeQueryObservation {
     #[model(key)] pub qualification: Id<AssertionQualification>,
     #[model(key)] pub subject: Id<Occurrence>,
     #[model(key)] pub role: TypeRole,
+    #[model(key)] pub declared: bool,
     #[model(key)] pub observation: Option<Id<TypeObservation>>,
     #[model(key)] pub status: TypeQueryStatus,
     #[model(key)] pub reason: Option<ObligationKind>,
@@ -36,11 +37,13 @@ impl InvariantCheck for Check {
     fn finish(self:Box<Self>)->Result<(),ModelError> {
         let mut seen=std::collections::BTreeSet::new();
         for query in self.queries.iter() {
-            if !seen.insert((query.qualification,query.subject,query.role as i16)) {return Err(invalid("native type query has conflicting results"));}
+            // A native query may expose several overload candidates. Availability concerns this
+            // selected answer, not completeness of the set; distinct answers remain distinct.
+            if !seen.insert((query.qualification,query.subject,query.role as i16,query.declared,query.observation)) {return Err(invalid("native type query has conflicting availability for one result"));}
             query.validate()?;
             if let Some(id)=query.observation {
                 let observation=self.observations.get(id).ok_or_else(||invalid("native type query result missing"))?;
-                if (observation.qualification,observation.subject,observation.role)!=(query.qualification,query.subject,query.role) {return Err(invalid("type query changes located role/frame"));}
+                if (observation.qualification,observation.subject,observation.role,observation.declared)!=(query.qualification,query.subject,query.role,query.declared) {return Err(invalid("type query changes located role/frame"));}
             }
         }
         Ok(())
