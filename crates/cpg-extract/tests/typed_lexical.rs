@@ -23,6 +23,7 @@ struct Facts {
     occurrences: Vec<Occurrence>,
     scopes: Vec<LexicalScope>,
     scope_observations: Vec<LexicalScopeObservation>,
+    scope_supports: Vec<LexicalScopeSupport>,
     events: Vec<BindingEvent>,
     bindings: Vec<BindingObservation>,
     references: Vec<ReferenceObservation>,
@@ -138,6 +139,7 @@ async fn run(case: &str) -> Facts {
         occurrences: typed_driver::rows(&tables),
         scopes: typed_driver::rows(&tables),
         scope_observations: typed_driver::rows(&tables),
+        scope_supports: typed_driver::rows(&tables),
         events: typed_driver::rows(&tables),
         bindings: typed_driver::rows(&tables),
         references: typed_driver::rows(&tables),
@@ -355,7 +357,8 @@ async fn each_scoping_rule_resolves_as_python_defines_it() {
         1,
         "`global g1, g1` is one event"
     );
-    // Nothing opens inside an annotation: the only lambdas with scopes are outside them.
+    // The source recognizer does not open annotation lambdas. Native Ruff observes
+    // annotation scopes independently and is covered by its own native controls.
     let annotation_lambda = f
         .occurrences
         .iter()
@@ -365,7 +368,15 @@ async fn each_scoping_rule_resolves_as_python_defines_it() {
                 && f.line(o.id()) == 14
         })
         .unwrap();
-    assert!(f.scopes.iter().all(|s| s.owner != annotation_lambda.id()));
+    assert!(f.scope_observations.iter().all(|o| {
+        let recognized = f.scope_supports.iter().any(|s| {
+            s.assertion == o.id()
+                && s.origin == Origin::DerivedAnalysis
+                && s.mode == ExtractionMode::Recognizer
+                && s.fidelity == Fidelity::NormalizedStructural
+        });
+        !recognized || f.scopes.iter().find(|s| s.id() == o.scope).unwrap().owner != annotation_lambda.id()
+    }));
     // Every scope has its parent where its position evaluates; only modules have none.
     assert!(f.scope_observations.iter().all(|o| o.parent.is_none()
         == (f.scopes.iter().find(|s| s.id() == o.scope).unwrap().kind
