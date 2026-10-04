@@ -93,13 +93,20 @@ pub fn hydration_modules(d:&ClassificationData,member:Id<CatalogMember>,b:&Resou
  }
  Ok(crate::domain::normalized::contract_comparison::ChargedResult{value:modules.into_iter().collect(),_charge:charge})
 }
+// A child retains a route, a visited-name tree, and two new hops in both search vectors.
+// Include string payloads and capacity/B-tree overhead before any fanout clone allocates.
+fn child_reservation(route:&AccessRoute,visited:&BTreeSet<(Id<source::Module>,String)>,imported:&str)->usize {
+ let strings=route.hops.iter().map(|hop|match hop {RouteHop::Import{imported_name,..}=>imported_name.len(),_=>0}).fold(0usize,usize::saturating_add);
+ let visits=visited.iter().map(|(_,name)|size_of::<(Id<source::Module>,String)>().saturating_add(name.len()).saturating_add(64)).fold(0usize,usize::saturating_add);
+ 8192usize.saturating_add(route.hops.len().saturating_add(2).saturating_mul(size_of::<RouteHop>()).saturating_mul(4)).saturating_add(strings).saturating_add(visits).saturating_add(imported.len().saturating_mul(4))
+}
 /// Finite search is independent of response pagination. Omitted searches stay partial.
 pub fn explain(d:&ClassificationData,extra:&RouteData,member:Id<CatalogMember>,max_depth:usize,max_routes:usize,b:&ResourceBudget)->Result<RouteResult,ModelError>{
  if !(1..=32).contains(&max_depth)||!(1..=256).contains(&max_routes){return Err(invalid("access route search bounds outside model policy"))}
  let selected=need(&d.source.catalog.members,member)?;
  let captured_modules=d.source.core.modules.iter().filter(|m|d.source.core.artifacts.get(m.source).is_some_and(|a|a.input==selected.input)).count() as u64;
  let mut charge=StateCharge::new(b,"public-access-route-search");
- charge.grow((d.source.catalog.candidates.len()+extra.candidates.len()+extra.native_bindings.len()+extra.names.len()).saturating_mul(512))?;
+ charge.grow((d.source.catalog.candidates.len()+extra.candidates.len()+extra.native_bindings.len()+extra.names.len()+extra.name_supports.len()).saturating_mul(512))?;
  let mut output=RouteResult{routes:vec![],partial:false,_charge:charge};
  for exposure_link in d.source.catalog.exposures.iter().filter(|e|e.member==member){
   let public=need(&d.source.core.exposures,exposure_link.exposure)?;
@@ -112,6 +119,7 @@ pub fn explain(d:&ClassificationData,extra:&RouteData,member:Id<CatalogMember>,m
     let ec=need(&d.source.core.entity_candidates,ec)?;let resolution=need(&d.source.core.resolutions,ec.resolution)?;
     if resolution.context!=public.context||resolution.entity.is_some_and(|entity|entity!=ec.entity){return Err(invalid("access route entity resolution changes selected context/target"))}
    }
+   output._charge.grow(8192)?;
    let mut root=AccessRoute{member,context:public.context,candidate:candidate.id(),exposure:public.id(),target:entity,hops:vec![],stop:RouteStop::UnresolvedNameCorrespondence,publicity:public.publicity,public_resolution:public.status,captured_modules,declaration_artifact:None,stub:None,external_consumers_unknown:true,installation_requirements_unknown:true,omitted_frontiers:0};
    let supports=extra.name_supports.iter().filter(|s|s.assertion==name.id()).collect::<Vec<_>>();
    if supports.is_empty() || supports.iter().any(|s|!supported(extra,*s,public.context,attribution::FactFamily::Exports,"pyrefly")){return Err(invalid("access route exposure support absent"))}
@@ -137,10 +145,11 @@ pub fn explain(d:&ClassificationData,extra:&RouteData,member:Id<CatalogMember>,m
    let artifact=need(&d.source.core.modules,destination)?.source;
    if need(&d.source.core.artifacts,artifact)?.input!=selected.input {root.stop=RouteStop::OutsideCapturedModule;output.partial=true;output.routes.push(root);continue}
    root.declaration_artifact=Some(artifact);root.stub=Some(need(&d.source.core.artifacts,artifact)?.path.ends_with(".pyi"));
+   output._charge.grow(4096usize.saturating_add(name.name.len().saturating_mul(4)))?;
    let mut pending=vec![(selected.access,name.name.clone(),root,BTreeSet::new())];
    while let Some((module,slot,mut route,mut visited))=pending.pop(){
-    output._charge.grow(4096+slot.len())?;
-    if output.routes.len()>=max_routes {output.partial=true;if let Some(last)=output.routes.last_mut(){last.omitted_frontiers=last.omitted_frontiers.saturating_add(1)}break}
+    output._charge.grow(4096usize.saturating_add(slot.len()))?;
+    if output.routes.len()>=max_routes {output.partial=true;if let Some(last)=output.routes.last_mut(){last.omitted_frontiers=last.omitted_frontiers.saturating_add((pending.len() as u64).saturating_add(1))}break}
     if !visited.insert((module,slot.clone())){route.stop=RouteStop::Cycle;output.partial=true;output.routes.push(route);continue}
     if module==destination {route.stop=if route.publicity==PublicPathKnowledge::Known&&route.public_resolution==ResolutionStatus::Resolved {RouteStop::Declaration}else{RouteStop::CandidateOnly};output.partial|=route.stop!=RouteStop::Declaration;output.routes.push(route);continue}
     if visited.len()>max_depth {route.stop=RouteStop::Frontier;output.partial=true;output.routes.push(route);continue}
@@ -172,6 +181,7 @@ pub fn explain(d:&ClassificationData,extra:&RouteData,member:Id<CatalogMember>,m
          let native_support=extra.native_supports.iter().find(|s|s.assertion==native.id()).ok_or_else(||invalid("access route native import support absent"))?;
          let support=extra.resolution_supports.iter().find(|s|s.assertion==resolution.id()).ok_or_else(||invalid("access route module resolution support absent"))?;
          if !supported(extra,native_support,route.context,attribution::FactFamily::Lexical,"ruff")||!supported(extra,support,route.context,attribution::FactFamily::Exports,"pyrefly"){return Err(invalid("access route import support changes provider/context/fidelity"))}
+         output._charge.grow(child_reservation(&route,&visited,imported))?;
          let mut child=route.clone();child.hops.push(RouteHop::Import{alias:alias.id(),native_name:native.id(),native_support:native_support.id(),assessment:assessment.id(),candidate:candidate.id(),resolution:resolution.id(),support:support.id(),from:module,to:*target_module,imported_name:imported.clone(),status:assessment.status,reason:assessment.reason});
          child.hops.push(RouteHop::PublicExposure{catalog_candidate:target_candidate,exposure:target_exposure.id(),name:target_name.id(),support:target_support.id()});
          if target_exposure.publicity!=PublicPathKnowledge::Known{child.publicity=PublicPathKnowledge::Candidate}
@@ -184,8 +194,8 @@ pub fn explain(d:&ClassificationData,extra:&RouteData,member:Id<CatalogMember>,m
      }
     }
     if next.is_empty(){route.stop=RouteStop::UnresolvedNameCorrespondence;output.partial=true;output.routes.push(route)}else{
-     next.sort_by_key(|(module,name,_,_)|(*module,name.clone()));
-     for child in next.into_iter().rev(){output._charge.grow(8192)?;pending.push(child)}
+     next.sort_by(|left,right|left.0.cmp(&right.0).then_with(||left.1.cmp(&right.1)));
+     for child in next.into_iter().rev(){pending.push(child)}
     }
    }
   }
@@ -230,6 +240,22 @@ mod tests {
   let(b,d,extra,member)=imported_fixture(false);let result=explain(&d,&extra,member,16,128,&b).unwrap();assert_eq!(result.routes[0].stop,RouteStop::Declaration);assert!(matches!(&result.routes[0].hops[1],RouteHop::Import{imported_name,..} if imported_name=="operation"));assert!(!result.partial);
   let(b,d,mut extra,member)=imported_fixture(false);extra.native_bindings=Rows::new(&b);let result=explain(&d,&extra,member,16,128,&b).unwrap();assert_eq!(result.routes[0].stop,RouteStop::UnresolvedNameCorrespondence);assert!(result.partial);
   let(b,d,extra,member)=imported_fixture(true);let result=explain(&d,&extra,member,16,128,&b).unwrap();assert_eq!(result.routes[0].stop,RouteStop::Cycle);assert!(result.partial);
+ }
+ #[test]
+ fn route_cap_counts_every_discarded_pending_frontier(){
+  let(b,d,mut extra,member)=imported_fixture(false);
+  let resolution=extra.resolutions.iter().next().unwrap().clone();
+  let candidate=extra.candidates.iter().next().unwrap().clone();
+  let support=extra.resolution_supports.iter().next().unwrap().clone();
+  for location in ["alternative-a.py","alternative-b.py"] {
+   let alternative=ModuleResolutionObservation{location:Some(location.into()),..resolution.clone()};
+   extra.resolutions.insert(alternative.clone()).unwrap();
+   extra.candidates.insert(ImportModuleCandidate{observation:alternative.id(),..candidate.clone()}).unwrap();
+   extra.resolution_supports.insert(ModuleResolutionSupport{assertion:alternative.id(),..support.clone()}).unwrap();
+  }
+  let result=explain(&d,&extra,member,16,1,&b).unwrap();
+  assert_eq!(result.routes.len(),1);assert_eq!(result.routes[0].stop,RouteStop::Declaration);
+  assert_eq!(result.routes[0].omitted_frontiers,2);assert!(result.partial);
  }
  #[test]
  fn direct_route_preserves_exact_identity_and_request_bound(){

@@ -43,7 +43,7 @@ fn exact(d: &EvidenceData, placement: &SyntaxPlacement, context: Id<attribution:
 }
 pub(super) fn derive(d: &EvidenceData, out: &mut EvidenceOutput, b: &ResourceBudget) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(b,"diagnostic-use-correspondence");
-    charge.grow(d.core.occurrences.len().saturating_mul(256).saturating_add(d.core.placements.len().saturating_mul(256)).saturating_add(out.source_usages.len().saturating_mul(256)))?;
+    charge.grow(d.core.occurrences.len().saturating_mul(256).saturating_add(d.core.placements.len().saturating_mul(256)).saturating_add(out.source_usages.len().saturating_mul(256)).saturating_add(d.facts.usage_event_sources.len().saturating_mul(256)).saturating_add(out.associations.len().saturating_mul(256)))?;
     let mut coordinates = BTreeMap::<_, Vec<_>>::new();
     for row in d.core.occurrences.iter() { coordinates.entry((row.source,row.start,row.end)).or_default().push(row.id()); }
     let mut placements = BTreeMap::<_, Vec<_>>::new();
@@ -52,6 +52,13 @@ pub(super) fn derive(d: &EvidenceData, out: &mut EvidenceOutput, b: &ResourceBud
     for usage in out.source_usages.iter() {
         let event = need(&d.facts.events,usage.event)?;
         events.entry((event.context,event.site)).or_default().push(usage);
+    }
+    let mut event_sources = BTreeMap::<_, Vec<_>>::new();
+    for row in d.facts.usage_event_sources.iter() { event_sources.entry(row.event).or_default().push(row); }
+    let mut event_associations = BTreeMap::<_, Vec<_>>::new();
+    for row in out.associations.iter() {
+        let alternative = need(&d.facts.alternatives,row.alternative)?;
+        event_associations.entry(alternative.event).or_default().push(row);
     }
     // Freeze diagnostic roots: new correlations never become native identity premises.
     let mut diagnostics = Vec::new();
@@ -83,19 +90,21 @@ pub(super) fn derive(d: &EvidenceData, out: &mut EvidenceOutput, b: &ResourceBud
                     if !visited.insert(current) || depth == 64 { remainder = true; break; }
                     if let Some(usages) = events.get(&(context,current)) {
                         for usage in usages {
-                            for event_source in d.facts.usage_event_sources.iter().filter(|s| s.event == usage.event) {
+                            for event_source in event_sources.get(&usage.event).into_iter().flatten() {
                                 let native = need(&d.facts.usage_sites,event_source.observation)?;
                                 if native.site != current || need(&d.core.qualifications,native.qualification)?.context != context { return Err(invalid("diagnostic use changes event source context")); }
                                 let key = (usage.id(),*subject,event_source.id());
+                                // Reserve each fanout copy before cloning the retained path.
+                                charge.grow(256usize.saturating_add(path.len().saturating_mul(size_of::<Id<SyntaxPlacement>>()).saturating_mul(4)))?;
                                 candidates.insert(key,path.clone());
                             }
                         }
                         // Nearest containing event only: a call nested in an argument is not the outer call.
                         break;
                     }
-                    let admitted = placements.get(&current).into_iter().flatten().filter(|p| exact(d,p,context)).collect::<Vec<_>>();
-                    if admitted.len() != 1 { remainder |= admitted.len()>1; break; }
-                    let placement = admitted[0];
+                    let mut admitted = placements.get(&current).into_iter().flatten().filter(|p| exact(d,p,context));
+                    let Some(placement) = admitted.next() else { break };
+                    if admitted.next().is_some() { remainder = true; break; }
                     let Some(parent) = placement.parent else { break };
                     let child = need(&d.core.occurrences,current)?;
                     let ancestor = need(&d.core.occurrences,parent)?;
@@ -114,9 +123,8 @@ pub(super) fn derive(d: &EvidenceData, out: &mut EvidenceOutput, b: &ResourceBud
             let link = out.diagnostic_use_links.insert(DiagnosticUseLink {assessment,usage,subject,event_source})?;
             for (ordinal,placement) in path.into_iter().enumerate() { out.diagnostic_use_paths.insert(DiagnosticUsePath {link,ordinal:ordinal as i64,placement})?; }
             let event = need(&d.facts.events,need(&out.source_usages,usage)?.event)?;
-            for association in out.associations.iter() {
-                let alternative = need(&d.facts.alternatives,association.alternative)?;
-                if alternative.event == event.id() && need(&d.core.qualifications,association.qualification)?.context == context {
+            for association in event_associations.get(&event.id()).into_iter().flatten() {
+                if need(&d.core.qualifications,association.qualification)?.context == context {
                     out.diagnostic_use_targets.insert(DiagnosticUseTarget {link,association:association.id()})?;
                 }
             }
