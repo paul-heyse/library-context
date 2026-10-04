@@ -55,7 +55,7 @@ async fn run(profile: Profile) {
         statement_timeout_seconds: 60,
         lock_timeout_seconds: 10,
     };
-    let model = Arc::new(lctx_model::domain::model().unwrap());
+    let model = Arc::new(catalog_selection_controls::fixture_model());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

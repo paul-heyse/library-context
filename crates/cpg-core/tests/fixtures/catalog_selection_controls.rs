@@ -1,5 +1,50 @@
 //! Independent C1/C2 source-link and runtime-witness corruption controls.
 use lctx_model::domain::{stages::*, *};
+
+/// This fixture executes C0/C1/C2 and their Local/Model/Summary parents. Validate that
+/// complete owner closure, rather than the unexecuted analytic/synthesis/retrieval envelope.
+/// Every selected relation keeps its production invariant and nominal dependencies.
+pub fn fixture_model() -> ValidatedModel {
+    let mut relations = normalized_relations();
+    relations.extend(analysis::early_relations());
+    relations.extend(super::catalog_runtime::relations());
+    relations.extend(execution::relations());
+    relations.extend(analysis::enriched_execution::publication_relations());
+    relations.extend(analysis::model::publication_relations());
+    relations.extend(analysis::summary::publication_relations());
+    relations.extend(analysis::model::support::relations());
+    relations.extend(analysis::summary::support::relations());
+    relations.extend(transfer::model::relations());
+    relations.extend(transfer::summary::relations());
+    relations.extend(analysis::catalog_core::publication_relations());
+    relations.extend(catalog::relations());
+    relations.extend(analysis::catalog_evidence::publication_relations());
+    relations.extend(analysis::selection::publication_relations());
+    relations.extend(selection::relations());
+    let registry = catalog_frontier_relations().into_iter()
+        .map(|relation| (relation.name(), relation))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut selected = relations.iter().map(Relation::name)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut pending = selected.iter().copied().collect::<Vec<_>>();
+    while let Some(name) = pending.pop() {
+        let relation = registry.get(name).expect("fixture relation has a canonical owner");
+        let references = relation.fields().iter()
+            .filter_map(|field| field.target().map(|(_, name)| name));
+        let invariants = relation.invariants().iter()
+            .flat_map(|invariant| invariant.inputs.iter().map(ValidationInput::name));
+        let publications = relation.publication_checks().iter()
+            .flat_map(|check| check.inputs.iter().map(ValidationInput::name));
+        for required in references.chain(invariants).chain(publications) {
+            if selected.insert(required) { pending.push(required); }
+        }
+    }
+    assert!(!selected.contains(embedding::text::TextDefinition::NAME));
+    assert!(!selected.contains(embedding::analytic::AnalysisEmbeddingUse::NAME));
+    ValidatedModel::validate(selected.into_iter().map(|name| registry[&name].clone()).collect())
+        .unwrap()
+}
+
 /// Fault-inject only the captured in-memory view. The store remains immutable and is sealed
 /// normally afterward; both assertions use the same production replay kernel as publication.
 pub async fn replay_controls(
