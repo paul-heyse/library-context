@@ -147,7 +147,7 @@ selected payloads; competing/oracle and deferred entries keep their explicit con
 ### Sole current finding disposition
 
 `O-Fxx` means the opportunity source review; `E-Fxx` means the expanded review. The original
-source IDs remain unchanged. **Scheduled/open** is not accepted implementation or verified closure.
+source IDs remain unchanged. `I-Fxx` means the fresh assembled implementation review (its original IDs are Fxx). **Scheduled/open** is not accepted implementation or verified closure.
 
 | Source finding | Scheduled owner / correction | Closure evidence required; current disposition |
 |---|---|---|
@@ -165,6 +165,9 @@ source IDs remain unchanged. **Scheduled/open** is not accepted implementation o
 | E-F01 populated independent Ruff | M0/M1/M2 | Compiling populated seam, context/attachment/configuration fixtures and ADR/owner pivot; scheduled/open |
 | E-F02 dormant predicate truth | B0/B1/P4 | Literal/exact-class truth changes Summary under correct basis; empty/mixed/nonconforming controls; scheduled/open |
 | E-F03 parameter identity | N0/P0 | Independently specified parameter/receiver incidences and release-class type-layer test; scheduled/open |
+| I-F01 omitted native raise trace | P2; fresh implementation review F01 | Existing same-context Types closure witness27 correction integrated; model checks passed, actual mixed/complete serving remains open |
+| I-F02 official corpus mentions | P1; fresh implementation review F02 | Exact existing CorpusLibrary link consumed; stored-row replay/refusal checks compiled, actual fixed-policy journey remains open |
+| I-F03 terminal source scope | P4; fresh implementation review F03 | Open: preserve actual native Artifact scope through shared ownership validation, scoped/foreign controls and actual terminal serving; `5928f043` static review failed this boundary |
 
 Do not close a shared finding on a provider build alone. Add dated command receipts and remaining
 limits here as work completes. A later discovery must link its source and responsible component
@@ -242,7 +245,7 @@ assembled runtime acceptance.
 | Raised-type review correction | Independent assembled review found that retained nonmatching raises could incorrectly close an unavailable native raise trace. P2 now requires existing complete Types coverage at the same source/context for a negative, with append-only witness27; matching positives remain valid under partial coverage. Targeted model/service checks and two units plus the classification inventory control passed; actual mixed/complete native service controls and final independent review remain open. |
 | Corpus mention review correction | The selected-analytics Q0 fixture exposed an Installed/Corpus input mismatch that silently discarded valid official co-mentions. P1 now consumes existing `CorpusLibrary` and follows only exact declared corpus→library links, retaining context, Document role, resolved universe and deduplication. Targeted check passed; actual split-input and unlinked-corpus controls remain open. |
 | P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics and repaired usage both passed as a two-control composite; the repair retains opaque module/local assignment negatives alongside direct import/re-export positives. Current-tree assembled qualification remains open. |
-| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Same-tree assembled check remains open. Terminal output is active against integrated B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
+| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Terminal output is integrated at `5928f043`, but independent review found I-F03: the checker requires Input scope while the native frontier retains Artifact scope. Its bounded ownership-policy repair and actual qualification are active. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
 | Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. The integrated both-profile stdio fixture explicitly selects fixed communities/PageRank/FCA/RCA/type/mention policies; kNN/embeddings remain off. Old operator staging and real-library/activation remain excluded. |
 
 | Package / command, 2026-10-03 | Outcome and boundary |
@@ -842,3 +845,25 @@ these contracts on the final union. `cargo check -p lctx-model -p cpg-core --tes
 (`b3-check-9.log`, 55.46s, dev profile); `cargo check --release -p lctx-model --tests -p cpg-core --test behavioral_frontiers -p lctx --test serving_qualification` **passed** on `603d1a63` plus its owner receipt (`b3-assembled-check.log`, 1m09s). The additive
 Model/Summary relations and append-only claim3/support13 are a schema migration; terminal
 packets, snapshots, adapter and full gate acceptance remain open.
+
+
+Terminal output integrated at `5928f043` (executor `acef332f`), 2026-10-03.
+`cargo check --release --tests -p lctx-model -p cpg-core -p lctx-postgres -p lctx
+--test terminal_question_packets` **passed** (`p4-terminal-check-5.log`, 14.34s; final
+unused-import/profile-only edits checked in `p4-terminal-check-6.log`, 0.49s). Initial
+test macro/import and duplicate-command-flag failures are retained in logs2–4. Schema
+migration appends S0 template6/source5 and requires nullable `AssertionPacket.terminal_question`;
+ordinary assertions must emit null, without a missing-field adapter. The actual fixture uses
+behavioral profile through Catalog because default Catalog leaves Model/Summary NotRequested.
+The independently expected three questions and ten refusal twins remain unchanged.
+
+Fresh independent assembled review **failed** the terminal source-scope boundary on
+`5928f043` (I-F03): native Pyrefly qualification is Artifact-scoped; Model changes only
+assumptions and Summary preserves that qualification. The new S0 checker instead requires
+Input scope, so it would reject actual witnesses. Synthetic Input-scope model controls mask
+that mismatch. Repair must use existing ownership ScopeIndex with its declared source/scope
+rows and same-generation lease hydration, preserve the original qualification, and cover
+Artifact positives/foreign-scope refusal. No scope widening, replacement validator or
+three-question oracle relaxation is authorized. The checked token's fields also become
+crate-private. Actual runtime, final review, refreshed adapter, Q0 and full gates remain open;
+no CLI or runtime build was started on this defective consumer baseline.
