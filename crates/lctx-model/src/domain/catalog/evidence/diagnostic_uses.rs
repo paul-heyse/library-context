@@ -117,10 +117,15 @@ pub(super) fn derive(d: &EvidenceData, out: &mut EvidenceOutput, b: &ResourceBud
             }
         }
         let unique_uses = candidates.keys().map(|(usage,_,_)| *usage).collect::<BTreeSet<_>>();
+        let unique_subjects = candidates.keys().map(|(_,subject,_)| *subject).collect::<BTreeSet<_>>();
         let unique_events = unique_uses.iter().map(|u| need(&out.source_usages,*u).map(|r|r.event)).collect::<Result<BTreeSet<_>,_>>()?;
         let status = if primary.is_none() { DiagnosticUseStatus::UnavailablePrimary }
             else if remainder { DiagnosticUseStatus::IncompleteCorrespondence }
-            else { match unique_events.len() { 0=>DiagnosticUseStatus::Unassociated,1=>DiagnosticUseStatus::UniqueUse,_=>DiagnosticUseStatus::AmbiguousUse } };
+            else if unique_events.is_empty() { DiagnosticUseStatus::Unassociated }
+            // One admitted primary subject is required even when alternative paths converge.
+            // Repeated native supports for that same subject/event do not create ambiguity.
+            else if unique_events.len()==1 && unique_subjects.len()==1 { DiagnosticUseStatus::UniqueUse }
+            else { DiagnosticUseStatus::AmbiguousUse };
         let assessment = out.diagnostic_use_assessments.insert(DiagnosticUseAssessment { characterization:diagnostic.id(),status,uses:unique_uses.len() as i64,remainder })?;
         for ((usage,subject,event_source),path) in candidates {
             let link = out.diagnostic_use_links.insert(DiagnosticUseLink {assessment,usage,subject,event_source})?;
@@ -190,6 +195,31 @@ mod tests {
   assert_eq!(out.diagnostic_use_assessments.len(),2);assert_eq!(out.diagnostic_use_links.len(),2);
   assert!(out.diagnostic_use_assessments.iter().all(|row|row.status==DiagnosticUseStatus::UniqueUse&&row.uses==1&&!row.remainder));
   assert!(out.diagnostic_use_links.iter().all(|link|link.usage==expected&&link.usage!=unrelated&&link.subject==subject));
+ }
+ #[test]
+ fn converging_distinct_primary_subjects_remain_ambiguous(){
+  let(b,mut d,mut out,a,q)=fixture();let call=occurrence(&mut d,&a,0,14,SyntaxKind::ExprCall,OccurrenceRole::Call,0);
+  let first=occurrence(&mut d,&a,8,13,SyntaxKind::ExprName,OccurrenceRole::Read,1);
+  let second=occurrence(&mut d,&a,8,13,SyntaxKind::ExprName,OccurrenceRole::Read,2);
+  for (ordinal,subject) in [first,second].into_iter().enumerate(){d.core.placements.insert(SyntaxPlacement{qualification:q.id(),occurrence:subject,parent:Some(call),field:SyntaxField::Argument,ordinal:ordinal as i64}).unwrap();}
+  usage(&mut d,&mut out,&a,&q,call,11);diagnostic(&mut d,&mut out,&a,&q,Some((8,13)),0);
+  derive(&d,&mut out,&b).unwrap();let assessment=out.diagnostic_use_assessments.iter().next().unwrap();
+  assert_eq!(assessment.status,DiagnosticUseStatus::AmbiguousUse);assert_eq!(assessment.uses,1);assert!(!assessment.remainder);
+  assert_eq!(out.diagnostic_use_links.len(),2);assert_eq!(out.diagnostic_use_paths.len(),2);
+  assert_eq!(out.diagnostic_use_links.iter().map(|link|link.subject).collect::<BTreeSet<_>>(),BTreeSet::from([first,second]));
+ }
+ #[test]
+ fn duplicate_supports_for_one_subject_and_event_remain_unique(){
+  let(b,mut d,mut out,a,q)=fixture();let call=occurrence(&mut d,&a,0,14,SyntaxKind::ExprCall,OccurrenceRole::Call,0);
+  let first=usage(&mut d,&mut out,&a,&q,call,11);let existing=out.source_usages.get(first).unwrap().clone();
+  let raw=d.facts.usage_sites.iter().next().unwrap();
+  let native=d.facts.characterization_native.insert(NativeAssertionPremise::ProviderCallSite{assertion:raw.id(),support:id(10)}).unwrap();
+  let mut characterization=out.source_characterizations.get(existing.characterization).unwrap().clone();characterization.native=native;
+  let characterization=out.source_characterizations.insert(characterization).unwrap();
+  let second=out.source_usages.insert(SourceUsage{characterization,event:existing.event}).unwrap();assert_ne!(first,second);
+  diagnostic(&mut d,&mut out,&a,&q,Some((0,14)),0);derive(&d,&mut out,&b).unwrap();
+  let assessment=out.diagnostic_use_assessments.iter().next().unwrap();assert_eq!(assessment.status,DiagnosticUseStatus::UniqueUse);assert_eq!(assessment.uses,2);assert!(!assessment.remainder);
+  assert_eq!(out.diagnostic_use_links.len(),2);assert!(out.diagnostic_use_links.iter().all(|link|link.subject==call));
  }
  #[test]
  fn foreign_primary_artifact_cannot_acquire_an_exact_use(){
