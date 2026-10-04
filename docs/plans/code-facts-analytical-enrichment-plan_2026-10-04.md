@@ -691,3 +691,18 @@ proof-field integration, then after native FinalReference inspection (`lctx-enri
 closure. FinalReference/Ruff binding correspondence and initializer controls are integrated at
 `937e918d`; scope-exact capture remains unchanged. Focused runtime controls and matching native
 adapters are being rebuilt against this model; current hygiene/full acceptance remain open.
+
+
+The updated focused native/core run **failed**, 2026-10-04: 34 controls, 31 passed and three
+failed, no timeouts (`lctx-enrichment-scoped-closure-repairs-final.log`). All three read-channel
+controls and six retired-read controls passed, including ChoiceA initializer, missing/foreign
+FinalReference and strict builtin/Flow refusal. All six source-call controls passed, including
+selected closure's 14 adversaries, and all four real PostgreSQL Summary publication controls
+passed. The new witness corruption fixture incorrectly requested an absent literal argument
+FlowValueObservation; it now uses existing native `inner(value)`. Selection fixture closure
+included unexecuted diagnostic families; it now seeds exact publication owners and names missing
+canonical dependencies, with a cheap model-closure control. Their reruns are pending.
+`UV_LOCK_TIMEOUT=3600 just native-adapter-ready` **passed**, matching current model after
+selected-proof schema and FinalReference input changes (`lctx-enrichment-selected-domain-native-adapter.log`).
+Actual PostgreSQL serving/explanation and direct Behavioral Structural qualification are queued;
+this remains a composite bounded repair receipt, not full Q1 acceptance.
