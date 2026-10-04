@@ -106,7 +106,7 @@ preserves that stop state. Reconstruction from pinned inputs remains an activati
 Next: finish focused native/model/PostgreSQL controls and repair their findings, then
 complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`just hygiene`.
 Generated-wrapper and both raised-type PostgreSQL journeys passed in the failed full gate;
-Terminal also passed in the direct focused run. Fresh conditional/Structural and read/Summary reruns are underway; ADR-0123 bounds the pending selected source-signature composition repair. Real-library activation remains separately authorized.
+Terminal also passed in the direct focused run. Fresh conditional/Structural and source-composition reruns are underway; read/Summary rerun passed 8/12. Three read repairs, corrected typing-verdict assertion and ADR-0123 proof explanation remain open. Real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release
 intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
 The end-of-turn hook normally owns formatting. ADR index/dependency features and the one final

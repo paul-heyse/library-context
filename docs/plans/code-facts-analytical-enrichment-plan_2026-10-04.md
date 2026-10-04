@@ -639,3 +639,19 @@ four passed, ten failed, one timed out. Its compiled model predates the ReportPr
 repair, so a fresh serving rerun is required; these outcomes are not current repaired-model
 acceptance. Shared restricted-Local consequence selection and exact native Ruff/source read
 repairs are integrated. Fresh focused Summary/read and serving tests are in progress.
+
+
+The fresh read/Summary rerun **failed**, 2026-10-04: 12 controls, eight passed and four
+failed (`lctx-enrichment-read-summary-current.log`), release compile **passed**. Three Summary
+controls passed, including exact exception/capture timing. The fourth passed all twelve replay
+challenges, then failed a newly added premise/verdict expectation: its actual finite results
+retain Conditional/runtime-empty-basis and Established/one-typing-premise alternatives. The
+Literal[0] restriction makes the guard true under that premise; the test now requires both
+exact verdicts separately. This is an acceptance-test correction, not a production verdict change.
+Read controls still fail at the ChoiceA global initializer and two field-negative closure
+assertions; bounded original-premise diagnostics are integrated, and repairs remain open.
+Selected source composition is integrated under ADR-0123 (`65605c3d`, `7d02f768`). Independent
+static inspection found and repaired standalone declaration/member evidence hydration. It also
+found generic Summary explanation visibility missing the scoped enumeration/member domain despite
+correct replay; explicit typed premise links and actual explanation qualification remain in progress.
+No current full gate, hygiene, adapter or schema acceptance is claimed.
