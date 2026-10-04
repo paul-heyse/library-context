@@ -306,6 +306,19 @@ frame. An empty capture list does not establish capture absence or transitive pr
 Scoped original-evidence and capture PostgreSQL journeys are **Tested** in coordinator §7;
 assembled same-tree adapter/Q0/full gates remain open.
 
+**Implemented terminal questions, 2026-10-03; qualification pending.** S0 has a separate
+TerminalSummary source for the exact direct following statement **given invocation entered**,
+retaining its complete typing basis and StructurallyObserved status. The required nullable
+assertion `terminal_question` field exposes the actual witness, frontier, normal-edge restriction,
+target basis, scope, source qualifications and same-generation citation chain. Effects,
+exceptions and cleanup remain unknown; no body execution or finite completion certificate
+follows. Shared scope ownership validation preserves native Artifact qualification. A missing
+question on an ordinary assertion is explicit null, without an old-format fallback.
+
+These questions require the behavioral profile's Model/Summary stages through Catalog.
+Default Catalog keeps those stages NotRequested. The code-facts coordinator §5/§7 owns the
+independent source-scope finding and its scoped/assembled qualification.
+
 Required signatures are indivisible. Packet/evidence row and byte budgets disclose omissions,
 continuations or resource refusal; they do not silently shorten a signature. Cursors bind
 generation, canonical request, section/group, policy and representation. Python lexical fusion

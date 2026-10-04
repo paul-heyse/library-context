@@ -264,7 +264,7 @@ frontier concerns the exact following statement of a direct sequential call **gi
 entered**. Effects, exceptions and cleanup remain unknown. SummaryTerminalWitness retains
 that question, frontier, restriction and qualification as StructurallyObserved, without a
 finite ClaimConclusion or body execution proof. Scoped composite controls are **Tested** in
-the code-facts coordinator §7; terminal serving and final assembled qualification remain open.
+the code-facts coordinator §7; terminal serving is Implemented with qualification pending. The behavioral profile requests Model/Summary; default Catalog retains NotRequested. Final assembled qualification remains open.
 
 DeclaredClassInspection may use genuine report-projected function, symbol and parameter
 declarations with exact native question/support identity. This describes a reachable source

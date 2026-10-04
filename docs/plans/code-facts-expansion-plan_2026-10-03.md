@@ -167,7 +167,7 @@ source IDs remain unchanged. `I-Fxx` means the fresh assembled implementation re
 | E-F03 parameter identity | N0/P0 | Independently specified parameter/receiver incidences and release-class type-layer test; scheduled/open |
 | I-F01 omitted native raise trace | P2; fresh implementation review F01 | Existing same-context Types closure witness27 correction integrated; model checks passed, actual mixed/complete serving remains open |
 | I-F02 official corpus mentions | P1; fresh implementation review F02 | Exact existing CorpusLibrary link consumed; stored-row replay/refusal checks compiled, actual fixed-policy journey remains open |
-| I-F03 terminal source scope | P4; fresh implementation review F03 | Open: preserve actual native Artifact scope through shared ownership validation, scoped/foreign controls and actual terminal serving; `5928f043` static review failed this boundary |
+| I-F03 terminal source scope | P4; fresh implementation review F03 | Correction integrated at `ae9af4e6` using shared ScopeIndex and actual packet scope; Artifact/Input and foreign-scope controls compiled. Actual terminal serving and final independent judgment remain open; `5928f043` static defect retained |
 
 Do not close a shared finding on a provider build alone. Add dated command receipts and remaining
 limits here as work completes. A later discovery must link its source and responsible component
@@ -245,7 +245,7 @@ assembled runtime acceptance.
 | Raised-type review correction | Independent assembled review found that retained nonmatching raises could incorrectly close an unavailable native raise trace. P2 now requires existing complete Types coverage at the same source/context for a negative, with append-only witness27; matching positives remain valid under partial coverage. Targeted model/service checks and two units plus the classification inventory control passed; actual mixed/complete native service controls and final independent review remain open. |
 | Corpus mention review correction | The selected-analytics Q0 fixture exposed an Installed/Corpus input mismatch that silently discarded valid official co-mentions. P1 now consumes existing `CorpusLibrary` and follows only exact declared corpus→library links, retaining context, Document role, resolved universe and deduplication. Targeted check passed; actual split-input and unlinked-corpus controls remain open. |
 | P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics and repaired usage both passed as a two-control composite; the repair retains opaque module/local assignment negatives alongside direct import/re-export positives. Current-tree assembled qualification remains open. |
-| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Terminal output is integrated at `5928f043`, but independent review found I-F03: the checker requires Input scope while the native frontier retains Artifact scope. Its bounded ownership-policy repair and actual qualification are active. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
+| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Terminal output is integrated at `5928f043`, but independent review found I-F03: the checker requires Input scope while the native frontier retains Artifact scope. Its shared ownership correction is integrated at `ae9af4e6`; actual qualification and final review remain open. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
 | Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. The integrated both-profile stdio fixture explicitly selects fixed communities/PageRank/FCA/RCA/type/mention policies; kNN/embeddings remain off. Old operator staging and real-library/activation remain excluded. |
 
 | Package / command, 2026-10-03 | Outcome and boundary |
@@ -867,3 +867,17 @@ Artifact positives/foreign-scope refusal. No scope widening, replacement validat
 three-question oracle relaxation is authorized. The checked token's fields also become
 crate-private. Actual runtime, final review, refreshed adapter, Q0 and full gates remain open;
 no CLI or runtime build was started on this defective consumer baseline.
+
+
+I-F03 correction integrated at `ae9af4e6` (executor `d4d07a7d`), 2026-10-03.
+Terminal Data declares and consumes the existing ScopeIndex ownership rows; S0 replay and
+packet hydration use that same policy without rewriting native qualification. The required
+question payload now exposes its actual scope ID and scope-row citation. Checked token fields
+are crate-private. Model controls independently specify owned Artifact/Input positives and
+foreign Artifact/Input negatives; the actual fixture asserts stored Artifact scope equals
+packet scope. Original three questions and ten refusal twins remain unchanged.
+`cargo check --release --tests -p lctx-model -p cpg-core -p lctx-postgres -p lctx
+--test terminal_question_packets` **passed**, 15.28s (`p4-terminal-f03-check-2.log`); an
+initial test-import failure remains in log1. Final independent review, runtime and same-tree
+full gates remain open. Scope-end formatter/ADR-index/feature-union refresh permission is
+pending under AGENTS hook ownership; no refresh was inferred from elapsed time.
