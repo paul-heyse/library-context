@@ -74,9 +74,21 @@ async fn run(profile: Profile) {
         )],
         cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
     ));
+    let catalog = captured.config().catalog().declaration().id();
+    let (enriched_parameters, enriched_definition) =
+        execution::configuration::enriched_execution(catalog);
+    let (model_parameters, model_definition) = execution::configuration::models(catalog);
+    let (summary_parameters, summary_definition) = execution::configuration::summaries(
+        catalog,
+        execution::configuration::SummaryLimits::default(),
+    )
+    .unwrap();
     let configuration = analysis::preparation::Configuration::new(
         captured.config().catalog(),
         catalog_runtime::definitions().into_iter().chain([
+            (enriched_parameters, enriched_definition.clone()),
+            (model_parameters, model_definition.clone()),
+            (summary_parameters, summary_definition.clone()),
             build::definition(),
             catalog::evidence::build::definition(),
             selection::build::definition(),
@@ -103,6 +115,11 @@ async fn run(profile: Profile) {
         selection::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
     ]);
     declarations.extend(catalog_runtime::stages(profile, &model));
+    declarations.extend([
+        execution::enriched_production::stage(profile, &enriched_definition, &model).unwrap(),
+        execution::model_production::stage(profile, &model_definition, &model).unwrap(),
+        execution::summary_replay::stage(profile, &summary_definition, &model).unwrap(),
+    ]);
     let schedule = catalog_schedule::schedule(&model, declarations, profile);
     assert!(
         !schedule
@@ -248,6 +265,64 @@ async fn run(profile: Profile) {
                         &model,
                     )
                     .await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap_or_else(|e| panic!("parent {} failed: {e}", declaration.name));
+        } else if matches!(
+            declaration.name,
+            "enrich_execution" | "apply_models" | "analyze_summaries"
+        ) {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                declaration,
+                async |access| match declaration.name {
+                    "enrich_execution" => {
+                        cpg_core::semantic_execution::enrich(
+                            access,
+                            &attempt,
+                            &config,
+                            &runtime,
+                            &model,
+                            &enriched_definition,
+                        )
+                        .await
+                    }
+                    "apply_models" => {
+                        cpg_core::semantic_models::apply(
+                            access,
+                            &attempt,
+                            &config,
+                            &runtime,
+                            &model,
+                            &model_definition,
+                        )
+                        .await
+                    }
+                    _ => {
+                        let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
+                            &access,
+                            &attempt,
+                            &config,
+                            &runtime,
+                            &model,
+                            &std::collections::BTreeSet::from([
+                                projection::ProjectionName::CallableInvocation,
+                            ]),
+                        )
+                        .await?;
+                        cpg_core::semantic_summaries::produce(
+                            access,
+                            &attempt,
+                            &config,
+                            &runtime,
+                            &model,
+                            &summary_definition,
+                            &graphs,
+                        )
+                        .await
+                    }
                 },
                 &mut |_| {},
             )
