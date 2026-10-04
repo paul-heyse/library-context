@@ -4183,6 +4183,7 @@ dependencies = [
  "jsonschema",
  "lctx-model-macros",
  "leiden-rs",
+ "num-bigint 0.5.1",
  "petgraph 0.8.3",
  "postcard",
  "schemars 1.2.2",

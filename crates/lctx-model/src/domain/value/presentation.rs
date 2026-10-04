@@ -35,7 +35,17 @@ pub fn render(literal: &Literal, mode: Mode, source: Option<&str>, budget: &Reso
         match literal {
             Literal::None => "None".into(),
             Literal::Bool { value } => if *value { "True" } else { "False" }.into(),
-            Literal::Integer { decimal } => decimal.clone(),
+            Literal::Integer { decimal } => {
+                // CPython permits a decimal digit limit as low as 640. Hexadecimal integer
+                // literals are exempt, so large expressions remain executable under that policy.
+                if mode == Mode::PythonExpression && decimal.len() > 640 {
+                    let integer = num_bigint::BigInt::parse_bytes(decimal.as_bytes(), 10)
+                        .ok_or_else(|| ModelError::Invalid("invalid integer presentation".into()))?;
+                    let digits = integer.to_str_radix(16);
+                    if let Some(digits) = digits.strip_prefix('-') { format!("-0x{digits}") }
+                    else { format!("0x{digits}") }
+                } else { decimal.clone() }
+            }
             Literal::String { value } => serde_json::to_string(value.as_str())
                 .map_err(|e| ModelError::Codec(e.to_string()))?,
             Literal::Bytes { value } => {
@@ -93,5 +103,22 @@ mod tests {
         assert_eq!(displays.len(), 4);
         let refused = ResourceBudget::fixed(1).unwrap();
         assert!(matches!(render(&Literal::None, Mode::Human, None, &refused), Err(ModelError::Resource { .. })));
+    }
+    #[test]
+    fn large_signed_integer_expressions_execute_under_python_decimal_limits() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let decimal = format!("1{}", "0".repeat(5000));
+        let mut expressions = Vec::new();
+        for decimal in [decimal.clone(), format!("-{decimal}")] {
+            let literal = Literal::Integer { decimal: decimal.clone() };
+            assert_eq!(render(&literal, Mode::Human, None, &budget).unwrap().unwrap().text, decimal);
+            let expression = render(&literal, Mode::PythonExpression, None, &budget).unwrap().unwrap();
+            assert!(expression.text.starts_with("0x") || expression.text.starts_with("-0x"));
+            expressions.push(expression.text);
+        }
+        let encoded = serde_json::to_string(&expressions).unwrap();
+        let output = std::process::Command::new("uv").args(["run", "--no-sync", "python", "-I", "-c",
+            "import json,sys; sys.set_int_max_str_digits(640); values=json.loads(sys.argv[1]); assert eval(values[0], {'__builtins__': {}})==10**5000; assert eval(values[1], {'__builtins__': {}})==-(10**5000)\ntry:\n compile('1'+'0'*5000, '<control>', 'eval')\nexcept SyntaxError:\n pass\nelse:\n raise AssertionError('decimal rejection control did not reject')", &encoded]).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     }
 }
