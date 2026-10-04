@@ -1,7 +1,7 @@
 //! Finite Summary occurrences cite earlier proof occurrences, never Summary aggregates.
 use super::*;
 use crate::domain::{
-    calls::{CallTarget, Signature},
+    calls::{CallTarget, Signature, SignatureEnumerationObservation, SignatureEnumerationSupport},
     declarations::SymbolDeclaration,
     normalized::bindings::CallBindingAttempt,
 };
@@ -67,6 +67,12 @@ pub struct SummaryWitness {
     pub callee_declaration: Id<SymbolDeclaration>,
     #[model(key, premise)]
     pub attempt: Id<CallBindingAttempt>,
+    /// The exact selected source domain, absent for global-coverage admission.
+    #[model(key, premise)]
+    pub selected_signature_enumeration: Option<Id<SignatureEnumerationObservation>>,
+    /// Native support for that domain; retained as inspection evidence.
+    #[model(key, premise)]
+    pub selected_signature_enumeration_support: Option<Id<SignatureEnumerationSupport>>,
     #[model(key)]
     pub bindings: ContentHash,
     /// Recomputed from all actual premise supports by the shared conservative policy.

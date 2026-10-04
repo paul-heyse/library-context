@@ -24,12 +24,13 @@ pub struct SignatureEnumerationObservation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "signature_enumeration_members", validate = validate_member)]
+#[model(name = "signature_enumeration_members", rule = "signature_enumeration_member", conclusion = enumeration, validate = validate_member)]
 pub struct SignatureEnumerationMember {
     #[model(key)]
     pub enumeration: Id<SignatureEnumerationObservation>,
     #[model(key)]
     pub ordinal: i64,
+    #[model(premise)]
     pub signature: Id<Signature>,
 }
 fn validate_member(row: &SignatureEnumerationMember) -> Result<(), ModelError> {

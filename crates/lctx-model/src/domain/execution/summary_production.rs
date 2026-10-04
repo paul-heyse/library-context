@@ -2251,6 +2251,8 @@ mod assumption_controls {
                 signature: id(13),
                 callee_declaration: id(14),
                 attempt: id(15),
+                selected_signature_enumeration: None,
+                selected_signature_enumeration_support: None,
                 bindings: ContentHash::of(b"bindings"),
                 status: analysis::policy::EvidenceStatus::StructurallyObserved,
                 heuristic: false,

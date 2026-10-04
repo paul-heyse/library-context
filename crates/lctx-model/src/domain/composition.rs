@@ -11,7 +11,8 @@ use super::conditions::stability::CheckedGuardBinding;
 use super::derivation::RowRef;
 use super::normalized::{
     binding_normalization::{
-        BindingData, BindingOutput, CompositionAdmission, ValidatedBoundCall, VerifiedBindings,
+        BindingData, BindingOutput, CompositionAdmission, SourceBodySignatureClosure,
+        ValidatedBoundCall, VerifiedBindings,
     },
     bindings::CallBindingAttempt,
     events::NormalizedCallEvent,
@@ -22,7 +23,8 @@ use super::{
     attribution::{Modality, ObligationKind},
     calls::{
         BindingProjection, BindingSource, BoundCall, CallArgument, CallDestination, CallSyntax,
-        CallTarget, ProviderSymbol, Receiver, Signature, SignatureParameter,
+        CallTarget, ProviderSymbol, Receiver, Signature, SignatureEnumerationObservation,
+        SignatureEnumerationSupport, SignatureParameter,
     },
     conditions::{
         Condition, ConditionNode, Diagram, EvaluationAtom,
@@ -202,7 +204,24 @@ pub struct CompositionWitness {
     pub signature: Id<Signature>,
     pub callee_declaration: Id<SymbolDeclaration>,
     pub attempt: Id<CallBindingAttempt>,
+    pub selected_signature_enumeration: Option<Id<SignatureEnumerationObservation>>,
+    pub selected_signature_enumeration_support: Option<Id<SignatureEnumerationSupport>>,
     pub bindings: ContentHash,
+}
+fn selected_signature_premises(
+    closure: SourceBodySignatureClosure,
+) -> (
+    Option<Id<SignatureEnumerationObservation>>,
+    Option<Id<SignatureEnumerationSupport>>,
+) {
+    match closure {
+        SourceBodySignatureClosure::GlobalCoverage { .. } => (None, None),
+        SourceBodySignatureClosure::DeclaredEnumeration {
+            enumeration,
+            support,
+            ..
+        } => (Some(enumeration), Some(support)),
+    }
 }
 /// One admitted call target at a site with its complete binding.
 pub struct CallFrame<'a> {
@@ -391,6 +410,8 @@ impl ComposedTransfer {
             signature: self.witness.signature,
             callee_declaration: self.witness.callee_declaration,
             attempt: self.witness.attempt,
+            selected_signature_enumeration: self.witness.selected_signature_enumeration,
+            selected_signature_enumeration_support: self.witness.selected_signature_enumeration_support,
             bindings: self.witness.bindings,
         };
         let contribution = SummaryContribution {
@@ -1016,6 +1037,8 @@ pub fn compose_call(
             call_site: Some(call.site.id()),
             provenance: ProvenanceClass::Composed,
         };
+        let (selected_signature_enumeration, selected_signature_enumeration_support) =
+            selected_signature_premises(binding_frame.admission.signature_closure());
         let witness = CompositionWitness {
             caller: caller.premise(),
             callee: callee.premise(),
@@ -1023,6 +1046,8 @@ pub fn compose_call(
             signature: bound.signature(),
             callee_declaration: callee_frame.declaration.id(),
             attempt: binding_frame.checked.attempt(),
+            selected_signature_enumeration,
+            selected_signature_enumeration_support,
             bindings: binding_digest(bound),
         };
         let retained = budget.reserve(
@@ -1632,6 +1657,11 @@ impl CompositionCheck {
             || binding_digest(binding.checked.bound()) != row.bindings
             || binding.checked.bound().signature() != row.signature
             || binding.admission.callee() != callee.owner
+            || selected_signature_premises(binding.admission.signature_closure())
+                != (
+                    row.selected_signature_enumeration,
+                    row.selected_signature_enumeration_support,
+                )
         {
             return Err(invalid(
                 "summary witness does not use its exact normalized binding",
