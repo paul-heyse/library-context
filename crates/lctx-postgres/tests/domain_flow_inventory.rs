@@ -171,7 +171,13 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
             store.retire(generation).await.unwrap();
         } else {
             let validation = generation_h.validate(&budget()).await;
-            assert!(matches!(&validation, Err(Error::Model(_))), "{case}: {validation:?}");
+            if case == "formula" {
+                assert!(matches!(&validation, Err(Error::Database(error))
+                    if error.as_database_error().and_then(|e| e.code()).as_deref() == Some("23503")),
+                    "missing nominal qualification is rejected by the declared foreign key: {validation:?}");
+            } else {
+                assert!(matches!(&validation, Err(Error::Model(_))), "{case}: {validation:?}");
+            }
             assert!(generation_h.publish().await.is_err());
             generation_h.abort().await.unwrap();
         }
