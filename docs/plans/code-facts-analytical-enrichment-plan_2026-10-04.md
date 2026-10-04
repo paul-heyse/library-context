@@ -780,3 +780,21 @@ standalone CLI still describes model `ece1e6a8242aa3b7bafa039ed0aa07b7c5f6cd601d
 878 relations. These repairs are not an initially clean run or a current full functional pass.
 Two completed qualification worktrees were removed after clean status and integration checks;
 the handoff worktree remains for the open finding.
+
+
+The actual named-handoff diagnostic **failed**, 2026-10-04, 237.59s
+(`lctx-enrichment-structural-named-handoff-diagnostic.log`; parsed original premises in
+`lctx-enrichment-named-handoff-premises.json`). The generated guide block has exact complete
+native singleton inventories/supports and source-covering cumulative Input coverage, but no
+separate artifact-scoped coverage row. `handoffs::named_definition` incorrectly required only
+Artifact coverage while its own qualification contract already admitted Input/Artifact/Module.
+`61ee9c0f` factors the same exact source-covering predicate into both checks, retaining identical
+native run/provider/context, Complete-or-Partial Flow status and mandatory complete per-use
+closure, support, geometry and condition checks. No relation/column/codebook/input declarations
+change; no global closure promotion is introduced.
+`cargo test --release -p lctx-model --test domain_handoffs` **passed**, three seeded admission
+controls (`lctx-enrichment-handoff-source-coverage-unit.log`): matching source scopes/statuses,
+foreign scopes, missing/pruned inventories and missing/foreign same-run native pairs. These are
+seeded unit controls, not a live provider qualification. The original actual PostgreSQL named
+handoff positive and all corruption controls remain required. Authorized final `just fmt` is
+in progress before rebuilding matching source-fingerprinted artifacts and final qualification.
