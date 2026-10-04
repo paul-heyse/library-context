@@ -54,7 +54,7 @@ fn supported<S:assertion::Support>(d:&RouteData,s:&S,context:Id<attribution::Ana
  let Some(a)=s.attribution()else{return false};
  let (Some(run),Some(surface))=(d.runs.get(a.run),d.surfaces.get(a.surface))else{return false};
  run.context==context&&run.provider==surface.provider&&surface.family==family&&d.providers.get(run.provider).is_some_and(|p|p.tool==tool)
- &&a.origin==attribution::Origin::AnalyzerAssertion&&a.mode==attribution::ExtractionMode::NativeTraversal&&a.fidelity==assertion::Fidelity::NativeStructural&&d.evidence.get(a.evidence).is_some()
+ &&a.origin==attribution::Origin::AnalyzerAssertion&&a.mode==attribution::ExtractionMode::NativeTraversal&&a.fidelity==attribution::Fidelity::NativeStructural&&d.evidence.get(a.evidence).is_some()
 }
 fn source_module(d:&ClassificationData,extra:&RouteData,entity:Id<EntityRef>)->Result<Option<Id<source::Module>>,ModelError>{
  let occurrence=match need(&d.source.core.refs,entity)? {

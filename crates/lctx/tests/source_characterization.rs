@@ -456,7 +456,9 @@ def example():
     let artifacts=execution.read::<SourceArtifact>().await.unwrap();
     let artifact=artifacts.rows().iter().find(|a|a.content==ContentHash::of(source)).unwrap().id();
     let response=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Artifact{artifact},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
-    let diagnostic=response.evidence.source_characterization.items.iter().find(|item|matches!(&item.payload,SourceCharacterizationPayload::PyreflyDiagnostic{header,..} if header.as_str().contains("float"))).unwrap();
+    let call_start=std::str::from_utf8(source).unwrap().find("parse(1.5)").unwrap() as u64;
+    let call_end=call_start+"parse(1.5)".len() as u64;
+    let diagnostic=response.evidence.source_characterization.items.iter().find(|item|matches!(&item.payload,SourceCharacterizationPayload::PyreflyDiagnostic{..})&&item.source.start>=call_start&&item.source.end<=call_end).expect("native diagnosis is anchored within the failed call");
     let correlation=diagnostic.diagnostic_correlation.0.as_ref().unwrap();
     assert_eq!(correlation.status,DiagnosticUseStatus::UniqueUse);
     assert!(!correlation.remainder);assert!(!correlation.links.items.is_empty());

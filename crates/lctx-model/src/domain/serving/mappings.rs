@@ -205,6 +205,7 @@ pub enum PacketKind {
     CallableComparisonPacket,
     ContextualTypePacket,
     IncomingReferencePacket,
+    AccessRoutePacket,
     EvidencePacket,
     ScenarioPacket,
     DeploymentPacket,
@@ -231,11 +232,12 @@ pub trait PacketOutput: sealed::Sealed {
     fn binding() -> &'static PacketBinding;
 }
 impl PacketKind {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::OperationCore,
         Self::CallableComparisonPacket,
         Self::ContextualTypePacket,
         Self::IncomingReferencePacket,
+        Self::AccessRoutePacket,
         Self::EvidencePacket,
         Self::ScenarioPacket,
         Self::DeploymentPacket,
@@ -254,6 +256,7 @@ impl PacketKind {
             Self::CallableComparisonPacket => <super::CallableComparisonPacket as PacketOutput>::binding(),
             Self::ContextualTypePacket => <super::ContextualTypePacket as PacketOutput>::binding(),
             Self::IncomingReferencePacket => <super::IncomingReferencePacket as PacketOutput>::binding(),
+            Self::AccessRoutePacket => <super::AccessRoutePacket as PacketOutput>::binding(),
             Self::EvidencePacket => <super::EvidencePacket as PacketOutput>::binding(),
             Self::ScenarioPacket => <super::ScenarioPacket as PacketOutput>::binding(),
             Self::DeploymentPacket => <super::DeploymentPacket as PacketOutput>::binding(),
@@ -816,6 +819,7 @@ binding!(
         PacketKind::CallableComparisonPacket,
         PacketKind::ContextualTypePacket,
         PacketKind::IncomingReferencePacket,
+        PacketKind::AccessRoutePacket,
         PacketKind::ScenarioPacket,
         PacketKind::DeploymentPacket,
         PacketKind::RelationshipPacket,

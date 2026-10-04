@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[repr(i16)]
 pub enum DiagnosticUseStatus { Unassociated = 0, UniqueUse = 1, AmbiguousUse = 2, UnavailablePrimary = 3, IncompleteCorrespondence = 4 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_diagnostic_use_assessments",semantic_source=include_bytes!("diagnostic_uses.rs"))]
+#[model(name="catalog_diagnostic_use_assessments",rule="diagnostic_use_assessment",semantic_source=include_bytes!("diagnostic_uses.rs"))]
 pub struct DiagnosticUseAssessment {
     #[model(key, premise)] pub characterization: Id<SourceCharacterization>,
     pub status: DiagnosticUseStatus,
@@ -16,7 +16,7 @@ pub struct DiagnosticUseAssessment {
     pub remainder: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_diagnostic_use_links",semantic_source=include_bytes!("diagnostic_uses.rs"))]
+#[model(name="catalog_diagnostic_use_links",rule="diagnostic_use_link",semantic_source=include_bytes!("diagnostic_uses.rs"))]
 pub struct DiagnosticUseLink {
     #[model(key)] pub assessment: Id<DiagnosticUseAssessment>,
     #[model(key, premise)] pub usage: Id<SourceUsage>,
@@ -24,14 +24,14 @@ pub struct DiagnosticUseLink {
     #[model(key, premise)] pub event_source: Id<normalized::events::CallEventSource>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_diagnostic_use_paths")]
+#[model(name="catalog_diagnostic_use_paths",rule="diagnostic_use_path",semantic_source=include_bytes!("diagnostic_uses.rs"))]
 pub struct DiagnosticUsePath {
     #[model(key)] pub link: Id<DiagnosticUseLink>,
     #[model(key)] pub ordinal: i64,
     #[model(key, premise)] pub placement: Id<SyntaxPlacement>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_diagnostic_use_targets")]
+#[model(name="catalog_diagnostic_use_targets",rule="diagnostic_use_target",semantic_source=include_bytes!("diagnostic_uses.rs"))]
 pub struct DiagnosticUseTarget {
     #[model(key)] pub link: Id<DiagnosticUseLink>,
     #[model(key, premise)] pub association: Id<ScenarioAssociation>,
