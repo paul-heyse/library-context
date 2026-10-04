@@ -48,6 +48,7 @@ class Settings:
         return self.title
 "#;
     let fixture=ServingFixture::start(source).await;
+    println!("API_PACKET_MODEL={} GENERATION={}",fixture.store.model().digest().hex(),fixture.generation.hex());
     let execution=fixture.service.execution().await.unwrap();
     let request=|value:&str,sections| GetOperationRequest {library:Name::new("demo").unwrap(),operation:path(value),comparison:Optional::default(),reference_parameter:Optional::default(),sections,page:PageRequest {expanded:true,..Default::default()}};
     let mut exchanges=Vec::new();

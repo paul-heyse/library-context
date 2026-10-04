@@ -229,6 +229,7 @@ def example(unknown):
     unknown(5)
 "#;
     let fixture = source_fixture(source, true).await;
+    println!("C2_PACKET_MODEL={} GENERATION={}",fixture.store.model().digest().hex(),fixture.generation.hex());
     let execution = fixture.service.execution().await.unwrap();
     let artifacts = execution.read::<SourceArtifact>().await.unwrap();
     let artifact = artifacts
