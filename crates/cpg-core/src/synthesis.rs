@@ -50,6 +50,7 @@ pub async fn produce(
     lctx_model::synthesis_observation_inputs!(read);
 
     lctx_model::synthesis_summary_inputs!(read);
+    lctx_model::synthesis_terminal_inputs!(read);
     lctx_model::synthesis_pattern_inputs!(read);
     lctx_model::synthesis_setup_inputs!(read);
     macro_rules! named_read{($($f:ident:$ty:ty,)*)=>{$(if access.stage().inputs.iter().any(|r|r.name()==<$ty>::NAME){read!{$f:$ty,}})*};}
