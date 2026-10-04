@@ -462,10 +462,45 @@ pub(super) fn produce(
         {
             continue;
         }
-        let builtin=data.lexical_resolutions.iter().find(|r|r.read==call.callee&&same_context(entry,r.qualification,inv.context)&&matches!(data.lexical_targets.get(r.target),Some(LexicalTarget::Builtin{name,..})if name=="getattr"||name=="hasattr"));
+        let mut builtin = None;
+        let mut hinted = false;
+        let mut conflicting = false;
+        for resolution in data.lexical_resolutions.iter().filter(|r| {
+            r.read == call.callee && same_context(entry, r.qualification, inv.context)
+        }) {
+            work.tick()?;
+            let name = match data.lexical_targets.get(resolution.target) {
+                Some(LexicalTarget::Builtin { name, variable: false })
+                    if name == "getattr" || name == "hasattr" => Some(name.as_str()),
+                _ => None,
+            };
+            hinted |= name.is_some();
+            if native(
+                super::read_channels::NativeContext { data, entry, invocation: inv },
+                &data.lexical_resolution_supports,
+                resolution.id(),
+                resolution.qualification,
+                call.callee,
+                work,
+            )?.is_none() {
+                continue;
+            }
+            if let Some(name) = name {
+                if builtin.is_some_and(|prior| prior != name) { conflicting = true; }
+                builtin = Some(name);
+            } else {
+                conflicting = true;
+            }
+        }
         let target = super::read_dynamic::native_name(data, entry, inv, call.site, work)?;
-        if builtin.is_none() && !target.is_some_and(|t| t.0 == "getattr" || t.0 == "hasattr") {
+        let named_target = target.filter(|t| t.0 == "getattr" || t.0 == "hasattr");
+        if !hinted && named_target.is_none() {
             continue;
+        }
+        if let (Some(builtin), Some(target)) = (builtin, named_target)
+            && builtin != target.0
+        {
+            conflicting = true;
         }
         let arg = data.call_arguments.iter().find(|a| {
             a.call == call.id() && a.ordinal == 1 && a.kind == calls::ArgumentKind::Positional
@@ -499,23 +534,9 @@ pub(super) fn produce(
             work,
         )?
         .is_none()
-            || if let Some(builtin) = builtin {
-                native(
-                    super::read_channels::NativeContext {
-                        data,
-                        entry,
-                        invocation: inv,
-                    },
-                    &data.lexical_resolution_supports,
-                    builtin.id(),
-                    builtin.qualification,
-                    call.callee,
-                    work,
-                )?
-                .is_none()
-            } else {
-                target.is_none()
-            }
+            || conflicting
+            || (hinted && builtin.is_none())
+            || (!hinted && named_target.is_none())
         {
             complete = false
         }
