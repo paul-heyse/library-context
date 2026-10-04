@@ -100,6 +100,7 @@ macro_rules! callable_aspect_inputs {
     ($m:ident) => {
         $m! {
             symbolic_runs:$crate::domain::attribution::ProviderRun,
+            symbolic_surfaces:$crate::domain::assertion::ProviderSurface,
             symbolic_coverage:$crate::domain::attribution::ProviderCoverage,
             symbolic_scopes:$crate::domain::source::CoverageScope,
             symbolic_class_traits:$crate::domain::symbols::ClassTraitObservation,

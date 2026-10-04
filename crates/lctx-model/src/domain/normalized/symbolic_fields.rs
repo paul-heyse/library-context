@@ -850,11 +850,19 @@ fn generated_initializer_parameters(
                 && n.origin == Origin::AnalyzerAssertion
                 && n.mode == ExtractionMode::NativeTraversal
                 && n.fidelity == Fidelity::NativeStructural
-                && d.symbolic_runs.get(n.run).is_some_and(|r| r.context == context)
+                && d.symbolic_runs.get(n.run).is_some_and(|r| {
+                    r.context == context
+                        && d.symbolic_surfaces.get(n.surface).is_some_and(|surface| {
+                            surface.provider == r.provider && surface.family == FactFamily::Types
+                        })
+                })
                 && d.symbolic_signature_supports.iter().any(|s| {
                     s.assertion == signature.id()
                         && s.run == n.run
-                        && s.surface == n.surface
+                        && d.symbolic_surfaces.get(s.surface).is_some_and(|surface| {
+                            surface.family == FactFamily::Signatures
+                                && d.symbolic_runs.get(s.run).is_some_and(|run| surface.provider == run.provider)
+                        })
                         && s.origin == Origin::AnalyzerAssertion
                         && s.mode == ExtractionMode::NativeTraversal
                         && s.fidelity == Fidelity::NativeStructural
