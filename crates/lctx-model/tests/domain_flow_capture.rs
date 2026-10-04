@@ -65,6 +65,11 @@ fn capture_timing_inventory_checks_every_member_and_candidate_only_qualification
         constraint_precision_lost: false,
     };
     snapshot.validate().unwrap();
+    let collapsed = FlowCaptureTimingObservation {
+        nested_scope: enclosing,
+        ..snapshot.clone()
+    };
+    assert!(collapsed.validate().is_err(), "native scope collapse cannot fabricate a canonical nesting edge");
     f.base.put(vec![snapshot.clone()]);
     check(&f).unwrap();
     let definite = FlowCaptureTimingObservation {

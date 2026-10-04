@@ -1260,6 +1260,14 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                 )?;
                 continue;
             };
+            if enclosing_scope == *nested_scope {
+                self.boundary(
+                    Some(use_.occurrence),
+                    ObligationKind::ScopeBoundary,
+                    "native annotation snapshot scopes collapse to one canonical lexical scope",
+                )?;
+                continue;
+            }
             rows_charge.grow(native.candidates.len() * size_of::<CaptureCandidate>() + 512)?;
             let mut candidates = Vec::new();
             let mut attached = true;
