@@ -199,10 +199,10 @@ impl From<EntryRequest> for AccessFrame {
         }
     }
 }
-fn exact(
+pub(crate) fn exact(
     data: &EntryData,
     id: Id<AssertionQualification>,
-    request: impl Into<AccessFrame>,
+    request: impl Into<SupportFrame>,
 ) -> Result<&AssertionQualification, ObligationKind> {
     let request = request.into();
     let q = need(&data.qualifications, id)?;

@@ -236,6 +236,7 @@ pub fn complete_native_singleton<'a>(
     let Some(rq)=data.qualifications.get(reaching.qualification) else {return Ok(None)};
     if run.context!=q.context || run.input!=artifact.input || rq.context!=q.context || rq.scope!=q.scope || rq.approximation!=Approximation::Exact || q.approximation!=Approximation::Exact {return Ok(None)}
     let frame=conditions::entry::SupportFrame {access:use_.occurrence,context:q.context,run:support.run};
+    if conditions::entry::exact(data,observation.qualification,frame).is_err() || conditions::entry::exact(data,reaching.qualification,frame).is_err() || !matches!(data.targets.get(reaching.target),Some(ReachingDefinition::Bound{..})) {return Ok(None)}
     if !conditions::entry::supported(data,support,frame).unwrap_or(false) || !conditions::entry::supported(data,reaching_support,frame).unwrap_or(false) {return Ok(None)}
     let mut inventories=data.inventories.iter().filter(|i|i.use_==use_.id() && i.scope==observation.scope && i.qualification==observation.qualification);
     let Some(inventory)=inventories.next() else {return Ok(None)};
@@ -245,7 +246,7 @@ pub fn complete_native_singleton<'a>(
     if supports.next().is_some() || inventory_support.run!=support.run || inventory_support.surface!=support.surface || !native_traversal(inventory_support) || !conditions::entry::supported(data,inventory_support,frame).unwrap_or(false) {return Ok(None)}
     let Some(view)=data.source_views.get(inventory.view) else {return Ok(None)};
     let Some(vq)=data.qualifications.get(view.qualification) else {return Ok(None)};
-    if view.source!=site.source || vq.context!=q.context || vq.scope!=q.scope || !data.source_view_supports.iter().any(|s|s.assertion==view.id() && s.run==support.run && s.surface==support.surface && native_traversal(s) && conditions::entry::supported(data,s,frame).unwrap_or(false)) {return Ok(None)}
+    if view.source!=site.source || view.original_content!=artifact.content || view.byte_len!=artifact.byte_len || conditions::entry::exact(data,view.qualification,frame).is_err() || vq.context!=q.context || vq.scope!=q.scope || !data.source_view_supports.iter().any(|s|s.assertion==view.id() && s.run==support.run && s.surface==support.surface && native_traversal(s) && conditions::entry::supported(data,s,frame).unwrap_or(false)) {return Ok(None)}
     let candidate_count=data.inventory_candidates.iter().filter(|c|c.inventory==inventory.id()).count();
     let member_count=data.inventory_members.iter().filter(|m|m.inventory==inventory.id()).count();
     if candidate_count>MAX_USE_CANDIDATES || member_count>MAX_USE_CANDIDATES {return Err(invalid("singleton native inventory work bound"))}
