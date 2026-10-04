@@ -161,6 +161,30 @@ fn option(
                 if p.signature != variant.signature {
                     return Err(invalid("documentary effective option changes signature"));
                 }
+                if variant.role != signature.role {
+                    return Err(invalid("documentary option changes its published signature role"));
+                }
+                if !matches!(variant.role, calls::SignatureRole::EffectiveTyped | calls::SignatureRole::Synthesized) {
+                    continue;
+                }
+                // A source slot is a distinct option namespace. Effective slots require
+                // the retained native receipt selected by their published variant.
+                let Some(receipt) = variant.native else { continue };
+                if !d.native.iter().any(|premise| {
+                    matches!(premise, NativeAssertionPremise::NativeSignatureObservation { assertion, .. } if *assertion == receipt)
+                        && d.native_qualifications.iter().any(|n| {
+                            n.premise == premise.id()
+                                && n.family == attribution::FactFamily::Types
+                                && n.fidelity == attribution::Fidelity::NativeStructural
+                                && d.qualifications.get(n.qualification).is_some_and(|q| {
+                                    q.context == context
+                                        && q.modality == assertion::Modality::Definite
+                                        && q.approximation == assertion::Approximation::Exact
+                                })
+                        })
+                }) {
+                    continue;
+                }
                 (
                     &mut effective,
                     need(&d.parameter_shapes, p.shape)?
@@ -175,6 +199,9 @@ fn option(
                     let p = need(&d.signature_parameters, link.parameter)?;
                     let signature = need(&d.parameter_signatures, p.signature)?;
                     if need(&d.qualifications, signature.qualification)?.context != context {
+                        continue;
+                    }
+                    if !signature.role.runtime_source() {
                         continue;
                     }
                     matches |= need(&d.parameter_shapes, p.shape)?
@@ -678,6 +705,13 @@ mod tests {
         row
     }
     fn add_option(d: &mut Data, name: &str, effective: bool, ordinal: i64) -> Id<CatalogOption> {
+        add_role_option(d, name, effective, ordinal, if effective {
+            crate::domain::calls::SignatureRole::EffectiveTyped
+        } else {
+            crate::domain::calls::SignatureRole::Source
+        })
+    }
+    fn add_role_option(d: &mut Data, name: &str, effective: bool, ordinal: i64, role: calls::SignatureRole) -> Id<CatalogOption> {
         let core = d.core_invocations.iter().next().unwrap().clone();
         let q = d
             .qualifications
@@ -686,8 +720,8 @@ mod tests {
             .unwrap()
             .clone();
         let signature = Signature {
-            role: crate::domain::calls::SignatureRole::Source,
-            native: None,
+            role,
+            native: (!role.runtime_source()).then(|| id(191 + ordinal as u8)),
             qualification: q.id(),
             scope: q.scope,
             symbol: id(151 + ordinal as u8),
@@ -713,11 +747,18 @@ mod tests {
             })
             .unwrap();
         let subject = if effective {
+            let native = (!role.runtime_source()).then(|| id(201 + ordinal as u8));
+            if let Some(assertion) = native {
+                documentary::tests::pair(d, NativeAssertionPremise::NativeSignatureObservation {
+                    assertion,
+                    support: id(211 + ordinal as u8),
+                }, &q);
+            }
             let variant = d
                 .option_variants
                 .insert(SignatureVariant {
-                    role: crate::domain::calls::SignatureRole::Source,
-                    native: None,
+                    role,
+                    native,
                     signature: signature.id(),
                     context: core.context,
                     resolution: id(161),
@@ -765,6 +806,34 @@ mod tests {
             .iter()
             .filter(|s| matches!(s, DocumentarySource::Component { .. }))
             .count()
+    }
+    #[test]
+    fn option_names_keep_source_and_effective_roles_separate() {
+        let text = "`pkg.api.run` runs.\n";
+        let (_b, mut d, _, _) = documentary::tests::passage_fixture(true, text, (1, 12));
+        let original = add_option(&mut d, "timeout", false, 0);
+        let effective = add_option(&mut d, "timeout", true, 1);
+        // Catalog retains the source slot as well as its original parameter option.
+        add_role_option(&mut d, "timeout", true, 2, calls::SignatureRole::Source);
+        let member = d.member_frames.iter().next().unwrap().member;
+        let context = d.core_invocations.iter().next().unwrap().context;
+        assert_eq!(option(&d, member, "timeout", context).unwrap().unwrap(), (Some(effective), Some(original)));
+        add_role_option(&mut d, "timeout", true, 3, calls::SignatureRole::Synthesized);
+        assert_eq!(option(&d, member, "timeout", context).unwrap(), Err(BoundaryReason::AmbiguousField));
+    }
+    #[test]
+    fn effective_option_requires_native_receipt_and_original_requires_source_role() {
+        let text = "`pkg.api.run` runs.\n";
+        let (b, mut d, _, _) = documentary::tests::passage_fixture(true, text, (1, 12));
+        add_option(&mut d, "timeout", true, 0);
+        let member = d.member_frames.iter().next().unwrap().member;
+        let context = d.core_invocations.iter().next().unwrap().context;
+        let retained = d.native_qualifications.iter().filter(|n| n.family != attribution::FactFamily::Types).cloned().collect::<Vec<_>>();
+        d.native_qualifications = Rows::new(&b);
+        for row in retained { d.native_qualifications.insert(row).unwrap(); }
+        assert_eq!(option(&d, member, "timeout", context).unwrap(), Err(BoundaryReason::UnknownField));
+        add_role_option(&mut d, "timeout", false, 1, calls::SignatureRole::EffectiveTyped);
+        assert_eq!(option(&d, member, "timeout", context).unwrap(), Err(BoundaryReason::UnknownField));
     }
     #[test]
     fn warning_and_parameter_replay_keep_nearest_field_and_distinct_signature_options() {
