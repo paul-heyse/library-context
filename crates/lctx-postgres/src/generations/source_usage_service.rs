@@ -10,6 +10,7 @@ impl PacketLease<'_>{
         let row=need(&self.read_ids::<Occurrence>(&[occurrence]).await?,occurrence)?;
         if row.source==grant.artifact&&row.start>=0&&row.end>=row.start&&grant.start<=row.start as u64&&row.end as u64<=grant.end {Ok((Availability::Available{},Nullable(Some(SourceCharacterizationSpan{artifact:row.source,start:row.start as u64,end:row.end as u64}))))}else{Ok((unavailable("usage location outside granted original range"),Nullable(None)))}
     }
+    #[allow(clippy::too_many_arguments, reason = "assertion, qualification and original grant retain separate identities; provider family, tool, origin and fidelity are independently checked admission requirements")]
     async fn usage_supports<R:Support>(&mut self,assertion:Id<R::Assertion>,q:&AssertionQualification,grant:&OriginalRange,family:FactFamily,tool:&str,origin:Origin,structural:bool)->Result<Vec<NativeSourceSupportPacket>,Error>{
         let rows=self.read_for::<R,R::Assertion>("assertion",&[assertion]).await?;bounded(rows.rows(),16)?;let mut out=vec![];
         for row in rows.rows(){let Some(a)=row.attribution()else{continue};let run=need(&self.read_ids::<ProviderRun>(&[a.run]).await?,a.run)?;let surface=need(&self.read_ids::<ProviderSurface>(&[a.surface]).await?,a.surface)?;let provider=need(&self.read_ids::<Provider>(&[run.provider]).await?,run.provider)?;

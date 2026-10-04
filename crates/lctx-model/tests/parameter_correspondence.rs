@@ -28,7 +28,7 @@ fn attach(data: &mut BindingData, q: &AssertionQualification, parent: &Occurrenc
 }
 fn native(data: &mut BindingData, q: &AssertionQualification, p: &ParameterSyntaxObservation, formal: &Occurrence, variant: i64, kind: ParameterKind, function: Id<Occurrence>) -> Id<calls::SignatureParameter> {
     let shape = ParameterShape { name: Some("same_name".into()), kind, required: !matches!(kind, ParameterKind::VarPositional | ParameterKind::VarKeyword) };
-    let (signature, slots) = Signature::new(q, lctx_model::domain::calls::SignatureRole::Source, None, id(6), variant, SignatureForm::List, &[shape.clone()]).unwrap();
+    let (signature, slots) = Signature::new(q, lctx_model::domain::calls::SignatureRole::Source, None, id(6), variant, SignatureForm::List, std::slice::from_ref(&shape)).unwrap();
     data.shapes.insert(shape).unwrap();
     data.signatures.insert(signature.clone()).unwrap();
     data.parameters.insert(slots[0].clone()).unwrap();
