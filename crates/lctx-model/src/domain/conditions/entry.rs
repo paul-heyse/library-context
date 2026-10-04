@@ -831,8 +831,8 @@ impl EntryValueWitness {
                         .is_some_and(|m| m.source == read.source),
                     _ => false,
                 };
-                if relevant {
-                    if matches!(row.status,CoverageStatus::CompleteUnderStatedModel|CoverageStatus::Partial){coverage = Some(row.id());}
+                if relevant && matches!(row.status,CoverageStatus::CompleteUnderStatedModel|CoverageStatus::Partial) {
+                    coverage = Some(row.id());
                 }
             }
             let coverage = coverage.ok_or(ObligationKind::IncompleteCoverage)?;
