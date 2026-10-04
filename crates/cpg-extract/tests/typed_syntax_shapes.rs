@@ -26,6 +26,7 @@ struct Facts {
     symbols: Vec<ProviderSymbol>,
     symbol_declarations: Vec<lctx_model::domain::declarations::SymbolDeclaration>,
     signatures: Vec<Signature>,
+    qualifications: Vec<lctx_model::domain::assertion::AssertionQualification>,
     specializations: Vec<lctx_model::domain::types::GenericSpecializationObservation>,
     arguments: Vec<CallArgument>,
     literals: Vec<Literal>,
@@ -125,6 +126,7 @@ async fn run(files: BTreeMap<String, Vec<u8>>, limits: SyntaxLimits) -> Facts {
         symbols: typed_driver::rows(&tables),
         symbol_declarations: typed_driver::rows(&tables),
         signatures: typed_driver::rows(&tables),
+        qualifications: typed_driver::rows(&tables),
         specializations: typed_driver::rows(&tables),
         arguments: typed_driver::rows(&tables),
         literals: typed_driver::rows(&tables),
@@ -366,7 +368,18 @@ async fn syntax_shapes_states_declarations_parameters_calls_and_operators() {
                         && b.context == coverage.context && b.family == coverage.family
                         && Some(b.reason) == coverage.reason
                 }).collect();
-                assert!(!disclosed.is_empty(), "partial signatures require their actual attributed boundary: {coverage:?}");
+                let unavailable = f.signatures.iter().any(|s| {
+                    s.form == SignatureForm::NativeUnavailable
+                        && s.scope == coverage.scope
+                        && f.qualifications.iter().any(|q| {
+                            q.id() == s.qualification && q.context == coverage.context
+                        })
+                        && f.symbols.iter().any(|symbol| {
+                            symbol.id() == s.symbol && Some(symbol.provider) == coverage.provider
+                        })
+                });
+                assert!(!disclosed.is_empty() || unavailable,
+                    "partial signatures retain a same-frame native fallback or attributed boundary: {coverage:?}");
                 for boundary in disclosed {
                     let detail = boundary.detail.as_deref().unwrap();
                     if detail.starts_with("native signature variant") {

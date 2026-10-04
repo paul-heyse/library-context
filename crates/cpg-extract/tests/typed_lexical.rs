@@ -28,6 +28,7 @@ struct Facts {
     references: Vec<ReferenceObservation>,
     targets: Vec<LexicalTarget>,
     resolutions: Vec<LexicalResolution>,
+    resolution_supports: Vec<LexicalResolutionSupport>,
     qualifications: Vec<AssertionQualification>,
     coverage: Vec<ProviderCoverage>,
 }
@@ -66,7 +67,8 @@ impl Facts {
             .count()
             + 1
     }
-    /// How the read of `name` on `line` of `path` resolves, sorted, each with (captured, candidate).
+    /// Source recognizer resolutions, with (captured, candidate). Native Ruff context and
+    /// resolution observations have independent controls; they do not replace this oracle.
     fn resolves(&self, path: &str, line: usize, name: &str) -> Vec<(To, bool, bool)> {
         let reads: Vec<Id<Occurrence>> = self
             .references
@@ -82,7 +84,15 @@ impl Facts {
         let mut out: Vec<(To, bool, bool)> = self
             .resolutions
             .iter()
-            .filter(|r| r.read == reads[0])
+            .filter(|r| {
+                r.read == reads[0]
+                    && self.resolution_supports.iter().any(|s| {
+                        s.assertion == r.id()
+                            && s.origin == Origin::DerivedAnalysis
+                            && s.mode == ExtractionMode::Recognizer
+                            && s.fidelity == Fidelity::NormalizedStructural
+                    })
+            })
             .map(|r| {
                 let to = match self.targets.iter().find(|t| t.id() == r.target).unwrap() {
                     LexicalTarget::Binding { event } => {
@@ -133,6 +143,7 @@ async fn run(case: &str) -> Facts {
         references: typed_driver::rows(&tables),
         targets: typed_driver::rows(&tables),
         resolutions: typed_driver::rows(&tables),
+        resolution_supports: typed_driver::rows(&tables),
         qualifications: typed_driver::rows(&tables),
         coverage: typed_driver::rows(&tables),
     }
