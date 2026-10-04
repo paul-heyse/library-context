@@ -269,15 +269,15 @@ async fn native_premise_removal_and_coupled_membership_corruption_refuse() {
         .iter()
         .find(|r| r.class == class_symbol && r.name == "left")
         .unwrap();
-    let initializer = d.traits.iter().find(|t| {
+    let initializer = original.traits.iter().find(|t| {
         t.defining_class == Some(class_symbol)
-            && d.symbols.get(t.symbol).is_some_and(|s| s.name == "__init__")
+            && original.symbols.get(t.symbol).is_some_and(|s| s.name == "__init__")
     }).unwrap().symbol;
-    let signature = d.symbolic_signatures.iter().find(|s| {
+    let signature = original.symbolic_signatures.iter().find(|s| {
         s.symbol == initializer && s.role == calls::SignatureRole::Synthesized
     }).unwrap().clone();
-    assert!(!d.symbolic_signature_enumerations.iter().any(|e| e.symbol == initializer));
-    let native = d.symbolic_native_signatures.iter()
+    assert!(!original.symbolic_signature_enumerations.iter().any(|e| e.symbol == initializer));
+    let native = original.symbolic_native_signatures.iter()
         .find(|n| n.signature == signature.id()).unwrap().clone();
     assert!(native.complete);
     for mutation in 0..22 {
