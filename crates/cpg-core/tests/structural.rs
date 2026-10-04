@@ -44,26 +44,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             statement_timeout_seconds: 60,
             lock_timeout_seconds: 10,
         };
-        let mut relations = normalized_relations();
-        relations.extend(analysis::early_relations());
-        relations.extend(catalog_runtime::relations());
-        relations.extend(analysis::catalog_core::relations());
-        relations.extend(catalog::relations());
-        relations.extend(analysis::catalog_evidence::relations());
-        relations.extend(analysis::selection::relations());
-        relations.extend(selection::relations());
-        relations.extend(analysis::local::relations());
-        relations.extend(transfer::local::relations());
-        relations.extend(local_semantics::relations());
-        relations.extend(local_theory::relations());
-        relations.extend(local_fields::relations());
-        macro_rules! declared {($($field:ident:$ty:ty,)*)=>{$(relations.push(Relation::of::<$ty>());)*};}
-        lctx_model::local_semantic_outputs!(declared);
-        relations.extend(analysis::structural::relations());
-        relations.extend(structural::relations());
-        relations.sort_by_key(Relation::name);
-        relations.dedup_by_key(|r| r.name());
-        let model = Arc::new(ValidatedModel::validate(relations).unwrap());
+        let model = Arc::new(lctx_model::domain::model().unwrap());
         let store = GenerationStore::install(db.owner.clone(), model.clone())
             .await
             .unwrap();
