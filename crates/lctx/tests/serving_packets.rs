@@ -1618,3 +1618,95 @@ def conditional(value: int, flag: bool) -> int:
     drop(execution);
     fixture.finish().await;
 }
+
+/// Native PostgreSQL explanation and wire parity; no MCP proof-request interface is implied.
+#[tokio::test]
+async fn composed_summary_explanation_retains_exact_selected_signature_domain() {
+    use lctx_model::domain::{
+        calls::{Signature, SignatureEnumerationMember, SignatureEnumerationObservation,
+            SignatureEnumerationSupport, SignatureRole},
+        derivation::RowRef,
+        transfer::summary::SummaryWitness,
+    };
+    let source = br#"__all__=['identity','relay']
+def identity(value):
+    return value
+def relay(value):
+    return identity(value)
+@unknown_decorator
+def unavailable():
+    return 1
+"#;
+    let fixture = ServingFixture::start_with_seeds(
+        source, "behavioral", &["demo.relay"], 4,
+    ).await;
+    let execution = fixture.service.execution().await.unwrap();
+    let witnesses = execution.read::<SummaryWitness>().await.unwrap();
+    let witness = witnesses.rows().iter()
+        .find(|row| row.selected_signature_enumeration.is_some())
+        .expect("actual composed source witness with selected domain");
+    let enumeration = witness.selected_signature_enumeration.unwrap();
+    let native_support = witness.selected_signature_enumeration_support
+        .expect("selected domain retains its exact native support");
+    let (header, support, members) = execution.query(move |lease| {
+        Box::pin(async move {
+            let headers = lease.read_ids::<SignatureEnumerationObservation>(&[enumeration]).await?;
+            let supports = lease.read_ids::<SignatureEnumerationSupport>(&[native_support]).await?;
+            let members = lease.read_for::<SignatureEnumerationMember, SignatureEnumerationObservation>(
+                "enumeration", &[enumeration],
+            ).await?;
+            Ok((headers.rows()[0].clone(), supports.rows()[0].clone(), members.rows().to_vec()))
+        })
+    }).await.unwrap();
+    assert!(header.complete);
+    assert_eq!(header.role, SignatureRole::Source);
+    assert_eq!(support.assertion, enumeration);
+    assert!(!members.is_empty());
+    let root = ProofReference::from_canonical(RowRef::of(witness.id()));
+    let proof = fixture.service.explanation(&execution, root.clone()).await.unwrap();
+    let step = proof.items.iter()
+        .find(|step| step.source == root && step.rule.as_str() == "compose_through_call")
+        .expect("canonical composed witness explanation");
+    for (role, reference) in [
+        ("selected_signature_enumeration", ProofReference::from_canonical(RowRef::of(enumeration))),
+        ("selected_signature_enumeration_support", ProofReference::from_canonical(RowRef::of(native_support))),
+    ] {
+        assert!(step.premises.iter().any(|premise|
+            premise.role.as_str() == role && premise.premise == reference));
+    }
+    let mut members = members;
+    members.sort_by_key(|member| member.ordinal);
+    let enumeration_ref = ProofReference::from_canonical(RowRef::of(enumeration));
+    let membership_steps = proof.items.iter()
+        .filter(|step| step.rule.as_str() == "signature_enumeration_member"
+            && step.conclusion == enumeration_ref)
+        .collect::<Vec<_>>();
+    assert_eq!(membership_steps.len(), members.len());
+    for (ordinal, member) in members.iter().enumerate() {
+        assert_eq!(member.ordinal, ordinal as i64);
+        let reference = ProofReference::from_canonical(RowRef::of(member.id()));
+        let step = membership_steps.iter().find(|step| step.source == reference)
+            .expect("every exact selected enumeration member is visible");
+        assert_eq!(step.premises, vec![PremisePacket {
+            role: Name::new("signature").unwrap(),
+            premise: ProofReference::from_canonical(RowRef::of(member.signature)),
+        }]);
+    }
+    let member_count = members.len();
+    let signatures = execution.query(move |lease| {
+        Box::pin(async move {
+            lease.read_ids::<Signature>(
+                &members.iter().map(|member| member.signature).collect::<Vec<_>>(),
+            ).await
+        })
+    }).await.unwrap();
+    assert_eq!(signatures.rows().len(), member_count);
+    assert!(signatures.rows().iter().all(|signature|
+        signature.role == header.role && signature.symbol == header.symbol
+            && signature.qualification == header.qualification));
+    let serialized = serde_json::to_value(&proof).unwrap();
+    let restored: SectionPage<DerivationStep> = serde_json::from_value(serialized).unwrap();
+    assert_eq!(restored, proof);
+    drop(execution);
+    fixture.finish().await;
+}

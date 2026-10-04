@@ -723,6 +723,19 @@ async fn finite_summary_witness_uses_actual_native_lineage_and_ordinary_companio
         analysis::policy::EvidenceStatus::StructurallyObserved
     );
     assert!(!w.emission.witness.heuristic);
+    let admission = f.verified.composition(w.emission.witness.attempt).unwrap();
+    match admission.signature_closure() {
+        normalized::binding_normalization::SourceBodySignatureClosure::GlobalCoverage { .. } => {
+            assert_eq!(w.emission.witness.selected_signature_enumeration, None);
+            assert_eq!(w.emission.witness.selected_signature_enumeration_support, None);
+        }
+        normalized::binding_normalization::SourceBodySignatureClosure::DeclaredEnumeration {
+            enumeration, support, ..
+        } => {
+            assert_eq!(w.emission.witness.selected_signature_enumeration, Some(enumeration));
+            assert_eq!(w.emission.witness.selected_signature_enumeration_support, Some(support));
+        }
+    }
     assert_eq!(w.rows::<transfer::summary::TransferSupport>().len(), 1);
     assert_eq!(w.rows::<analysis::summary::AnalysisDerivation>().len(), 1);
 }
@@ -922,4 +935,31 @@ async fn site_composition_preserves_alternatives_and_refuses_pair_work_before_ex
         ),
         ObligationKind::SummaryPairWorkLimit
     );
+}
+
+#[tokio::test]
+async fn selected_source_signature_witness_replay_refuses_missing_and_foreign_domain() {
+    use normalized::binding_normalization::SourceBodySignatureClosure;
+    let f = fixture::native_from("source_body_shapes").await;
+    let text = "inner(17)";
+    let witness = fixture::WitnessFixture::mutated_at(&f, text, None);
+    let admission = f.verified.composition(witness.emission.witness.attempt).unwrap();
+    let SourceBodySignatureClosure::DeclaredEnumeration { enumeration, support, .. } =
+        admission.signature_closure()
+    else {
+        panic!("selected source closure must preserve unrelated incomplete signature family")
+    };
+    assert_eq!(witness.emission.witness.selected_signature_enumeration, Some(enumeration));
+    assert_eq!(witness.emission.witness.selected_signature_enumeration_support, Some(support));
+    witness.check::<transfer::summary::SummaryWitness>(&f.budget).unwrap();
+    for mutation in [
+        fixture::Mutation::MissingSelectedEnumeration,
+        fixture::Mutation::MissingSelectedEnumerationSupport,
+        fixture::Mutation::ForeignSelectedEnumeration,
+        fixture::Mutation::ForeignSelectedEnumerationSupport,
+    ] {
+        let witness = fixture::WitnessFixture::mutated_at(&f, text, Some(mutation));
+        let error = witness.check::<transfer::summary::SummaryWitness>(&f.budget).unwrap_err();
+        assert!(error.to_string().contains("exact normalized binding"), "{mutation:?}: {error}");
+    }
 }

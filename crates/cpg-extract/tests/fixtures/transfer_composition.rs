@@ -489,6 +489,10 @@ pub enum Mutation {
     ForeignOutput,
     ForgedPath,
     ForgedStatus,
+    MissingSelectedEnumeration,
+    MissingSelectedEnumerationSupport,
+    ForeignSelectedEnumeration,
+    ForeignSelectedEnumerationSupport,
 }
 pub struct WitnessFixture {
     pub early: typed_driver::Tables,
@@ -514,6 +518,9 @@ impl WitnessFixture {
         Self::mutated(f, None)
     }
     pub fn mutated(f: &NativeFixture, mutation: Option<Mutation>) -> Self {
+        Self::mutated_at(f, "identity(seed)", mutation)
+    }
+    pub fn mutated_at(f: &NativeFixture, text: &str, mutation: Option<Mutation>) -> Self {
         let tables = std::sync::Arc::new(std::sync::Mutex::new(f.tables.lock().unwrap().clone()));
         macro_rules! native {($($field:ident:$ty:ty,)*)=>{$(put::<$ty>(&tables,f.data.$field.iter().cloned());)*};}
         lctx_model::normalized_binding_inputs!(native);
@@ -552,7 +559,7 @@ impl WitnessFixture {
             interpretation: analysis::Interpretation::Structural,
         };
         put(&tables, [definition.clone()]);
-        let mut c = f.case("identity(seed)");
+        let mut c = f.case(text);
         let actual = c.actual(0, AccessPath::empty());
         let entry = c.entry(0, AccessPath::empty());
         let output = c.returned(AccessPath::empty());
@@ -734,6 +741,26 @@ impl WitnessFixture {
                     put(&tables, c.places.places.values().cloned());
                     put(&tables, c.places.paths.values().cloned());
                     put(&tables, c.places.segments.values().cloned());
+                }
+                Mutation::MissingSelectedEnumeration => {
+                    assert!(composed.witness.selected_signature_enumeration.take().is_some());
+                }
+                Mutation::MissingSelectedEnumerationSupport => {
+                    assert!(composed.witness.selected_signature_enumeration_support.take().is_some());
+                }
+                Mutation::ForeignSelectedEnumeration => {
+                    composed.witness.selected_signature_enumeration = Some(
+                        f.data.signature_enumerations.iter()
+                            .find(|row| Some(row.id()) != composed.witness.selected_signature_enumeration)
+                            .expect("another actual native enumeration").id(),
+                    );
+                }
+                Mutation::ForeignSelectedEnumerationSupport => {
+                    composed.witness.selected_signature_enumeration_support = Some(
+                        f.data.signature_enumeration_supports.iter()
+                            .find(|row| Some(row.id()) != composed.witness.selected_signature_enumeration_support)
+                            .expect("another actual native enumeration support").id(),
+                    );
                 }
                 Mutation::ForgedStatus => {}
             }
