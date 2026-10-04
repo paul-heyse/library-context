@@ -34,9 +34,10 @@ fn exact(d: &Data, qualification: Id<assertion::AssertionQualification>, ctx: Id
 fn resolves(d: &Data, symbol: Id<calls::ProviderSymbol>, entity: Id<EntityRef>, ctx: Id<attribution::AnalysisContext>) -> bool {
     d.native.symbol_resolutions.iter().any(|r| r.symbol == symbol && r.context == ctx && r.status == ResolutionStatus::Resolved && r.entity == Some(entity))
 }
-// Entity/observation/role/context identify separate semantic owners; facts and selections
-// retain independent provenance under the shared resource budget and state charge.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "entity, observation, role and context retain nominal identities; facts and selections retain independent provenance under one budget and charge"
+)]
 pub(super) fn metadata(
     d: &Data, entity: Id<EntityRef>, observation: &types::TypeObservation, role: TypePortRole,
     ctx: Id<attribution::AnalysisContext>, budget: &ResourceBudget, facts: &mut ChargedVec<Fact>, selections: &mut ChargedVec<Selection>, charge: &mut StateCharge,
