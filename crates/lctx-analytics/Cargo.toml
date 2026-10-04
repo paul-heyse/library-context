@@ -12,6 +12,8 @@ lctx-model = { path = "../lctx-model" }
 [dev-dependencies]
 serde_json.workspace = true
 fcars.workspace = true
+odis.workspace = true
+bit-set.workspace = true
 bitvec.workspace = true
 leiden-rs.workspace = true
 

@@ -52,5 +52,10 @@ allow = [
     "OpenSSL",
 ]
 
+# Independent FCA oracle is a dev dependency only.
+[[licenses.exceptions]]
+name = "odis"
+allow = ["AGPL-3.0-only"]
+
 [licenses.private]
 ignore = true
