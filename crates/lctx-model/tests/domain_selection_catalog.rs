@@ -1393,7 +1393,7 @@ fn explicit_callable_comparison_preserves_layout_and_unknown_correspondence() {
 #[test]
 fn local_preparation_inventory_and_missing_membership_refusal() {
     use selection::classification::ClassificationData;
-    assert_eq!(ClassificationData::inputs().len(), 94);
+    assert_eq!(ClassificationData::inputs().len(), 95);
     assert!(
         ClassificationData::inputs()
             .iter()
@@ -1719,4 +1719,33 @@ fn later_unreferenced_qualification_does_not_expand_c2_witness_closure() {
     d.source.core.qualifications.insert(later).unwrap();
     let replayed = lctx_model::domain::selection::build::build(&d, &b).unwrap();
     expected.matches(&replayed).unwrap();
+}
+
+#[test]
+fn incoming_references_refuse_unadmitted_or_foreign_native_binding_support() {
+    use lctx_model::domain::{normalized::{incoming_references::incoming,links::*},ruff::*,lexical::{ReferenceObservation,SyntaxField},selection::classification::ClassificationData};
+    for mutation in ["none","ambiguous","unresolved","binding-context","run","surface","run-context","final-binding"] {
+        let (budget,data,member,context,artifact)=fixture();
+        let mut d=ClassificationData::project(&data,&budget).unwrap();
+        let qualification=d.source.core.qualifications.iter().find(|q|q.context==context).unwrap().clone();
+        let mut foreign=qualification.clone();foreign.context=id(90);
+        d.source.core.qualifications.insert(foreign.clone()).unwrap();
+        let read=Occurrence {source:artifact.id(),start:4,end:7,syntax_kind:SyntaxKind::ExprName};d.source.core.occurrences.insert(read.clone()).unwrap();
+        let reference=ReferenceObservation {qualification:qualification.id(),read:read.id(),scope:id(41),parent:id(42),field:SyntaxField::Decorator,name:"run".into()};d.source.core.references.insert(reference.clone()).unwrap();
+        let callable=d.source.core.assessments.iter().next().unwrap().callable;
+        let target=ReferenceEntityTarget::Binding {event:id(43),entity:EntityRef::Callable {callable}.id()};d.source.core.reference_targets.insert(target.clone()).unwrap();
+        let status=if mutation=="ambiguous" {ResolutionStatus::Ambiguous}else{ResolutionStatus::Resolved};
+        let assessment=ReferenceEntityAssessment {reference:reference.id(),status,reason:LinkReason::MissingCorrespondence};d.source.core.reference_assessments.insert(assessment.clone()).unwrap();
+        let candidate=ReferenceEntityCandidate {assessment:assessment.id(),resolution:id(44),target:target.id()};d.source.core.reference_candidates.insert(candidate.clone()).unwrap();
+        let binding=RuffBindingObservation {qualification:if mutation=="binding-context" {foreign.id()}else{qualification.id()},event:id(43),kind:RuffBindingKind::FunctionDefinition,native_name:"run".into(),scope:None,scope_location:AttachmentStatus::Unlocated,shadowed:None,shadowed_location:NativeRelationLocation::Absent,outer_shadowed:None,outer_shadowed_location:NativeRelationLocation::Absent,definition_scope:None,definition_scope_location:NativeRelationLocation::Absent,typing:false,qualified_name:None,explicit_export:false,external:false,alias:false,nonlocal:false,global:false,deleted:false,invalid_all_format:false,invalid_all_object:false,private_declaration:false,unpacked_assignment:false,in_except_handler:false,annotated_type_alias:false,deferred_type_alias:false,in_assert_statement:false,lazy:false};
+        d.facts.native_bindings.insert(binding.clone()).unwrap();
+        let native=RuffContextObservation {qualification:qualification.id(),subject:read.id(),phase:ContextPhase::FinalReference,reference_load:Some(true),typing:Some(false),typing_only_annotation:Some(false),runtime_annotation:Some(false),string_annotation:Some(false),type_checking:Some(false),qualified_name:None,final_binding:Some(if mutation=="final-binding" {id(91)}else{id(43)}),final_binding_location:Some(AttachmentStatus::Located),unresolved_wildcard:None,unresolved_annotation_binding:None};d.facts.native_contexts.insert(native.clone()).unwrap();
+        let run=ProviderRun {provider:id(45),context:if mutation=="run-context" {foreign.context}else{context},input:artifact.input,configuration:ContentHash::of(b"incoming reference control"),requested_families:ContentHash::of(b"lexical")};d.facts.runs.insert(run.clone()).unwrap();
+        let cs=RuffContextSupport {assertion:native.id(),run:run.id(),surface:id(46),evidence:id(47),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};d.facts.native_context_supports.insert(cs.clone()).unwrap();
+        let bs=RuffBindingSupport {assertion:binding.id(),run:if mutation=="run" {id(92)}else{run.id()},surface:if mutation=="surface" {id(93)}else{cs.surface},evidence:id(48),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};d.facts.native_binding_supports.insert(bs.clone()).unwrap();
+        d.facts.reference_characterizations.insert(ReferenceBindingCharacterization {reference:reference.id(),native_context:native.id(),binding:binding.id(),context_support:Some(cs.id()),support:Some(bs.id()),candidate:Some(candidate.id()),status:if mutation=="unresolved" {ResolutionStatus::Unresolved}else{status},reason:LinkReason::MissingCorrespondence}).unwrap();
+        let result=incoming(&d,member,None,&budget).unwrap();
+        if matches!(mutation,"none"|"ambiguous") {assert_eq!(result.value.references.len(),1,"{mutation}");assert_eq!(result.value.references[0].status,status);assert_eq!(result.value.scope.unsupported_name_references,0);}else{assert!(result.value.references.is_empty(),"{mutation} promoted unsupported correspondence");assert_eq!(result.value.scope.unsupported_name_references,1,"{mutation}");}
+        let tiny=ResourceBudget::fixed(1).unwrap();assert!(incoming(&d,member,None,&tiny).is_err());assert_eq!(tiny.reserved(),0);
+    }
 }

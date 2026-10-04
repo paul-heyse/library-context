@@ -5,6 +5,7 @@ macro_rules! catalog_selection_inputs {
 
          reference_characterizations:$crate::domain::normalized::links::ReferenceBindingCharacterization,
          native_contexts:$crate::domain::ruff::RuffContextObservation,
+         native_bindings:$crate::domain::ruff::RuffBindingObservation,
          native_context_supports:$crate::domain::ruff::RuffContextSupport,
          native_binding_supports:$crate::domain::ruff::RuffBindingSupport,
          reference_supports:$crate::domain::lexical::ReferenceSupport,

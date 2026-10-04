@@ -99,6 +99,7 @@ group!(Evidence, crate::domain::catalog::evidence::build::EvidenceOutput, {
 group!(Facts, crate::domain::selection::build::Facts, {
     reference_characterizations:crate::domain::normalized::links::ReferenceBindingCharacterization,
     native_contexts:crate::domain::ruff::RuffContextObservation,
+    native_bindings:crate::domain::ruff::RuffBindingObservation,
     native_context_supports:crate::domain::ruff::RuffContextSupport,
     native_binding_supports:crate::domain::ruff::RuffBindingSupport,
     reference_supports:crate::domain::lexical::ReferenceSupport,
