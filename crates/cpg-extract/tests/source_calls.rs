@@ -477,6 +477,11 @@ async fn retained_source_shapes_preserve_invocation_and_frame_boundaries() {
                     eprintln!("SOURCE_CALL_ATTEMPT {attempt:?}");
                     if let Some(effective) = attempt.effective.and_then(|id| data.bindings.callable_assessments.get(id)) {
                         eprintln!("SOURCE_CALL_EFFECTIVE {effective:?}");
+                        for variant in data.bindings.callable_variants.iter().filter(|v| {
+                            v.assessment == Some(effective.id())
+                        }).take(8) {
+                            eprintln!("SOURCE_CALL_SIGNATURE {:?}", data.bindings.signatures.get(variant.signature));
+                        }
                     }
                     for member in data.output.members.iter().filter(|m| m.attempt == attempt.id()).take(4) {
                         let variant = data.output.variants.get(member.variant).unwrap();
