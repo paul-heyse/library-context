@@ -1749,3 +1749,100 @@ async fn ordered_context_execution_replays_actual_entry_body_reverse_exit_and_su
         );
     }
 }
+
+#[tokio::test]
+async fn selected_source_body_closure_preserves_partial_family_and_refuses_missing_premises() {
+    use normalized::{Rows, binding_normalization::{self, SourceBodySignatureClosure}, bindings::BindingOutcome};
+    let f = fixture::native_from("source_body_shapes").await;
+    let attempt = f.output.attempts.iter().find(|a| {
+        f.attempts_at("inner(17)").iter().any(|candidate| candidate.id() == a.id())
+            && a.signature.and_then(|id| f.data.signatures.get(id))
+                .is_some_and(|s| s.role == calls::SignatureRole::Source)
+    }).unwrap();
+    let admission = f.verified.composition(attempt.id()).expect("bounded source body");
+    let SourceBodySignatureClosure::DeclaredEnumeration { enumeration, support, .. } = admission.signature_closure() else {
+        panic!("unrelated unavailable variants must retain whole-family Partial")
+    };
+    assert!(!f.output.sets.get(admission.set()).unwrap().coverage_complete);
+    assert!(f.verified.effective_invocation(attempt.id()).is_none());
+    let signature = f.data.signatures.get(attempt.signature.unwrap()).unwrap();
+    let header = f.data.signature_enumerations.get(enumeration).unwrap();
+    let support = f.data.signature_enumeration_supports.get(support).unwrap();
+    let effective = f.data.callable_assessments.get(attempt.effective.unwrap()).unwrap();
+    let normalized::entities::CallableEntity::Source { declaration, .. } = f.data.callables.get(effective.callable).unwrap() else { panic!("source") };
+    for mutation in 0..9 {
+        let mut data = binding_normalization::BindingData::new(&f.budget);
+        macro_rules! copy { ($($field:ident:$ty:ty,)*) => {$(
+            for row in f.data.$field.iter() { data.$field.insert(row.clone()).unwrap(); }
+        )*}; }
+        lctx_model::normalized_binding_inputs!(copy);
+        macro_rules! keep { ($field:ident, $predicate:expr) => {{
+            let retained = data.$field.iter().filter($predicate).cloned().collect::<Vec<_>>();
+            data.$field = Rows::new(&f.budget);
+            for row in retained { data.$field.insert(row).unwrap(); }
+        }}; }
+        match mutation {
+            0 => keep!(signature_enumeration_supports, |s: &&calls::SignatureEnumerationSupport| s.assertion != enumeration),
+            1 | 2 | 7 => {
+                let mut changed = support.clone();
+                if mutation == 1 { changed.mode = attribution::ExtractionMode::ReportDecode; }
+                if mutation == 2 {
+                    changed.run = data.runs.iter().find(|r| r.provider != f.data.runs.get(support.run).unwrap().provider).unwrap().id();
+                }
+                if mutation == 7 { changed.fidelity = attribution::Fidelity::Raw; }
+                keep!(signature_enumeration_supports, |s: &&calls::SignatureEnumerationSupport| s.id() != support.id());
+                data.signature_enumeration_supports.insert(changed).unwrap();
+            }
+            3 => keep!(signature_enumeration_members, |m: &&calls::SignatureEnumerationMember| m.enumeration != enumeration),
+            4 => keep!(entity_declarations, |d: &&declarations::SymbolDeclaration| d.symbol != header.symbol),
+            5 => {
+                let mut changed = signature.clone();
+                changed.form = calls::SignatureForm::NativeUnavailable;
+                keep!(signatures, |s: &&calls::Signature| s.id() != signature.id());
+                data.signatures.insert(changed).unwrap();
+            }
+            6 => keep!(bodies, |b: &&types::FunctionBodyObservation| b.declaration != *declaration),
+            8 => {
+                // Two genuinely compatible declared variants cannot close a unique body call,
+                // even when their shapes are identical and the provider enumerates both.
+                let mut parameters = data.parameters.iter().filter(|p| p.signature == signature.id()).collect::<Vec<_>>();
+                parameters.sort_by_key(|p| p.ordinal);
+                let shapes = parameters.iter().map(|p| data.shapes.get(p.shape).unwrap().clone()).collect::<Vec<_>>();
+                let q = data.qualifications.get(signature.qualification).unwrap();
+                let (second, parameters) = calls::Signature::new(q, signature.role, None, signature.symbol,
+                    signature.variant + 1, signature.form, &shapes).unwrap();
+                let (expanded, members) = calls::SignatureEnumerationObservation::new(q, signature.symbol,
+                    [signature, &second].into_iter(), true).unwrap();
+                data.signatures.insert(second.clone()).unwrap();
+                for parameter in parameters { data.parameters.insert(parameter).unwrap(); }
+                let mut signature_support = data.signature_supports.iter().find(|s| s.assertion == signature.id()).unwrap().clone();
+                signature_support.assertion = second.id();
+                data.signature_supports.insert(signature_support).unwrap();
+                keep!(signature_enumerations, |e: &&calls::SignatureEnumerationObservation| e.id() != enumeration);
+                keep!(signature_enumeration_members, |m: &&calls::SignatureEnumerationMember| m.enumeration != enumeration);
+                keep!(signature_enumeration_supports, |s: &&calls::SignatureEnumerationSupport| s.assertion != enumeration);
+                let mut expanded_support = support.clone();
+                expanded_support.assertion = expanded.id();
+                data.signature_enumeration_supports.insert(expanded_support).unwrap();
+                data.signature_enumerations.insert(expanded).unwrap();
+                for member in members { data.signature_enumeration_members.insert(member).unwrap(); }
+            }
+            _ => unreachable!(),
+        }
+        let refused = if mutation == 6 || mutation == 8 {
+            fixture::rebuild_callables(&mut data, &f.budget);
+            fixture::rebuild_events(&mut data, &f.budget);
+            let output = binding_normalization::normalize(&data, &f.budget).unwrap();
+            let checked = binding_normalization::verify(&data, &output, &f.budget).unwrap();
+            let attempts = output.attempts.iter().filter(|a| a.event == attempt.event).collect::<Vec<_>>();
+            assert!(attempts.iter().any(|a| a.outcome == BindingOutcome::Bound));
+            attempts.iter().all(|a| checked.composition(a.id()).is_none())
+        } else {
+            match binding_normalization::verify(&data, &f.output, &f.budget) {
+                Ok(checked) => checked.composition(attempt.id()).is_none(),
+                Err(_) => true,
+            }
+        };
+        assert!(refused, "mutation {mutation} promoted selected body authority");
+    }
+}

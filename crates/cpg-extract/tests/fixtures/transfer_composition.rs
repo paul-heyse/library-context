@@ -114,7 +114,7 @@ pub async fn native_from(fixture: &'static str) -> NativeFixture {
         budget,
     }
 }
-fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
+pub(crate) fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
     let mut receivers = lctx_model::domain::normalized::receiver::ReceiverData::new(budget);
     macro_rules! receiver_inputs {($($field:ident: $ty:ty,)*)=>{$(receivers.visit(<$ty>::NAME,&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::normalized_binding_inputs!(receiver_inputs);
@@ -138,7 +138,7 @@ fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
     macro_rules! event_outputs { ($($field:ident: $ty:ty,)*) => { $(data.visit(<$ty>::NAME, &<$ty as Record>::encode(&events.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)* }; }
     lctx_model::normalized_event_outputs!(event_outputs);
 }
-fn rebuild_callables(data: &mut BindingData, budget: &ResourceBudget) {
+pub(crate) fn rebuild_callables(data: &mut BindingData, budget: &ResourceBudget) {
     let mut callables = callable_normalization::CallableData::new(budget);
     macro_rules! inputs { ($($field:ident: $ty:ty,)*) => { $(callables.visit(<$ty>::NAME, &<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)* }; }
     lctx_model::normalized_binding_inputs!(inputs);

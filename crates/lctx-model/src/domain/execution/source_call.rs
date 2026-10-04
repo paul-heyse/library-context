@@ -404,6 +404,21 @@ impl CheckedSourceBinding {
                 rows: Rows::new(budget),
                 status: EvidenceStatus::StructurallyObserved,
             };
+            if let normalized::binding_normalization::SourceBodySignatureClosure::DeclaredEnumeration {
+                enumeration, members, support,
+            } = admission.signature_closure() {
+                let header = need(&bindings.signature_enumerations, enumeration)?;
+                if header.members != members { return Err(K::MissingEvidence.into()) }
+                let premise = NativeAssertionPremise::SignatureEnumerationObservation {
+                    assertion: enumeration,
+                    support,
+                };
+                evidence.include(header, header.qualification, Some(&premise))?;
+                for member in bindings.signature_enumeration_members.iter().filter(|m| m.enumeration == enumeration) {
+                    let signature = need(&bindings.signatures, member.signature)?;
+                    evidence.include(signature, signature.qualification, None)?;
+                }
+            }
             evidence.include(native_declaration, native_declaration.qualification, None)?;
             evidence.include(syntax, syntax.qualification, None)?;
             // Direct adjacent suite statements ensure no intervening action can replace the fresh binding.

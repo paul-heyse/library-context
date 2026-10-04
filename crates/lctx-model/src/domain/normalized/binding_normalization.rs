@@ -789,8 +789,18 @@ impl HeapSize for EffectiveInvocationAdmission {
         0
     }
 }
-/// P3's complete admission receipt. P4 must explicitly migrate its owner and transfer contracts
-/// before using this token; the retained provider-ID composer is not activated here.
+/// Signature closure for an independently admitted source body. Selected enumeration
+/// closure does not upgrade the artifact's signature family or effective invocation token.
+#[derive(Debug, Clone, Copy)]
+pub enum SourceBodySignatureClosure {
+    GlobalCoverage { members: ContentHash },
+    DeclaredEnumeration {
+        enumeration: Id<SignatureEnumerationObservation>,
+        members: ContentHash,
+        support: Id<SignatureEnumerationSupport>,
+    },
+}
+/// An admitted source body and complete selected signature domain, after event replay.
 pub struct CompositionAdmission {
     attempt: Id<CallBindingAttempt>,
     set: Id<BindingSetAssessment>,
@@ -798,6 +808,7 @@ pub struct CompositionAdmission {
     complete: Id<EventAssessment>,
     event_members: ContentHash,
     summary: Id<CallPolicyAssessment>,
+    signature_closure: SourceBodySignatureClosure,
     owner: Id<OccurrenceOwnership>,
     owner_entity: Id<EntityRef>,
     owner_declaration: Id<Occurrence>,
@@ -807,6 +818,9 @@ pub struct CompositionAdmission {
     phase: CallPhase,
 }
 impl CompositionAdmission {
+    pub fn signature_closure(&self) -> SourceBodySignatureClosure {
+        self.signature_closure
+    }
     pub fn attempt(&self) -> Id<CallBindingAttempt> {
         self.attempt
     }
@@ -1046,9 +1060,7 @@ pub fn verify(
         let Some(complete) = events.get(row.event) else {
             continue;
         };
-        let Some(set) = member_sets.get(&row.id()) else {
-            continue;
-        };
+        let global_set = member_sets.get(&row.id()).copied();
         let effective = need(
             &data.callable_assessments,
             row.effective
@@ -1060,34 +1072,45 @@ pub fn verify(
             return Err(invalid("composition owner differs from event site"));
         }
         let target = original_target(data, alternative)?;
-        result.effective.insert(
-            &mut result._charge,
-            row.id(),
-            EffectiveInvocationAdmission {
-                attempt: row.id(),
-                set: set.id(),
-                set_members: set.members,
-                alternative: alternative.id(),
-                event: row.event,
-                context: event.context,
-                input: application.input(),
-                complete: complete.assessment(),
-                event_members: complete.members(),
-                owner: owner.id(),
-                owner_entity: owner.entity,
-                owner_declaration: owner.owner,
-                callee: alternative
-                    .entity
-                    .ok_or_else(|| invalid("effective target has no entity"))?,
-                effective: effective.id(),
-                target: target.id(),
-                phase: target.phase,
-                bindings: row.bindings,
-            },
-        )?;
+        if let Some(set) = global_set {
+            result.effective.insert(
+                &mut result._charge,
+                row.id(),
+                EffectiveInvocationAdmission {
+                    attempt: row.id(),
+                    set: set.id(),
+                    set_members: set.members,
+                    alternative: alternative.id(),
+                    event: row.event,
+                    context: event.context,
+                    input: application.input(),
+                    complete: complete.assessment(),
+                    event_members: complete.members(),
+                    owner: owner.id(),
+                    owner_entity: owner.entity,
+                    owner_declaration: owner.owner,
+                    callee: alternative
+                        .entity
+                        .ok_or_else(|| invalid("effective target has no entity"))?,
+                    effective: effective.id(),
+                    target: target.id(),
+                    phase: target.phase,
+                    bindings: row.bindings,
+                },
+            )?;
+        }
         if effective.body != Knowledge::Known || !effective.body_admitted {
             continue;
         }
+        let selected = if let Some(set) = global_set {
+            Some((set.id(), SourceBodySignatureClosure::GlobalCoverage { members: set.members }))
+        } else if let Some(shape) = result.shape.get(&row.id()) {
+            selected_source_body_closure(data, stored, row, shape, effective, application.input())?
+                .map(|closure| (shape.set(), closure))
+        } else {
+            None
+        };
+        let Some((set, signature_closure)) = selected else { continue };
         let summary = data
             .event_policy_assessments
             .iter()
@@ -1106,11 +1129,12 @@ pub fn verify(
             row.id(),
             CompositionAdmission {
                 attempt: row.id(),
-                set: set.id(),
+                set,
                 event: row.event,
                 complete: complete.assessment(),
                 event_members: complete.members(),
                 summary: summary.id(),
+                signature_closure,
                 owner: owner.id(),
                 owner_entity: owner.entity,
                 owner_declaration: owner.owner,
@@ -1124,6 +1148,122 @@ pub fn verify(
         )?;
     }
     Ok(result)
+}
+fn selected_source_body_closure(
+    data: &BindingData,
+    stored: &BindingOutput,
+    row: &CallBindingAttempt,
+    shape: &BindingShapeAdmission,
+    effective: &EffectiveCallableAssessment,
+    input: Id<input::InputRevision>,
+) -> Result<Option<SourceBodySignatureClosure>, ModelError> {
+    if effective.identity != Knowledge::Known
+        || effective.body != Knowledge::Known
+        || !effective.body_admitted
+    {
+        return Ok(None);
+    }
+    let Some(id) = shape.enumeration() else { return Ok(None) };
+    let header = need(&data.signature_enumerations, id)?;
+    let signature = need(&data.signatures, row.signature.ok_or_else(|| invalid("body shape signature absent"))?)?;
+    let q = need(&data.qualifications, header.qualification)?;
+    if signature.role != SignatureRole::Source
+        || header.role != SignatureRole::Source
+        || !header.complete
+        || header.symbol != signature.symbol
+        || header.qualification != signature.qualification
+        || header.scope != signature.scope
+        || shape.signature_members() != Some(header.members)
+        || q.context != shape.context()
+        || q.scope != header.scope
+        || scopes(data).input(q.scope) != Some(input)
+        || q.modality != Modality::Definite
+        || q.approximation != crate::domain::assertion::Approximation::Exact
+        || q.condition != crate::domain::conditions::Diagram::always().id()
+        || q.assumptions != crate::domain::assumptions::AssumptionSet::empty_id()
+    {
+        return Ok(None);
+    }
+    let CallableEntity::Source { declaration, kind: CallableKind::Function } = need(&data.callables, effective.callable)? else {
+        return Ok(None);
+    };
+    let symbol = need(&data.symbols, header.symbol)?;
+    let mut declarations = data.entity_declarations.iter().filter(|d| d.symbol == header.symbol);
+    let Some(declared) = declarations.next() else { return Ok(None) };
+    if declarations.next().is_some() || declared.declaration != *declaration
+        || declared.qualification != header.qualification
+    {
+        return Ok(None);
+    }
+    let valid = |run: Id<ProviderRun>, surface: Id<crate::domain::assertion::ProviderSurface>, origin, mode, fidelity| {
+        origin == Origin::AnalyzerAssertion
+            && mode == ExtractionMode::NativeTraversal
+            && matches!(fidelity, Fidelity::ReportProjection | Fidelity::NativeStructural)
+            && data.runs.get(run).is_some_and(|r| {
+                r.context == q.context && r.input == input && r.provider == symbol.provider
+                    && data.surfaces.get(surface).is_some_and(|s| {
+                        s.provider == r.provider && s.family == FactFamily::Signatures
+                    })
+            })
+    };
+    let mut supports = data.signature_enumeration_supports.iter().filter(|s| {
+        s.assertion == id && valid(s.run, s.surface, s.origin, s.mode, s.fidelity)
+            && matches!(data.native_evidence.get(s.evidence), Some(crate::domain::assertion::Evidence::Invocation { run }) if *run == s.run)
+    });
+    let Some(support) = supports.next() else { return Ok(None) };
+    if supports.next().is_some() || !data.declaration_supports.iter().any(|s| {
+        s.assertion == declared.id() && s.run == support.run
+            && valid(s.run, s.surface, s.origin, s.mode, s.fidelity)
+    }) {
+        return Ok(None);
+    }
+    let mut covered = false;
+    for coverage in data.coverage.iter().filter(|c| {
+        c.scope == header.scope && c.context == q.context
+            && c.provider == Some(symbol.provider) && c.run == Some(support.run)
+            && c.family == FactFamily::Signatures
+    }) {
+        if !matches!(coverage.status, CoverageStatus::CompleteUnderStatedModel | CoverageStatus::Partial) {
+            return Ok(None);
+        }
+        covered = true;
+    }
+    if !covered { return Ok(None) }
+    let mut selected = false;
+    for member in data.signature_enumeration_members.iter().filter(|m| m.enumeration == id) {
+        let member_signature = need(&data.signatures, member.signature)?;
+        if member_signature.role != SignatureRole::Source
+            || member_signature.form != SignatureForm::List
+            || member_signature.symbol != header.symbol
+            || member_signature.qualification != header.qualification
+            || !data.signature_supports.iter().any(|s| {
+                s.assertion == member.signature && s.run == support.run
+                    && valid(s.run, s.surface, s.origin, s.mode, s.fidelity)
+            })
+        {
+            return Ok(None);
+        }
+        let Some(variant) = data.callable_variants.iter().find(|v| v.signature == member.signature) else { return Ok(None) };
+        let mut attempts = stored.attempts.iter().filter(|a| {
+            a.event == row.event && a.alternative == row.alternative && a.variant == Some(variant.id())
+        });
+        let Some(first) = attempts.next() else { return Ok(None) };
+        let wanted = if member.signature == signature.id() {
+            BindingOutcome::Bound
+        } else {
+            BindingOutcome::ProvenIncompatible
+        };
+        if first.outcome != wanted || attempts.any(|a| a.outcome != wanted) {
+            return Ok(None);
+        }
+        selected |= member.signature == signature.id();
+    }
+    if !selected { return Ok(None) }
+    Ok(Some(SourceBodySignatureClosure::DeclaredEnumeration {
+        enumeration: id,
+        members: header.members,
+        support: support.id(),
+    }))
 }
 pub(crate) fn verify_enumerations(
     data: &BindingData,
