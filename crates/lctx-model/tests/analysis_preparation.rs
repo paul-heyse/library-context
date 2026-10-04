@@ -58,8 +58,9 @@ fn configuration_has_nominal_catalog_closure_and_refuses_foreign_selection() {
 #[test]
 fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory() {
     let stage = native_stage(Profile::Behavioral);
-    let facts = facts_relations()
-        .into_iter()
+    let facts_relations = facts_relations();
+    let facts = facts_relations
+        .iter()
         .map(|r| r.name())
         .collect::<std::collections::BTreeSet<_>>();
     for input in &stage.inputs {
@@ -75,7 +76,25 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
         assert!(expected.insert(<$assertion>::NAME));assert!(expected.insert(<$support>::NAME));
     )*};}
     lctx_model::native_analysis_pairs!(count_pairs);
-    assert_eq!(stage.inputs.len(), expected.len(), "exact current native registry without extra reads");
+    // The finite pair registry is the seed, not the entire native validator contract:
+    // canonical references and each declaration's invariants require auxiliary facts too.
+    let mut pending = expected.iter().copied().collect::<Vec<_>>();
+    while let Some(name) = pending.pop() {
+        let relation = facts_relations.iter().find(|r| r.name() == name).unwrap();
+        for dependency in relation
+            .fields()
+            .iter()
+            .filter_map(|field| field.target().map(|(_, name)| name))
+            .chain(relation.invariants().iter().flat_map(|check| {
+                check.inputs.iter().map(ValidationInput::name)
+            }))
+        {
+            if expected.insert(dependency) {
+                pending.push(dependency);
+            }
+        }
+    }
+    assert_eq!(stage.inputs.len(), expected.len(), "exact native registry and declared dependency closure without duplicate reads");
     assert_eq!(stage.inputs.iter().map(|i| i.name()).collect::<std::collections::BTreeSet<_>>(), expected);
     assert!(stage.reads::<calls::SignatureEnumerationObservation>());
     assert!(stage.reads::<calls::SignatureEnumerationSupport>());
