@@ -102,7 +102,8 @@ M2 metadata/B1 PG passed; P3 diagnostics/pytest/usage integrated (`9996f81f`/`a8
 P4 conditional/generated PG await the final matching CLI; Capture actual PG/wire passed and is integrated.
 B3 producer integrated, 18 scoped controls passed; Terminal/I-F03 Artifact-scope correction integrated, runtime open. B2 scoped composite passed eight controls.
 Raised-type coverage correction check/two units passed; actual PG remains open. Coordinator §7/§5 own receipts/disposition.
-Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
+All functional packages are integrated. Independent review accepts at static strength; Clippy repair is in progress.
+Full test-all/hygiene and assembled Q0 remain not_run; coordinator §7 owns the current checkpoint.
 Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
 establish traceability. No current full-series acceptance, retrieval-quality or performance claim.
 Prior stdio qualification runner is integrated; source-default repair and source-only scalar bridge are in P4.
@@ -114,7 +115,6 @@ receipts and remaining integration. The catalog compile stopped with SIGINT/exit
 preserves the stop state. No alignment implementation remains open; PR6 remains separate.
 Transport seams exercise grants/response bytes within recorded limits; borrowed CPU kernels drain.
 
-Earlier Phase 5/foundation/Phase 4 receipts retain their own boundaries; gold/heldout/benchmarks are untouched.
-
+Earlier Phase 5/foundation/Phase 4 receipts retain their boundaries; gold/heldout/benchmarks are untouched.
 Cargo retains release/shared intermediates/jobs16/frontend1; Nextest8 limits processes, builds may overlap.
 The end-of-turn hook owns formatting/generated indexes; no cache cleanup is needed.

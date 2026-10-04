@@ -898,3 +898,14 @@ tests. Final `cargo check --release -p lctx-model --all-targets` **passed**, 53.
 release Nextest `test(raised_coverage_tests) | test(native_attributes::tests)` **passed**, six
 controls, before only the lint-reason annotation changed. Logs are `hygiene-analytics-final-check.log`
 and `hygiene-analytics-tests.log` in the same scratch directory. Full Clippy rerun is pending.
+
+Packet/read Clippy repair integrated as `747bd10a` (frozen worker `8966be02`), 2026-10-03.
+Only the retained override-universe and capture-source-correspondence payloads are boxed;
+wire fields, qualification/proof identity, reservations and serialized-byte charging remain
+unchanged. Existing read controls moved unchanged after helpers. Targeted all-consumer
+`cargo check --release --tests -p lctx-model -p lctx-postgres -p lctx --test capture_question_packets --test terminal_question_packets`
+**passed**, 59.35s; release Nextest `-p lctx-model --test packet_layout` **passed**, two
+independently expected JSON/schema/strict-validation/layout controls (181.82s including build).
+Receipt/logs: `packet-layout-receipt.json`, `packet-layout-check-1.log`,
+`packet-layout-tests-1.log` under `/home/paul/.cache/lctx-code-facts/`. Full current-tree
+Clippy rerun is active; this is not a hygiene pass.
