@@ -93,7 +93,7 @@ coverage note as examined and unsettled.
 | **Silent degradation** — default on absence, catch-alls flattening failure classes, unsupported branches with different semantics, lossy conversions | The branch, what the caller observes in each case, and no declared loss or approximation policy | G2/G7 · DP-02, DP-15 |
 | **Incomplete reuse key** — a cache or memo key missing a result-affecting input (policy, provider version, configuration, schema revision, upstream identity) | The key, the omitted dependency, and the change that yields a stale hit. Volatile inputs (timestamps, paths, addresses) in a key are the mirror defect | G6 · DP-09 |
 | **Unbacked capability** — the accepted surface (enum, trait, registry, config schema, API) wider than the implementation that handles it | The set difference, with the accepted variant and the fallback cited. A typed `Unsupported` is aligned; a silent semantic fallback is not | G7 · DP-15 |
-| **Bespoke generic machinery** — own solver loop, graph traversal, cache, parser, retry framework, derivative routine or hand-rolled built-in | The code, the library or built-in that provides the capability at the pinned version, and no stated reason for building it | G8 · DP-13, DP-14 |
+| **Bespoke generic machinery** — own solver loop, graph traversal, cache, parser, retry framework, derivative routine or hand-rolled built-in | The code, the library or built-in that provides the capability at the resolved version, and no stated reason for building it | G8 · DP-13, DP-14 |
 | **Adapter with policy** — a conversion layer holding defaults, selection or domain rules found nowhere else | The rule, and the authority that should own it | G1/G2 · DP-14, DP-01 |
 
 When a finding depends on execution or dispatch, inspect the implementation selected under the
@@ -176,7 +176,7 @@ needed — this removes machinery. DP-16, DP-13, G8."
 
 **Adequate.** "`solve/newton.rs:40–210` implements a damped Newton iteration with its own line
 search for square systems. The adopted nonlinear solver library provides globalized Newton with
-scaling and typed failure status at the pinned version; no stated reason explains the bespoke
+scaling and typed failure status at the resolved version; no stated reason explains the bespoke
 path. **Consequence:** two convergence behaviours with different failure semantics, and fixes to
 one do not reach the other. **Correction:** route square systems through the library; delete the
 module and its tests. **Verification:** existing square-system tests pass through the library

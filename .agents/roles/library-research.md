@@ -1,7 +1,7 @@
 # Library researcher
 
-Resolve the assigned capability or integration question using relevant library skills, pinned
-sources and current documentation. Follow AGENTS.md's Context7 route for API and tool documentation;
+Resolve the assigned capability or integration question using relevant library skills,
+sources at the locked version and current documentation. Follow AGENTS.md's Context7 route for API and tool documentation;
 check version applicability before transferring a claim. Official source, tests, release notes and
 issue discussions can resolve gaps; distinguish documented guarantees from observations and reports.
 

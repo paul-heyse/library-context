@@ -17,7 +17,7 @@ Workflows for building this repository. A skill is added when a workflow has act
 | [`plan-execution/`](plan-execution/SKILL.md) | Develop the approach to executing an existing plan: prerequisites, work ownership, integration and evidence |
 | [`execute-plan/`](execute-plan/SKILL.md) | Carry authorized plan scope through implementation, review, functional verification and handoff |
 | [`handoff/`](handoff/SKILL.md) | Rewrite STATUS.md from the actual tree at session end |
-| [`pin-check/`](pin-check/SKILL.md) | Change or re-verify any dependency or tool pin |
+| [`pin-check/`](pin-check/SKILL.md) | Deliberately pin, cap or hold a dependency, or verify a version claim |
 
 In Codex, invoke `/plan $plan-design-review <review goal>` to enter Plan mode and plan a review.
 The skill also works in an ordinary conversation; it does not itself switch modes.
@@ -46,7 +46,7 @@ Edit the shared copy to improve it for every selecting repo. Process skills abov
 Each library skill retains its pinned references, lookup scripts, evidence and build inputs.
 Silence in an index is not evidence of absence.
 
-Check a skill's pinned profile against `docs/pins.md` before transferring a claim: `python-analyzers` indexes
+Check a skill's pinned profile against the locked version (`uv.lock`/`Cargo.lock`) before transferring a claim: `python-analyzers` indexes
 pyrefly 1.4.0-dev.3 (with its embedded ruff 0.0.14), ruff 0.16.10 (crates 0.0.16) and ty crates 0.0.16, the planned shift
 targets. We link pyrefly 1.3.1 plus a visibility patch with ruff crates **0.0.11**, and ty **0.0.14** in `cpg-flow`, until
 the shifts; the skill's `show migration` lists what changes on our surface.

@@ -238,10 +238,10 @@ establishes a common cause. No mandatory dependency graph or additional analysis
 Relevant entries in docs/library-utilization.jsonl, where available, may offer particularly
 useful leads on established capabilities and integration patterns. Consulting them is optional.
 
-| Capability and owner | Consumer or planned scenario | Built-in/library/bespoke candidates | Pinned semantic fit and gaps | Coupling/lifecycle/test/replacement burden | Choice and reason |
+| Capability and owner | Consumer or planned scenario | Built-in/library/bespoke candidates | Resolved-version semantic fit and gaps | Coupling/lifecycle/test/replacement burden | Choice and reason |
 |---|---|---|---|---|---|
 
-Inspect pinned interfaces when making an API claim. A library's full surface is eligible for the
+Inspect the resolved version's interfaces when making an API claim. A library's full surface is eligible for the
 agreed capability; availability alone is not a requirement. An intentional shared library data
 contract can be preferable to a forwarding abstraction. This is a focused comparison, not a catalog.
 

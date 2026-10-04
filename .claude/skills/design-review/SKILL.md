@@ -78,7 +78,7 @@ question about ownership, behavior or change remains unresolved; no complete flo
    rules embedded in orchestration and private mechanics exposed to consumers. Ordinary domain
    functions can suffice; no registry, universal model or conversion of algorithms to data is required.
 4. **Alternatives and library fit.** Compare a suitable library mechanism and the simplest viable
-   design where relevant. Qualify pinned semantics and total integration burden. Functions or
+   design where relevant. Qualify semantics at the resolved version and total integration burden. Functions or
    modules may be sufficient; a wrapper or new crate must improve a real boundary.
 
    **Optional context: existing library use.** A focused look at relevant entries in
