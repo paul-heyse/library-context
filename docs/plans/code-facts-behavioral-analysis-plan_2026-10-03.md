@@ -134,7 +134,7 @@ signature is not an implementation and enum members are not a closed heap. Prese
 parameter/receiver candidates and applicability uncertainty; never certify closure from a list
 being nonempty. Call binding/transfer use this assessment rather than trait booleans.
 
-Audit the existing 23 Pysa origin kinds rather than pretending implicit calls are all missing.
+Audit all Pysa origin kinds rather than pretending implicit calls are all missing (the migrated pin exposes 24).
 Retain operator/subscription/iteration/enter action, evaluation site, receiver, candidate target
 and phase. Ruff argument lookup supports source argument identity; normalized signature binding
 owns semantics. Candidate protocol arcs can characterize/project behavior without certifying
