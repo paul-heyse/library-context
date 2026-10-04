@@ -342,6 +342,24 @@ mod contract_encoding_tests {
         }
     }
     #[test]
+    fn codebook_discriminants_and_wire_labels_are_identity_inputs() {
+        let mut field = Field::of::<i16>("kind", false, false);
+        field.codes = &[(2, "alpha"), (7, "beta")];
+        let digest = |field: &Field| { let mut sink = KeySink::new("codebook-vector/v2"); field.encode_contract(&mut sink); sink.finish() };
+        let expected = independently_framed(&[
+            (b"domain", b"lctx-semantic/v3"), (b"type", b"codebook-vector/v2"),
+            (b"field", b"kind"), (b"scalar", b"i16"), (b"roles", &[0,0,0,0]),
+            (b"target", b""), (b"option", &[0]), (b"code-count", &2u64.to_le_bytes()),
+            (b"code", &2i16.to_le_bytes()), (b"label", b"alpha"),
+            (b"code", &7i16.to_le_bytes()), (b"label", b"beta"),
+        ]);
+        assert_eq!(digest(&field), expected);
+        for codes in [&[(3, "alpha"), (7, "beta")][..], &[(2, "renamed"), (7, "beta")][..], &[(2, "alpha")][..]] {
+            field.codes = codes;
+            assert_ne!(digest(&field), expected);
+        }
+    }
+    #[test]
     fn sum_codes_are_canonical_and_required_payload_changes_invalidate() {
         let mut sum = Sum { tag: "kind", arms: vec![
             Arm { code: 7, fields: vec![ArmField { name: "payload", required: true }] },
