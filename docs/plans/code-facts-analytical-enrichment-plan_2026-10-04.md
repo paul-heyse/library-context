@@ -294,10 +294,11 @@ have these concrete routes; they are not a demand to extract the full survey:
 | General recursive relations, new graph ranking or universal flow graph | **Deferred**; trigger a concrete repeated recursive/path question not answered by current finite operations; no current requirement |
 
 Production execution is **in progress**, 2026-10-04. A0/A2 model ownership and qualification
-composition are implemented in the working tree; focused Structural tests passed (4 controls),
-with expanded stop/frontier and qualification controls pending. A1 owner guidance is corrected,
-with final documentation validation pending. K1 dev-only dependencies are pinned at `80e994da`;
-G1 and API consumers are being implemented on isolated branches. Q1/full gates remain **not_run**.
+composition, C1–C6, enabled C7, R1 and G1 observation/explanation consumers are integrated.
+The current assembled CLI/extractor release compile passed; individual functional receipts below
+do not qualify Q1. K1/K2's independent finite-context controls passed; R2's differential oracle is
+implemented with runtime qualification pending. G2/G3 remain Deferred under the G0 decision. Final PostgreSQL/MCP journeys, adapter
+migration, `just test-all` and `just hygiene` remain **not_run** on the assembled tree.
 
 **G0 passed**, 2026-10-04: `cargo test --release -p cpg-flow --test flow_shapes
 native_guarded_origin_search -- --nocapture` on the flow branch. The actual fixture
@@ -308,10 +309,10 @@ reopen on an actual multi-candidate case with an attributed native Value conditi
 conjunction excludes every competing candidate, under complete per-use inventory. G1 and A2
 remain required; this decision does not claim guarded proof implementation.
 
-Plan authoring is complete only when document contracts,
-links and dispositions agree and the focused documentation check passes; this does not execute the
-production scope. Next implementation action: A0/A1/A2, alongside G0 evidence and independent C1/C3
-existing-fact work. Authoring verification is recorded below, separately from eventual Q1 receipts.
+Next: complete native overload/reference/FCA controls and actual PostgreSQL publication/packet
+journeys, including the retained conditional/generated/Terminal/raised-type Q0 obligations; then
+run the same-tree full functional and hygiene gates. The authoring receipt below retains its
+original documentation-only boundary.
 
 ### Authoring receipt
 
@@ -323,19 +324,37 @@ acceptance. Production compile/tests, `just test-all`, `just hygiene`, new runti
 real-library/operator actions are **not_run** in this documentation-only authoring task. The
 concurrent advisory `docs/library-utilization.jsonl` refresh is preserved outside this scoped change.
 
-Execution receipt update, 2026-10-04 (**Implemented / focused Tested**, not Q1):
-`cargo test --release -p lctx-model --test structural` **passed** (five controls), and
-`cargo test --release -p lctx-model --lib singleton_conditional_basis_is_not_promoted_or_erased`
-**passed**. The first `cargo test --release -p cpg-core --test structural` **failed** at fixture
-model registration: the hand-built relation set omitted a referenced SummaryExceptionOutcome.
-The fixture now uses the canonical model inventory; its rerun is pending. This failure has not
-exercised actual publication. C1/C3/C6/R1 initial consumer slice is integrated at `393f904a`;
-its three focused model controls passed on the worker baseline, service qualification pending.
-C7 is **enabled**: the actual retained Expected probe supplies useful `list[int]` context for
-`consume([])` and a retained `str` hint for a failed overloaded call. The initial absence assumption
-failed and is retained in `/home/paul/.cache/lctx-api-expected-trace.log`; corrected qualification
-and exact argument-location replay remain pending. Expected is not successful applicability.
-C2 published observation fork `63cda076956013cd0bd1d0d05c785f747fe6adc0` preserves the upstream
-parent and embedded Ruff premise. Its isolated supplier compile **passed** with the existing
-allocative patch; repository canonical observations/association/packets are still in progress.
+### Execution receipt
+
+**Implemented / focused Tested**, 2026-10-04; Q1 remains open.
+
+| Command and baseline | Outcome and boundary |
+|---|---|
+| `cargo check --release -p lctx -p cpg-extract --tests`, assembled main (`lctx-enrichment-integrated-check4.log`) | **passed**; includes supplier `63cda076`, typed observations/association and serving consumers. Subsequent bounded resource refinements require a focused rerun |
+| `cargo test --release -p lctx-model --test structural` | **passed**, five controls |
+| `cargo test --release -p lctx-model --lib singleton_conditional_basis_is_not_promoted_or_erased` | **passed** at the initial A2 implementation; expanded conditional-call/false-conjunction controls pending |
+| `cargo test --release -p cpg-core --test structural` | **failed** before publication: the hand-built fixture model omitted SummaryExceptionOutcome. Canonical model inventory repair integrated; actual PG replay/adversarial rerun pending |
+| `cargo test --release -p cpg-extract --test typed_flow actual_native_inventory -- --nocapture`, flow branch | **passed**, 26 actual native inventories and 34 candidates; real loop back-edge preserves loop-expanded/reachability-loss flags. Catalog does not request flow. Supplier was `72bb34d6`; final assembled native rerun remains required |
+| Release model `domain_selection_catalog` and `serving_contracts`, API branch | **passed**, 41 controls; three additional argument Expected/stored singleton/original inventory controls also **passed**. This is not a served PG receipt |
+| Existing API actual PG journey, API branch | **failed** at the old selected-location invariant rejecting captured argument Expected. Exact CallArgument membership/context repair integrated; rerun pending |
+| `cargo test --release -p lctx-analytics --test implication_oracle -- --nocapture`, assembled main | **passed**, four controls over 22 finite contexts: independent consequences, full/iceberg concepts, nominal reordering, adversarial mutations and charged cap behavior |
+| `cargo test --release -p cpg-extract --test native_overload_origins -- --nocapture`, assembled main | **composite pending**: actual equal-shaped declarations retain distinct origins through normalization, and original native vector replay rejects dropped/altered members (**passed**, two controls). Direct selection control **failed** because fixture lookup selected a declaration instead of the final call; exact call lookup repaired, rerun pending |
+| `cargo test --release -p lctx-model --lib original_members_associate` | **passed**, one control; shape equality does not establish native declaration identity |
+
+C7 is **enabled**: actual retained Expected supplies useful `list[int]` context for `consume([])`
+and a retained `str` hint for a failed overloaded call. The initial absence assumption failed
+(`lctx-api-expected-trace.log`); corrected native probe and actual consumer qualification are pending.
+The corrected native Expected probe **passed**, one control. Expected is not successful applicability. C2's published observation fork
+`63cda076956013cd0bd1d0d05c785f747fe6adc0` preserves the upstream parent and embedded Ruff premise.
+Its isolated supplier compile **passed** with the existing allocative patch. Original candidates,
+selection limits, exact declaration/support association and packets are implemented; native identity,
+old/new checker parity and actual PG packet acceptance remain pending. The unchanged old-supplier
+checker receipt **passed**; its canonical JSON is retained at
+`/home/paul/.cache/lctx-api-overload-checker-old.json` (SHA256
+`03a0f28150b2db2ad865be040af953757e5f30303a459f99a6563497a9340df7`).
+
+Superseded task-owned compile/test processes ended with scoped SIGINT (exit 130) to release a
+confirmed fine-grained Cargo lock cycle. They are interrupted **not_run** receipts, never passing
+tests. Jobs, release optimization, shared cache and normal build settings were preserved. Current
+queues are performing normal compile/link work; no resource or performance claim follows.
 Full functional/hygiene, same-tree adapter readiness and Q1 remain **not_run**.

@@ -491,12 +491,15 @@ preserved benchmark captures keep their original boundaries.
 
 ### Native overload origin observations
 
-**Accepted target, Interface-checked 2026-10-04 (ADR-0121).** The tracing-only supplier seam retains
+**Implemented / focused Tested, 2026-10-04 (ADR-0121); assembled qualification pending.** The tracing-only supplier seam retains
 original FuncDefId and original call-local vector ordinal before Callable erasure. Selected, ambiguous
 representative, expanded representative, closest-only and recovered states are distinct; resolved
 callable traces do not prove runtime applicability. Original identity joins native signature metadata
 origin, never the family implementation key, shape or declaration ordinal. Missing receiver and solved
 specialization basis remains unavailable. Legacy inferred types, diagnostics and IDE getters are
-preserved; adapter/replay and paired native controls own verification in the enrichment coordinator.
+preserved. Actual original-vector replay and equal-shaped declaration association controls passed;
+the unchanged eight-case checker harness produced exactly equal old/new inferred types, legacy
+getters and diagnostics. Remaining native/served controls and assembled acceptance are recorded
+in the [enrichment coordinator](../../plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint).
 
 > Decision: ADR-0121

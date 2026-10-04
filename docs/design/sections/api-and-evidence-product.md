@@ -32,7 +32,7 @@ below lower from `lctx-model`; they are not independent SQL or Python schema aut
 
 <a id="section-14-1"></a>
 
-**Accepted target, Interface-checked 2026-10-04.** Bounded model operations extend opt-in operation
+**Implemented / focused Tested, 2026-10-04; assembled serving qualification pending.** Bounded model operations extend opt-in operation
 sections with exact callable-role comparison, source constructor/reader associations, contextual
 Expected typing, supported access routes and captured incoming name references. Exact diagnostic-use
 correlation is source evidence. Native overload origins may establish a normalized variant only through

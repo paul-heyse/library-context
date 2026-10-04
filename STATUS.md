@@ -5,11 +5,12 @@ _Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 **Analytical enrichment implementation is in progress; assembled acceptance is pending.**
 The [coordinator §7](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
 owns F01/F02/O01–O08 and current receipts. Model-owned Structural outcome replay and qualified
-singleton flow composition are integrated, with focused model controls passed. C1/C3/C6/R1 and
-argument Expected extraction are integrated within focused controls; PostgreSQL qualification and
-C7 location closure are pending. G1 native inventory is integrated; its loop adapter control has
-failed and is being repaired. C2's observation-only Pyrefly fork is published and pinned;
-canonical origin association/serving, C4/C5 and development oracles remain in progress.
+singleton flow composition are integrated, with focused model controls passed. C1–C7, R1 and G1
+consumers are integrated; actual PostgreSQL publication and packet qualification are pending.
+G1's repaired loop adapter passed within its recorded supplier boundary. C2's observation-only
+Pyrefly fork is published and pinned; actual equal-shaped declaration association and native
+vector replay controls passed. Paired old/new checker parity, R2's reference oracle and remaining
+native controls are pending. K1/K2's four independent finite-context controls passed.
 G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
 inventory supplies exclusion conditions. C7 is enabled: useful retained argument Expected also
 occurs in failed calls, so it carries uncertainty. Ty references and odis remain development-only.
@@ -81,7 +82,7 @@ The later catalog compile was interrupted with SIGINT/exit130. Staging
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Next: integrate C2/C4/C5/G1 consumers and oracle controls, repair focused fixture failures, then
+Next: finish focused native/model/PostgreSQL controls and repair their findings, then
 complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`just hygiene`.
 Surviving Q0 fixture journeys are included; real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release
