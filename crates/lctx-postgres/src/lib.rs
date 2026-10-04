@@ -2,6 +2,7 @@
 
 pub mod bootstrap;
 mod cache;
+mod connection_options;
 pub mod generations;
 pub mod operations;
 pub mod roles;
@@ -10,12 +11,10 @@ pub mod testing;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{
-    ConnectOptions,
-    postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
+    postgres::PgPoolOptions,
 };
 use std::{
     path::{Path, PathBuf},
-    str::FromStr,
     time::Duration,
 };
 
@@ -78,7 +77,7 @@ impl Error {
                 kind: "connection failed",
                 ..
             }
-        ) || matches!(self, Self::Database { code, .. } if code == "40001" || code == "40P01" || code.starts_with("08") || code == "57P01")
+        ) || matches!(self, Self::Database { code, .. } if generations::FailureClass::retryable_sqlstate(code))
     }
 }
 
@@ -166,48 +165,13 @@ impl Config {
 
     async fn connect_role(&self, migration: bool) -> Result<Store, Error> {
         self.validate()?;
-        let options = PgConnectOptions::from_str(if migration {
+        let options = connection_options::parse(if migration {
             &self.migration_url
-        } else {
-            &self.application_url
-        })
-        .map_err(|_| Error::Config("invalid connection URL"))?;
-        let host = options.get_host();
-        let local =
-            host.starts_with('/') || host == "localhost" || host == "127.0.0.1" || host == "::1";
-        if !local && !matches!(options.get_ssl_mode(), PgSslMode::VerifyFull) {
-            return Err(Error::Config(
-                "remote PostgreSQL requires sslmode=verify-full",
-            ));
-        }
-        let options = options
-            .disable_statement_logging()
-            .application_name("lctx")
-            .options([
-                // The owner validates whole generations; its statements may run long.
-                (
-                    "statement_timeout",
-                    format!(
-                        "{}s",
-                        if migration {
-                            OWNER_STATEMENT_TIMEOUT_SECONDS
-                        } else {
-                            self.statement_timeout_seconds
-                        }
-                    ),
-                ),
-                ("lock_timeout", format!("{}s", self.lock_timeout_seconds)),
-                ("idle_in_transaction_session_timeout", "30s".to_owned()),
-                (
-                    "search_path",
-                    if migration {
-                        "public,pg_catalog,lctx_ext"
-                    } else {
-                        "pg_catalog,lctx_ext"
-                    }
-                    .to_owned(),
-                ),
-            ]);
+        } else { &self.application_url }, "invalid connection URL")?;
+        let options = connection_options::session(options, "lctx",
+            if migration { OWNER_STATEMENT_TIMEOUT_SECONDS } else { self.statement_timeout_seconds },
+            self.lock_timeout_seconds,
+            if migration { "public,pg_catalog,lctx_ext" } else { "pg_catalog,lctx_ext" });
         let pool = PgPoolOptions::new()
             // The owner pool serves an attempt's lifecycle connection plus its steps and cleanup.
             .max_connections(if migration {
@@ -391,10 +355,13 @@ impl MigrationStore {
                 return Err(Error::LegacyHistory);
             }
         }
-        MIGRATOR
-            .run(&self.inner.pool)
-            .await
-            .map_err(|_| Error::Migration)
+        // Migrator releases its session advisory lock only on success. Never return a failed
+        // or cancelled migration session to the pool; close-on-drop also covers cancellation.
+        let mut connection = self.inner.pool.acquire().await?;
+        connection.close_on_drop();
+        let result = MIGRATOR.run(&mut *connection).await.map_err(|_| Error::Migration);
+        connection.close().await?;
+        result
     }
     /// The verified owner of this database's store.
     pub async fn owner(&self) -> Result<OwnerPool, Error> {

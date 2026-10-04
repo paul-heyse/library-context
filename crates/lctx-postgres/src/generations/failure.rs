@@ -78,6 +78,11 @@ impl FailureClass {
             Self::Refused
         }
     }
+    /// Retry eligibility is narrower than failure classification. In particular a canceled
+    /// statement (57014) and lock timeout (55P03) are contention but are not retried.
+    pub(crate) fn retryable_sqlstate(code: &str) -> bool {
+        matches!(code, "40001" | "40P01" | "57P01") || code.starts_with("08")
+    }
     /// The infrastructure class a driver reports for this failure class. Content violations have no
     /// infrastructure class; a stage sink reports them as invalid content instead.
     pub fn infrastructure(self) -> Infrastructure {
@@ -179,4 +184,23 @@ fn bounded(mut detail: String) -> String {
         detail.truncate(end);
     }
     detail
+}
+
+#[cfg(test)]
+mod sqlstate_controls {
+    use super::*;
+    #[test]
+    fn classification_does_not_promote_cancellation_or_lock_timeout_to_retry() {
+        for code in ["57014", "55P03"] {
+            assert_eq!(FailureClass::sqlstate(code), FailureClass::Contention);
+            assert!(!FailureClass::retryable_sqlstate(code));
+        }
+        for code in ["40001", "40P01", "08006", "57P01"] {
+            assert!(FailureClass::retryable_sqlstate(code));
+        }
+        for (code, class) in [("23505", FailureClass::Invalid), ("53100", FailureClass::Limit), ("54000", FailureClass::Limit), ("42501", FailureClass::Refused)] {
+            assert_eq!(FailureClass::sqlstate(code), class);
+            assert!(!FailureClass::retryable_sqlstate(code));
+        }
+    }
 }

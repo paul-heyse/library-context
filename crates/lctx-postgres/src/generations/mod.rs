@@ -14,6 +14,7 @@ mod lifecycle;
 pub(crate) mod locks;
 mod native_service;
 mod publication_validation;
+mod physical_columns;
 mod reader;
 mod runtime;
 mod serving_shape;

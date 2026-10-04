@@ -25,21 +25,7 @@ impl GenerationLease {
                 continue;
             }
             let source = mapping.source.name();
-            let mut columns = vec!["generation_id".to_owned(), "id".to_owned()];
-            if lctx_model::domain::stages::is_vocabulary(source) {
-                columns.push("introduced_epoch".into());
-            }
-            for field in mapping.fields() {
-                columns.push(field.name().to_owned());
-                if field.target().is_some() && field.subtype().is_some() {
-                    columns.push(format!("__{}_tag", field.name()));
-                }
-            }
-            let select = columns
-                .iter()
-                .map(|field| quoted(field))
-                .collect::<Vec<_>>()
-                .join(",");
+            let select = super::physical_columns::projection(&mapping.source);
             let expected = format!(
                 "SELECT {select} FROM {}.{};",
                 quoted(&schema),

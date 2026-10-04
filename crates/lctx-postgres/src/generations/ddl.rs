@@ -2,14 +2,14 @@
 //! lowering is pure: one model, generation, schema name and control schema name always give the
 //! same statements, so a shadow install is a faithful reference for `store check` (plan P1.6).
 use super::failure::FailureClass;
-use super::{GenerationId, quoted};
+use super::{GenerationId, physical_columns, quoted};
 use lctx_model::domain::{
     ContentHash, FieldValue, Relation, Scalar, ValidatedModel,
     admission::{Availability, Frontier},
     attribution::FactFamily,
     stages::{Profile, ProviderOutcome},
 };
-use sea_query::{ColumnDef, ColumnType, Expr, ForeignKey, Index, PostgresQueryBuilder, Table};
+use sea_query::{Expr, ForeignKey, Index, PostgresQueryBuilder, Table};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The stable control schema of an installed store.
@@ -74,30 +74,8 @@ fn column_signature(model: &ValidatedModel, relations: &BTreeSet<&str>) -> Strin
     let mut parts = Vec::new();
     for relation in held {
         let name = relation.name();
-        parts.push(format!("{name}.generation_id:bytea:true"));
-        parts.push(format!("{name}.id:bytea:true"));
-        if lctx_model::domain::stages::is_vocabulary(name) {
-            parts.push(format!("{name}.introduced_epoch:smallint:true"));
-        }
-        for field in relation.fields() {
-            let base = match field.scalar() {
-                Scalar::Text => "text",
-                Scalar::Bool => "boolean",
-                Scalar::Int16 => "smallint",
-                Scalar::Int32 => "integer",
-                Scalar::Int64 => "bigint",
-                Scalar::FiniteF64 => "double precision",
-                Scalar::Id | Scalar::Digest | Scalar::Binary => "bytea",
-            };
-            parts.push(format!(
-                "{name}.{}:{base}{}:{}",
-                field.name(),
-                if field.list() { "[]" } else { "" },
-                !field.nullable()
-            ));
-            if field.target().is_some() && field.subtype().is_some() {
-                parts.push(format!("{name}.__{}_tag:smallint:false", field.name()));
-            }
+        for column in physical_columns::columns(relation) {
+            parts.push(format!("{name}.{}", column.signature()));
         }
     }
     parts.join(",")
@@ -234,49 +212,19 @@ pub(super) fn lower(
             },
         ];
         table.table((schema.clone(), relation.name()));
-        table.col(
-            ColumnDef::new("generation_id")
-                .binary()
-                .not_null()
-                .default(Expr::cust(format!("decode('{}', 'hex')", generation.hex()))),
-        );
+        for column in physical_columns::columns(relation) {
+            table.col(column.definition(generation));
+        }
         table.check(Expr::cust(format!(
             "generation_id = decode('{}', 'hex')",
             generation.hex()
         )));
-        table.col(ColumnDef::new("id").binary().not_null());
         if lctx_model::domain::stages::is_vocabulary(relation.name()) {
-            table.col(
-                ColumnDef::new("introduced_epoch")
-                    .small_integer()
-                    .not_null()
-                    .default(0),
-            );
             table.check(Expr::cust("introduced_epoch >= 0"));
         }
         table.check(Expr::cust("octet_length(id) = 16"));
         table.primary_key(Index::create().col("generation_id").col("id"));
         for field in relation.fields() {
-            let ty = match field.scalar() {
-                Scalar::Text => ColumnType::Text,
-                Scalar::Bool => ColumnType::Boolean,
-                Scalar::Int16 => ColumnType::SmallInteger,
-                Scalar::Int32 => ColumnType::Integer,
-                Scalar::Int64 => ColumnType::BigInteger,
-                Scalar::FiniteF64 => ColumnType::Double,
-                Scalar::Id | Scalar::Digest | Scalar::Binary => ColumnType::Binary(32),
-            };
-            let mut column = if field.list() {
-                let mut column = ColumnDef::new(field.name());
-                column.array(ty);
-                column
-            } else {
-                ColumnDef::new_with_type(field.name(), ty)
-            };
-            if !field.nullable() {
-                column.not_null();
-            }
-            table.col(&mut column);
             let column_name = format!("\"{}\"", field.name());
             let scalar_width = match field.scalar() {
                 Scalar::Bool => 1,
@@ -332,13 +280,8 @@ pub(super) fn lower(
                     &ContentHash::of(format!("{}/{}", relation.name(), field.name()).as_bytes())
                         .hex()[..32]
                 );
-                if let Some(code) = field.subtype() {
+                if field.subtype().is_some() {
                     let tag_column = format!("__{}_tag", field.name());
-                    table.col(
-                        ColumnDef::new(tag_column.clone())
-                            .small_integer()
-                            .generated(Expr::val(code), true),
-                    );
                     let tag = model
                         .relations()
                         .iter()
@@ -440,20 +383,11 @@ pub(super) fn lower(
             {
                 continue;
             }
-            let mut columns = vec![quoted("generation_id"), quoted("id")];
-            if lctx_model::domain::stages::is_vocabulary(mapping.source.name()) {
-                columns.push(quoted("introduced_epoch"));
-            }
-            for field in mapping.fields() {
-                columns.push(quoted(field.name()));
-                if field.target().is_some() && field.subtype().is_some() {
-                    columns.push(quoted(&format!("__{}_tag", field.name())));
-                }
-            }
+            let columns = physical_columns::projection(&mapping.source);
             views.push(format!(
                 "CREATE VIEW {s}.{} AS SELECT {} FROM {s}.{}",
                 quoted(mapping.name),
-                columns.join(","),
+                columns,
                 quoted(mapping.source.name())
             ));
             // The primary generation/id key already exists. Additional lookups are declared,

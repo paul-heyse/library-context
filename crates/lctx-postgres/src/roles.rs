@@ -3,10 +3,9 @@
 use crate::{Error, load_protected};
 use serde::{Deserialize, Serialize};
 use sqlx::{
-    ConnectOptions,
-    postgres::{PgConnectOptions, PgSslMode},
+    postgres::PgConnectOptions,
 };
-use std::{path::Path, str::FromStr};
+use std::path::Path;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -139,32 +138,14 @@ impl RoleConfig {
         Ok(())
     }
     pub(crate) fn options(&self) -> Result<PgConnectOptions, Error> {
-        let options = PgConnectOptions::from_str(&self.url)
-            .map_err(|_| Error::Config("invalid role connection URL"))?;
-        let host = options.get_host();
-        let local = host.starts_with('/') || matches!(host, "localhost" | "127.0.0.1" | "::1");
-        if !local && !matches!(options.get_ssl_mode(), PgSslMode::VerifyFull) {
-            return Err(Error::Config(
-                "remote PostgreSQL requires sslmode=verify-full",
-            ));
-        }
+        let options = crate::connection_options::parse(&self.url, "invalid role connection URL")?;
         if options.get_username() != self.role.name() {
             return Err(Error::Config("connection role mismatch"));
         }
-        Ok(options
-            .disable_statement_logging()
-            .application_name(match self.role {
-                Role::Importer => "lctx-import",
-                Role::Serving => "lctx-serving",
-            })
+        Ok(crate::connection_options::session(options,
+            match self.role { Role::Importer => "lctx-import", Role::Serving => "lctx-serving" },
+            self.statement_timeout_seconds, self.lock_timeout_seconds, "pg_catalog,lctx_ext")
             .options([
-                ("search_path", "pg_catalog,lctx_ext".to_owned()),
-                (
-                    "statement_timeout",
-                    format!("{}s", self.statement_timeout_seconds),
-                ),
-                ("lock_timeout", format!("{}s", self.lock_timeout_seconds)),
-                ("idle_in_transaction_session_timeout", "30s".to_owned()),
                 ("transaction_timeout", "30s".to_owned()),
                 (
                     "default_transaction_read_only",
