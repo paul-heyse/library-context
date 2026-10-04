@@ -15,9 +15,16 @@ from pathlib import Path
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
+from lctx_storage import open_service
 
 
 async def observe(spec: dict) -> None:
+    # Native admission compares its compiled model and physical contract with the
+    # exact CLI-created generation before starting the stdio protocol. A mismatch
+    # is an adapter/generation prerequisite failure, separate from section parity.
+    admitted = await open_service(spec["config"], generation=spec["generation"], vectors=False)
+    await admitted.shutdown()
+    print("native adapter admitted the exact CLI generation model before stdio")
     transport = StdioTransport(
         sys.executable,
         ["-m", "lctx_mcp", "--config", spec["config"], "--generation", spec["generation"]],
