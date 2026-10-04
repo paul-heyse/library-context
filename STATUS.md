@@ -23,11 +23,13 @@ remain pending.
 G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
 inventory supplies exclusion conditions. C7 is enabled and carries retained Expected uncertainty.
 Ty references and odis remain development-only. No Q1 or full functional pass is claimed yet.
-Full workspace/all-target Clippy passed on combined `65f631e4`; named hygiene repairs passed. The initial full gate stopped at a uv
-build-cache timeout; both adapters rebuilt at the decoder revision; the queued retry was interrupted before tests
-to await the discovered shared admission repair; final stable-source qualification is running. Default store-check
-refused the preserved old-model staging; current-model store qualification passed on an isolated PG18 database at the decoder revision;
-final admission source changes require matching qualification. Operator registrations/staging are untouched and activation remains excluded.
+Full workspace/all-target `just clippy` and Python lint/type checks passed on the final
+formatted source (`9dbe7239`), 2026-10-04. The operator authorized one final `just fmt`; it
+passed before rebuilding. Schema review retired reused native premise code 37 and appended
+ModuleResolution at 75. The actual final describe migration, matching adapters and functional
+gate are running. Initial gate failures and named hygiene repairs remain in coordinator §7.
+Default store-check refused the preserved old-model staging; an isolated empty PG18 database
+passed at the decoder revision and awaits final-source reset/check. Operator state is untouched.
 
 **The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
 The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
@@ -100,5 +102,6 @@ complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`jus
 Surviving Q0 fixture journeys are included; real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release
 intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
-The end-of-turn hook owns formatting. ADR index and dependency feature manifest were refreshed
-under the operator’s previously granted scoped exception; no formatter was run manually.
+The end-of-turn hook normally owns formatting. ADR index/dependency features and the one final
+pre-qualification formatting run used explicit operator exceptions. The four completed task
+worktrees were removed after integration and external receipt preservation checks.
