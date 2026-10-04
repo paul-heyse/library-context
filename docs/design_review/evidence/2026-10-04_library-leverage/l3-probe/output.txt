@@ -1,0 +1,26 @@
+== P6 canonical callee-first SCC order vs petgraph condensation + rustworkx lexicographical_topological_sort(reverse=true)
+identical component order: 300/300; with make_acyclic=false (self-loops kept) Ok-but-truncated results: 235/300
+== P1 biodivine 0.6.3: bounded exists/substitute through limit-taking ops
+exists one var: fused_flip_with_limit == restrict+or == var_exists: 4490/4490
+tight limit (result size - 1): refusal agreement 4490/4490, refusals 4490
+check_fused_binary_flip_op tasks <= |low|*|high|: 4490/4490; samples (tasks, product, |f|): [(940, 194940, 941), (1149, 688779, 941), (1086, 637260, 941), (960, 703292, 941), (952, 320720, 941)]
+check_fused_binary_flip_op(limit=tasks-1) -> None; limit=tasks -> is_some true
+exists 4 vars: iterated capped fused flip == Bdd::exists: 100/100
+substitute v:=g: cofactor form == iff/and/flip-exists form == Bdd::substitute: 80/80
+== P2 rustworkx-core 0.18.1 lexicographical_topological_sort
+DAG order by name key: ["a", "b", "d", "c", "e"]
+all-equal keys -> NodeIndex order: ["d", "b", "a", "c", "e"]
+cyclic graph: Ok(["a", "d"]) (node_count 4)
+petgraph toposort on cyclic graph is_err: true
+== P3 petgraph 0.8.3 condensation parallel arcs
+make_acyclic=false: nodes [["c"], ["a", "b"]]; arcs [(["a", "b"], ["a", "b"], 1), (["a", "b"], ["a", "b"], 2), (["a", "b"], ["c"], 3), (["a", "b"], ["c"], 4), (["a", "b"], ["c"], 5)]
+make_acyclic=true: arcs [5]
+== P4 ascent 0.8.1 (default-features=false): Pareto antichain lattice, fallible rule, run_timeout
+finished=true; best: [(0, [(0, 0)]), (1, [(1, 10), (2, 2)]), (2, [(1, 1)]), (3, [(2, 6)])]; refused: [(3, 1)]; scc_iters [1, 3, 1]
+run_timeout(ZERO): finished=false; best rows 1; scc_iters [1, 0, 0]
+== P5 graphops 0.5.1 pagerank_weighted_run vs leiden-rs 0.8.1 compute_flow
+deduplicated neighbours: iterations 102, diff_l1 7.771561172376096e-15, converged true, max |graphops - compute_flow| 4.496403249731884e-15
+parallel arcs listed twice in neighbors(): max |graphops - compute_flow| 2.2523934290177267e-2
+max_iterations=3: iterations 3, converged false, diff_l1 1.5258352623456783e-1
+empty graph: iterations 0, converged true, diff_l1 0
+rustc 1.101.0-nightly (c1070d693 2026-09-28)

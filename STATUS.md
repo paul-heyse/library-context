@@ -59,6 +59,7 @@ supply current wiring/status where its project notes lag. No shared skill was ch
 |---|---|
 | Enrichment scoped hygiene | **composite passed with parallel-review docs failure excluded by operator**, 2026-10-04; final source, deps, Clippy and empty current-model store checks passed |
 | Review `just docs-check` | **passed**, 2026-10-04: 283 canonical pages, zero offline link errors; review/evidence/handoff publication only |
+| [Library-leverage review](docs/design_review/reviews/design_review_library-leverage_2026-10-04.md) `just docs-check` | **passed**, 2026-10-04, 292 pages. Static review, decision **Revise**; F01–F10 are routed or Deferred in its §11, with no plan owner yet. Probes ran only in an isolated crate; no product runs (`not_run`) |
 | Final workspace/all-target `just clippy` | **passed**, 2026-10-04 after handoff repair and authorized final formatting; warnings denied |
 | Expansion targeted native/model/core/real-PG/wire controls | **passed** within recorded package scopes, 2026-10-03; coordinator §7 retains failures and composite receipts |
 | Final CLI/native adapters/schema snapshot | **passed**, 2026-10-04; matching source fingerprint and reviewed schema migration; full functional gate pending |

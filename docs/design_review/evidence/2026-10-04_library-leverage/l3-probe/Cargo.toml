@@ -1,0 +1,15 @@
+[package]
+name = "l3probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+biodivine-lib-bdd = "=0.6.3"
+petgraph = "=0.8.3"
+rustworkx-core = "=0.18.1"
+ascent = { version = "=0.8.1", default-features = false }
+graphops = { version = "=0.5.1", default-features = false }
+leiden-rs = { version = "=0.8.1", default-features = false }
+
+[workspace]
