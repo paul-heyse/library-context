@@ -263,7 +263,7 @@ IDs from earlier reviews remain separate. Supporting plans own design detail, no
 | Source ID | Responsible component / package | Current disposition and required closure evidence |
 |---|---|---|
 | [F01](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#F01) | Model Structural/core adapter, A0 | **Scheduled / open**; canonical outcome replay plus adversarial real-PG publication controls |
-| [F02](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#F02) | Current architecture/extraction guidance, A1 | **Scheduled / open**; source-aligned owners and passing docs check |
+| [F02](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#F02) | Current architecture/extraction guidance, A1 | **Closed / Implemented guidance and Tested publication, 2026-10-04**; source-aligned owners, ADR-0121/0122 and final docs check passed (289 pages, zero errors) |
 | [O01](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O01) | Model callable/serving and native trace adapter, C1/C2 | **Scheduled / open**; role comparison answer and identity-qualified chosen/candidate association; ambiguous origin remains explicit |
 | [O02](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O02) | Model Selection/catalog, C3 | **Scheduled / open**; hydrated predicate and exact source-field packet, runtime unknown preserved |
 | [O03](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O03) | Flow/Entry/Local/Structural, A2/G0–G3 | **Scheduled / conditional**; qualification correction and complete inventory/explanation required; native usefulness evidence admits proof branch or records Deferred proof with trigger |
@@ -522,3 +522,16 @@ Read-only preservation check confirms the operator's `d3a3fa026a1237a1c4e175b9b1
 still has 204 receipts, is staging and is unselected (`lctx-enrichment-preserved-staging-final.txt`).
 The full gate's shipped CLI build **passed**; its semantics adapter rebuilt and storage adapter
 is rebuilding. Functional/PG/MCP qualification remains pending.
+
+Final named hygiene repairs are **composite passed within the scoped current-model store
+boundary**, 2026-10-04. The original `just hygiene` failure at the uv cache timeout is retained.
+All named checks completed: lint-agents, ADR lint, fixtures, gold, rules scan/test, Ruff,
+Pyrefly types, docs, deps, full workspace/all-target Clippy and store-check. Final formatted
+Python, Clippy, docs and dependency logs are `lctx-enrichment-{python-hygiene,clippy,docs,deps}
+-formatted-final.log`; docs reports 289 canonical pages and zero link errors. Dependency
+checks were repeated after formatting changed the checker script and **passed**, including
+family/fork, bans/sources/licenses, shear and unchanged Hakari output. Earlier unaffected
+agent/ADR/fixture/gold/rule receipts remain applicable. Store-check uses the owned empty PG18
+database and final model; the preserved old operator-store failure remains outside this
+qualification boundary. This closes F02 guidance/publication only, not runtime Q1. Both native
+adapters rebuilt successfully inside the full gate; workspace test compilation remains active.
