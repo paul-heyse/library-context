@@ -440,3 +440,33 @@ def example(unknown):
     drop(execution);
     fixture.finish().await;
 }
+
+#[tokio::test]
+async fn diagnostic_primary_argument_has_supported_use_and_route_packets_retain_alias_identity() {
+    use lctx_model::domain::catalog::{evidence::DiagnosticUseStatus,access_routes::{RouteHop,RouteStop}};
+    let source=br#"from .api import parse as parse
+from .reexport import public_parse as forwarded
+__all__=['parse','forwarded','example']
+def example():
+    parse(1.5)
+    forwarded('text')
+"#;
+    let fixture=source_fixture(source,true).await;
+    let execution=fixture.service.execution().await.unwrap();
+    let artifacts=execution.read::<SourceArtifact>().await.unwrap();
+    let artifact=artifacts.rows().iter().find(|a|a.content==ContentHash::of(source)).unwrap().id();
+    let response=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Artifact{artifact},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
+    let diagnostic=response.evidence.source_characterization.items.iter().find(|item|matches!(&item.payload,SourceCharacterizationPayload::PyreflyDiagnostic{header,..} if header.as_str().contains("float"))).unwrap();
+    let correlation=diagnostic.diagnostic_correlation.0.as_ref().unwrap();
+    assert_eq!(correlation.status,DiagnosticUseStatus::UniqueUse);
+    assert!(!correlation.remainder);assert!(!correlation.links.items.is_empty());
+    assert!(correlation.links.items.iter().all(|link|!link.proof.is_empty()));
+    assert!(correlation.links.items.iter().any(|link|!link.targets.is_empty()),"API relevance cites exact event alternative/scenario association");
+    let request=GetOperationRequest {library:Name::new("demo").unwrap(),operation:OperationSelector::PublicPath {path:vec![Name::new("demo").unwrap(),Name::new("forwarded").unwrap()]},comparison:Optional::default(),reference_parameter:Optional::default(),sections:vec![OperationSection::AccessRoutes],page:PageRequest{expanded:true,..Default::default()}};
+    let OperationResolution::Unique{packet}=fixture.catalog.operation(&execution,&request).await.unwrap().operation else{panic!("forwarded operation missing")};
+    assert!(!packet.access_routes.items.is_empty());
+    assert!(packet.access_routes.items.iter().any(|route|route.hops.iter().filter(|hop|matches!(hop,RouteHop::Import{..})).count()==2),"explicit reexport has two ordered supported import-name hops");
+    assert!(packet.access_routes.items.iter().any(|route|route.stop==RouteStop::Declaration));
+    assert!(packet.access_routes.items.iter().all(|route|route.captured_modules>0));
+    drop(execution);fixture.finish().await;
+}

@@ -70,6 +70,7 @@ fn label(section: OperationSection) -> &'static str {
         OperationSection::CallableComparison => "callable_comparison",
         OperationSection::ContextualTyping => "contextual_typing",
         OperationSection::IncomingReferences => "incoming_references",
+        OperationSection::AccessRoutes => "access_routes",
     }
 }
 impl CatalogService {
@@ -125,6 +126,7 @@ impl CatalogService {
                 normalized::contract_comparison::definition(),
                 normalized::incoming_references::definition(),
                 types::contextual::definition(),
+                catalog::access_routes::definition(),
             ))?,
             wire: self.wire(),
             channels: ChannelState {
@@ -139,7 +141,7 @@ impl CatalogService {
         })
     }
     // The cardinality-independent binding is validated before any section body is hydrated.
-    fn section_page<T>(
+    pub(super) fn section_page<T>(
         &self,
         r: &GetOperationRequest,
         member: Id<catalog::CatalogMember>,
@@ -205,6 +207,7 @@ impl CatalogService {
         self.validate_section_cursor(r, core.member)?;
         let mut packet = OperationPacket {
             core,
+            access_routes: absent(),
             callable_comparison: absent(),
             contextual_typing: absent(),
             incoming_references: absent(),
@@ -261,6 +264,9 @@ impl CatalogService {
                         let page=this.section_page(&request,member,"contextual_typing",20,result.value,true)?;
                         retain(&retained,&page)?; Ok(page)
                     }).await?;
+                }
+                OperationSection::AccessRoutes => {
+                    packet.access_routes=self.access_route_section(e,r,packet.core.member).await?;
                 }
                 OperationSection::IncomingReferences => {
                     let this=self.clone(); let request=r.clone(); let member=packet.core.member; let retained=e.clone();
@@ -380,11 +386,25 @@ impl CatalogService {
                         .await?,
                 );
             }
+            let association_id=association.id();
+            let diagnostic_correlations=e.query(move|lease|Box::pin(async move {
+                let mut scope=super::packet_reads::PacketLease::new::<ScenarioPacket>(lease);
+                let targets=scope.read_for::<DiagnosticUseTarget,ScenarioAssociation>("association",&[association_id]).await?;
+                let _charge=scope.lease.budget.reserve("scenario-diagnostic-correlation",targets.rows().len().saturating_mul(256))?;
+                let link_ids=targets.rows().iter().map(|t|t.link).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+                let links=scope.read_ids::<DiagnosticUseLink>(&link_ids).await?;
+                let assessment_ids=links.rows().iter().map(|l|l.assessment).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+                let assessments=scope.read_ids::<DiagnosticUseAssessment>(&assessment_ids).await?;
+                if assessments.rows().len()!=assessment_ids.len(){return Err(Error::Contract);}
+                let omitted=assessment_ids.len().saturating_sub(64) as u64;
+                Ok(SectionPage{availability:if omitted>0 {Availability::Partial{reason:name("scenario diagnostic correlation bound reached")?}}else{Availability::Available{}},items:assessment_ids.into_iter().take(64).collect(),continuation:Optional::default(),omitted,truncated:omitted>0})
+            })).await?;
             items.push(ScenarioPacket {
                 scenario: scenario.id(),
                 intent: association.intent,
                 basis: association.basis,
                 spans: originals,
+                diagnostic_correlations,
                 parse: scenario.parse,
                 binding: scenario.binding,
                 environment: scenario.environment,
@@ -1354,7 +1374,9 @@ impl CatalogService {
                 };
                 let member = packet.core.member;
                 // Stable presentation priority preserves positive source examples longest.
-                if !packet.callable_comparison.items.is_empty() {
+                if !packet.access_routes.items.is_empty() {
+                    this.trim_optional_page(&request, member, "access_routes", &mut packet.access_routes)?;
+                } else if !packet.callable_comparison.items.is_empty() {
                     this.trim_optional_page(&request, member, "callable_comparison", &mut packet.callable_comparison)?;
                 } else if !packet.contextual_typing.items.is_empty() {
                     this.trim_optional_page(&request, member, "contextual_typing", &mut packet.contextual_typing)?;

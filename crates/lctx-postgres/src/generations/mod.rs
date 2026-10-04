@@ -17,6 +17,7 @@ mod runtime;
 mod serving_shape;
 mod source_characterization_service;
 mod source_usage_service;
+mod access_routes_service;
 mod vectors;
 pub use native_service::PreparedNative;
 mod service;

@@ -423,7 +423,7 @@ macro_rules! binding {
                                 .rsplit("::")
                                 .next()
                                 .expect("packet type"),
-                            revision: if matches!($name,"relationships"|"operation"|"callable_comparison"|"contextual_typing"|"incoming_references") {2} else {1},
+                            revision: if matches!($name,"original_evidence"|"scenario"|"relationships"|"operation"|"callable_comparison"|"contextual_typing"|"incoming_references"|"access_routes") {2} else {1},
                         },
                     }
                 })
@@ -520,6 +520,13 @@ binding!(
         e::ScenarioAssociation,
         domain::catalog::CatalogMember,
         e::SourceCharacterizationScenario,
+        e::DiagnosticUseAssessment,
+        e::DiagnosticUseLink,
+        e::DiagnosticUsePath,
+        e::DiagnosticUseTarget,
+        domain::normalized::events::CallEventSource,
+        domain::normalized::entities::OccurrenceOwnership,
+        domain::syntax::SyntaxPlacement,
         domain::analysis::native::NativeAssertionPremise,
         domain::assertion::AssertionQualification,
         domain::assertion::ProviderSurface,
@@ -560,7 +567,10 @@ binding!(
         e::ScenarioSource,
         e::ScenarioSpan,
         e::ScenarioAssociation,
-        e::ScenarioCheck
+        e::ScenarioCheck,
+        e::DiagnosticUseTarget,
+        e::DiagnosticUseLink,
+        e::DiagnosticUseAssessment
     ),
     &[PacketKind::OriginalRange],
     &[]
@@ -845,3 +855,21 @@ pub fn prepared_binding(dependency: PreparedDependency) -> &'static PacketBindin
 macro_rules! serving_retrieval_inputs {($m:ident)=>{$m!{
  units:$crate::domain::retrieval::Unit,fragments:$crate::domain::retrieval::Fragment,subjects:$crate::domain::retrieval::Subject,unit_subjects:$crate::domain::retrieval::UnitSubject,anchors:$crate::domain::retrieval::OriginalAnchor,origins:$crate::domain::retrieval::Origin,uses:$crate::domain::retrieval::consumption::RetrievalEmbeddingUse,parents:$crate::domain::input::CorpusLibrary,
 }};}
+
+binding!("access_routes", AccessRoutePacket, &[Capability::Catalog], sources!(
+ domain::syntax::ImportAliasObservation,
+ domain::normalized::links::ImportModuleAssessment,
+ domain::normalized::links::ImportModuleCandidate,
+ domain::symbols::ModuleResolutionObservation,
+ domain::symbols::ModuleResolutionSupport,
+ domain::ruff::RuffBindingObservation,
+ domain::ruff::RuffBindingSupport,
+ domain::symbols::PublicNameObservation,
+ domain::symbols::PublicNameSupport,
+ domain::symbols::ExportOrigin,
+ domain::normalized::entities::ClassEntity,
+ domain::attribution::ProviderRun,
+ domain::attribution::Provider,
+ domain::assertion::ProviderSurface,
+ domain::assertion::Evidence
+), &[], &[PreparedDependency::Selection]);

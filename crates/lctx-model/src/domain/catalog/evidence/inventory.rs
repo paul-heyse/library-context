@@ -65,6 +65,10 @@ macro_rules! catalog_evidence_inputs {
 macro_rules! catalog_evidence_outputs {
     ($m:ident) => {
         $m! {
+                diagnostic_use_assessments:$crate::domain::catalog::evidence::DiagnosticUseAssessment,
+                diagnostic_use_links:$crate::domain::catalog::evidence::DiagnosticUseLink,
+                diagnostic_use_paths:$crate::domain::catalog::evidence::DiagnosticUsePath,
+                diagnostic_use_targets:$crate::domain::catalog::evidence::DiagnosticUseTarget,
                 source_usages:$crate::domain::catalog::evidence::SourceUsage,
                 source_characterizations:$crate::domain::catalog::evidence::SourceCharacterization,
                 source_characterization_scenarios:$crate::domain::catalog::evidence::SourceCharacterizationScenario,

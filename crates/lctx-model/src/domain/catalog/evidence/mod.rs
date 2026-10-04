@@ -1,6 +1,8 @@
 //! Original contextual evidence references canonical captured coordinates and earlier semantic owners.
 pub mod build;
 pub mod characterization;
+pub mod diagnostic_uses;
+pub use diagnostic_uses::{DiagnosticUseAssessment,DiagnosticUseStatus,DiagnosticUseLink,DiagnosticUsePath,DiagnosticUseTarget};
 pub use characterization::{SourceCharacterization, SourceCharacterizationScenario, SourceUsage};
 mod fields;
 pub mod frames;

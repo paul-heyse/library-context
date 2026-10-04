@@ -648,6 +648,7 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
     dependencies(data, &mut out, b)?;
     finish_scenarios(data, &mut out, b)?;
     super::characterization::derive(data, &mut out)?;
+    super::diagnostic_uses::derive(data, &mut out, b)?;
     Ok(out)
 }
 fn deployments(data: &EvidenceData, out: &mut EvidenceOutput) -> Result<(), ModelError> {
@@ -1101,6 +1102,8 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
         include_bytes!("runtime.rs").as_slice(),
         include_bytes!("frames.rs").as_slice(),
         include_bytes!("intent.rs").as_slice(),
+        include_bytes!("characterization.rs").as_slice(),
+        include_bytes!("diagnostic_uses.rs").as_slice(),
     ] {
         ContentHash::of(bytes).encode(&mut version);
     }

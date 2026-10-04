@@ -67,6 +67,7 @@ pub enum OperationSection {
     CallableComparison,
     ContextualTyping,
     IncomingReferences,
+    AccessRoutes,
 }
 pub fn default_selection() -> selection::Selection {
     selection::Selection::default()
