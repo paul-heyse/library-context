@@ -110,13 +110,13 @@ mod tests {
             data.signatures.insert(signature.clone()).unwrap();
             let native=NativeSignatureObservation {qualification:q.id(),signature:signature.id(),scope:q.scope,term:native_term.id(),family:None,implementation:Some(id(n)),metadata_origin:Some(id(n)),deprecation:CallableDeprecation::NotDeprecated,deprecation_message:None,receiver:NativeReceiver::Unbound,complete:true};
             data.native_signatures.insert(native.clone()).unwrap();
-            data.native_signature_supports.insert(NativeSignatureSupport::Native {assertion:native.id(),run:id(80),surface:id(81),evidence:id(82),mode:attribution::ExtractionMode::NativeTraversal,fidelity:attribution::Fidelity::NativeStructural}).unwrap();
+            data.native_signature_supports.insert(NativeSignatureSupport {assertion:native.id(),run:id(80),surface:id(81),evidence:id(82),origin:attribution::Origin::AnalyzerAssertion,mode:attribution::ExtractionMode::NativeTraversal,fidelity:attribution::Fidelity::NativeStructural}).unwrap();
             output.variants.insert(SignatureVariant {signature:signature.id(),role:SignatureRole::EffectiveTyped,native:Some(native.id()),context:q.context,resolution:resolution.id(),callable:Some(callable.id()),assessment:None,adjustment:SignatureAdjustment::None}).unwrap();
         }
         let inputs=[OverloadCandidateInput {term:term.id(),origin:Some(id(10)),generic:false,receiver_basis_required:false},OverloadCandidateInput {term:term.id(),origin:Some(id(11)),generic:false,receiver_basis_required:false},OverloadCandidateInput {term:term.id(),origin:Some(id(10)),generic:true,receiver_basis_required:false},OverloadCandidateInput {term:term.id(),origin:Some(id(10)),generic:false,receiver_basis_required:true},OverloadCandidateInput {term:term.id(),origin:None,generic:false,receiver_basis_required:false}];
         let (trace,candidates)=NativeOverloadObservation::new(q.id(),q.scope,id(3),id(4),OverloadSelection::ClosestOnly,0,&inputs).unwrap();
         data.overload_traces.insert(trace.clone()).unwrap();
-        data.overload_supports.insert(NativeOverloadSupport::Native {assertion:trace.id(),run:id(80),surface:id(81),evidence:id(82),mode:attribution::ExtractionMode::NativeTraversal,fidelity:attribution::Fidelity::NativeStructural}).unwrap();
+        data.overload_supports.insert(NativeOverloadSupport {assertion:trace.id(),run:id(80),surface:id(81),evidence:id(82),origin:attribution::Origin::AnalyzerAssertion,mode:attribution::ExtractionMode::NativeTraversal,fidelity:attribution::Fidelity::NativeStructural}).unwrap();
         for c in &candidates {data.overload_candidates.insert(c.clone()).unwrap();}
         associate(&data,&mut output,&budget).unwrap();
         let rows=candidates.iter().map(|c|output.overload_assessments.iter().find(|r|r.candidate==c.id()).unwrap()).collect::<Vec<_>>();

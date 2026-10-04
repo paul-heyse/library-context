@@ -109,7 +109,7 @@ mod tests {
         let target_q = intersect(&data, &conditional_call, &unconditional_local, artifact.id(), &mut output, &budget).unwrap();
         assert_eq!(target_q.condition, conditional.id());
         assert_eq!(target_q.assumptions, q.assumptions);
-        let opposite = conditional.not();
+        let opposite = conditional.not().unwrap();
         let (opposite_record, opposite_nodes) = opposite.records();
         data.handoffs.entry.conditions.insert(opposite_record).unwrap();
         for node in opposite_nodes {data.handoffs.entry.condition_nodes.insert(node).unwrap();}
@@ -117,7 +117,7 @@ mod tests {
         let false_q = intersect(&data, &conditional_call, &exclusive_local, artifact.id(), &mut output, &budget).unwrap();
         assert_eq!(false_q.condition, Diagram::never().id(), "incompatible qualified evidence cannot become an unconditional flow");
         assert_eq!(false_q.assumptions, q.assumptions);
-        let denied = ResourceBudget::fixed(0).unwrap();
+        let denied = ResourceBudget::fixed(1).unwrap();
         assert!(matches!(intersect(&data, &call, &local, artifact.id(), &mut output, &denied), Err(ModelError::Resource {..})));
         assert_eq!(denied.reserved(), 0);
         let foreign = AssertionQualification { context: id(8), ..local.clone() };

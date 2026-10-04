@@ -101,3 +101,41 @@ async fn native_origin_vectors_survive_canonical_attachment_and_replay() {
     verify("none").unwrap();
     for mutation in ["drop-member","origin","qualification","drop-vector"] {assert!(verify(mutation).is_err(),"{mutation} escaped original native vector closure");}
 }
+
+#[tokio::test]
+async fn actual_equal_shapes_associate_only_through_original_declaration_origins() {
+    use lctx_model::domain::normalized::{entity_normalization, relation_normalization, callable_normalization, entities::ResolutionStatus};
+    let tables=typed_driver::Tables::default();
+    typed_driver::run(&typed_driver::files("native_overload_origins"),OriginFacts(tables.clone())).await.unwrap();
+    let budget=typed_driver::budget();
+    let mut relations=relation_normalization::RelationData::new(&budget);
+    macro_rules! facts {($($field:ident:$ty:ty => $family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){relations.facts.$field.insert(row).unwrap();})*};}
+    lctx_model::normalized_entity_inputs!(facts);
+    relations.entities=entity_normalization::normalize(relations.facts.inputs(),&budget).unwrap();
+    macro_rules! additional {($($field:ident:$ty:ty => $family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){relations.$field.insert(row).unwrap();})*};}
+    lctx_model::normalized_relation_inputs!(additional);
+    let links=relation_normalization::normalize(&relations,&budget).unwrap();
+    let mut data=callable_normalization::CallableData::new(&budget);
+    macro_rules! native {($($field:ident:$ty:ty,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){data.$field.insert(row).unwrap();})*};}
+    lctx_model::normalized_callable_inputs!(native);
+    macro_rules! entities {($($field:ident:$ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty>::encode(&relations.entities.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::normalized_entity_outputs!(entities);
+    macro_rules! normalized {($($field:ident:$ty:ty,)*)=>{$(
+        let batch=<$ty>::encode(&links.$field.iter().cloned().collect::<Vec<_>>()).unwrap();
+        data.visit(<$ty>::NAME,&batch).unwrap();
+    )*};}
+    lctx_model::normalized_relation_outputs!(normalized);
+    let output=callable_normalization::normalize(&data,&budget).unwrap();
+    let start=include_str!("../../../fixtures/python/native_overload_origins/cases.py").find("equal_shape(1)").unwrap();
+    let trace=data.overload_traces.iter().find(|trace|data.occurrences.get(trace.site).is_some_and(|site|site.start as usize==start)).unwrap();
+    let mut candidates=data.overload_candidates.iter().filter(|candidate|candidate.trace==trace.id()).collect::<Vec<_>>();
+    candidates.sort_by_key(|candidate|candidate.ordinal);
+    assert_eq!(candidates.len(),2);
+    assert_ne!(candidates[0].origin,candidates[1].origin);
+    let assessments=candidates.iter().map(|candidate|output.overload_assessments.iter().find(|row|row.candidate==candidate.id()).unwrap()).collect::<Vec<_>>();
+    assert!(assessments.iter().all(|row|row.status==ResolutionStatus::Resolved),"actual original declaration association: {assessments:?}");
+    assert_ne!(assessments[0].variant,assessments[1].variant,"identical callable shapes cannot select the same declaration origin");
+    for row in assessments {
+        assert!(output.overload_variant_candidates.iter().any(|member|member.assessment==row.id()),"association lacks exact native declaration and trace support");
+    }
+}
