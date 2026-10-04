@@ -34,7 +34,7 @@ fn artifact(text: &str) -> SourceArtifact {
 }
 #[test]
 fn populated_context_keeps_alias_resolution_final_tables_and_exact_snapshot() {
-    let source = "from typing import TYPE_CHECKING as TC\nfrom typing import final as fin\nif TC:\n    annotation_only = 1\n@fin\ndef f():\n    return missing\nfin = 0\nfin\n__all__ = ['f']\n";
+    let source = "from typing import TYPE_CHECKING as TC\nfrom typing import final as fin\nif TC:\n    annotation_only = 1\n    annotation_only\n@fin\ndef f():\n    return missing\nfin = 0\nfin\n__all__ = ['f']\n";
     let b = ResourceBudget::fixed(16 << 20).unwrap();
     let syntax = CanonicalSyntax::parse(
         &artifact(source),
@@ -48,13 +48,11 @@ fn populated_context_keeps_alias_resolution_final_tables_and_exact_snapshot() {
     let mut rows = Rows::default();
     let stats = syntax.observe(&mut rows).unwrap();
     assert_eq!(stats.rows, rows.0.len());
-    assert!(rows.0.iter().any(|r| matches!(
-        r,
-        Fact::Branch {
-            type_checking: true,
-            ..
-        }
-    )));
+    assert!(rows.0.iter().any(|r| matches!(r, Fact::Reference(r)
+        if &source[r.range] == "annotation_only" && r.type_checking && !r.typing_only_annotation)));
+    assert!(rows.0.iter().any(|r| matches!(r, Fact::Node(n)
+        if &source[n.range] == "annotation_only"
+        && n.flags & ruff_python_semantic::SemanticModelFlags::TYPE_CHECKING_BLOCK.bits() != 0)));
     assert!(rows.0.iter().any(|r| matches!(r, Fact::Node(n) if n.qualified_name.as_deref() == Some(&["typing".to_owned(), "final".to_owned()]))));
     let imported = rows
         .0
@@ -80,7 +78,7 @@ fn populated_context_keeps_alias_resolution_final_tables_and_exact_snapshot() {
     assert!(
         rows.0
             .iter()
-            .any(|r| matches!(r, Fact::Export { name, .. } if name == "f"))
+            .any(|r| matches!(r, Fact::Binding(b) if b.name == "__all__" && b.kind == "Export"))
     );
     assert!(syntax.module().range().end().to_u32() <= source.len() as u32);
     assert!(
