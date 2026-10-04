@@ -44,6 +44,15 @@ pub fn dump(
     sample::<ruff::RuffBindingSupport>(f);
 }
 
+#[allow(dead_code, reason = "Used by initializer diagnostics only in the transfer read target")]
+fn initializer_native<R: Record>(data: &execution::source_call_records::SourceCallData, assertion: Id<R>) {
+    let reference = derivation::RowRef::of(assertion);
+    for native in data.evaluation.native.iter().filter(|n| {
+        data.evaluation.premises.get(n.premise).is_some_and(|p| p.assertion_and_support().0 == reference)
+    }).take(8) {
+        eprintln!("initializer native={native:?}; pair={:?}", data.evaluation.premises.get(native.premise));
+    }
+}
 /// Exact initializer path diagnostics, including source geometry and per-use conditions.
 #[allow(dead_code, reason = "Shared diagnostic module is compiled by read targets without this initializer fixture")]
 pub fn dump_global_initializer(
@@ -62,6 +71,7 @@ pub fn dump_global_initializer(
         eprintln!("initializer event={event:?}; occurrence={:?}", data.flow.occurrences.get(event.site));
         for binding in data.evaluation.ruff_bindings.iter().filter(|b| b.event == event.id()).take(8) {
             eprintln!("initializer binding={binding:?}; scope={:?}; qualification={:?}", binding.scope.and_then(|s| data.flow.lexical_scopes.get(s)), data.flow.qualifications.get(binding.qualification));
+            initializer_native(data, binding.id());
             for support in data.evaluation.ruff_binding_supports.iter().filter(|s| s.assertion == binding.id()).take(8) {
                 eprintln!("initializer binding support={support:?}");
             }
@@ -70,15 +80,18 @@ pub fn dump_global_initializer(
     for use_ in data.flow.uses.iter().filter(|u| spelling(u.occurrence) == "fixed").take(16) {
         eprintln!("initializer use={use_:?}; occurrence={:?}", data.flow.occurrences.get(use_.occurrence));
         for observed in data.flow.use_observations.iter().filter(|o| o.use_ == use_.id()).take(8) {
+            initializer_native(data, observed.id());
             eprintln!("initializer use observation={observed:?}; scope={:?}; qualification={:?}; supports={:?}",
                 data.flow.lexical_scopes.get(observed.scope), data.flow.qualifications.get(observed.qualification),
                 data.flow.use_supports.iter().filter(|s| s.assertion == observed.id()).take(8).collect::<Vec<_>>());
         }
     }
     for call in data.evaluation.call_syntax.iter().filter(|c| spelling(c.site) == "ChoiceA()" || spelling(c.site) == "getattr(fixed, name)").take(16) {
+        initializer_native(data, call.id());
         eprintln!("initializer call={call:?}; source={}; qualification={:?}; supports={:?}", spelling(call.site), data.flow.qualifications.get(call.qualification), data.evaluation.call_syntax_supports.iter().filter(|s| s.assertion == call.id()).take(8).collect::<Vec<_>>());
         for read in [call.callee].into_iter().chain(data.evaluation.call_arguments.iter().filter(|a| a.call == call.id() && a.ordinal == 0).map(|a| a.value)) {
             for resolution in data.evaluation.lexical_resolutions.iter().filter(|r| r.read == read).take(8) {
+                initializer_native(data, resolution.id());
                 eprintln!("initializer lexical={resolution:?}; target={:?}; qualification={:?}; supports={:?}",
                     data.evaluation.lexical_targets.get(resolution.target), data.flow.qualifications.get(resolution.qualification),
                     data.evaluation.lexical_resolution_supports.iter().filter(|s| s.assertion == resolution.id()).take(8).collect::<Vec<_>>());
@@ -89,6 +102,7 @@ pub fn dump_global_initializer(
         matches!(spelling(p.occurrence).as_str(), "fixed" | "ChoiceA()")
             && p.parent.is_some_and(|parent| spelling(parent) == "fixed = ChoiceA()")
     }).take(16) {
+        initializer_native(data, placement.id());
         eprintln!("initializer placement={placement:?}; qualification={:?}; supports={:?}",
             data.flow.qualifications.get(placement.qualification), data.flow.placement_supports.iter().filter(|s| s.assertion == placement.id()).take(8).collect::<Vec<_>>());
     }
