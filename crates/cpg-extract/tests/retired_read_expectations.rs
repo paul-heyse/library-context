@@ -403,6 +403,8 @@ async fn literal_builtin_field_closure_requires_supported_unmixed_native_target(
             for mut coverage in retained {
                 if coverage.family == attribution::FactFamily::Flow {
                     coverage.status = attribution::CoverageStatus::Partial;
+                    coverage.reason = Some(obligation::ObligationKind::IncompleteCoverage);
+                    coverage.diagnostic = Some("field closure refusal control: incomplete global flow".into());
                 }
                 data.flow.coverage.insert(coverage).unwrap();
             }

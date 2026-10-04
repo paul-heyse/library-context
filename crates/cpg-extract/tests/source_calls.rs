@@ -1847,9 +1847,9 @@ async fn selected_source_body_closure_preserves_partial_family_and_refuses_missi
                         data.entity_declarations.get(s.assertion).is_some_and(|d| d.symbol == header.symbol)
                     }).unwrap().evidence
                 } else {
-                    data.native_evidence.iter().find(|e| {
-                        matches!(e, assertion::Evidence::Invocation { run } if *run != support.run)
-                    }).unwrap().id()
+                    let run = data.runs.iter().find(|run| run.id() != support.run)
+                        .expect("actual independent provider run").id();
+                    data.native_evidence.insert(assertion::Evidence::Invocation { run }).unwrap()
                 };
                 keep!(signature_supports, |s: &&calls::SignatureSupport| s.id() != original.id());
                 data.signature_supports.insert(changed).unwrap();
