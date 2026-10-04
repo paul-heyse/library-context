@@ -502,6 +502,15 @@ pub(super) fn produce(
         {
             conflicting = true;
         }
+        // Canonical lexical resolution and the native call target are independent
+        // source-model premises. A recognizer builtin hint does not require a native
+        // lexical twin when the supported call inventory already resolves the builtin.
+        // A mixed inventory still refuses closure, even with a lexical builtin answer.
+        let native_builtin = named_target.is_some_and(|target| target.2);
+        conflicting |= named_target.is_some_and(|target| !target.2);
+        if let Some(target) = named_target {
+            target.1.encode(&mut digest);
+        }
         let arg = data.call_arguments.iter().find(|a| {
             a.call == call.id() && a.ordinal == 1 && a.kind == calls::ArgumentKind::Positional
         });
@@ -535,8 +544,7 @@ pub(super) fn produce(
         )?
         .is_none()
             || conflicting
-            || (hinted && builtin.is_none())
-            || (!hinted && named_target.is_none())
+            || (builtin.is_none() && !native_builtin)
         {
             complete = false
         }

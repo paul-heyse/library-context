@@ -349,3 +349,67 @@ async fn lambda_shadow_screen_requires_actual_binding_and_lexical_support() {
         );
     }
 }
+
+#[tokio::test]
+async fn literal_builtin_field_closure_requires_supported_unmixed_native_target() {
+    let f = fixture::native_from("retired_attribute_expectations").await;
+    let baseline = source_fixture::data(&f);
+    let call = baseline.evaluation.call_syntax.iter()
+        .find(|c| text(&f, c.site) == "getattr(self, \"bare_only\")").unwrap().clone();
+    let target = baseline.evaluation.call_targets.iter()
+        .find(|t| t.site == call.site && t.phase == calls::CallPhase::Call)
+        .unwrap().clone();
+    assert!(baseline.evaluation.call_target_supports.iter().any(|s|
+        s.assertion == target.id() && s.origin == attribution::Origin::AnalyzerAssertion
+            && s.mode == attribution::ExtractionMode::NativeTraversal
+            && s.fidelity == attribution::Fidelity::NativeStructural));
+    let assessment = |records: &ReadRecords| {
+        records.fields.assessments.iter().find(|r| r.name == "unread_only").unwrap().clone()
+    };
+    assert_eq!(assessment(&read_from(&f, &baseline)).status,
+        ReadAssessment::CompleteNoReadUnderModel);
+    for mutation in ["missing target support", "foreign target support", "mixed target", "partial flow"] {
+        let mut data = source_fixture::data(&f);
+        if mutation == "missing target support" || mutation == "foreign target support" {
+            let retained = data.evaluation.call_target_supports.iter().cloned().collect::<Vec<_>>();
+            data.evaluation.call_target_supports = normalized::Rows::new(&f.budget);
+            for mut support in retained {
+                let at_site = data.evaluation.call_targets.get(support.assertion)
+                    .is_some_and(|t| t.site == call.site);
+                if at_site {
+                    if mutation == "missing target support" { continue; }
+                    let mut run = data.flow.runs.get(support.run).unwrap().clone();
+                    let mut context = f.rows::<attribution::AnalysisContext>().into_iter()
+                        .find(|c| c.id() == run.context).unwrap();
+                    context.config_digest = ContentHash::of(b"foreign literal builtin context");
+                    run.context = context.id();
+                    support.run = run.id();
+                    data.flow.runs.insert(run).unwrap();
+                }
+                data.evaluation.call_target_supports.insert(support).unwrap();
+            }
+        } else if mutation == "mixed target" {
+            let destination = calls::CallDestination::Unresolved {
+                reason: obligation::ObligationKind::MissingEvidence,
+                native: Some(calls::PysaUnresolvedReason::Mixed),
+            };
+            let mut competing = target.clone();
+            competing.destination = destination.id();
+            data.evaluation.call_destinations.insert(destination).unwrap();
+            data.evaluation.call_targets.insert(competing).unwrap();
+        } else {
+            let retained = data.flow.coverage.iter().cloned().collect::<Vec<_>>();
+            data.flow.coverage = normalized::Rows::new(&f.budget);
+            for mut coverage in retained {
+                if coverage.family == attribution::FactFamily::Flow {
+                    coverage.status = attribution::CoverageStatus::Partial;
+                }
+                data.flow.coverage.insert(coverage).unwrap();
+            }
+        }
+        let row = assessment(&read_from(&f, &data));
+        assert_eq!(row.status, ReadAssessment::Unknown, "{mutation}: {row:?}");
+        assert_eq!(row.reason, Some(obligation::ObligationKind::IncompleteCoverage),
+            "{mutation}: {row:?}");
+    }
+}
