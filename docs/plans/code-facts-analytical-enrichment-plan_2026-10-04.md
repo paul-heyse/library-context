@@ -706,3 +706,17 @@ canonical dependencies, with a cheap model-closure control. Their reruns are pen
 selected-proof schema and FinalReference input changes (`lctx-enrichment-selected-domain-native-adapter.log`).
 Actual PostgreSQL serving/explanation and direct Behavioral Structural qualification are queued;
 this remains a composite bounded repair receipt, not full Q1 acceptance.
+
+
+Current PostgreSQL serving packets **failed**, 2026-10-04: nine controls, eight passed and
+one constructor-to-reader association-count assertion failed (`lctx-enrichment-selected-domain-serving-packets.log`).
+The new native Summary explanation **passed** with exact enumeration/support and member/signature
+edges and JSON wire round-trip. Behavioral packets, default/formal/context/set hydration, budget
+refusal/resumption, original native-use evidence and typed role/generated-slot proof controls passed.
+The rich analytical packet returns four associations where the unchanged fixture requires two;
+producer/signature-role identity is under investigation, not silently deduplicated or relabelled.
+CLI describe reports model `ece1e6a8242aa3b7bafa039ed0aa07b7c5f6cd601db55626ef3770b76f9321a6`,
+878 relations: the previous accepted schema differs only in the two added SummaryWitness fields.
+The direct unchanged describe assertion **failed** as expected before deliberate migration
+acceptance (`lctx-enrichment-selected-domain-describe-snapshot.log`); snapshot refresh remains
+pending final source stability. Full hygiene/functional acceptance is still open.
