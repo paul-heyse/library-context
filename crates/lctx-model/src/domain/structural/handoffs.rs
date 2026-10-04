@@ -51,6 +51,8 @@ pub enum ValueSource {
         reaching_support: Id<FlowReachingSupport>,
         definition: Id<FlowDefinitionObservation>,
         definition_support: Id<FlowDefinitionSupport>,
+        region: Option<Id<FlowRegionObservation>>,
+        region_support: Option<Id<FlowRegionSupport>>,
         coverage: Id<attribution::ProviderCoverage>,
     },
 }
@@ -147,6 +149,71 @@ fn source_covered(
         CoverageScope::Module { module } => need(&d.entry.modules, *module)?.source == source.id(),
         _ => false,
     })
+}
+fn read_region(
+    d: &Data,
+    observation: &FlowUseObservation,
+    support: &FlowUseSupport,
+) -> Result<Option<(Id<FlowRegionObservation>, Id<FlowRegionSupport>)>, ModelError> {
+    let use_ = need(&d.entry.uses, observation.use_)?;
+    let lexical = need(&d.entry.lexical_scopes, observation.scope)?;
+    let q = need(&d.entry.qualifications, observation.qualification)?;
+    let mut owners = d.entry.owners.iter().filter(|o| {
+        o.occurrence == use_.occurrence && o.owner == lexical.owner
+            && d.entry.refs.get(o.entity).is_some()
+    });
+    let Some(owner) = owners.next() else { return Ok(None) };
+    if owners.next().is_some() { return Ok(None) }
+    let Ok((region, region_support)) = conditions::entry::region_for_access(
+        &d.entry, owner.entity, use_.occurrence, q.context, support.run,
+    ) else { return Ok(None) };
+    let row = need(&d.entry.regions, region)?;
+    let rq = need(&d.entry.qualifications, row.qualification)?;
+    if rq.scope != q.scope || !native(d, NativeAssertionPremise::Region {
+        assertion: region, support: region_support,
+    }, rq.id()) {
+        return Ok(None);
+    }
+    Ok(Some((region, region_support)))
+}
+/// The named origin's execution domain, retaining its exact containing native region when needed.
+pub(crate) fn named_condition(
+    d: &Data,
+    value: &ValueSource,
+    budget: &resources::ResourceBudget,
+) -> Result<Diagram, ModelError> {
+    let ValueSource::Named { observation, support, reaching, region, region_support, .. } = value else {
+        return Err(invalid("nested value has no named read condition"));
+    };
+    let observation = need(&d.entry.use_observations, *observation)?;
+    let support = need(&d.entry.use_supports, *support)?;
+    let q = need(&d.entry.qualifications, observation.qualification)?;
+    let _nodes = budget.reserve("named-read-condition", d.entry.condition_nodes.len().checked_mul(2048)
+        .ok_or_else(|| invalid("named read condition overflow"))?)?;
+    let nodes = d.entry.condition_nodes.iter().cloned().collect::<Vec<_>>();
+    let condition = Diagram::from_records(need(&d.entry.conditions, q.condition)?, &nodes)?;
+    let domain = match (*region, *region_support) {
+        (None, None) => condition,
+        (Some(region), Some(region_support)) => {
+            if read_region(d, observation, support)? != Some((region, region_support)) {
+                return Err(invalid("named read region does not replay"));
+            }
+            let rq = need(&d.entry.qualifications, need(&d.entry.regions, region)?.qualification)?;
+            let region_condition = Diagram::from_records(need(&d.entry.conditions, rq.condition)?, &nodes)?;
+            let admitted = condition.admitted_binary(&region_condition, BooleanOperation::Conjunction, budget)
+                .map_err(|e| invalid(format!("named read region boundary: {e:?}")))?;
+            let domain = admitted.into_parts().0;
+            if domain.is_false() { return Err(invalid("named read region has no execution domain")); }
+            domain
+        }
+        _ => return Err(invalid("named read region and support must be paired")),
+    };
+    let rq = need(&d.entry.qualifications, need(&d.entry.reaching, *reaching)?.qualification)?;
+    let reaching = Diagram::from_records(need(&d.entry.conditions, rq.condition)?, &nodes)?;
+    let covered = domain.admitted_binary(&reaching, BooleanOperation::Conjunction, budget)
+        .map_err(|e| invalid(format!("named read implication boundary: {e:?}")))?;
+    if covered.into_parts().0.id() != domain.id() { return Err(invalid("named read condition does not imply reaching")); }
+    Ok(domain)
 }
 /// One reaching definition under the read condition, in the same provider invocation and scope.
 /// Rebinding selects its actual new definition; unions, loops, foreign supports and captured state refuse.
@@ -255,9 +322,7 @@ pub fn named_definition(
     let admitted = condition
         .admitted_binary(&reach_condition, BooleanOperation::Conjunction, budget)
         .map_err(|e| invalid(format!("handoff condition boundary: {e:?}")))?;
-    if admitted.into_parts().0.id() != condition.id() {
-        return Ok(None);
-    }
+    let directly_covered = admitted.into_parts().0.id() == condition.id();
     for support in d
         .entry
         .use_supports
@@ -301,6 +366,20 @@ pub fn named_definition(
         ) {
             continue;
         }
+        let region = if directly_covered {
+            None
+        } else {
+            let Some((region, region_support)) = read_region(d, observation, support)? else { continue };
+            let rq = need(&d.entry.qualifications, need(&d.entry.regions, region)?.qualification)?;
+            let region_condition = Diagram::from_records(need(&d.entry.conditions, rq.condition)?, &nodes)?;
+            let domain = condition.admitted_binary(&region_condition, BooleanOperation::Conjunction, budget)
+                .map_err(|e| invalid(format!("handoff read region boundary: {e:?}")))?.into_parts().0;
+            if domain.is_false() { continue }
+            let covered = domain.admitted_binary(&reach_condition, BooleanOperation::Conjunction, budget)
+                .map_err(|e| invalid(format!("handoff region implication boundary: {e:?}")))?;
+            if covered.into_parts().0.id() != domain.id() { continue }
+            Some((region, region_support))
+        };
         for rs in d.entry.reaching_supports.iter().filter(|s| {
             s.assertion == reaching.id() && s.attribution().is_some_and(|r| r.run == a.run)
         }) {
@@ -357,6 +436,8 @@ pub fn named_definition(
                             reaching_support: rs.id(),
                             definition: definition.id(),
                             definition_support: ds.id(),
+                            region: region.map(|r| r.0),
+                            region_support: region.map(|r| r.1),
                             coverage: coverage.id(),
                         },
                     )));

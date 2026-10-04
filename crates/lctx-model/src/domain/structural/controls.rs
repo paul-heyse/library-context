@@ -290,7 +290,8 @@ fn flow(
         return Ok(false);
     }
     let local_q = need(&h.entry.qualifications, proof.qualification)?;
-    let q = super::qualifications::intersect(base, q, local_q, site.source, out, budget)?;
+    let alias = alias.map(|id| need(&out.handoff_values, id).cloned()).transpose()?;
+    let q = super::qualifications::intersect(base, q, local_q, alias.as_ref(), site.source, out, budget)?;
     let (catches, tested) = suppression(h, d, site, entry.formal, entry.owner, q.context)?;
     let modality = if matches!(
         base.events.alternative_sources.get(alt.source),
@@ -304,7 +305,7 @@ fn flow(
         frame: frame.id(),
         binding: binding.id(),
         contribution: proof.id(),
-        alias,
+        alias: alias.as_ref().map(Record::id),
         caller: entry.owner,
         callee,
         source: entry.formal,
@@ -833,7 +834,7 @@ fn alias_covers(
             .ok_or_else(|| invalid("alias condition overflow"))?,
     )?;
     let nodes = h.entry.condition_nodes.iter().cloned().collect::<Vec<_>>();
-    let read = Diagram::from_records(need(&h.entry.conditions, q.condition)?, &nodes)?;
+    let read = handoffs::named_condition(h, alias, budget)?;
     let local = Diagram::from_records(need(&h.entry.conditions, local.condition)?, &nodes)?;
     let covered = read
         .admitted_binary(&local, BooleanOperation::Conjunction, budget)

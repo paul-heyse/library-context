@@ -130,6 +130,8 @@ pub enum SetupSource {
         reaching_support: Id<flow::FlowReachingSupport>,
         definition: Id<flow::FlowDefinitionObservation>,
         definition_support: Id<flow::FlowDefinitionSupport>,
+        region: Option<Id<flow::FlowRegionObservation>>,
+        region_support: Option<Id<flow::FlowRegionSupport>>,
         coverage: Id<attribution::ProviderCoverage>,
     },
 }
@@ -166,11 +168,12 @@ macro_rules! synthesis_pattern_inputs{($m:ident)=>{$m!{
 macro_rules! synthesis_pattern_named_inputs{($m:ident)=>{$m!{
  artifacts:$crate::domain::source::SourceArtifact,modules:$crate::domain::source::Module,scopes:$crate::domain::source::CoverageScope,occurrences:$crate::domain::source::Occurrence,qualifications:$crate::domain::assertion::AssertionQualification,conditions:$crate::domain::conditions::Condition,condition_nodes:$crate::domain::conditions::ConditionNode,
  inventories:$crate::domain::flow_inventory::FlowUseInventoryObservation,inventory_supports:$crate::domain::flow_inventory::FlowUseInventorySupport,inventory_candidates:$crate::domain::flow_inventory::FlowUseCandidate,inventory_members:$crate::domain::flow_inventory::FlowUseInventoryMember,source_views:$crate::domain::flow::FlowSourceViewObservation,source_view_supports:$crate::domain::flow::FlowSourceViewSupport,providers:$crate::domain::attribution::Provider,surfaces:$crate::domain::assertion::ProviderSurface,evidence:$crate::domain::assertion::Evidence,
+ owners:$crate::domain::normalized::entities::OccurrenceOwnership,refs:$crate::domain::normalized::entities::EntityRef,lexical_scopes:$crate::domain::lexical::LexicalScope,regions:$crate::domain::flow::FlowRegionObservation,region_supports:$crate::domain::flow::FlowRegionSupport,
  uses:$crate::domain::flow::FlowUse,use_observations:$crate::domain::flow::FlowUseObservation,use_supports:$crate::domain::flow::FlowUseSupport,definitions:$crate::domain::flow::FlowDefinition,definition_observations:$crate::domain::flow::FlowDefinitionObservation,definition_supports:$crate::domain::flow::FlowDefinitionSupport,targets:$crate::domain::flow::ReachingDefinition,reaching:$crate::domain::flow::FlowReachingObservation,reaching_supports:$crate::domain::flow::FlowReachingSupport,runs:$crate::domain::attribution::ProviderRun,coverage:$crate::domain::attribution::ProviderCoverage,native:$crate::domain::analysis::native::NativeQualification,
 }};}
 fn named_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
     let mut inputs = vec![];
-    macro_rules! named{($($field:ident:$ty:ty,)*)=>{$(if profile==stages::Profile::Behavioral||![flow::FlowUse::NAME,flow::FlowUseObservation::NAME,flow::FlowUseSupport::NAME,flow::FlowDefinition::NAME,flow::FlowDefinitionObservation::NAME,flow::FlowDefinitionSupport::NAME,flow::ReachingDefinition::NAME,flow::FlowReachingObservation::NAME,flow::FlowReachingSupport::NAME,flow::FlowSourceViewObservation::NAME,flow::FlowSourceViewSupport::NAME,flow_inventory::FlowUseInventoryObservation::NAME,flow_inventory::FlowUseInventorySupport::NAME,flow_inventory::FlowUseCandidate::NAME,flow_inventory::FlowUseInventoryMember::NAME].contains(&<$ty>::NAME){inputs.push(ValidationInput::of::<$ty>(&["id"]));})*};}
+    macro_rules! named{($($field:ident:$ty:ty,)*)=>{$(if profile==stages::Profile::Behavioral||![flow::FlowUse::NAME,flow::FlowUseObservation::NAME,flow::FlowUseSupport::NAME,flow::FlowDefinition::NAME,flow::FlowDefinitionObservation::NAME,flow::FlowDefinitionSupport::NAME,flow::ReachingDefinition::NAME,flow::FlowReachingObservation::NAME,flow::FlowReachingSupport::NAME,flow::FlowSourceViewObservation::NAME,flow::FlowSourceViewSupport::NAME,flow::FlowRegionObservation::NAME,flow::FlowRegionSupport::NAME,flow_inventory::FlowUseInventoryObservation::NAME,flow_inventory::FlowUseInventorySupport::NAME,flow_inventory::FlowUseCandidate::NAME,flow_inventory::FlowUseInventoryMember::NAME].contains(&<$ty>::NAME){inputs.push(ValidationInput::of::<$ty>(&["id"]));})*};}
     crate::synthesis_pattern_named_inputs!(named);
     inputs
 }
@@ -226,6 +229,8 @@ fn setup_source(d: &source_setup::Dependency) -> Result<SetupSource, ModelError>
                 reaching_support,
                 definition,
                 definition_support,
+                region,
+                region_support,
                 coverage,
             } = value
             else {
@@ -241,6 +246,8 @@ fn setup_source(d: &source_setup::Dependency) -> Result<SetupSource, ModelError>
                 reaching_support: *reaching_support,
                 definition: *definition,
                 definition_support: *definition_support,
+                region: *region,
+                region_support: *region_support,
                 coverage: *coverage,
             }
         }
