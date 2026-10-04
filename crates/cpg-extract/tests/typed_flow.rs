@@ -617,7 +617,7 @@ async fn actual_native_inventory_retains_competitors_and_loop_limits() {
 
 #[tokio::test]
 async fn collapsed_annotation_capture_scopes_keep_an_attributed_boundary_and_ordinary_uses() {
-    use lctx_model::domain::{flow_capture::*, obligation::ObligationKind};
+    use lctx_model::domain::{flow_capture::*, obligation::ObligationKind, syntax::SubjectBoundary};
     let tables = Tables::default();
     typed_driver::run_behavioral(
         &typed_driver::files("normalized_relations"),
