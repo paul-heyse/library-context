@@ -178,7 +178,7 @@ fn option(
                                 && n.fidelity == attribution::Fidelity::NativeStructural
                                 && d.qualifications.get(n.qualification).is_some_and(|q| {
                                     q.context == context
-                                        && q.modality == assertion::Modality::Definite
+                                        && q.modality == attribution::Modality::Definite
                                         && q.approximation == assertion::Approximation::Exact
                                 })
                         })
