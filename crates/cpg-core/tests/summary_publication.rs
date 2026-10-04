@@ -858,13 +858,15 @@ async fn assert_conditional_atom_summary(
         .collect::<Vec<_>>();
     assert!(
         zero_consequences.iter().any(|(_, basis, verdict)| {
-            *basis == 1 && *verdict == lctx_model::domain::obligation::Verdict::Conditional as i16
+            *basis == 1 && *verdict == lctx_model::domain::obligation::Verdict::Established as i16
         }),
-        "the restricted Local alternative retains its conditional consequence: {zero_consequences:?}"
+        "the exact typing restriction establishes its Local consequence under that premise: {zero_consequences:?}"
     );
     assert!(
-        zero_consequences.iter().any(|(_, basis, _)| *basis == 0),
-        "the original runtime Local consequence survives: {zero_consequences:?}"
+        zero_consequences.iter().any(|(_, basis, verdict)| {
+            *basis == 0 && *verdict == lctx_model::domain::obligation::Verdict::Conditional as i16
+        }),
+        "the original runtime guard remains a separate conditional Local consequence: {zero_consequences:?}"
     );
     let start = text.find("def effectful_repeated(").unwrap() as i64;
     let end = text.find("def nonconforming_runtime(").unwrap() as i64;
