@@ -543,7 +543,31 @@ fn normalize_exposures(
     let mut symbols: ChargedMap<OriginKey, Vec<&ProviderSymbol>> = Default::default();
     let mut supports: ChargedMap<Id<PublicNameObservation>, Vec<&PublicNameSupport>> =
         Default::default();
+    let mut reports: ChargedMap<Id<ProviderSymbol>, Vec<&SymbolObservation>> = Default::default();
+    let mut report_supports: ChargedMap<Id<SymbolObservation>, Vec<&SymbolSupport>> =
+        Default::default();
+    for report in input.symbol_observations.iter() {
+        let symbol = input
+            .symbols
+            .get(report.symbol)
+            .ok_or_else(|| missing("reported symbol"))?;
+        if context(input, report.qualification)? != symbol.context {
+            return Err(missing("same-context symbol report"));
+        }
+        reports.update(&mut index_charge, report.symbol, |rows| rows.push(report))?;
+    }
+    for support in input.symbol_supports.iter() {
+        report_supports.update(&mut index_charge, support.assertion, |rows| rows.push(support))?;
+    }
     for symbol in input.symbols.iter() {
+        // Callable type metadata names original overload members which Pysa deliberately
+        // does not report as exported definitions. Those identities remain available to
+        // signature/origin analysis, but do not enlarge the public namespace candidate set.
+        if matches!(symbol.kind, SymbolKind::Function | SymbolKind::Method)
+            && reports.get(&symbol.id()).is_none()
+        {
+            continue;
+        }
         symbols.update(
             &mut index_charge,
             (symbol.context, symbol.module, symbol.name.clone()),
@@ -660,6 +684,33 @@ fn normalize_exposures(
                         .get(support.run)
                         .ok_or_else(|| missing("public-name support run"))?;
                     if run.provider == symbol.provider && run.context == context {
+                        if matches!(symbol.kind, SymbolKind::Function | SymbolKind::Method) {
+                            let mut reported = false;
+                            let mut exact_report = false;
+                            for report in reports.get(&symbol.id()).into_iter().flatten() {
+                                let qualified = input
+                                    .qualifications
+                                    .get(report.qualification)
+                                    .ok_or_else(|| missing("symbol report qualification"))?;
+                                let admitted = report_supports
+                                    .get(&report.id())
+                                    .into_iter()
+                                    .flatten()
+                                    .any(|s| {
+                                        s.run == support.run
+                                            && s.fidelity == attribution::Fidelity::NativeStructural
+                                            && s.origin == attribution::Origin::AnalyzerAssertion
+                                            && s.mode == attribution::ExtractionMode::NativeTraversal
+                                    });
+                                reported |= admitted;
+                                exact_report |= admitted && exact_public_qualification(qualified);
+                            }
+                            if !reported {
+                                unresolved = true;
+                                continue;
+                            }
+                            unresolved |= !exact_report;
+                        }
                         let resolution = *resolved
                             .get(&symbol.id())
                             .ok_or_else(|| missing("public symbol resolution"))?;

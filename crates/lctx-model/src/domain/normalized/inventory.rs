@@ -5,6 +5,8 @@ macro_rules! normalized_entity_inputs {
         occurrences: $crate::domain::source::Occurrence => Syntax,
         modules: $crate::domain::source::Module => Artifacts,
         symbols: $crate::domain::calls::ProviderSymbol => Signatures,
+        symbol_observations: $crate::domain::symbols::SymbolObservation => Signatures,
+        symbol_supports: $crate::domain::symbols::SymbolSupport => Signatures,
         provider_modules: $crate::domain::calls::ProviderModule => Signatures,
         declarations: $crate::domain::declarations::SymbolDeclaration => Signatures,
         declaration_supports: $crate::domain::declarations::SymbolDeclarationSupport => Signatures,

@@ -28,9 +28,11 @@ macro_rules! inputs {
         impl RelationData {
             pub fn new(budget: &ResourceBudget) -> Self { Self { facts: EntityData::new(budget), entities: EntityOutput::new(budget), $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
-                if self.facts.visit(relation, batch)? || self.entities.visit(relation, batch)? { return Ok(true); }
-                $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })*
-                Ok(false)
+                let facts = self.facts.visit(relation, batch)?;
+                let entities = self.entities.visit(relation, batch)?;
+                let mut matched = facts || entities;
+                $(if relation == <$ty>::NAME { self.$field.decode(batch)?; matched = true; })*
+                Ok(matched)
             }
             pub fn validation_inputs() -> Vec<ValidationInput> {
                 let mut inputs = EntityData::validation_inputs(); inputs.extend(EntityOutput::validation_inputs());

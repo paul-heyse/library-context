@@ -626,22 +626,37 @@ def example():
             == 2),
         "explicit reexport has two ordered supported import-name hops"
     );
-    // The native overloaded export retains unresolved alternatives even when one exact
-    // import-name path reaches its declaration. That path cannot authorize aggregate closure.
-    assert!(packet.access_routes.items.iter().any(|route| {
-        route.stop == RouteStop::CandidateOnly
-            && route.target.is_some()
-            && route.public_resolution == normalized::entities::ResolutionStatus::Unresolved
-    }));
-    assert!(packet.access_routes.items.iter().any(|route| {
-        route.stop == RouteStop::UnresolvedNameCorrespondence && route.target.is_none()
-    }));
-    assert!(
-        packet
-            .access_routes
-            .items
-            .iter()
-            .all(|route| route.stop != RouteStop::Declaration)
+    // Original overload member identities are signature metadata; the attributed reported
+    // implementation is the exported definition. Its exact name route can close independently.
+    let parse_route = packet
+        .access_routes
+        .items
+        .iter()
+        .find(|route| route.stop == RouteStop::Declaration)
+        .unwrap_or_else(|| {
+            panic!("reported implementation route: {:#?}", packet.access_routes.items)
+        });
+    let names = parse_route
+        .hops
+        .iter()
+        .filter_map(|hop| match hop {
+            RouteHop::Import {
+                imported_name,
+                status,
+                reason,
+                ..
+            } => {
+                assert_eq!(*status, normalized::entities::ResolutionStatus::Resolved);
+                assert_eq!(*reason, normalized::links::LinkReason::ExplicitIdentity);
+                Some(imported_name.as_str())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["public_parse", "parse"]);
+    assert_eq!(
+        parse_route.public_resolution,
+        normalized::entities::ResolutionStatus::Resolved
     );
     assert!(packet.access_routes.items.iter().all(|route| {
         route.captured_modules > 0

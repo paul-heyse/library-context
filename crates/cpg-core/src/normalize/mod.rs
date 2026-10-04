@@ -93,19 +93,30 @@ pub async fn relations(
     .map_err(ModelError::codec)?;
     let session = runtime.session(&access);
     let mut data = RelationData::new(runtime.budget());
+    let mut registered = charged::ChargedSet::default();
+    let mut registration = charged::StateCharge::new(runtime.budget(), "relation-input-registration");
     macro_rules! read_facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
-        let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        let permit = access.read::<$ty>()?;
+        if registered.insert(&mut registration, <$ty>::NAME)? {
+            session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        }
         load(&session, &mut data.facts.$field).await?;
     )* }; }
     lctx_model::normalized_entity_inputs!(read_facts);
     macro_rules! read_entities { ($($field:ident: $ty:ty,)*) => { $(
-        let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        let permit = access.read::<$ty>()?;
+        if registered.insert(&mut registration, <$ty>::NAME)? {
+            session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        }
         load(&session, &mut data.entities.$field).await?;
     )* }; }
     lctx_model::normalized_entity_outputs!(read_entities);
     macro_rules! read_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
         if access.stage().reads::<$ty>() {
-            let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            let permit = access.read::<$ty>()?;
+            if registered.insert(&mut registration, <$ty>::NAME)? {
+                session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            }
             load(&session, &mut data.$field).await?;
         }
     )* }; }
