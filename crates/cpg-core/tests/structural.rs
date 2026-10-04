@@ -33,6 +33,8 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             .filter(|c| *c != Case::Truthful)
             .map(|c| (Profile::Behavioral, c)),
     ) {
+        let case_started = std::time::Instant::now();
+        eprintln!("structural BEGIN profile={profile:?} case={case:?}");
         let runtime = AttemptRuntime::new(RuntimeOptions {
             memory_bytes: 1 << 30,
             partitions: 2,
@@ -120,6 +122,11 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             .unwrap();
         let id = attempt.generation();
         for declaration in schedule.stages() {
+            let stage_started = std::time::Instant::now();
+            eprintln!(
+                "structural BEGIN profile={profile:?} case={case:?} stage={}",
+                declaration.name
+            );
             let installation:bool=sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton").bind(model.digest().0.to_vec()).bind(store.physical_digest().0.to_vec()).fetch_one(db.owner.pool()).await.unwrap();
             assert!(
                 installation,
@@ -592,6 +599,11 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                 .await
                 .unwrap();
             }
+            eprintln!(
+                "structural END profile={profile:?} case={case:?} stage={} elapsed_s={:.3}",
+                declaration.name,
+                stage_started.elapsed().as_secs_f64()
+            );
         }
         if refused {
             attempt
@@ -604,8 +616,14 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             drop(prepared);
             drop(captured);
             assert_eq!(budget.reserved(), 0);
+            eprintln!(
+                "structural END profile={profile:?} case={case:?} refused elapsed_s={:.3}",
+                case_started.elapsed().as_secs_f64()
+            );
             continue;
         }
+        let validation_started = std::time::Instant::now();
+        eprintln!("structural BEGIN profile={profile:?} case={case:?} seal_validate");
         let validated = attempt
             .seal(execution.finish().unwrap())
             .await
@@ -613,6 +631,10 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             .validate()
             .await
             .unwrap();
+        eprintln!(
+            "structural END profile={profile:?} case={case:?} seal_validate elapsed_s={:.3}",
+            validation_started.elapsed().as_secs_f64()
+        );
         let s = id.schema();
         let frames: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM {s}.structural_frames"
@@ -751,5 +773,9 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
         drop(prepared);
         drop(captured);
         assert_eq!(budget.reserved(), 0);
+        eprintln!(
+            "structural END profile={profile:?} case={case:?} elapsed_s={:.3}",
+            case_started.elapsed().as_secs_f64()
+        );
     }
 }

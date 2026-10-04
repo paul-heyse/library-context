@@ -19,6 +19,8 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
+    let test_started = std::time::Instant::now();
+    eprintln!("behavioral_frontiers BEGIN setup");
     let profile = Profile::Behavioral;
     let fixture = "behavioral_frontiers";
     let (completion, source_calls, enriched) = (true, true, true);
@@ -192,6 +194,8 @@ async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
         .unwrap();
     let id = attempt.generation();
     for stage in schedule.stages() {
+        let stage_started = std::time::Instant::now();
+        eprintln!("behavioral_frontiers BEGIN stage={}", stage.name);
         if stage.name == "normalize_entities" {
             attempt.checkpoint(&execution, &facts).await.unwrap();
             cpg_core::stage_runtime::run_declared_stage(
@@ -491,8 +495,16 @@ async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
             .await
             .unwrap();
         }
+        eprintln!(
+            "behavioral_frontiers END stage={} elapsed_s={:.3} total_s={:.3}",
+            stage.name,
+            stage_started.elapsed().as_secs_f64(),
+            test_started.elapsed().as_secs_f64()
+        );
     }
     drop(configuration);
+    let validation_started = std::time::Instant::now();
+    eprintln!("behavioral_frontiers BEGIN seal_validate");
     let validated = attempt
         .seal(execution.finish().unwrap())
         .await
@@ -500,6 +512,10 @@ async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
         .validate()
         .await
         .unwrap();
+    eprintln!(
+        "behavioral_frontiers END seal_validate elapsed_s={:.3}",
+        validation_started.elapsed().as_secs_f64()
+    );
     let frontiers:Vec<(String,i64,bool,bool,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT spelling.spelling,basis.count,f.effects_unknown,f.exceptions_unknown,f.question FROM {0}.conditional_terminal_frontiers f JOIN {0}.assertion_qualifications q ON q.id=f.qualification JOIN {0}.assumption_sets basis ON basis.id=q.assumptions JOIN {0}.entity_refs e ON e.id=f.owner JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations spelling ON spelling.occurrence=d.name ORDER BY 1",id.schema())))
         .fetch_all(db.owner.pool()).await.unwrap();
@@ -605,4 +621,8 @@ async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
     .unwrap();
     assert_eq!(suppress, 0);
     validated.abort().await.unwrap();
+    eprintln!(
+        "behavioral_frontiers END total_s={:.3}",
+        test_started.elapsed().as_secs_f64()
+    );
 }

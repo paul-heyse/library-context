@@ -252,6 +252,8 @@ async fn originals_exist(fixture: &ServingFixture, packet: &NativeAssessmentPack
 }
 #[tokio::test]
 async fn generated_cpython_observations_challenge_original_served_paths() {
+    let test_started = std::time::Instant::now();
+    eprintln!("serving_soundness BEGIN cpython_bundle");
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = Command::new("uv")
         .current_dir(&root)
@@ -272,13 +274,30 @@ async fn generated_cpython_observations_challenge_original_served_paths() {
     let bundle: Bundle = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(bundle.groups, 9);
     assert!(bundle.functions.len() >= 33);
+    eprintln!(
+        "serving_soundness END cpython_bundle groups={} functions={} elapsed_s={:.3}",
+        bundle.groups,
+        bundle.functions.len(),
+        test_started.elapsed().as_secs_f64()
+    );
+    let compilation_started = std::time::Instant::now();
+    eprintln!("serving_soundness BEGIN fixture_compile");
     let fixture = ServingFixture::start_profile(bundle.source.as_bytes(), "behavioral").await;
+    eprintln!(
+        "serving_soundness END fixture_compile elapsed_s={:.3}",
+        compilation_started.elapsed().as_secs_f64()
+    );
     let native = fixture.service.prepare_native().await.unwrap();
     let mut identity_challenges = 0;
     let mut refuted_guard_challenges = 0;
     let mut refuted_return_challenges = 0;
     let mut composition_paths = 0;
-    for function in &bundle.functions {
+    for (function_index, function) in bundle.functions.iter().enumerate() {
+        let function_started = std::time::Instant::now();
+        eprintln!(
+            "serving_soundness BEGIN function={} index={function_index}",
+            function.name
+        );
         let observed = &bundle.observed[&function.name];
         assert!(observed.iter().all(|run| run.raised.is_none()));
         assert!(
@@ -340,7 +359,13 @@ async fn generated_cpython_observations_challenge_original_served_paths() {
                             assumptions: Assumptions::default(),
                             page: PageRequest::default(),
                         };
+                        let mut page_number = 0usize;
                         loop {
+                            let page_started = std::time::Instant::now();
+                            eprintln!(
+                                "serving_soundness BEGIN function={} parameter={name} flag={flag:?} page={page_number}",
+                                function.name
+                            );
                             let execution = fixture.service.execution().await.unwrap();
                             let response = native.inspect(&execution, request.clone()).await;
                             drop(execution);
@@ -458,6 +483,12 @@ async fn generated_cpython_observations_challenge_original_served_paths() {
                                     _ => {}
                                 }
                             }
+                            eprintln!(
+                                "serving_soundness END function={} parameter={name} page={page_number} elapsed_s={:.3}",
+                                function.name,
+                                page_started.elapsed().as_secs_f64()
+                            );
+                            page_number += 1;
                             if let Some(cursor) = response.paths.continuation.0 {
                                 request.page.cursor = Optional::supplied(cursor);
                             } else {
@@ -474,6 +505,12 @@ async fn generated_cpython_observations_challenge_original_served_paths() {
                 "CPython replacement must return a different object"
             );
         }
+        eprintln!(
+            "serving_soundness END function={} elapsed_s={:.3} total_s={:.3}",
+            function.name,
+            function_started.elapsed().as_secs_f64(),
+            test_started.elapsed().as_secs_f64()
+        );
     }
     assert!(
         identity_challenges > 0,
@@ -501,4 +538,8 @@ async fn generated_cpython_observations_challenge_original_served_paths() {
         composition_paths
     );
     fixture.finish().await;
+    eprintln!(
+        "serving_soundness END total_s={:.3}",
+        test_started.elapsed().as_secs_f64()
+    );
 }

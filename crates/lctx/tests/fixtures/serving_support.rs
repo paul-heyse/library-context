@@ -190,7 +190,13 @@ impl ServingFixture {
         if let Some(techniques) = techniques {
             compile.args(["--techniques", techniques, "--embedder", "none"]);
         }
+        let compilation_started = std::time::Instant::now();
+        eprintln!("serving_fixture BEGIN compile through=catalog profile={profile}");
         let output = compile.output().unwrap();
+        eprintln!(
+            "serving_fixture END compile through=catalog profile={profile} elapsed_s={:.3}",
+            compilation_started.elapsed().as_secs_f64()
+        );
         assert!(
             output.status.success(),
             "{}",

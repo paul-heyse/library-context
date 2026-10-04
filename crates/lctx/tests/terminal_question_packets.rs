@@ -18,6 +18,8 @@ use support::*;
 
 #[tokio::test]
 async fn terminal_questions_reach_actual_catalog_briefs_without_completion_authority() {
+    let test_started = std::time::Instant::now();
+    eprintln!("terminal_question_packets BEGIN fixture_compile");
     let positives = [
         ("demo.declared_use", 1, TargetBasis::ExactRuntime),
         ("demo.final_use", 3, TargetBasis::TypingConditional),
@@ -47,6 +49,10 @@ async fn terminal_questions_reach_actual_catalog_briefs_without_completion_autho
         16,
     )
     .await;
+    eprintln!(
+        "terminal_question_packets END fixture_compile elapsed_s={:.3}",
+        test_started.elapsed().as_secs_f64()
+    );
     let execution = fixture.service.execution().await.unwrap();
     let expected = BTreeSet::from([
         "demo.declared_use".to_owned(),
@@ -56,6 +62,8 @@ async fn terminal_questions_reach_actual_catalog_briefs_without_completion_autho
     let mut served = BTreeSet::new();
     let mut witness_ids = BTreeSet::new();
     for (operation, basis_count, target_basis) in positives {
+        let operation_started = std::time::Instant::now();
+        eprintln!("terminal_question_packets BEGIN positive operation={operation}");
         let response = fixture
             .catalog
             .operation(
@@ -298,10 +306,16 @@ async fn terminal_questions_reach_actual_catalog_briefs_without_completion_autho
             assert!(resource.contains("\"terminal_question\""));
             assert!(resource.contains("\"cleanup_unknown\":true"));
         }
+        eprintln!(
+            "terminal_question_packets END positive operation={operation} elapsed_s={:.3}",
+            operation_started.elapsed().as_secs_f64()
+        );
     }
     assert_eq!(served, expected);
     assert_eq!(witness_ids.len(), 3);
     for operation in negatives {
+        let operation_started = std::time::Instant::now();
+        eprintln!("terminal_question_packets BEGIN negative operation={operation}");
         let response = fixture
             .catalog
             .operation(
@@ -337,6 +351,10 @@ async fn terminal_questions_reach_actual_catalog_briefs_without_completion_autho
                 .all(|claim| claim.terminal_question.0.is_none()),
             "negative must not gain terminal closure: {operation}"
         );
+        eprintln!(
+            "terminal_question_packets END negative operation={operation} elapsed_s={:.3}",
+            operation_started.elapsed().as_secs_f64()
+        );
     }
     let actual = execution
         .query(|lease| Box::pin(async move { lease.read::<SummaryTerminalWitness>().await }))
@@ -353,4 +371,8 @@ async fn terminal_questions_reach_actual_catalog_briefs_without_completion_autho
     );
     drop(execution);
     fixture.finish().await;
+    eprintln!(
+        "terminal_question_packets END total_s={:.3}",
+        test_started.elapsed().as_secs_f64()
+    );
 }
