@@ -346,7 +346,26 @@ async fn guard_controls(stored: bool) {
                             .site,
                     ) == call
             })
-            .unwrap();
+            .unwrap_or_else(|| {
+                let attempts = output.attempts.iter().filter(|a| {
+                    data.event_events.get(a.event).is_some_and(|e| {
+                        text(&entry_data, e.site) == call
+                    })
+                }).take(16).collect::<Vec<_>>();
+                for attempt in &attempts {
+                    eprintln!("guard binding {function}/{call}: {attempt:?}");
+                    let bindings = output.bindings.iter().filter(|b| b.attempt == attempt.id()).take(16).collect::<Vec<_>>();
+                    eprintln!("guard binding rows: {bindings:?}");
+                    for slot in data.callable_slots.iter().filter(|s| {
+                        attempt.variant == Some(s.variant)
+                    }).take(16) {
+                        let parameter = data.parameters.get(slot.parameter);
+                        let shape = parameter.and_then(|p| data.shapes.get(p.shape));
+                        eprintln!("guard slot={slot:?}; parameter={parameter:?}; shape={shape:?}");
+                    }
+                }
+                panic!("no exact guard binding for {function}/{call}; entry parameter {:?}; attempts={}", entry.parameter(), attempts.len())
+            });
         let attempt = output.attempts.get(row.attempt).unwrap();
         let event = data.event_events.get(attempt.event).unwrap();
         let checked = verified.bound(row.attempt).unwrap();
