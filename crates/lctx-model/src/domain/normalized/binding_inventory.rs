@@ -129,6 +129,7 @@ macro_rules! normalized_binding_inputs {
         entity_public_enumerations: $crate::domain::normalized::entities::PublicEnumerationAssessment,
         entity_exposure_candidates: $crate::domain::normalized::entities::PublicExposureCandidate,
         symbol_observations: $crate::domain::symbols::SymbolObservation,
+        symbol_supports: $crate::domain::symbols::SymbolSupport,
         imports: $crate::domain::syntax::ImportAliasObservation,
         module_resolutions: $crate::domain::symbols::ModuleResolutionObservation,
         ancestry: $crate::domain::symbols::ClassAncestryObservation,
