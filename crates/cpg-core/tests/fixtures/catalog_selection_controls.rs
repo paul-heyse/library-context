@@ -25,7 +25,9 @@ pub async fn replay_controls(
     .map_err(ModelError::codec)?;
     let session = runtime.session(access);
     let mut d = selection::build::Data::new(runtime.budget());
-    macro_rules! read{($($f:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{d.visit(<$ty>::NAME,&batch)?;}})*};}
+    let mut registered = charged::ChargedSet::default();
+    let mut registration = charged::StateCharge::new(runtime.budget(), "selection-control-inputs");
+    macro_rules! read{($($f:ident:$ty:ty,)*)=>{$({if registered.insert(&mut registration,<$ty>::NAME)? {let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{d.visit(<$ty>::NAME,&batch)?;}}})*};}
     lctx_model::catalog_inputs!(read);
     lctx_model::catalog_outputs!(read);
     lctx_model::catalog_evidence_inputs!(read);
