@@ -290,8 +290,18 @@ fn flow(
         return Ok(false);
     }
     let local_q = need(&h.entry.qualifications, proof.qualification)?;
-    let alias = alias.map(|id| need(&out.handoff_values, id).cloned()).transpose()?;
-    let q = super::qualifications::intersect(base, q, local_q, alias.as_ref(), site.source, out, budget)?;
+    let alias = alias
+        .map(|id| need(&out.handoff_values, id).cloned())
+        .transpose()?;
+    let q = super::qualifications::intersect(
+        base,
+        q,
+        local_q,
+        alias.as_ref(),
+        site.source,
+        out,
+        budget,
+    )?;
     let (catches, tested) = suppression(h, d, site, entry.formal, entry.owner, q.context)?;
     let modality = if matches!(
         base.events.alternative_sources.get(alt.source),
@@ -840,7 +850,9 @@ fn alias_covers(
         .admitted_binary(&local, BooleanOperation::Conjunction, budget)
         .map_err(|e| match e {
             conditions::DiagramAdmissionError::Resource(error) => error,
-            conditions::DiagramAdmissionError::Boundary(boundary) => invalid(format!("alias condition refused: {boundary:?}")),
+            conditions::DiagramAdmissionError::Boundary(boundary) => {
+                invalid(format!("alias condition refused: {boundary:?}"))
+            }
         })?;
     Ok(covered.id() == read.id())
 }

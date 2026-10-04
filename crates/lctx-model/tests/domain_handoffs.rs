@@ -176,7 +176,10 @@ impl Fixture {
             for node in nodes {
                 data.entry.condition_nodes.insert(node).unwrap();
             }
-            AssertionQualification { condition: condition.id(), ..q.clone() }
+            AssertionQualification {
+                condition: condition.id(),
+                ..q.clone()
+            }
         } else {
             q.clone()
         };
@@ -292,22 +295,34 @@ impl Fixture {
         }
         insert!(coverage, coverage);
         for (premise, qualification) in [
-            (NativeAssertionPremise::Use {
-                assertion: observation.id(),
-                support: use_support.id(),
-            }, q.id()),
-            (NativeAssertionPremise::Reaching {
-                assertion: reaching.id(),
-                support: reaching_support.id(),
-            }, reaching_q.id()),
-            (NativeAssertionPremise::Definition {
-                assertion: definition_observation.id(),
-                support: definition_support.id(),
-            }, q.id()),
-            (NativeAssertionPremise::FlowUseInventory {
-                assertion: inventory.id(),
-                support: inventory_support.id(),
-            }, q.id()),
+            (
+                NativeAssertionPremise::Use {
+                    assertion: observation.id(),
+                    support: use_support.id(),
+                },
+                q.id(),
+            ),
+            (
+                NativeAssertionPremise::Reaching {
+                    assertion: reaching.id(),
+                    support: reaching_support.id(),
+                },
+                reaching_q.id(),
+            ),
+            (
+                NativeAssertionPremise::Definition {
+                    assertion: definition_observation.id(),
+                    support: definition_support.id(),
+                },
+                q.id(),
+            ),
+            (
+                NativeAssertionPremise::FlowUseInventory {
+                    assertion: inventory.id(),
+                    support: inventory_support.id(),
+                },
+                q.id(),
+            ),
         ] {
             data.native
                 .insert(NativeQualification {
@@ -346,33 +361,134 @@ impl Fixture {
         handoffs::named_definition(&self.data, &self.read, self.context, &self.budget).unwrap()
     }
     fn region(&mut self, domain: &Diagram) -> (FlowRegionObservation, FlowRegionSupport) {
-        let observation = self.data.entry.use_observations.iter().next().unwrap().clone();
+        let observation = self
+            .data
+            .entry
+            .use_observations
+            .iter()
+            .next()
+            .unwrap()
+            .clone();
         let use_support = self.data.entry.use_supports.iter().next().unwrap().clone();
-        let lexical = self.data.entry.lexical_scopes.get(observation.scope).unwrap();
-        let root = self.data.entry.occurrences.get(lexical.owner).unwrap().clone();
-        let CoverageScope::Module { module } = &self.scopes[2] else { unreachable!() };
+        let lexical = self
+            .data
+            .entry
+            .lexical_scopes
+            .get(observation.scope)
+            .unwrap();
+        let root = self
+            .data
+            .entry
+            .occurrences
+            .get(lexical.owner)
+            .unwrap()
+            .clone();
+        let CoverageScope::Module { module } = &self.scopes[2] else {
+            unreachable!()
+        };
         let entity = normalized::entities::EntityRef::Module { module: *module };
-        let statement = Occurrence { start: 18, end: 32, syntax_kind: SyntaxKind::StmtExpr, structural_path: vec![0, 1], ..root.clone() };
+        let statement = Occurrence {
+            start: 18,
+            end: 32,
+            syntax_kind: SyntaxKind::StmtExpr,
+            structural_path: vec![0, 1],
+            ..root.clone()
+        };
         let (condition, nodes) = domain.records();
-        let q = AssertionQualification { condition: condition.id(), ..self.data.entry.qualifications.get(observation.qualification).unwrap().clone() };
+        let q = AssertionQualification {
+            condition: condition.id(),
+            ..self
+                .data
+                .entry
+                .qualifications
+                .get(observation.qualification)
+                .unwrap()
+                .clone()
+        };
         self.data.entry.qualifications.insert(q.clone()).unwrap();
         self.data.entry.conditions.insert(condition).unwrap();
-        for node in nodes { self.data.entry.condition_nodes.insert(node).unwrap(); }
+        for node in nodes {
+            self.data.entry.condition_nodes.insert(node).unwrap();
+        }
         self.data.entry.refs.insert(entity.clone()).unwrap();
         for occurrence in [self.read.id(), statement.id()] {
-            self.data.entry.owners.insert(normalized::entities::OccurrenceOwnership { occurrence, owner: root.id(), entity: entity.id() }).unwrap();
+            self.data
+                .entry
+                .owners
+                .insert(normalized::entities::OccurrenceOwnership {
+                    occurrence,
+                    owner: root.id(),
+                    entity: entity.id(),
+                })
+                .unwrap();
         }
-        self.data.entry.occurrences.insert(statement.clone()).unwrap();
-        let region = FlowRegionObservation { qualification: q.id(), statement: statement.id(), scope: observation.scope };
-        let support = FlowRegionSupport { assertion: region.id(), run: use_support.run, surface: use_support.surface, evidence: use_support.evidence, origin: use_support.origin, mode: use_support.mode, fidelity: use_support.fidelity };
+        self.data
+            .entry
+            .occurrences
+            .insert(statement.clone())
+            .unwrap();
+        let region = FlowRegionObservation {
+            qualification: q.id(),
+            statement: statement.id(),
+            scope: observation.scope,
+        };
+        let support = FlowRegionSupport {
+            assertion: region.id(),
+            run: use_support.run,
+            surface: use_support.surface,
+            evidence: use_support.evidence,
+            origin: use_support.origin,
+            mode: use_support.mode,
+            fidelity: use_support.fidelity,
+        };
         self.data.entry.regions.insert(region.clone()).unwrap();
-        self.data.entry.region_supports.insert(support.clone()).unwrap();
-        self.data.native.insert(NativeQualification { premise: NativeAssertionPremise::Region { assertion: region.id(), support: support.id() }.id(), qualification: q.id(), family: FactFamily::Flow, fidelity: Fidelity::NativeStructural, status: EvidenceStatus::StructurallyObserved }).unwrap();
+        self.data
+            .entry
+            .region_supports
+            .insert(support.clone())
+            .unwrap();
+        self.data
+            .native
+            .insert(NativeQualification {
+                premise: NativeAssertionPremise::Region {
+                    assertion: region.id(),
+                    support: support.id(),
+                }
+                .id(),
+                qualification: q.id(),
+                family: FactFamily::Flow,
+                fidelity: Fidelity::NativeStructural,
+                status: EvidenceStatus::StructurallyObserved,
+            })
+            .unwrap();
         (region, support)
     }
     fn reaching_domain(&self) -> Diagram {
-        let q = self.data.entry.qualifications.get(self.data.entry.reaching.iter().next().unwrap().qualification).unwrap();
-        Diagram::from_records(self.data.entry.conditions.get(q.condition).unwrap(), &self.data.entry.condition_nodes.iter().cloned().collect::<Vec<_>>()).unwrap()
+        let q = self
+            .data
+            .entry
+            .qualifications
+            .get(
+                self.data
+                    .entry
+                    .reaching
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .qualification,
+            )
+            .unwrap();
+        Diagram::from_records(
+            self.data.entry.conditions.get(q.condition).unwrap(),
+            &self
+                .data
+                .entry
+                .condition_nodes
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
     }
 }
 
@@ -383,10 +499,18 @@ fn native_containing_region_preserves_call_continuation_in_named_origin_proof() 
         f.coverage(f.scopes[index].clone(), CoverageStatus::Partial);
         let domain = f.reaching_domain();
         let (region, support) = f.region(&domain);
-        let (origin, proof) = f.selected().expect("same-run native execution domain implies exact reaching");
+        let (origin, proof) = f
+            .selected()
+            .expect("same-run native execution domain implies exact reaching");
         assert_eq!(origin, f.origin.id());
-        assert!(matches!(proof, ValueSource::Named { region: Some(r), region_support: Some(s), .. } if r == region.id() && s == support.id()));
-        assert_ne!(domain.id(), Diagram::always().id(), "the continuation predicate remains conditional");
+        assert!(
+            matches!(proof, ValueSource::Named { region: Some(r), region_support: Some(s), .. } if r == region.id() && s == support.id())
+        );
+        assert_ne!(
+            domain.id(),
+            Diagram::always().id(),
+            "the continuation predicate remains conditional"
+        );
     }
 }
 
@@ -396,16 +520,20 @@ fn native_region_domain_stays_charged_during_the_reaching_implication() {
     let domain = f.reaching_domain();
     f.region(&domain);
     let predecessor = f.data.entry.condition_nodes.len() * 2048;
-    let first = Diagram::always().binary_allocation_allowance(&domain).unwrap();
+    let first = Diagram::always()
+        .binary_allocation_allowance(&domain)
+        .unwrap();
     let implication = domain.binary_allocation_allowance(&domain).unwrap();
     let retained = domain.allocation_allowance();
     assert!(implication >= first);
     // Decoding and the first apply fit. The implication must also account its still-live domain.
     let budget = ResourceBudget::fixed(predecessor + implication + retained - 1).unwrap();
     let result = handoffs::named_definition(&f.data, &f.read, f.context, &budget);
-    assert!(matches!(result, Err(ModelError::Resource { owner: "condition_binary", used, requested, .. })
+    assert!(
+        matches!(result, Err(ModelError::Resource { owner: "condition_binary", used, requested, .. })
         if used == predecessor + retained && requested == implication),
-        "the binary-operation refusal remains a Resource with its derived domain charged");
+        "the binary-operation refusal remains a Resource with its derived domain charged"
+    );
     assert_eq!(budget.reserved(), 0);
 }
 
@@ -414,63 +542,215 @@ fn missing_foreign_ambiguous_false_or_unsupported_regions_refuse_conditional_nam
     for mutation in 0..10 {
         let mut f = Fixture::with_conditional_reaching(false, true);
         let domain = f.reaching_domain();
-        let selected_domain = if mutation == 4 { Diagram::never() } else if mutation == 5 { Diagram::always() } else { domain };
+        let selected_domain = if mutation == 4 {
+            Diagram::never()
+        } else if mutation == 5 {
+            Diagram::always()
+        } else {
+            domain
+        };
         let (region, support) = f.region(&selected_domain);
         match mutation {
-            0 => { f.data.entry.regions = Rows::new(&f.budget); }
+            0 => {
+                f.data.entry.regions = Rows::new(&f.budget);
+            }
             1 => {
                 let mut foreign = f.data.entry.runs.get(support.run).unwrap().clone();
                 foreign.configuration = ContentHash::of(b"foreign native region invocation");
-                let altered = FlowRegionSupport { run: foreign.id(), ..support };
+                let altered = FlowRegionSupport {
+                    run: foreign.id(),
+                    ..support
+                };
                 f.data.entry.runs.insert(foreign).unwrap();
                 f.data.entry.region_supports = Rows::new(&f.budget);
-                f.data.entry.region_supports.insert(altered.clone()).unwrap();
-                f.data.native.insert(NativeQualification { premise: NativeAssertionPremise::Region { assertion: region.id(), support: altered.id() }.id(), qualification: region.qualification, family: FactFamily::Flow, fidelity: Fidelity::NativeStructural, status: EvidenceStatus::StructurallyObserved }).unwrap();
+                f.data
+                    .entry
+                    .region_supports
+                    .insert(altered.clone())
+                    .unwrap();
+                f.data
+                    .native
+                    .insert(NativeQualification {
+                        premise: NativeAssertionPremise::Region {
+                            assertion: region.id(),
+                            support: altered.id(),
+                        }
+                        .id(),
+                        qualification: region.qualification,
+                        family: FactFamily::Flow,
+                        fidelity: Fidelity::NativeStructural,
+                        status: EvidenceStatus::StructurallyObserved,
+                    })
+                    .unwrap();
             }
             2 => {
-                let evidence = Evidence::SourceSpan { source: f.read.source, start: 18, end: 32 };
+                let evidence = Evidence::SourceSpan {
+                    source: f.read.source,
+                    start: 18,
+                    end: 32,
+                };
                 f.data.entry.evidence.insert(evidence.clone()).unwrap();
-                f.data.entry.region_supports.insert(FlowRegionSupport { evidence: evidence.id(), ..support }).unwrap();
+                f.data
+                    .entry
+                    .region_supports
+                    .insert(FlowRegionSupport {
+                        evidence: evidence.id(),
+                        ..support
+                    })
+                    .unwrap();
             }
-            3 => { f.data.entry.owners = Rows::new(&f.budget); }
+            3 => {
+                f.data.entry.owners = Rows::new(&f.budget);
+            }
             4 | 5 => {}
             6 => {
-                let retained = f.data.native.iter().filter(|n| n.premise != (NativeAssertionPremise::Region { assertion: region.id(), support: support.id() }).id()).cloned().collect::<Vec<_>>();
+                let retained = f
+                    .data
+                    .native
+                    .iter()
+                    .filter(|n| {
+                        n.premise
+                            != (NativeAssertionPremise::Region {
+                                assertion: region.id(),
+                                support: support.id(),
+                            })
+                            .id()
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
                 f.data.native = Rows::new(&f.budget);
-                for native in retained { f.data.native.insert(native).unwrap(); }
+                for native in retained {
+                    f.data.native.insert(native).unwrap();
+                }
             }
             7 => {
-                let retained = f.data.native.iter().filter(|n| n.premise != (NativeAssertionPremise::Region { assertion: region.id(), support: support.id() }).id()).cloned().collect::<Vec<_>>();
+                let retained = f
+                    .data
+                    .native
+                    .iter()
+                    .filter(|n| {
+                        n.premise
+                            != (NativeAssertionPremise::Region {
+                                assertion: region.id(),
+                                support: support.id(),
+                            })
+                            .id()
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
                 f.data.native = Rows::new(&f.budget);
-                for native in retained { f.data.native.insert(native).unwrap(); }
-                f.data.native.insert(NativeQualification { premise: NativeAssertionPremise::Region { assertion: region.id(), support: support.id() }.id(), qualification: region.qualification, family: FactFamily::Flow, fidelity: Fidelity::ReportProjection, status: EvidenceStatus::StructurallyObserved }).unwrap();
+                for native in retained {
+                    f.data.native.insert(native).unwrap();
+                }
+                f.data
+                    .native
+                    .insert(NativeQualification {
+                        premise: NativeAssertionPremise::Region {
+                            assertion: region.id(),
+                            support: support.id(),
+                        }
+                        .id(),
+                        qualification: region.qualification,
+                        family: FactFamily::Flow,
+                        fidelity: Fidelity::ReportProjection,
+                        status: EvidenceStatus::StructurallyObserved,
+                    })
+                    .unwrap();
             }
             8 => {
                 let source = f.data.entry.artifacts.get(f.read.source).unwrap();
-                let foreign = SourceArtifact::from_bytes(source.input, "foreign.py".into(), b"foreign").unwrap();
-                let scope = CoverageScope::Artifact { artifact: foreign.id() };
-                let q = AssertionQualification { scope: scope.id(), ..f.data.entry.qualifications.get(region.qualification).unwrap().clone() };
-                let altered = FlowRegionObservation { qualification: q.id(), ..region };
-                let support = FlowRegionSupport { assertion: altered.id(), ..support };
+                let foreign =
+                    SourceArtifact::from_bytes(source.input, "foreign.py".into(), b"foreign")
+                        .unwrap();
+                let scope = CoverageScope::Artifact {
+                    artifact: foreign.id(),
+                };
+                let q = AssertionQualification {
+                    scope: scope.id(),
+                    ..f.data
+                        .entry
+                        .qualifications
+                        .get(region.qualification)
+                        .unwrap()
+                        .clone()
+                };
+                let altered = FlowRegionObservation {
+                    qualification: q.id(),
+                    ..region
+                };
+                let support = FlowRegionSupport {
+                    assertion: altered.id(),
+                    ..support
+                };
                 f.data.entry.artifacts.insert(foreign).unwrap();
                 f.data.entry.scopes.insert(scope).unwrap();
                 f.data.entry.qualifications.insert(q.clone()).unwrap();
                 f.data.entry.regions = Rows::new(&f.budget);
                 f.data.entry.regions.insert(altered.clone()).unwrap();
                 f.data.entry.region_supports = Rows::new(&f.budget);
-                f.data.entry.region_supports.insert(support.clone()).unwrap();
-                f.data.native.insert(NativeQualification { premise: NativeAssertionPremise::Region { assertion: altered.id(), support: support.id() }.id(), qualification: q.id(), family: FactFamily::Flow, fidelity: Fidelity::NativeStructural, status: EvidenceStatus::StructurallyObserved }).unwrap();
+                f.data
+                    .entry
+                    .region_supports
+                    .insert(support.clone())
+                    .unwrap();
+                f.data
+                    .native
+                    .insert(NativeQualification {
+                        premise: NativeAssertionPremise::Region {
+                            assertion: altered.id(),
+                            support: support.id(),
+                        }
+                        .id(),
+                        qualification: q.id(),
+                        family: FactFamily::Flow,
+                        fidelity: Fidelity::NativeStructural,
+                        status: EvidenceStatus::StructurallyObserved,
+                    })
+                    .unwrap();
             }
             _ => {
-                let use_q = f.data.entry.use_observations.iter().next().unwrap().qualification;
-                let alternative = FlowRegionObservation { qualification: use_q, ..region };
-                let support = FlowRegionSupport { assertion: alternative.id(), ..support };
+                let use_q = f
+                    .data
+                    .entry
+                    .use_observations
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .qualification;
+                let alternative = FlowRegionObservation {
+                    qualification: use_q,
+                    ..region
+                };
+                let support = FlowRegionSupport {
+                    assertion: alternative.id(),
+                    ..support
+                };
                 f.data.entry.regions.insert(alternative.clone()).unwrap();
-                f.data.entry.region_supports.insert(support.clone()).unwrap();
-                f.data.native.insert(NativeQualification { premise: NativeAssertionPremise::Region { assertion: alternative.id(), support: support.id() }.id(), qualification: use_q, family: FactFamily::Flow, fidelity: Fidelity::NativeStructural, status: EvidenceStatus::StructurallyObserved }).unwrap();
+                f.data
+                    .entry
+                    .region_supports
+                    .insert(support.clone())
+                    .unwrap();
+                f.data
+                    .native
+                    .insert(NativeQualification {
+                        premise: NativeAssertionPremise::Region {
+                            assertion: alternative.id(),
+                            support: support.id(),
+                        }
+                        .id(),
+                        qualification: use_q,
+                        family: FactFamily::Flow,
+                        fidelity: Fidelity::NativeStructural,
+                        status: EvidenceStatus::StructurallyObserved,
+                    })
+                    .unwrap();
             }
         }
-        assert!(f.selected().is_none(), "conditional origin requires canonical exact native region; mutation {mutation}");
+        assert!(
+            f.selected().is_none(),
+            "conditional origin requires canonical exact native region; mutation {mutation}"
+        );
     }
 }
 
@@ -483,10 +763,23 @@ fn complete_inventory_does_not_make_a_call_continuation_predicate_unconditional(
         let support = f.data.entry.use_supports.iter().next().unwrap();
         let reaching = f.data.entry.reaching.iter().next().unwrap();
         let reaching_support = f.data.entry.reaching_supports.iter().next().unwrap();
-        assert!(complete_native_singleton(
-            &f.data.entry, observation, support, reaching, reaching_support, &f.budget,
-        ).unwrap().is_some(), "the native enumeration itself is complete and authentic");
-        assert!(f.selected().is_none(), "an Always structural use cannot imply an independent call-continuation predicate");
+        assert!(
+            complete_native_singleton(
+                &f.data.entry,
+                observation,
+                support,
+                reaching,
+                reaching_support,
+                &f.budget,
+            )
+            .unwrap()
+            .is_some(),
+            "the native enumeration itself is complete and authentic"
+        );
+        assert!(
+            f.selected().is_none(),
+            "an Always structural use cannot imply an independent call-continuation predicate"
+        );
     }
 }
 
