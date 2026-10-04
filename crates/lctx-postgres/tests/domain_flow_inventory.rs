@@ -170,10 +170,8 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
             lease.release().await.unwrap();
             store.retire(generation).await.unwrap();
         } else {
-            assert!(
-                matches!(generation_h.validate(&budget()).await, Err(Error::Model(_))),
-                "{case}"
-            );
+            let validation = generation_h.validate(&budget()).await;
+            assert!(matches!(&validation, Err(Error::Model(_))), "{case}: {validation:?}");
             assert!(generation_h.publish().await.is_err());
             generation_h.abort().await.unwrap();
         }
