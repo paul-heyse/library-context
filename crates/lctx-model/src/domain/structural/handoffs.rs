@@ -136,6 +136,18 @@ fn exact(
         && q.modality == Modality::Definite
         && q.approximation == Approximation::Exact)
 }
+fn source_covered(
+    d: &Data,
+    scope: Id<CoverageScope>,
+    source: &SourceArtifact,
+) -> Result<bool, ModelError> {
+    Ok(match need(&d.entry.scopes, scope)? {
+        CoverageScope::Input { input } => *input == source.input,
+        CoverageScope::Artifact { artifact } => *artifact == source.id(),
+        CoverageScope::Module { module } => need(&d.entry.modules, *module)?.source == source.id(),
+        _ => false,
+    })
+}
 /// One reaching definition under the read condition, in the same provider invocation and scope.
 /// Rebinding selects its actual new definition; unions, loops, foreign supports and captured state refuse.
 pub fn named_definition(
@@ -225,13 +237,7 @@ pub fn named_definition(
         return Ok(None);
     }
     let source = need(&d.entry.artifacts, value.source)?;
-    let covered = match need(&d.entry.scopes, use_q.scope)? {
-        CoverageScope::Input { input } => *input == source.input,
-        CoverageScope::Artifact { artifact } => *artifact == source.id(),
-        CoverageScope::Module { module } => need(&d.entry.modules, *module)?.source == source.id(),
-        _ => false,
-    };
-    if !covered {
+    if !source_covered(d, use_q.scope, source)? {
         return Ok(None);
     }
     let _nodes = budget.reserve(
@@ -265,7 +271,26 @@ pub fn named_definition(
         if (run.context, run.input) != (context, source.input) {
             continue;
         }
-        let Some(coverage)=d.entry.coverage.iter().find(|c|c.run==Some(a.run)&&c.provider==Some(run.provider)&&c.context==context&&c.family==FactFamily::Flow&&matches!(c.status,attribution::CoverageStatus::CompleteUnderStatedModel|attribution::CoverageStatus::Partial)&&matches!(d.entry.scopes.get(c.scope),Some(CoverageScope::Artifact{artifact}) if *artifact==source.id()))else{continue};
+        let mut coverage = None;
+        for candidate in d.entry.coverage.iter().filter(|c| {
+            c.run == Some(a.run)
+                && c.provider == Some(run.provider)
+                && c.context == context
+                && c.family == FactFamily::Flow
+                && matches!(
+                    c.status,
+                    attribution::CoverageStatus::CompleteUnderStatedModel
+                        | attribution::CoverageStatus::Partial
+                )
+        }) {
+            if source_covered(d, candidate.scope, source)? {
+                coverage = Some(candidate);
+                break;
+            }
+        }
+        let Some(coverage) = coverage else {
+            continue;
+        };
         if !native(
             d,
             NativeAssertionPremise::Use {
