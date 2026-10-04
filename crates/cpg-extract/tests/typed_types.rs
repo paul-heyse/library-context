@@ -20,6 +20,8 @@ inspector!(
     TypedDictField,
     FunctionBodyObservation,
     RecordFieldObservation,
+    lctx_model::domain::class_metadata::ClassMemberObservation,
+    lctx_model::domain::class_metadata::ClassMemberSupport,
     ProviderSymbol,
     ParameterDeclaration,
     Occurrence,
@@ -226,6 +228,17 @@ async fn typed_dictionary_keys_are_not_parameter_names() {
                 .map(|f| f.name.as_str()),
         )
         .collect();
+    let members = rows::<lctx_model::domain::class_metadata::ClassMemberObservation>(&tables);
+    let supports = rows::<lctx_model::domain::class_metadata::ClassMemberSupport>(&tables);
+    let symbols = rows::<ProviderSymbol>(&tables);
+    for name in ["", " ", "not-an-identifier"] {
+        let member = members.iter().find(|m| {
+            m.name == name
+                && symbols.iter().any(|s| s.id() == m.class && s.name == "Keys")
+        }).expect("raw native TypedDict key remains a member candidate");
+        member.validate().unwrap();
+        assert!(supports.iter().any(|s| s.assertion == member.id()), "native member keeps attributed support");
+    }
     assert!(names.contains(""), "{names:?}");
     assert!(names.contains(" "), "{names:?}");
     assert!(names.contains("not-an-identifier"), "{names:?}");

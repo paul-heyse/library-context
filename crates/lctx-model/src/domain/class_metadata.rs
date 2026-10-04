@@ -144,6 +144,7 @@ pub struct ClassMemberObservation {
     #[model(key)]
     pub class: Id<ProviderSymbol>,
     #[model(key)]
+    /// Native member/key spelling, including non-identifier and empty TypedDict keys.
     pub name: String,
     pub defining_class: Id<ProviderSymbol>,
     pub basis: MetadataBasis,
@@ -209,8 +210,7 @@ pub fn receiver_members(
 }
 
 fn validate_member(row: &ClassMemberObservation) -> Result<(), ModelError> {
-    if row.name.is_empty()
-        || (row.origin == MemberOrigin::Inherited && row.class == row.defining_class)
+    if (row.origin == MemberOrigin::Inherited && row.class == row.defining_class)
         || (row.origin == MemberOrigin::Source && row.class != row.defining_class)
     {
         return Err(ModelError::Invalid("invalid native member origin".into()));
@@ -319,5 +319,45 @@ impl InvariantCheck for TransformCheck {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn id<T>(n: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([n; 16].into_iter()))
+        .unwrap()
+    }
+
+    #[test]
+    fn native_member_keys_keep_raw_spelling_without_weakening_origin_identity() {
+        for name in ["", " ", "not-an-identifier"] {
+            let mut member = ClassMemberObservation {
+                qualification: id(1),
+                class: id(2),
+                name: name.into(),
+                defining_class: id(2),
+                basis: MetadataBasis::NativeEffective,
+                origin: MemberOrigin::Source,
+                kind: MemberKind::Other,
+                term: id(3),
+                enum_value: None,
+                declaration: None,
+                abstract_declaration: false,
+                final_declaration: false,
+            };
+            member.validate().unwrap();
+            member.origin = MemberOrigin::Inherited;
+            assert!(member.validate().is_err(), "inherited origin needs a distinct defining class");
+            member.defining_class = id(4);
+            member.validate().unwrap();
+            member.origin = MemberOrigin::Source;
+            assert!(member.validate().is_err(), "source origin needs its own defining class");
+        }
     }
 }
