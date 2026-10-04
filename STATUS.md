@@ -106,7 +106,7 @@ preserves that stop state. Reconstruction from pinned inputs remains an activati
 Next: finish focused native/model/PostgreSQL controls and repair their findings, then
 complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`just hygiene`.
 Generated-wrapper and both raised-type PostgreSQL journeys passed in the failed full gate;
-Terminal also passed in the direct focused run. Fresh native reads/source calls/Summary controls, all 16 selection/composition controls and matching adapters passed. Native selected-domain explanation/JSON parity passed; association-purpose diagnostics, direct Behavioral Structural, schema acceptance and full gates remain pending. Real-library activation remains separately authorized.
+Terminal also passed in the direct focused run. Fresh native reads/source calls/Summary controls, all 16 selection/composition controls and matching adapters passed. Native selected-domain explanation/JSON parity and the strengthened PostgreSQL/MCP association-purpose control passed. Direct Behavioral Structural failed its named-handoff positive after validation; repair, schema acceptance and full gates remain pending. Real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release
 intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
 The end-of-turn hook normally owns formatting. ADR index/dependency features and the one final

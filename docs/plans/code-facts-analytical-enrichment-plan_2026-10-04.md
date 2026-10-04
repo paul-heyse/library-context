@@ -739,3 +739,30 @@ records the exact selected-domain witness/explanation contract and decision link
 are unchanged. The empty scoped database was reset to the current model; default staging and
 registrations were untouched. Remaining hygiene checks were not_run after this prerequisite
 failure; generated index refresh and named check resumption remain pending.
+
+
+The analytical packet's exact evidence-purpose qualification **passed**, 2026-10-04:
+`cargo nextest run --release -p lctx --test serving_packets -E 'test(analytical_enrichment_serves_real_comparison_context_and_non_call_references)' --failure-output immediate`,
+87.260s (`lctx-enrichment-association-purpose-acceptance.log`). The prior unchanged count
+assertion failed with four rows; actual native diagnostics established two logical timeout/title
+associations, each carrying distinct DeclaredField and NativeField option evidence. Strengthened
+typed checks preserve exact association/reader/parameter/slot identities, synthesized native
+signature authority, original declared defaults, native default Unknown, source Known/runtime
+Unknown and both evidence purposes. Actual PostgreSQL packets and real MCP stdio passed; no
+production deduplication was introduced.
+
+The direct Behavioral Structural control **failed**, 2026-10-04:
+`cargo test --release -p cpg-core --test structural structural_candidates_paths_and_usage_publish_in_behavioral -- --exact --nocapture`,
+242.78s (`lctx-enrichment-structural-behavioral-direct.log`). All stages and seal validation
+completed, then the required named reaching-definition handoff positive was absent. The assertion
+is retained and a bounded producer/admission repair is in progress; no new harness timeout is
+justified by this failing receipt.
+
+Current hygiene is **composite incomplete**, 2026-10-04. Fixture parsing, gold, rule scan/test,
+Ruff, Python types and dependency policy **passed** after the initial ADR failure. Documentation
+publication still refuses the stale generated ADR index. Full workspace/all-target `just clippy`
+initially **failed** on a missing allowance reason in the shared selection fixture, then **passed**
+after `93278a8a` (`lctx-enrichment-selected-domain-clippy-rerun.log`). Scoped current-model
+`lctx store check` **passed**, zero generations/findings (`lctx-enrichment-store-check-selected-domain.log`);
+default staging is untouched. The operator authorized one additional final formatting and ADR-index
+refresh, to run after the remaining functional repair and before final schema/artifact qualification.
