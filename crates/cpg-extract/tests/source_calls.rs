@@ -470,6 +470,21 @@ async fn retained_source_shapes_preserve_invocation_and_frame_boundaries() {
             .iter()
             .filter(|row| name(row.owner) == caller)
             .collect::<Vec<_>>();
+        if headers.len() != 1 {
+            for boundary in records.boundaries.iter().take(16) {
+                eprintln!("SOURCE_CALL_BOUNDARY {boundary:?}");
+                for attempt in data.output.attempts.iter().filter(|a| a.event == boundary.event).take(4) {
+                    eprintln!("SOURCE_CALL_ATTEMPT {attempt:?}");
+                    if let Some(effective) = attempt.effective.and_then(|id| data.bindings.callable_assessments.get(id)) {
+                        eprintln!("SOURCE_CALL_EFFECTIVE {effective:?}");
+                    }
+                    for member in data.output.members.iter().filter(|m| m.attempt == attempt.id()).take(4) {
+                        let variant = data.output.variants.get(member.variant).unwrap();
+                        eprintln!("SOURCE_CALL_SET {:?}", data.output.sets.get(variant.set));
+                    }
+                }
+            }
+        }
         assert_eq!(headers.len(), 1, "{caller}: fresh header");
         let release = records
             .releases
