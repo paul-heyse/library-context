@@ -47,7 +47,11 @@ impl Translator<'_> {
         let mut out = String::with_capacity(usize::from(range.len()));
         let mut at = usize::from(range.start());
         let end = usize::from(range.end());
-        for token in self.module.tokens().in_range(range) {
+        // Some native expressions originate inside string-annotation tokens. Avoid Tokens::in_range's
+        // token-boundary assertion while still seeking the first possibly intersecting token.
+        let tokens = self.module.tokens();
+        let first = tokens.partition_point(|token| token.range().end() <= range.start());
+        for token in tokens[first..].iter().take_while(|token| token.range().start() < range.end()) {
             let token_range = token.range();
             if token.kind() == ruff_python_ast_ty::token::TokenKind::Comment
                 && token_range.start() >= range.start() && token_range.end() <= range.end() {
