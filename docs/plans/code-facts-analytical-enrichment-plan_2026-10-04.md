@@ -556,3 +556,34 @@ from the existing canonical assertion/support registry, and current fixture dire
 JSON and selection-model declarations are registered. Focused native diagnostics and compile
 reruns are in progress; these repairs are **Implemented**, not yet Tested. The prior schema,
 Clippy and scoped-store receipts remain dated to the pre-repair model, not the repaired tree.
+
+
+Focused repair receipts, **2026-10-04**, retain their individual pre-subsequent-repair
+baselines and do not establish a current full gate:
+
+- **passed**: direct `cargo test --release -p cpg-core --test behavioral_frontiers -- --nocapture`,
+  one actual native frontier/validation control, 440 seconds
+  (`lctx-enrichment-frontier-progress-direct.log`). Direct `cargo test --release -p lctx
+  --test terminal_question_packets -- --nocapture` **passed**, all three positive and ten
+  uncertainty packet controls, 493 seconds (`lctx-enrichment-terminal-progress-direct.log`).
+  These receipts justify test-specific 900-second Nextest budgets; product request/resource
+  limits and all semantic assertions remain unchanged.
+- **failed**: focused model/PostgreSQL/lexical/syntax rerun, 56 passed and one failed
+  (`lctx-enrichment-repairs-fixtures-rerun2.log`). All lifecycle, domain call/type and model
+  input controls passed. The lexical assertion conflated native Ruff annotation scopes with
+  the recognizer oracle; the bounded attribution filter is integrated, rerun pending.
+- **failed**: actual serving/selection rerun, three source-characterization controls passed,
+  two selection controls failed at duplicate nominal registration, and conditional packets
+  failed (`lctx-enrichment-repairs-serving-selection-rerun.log`). Selection fixture replay
+  deduplication is integrated. Conditional diagnostics conclusively retained Local finite
+  premises with no composed TransferAlternative: capture hydration now retains these valid
+  claims without requiring a direct capture DTO. Strict direct-capture checks remain;
+  actual conditional/capture reruns are pending.
+- Synthesized native initializer shape replay is integrated with exact same-run native
+  observation/support, distinct Types/Signatures surfaces and complete slot/digest checks;
+  its adversarial and actual field tests are pending. It does not relabel synthesized
+  metadata as source/runtime authority. Exported-definition versus overload-metadata
+  candidate separation and the remaining read/source-call diagnostics are in progress.
+
+Earlier `a00210d0…` schema/adapters/hygiene receipts do not qualify these subsequent model
+changes. Full `just test-all`, matching artifacts and affected hygiene checks remain required.

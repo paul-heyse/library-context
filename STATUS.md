@@ -31,7 +31,7 @@ ModuleResolution at 75. Reviewed describe migration and assertion rerun passed f
 adapters rebuilt in the full gate. `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all`
 **failed**: 997 Rust controls passed, 95 failed, four timed out and three were skipped; Python/oracles
 and doctests were not_run after the Rust failure. Scope/TypedDict/Summary authority and shared native
-fixture repairs are integrated; focused reruns are compiling. Earlier schema/hygiene receipts bound
+fixture repairs are integrated; focused reruns passed 56/57 model/PG/syntax controls; the lexical oracle repair is pending. Earlier schema/hygiene receipts bound
 `9dbe7239`, before these repairs. Initial failures and named repairs remain in coordinator §7. Default store-check refused the
 preserved old-model staging; the isolated final-model store check passed, zero generations/
 findings. Read-only check confirms staging still has 204 receipts and is unselected.
@@ -105,7 +105,7 @@ preserves that stop state. Reconstruction from pinned inputs remains an activati
 Next: finish focused native/model/PostgreSQL controls and repair their findings, then
 complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`just hygiene`.
 Generated-wrapper and both raised-type PostgreSQL journeys passed in the failed full gate;
-conditional and Terminal journeys still require repair. Real-library activation remains separately authorized.
+Terminal also passed in the direct focused run; conditional packets still require repair. Real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release
 intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
 The end-of-turn hook normally owns formatting. ADR index/dependency features and the one final
