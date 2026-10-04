@@ -528,9 +528,8 @@ pub mod fixtures {
     use super::DisposableDatabase;
     use crate::generations::{GenerationAttempt, GenerationId, GenerationStore};
     use lctx_model::domain::{
-        admission::*, attribution::*, calls::*, declarations::*, deployment::*, documents::*,
-        input::*, lexical::*, resources::ResourceBudget, source::*, stages::*, symbols::*,
-        syntax::*, types::*, *,
+        admission::*, attribution::*, calls::SignatureEnumerationMember, deployment::*,
+        documents::*, input::*, resources::ResourceBudget, source::*, stages::*, *,
     };
     use sqlx::PgPool;
     use std::sync::Arc;
@@ -539,6 +538,14 @@ pub mod fixtures {
         ResourceBudget::fixed(DEFAULT_BUDGET).unwrap()
     }
     const DEFAULT_BUDGET: usize = 256 << 20;
+    const NATIVE_FAMILIES: [FactFamily; 6] = [
+        FactFamily::Syntax,
+        FactFamily::Lexical,
+        FactFamily::Signatures,
+        FactFamily::Calls,
+        FactFamily::Types,
+        FactFamily::Exports,
+    ];
 
     /// Write each listed relation's rows (or an explicit empty batch) through the attempt.
     macro_rules! rows {
@@ -715,6 +722,20 @@ pub mod fixtures {
                 };
             macro_rules! uses { ($($ty:ty),+) => { vec![$(RelationUse::of::<$ty>()),+] }; }
             use FactFamily::*;
+            // Empty-input lifecycle facts use the same model-owned native pair registry as
+            // the actual inventory. Every requested assertion has its reporting writer.
+            let mut native_outputs = uses!(SignatureEnumerationMember);
+            macro_rules! outputs {
+                ($($code:literal: $variant:ident => $assertion:ty, $support:ty;)*) => {
+                    $(if NATIVE_FAMILIES.contains(&<$assertion as assertion::Assertion>::FAMILY) {
+                        native_outputs.extend([
+                            RelationUse::of::<$assertion>(),
+                            RelationUse::of::<$support>(),
+                        ]);
+                    })*
+                };
+            }
+            lctx_model::native_analysis_pairs!(outputs);
             Schedule::build(
                 &self.model,
                 vec![
@@ -726,78 +747,8 @@ pub mod fixtures {
                     ),
                     stage(
                         "pyrefly",
-                        uses!(
-                            BindingObservation,
-                            BindingSupport,
-                            CallResolution,
-                            CallResolutionSupport,
-                            CallSyntax,
-                            CallSyntaxSupport,
-                            CallTarget,
-                            CallTargetSupport,
-                            ClassAncestryObservation,
-                            ClassAncestrySupport,
-                            ClassFieldSyntaxObservation,
-                            ClassFieldSyntaxSupport,
-                            ClassTraitObservation,
-                            ClassTraitSupport,
-                            DeclarationDecorator,
-                            DeclarationDecoratorSupport,
-                            DeclarationObservation,
-                            DeclarationSupport,
-                            ModuleResolutionObservation,
-                            ModuleResolutionSupport,
-                            DunderAllObservation,
-                            DunderAllSupport,
-                            FunctionBodyObservation,
-                            FunctionBodySupport,
-                            FunctionTraitObservation,
-                            FunctionTraitSupport,
-                            ImportAliasObservation,
-                            ImportAliasSupport,
-                            LexicalResolution,
-                            LexicalResolutionSupport,
-                            LexicalScopeObservation,
-                            LexicalScopeSupport,
-                            ParameterAnnotationObservation,
-                            ParameterAnnotationSupport,
-                            ParameterDeclaration,
-                            ParameterDeclarationSupport,
-                            ParameterDocObservation,
-                            ParameterDocSupport,
-                            ParameterSyntaxObservation,
-                            ParameterSyntaxSupport,
-                            ProviderCallSite,
-                            ProviderCallSiteSupport,
-                            PublicNameObservation,
-                            PublicNameSupport,
-                            RecordFieldObservation,
-                            RecordFieldSupport,
-                            ReferenceObservation,
-                            ReferenceSupport,
-                            Signature,
-                            SignatureSupport,
-                            SignatureEnumerationObservation,
-                            SignatureEnumerationMember,
-                            SignatureEnumerationSupport,
-                            SymbolDeclaration,
-                            SymbolDeclarationSupport,
-                            SymbolObservation,
-                            SymbolSupport,
-                            SyntaxDetailObservation,
-                            SyntaxDetailSupport,
-                            SyntaxObservation,
-                            SyntaxPlacement,
-                            SyntaxPlacementSupport,
-                            SyntaxSupport,
-                            TypeObservation,
-                            TypePresentation,
-                            TypePresentationSupport,
-                            TypeRestrictionSupport,
-                            TypeSupport,
-                            TypeVariableRestriction
-                        ),
-                        vec![Syntax, Lexical, Signatures, Calls, Types, Exports],
+                        native_outputs,
+                        NATIVE_FAMILIES.to_vec(),
                         Some(&self.pyrefly),
                     ),
                     stage(
@@ -923,7 +874,15 @@ pub mod fixtures {
                         rows!(access, attempt, model; InputRevision => vec![self.input.clone()], SourceArtifact => vec![])
                     }
                     "pyrefly" => {
-                        empty!(access, attempt, model; BindingObservation,BindingSupport,CallResolution,CallResolutionSupport,CallSyntax,CallSyntaxSupport,CallTarget,CallTargetSupport,ClassAncestryObservation,ClassAncestrySupport,ClassFieldSyntaxObservation,ClassFieldSyntaxSupport,ClassTraitObservation,ClassTraitSupport,DeclarationDecorator,DeclarationDecoratorSupport,DeclarationObservation,DeclarationSupport,ModuleResolutionObservation,ModuleResolutionSupport,DunderAllObservation,DunderAllSupport,FunctionBodyObservation,FunctionBodySupport,FunctionTraitObservation,FunctionTraitSupport,ImportAliasObservation,ImportAliasSupport,LexicalResolution,LexicalResolutionSupport,LexicalScopeObservation,LexicalScopeSupport,ParameterAnnotationObservation,ParameterAnnotationSupport,ParameterDeclaration,ParameterDeclarationSupport,ParameterDocObservation,ParameterDocSupport,ParameterSyntaxObservation,ParameterSyntaxSupport,ProviderCallSite,ProviderCallSiteSupport,PublicNameObservation,PublicNameSupport,RecordFieldObservation,RecordFieldSupport,ReferenceObservation,ReferenceSupport,Signature,SignatureSupport,SignatureEnumerationObservation,SignatureEnumerationMember,SignatureEnumerationSupport,SymbolDeclaration,SymbolDeclarationSupport,SymbolObservation,SymbolSupport,SyntaxDetailObservation,SyntaxDetailSupport,SyntaxObservation,SyntaxPlacement,SyntaxPlacementSupport,SyntaxSupport,TypeObservation,TypePresentation,TypePresentationSupport,TypeRestrictionSupport,TypeSupport,TypeVariableRestriction)
+                        macro_rules! native_empty {
+                            ($($code:literal: $variant:ident => $assertion:ty, $support:ty;)*) => {
+                                $(if NATIVE_FAMILIES.contains(&<$assertion as assertion::Assertion>::FAMILY) {
+                                    empty!(access, attempt, model; $assertion, $support);
+                                })*
+                            };
+                        }
+                        lctx_model::native_analysis_pairs!(native_empty);
+                        empty!(access, attempt, model; SignatureEnumerationMember)
                     }
                     "documents" => {
                         empty!(access, attempt, model; DocumentObservation, DocumentSupport, PassageObservation, PassageSupport, CodeBlockObservation,
