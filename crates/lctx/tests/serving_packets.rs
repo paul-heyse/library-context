@@ -280,46 +280,100 @@ class Settings:
     let OperationResolution::Unique { packet } = response.operation else {
         panic!("Settings missing")
     };
-    let links = packet
-        .relationships
-        .items
-        .iter()
-        .filter_map(|r| match r {
-            RelationshipPacket::SourceField {
-                source_association,
-                runtime_value,
-                parameter_option,
-                field_option,
-                ..
-            } => Some((
-                *source_association,
-                *runtime_value,
-                *parameter_option,
-                *field_option,
-            )),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if links.len() != 2 {
-        eprintln!("source-field packet multiplicity: {:?}", packet.relationships.items);
-        let schema = fixture.generation.schema();
-        let kinds: Vec<(String, i16, i16, i16, i16, String, String, String)> =
-            sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT r.name,fe.kind,ps.kind,pe.kind,sig.role,encode(a.parameter,'hex'),encode(l.association,'hex'),encode(l.reader,'hex') FROM {schema}.catalog_source_field_links l JOIN {schema}.source_field_reader_links k ON k.id=l.reader JOIN {schema}.source_field_readers r ON r.id=k.reader JOIN {schema}.source_field_associations a ON a.id=l.association JOIN {schema}.signature_parameters p ON p.id=a.parameter JOIN {schema}.signature_observations sig ON sig.id=p.signature JOIN {schema}.catalog_options fo ON fo.id=l.field_option JOIN {schema}.catalog_option_evidence fe ON fe.id=fo.evidence JOIN {schema}.catalog_options po ON po.id=l.parameter_option JOIN {schema}.catalog_option_subjects ps ON ps.id=po.subject JOIN {schema}.catalog_option_evidence pe ON pe.id=po.evidence ORDER BY r.name,fe.kind,sig.role"
-            )))
-            .fetch_all(fixture.db.owner.pool()).await.unwrap();
-        eprintln!("source-field actual reader,field-evidence,parameter-subject,parameter-evidence,signature-role,parameter,association,reader-link={kinds:?}");
+    use lctx_model::domain::{calls, catalog, normalized, types, value};
+    macro_rules! stored {($($name:ident:$ty:ty,)*)=>{$(let $name=execution.read::<$ty>().await.unwrap();)*};}
+    stored! {
+        options:catalog::CatalogOption,
+        subjects:catalog::CatalogOptionSubject,
+        option_evidence:catalog::CatalogOptionEvidence,
+        defaults:catalog::CatalogDefault,
+        literals:value::Literal,
+        associations:normalized::symbolic_fields::SourceFieldAssociation,
+        reader_links:normalized::symbolic_fields::SourceFieldReaderLink,
+        readers:normalized::symbolic_fields::SourceFieldReader,
+        fields:types::RecordFieldObservation,
+        field_links:normalized::entities::FieldEntityLink,
+        declarations:normalized::entities::FieldDeclarationLink,
+        default_assessments:normalized::callable_aspects::FieldDefaultAssessment,
+        parameters:calls::SignatureParameter,
+        signatures:calls::Signature,
+        slots:normalized::callables::SignatureSlot,
     }
-    assert_eq!(
-        links.len(),
-        2,
-        "distinct timeout/title constructor-to-reader associations"
-    );
-    assert!(links.iter().all(|(source, runtime, _, _)| *source
-        == lctx_model::domain::normalized::callables::Knowledge::Known
-        && *runtime == lctx_model::domain::normalized::callables::Knowledge::Unknown));
-    assert_ne!(links[0].2, links[1].2);
-    assert_ne!(links[0].3, links[1].3);
+    let mut pairs = std::collections::BTreeMap::new();
+    let mut names = std::collections::BTreeSet::new();
+    let mut count = 0;
+    for relationship in &packet.relationships.items {
+        let RelationshipPacket::SourceField {
+            association, reader_link, reader, access, parameter, parameter_option,
+            field_option, source_association, runtime_value, proof, ..
+        } = relationship else { continue };
+        count += 1;
+        assert_eq!(*source_association, normalized::callables::Knowledge::Known);
+        assert_eq!(*runtime_value, normalized::callables::Knowledge::Unknown);
+        assert!(!proof.is_empty());
+        let association_row = associations.rows().iter().find(|r| r.id() == *association).unwrap();
+        assert_eq!(association_row.parameter, *parameter);
+        let link = reader_links.rows().iter().find(|r| r.id() == *reader_link).unwrap();
+        assert_eq!((link.association, link.reader), (*association, *reader));
+        let reader_row = readers.rows().iter().find(|r| r.id() == *reader).unwrap();
+        assert_eq!(reader_row.access, *access);
+        let field = fields.rows().iter().find(|r| r.id() == association_row.field).unwrap();
+        assert_eq!(reader_row.name, field.name.as_str());
+        names.insert(reader_row.name.clone());
+        let parameter_option_row = options.rows().iter().find(|r| r.id() == *parameter_option).unwrap();
+        let catalog::CatalogOptionSubject::Parameter { slot } = subjects.rows().iter()
+            .find(|r| r.id() == parameter_option_row.subject).unwrap()
+        else { panic!("generated initializer must retain its native parameter slot") };
+        assert_eq!(option_evidence.rows().iter().find(|r| r.id() == parameter_option_row.evidence).unwrap(),
+            &catalog::CatalogOptionEvidence::NativeParameter { slot: *slot });
+        let slot = slots.rows().iter().find(|r| r.id() == *slot).unwrap();
+        assert_eq!(slot.parameter, *parameter);
+        let parameter_row = parameters.rows().iter().find(|r| r.id() == *parameter).unwrap();
+        let signature = signatures.rows().iter().find(|r| r.id() == parameter_row.signature).unwrap();
+        assert_eq!(signature.role, calls::SignatureRole::Synthesized);
+        assert!(signature.native.is_some());
+        let field_option_row = options.rows().iter().find(|r| r.id() == *field_option).unwrap();
+        assert_eq!(field_option_row.member, parameter_option_row.member);
+        let catalog::CatalogOptionSubject::Field { field: field_entity } = subjects.rows().iter()
+            .find(|r| r.id() == field_option_row.subject).unwrap()
+        else { panic!("source association must address the exact field") };
+        let default = defaults.rows().iter().find(|r| r.id() == field_option_row.default).unwrap();
+        let purpose = match option_evidence.rows().iter().find(|r| r.id() == field_option_row.evidence).unwrap() {
+            catalog::CatalogOptionEvidence::DeclaredField { declaration, assessment } => {
+                let declaration_row = declarations.rows().iter().find(|r| r.id() == *declaration).unwrap();
+                assert_eq!(declaration_row.field, *field_entity);
+                let assessment_row = default_assessments.rows().iter().find(|r| r.id() == *assessment).unwrap();
+                assert_eq!(assessment_row.declaration, *declaration);
+                let catalog::CatalogDefault::Literal { literal } = default
+                else { panic!("declared field retains its actual original default") };
+                let literal = literals.rows().iter().find(|r| r.id() == *literal).unwrap();
+                match reader_row.name.as_str() {
+                    "timeout" => assert_eq!(literal, &value::Literal::Integer { decimal: "3".into() }),
+                    "title" => assert_eq!(literal, &value::Literal::String { value: "title".into() }),
+                    _ => panic!("unexpected generated field reader"),
+                }
+                0
+            }
+            catalog::CatalogOptionEvidence::NativeField { link, observation } => {
+                assert_eq!(*observation, association_row.field);
+                let link_row = field_links.rows().iter().find(|r| r.id() == *link).unwrap();
+                assert_eq!((link_row.field, link_row.observation), (*field_entity, *observation));
+                assert_eq!(default, &catalog::CatalogDefault::Unknown {});
+                1
+            }
+            _ => panic!("source field requires declared or native field evidence"),
+        };
+        let pair = pairs.entry((*association, *reader_link))
+            .or_insert_with(|| (*parameter, *parameter_option, *field_entity, std::collections::BTreeSet::new()));
+        assert_eq!((pair.0, pair.1, pair.2), (*parameter, *parameter_option, *field_entity));
+        assert!(pair.3.insert(purpose), "same field evidence purpose must not be repeated");
+    }
+    assert_eq!(names, std::collections::BTreeSet::from(["timeout".to_owned(), "title".to_owned()]));
+    assert_eq!(pairs.len(), 2, "two exact parameter-to-reader associations");
+    assert_eq!(count, 4, "each pair preserves declared and native field evidence");
+    assert!(pairs.values().all(|pair| pair.3 == std::collections::BTreeSet::from([0, 1])));
+    assert_eq!(pairs.values().map(|pair| pair.0).collect::<std::collections::BTreeSet<_>>().len(), 2);
+    assert_eq!(pairs.values().map(|pair| pair.2).collect::<std::collections::BTreeSet<_>>().len(), 2);
     let empty = request("demo.Settings", vec![OperationSection::IncomingReferences]);
     let response = fixture.catalog.operation(&execution, &empty).await.unwrap();
     let OperationResolution::Unique { packet } = &response.operation else {
