@@ -6,7 +6,7 @@ use std::str::FromStr;
 pub(crate) fn parse(url: &str, invalid: &'static str) -> Result<PgConnectOptions, Error> {
     let options = PgConnectOptions::from_str(url).map_err(|_| Error::Config(invalid))?;
     let host = options.get_host();
-    let local = host.starts_with('/') || matches!(host, "localhost" | "127.0.0.1" | "::1");
+    let local = host.starts_with('/') || matches!(host, "localhost" | "127.0.0.1" | "::1" | "[::1]");
     if !local && !matches!(options.get_ssl_mode(), PgSslMode::VerifyFull) {
         return Err(Error::Config("remote PostgreSQL requires sslmode=verify-full"));
     }

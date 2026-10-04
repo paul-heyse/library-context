@@ -952,6 +952,7 @@ mod encoding_controls {
         frame(b"field", b"name"); frame(b"scalar", b"text");
         frame(b"roles", &[1, 0, 0, 0]); frame(b"target", b"");
         frame(b"option", &[0]); frame(b"code-count", &0u64.to_le_bytes());
+        frame(b"dependency", b"packages");
         frame(b"output", b"packages");
         assert_eq!(identity_for(&[mapping.clone()]).0.0, *raw.finalize().as_bytes());
         let mut revision = mapping.clone(); revision.revision = 2;

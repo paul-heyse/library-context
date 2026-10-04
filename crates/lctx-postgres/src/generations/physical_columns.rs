@@ -106,7 +106,7 @@ mod tests {
         assert_eq!(columns(&Relation::of::<source::SourceArtifact>())[0].name, "generation_id");
         let literal = columns(&Relation::of::<value::Literal>());
         assert_eq!(literal[2].signature(), "introduced_epoch:smallint:true");
-        assert!(literal.iter().any(|column| column.signature() == "string_value:text:false"));
+        assert!(literal.iter().any(|column| column.signature() == "string_value:bytea:false"));
         assert!(!<Control as Record>::schema().fields().iter().any(|field| field.name() == "generation_id"));
     }
 }
