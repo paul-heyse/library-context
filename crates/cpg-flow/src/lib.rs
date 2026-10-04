@@ -157,6 +157,21 @@ pub struct Reach {
     pub loop_carried: bool,
 }
 
+/// Native candidate enumeration before pruning/expansion. Provider indices are adapter-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CandidateKind { Bound, Undefined, Deleted, Nested, LoopHeader }
+#[derive(Debug, Clone)]
+pub struct UseCandidate {
+    pub use_ix: u32,
+    pub ordinal: u32,
+    pub kind: CandidateKind,
+    pub reaching: Vec<usize>,
+    pub pruned: bool,
+    pub loop_expanded: bool,
+    pub unattached: bool,
+    pub reachability_lost: bool,
+}
+
 /// Snapshot characterization is independent of runtime capture value authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureOrigin {
@@ -283,6 +298,9 @@ pub struct ModuleFlow {
     pub uses: Vec<Use>,
     pub defs: Vec<Def>,
     pub reaching: Vec<Reach>,
+    pub candidates: Vec<UseCandidate>,
+    /// Native place queries with no source scope: these never fabricate a Use.
+    pub unavailable_uses: Vec<Span>,
     pub captures: Vec<CaptureSnapshot>,
     pub values: Vec<ValueSource>,
     pub regions: Vec<Region>,
@@ -869,9 +887,13 @@ impl<'db> Walk<'_, 'db> {
             return;
         }
         let Some(fid) = self.index.try_expression_scope_id(e) else {
+            self.flow.unavailable_uses.push(span);
             return;
         };
-        let Some(scope) = self.scope(fid) else { return };
+        let Some(scope) = self.scope(fid) else {
+            self.flow.unavailable_uses.push(span);
+            return;
+        };
         let Some(place) = PlaceExpr::try_from_expr(e) else {
             return;
         };
@@ -914,10 +936,23 @@ impl<'db> Walk<'_, 'db> {
             c.is_never() && !c.approximated() && !matches!(state,
                 DefinitionState::Defined(d) if matches!(d.kind(self.db), DefinitionKind::LoopHeader(_)))
         });
-        for (state, reach, condition, narrowing, narrowing_precision_lost) in lowered {
+        for (ordinal, (state, reach, condition, narrowing, narrowing_precision_lost)) in lowered.into_iter().enumerate() {
+            let kind = match state {
+                DefinitionState::Undefined => CandidateKind::Undefined,
+                DefinitionState::Deleted => CandidateKind::Deleted,
+                DefinitionState::Defined(d) => match d.kind(self.db) {
+                    DefinitionKind::LoopHeader(_) => CandidateKind::LoopHeader,
+                    DefinitionKind::NestedBindings(_) => CandidateKind::Nested,
+                    _ => CandidateKind::Bound,
+                },
+            };
+            let mut candidate = UseCandidate { use_ix: ix, ordinal: ordinal as u32, kind, reaching: Vec::new(), pruned: false, loop_expanded: kind == CandidateKind::LoopHeader, unattached: false, reachability_lost: condition.approximated() };
+            let before = self.flow.reaching.len();
             if condition.is_never() && !retain_false_only {
                 let cause = self.skip_cause(fid, reach);
                 self.flow.skips.reach(cause);
+                candidate.pruned = true;
+                self.flow.candidates.push(candidate);
                 continue;
             }
             match state {
@@ -937,6 +972,7 @@ impl<'db> Walk<'_, 'db> {
                         }
                     } else {
                         let def_ix = self.def(scope, d);
+                        candidate.unattached = def_ix.is_none() && kind == CandidateKind::Bound;
                         self.flow.reaching.push(Reach {
                             use_ix: ix,
                             def_ix,
@@ -960,6 +996,8 @@ impl<'db> Walk<'_, 'db> {
                     });
                 }
             }
+            candidate.reaching.extend(before..self.flow.reaching.len());
+            self.flow.candidates.push(candidate);
         }
     }
 

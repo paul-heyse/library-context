@@ -1003,3 +1003,29 @@ fn all_native_graph_leaves_retain_a_coordinate_or_explicit_unavailability() {
         }
     }
 }
+
+#[test]
+fn native_guarded_origin_search_keeps_evaluation_occurrences_and_reports_supply() {
+    let source=include_str!("../../../fixtures/python/guarded_origin_inventory/cases.py");
+    let flow=cpg_flow::index(&[Input { path:"cases.py".into(),text:source.into(),runtime:RuntimeBindings::default() }], &RuntimeContext { python_version:(3,14,7),platform:"linux".into() }).pop().unwrap();
+    assert!(flow.error.is_none(),"{:?}",flow.error);
+    let mut multi=0;let mut useful=0;
+    for value in flow.values.iter().filter(|v|v.identity && !v.through_call && v.sink==Sink::Return) {
+        let use_=&flow.uses[value.use_ix as usize];if use_.place!="value" { continue; }
+        let candidates=flow.reaching.iter().filter(|r|r.use_ix==value.use_ix).collect::<Vec<_>>();
+        let inventory=flow.candidates.iter().filter(|r|r.use_ix==value.use_ix).collect::<Vec<_>>();
+        assert!(!inventory.is_empty());
+        let region=flow.regions.iter().filter(|r|r.scope==use_.scope && r.span.start<=value.span.start && r.span.end>=value.span.end).min_by_key(|r|r.span.end-r.span.start).unwrap();
+        let access=value.condition.and(&region.condition);
+        let q=lower(&access).unwrap().0;
+        let complete=inventory.iter().all(|c|!c.pruned && !c.loop_expanded && !c.unattached && !c.reachability_lost);
+        let parameters=candidates.iter().filter(|r|r.def_ix.is_some_and(|ix|flow.defs[ix as usize].kind==BindingKind::Parameter)).collect::<Vec<_>>();
+        let competitors=candidates.iter().filter(|r|!r.def_ix.is_some_and(|ix|flow.defs[ix as usize].kind==BindingKind::Parameter)).collect::<Vec<_>>();
+        if candidates.len()>=2 { multi+=1; }
+        let admitted=complete && candidates.len()>=2 && parameters.len()==1 && !q.is_false() && lower(&parameters[0].condition).unwrap().0.and(&q).unwrap().id()==q.id() && competitors.iter().all(|r|lower(&r.condition).unwrap().0.and(&q).unwrap().is_false());
+        if admitted { useful+=1; }
+        eprintln!("read={} retained={} native={} complete={} guarded_useful={}",use_.span.start,candidates.len(),inventory.len(),complete,admitted);
+    }
+    assert!(multi>=3,"representative native joins must retain competing alternatives");
+    assert_eq!(useful,0,"these cases do not admit guarded authority: repeated tests are distinct evaluation atoms and branch-local reads are already singleton");
+}
