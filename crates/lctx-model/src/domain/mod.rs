@@ -27,6 +27,7 @@ pub mod execution;
 mod finite;
 pub mod flow;
 pub mod flow_capture;
+pub mod flow_inventory;
 mod identity;
 pub mod input;
 pub mod lexical;
@@ -286,6 +287,7 @@ pub fn facts_relations() -> Vec<Relation> {
     use documents::*;
     use flow::*;
     use flow_capture::*;
+    use flow_inventory::*;
     use input::*;
     use lexical::*;
     use source::*;
@@ -360,6 +362,10 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<FlowNarrowingSupport>(),
         Relation::of::<FlowSourceViewObservation>(),
         Relation::of::<FlowSourceViewSupport>(),
+        Relation::of::<FlowUseInventoryObservation>(),
+        Relation::of::<FlowUseInventorySupport>(),
+        Relation::of::<FlowUseCandidate>(),
+        Relation::of::<FlowUseInventoryMember>(),
         Relation::of::<FlowCaptureTarget>(),
         Relation::of::<FlowCaptureInventory>(),
         Relation::of::<FlowCaptureCandidate>(),

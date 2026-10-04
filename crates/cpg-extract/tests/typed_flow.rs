@@ -9,6 +9,9 @@ use typed_driver::{Tables, rows};
 inspector!(
     Flow,
     FlowUse,
+    lctx_model::domain::flow_inventory::FlowUseInventoryObservation,
+    lctx_model::domain::flow_inventory::FlowUseCandidate,
+    lctx_model::domain::flow_inventory::FlowUseInventoryMember,
     FlowDefinition,
     FlowDefinitionObservation,
     FlowReachingObservation,
@@ -455,4 +458,31 @@ async fn native_capture_timing_keeps_candidate_basis_and_actual_outer_definition
         rows::<FlowCaptureTimingObservation>(&catalog).is_empty(),
         "catalog never requests ty timing"
     );
+}
+
+#[tokio::test]
+async fn actual_native_inventory_retains_competitors_and_loop_limits() {
+    use lctx_model::domain::flow_inventory::*;
+    let files=typed_driver::files("guarded_origin_inventory");let tables=Tables::default();
+    typed_driver::run_behavioral(&files,Flow(tables.clone())).await.unwrap();
+    let inventories=rows::<FlowUseInventoryObservation>(&tables);let candidates=rows::<FlowUseCandidate>(&tables);let members=rows::<FlowUseInventoryMember>(&tables);
+    assert!(!inventories.is_empty());assert!(inventories.iter().any(|i|i.complete));
+    assert!(inventories.iter().any(|i|!i.complete && candidates.iter().any(|c|c.inventory==i.id() && c.loop_expanded)),"native loop header never certifies enumeration closure");
+    assert!(inventories.iter().any(|i|i.complete && i.native_count>=2),"native complete join retains all alternatives");
+    for inventory in &inventories { let budget=typed_driver::budget();let explanation=explain(inventory.use_,inventory,&candidates,&members,&budget).unwrap();assert_eq!(explanation.members.len(),inventory.mapped_count as usize); }
+    let occurrences=rows::<Occurrence>(&tables);let uses=rows::<FlowUse>(&tables);let targets=rows::<ReachingDefinition>(&tables);let definitions=rows::<FlowDefinitionObservation>(&tables);let values=rows::<FlowValueObservation>(&tables);let regions=rows::<FlowRegionObservation>(&tables);let reaches=rows::<FlowReachingObservation>(&tables);let qualifications=rows::<AssertionQualification>(&tables);let conditions=rows::<Condition>(&tables);let nodes=rows::<ConditionNode>(&tables);
+    let diagram=|qualification| { let q=qualifications.iter().find(|q|q.id()==qualification).unwrap();Diagram::from_records(conditions.iter().find(|c|c.id()==q.condition).unwrap(),&nodes).unwrap() };
+    let mut investigated=0;let mut useful=0;
+    for value in values.iter().filter(|v|v.kind==FlowSinkKind::Return && v.transfer==lctx_model::domain::transfer::TransferKind::Identity && !v.through_call) {
+        let Some(inventory)=inventories.iter().find(|i|i.use_==value.use_ && i.complete && i.mapped_count>=2) else {continue};
+        let use_=uses.iter().find(|u|u.id()==value.use_).unwrap();let site=occurrences.iter().find(|o|o.id()==use_.occurrence).unwrap();
+        let Some(region)=regions.iter().filter(|r|r.scope==inventory.scope).filter_map(|r|occurrences.iter().find(|o|o.id()==r.statement).map(|o|(r,o))).filter(|(_,o)|o.source==site.source && o.start<=site.start && o.end>=site.end).min_by_key(|(_,o)|o.end-o.start).map(|(r,_)|r) else {continue};
+        let q=diagram(value.qualification).and(&diagram(region.qualification)).unwrap();if q.is_false() {continue;}
+        let candidates=reaches.iter().filter(|r|r.use_==value.use_).collect::<Vec<_>>();
+        let parameter=|r: &&FlowReachingObservation|targets.iter().find(|t|t.id()==r.target).is_some_and(|t|match t { ReachingDefinition::Bound{definition}=>definitions.iter().any(|d|d.definition==*definition && d.kind==lctx_model::domain::lexical::BindingEventKind::Parameter),_=>false });
+        let originals=candidates.iter().copied().filter(parameter).collect::<Vec<_>>();let competitors=candidates.iter().copied().filter(|r|!parameter(r)).collect::<Vec<_>>();investigated+=1;
+        if originals.len()==1 && diagram(originals[0].qualification).and(&q).unwrap().id()==q.id() && competitors.iter().all(|r|diagram(r.qualification).and(&q).unwrap().is_false()) {useful+=1;}
+    }
+    assert!(investigated>=3,"actual adapter retains representative multi-candidate identity reads");assert_eq!(useful,0,"no native useful guarded-origin case established by this bounded fixture search");
+    let catalog=Tables::default();typed_driver::run(&files,Flow(catalog.clone())).await.unwrap();assert!(rows::<FlowUseInventoryObservation>(&catalog).is_empty(),"Catalog does not request flow");
 }

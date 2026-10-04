@@ -14,6 +14,7 @@ use lctx_model::domain::{
     conditions::*,
     flow::*,
     flow_capture::*,
+    flow_inventory::*,
     lexical::*,
     source::*,
     stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage, StageSink},
@@ -55,6 +56,10 @@ macro_rules! output_types {
             FlowNarrowingSupport,
             FlowSourceViewObservation,
             FlowSourceViewSupport,
+            FlowUseInventoryObservation,
+            FlowUseInventorySupport,
+            FlowUseCandidate,
+            FlowUseInventoryMember,
             FlowCaptureTarget,
             FlowCaptureInventory,
             FlowCaptureCandidate,
@@ -1060,6 +1065,7 @@ impl<S: StageSink + 'static> Writer<'_, S> {
     }
     fn write(&mut self) -> Result<(), ModelError> {
         let flow = self.flow;
+        let source_view;
         if let (Some(original_content), Some(view_content), Some(byte_len)) =
             (flow.original_content, flow.view_content, flow.view_byte_len)
         {
@@ -1093,6 +1099,7 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                 renamed_type_checking: i64::from(flow.renamed),
             };
             row.validate()?;
+            source_view = row.id();
             let evidence = Evidence::SourceSpan {
                 source: self.artifact.id(),
                 start: 0,
@@ -1111,6 +1118,10 @@ impl<S: StageSink + 'static> Writer<'_, S> {
             self.context.emit(row)?;
         } else {
             return Err(invalid("native ty source view receipt is missing"));
+        }
+        for span in &flow.unavailable_uses {
+            let subject = self.attach(*span, None)?;
+            self.boundary(subject, ObligationKind::ScopeBoundary, "native use enumeration unavailable: no source scope")?;
         }
         let mut uses = Vec::new();
         let mut definitions = Vec::new();
@@ -1373,7 +1384,11 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                 use_.occurrence
             );
         }
-        for native in &flow.reaching {
+        rows_charge.grow(flow.reaching.len() * 128)?;
+        let mut mapped_reaching = vec![None; flow.reaching.len()];
+        let mut unattached_reaching=vec![false;flow.reaching.len()];
+        let mut unavailable_conditions=vec![false;flow.reaching.len()];
+        for (native_ix, native) in flow.reaching.iter().enumerate() {
             let Some(Some((use_, scope))) = uses.get(native.use_ix as usize) else {
                 continue;
             };
@@ -1381,6 +1396,7 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                 ReachingDefinition::Nested
             } else if let Some(index) = native.def_ix {
                 let Some(Some((definition, _))) = definitions.get(index as usize) else {
+                    unattached_reaching[native_ix]=true;
                     self.boundary(
                         Some(use_.occurrence),
                         ObligationKind::NativeUnavailable,
@@ -1427,19 +1443,39 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                 );
             }
             if let Some(q) = self.qualify(&native.condition, *scope, Some(use_.occurrence))? {
-                supported!(
-                    self,
-                    FlowReachingObservation,
-                    FlowReachingSupport,
-                    FlowReachingObservation {
-                        qualification: q.id(),
-                        use_: use_.id(),
-                        target: target.id(),
-                        loop_carried: native.loop_carried
-                    },
-                    use_.occurrence
-                );
+                let row = FlowReachingObservation { qualification:q.id(), use_:use_.id(), target:target.id(), loop_carried:native.loop_carried };
+                let evidence=Evidence::Occurrence { occurrence:use_.occurrence };
+                self.context.contribute(evidence.clone())?;
+                let support=FlowReachingSupport { assertion:row.id(),run:self.run.id(),surface:self.surface.id(),evidence:evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural };
+                mapped_reaching[native_ix]=Some((row.id(),support.id()));
+                self.context.emit(support)?;
+                self.context.emit(row)?;
+            } else { unavailable_conditions[native_ix]=true; }
+        }
+        rows_charge.grow(flow.candidates.len()*128)?;
+        let mut candidate_index=BTreeMap::<u32,Vec<_>>::new();for candidate in &flow.candidates { candidate_index.entry(candidate.use_ix).or_default().push(candidate); }
+        for (use_ix, attached) in uses.iter().enumerate() {
+            let Some((use_,scope))=attached else { continue };
+            let native=candidate_index.remove(&(use_ix as u32)).unwrap_or_default();
+            if native.len()>MAX_USE_CANDIDATES { self.boundary(Some(use_.occurrence),ObligationKind::ResourceRefused,"per-use native candidate bound exceeded")?;continue; }
+            rows_charge.grow(native.len()*256+128)?;
+            let mut candidates=Vec::new();let mut members=Vec::new();
+            for c in native {
+                rows_charge.grow(c.reaching.len()*256)?;
+                let mut retained=c.reaching.iter().filter_map(|i|mapped_reaching[*i]).collect::<Vec<_>>();
+                retained.sort();retained.dedup();
+                let unavailable=c.reaching.iter().any(|i|unavailable_conditions[*i]);
+                let unattached=c.unattached || c.reaching.iter().any(|i|unattached_reaching[*i]);
+                candidates.push(CandidateState { kind:match c.kind { cpg_flow::CandidateKind::Bound=>FlowCandidateKind::Bound,cpg_flow::CandidateKind::Undefined=>FlowCandidateKind::Undefined,cpg_flow::CandidateKind::Deleted=>FlowCandidateKind::Deleted,cpg_flow::CandidateKind::Nested=>FlowCandidateKind::Nested,cpg_flow::CandidateKind::LoopHeader=>FlowCandidateKind::LoopHeader },pruned:c.pruned,loop_expanded:c.loop_expanded,unattached,condition_unavailable:unavailable,reachability_lost:c.reachability_lost,mapped_count:retained.len() as i64 });
+                members.extend(retained.into_iter().map(|(r,s)|(i64::from(c.ordinal),r,s)));
             }
+            if members.len()>MAX_USE_CANDIDATES { self.boundary(Some(use_.occurrence),ObligationKind::ResourceRefused,"per-use mapped candidate bound exceeded")?;continue; }
+            rows_charge.grow(members.len()*512)?;
+            let Some(q)=self.qualify(&cpg_flow::Condition::always(),*scope,Some(use_.occurrence))? else { continue };
+            let (inventory,candidates,members)=FlowUseInventoryObservation::new(q.id(),use_.id(),*scope,source_view,&candidates,&members)?;
+            for c in candidates { self.context.emit(c)?; }
+            for m in members { self.context.emit(m)?; }
+            supported!(self,FlowUseInventoryObservation,FlowUseInventorySupport,inventory,use_.occurrence);
         }
         for native in &flow.values {
             let Some(Some((use_, scope))) = uses.get(native.use_ix as usize) else {

@@ -165,6 +165,7 @@ macro_rules! native_analysis_pairs {
         67: PyreflyDiagnosticObservation => $crate::domain::diagnostics::PyreflyDiagnosticObservation, $crate::domain::diagnostics::PyreflyDiagnosticSupport;
         69: NativeParameterDefinitionObservation => $crate::domain::diagnostics::NativeParameterDefinitionObservation, $crate::domain::diagnostics::NativeParameterDefinitionSupport;
         71: RuffDefinitionObservation => $crate::domain::ruff::RuffDefinitionObservation, $crate::domain::ruff::RuffDefinitionSupport;
+        72: FlowUseInventory => $crate::domain::flow_inventory::FlowUseInventoryObservation, $crate::domain::flow_inventory::FlowUseInventorySupport;
     } };
 }
 crate::native_analysis_pairs!(native_pairs);
