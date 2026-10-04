@@ -243,12 +243,15 @@ mod tests {
  }
  #[test]
  fn route_cap_counts_every_discarded_pending_frontier(){
-  let(b,d,mut extra,member)=imported_fixture(false);
+  let(b,mut d,mut extra,member)=imported_fixture(false);
   let resolution=extra.resolutions.iter().next().unwrap().clone();
   let candidate=extra.candidates.iter().next().unwrap().clone();
   let support=extra.resolution_supports.iter().next().unwrap().clone();
-  for location in ["alternative-a.py","alternative-b.py"] {
-   let alternative=ModuleResolutionObservation{location:Some(location.into()),..resolution.clone()};
+  let selected=d.source.catalog.members.get(member).unwrap().clone();
+  let qualification=d.source.core.qualifications.get(resolution.qualification).unwrap().clone();
+  for scope in [CoverageScope::Module{module:selected.access},CoverageScope::Input{input:selected.input}] {
+   let qualification=AssertionQualification{scope:scope.id(),..qualification.clone()};d.source.core.qualifications.insert(qualification.clone()).unwrap();
+   let alternative=ModuleResolutionObservation{qualification:qualification.id(),..resolution.clone()};
    extra.resolutions.insert(alternative.clone()).unwrap();
    extra.candidates.insert(ImportModuleCandidate{observation:alternative.id(),..candidate.clone()}).unwrap();
    extra.resolution_supports.insert(ModuleResolutionSupport{assertion:alternative.id(),..support.clone()}).unwrap();
