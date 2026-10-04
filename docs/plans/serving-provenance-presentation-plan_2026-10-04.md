@@ -1,6 +1,6 @@
 # Serving provenance and presentation alignment
 
-**Proposed, 2026-10-04.** Supporting design for the [target-alignment coordinator](target-implementation-alignment-plan_2026-10-04.md). It actions TA-F02/F03, LL-F05 and selected LL-F09/10 opportunities while preserving separately stopped Phase 5 activation. The coordinator owns disposition and combined fixture acceptance.
+**Implemented packages; assembled qualification pending, 2026-10-04.** Supporting design for the [target-alignment coordinator](target-implementation-alignment-plan_2026-10-04.md). It actions TA-F02/F03, LL-F05 and selected LL-F09/10 opportunities while preserving separately stopped Phase 5 activation. The coordinator owns disposition and combined fixture acceptance.
 
 ## 1. Foundations and product boundary
 
@@ -87,4 +87,4 @@ S1/S2 are independent of A1 and F1/F2 but share serving/model/native/wire editin
 
 Each selected change includes model producer, hydration/native/wire consumers, old-path deletion and focused tests. Q0 in the coordinator schedules pending Named migration, matching artifacts, remaining actual PG/MCP journeys and same-tree full functional/hygiene gates. Reader pin, resource retention, original condition/support and final bytes remain acceptance constraints.
 
-The Phase 5 plan retains activation/reconstruction/live-vector scope and its historical receipts. No selected generation, store reset, live embeddings, PR6 evaluation, quality/speed/RSS claim or production remediation occurs in this plan-authoring task. All targets and planned controls remain Proposed/not_run until execution.
+The Phase 5 plan retains activation/reconstruction/live-vector scope and its historical receipts. S1–S4 and the enabled IS2 lifecycle correction are integrated, with implementation and bounded receipts recorded by the coordinator. Remaining actual PG/native/MCP and full-gate acceptance are pending. No selected generation, default-store reset, live embeddings, PR6 evaluation or quality/speed/RSS claim is authorized by this execution.

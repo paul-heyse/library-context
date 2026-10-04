@@ -147,16 +147,13 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
   0.0.16; ty crates 0.0.16 plus its unpublished IDE, project and server crates and a CLI built
   from the same tag; salsa 0.28.5). The workspace now links these families; the code-facts
   coordinator records scoped migration receipts and remaining consumer qualification. Check
-  `show migration` and `docs/pins.md` before transferring a claim. It covers ty in full beside pyrefly and
+  `docs/pins.md` and the acquisition/extraction owner before transferring a claim. It covers ty in full beside pyrefly and
   ruff (semantic index, use-def, reachability and narrowing, module resolution, the salsa pin
   trap, and types, classes, calls, navigation, diagnostics, project and server) and maps every
   code fact the three output (`show facts`: per-concept providers, duplications, blanks). It
-  carries a labeled library-context layer: how each capability is used here and why, its
-  in-process APIs (`State`/`Transaction`, Pysa collectors, `SemanticIndex`/`UseDefMap`), an
-  opportunity register and the migration impact. Start with `show project`; from an emitted
-  boundary or a plan finding, `show boundary:<ObligationKind|detail>` / `show finding:<key>`; for
-  linked APIs we do not call yet, `show unused:<owner>`; to estimate an integration, `show anatomy`;
-  for which facts we consume, `show facts:<concept>`
+  supplies independently pinned capabilities, coordinate contracts and a generic facts taxonomy.
+  Repository usage, boundary/finding disposition and migration status belong to the acquisition/
+  extraction owner, docs/pins and active coordinator. The shared skill has no project overlay.
 - `rust-reasoning` (biodivine-lib-bdd, OxiDD, z3 0.21.1 on Z3 5.1.0, ascent, datafrog, fcars: the
   condition kernel, full z3 capability coverage incl. what needs raw z3-sys, Datalog fixpoints and
   the FCA oracle)
@@ -168,6 +165,7 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
 - `sqlx-postgres` (sqlx 0.9 with PostgreSQL, plus sea-query, pgpq, pgvector, testcontainers-modules
   and the DataFusion table-provider fork: `AssertSqlSafe`, `query!`/`.sqlx`, pools, COPY
   finish/abort, migrations, disposable PG18; executed probes against PostgreSQL 18)
+- `pydantic` (2.13.5 / pydantic-core 2.46.5): strict wire models, JSON/schema and byte contracts.
 - `pyo3` (pyo3 0.29.2 and pyo3-async-runtimes 0.29.0: attach/detach, `Bound`/`Py`, macro options,
   exceptions, the async bridge, the obsolete-API catalog)
 - `serde-arrow` (serde_arrow 0.15.1 with the `arrow-59` profile, marrow: the Arrow major must equal
@@ -177,7 +175,11 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
   also the **gold reference for evaluation**: its capability
   families are never a compiler input (DESIGN §1.4).
 
-For a library no skill covers (e.g. vLLM, the Qwen embedding models, LanceDB, pyarrow),
+The shared vLLM skill is a discovery lead at 0.30.0, while the isolated service uses custom
+0.30.1rc1.dev286+g3d5f4d4cd.sm120.r2. Do not transfer its pinned contracts or enable it as an exact
+match without checking the installed source for the selected API. No service upgrade is implied.
+
+For a library no selected skill covers (e.g. the Qwen embedding models or LanceDB),
 **Context7 is the first stop**. The Context7 MCP server needs
 a reconnect after its API key changes. Check a skill's pinned version
 against `docs/pins.md` before transferring a claim. An empty search result is not evidence that a

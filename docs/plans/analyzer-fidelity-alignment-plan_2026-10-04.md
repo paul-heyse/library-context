@@ -1,12 +1,12 @@
 # Analyzer fidelity and observation alignment
 
-**Proposed, 2026-10-04.** Supporting design for the [target-alignment coordinator](target-implementation-alignment-plan_2026-10-04.md). It actions TA-F01 and LL-F08 plus selected LL-F09/10 mechanics. The coordinator owns current disposition, conditional decisions and assembled acceptance.
+**Implemented packages; assembled qualification pending, 2026-10-04.** Supporting design for the [target-alignment coordinator](target-implementation-alignment-plan_2026-10-04.md). It actions TA-F01 and LL-F08 plus selected LL-F09/10 mechanics. The coordinator owns current disposition, conditional decisions and assembled acceptance.
 
 ## 1. Baseline and semantic boundary
 
 Current pins are Pyrefly 1.4.0-dev.3 with embedded Ruff 0.0.14, independent Ruff 0.16.10/crates 0.0.16 and ty 0.0.16/salsa 0.28.5. [Pins](../pins.md) owns exact immutable fork revisions and scoped receipts. This is correction of current linked facts, not another analyzer-version migration. The [migration plan](python-analyzer-migration-plan_2026-10-03.md) retains its historical baseline and execution evidence.
 
-**Implemented / source-inspected, 2026-10-04:** `cpg-flow` identifies Bound candidates whose definition cannot attach. `ty_flow` currently maps a missing definition to Unbound reaching evidence; inventory validation permits the kind mismatch for unattached candidates. Entry's complete-inventory/Bound safeguards refuse the inspected proof path, but published raw origin still changes meaning. The correction cannot be described as preventing a demonstrated false behavioral verdict.
+**Pre-execution baseline / source-inspected, 2026-10-04:** `cpg-flow` identified Bound candidates whose definition could not attach. The prior `ty_flow` mapped a missing definition to Unbound reaching evidence; inventory validation permits the kind mismatch for unattached candidates. Entry's complete-inventory/Bound safeguards refuse the inspected proof path, but published raw origin still changes meaning. The correction cannot be described as preventing a demonstrated false behavioral verdict.
 
 An observation's native kind, source/view/context, condition, support and mapping availability are separate. Missing attachment does not authorize a synthetic definition, false Undefined state or omission of native candidate evidence. Ruff typing context is not runtime predicate truth; Pyrefly platform/version policy need not agree with runtime tuple semantics.
 
@@ -91,4 +91,4 @@ A1 is immediately ready and independent of foundational expansion. A2/A3 first s
 
 T0 updates current analyzer wiring and the shared skill's project guidance through its maintenance route, separating historical migration from current facts and fork changes. Shared library skill sources remain repo-agnostic under current policy; repository wiring belongs in current owners rather than another copy of authority.
 
-Existing Entry/Structural positive and refusal receipts stay historical. New schema/source/pin changes require matching artifacts and actual PG/wire controls, followed by coordinator Q0. Production compile/tests/oracles, migrations and activation are not_run in plan authoring; all target changes remain Proposed.
+Existing Entry/Structural positive and refusal receipts stay historical. New schema/source/pin changes require matching artifacts and actual PG/wire controls, followed by coordinator Q0. Selected A1/A2/A4 implementations and bounded A3 decisions are integrated. Current package receipts and pending native reruns, deliberate migrations and Q0 acceptance are recorded only in the coordinator. Real-library activation remains stopped; a scoped pass does not establish assembled acceptance.

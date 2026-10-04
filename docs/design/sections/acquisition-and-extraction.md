@@ -306,8 +306,8 @@ model owns payloads and attachments.
 
 **Accepted target, 2026-10-03:** parse the captured snapshot with latest Ruff once, then reuse
 that parsed module for the canonical SourceOrderVisitor and populated Checker observer. The
-observer emits owned node/context/branch and final binding/reference/export rows after deferred
-passes. Work/row/cancellation/sink limits become explicit Partial coverage; initial parsing is
+observer emits owned node/context and final binding/reference rows after deferred
+passes. Supplemental unused branch/export emissions are retired in fork `9080ee7a`; native BindingKind::Export and reference typing context remain. Five-case retained-fact and actual lint-diagnostic parity passed, 2026-10-04; current linked consumer qualification is pending. Work/row/cancellation/sink limits become explicit Partial coverage; initial parsing is
 an indivisible upstream call. String-annotation nodes retain their distinct origin.
 
 Pyrefly's retained embedded AST supplies native adapter queries. Owned correspondence checks
@@ -328,6 +328,18 @@ draining, not a hard interruption. Producer→first-operation→output fixture c
 new source contract; a fork compile alone does not.
 
 > Decision: ADR-0117
+
+**Current adapter ownership, source-inspected 2026-10-04.** Latest independent Ruff owns canonical
+syntax; Pyrefly's embedded Ruff types remain inside its adapter and ty joins through exact
+source/span/kind/role correspondence. ConfigFile/ConfigFinder are constructed from captured inputs,
+explicit roots/site-packages and classified environment reads, never interpreter discovery. Their
+settings contribute provider identity. One whole-attempt panic boundary surrounds inline provider
+execution; per-module failures are not swallowed. Native observations lower to attributed model
+records; unsupported, unavailable and unknown coverage cannot become absence. Upstream enum
+changes require exhaustive handling and deliberate append-only codebook/schema review. The CLI is
+only a parity oracle. Current fork/tag/patch checks belong to [pins](../../pins.md) and the active
+[alignment coordinator](../../plans/target-implementation-alignment-plan_2026-10-04.md); shared skills
+supply independently pinned capability contracts and do not carry repository wiring.
 
 ### §4.2.3 Semantics: Pyrefly's own collectors
 

@@ -46,8 +46,8 @@ source/effective defaults, signature variants, predicate-specific selection clos
 evidence remain typed. Symbolic source associations retain Unknown/no-proof reader outcomes;
 known field location never establishes allocation, alias, mutation or temporal value identity.
 
-**Proposed incremental target, 2026-10-04:** the [target-alignment series](../../plans/target-implementation-alignment-plan_2026-10-04.md)
-schedules faithful native Bound/unattached candidate formulas, finite publication/closure expansion,
+**Implemented incremental foundations; integrated acceptance pending, 2026-10-04:** the [target-alignment series](../../plans/target-implementation-alignment-plan_2026-10-04.md)
+integrates faithful native Bound/unattached candidate formulas, finite publication/closure expansion,
 one physical-layout owner and explicit identity encodings. Candidate attachment failure must not
 become Unbound; retained formulas do not authorize Entry proof. Exact validation epochs and sufficient
 grants remain distinct. Existing declared schema/identity changes and their qualification remain
@@ -960,6 +960,16 @@ assignment is unsupported. Refusals preserve the constructor's actual cause. Sto
 validator execution, content/epoch receipts, actual proof membership, retained charges and the
 original guard; it releases the lease mutex before pure CPU preparation and reconfirms that guard
 before publishing state. Pure helper agreement never admits a generation or invented proof row.
+
+**Startup execution (Implemented; focused qualification pending, 2026-10-04).** Selection,
+native semantics, retrieval indexes and numerical initialization share the original guard's CPU
+capacity. Startup admission has a finite wait; preparation uses the preparation allowance and
+does not inherit a request deadline. Tracked blocking workers retain the slot, guard and charges
+until actual completion even after caller cancellation. Shutdown fences new startup registration,
+drains request and startup workers, then releases the original canonical session. Numerical
+buffers retained by the service keep their preparation reservation until shutdown clears them.
+The [target coordinator](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations)
+owns IS2 controls and stopped activation; this implementation label is not lifecycle acceptance.
 
 **Existing extension routes (Implemented guidance, 2026-10-02).** A new finite model extends its
 checked construction, declared typed inputs and production/replay path; an independent matching

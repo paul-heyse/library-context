@@ -44,10 +44,10 @@ and qualification are owned by the [enrichment coordinator](../../plans/code-fac
 
 > Decision: ADR-0121
 
-**Accepted alignment contract, 2026-10-04; implementation and assembled qualification in progress:** [serving alignment](../../plans/serving-provenance-presentation-plan_2026-10-04.md)
+**Implemented alignment contract, 2026-10-04; assembled qualification pending:** [serving alignment](../../plans/serving-provenance-presentation-plan_2026-10-04.md)
 resolves requested names over admitted first-party release/corpus captures before filtering;
 unknown input refuses distinctly from admitted-empty results. Canonical enumeration and analyzer
-coverage remain separate. Capability resources preserve authored bytes while carrying the process
+coverage remain separate. Every response carries grouped capture/provider/status/reason coverage with exact observation counts and explicitly representative scope identities. Only the three search routes accept an omitted library filter, meaning the admitted union; same-name releases remain ambiguous for exact lookup. Capability resources preserve authored bytes while carrying the process
 GenerationKey and capability identity; their URIs remain process-relative. Owned display/source/
 expression modes preserve exact values and unknown/factory states. The
 [target coordinator](../../plans/target-implementation-alignment-plan_2026-10-04.md)

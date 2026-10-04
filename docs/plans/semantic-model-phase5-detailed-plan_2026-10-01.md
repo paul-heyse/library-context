@@ -506,7 +506,7 @@ explicitly not_run until activated. They are not invented completion gates for t
 
 ## 10. Finding routes, limits and current state
 
-**Target-alignment dependency update, 2026-10-04 — Proposed.** The
+**Target-alignment dependency update, 2026-10-04 — Implemented, qualification pending.** The
 [serving-alignment plan](serving-provenance-presentation-plan_2026-10-04.md) owns S1 requested-library
 admission, S2 generation-bearing resource rendering, S3 value presentation and IS2 startup
 preparation controls. [Target-alignment Q0](target-implementation-alignment-plan_2026-10-04.md#5-migration-and-verification)

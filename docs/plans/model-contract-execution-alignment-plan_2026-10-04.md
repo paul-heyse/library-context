@@ -1,6 +1,6 @@
 # Model contract and execution alignment
 
-**Proposed, 2026-10-04.** Supporting design for the [target-alignment coordinator](target-implementation-alignment-plan_2026-10-04.md). The coordinator owns source dispositions, conditional outcomes and combined qualification. This document owns F1–F6/IF1–IF4 design and acceptance, not a second progress table.
+**Implemented packages; assembled qualification pending, 2026-10-04.** Supporting design for the [target-alignment coordinator](target-implementation-alignment-plan_2026-10-04.md). The coordinator owns source dispositions, conditional outcomes and combined qualification. This document owns F1–F6/IF1–IF4 design and acceptance, not a second progress table.
 
 ## 1. Foundations and selected target
 
@@ -93,4 +93,4 @@ Accepted bespoke finite kernels record scoped CI-07/DP-13 reasoning at the compu
 
 F1/F2 contracts can develop independently with coordinated shared declarations; broader port migration consumes both. F3/F4 are separate changes followed by deliberate compatibility refresh. F5 lookup and F6 effect inquiry need neither broad port completion nor real-library activation.
 
-Each selected producer/consumer package uses touched-crate compile checks and focused model/core/actual-PG tests. Q0 in the coordinator owns snapshots, matching artifacts, remaining shared journeys and final `just test-all`/`just hygiene`; no full campaign after every slice. Real-library selection, embeddings and measurements remain stopped. Current documentation source assessment is Interface-checked; production remedies and all future test outcomes remain Proposed/not_run until executed.
+Each selected producer/consumer package uses touched-crate compile checks and focused model/core/actual-PG tests. Q0 in the coordinator owns snapshots, matching artifacts, remaining shared journeys and final `just test-all`/`just hygiene`; no full campaign after every slice. Real-library selection, embeddings and measurements remain stopped. F1–F6 implementations and bounded IF1–IF4 retain/defer decisions are integrated. Current receipts and remaining qualification belong to the coordinator; package implementation does not establish Q0 acceptance.
