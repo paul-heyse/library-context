@@ -527,9 +527,8 @@ async fn run(profile: Profile, case: Case) {
                     result.expect_err("adversarial Structural output cannot close publication");
                 let detail = error.to_string();
                 let expected = match case {
-                    Case::Strengthen | Case::Missing => {
-                        "Structural outcomes differ from retained semantic inventory"
-                    }
+                    Case::Strengthen => "Structural outcomes differ from retained semantic inventory",
+                    Case::Missing => "coverage computation outcome absent",
                     Case::Extra => "structural exact invocation/parent membership differs",
                     Case::Paired => "structural invocation domain incomplete",
                     Case::EraseCondition => {
