@@ -15,6 +15,7 @@ def forward(value: int) -> int:
 
 def alias_forward(value: int) -> int:
     alias = value
+    spare(0)
     return consume(alias)
 
 def computed(value: int) -> int:

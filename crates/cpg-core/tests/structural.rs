@@ -703,6 +703,17 @@ async fn run(profile: Profile, case: Case) {
             named > 0,
             "actual reaching-definition result handoff must survive"
         );
+        let region_lineage: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {s}.structural_handoff_occurrences h JOIN {s}.structural_handoff_values v ON v.id=h.value JOIN {s}.flow_region_observations r ON r.id=v.named_region JOIN {s}.flow_region_supports rs ON rs.id=v.named_region_support AND rs.assertion=r.id JOIN {s}.flow_use_supports us ON us.id=v.named_support AND us.run=rs.run JOIN {s}.assertion_qualifications q ON q.id=r.qualification WHERE v.kind=1 AND q.condition<>$1"
+        )))
+        .bind(conditions::Diagram::always().id().bytes().to_vec())
+        .fetch_one(db.owner.pool())
+        .await
+        .unwrap();
+        assert!(
+            region_lineage > 0,
+            "named call results retain the native call-return execution region and same-run support"
+        );
     } else {
         assert_eq!(
             named, 0,
@@ -715,6 +726,17 @@ async fn run(profile: Profile, case: Case) {
     if profile == Profile::Behavioral {
         assert!(controls.0 > 0, "actual direct parameter forwarding");
         assert!(controls.1 > 0, "one native identity alias");
+        let conditional_alias: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {s}.structural_argument_flows f JOIN {s}.structural_public_candidates p ON p.entity=f.caller AND p.frame=f.frame JOIN {s}.structural_handoff_values v ON v.id=f.alias JOIN {s}.flow_region_observations r ON r.id=v.named_region JOIN {s}.assertion_qualifications q ON q.id=f.qualification JOIN {s}.assertion_qualifications rq ON rq.id=r.qualification WHERE p.path='api.alias_forward' AND f.conditional AND rq.condition<>$1 AND q.condition=rq.condition"
+        )))
+        .bind(conditions::Diagram::always().id().bytes().to_vec())
+        .fetch_one(db.owner.pool())
+        .await
+        .unwrap();
+        assert!(
+            conditional_alias > 0,
+            "alias forwarding retains the intervening native call-return condition"
+        );
         assert!(controls.2 > 0, "qualified local conditional raise");
         assert!(controls.3 > 0, "computed/rebound argument boundaries");
         let qualified:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_argument_flows f JOIN {s}.structural_public_candidates p ON p.entity=f.caller AND p.frame=f.frame JOIN {s}.local_flow_contributions l ON l.id=f.contribution JOIN {s}.assertion_qualifications q ON q.id=f.qualification JOIN {s}.assertion_qualifications lq ON lq.id=l.qualification JOIN {s}.flow_value_observations v ON v.id=l.value JOIN {s}.flow_use_inventory_observations i ON i.use_=v.use_ WHERE p.path='api.tested' AND i.complete AND i.native_count=1 AND i.mapped_count=1 AND f.conditional AND q.condition<>$1 AND q.condition=lq.condition AND q.modality>=lq.modality AND q.approximation=lq.approximation"))).bind(conditions::Diagram::always().id().bytes().to_vec()).fetch_one(db.owner.pool()).await.unwrap();
