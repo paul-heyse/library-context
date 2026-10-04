@@ -13,6 +13,7 @@ use super::{
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 mod generics;
 pub mod locations;
+pub mod contextual;
 mod signatures;
 pub use generics::*;
 pub use signatures::*;

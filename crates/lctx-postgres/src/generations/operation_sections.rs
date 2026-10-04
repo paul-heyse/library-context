@@ -67,6 +67,9 @@ fn label(section: OperationSection) -> &'static str {
         OperationSection::Conflicts => "conflicts",
         OperationSection::Briefs => "briefs",
         OperationSection::Behavior => "behavior",
+        OperationSection::CallableComparison => "callable_comparison",
+        OperationSection::ContextualTyping => "contextual_typing",
+        OperationSection::IncomingReferences => "incoming_references",
     }
 }
 impl CatalogService {
@@ -109,7 +112,7 @@ impl CatalogService {
                 .canonical_identity()
                 .map_err(wire_error)?,
             policy: policy_identity(&(
-                "operation-sections/v1",
+                "operation-sections/v2/retained-comparison-contextual-static-name-references-source-fields",
                 "positive-resolved-scenario/original-only",
                 2u32,
                 "invocation-policy-admitted-direct-target",
@@ -119,6 +122,9 @@ impl CatalogService {
                 16usize,
                 4096usize,
                 "whole-row-mcp-fit/scenarios-deployment-relationships-conflicts-briefs-behavior",
+                normalized::contract_comparison::definition(),
+                normalized::incoming_references::definition(),
+                types::contextual::definition(),
             ))?,
             wire: self.wire(),
             channels: ChannelState {
@@ -199,6 +205,10 @@ impl CatalogService {
         self.validate_section_cursor(r, core.member)?;
         let mut packet = OperationPacket {
             core,
+            callable_comparison: absent(),
+            contextual_typing: absent(),
+            incoming_references: absent(),
+            reference_scope: Optional::default(),
             scenarios: absent(),
             deployment: absent(),
             relationships: absent(),
@@ -234,6 +244,36 @@ impl CatalogService {
                 }
                 OperationSection::Behavior => {
                     packet.behavior = self.behavior_section(e, r, packet.core.member).await?
+                }
+                OperationSection::CallableComparison => {
+                    let selection = r.comparison.0.clone().ok_or_else(|| Error::Codec("callable comparison requires explicit variants/context".into()))?;
+                    let this=self.clone(); let request=r.clone(); let member=packet.core.member; let retained=e.clone();
+                    packet.callable_comparison=e.cpu(move |budget| {
+                        let result=normalized::contract_comparison::compare(this.prepared().data(),member,selection.analysis,selection.left,selection.right,budget)?;
+                        let page=this.section_page(&request,member,"callable_comparison",1,vec![result.value],true)?;
+                        retain(&retained,&page)?; Ok(page)
+                    }).await?;
+                }
+                OperationSection::ContextualTyping => {
+                    let this=self.clone(); let request=r.clone(); let member=packet.core.member; let retained=e.clone();
+                    packet.contextual_typing=e.cpu(move |budget| {
+                        let result=types::contextual::explain(this.prepared().data(),member,budget)?;
+                        let page=this.section_page(&request,member,"contextual_typing",20,result.value,true)?;
+                        retain(&retained,&page)?; Ok(page)
+                    }).await?;
+                }
+                OperationSection::IncomingReferences => {
+                    let this=self.clone(); let request=r.clone(); let member=packet.core.member; let retained=e.clone();
+                    let (scope,page)=e.cpu(move |budget| {
+                        let result=normalized::incoming_references::incoming(this.prepared().data(),member,request.reference_parameter.0,budget)?;
+                        let scope=result.value.scope;
+                        let mut page=this.section_page(&request,member,"incoming_references",20,result.value.references,true)?;
+                        if scope.unresolved_name_references>0 || scope.unsupported_name_references>0 {
+                            page.availability=Availability::Partial {reason:name("captured lexical reference correspondence incomplete")?};
+                        }
+                        retain(&retained,&scope)?; retain(&retained,&page)?; Ok((scope,page))
+                    }).await?;
+                    packet.reference_scope=Optional(Some(scope)); packet.incoming_references=page;
                 }
             }
         }
@@ -602,7 +642,7 @@ impl CatalogService {
                 }
                 for target in targets {
                     charge.try_resize((rows.len() + 1) * 1024)?;
-                    rows.push(RelationshipPacket {
+                    rows.push(RelationshipPacket::Invocation {
                         target,
                         analysis: event.context,
                         role: selection::RelationRole::Invokes,
@@ -623,12 +663,40 @@ impl CatalogService {
                     });
                 }
             }
-            rows.sort_by(|a, b| {
-                a.target
-                    .cmp(&b.target)
-                    .then(a.analysis.cmp(&b.analysis))
-                    .then(a.proof[0].row.cmp(&b.proof[0].row))
-            });
+            let reader_entities=entities_for_member(d,member);
+            for link in d.evidence.source_field_links.iter().filter(|link| {
+                reader_entities.contains(&link.reader_owner)
+                    || d.source.catalog.options.get(link.field_option).is_some_and(|o| o.member == member)
+            }) {
+                let association = d.source.facts.symbolic_associations.get(link.association).ok_or(Error::Contract)?;
+                let reader_link = d.source.facts.symbolic_links.get(link.reader).ok_or(Error::Contract)?;
+                let reader = d.source.facts.symbolic_readers.get(reader_link.reader).ok_or(Error::Contract)?;
+                let q = d.source.core.qualifications.get(association.qualification).ok_or(Error::Contract)?;
+                if reader_link.association != association.id() || reader.qualification != association.qualification {
+                    return Err(Error::Contract);
+                }
+                charge.try_resize((rows.len() + 1) * 2048)?;
+                rows.push(RelationshipPacket::SourceField {
+                    link: link.id(), parameter_option: link.parameter_option, field_option: link.field_option,
+                    parameter: association.parameter, association: association.id(), reader_link: reader_link.id(),
+                    reader: reader.id(), access: reader.access, owner: link.reader_owner, analysis: q.context,
+                    source_association: link.source_association, runtime_value: link.runtime_value,
+                    proof: [derivation::RowRef::of(link.id()), derivation::RowRef::of(association.id()),
+                        derivation::RowRef::of(reader_link.id()), derivation::RowRef::of(reader.id()),
+                        derivation::RowRef::of(reader.placement), derivation::RowRef::of(reader.receiver),
+                        derivation::RowRef::of(reader.traits), derivation::RowRef::of(association.field)]
+                        .into_iter().map(ProofReference::from_canonical).collect(),
+                });
+            }
+            for class in d.source.facts.symbolic_classes.iter().filter(|c| !c.supported_record) {
+                let entity=ClassEntity::Source {declaration:class.class}.id();
+                if !d.source.catalog.classes.iter().any(|c|c.member==member && c.class==entity) {continue}
+                let q=d.source.core.qualifications.get(class.qualification).ok_or(Error::Contract)?;
+                charge.try_resize((rows.len()+1)*2048)?;
+                rows.push(RelationshipPacket::SourceFieldBoundary {class:class.id(),analysis:q.context,reason:class.reason.ok_or(Error::Contract)?,source_association:normalized::callables::Knowledge::Unknown,runtime_value:normalized::callables::Knowledge::Unknown,
+                    proof:[derivation::RowRef::of(class.id()),derivation::RowRef::of(class.traits),derivation::RowRef::of(class.support)].into_iter().map(ProofReference::from_canonical).collect()});
+            }
+            rows.sort_by_key(RelationshipPacket::ordering);
             let page = this.section_page(&request, member, "relationships", 5, rows, true)?;
             retain(&retained, &page)?;
             Ok(page)
@@ -1286,7 +1354,13 @@ impl CatalogService {
                 };
                 let member = packet.core.member;
                 // Stable presentation priority preserves positive source examples longest.
-                if !packet.behavior.items.is_empty() {
+                if !packet.callable_comparison.items.is_empty() {
+                    this.trim_optional_page(&request, member, "callable_comparison", &mut packet.callable_comparison)?;
+                } else if !packet.contextual_typing.items.is_empty() {
+                    this.trim_optional_page(&request, member, "contextual_typing", &mut packet.contextual_typing)?;
+                } else if !packet.incoming_references.items.is_empty() {
+                    this.trim_optional_page(&request, member, "incoming_references", &mut packet.incoming_references)?;
+                } else if !packet.behavior.items.is_empty() {
                     this.trim_optional_page(&request, member, "behavior", &mut packet.behavior)?;
                 } else if !packet.briefs.items.is_empty() {
                     this.trim_optional_page(&request, member, "briefs", &mut packet.briefs)?;
@@ -1349,4 +1423,10 @@ impl CatalogService {
         };
         Ok(())
     }
+}
+
+fn entities_for_member(d: &selection::classification::ClassificationData, member: Id<catalog::CatalogMember>) -> BTreeSet<Id<EntityRef>> {
+    d.source.catalog.callables.iter().filter(|c| c.member == member)
+        .filter_map(|c| d.source.core.assessments.get(c.assessment))
+        .map(|a| EntityRef::Callable { callable: a.callable }.id()).collect()
 }

@@ -43,6 +43,7 @@ group!(Catalog, crate::domain::catalog::build::CatalogOutput, {
     classes: crate::domain::catalog::CatalogClass,
 });
 group!(Core, crate::domain::catalog::build::CatalogData, {
+    artifacts: crate::domain::source::SourceArtifact,
     native_coverage: crate::domain::attribution::ProviderCoverage,
     bindings: crate::domain::lexical::BindingObservation,
     binding_events: crate::domain::lexical::BindingEvent,
@@ -83,14 +84,25 @@ group!(Core, crate::domain::catalog::build::CatalogData, {
 group!(SourceFacts, crate::domain::catalog::evidence::build::EvidenceFacts, {
     alternatives: crate::domain::normalized::events::NormalizedCallAlternative,
     deployment: crate::domain::deployment::DeploymentObservation,
+    symbolic_classes: crate::domain::normalized::symbolic_fields::SourceFieldClass,
+    symbolic_associations: crate::domain::normalized::symbolic_fields::SourceFieldAssociation,
+    symbolic_readers: crate::domain::normalized::symbolic_fields::SourceFieldReader,
+    symbolic_links: crate::domain::normalized::symbolic_fields::SourceFieldReaderLink,
 });
 group!(Evidence, crate::domain::catalog::evidence::build::EvidenceOutput, {
     accesses: crate::domain::catalog::evidence::FieldAccessAssessment,
+    source_field_links: crate::domain::catalog::evidence::SourceFieldLink,
     associations: crate::domain::catalog::evidence::ScenarioAssociation,
     scenarios: crate::domain::catalog::evidence::CatalogScenario,
     deployments: crate::domain::catalog::evidence::CatalogDeployment,
 });
 group!(Facts, crate::domain::selection::build::Facts, {
+    reference_characterizations:crate::domain::normalized::links::ReferenceBindingCharacterization,
+    native_contexts:crate::domain::ruff::RuffContextObservation,
+    native_context_supports:crate::domain::ruff::RuffContextSupport,
+    native_binding_supports:crate::domain::ruff::RuffBindingSupport,
+    reference_supports:crate::domain::lexical::ReferenceSupport,
+    runs:crate::domain::attribution::ProviderRun,
     decorators: crate::domain::syntax::DeclarationDecorator,
     decorator_supports: crate::domain::syntax::DeclarationDecoratorSupport,
     binding_supports: crate::domain::lexical::BindingSupport,
@@ -98,10 +110,13 @@ group!(Facts, crate::domain::selection::build::Facts, {
     metadata_supports: crate::domain::class_metadata::ClassMetadataSupport,
     native_signature_supports: crate::domain::types::NativeSignatureSupport,
     type_supports: crate::domain::types::TypeSupport,
+    signature_type_supports: crate::domain::types::SignatureTypeSupport,
     exception_outcomes: crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
     shapes: crate::domain::calls::ParameterShape,
     signature_parameters: crate::domain::calls::SignatureParameter,
     signatures: crate::domain::calls::Signature,
+    type_presentations: crate::domain::types::TypePresentation,
+    type_presentation_supports: crate::domain::types::TypePresentationSupport,
     type_observations: crate::domain::types::TypeObservation,
     call_syntax: crate::domain::calls::CallSyntax,
     generic_specializations: crate::domain::types::GenericSpecializationObservation,

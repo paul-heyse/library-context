@@ -64,6 +64,9 @@ pub enum OperationSection {
     Conflicts,
     Briefs,
     Behavior,
+    CallableComparison,
+    ContextualTyping,
+    IncomingReferences,
 }
 pub fn default_selection() -> selection::Selection {
     selection::Selection::default()
@@ -97,9 +100,22 @@ pub struct FindOperationsRequest {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct CallableComparisonRequest {
+    pub analysis: Id<attribution::AnalysisContext>,
+    pub left: Id<normalized::callables::SignatureVariant>,
+    pub right: Id<normalized::callables::SignatureVariant>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct GetOperationRequest {
     pub library: Name,
     pub operation: OperationSelector,
+    /// Required when requesting callable comparison; variants are selected explicitly.
+    #[serde(default, skip_serializing_if = "Optional::is_absent")]
+    pub comparison: Optional<CallableComparisonRequest>,
+    /// Optional exact formal target, admitted only when it belongs to the selected member.
+    #[serde(default, skip_serializing_if = "Optional::is_absent")]
+    pub reference_parameter: Optional<Id<normalized::entities::ParameterEntity>>,
     #[serde(default)]
     pub sections: Vec<OperationSection>,
     #[serde(default)]

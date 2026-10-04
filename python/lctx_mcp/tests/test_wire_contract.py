@@ -66,6 +66,24 @@ def test_exact_scalars_use_current_transient_input_owner():
             wire_decode("inspect_value_paths", json.dumps(request))
 
 
+def test_enrichment_sections_keep_native_variant_selection_and_scope_schema():
+    request: dict[str, Any] = {
+        "library": "demo",
+        "operation": {"kind": "member", "member": [1] * 16},
+        "sections": ["callable_comparison", "contextual_typing", "incoming_references"],
+        "comparison": {"analysis": [2] * 16, "left": [3] * 16, "right": [4] * 16},
+    }
+    decoded = json.loads(wire_decode("get_operation", json.dumps(request)))
+    assert decoded["comparison"] == request["comparison"]
+    del request["comparison"]
+    with pytest.raises(ValueError):
+        wire_decode("get_operation", json.dumps(request))
+    response_schema = wire_schema("GetOperationResponse", True)
+    assert "external_consumers_unknown" in response_schema
+    assert "runtime_value" in response_schema
+    assert "formal_identity" in response_schema
+
+
 @pytest.mark.anyio
 async def test_real_mcp_listing_preserves_the_sole_native_inventory():
     server = FastMCP("current schema control", dereference_schemas=False)

@@ -885,6 +885,7 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
             for bytes in [
                 include_bytes!("build.rs").as_slice(),
                 include_bytes!("evaluate.rs").as_slice(),
+                include_bytes!("source_fields.rs").as_slice(),
                 include_bytes!("classification.rs").as_slice(),
                 include_bytes!("preparation.rs").as_slice(),
                 include_bytes!("admission.rs").as_slice(),

@@ -28,3 +28,5 @@ pub struct SelectionInvocation {
     #[model(key)]
     pub invocation: Id<analysis::selection::Invocation>,
 }
+
+pub mod source_fields;

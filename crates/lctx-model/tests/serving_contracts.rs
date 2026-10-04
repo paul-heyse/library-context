@@ -397,7 +397,7 @@ fn operation_response(parameters: usize) -> Value {
             "access":{"module":id,"path":["FastMCP","run"],"exposures":[id],"candidates":[id],"basis":null},
             "invocations":[],"signatures":[{"signature":id,"role":0,"native":null,"variant":id,"analysis":id,"form":0,"adjustment":0,"parameters":vec![parameter.clone();parameters],"effective_parameters":vec![parameter;parameters],"return_types":[],"return_evidence":[],"typing":[],"complete":true}],
             "signature_knowledge":0,"options":[],"literal_values":[],"type_presentations":[],"limits":{"maximum_page_rows":100,"maximum_response_bytes":32768,"signature_indivisible":true}},
-        "scenarios":absent,"deployment":absent,"relationships":absent,"conflicts":absent,"briefs":absent,"behavior":absent
+        "callable_comparison":absent,"contextual_typing":absent,"incoming_references":absent,"scenarios":absent,"deployment":absent,"relationships":absent,"conflicts":absent,"briefs":absent,"behavior":absent
     }}})
 }
 #[test]
@@ -628,9 +628,13 @@ fn final_transport_admission_counts_actual_utf8_envelope_and_metadata_bytes() {
 #[test]
 fn optional_packets_retain_their_canonical_question_and_typed_condition() {
     let schema = schema_for::<RelationshipPacket>(true);
-    let required = schema["required"].as_array().unwrap();
-    assert!(required.contains(&json!("analysis")));
-    assert!(required.contains(&json!("proof")));
+    let arms=schema["oneOf"].as_array().unwrap();
+    assert_eq!(arms.len(),3);
+    for arm in arms {
+        let required=arm["required"].as_array().unwrap();
+        assert!(required.contains(&json!("analysis")));
+        assert!(required.contains(&json!("proof")));
+    }
     assert!(
         schema_for::<ConflictPacket>(true)["required"]
             .as_array()
@@ -645,6 +649,22 @@ fn optional_packets_retain_their_canonical_question_and_typed_condition() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn enrichment_sections_require_exact_comparison_selection_and_closed_shapes() {
+    let base=json!({"library":"demo","operation":{"kind":"member","member":vec![1u8;16]},"sections":["callable_comparison"]});
+    assert!(decode("get_operation",base.clone()).is_err());
+    let mut request=base;
+    request["comparison"]=json!({"analysis":vec![2u8;16],"left":vec![3u8;16],"right":vec![4u8;16]});
+    decode("get_operation",request.clone()).unwrap();
+    request["comparison"]["inferred_role"]="first_effective".into();
+    assert!(decode("get_operation",request).is_err());
+    let schema=schema_for::<GetOperationRequest>(false).to_string();
+    for section in ["callable_comparison","contextual_typing","incoming_references"] {assert!(schema.contains(section));}
+    let fields=schema_for::<OperationPacket>(true).to_string();
+    assert!(fields.contains("ReferenceSearchScope"));
+    assert!(fields.contains("DifferentRetainedStructure") || fields.contains("different_retained_structure"));
 }
 
 #[test]

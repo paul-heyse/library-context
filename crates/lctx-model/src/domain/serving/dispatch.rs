@@ -268,7 +268,13 @@ fn validate_request(request: &Request, limits: &ResourceLimits) -> Result<(), Wi
         }
         Request::GetOperation(r) => {
             validate_selector(&r.operation)?;
-            if r.sections.len() > 6 {
+            if r.reference_parameter.0.is_some() && !r.sections.contains(&OperationSection::IncomingReferences) {
+                return Err(WireError::Invalid("formal reference target requires incoming reference section".into()));
+            }
+            if r.sections.contains(&OperationSection::CallableComparison) != r.comparison.0.is_some() {
+                return Err(WireError::Invalid("comparison section requires explicit variants and context".into()));
+            }
+            if r.sections.len() > 9 {
                 return Err(WireError::Invalid("operation sections".into()));
             }
         }

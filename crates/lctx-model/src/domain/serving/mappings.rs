@@ -202,6 +202,9 @@ pub enum PreparedDependency {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PacketKind {
     OperationCore,
+    CallableComparisonPacket,
+    ContextualTypePacket,
+    IncomingReferencePacket,
     EvidencePacket,
     ScenarioPacket,
     DeploymentPacket,
@@ -228,8 +231,11 @@ pub trait PacketOutput: sealed::Sealed {
     fn binding() -> &'static PacketBinding;
 }
 impl PacketKind {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 15] = [
         Self::OperationCore,
+        Self::CallableComparisonPacket,
+        Self::ContextualTypePacket,
+        Self::IncomingReferencePacket,
         Self::EvidencePacket,
         Self::ScenarioPacket,
         Self::DeploymentPacket,
@@ -245,6 +251,9 @@ impl PacketKind {
     pub fn binding(self) -> &'static PacketBinding {
         match self {
             Self::OperationCore => <super::OperationCore as PacketOutput>::binding(),
+            Self::CallableComparisonPacket => <super::CallableComparisonPacket as PacketOutput>::binding(),
+            Self::ContextualTypePacket => <super::ContextualTypePacket as PacketOutput>::binding(),
+            Self::IncomingReferencePacket => <super::IncomingReferencePacket as PacketOutput>::binding(),
             Self::EvidencePacket => <super::EvidencePacket as PacketOutput>::binding(),
             Self::ScenarioPacket => <super::ScenarioPacket as PacketOutput>::binding(),
             Self::DeploymentPacket => <super::DeploymentPacket as PacketOutput>::binding(),
@@ -414,7 +423,7 @@ macro_rules! binding {
                                 .rsplit("::")
                                 .next()
                                 .expect("packet type"),
-                            revision: 1,
+                            revision: if matches!($name,"relationships"|"operation"|"callable_comparison"|"contextual_typing"|"incoming_references") {2} else {1},
                         },
                     }
                 })
@@ -643,6 +652,9 @@ binding!(
     &[PacketKind::OriginalRange],
     &[]
 );
+binding!("callable_comparison", CallableComparisonPacket, &[Capability::Catalog], vec![], &[], &[PreparedDependency::Selection]);
+binding!("contextual_typing", ContextualTypePacket, &[Capability::Catalog], vec![], &[], &[PreparedDependency::Selection]);
+binding!("incoming_references", IncomingReferencePacket, &[Capability::Catalog], vec![], &[], &[PreparedDependency::Selection]);
 binding!(
     "relationships",
     RelationshipPacket,
@@ -762,6 +774,9 @@ binding!(
     vec![],
     &[
         PacketKind::OperationCore,
+        PacketKind::CallableComparisonPacket,
+        PacketKind::ContextualTypePacket,
+        PacketKind::IncomingReferencePacket,
         PacketKind::ScenarioPacket,
         PacketKind::DeploymentPacket,
         PacketKind::RelationshipPacket,

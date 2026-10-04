@@ -295,6 +295,7 @@ async fn generated_cpython_observations_challenge_original_served_paths() {
                 &GetOperationRequest {
                     library: Name::new("demo").unwrap(),
                     operation: path(&format!("demo.{}", function.name)),
+                    comparison: Optional::default(), reference_parameter:Optional::default(),
                     sections: vec![],
                     page: PageRequest::default(),
                 },

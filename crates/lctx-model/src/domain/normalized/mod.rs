@@ -86,3 +86,7 @@ pub fn facts_stage_inputs(inputs: Vec<stages::RelationUse>) -> Vec<stages::Relat
 }
 
 mod native_lexical;
+
+pub mod contract_comparison;
+
+pub mod incoming_references;

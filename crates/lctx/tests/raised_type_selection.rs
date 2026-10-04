@@ -271,6 +271,7 @@ async fn incomplete_native_raise_inventory_keeps_nonmatch_unresolved() {
             &GetOperationRequest {
                 library: Name::new("demo").unwrap(),
                 operation: path("demo.api"),
+                comparison: Optional::default(), reference_parameter:Optional::default(),
                 sections: vec![],
                 page: PageRequest {
                     expanded: true,

@@ -1338,10 +1338,62 @@ fn strict_preparation_owns_metadata_and_reuses_charged_indexes() {
     drop(prepared);
     assert_eq!(b.reserved(), 0);
 }
+
+#[test]
+fn source_field_parameter_relationship_uses_exact_slot_and_keeps_runtime_unknown() {
+    use lctx_model::domain::normalized::symbolic_fields::*;
+    let (budget, mut data, member, context, _) = fixture();
+    let slot = data.source.core.slots.iter().next().unwrap().clone();
+    let parameter_option=data.source.catalog.options.iter().next().unwrap().id();
+    let class=id(181);
+    let field=data.source.core.fields.insert(FieldEntity {class,name:"timeout".into()}).unwrap();
+    let subject=data.source.catalog.subjects.insert(CatalogOptionSubject::Field {field}).unwrap();
+    let default=data.source.catalog.defaults.insert(CatalogDefault::Unknown {}).unwrap();
+    let field_option=data.source.catalog.options.insert(CatalogOption {member,subject,evidence:id(182),default}).unwrap();
+    let qualification=data.source.core.qualifications.iter().next().unwrap().id();
+    let association=data.source.facts.symbolic_associations.insert(SourceFieldAssociation {
+        class:id(183),field:id(184),parameter:slot.parameter,store:None,kind:SourceStorageKind::GeneratedRecord,
+        qualification,inventory:ContentHash::of(b"admitted-C1-source-inventory"),
+    }).unwrap();
+    data.evidence.source_field_links.insert(c1::SourceFieldLink {
+        field_option,parameter_option,association,reader:id(185),reader_owner:id(186),
+        source_association:Knowledge::Known,runtime_value:Knowledge::Unknown,
+    }).unwrap();
+    let projected=selection::classification::ClassificationData::project(&data,&budget).unwrap();
+    assert_eq!(selection::source_fields::declared_parameter(&projected,field_option,&FieldTarget::Parameter {slot:slot.id()},context).unwrap(),Some(true));
+    assert_eq!(selection::source_fields::declared_parameter(&projected,field_option,&FieldTarget::Parameter {slot:id(190)},context).unwrap(),None);
+    assert_eq!(selection::source_fields::declared_parameter(&projected,field_option,&FieldTarget::Parameter {slot:slot.id()},id(191)).unwrap(),None);
+    assert_eq!(selection::source_fields::declared_parameter(&projected,field_option,&FieldTarget::Declaration {entity:id(186)},context).unwrap(),None);
+    assert_eq!(projected.evidence.source_field_links.iter().next().unwrap().runtime_value,Knowledge::Unknown);
+}
+
+#[test]
+fn explicit_callable_comparison_preserves_layout_and_unknown_correspondence() {
+    use lctx_model::domain::normalized::contract_comparison::{self,Difference};
+    let (budget, mut data, member, context, _)=fixture();
+    let left=data.source.core.variants.iter().next().unwrap().clone();
+    let signature=data.facts.signatures.get(left.signature).unwrap().clone();
+    let raw=data.facts.signature_parameters.iter().next().unwrap().clone();
+    let shape=data.facts.shapes.insert(ParameterShape {name:Some("other".into()),kind:ParameterKind::KeywordOnly,required:true}).unwrap();
+    let other_signature=data.facts.signatures.insert(Signature {role:SignatureRole::EffectiveTyped,variant:1,..signature}).unwrap();
+    data.facts.signature_parameters.insert(SignatureParameter {signature:other_signature,shape,..raw}).unwrap();
+    let right=data.source.core.variants.insert(SignatureVariant {signature:other_signature,role:SignatureRole::EffectiveTyped,adjustment:SignatureAdjustment::BindInstanceReceiver,..left.clone()}).unwrap();
+    let projected=selection::classification::ClassificationData::project(&data,&budget).unwrap();
+    let result=contract_comparison::compare(&projected,member,context,left.id(),right,&budget).unwrap();
+    assert_eq!(result.value.ports[0].layout,Difference::DifferentRetainedStructure {});
+    assert!(matches!(result.value.ports[0].formal_identity,Difference::Unresolved {..}));
+    assert!(matches!(result.value.returns,Difference::Unresolved {..}));
+    assert_eq!(result.value.adjustment,Difference::DifferentRetainedStructure {});
+    assert!(!result.value.right_role.runtime_source());
+    assert!(contract_comparison::compare(&projected,member,id(222),left.id(),right,&budget).is_err());
+    let tiny=ResourceBudget::fixed(1).unwrap();
+    assert!(contract_comparison::compare(&projected,member,context,left.id(),right,&tiny).is_err());
+    assert_eq!(tiny.reserved(),0);
+}
 #[test]
 fn local_preparation_inventory_and_missing_membership_refusal() {
     use selection::classification::ClassificationData;
-    assert_eq!(ClassificationData::inputs().len(), 79);
+    assert_eq!(ClassificationData::inputs().len(), 94);
     assert!(
         ClassificationData::inputs()
             .iter()

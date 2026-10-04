@@ -2,6 +2,13 @@
 macro_rules! catalog_selection_inputs {
     ($m:ident) => {
         $m! {
+
+         reference_characterizations:$crate::domain::normalized::links::ReferenceBindingCharacterization,
+         native_contexts:$crate::domain::ruff::RuffContextObservation,
+         native_context_supports:$crate::domain::ruff::RuffContextSupport,
+         native_binding_supports:$crate::domain::ruff::RuffBindingSupport,
+         reference_supports:$crate::domain::lexical::ReferenceSupport,
+         runs:$crate::domain::attribution::ProviderRun,
          decorators:$crate::domain::syntax::DeclarationDecorator,
          decorator_supports:$crate::domain::syntax::DeclarationDecoratorSupport,
          binding_supports:$crate::domain::lexical::BindingSupport,
@@ -9,10 +16,13 @@ macro_rules! catalog_selection_inputs {
          metadata_supports:$crate::domain::class_metadata::ClassMetadataSupport,
          native_signature_supports:$crate::domain::types::NativeSignatureSupport,
          type_supports:$crate::domain::types::TypeSupport,
+         signature_type_supports:$crate::domain::types::SignatureTypeSupport,
          exception_outcomes:$crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
          shapes:$crate::domain::calls::ParameterShape,
          signature_parameters:$crate::domain::calls::SignatureParameter,
          signatures:$crate::domain::calls::Signature,
+         type_presentations:$crate::domain::types::TypePresentation,
+         type_presentation_supports:$crate::domain::types::TypePresentationSupport,
          type_observations:$crate::domain::types::TypeObservation,
          call_syntax:$crate::domain::calls::CallSyntax,
          generic_specializations:$crate::domain::types::GenericSpecializationObservation,

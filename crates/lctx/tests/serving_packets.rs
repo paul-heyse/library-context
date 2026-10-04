@@ -9,6 +9,90 @@ use lctx_model::domain::{
 };
 use lctx_postgres::generations::Error;
 use support::*;
+
+#[tokio::test]
+async fn analytical_enrichment_serves_real_comparison_context_and_non_call_references() {
+    use lctx_model::domain::{calls::SignatureRole, lexical::SyntaxField, normalized::contract_comparison::Difference};
+    let source=br#"from typing import Callable
+from dataclasses import dataclass
+__all__=['decorate','changed','typed','Settings']
+def decorate(fn):
+    return fn
+@decorate
+def unchanged(value: int) -> int:
+    return value
+saved = decorate
+saved_again = decorate
+def shadow(decorate):
+    return decorate
+def wrap(fn: Callable[[int],int]):
+    def implementation(text: str) -> bytes:
+        return text.encode()
+    return implementation
+@wrap
+def changed(value: int) -> int:
+    return value
+def typed() -> list[int]:
+    result: list[int] = []
+    consume([])
+    return result
+def consume(values: list[int]) -> None:
+    pass
+@dataclass
+class Settings:
+    timeout: int = 3
+    title: str = 'title'
+    def read_timeout(self):
+        return self.timeout
+    def read_title(self):
+        return self.title
+"#;
+    let fixture=ServingFixture::start(source).await;
+    let execution=fixture.service.execution().await.unwrap();
+    let request=|value:&str,sections| GetOperationRequest {library:Name::new("demo").unwrap(),operation:path(value),comparison:Optional::default(),reference_parameter:Optional::default(),sections,page:PageRequest {expanded:true,..Default::default()}};
+    let initial=request("demo.changed",vec![]);
+    let OperationResolution::Unique {packet}=fixture.catalog.operation(&execution,&initial).await.unwrap().operation else {panic!("changed missing")};
+    let left=packet.core.signatures.iter().find(|s|s.role==SignatureRole::Source).unwrap();
+    let right=packet.core.signatures.iter().find(|s|s.role==SignatureRole::EffectiveTyped).unwrap();
+    let mut comparison=request("demo.changed",vec![OperationSection::CallableComparison]);
+    comparison.comparison=Optional(Some(CallableComparisonRequest {analysis:left.analysis,left:left.variant,right:right.variant}));
+    let OperationResolution::Unique {packet}=fixture.catalog.operation(&execution,&comparison).await.unwrap().operation else {panic!("comparison missing")};
+    let answer=&packet.callable_comparison.items[0];
+    assert_eq!(answer.left_role,SignatureRole::Source);
+    assert_eq!(answer.right_role,SignatureRole::EffectiveTyped);
+    assert_eq!(answer.ports[0].layout,Difference::DifferentRetainedStructure {});
+    assert!(!answer.proof.is_empty());
+    let OperationResolution::Unique {packet}=fixture.catalog.operation(&execution,&request("demo.typed",vec![OperationSection::ContextualTyping])).await.unwrap().operation else {panic!("typing missing")};
+    assert!(!packet.contextual_typing.items.is_empty());
+    assert!(packet.contextual_typing.items.iter().any(|t|!t.actual.is_empty() && !t.expected.is_empty()));
+    let argument_start=std::str::from_utf8(source).unwrap().find("consume([])").unwrap()+"consume(".len();
+    assert!(packet.contextual_typing.items.iter().any(|t|t.start==argument_start as i64 && !t.actual.is_empty() && !t.expected.is_empty()),"original argument retains native actual and Expected observations");
+    assert!(packet.contextual_typing.items.iter().all(|t|!t.error_recovery_known && !t.proof.is_empty()));
+    let mut references=request("demo.decorate",vec![OperationSection::IncomingReferences]);
+    references.page.size=1;
+    let OperationResolution::Unique {packet}=fixture.catalog.operation(&execution,&references).await.unwrap().operation else {panic!("references missing")};
+    let scope=packet.reference_scope.0.unwrap();
+    assert!(scope.lexical_names_only && scope.external_consumers_unknown);
+    assert!(!scope.artifacts.is_empty());
+    assert_eq!(packet.incoming_references.items.len(),1);
+    let mut incoming=packet.incoming_references.items;
+    let mut cursor=packet.incoming_references.continuation;
+    while cursor.0.is_some() {
+        references.page.cursor=cursor;
+        let OperationResolution::Unique {packet}=fixture.catalog.operation(&execution,&references).await.unwrap().operation else {panic!("reference continuation missing")};
+        assert_eq!(packet.reference_scope.0.unwrap().identity,scope.identity);
+        incoming.extend(packet.incoming_references.items); cursor=packet.incoming_references.continuation;
+    }
+    assert_eq!(incoming.len(),3,"decorator and two value uses; shadowed formal is another entity");
+    assert!(incoming.iter().any(|r|r.field==SyntaxField::Decorator));
+    assert!(incoming.iter().all(|r|!r.call_target_syntax && !r.proof.is_empty()));
+    let OperationResolution::Unique {packet}=fixture.catalog.operation(&execution,&request("demo.Settings",vec![OperationSection::Relationships])).await.unwrap().operation else {panic!("Settings missing")};
+    let links=packet.relationships.items.iter().filter_map(|r| match r {RelationshipPacket::SourceField {source_association,runtime_value,parameter_option,field_option,..}=>Some((*source_association,*runtime_value,*parameter_option,*field_option)),_=>None}).collect::<Vec<_>>();
+    assert_eq!(links.len(),2,"distinct timeout/title constructor-to-reader associations");
+    assert!(links.iter().all(|(source,runtime,_,_)|*source==lctx_model::domain::normalized::callables::Knowledge::Known && *runtime==lctx_model::domain::normalized::callables::Knowledge::Unknown));
+    assert_ne!(links[0].2,links[1].2); assert_ne!(links[0].3,links[1].3);
+    drop(execution);fixture.finish().await;
+}
 #[tokio::test]
 async fn mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration() {
     let fixture = ServingFixture::start(SOURCE).await;
@@ -16,6 +100,7 @@ async fn mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration(
     let r = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.api"),
+        comparison: Optional::default(), reference_parameter:Optional::default(),
         sections: vec![],
         page: PageRequest::default(),
     };
@@ -186,6 +271,7 @@ async fn complete_signature_over_default_budget_refuses_and_expanded_packet_is_c
     let mut request = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.huge"),
+        comparison: Optional::default(), reference_parameter:Optional::default(),
         sections: vec![],
         page: PageRequest::default(),
     };
@@ -261,6 +347,7 @@ async fn optional_sections_use_original_scenarios_and_policy_admissions_with_bou
     let mut request = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.relay"),
+        comparison: Optional::default(), reference_parameter:Optional::default(),
         sections: sections.clone(),
         page: PageRequest {
             size: 100,
@@ -301,14 +388,14 @@ async fn optional_sections_use_original_scenarios_and_policy_admissions_with_bou
     assert_eq!(packet.relationships.omitted, 2);
     let token = packet.relationships.continuation.0.clone().unwrap();
     for relationship in &packet.relationships.items {
+        let RelationshipPacket::Invocation { role, proof, witnesses, .. } = relationship else { panic!("expected invocation relationship") };
         assert_eq!(
-            relationship.role,
+            *role,
             lctx_model::domain::selection::RelationRole::Invokes
         );
-        assert!(!relationship.proof.is_empty());
-        assert!(relationship.witnesses.is_empty());
-        let reference = relationship
-            .proof
+        assert!(!proof.is_empty());
+        assert!(witnesses.is_empty());
+        let reference = proof
             .iter()
             .find(|p| p.relation.as_str() == CallPolicyAdmission::NAME)
             .unwrap();
@@ -365,6 +452,7 @@ async fn optional_sections_use_original_scenarios_and_policy_admissions_with_bou
     let scenarios = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.api"),
+        comparison: Optional::default(), reference_parameter:Optional::default(),
         sections: vec![OperationSection::Scenarios],
         page: PageRequest {
             size: 100,
@@ -420,6 +508,7 @@ async fn behavioral_packet_preserves_the_stored_five_verdict_condition_and_model
     let request = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.api"),
+        comparison: Optional::default(), reference_parameter:Optional::default(),
         sections: vec![OperationSection::Behavior],
         page: PageRequest {
             size: 100,
@@ -538,6 +627,7 @@ async fn large_optional_brief_keeps_the_complete_core_and_resumes_with_expanded_
     let mut request = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.api"),
+        comparison: Optional::default(), reference_parameter:Optional::default(),
         sections: vec![OperationSection::Briefs],
         page: PageRequest::default(),
     };
@@ -671,6 +761,7 @@ class Settings:
             &GetOperationRequest {
                 library: Name::new("demo").unwrap(),
                 operation: path("demo.changed"),
+                comparison: Optional::default(), reference_parameter:Optional::default(),
                 sections: vec![],
                 page: PageRequest {
                     expanded: true,
@@ -934,6 +1025,7 @@ class Settings:
             &GetOperationRequest {
                 library: Name::new("demo").unwrap(),
                 operation: path("demo.Settings"),
+                comparison: Optional::default(), reference_parameter:Optional::default(),
                 sections: vec![],
                 page: PageRequest {
                     expanded: true,

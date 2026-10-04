@@ -1764,6 +1764,14 @@ pub fn records<'a>(
                 TypeRole::Argument,
                 spans.range_of(argument.value),
             )?;
+            // Retain the provider's recorded argument context at its exact original
+            // expression. This is not proof of successful overload selection or
+            // assignability; recovered/closest context remains an observation.
+            if let Some(ty) = spans.range_of(argument.value)
+                .and_then(|range| ctx.answers.get_expected_type_trace(range))
+            {
+                b.observe(argument.value, TypeRole::Expected, false, &ty)?;
+            }
         }
     }
     let mut nodes: Vec<_> = spans.nodes().collect();
