@@ -48,6 +48,7 @@ pub struct State {
     pub changed: usize,
     pub changed_coverage: usize,
     pub stops: BTreeMap<&'static str, BTreeSet<Vec<u8>>>,
+    pub forwarded_stops: BTreeMap<&'static str, BTreeSet<Vec<u8>>>,
 }
 pub async fn load_admission(
     access: &StageAccess<'_, '_>,
@@ -351,11 +352,26 @@ impl StageSink for MutatingSink<'_, '_> {
             });
             Ok(None)
         })()?;
-        if let Some(batch) = changed {
-            self.sink.copy(permit, &batch).await
-        } else {
-            self.sink.copy(permit, batch).await
+        let forwarded = changed.as_ref().unwrap_or(batch);
+        {
+            let mut state = self.state.lock()
+                .map_err(|_| ModelError::Invalid("mutation observer poisoned".into()))?;
+            macro_rules! record_forwarded {
+                ($ty:ty) => {
+                    if R::NAME == <$ty>::NAME {
+                        for row in <$ty>::decode(forwarded.arrow())? {
+                            if row.stop.is_some() {
+                                state.forwarded_stops.entry(R::NAME).or_default()
+                                    .insert(row.id().bytes().to_vec());
+                            }
+                        }
+                    }
+                };
+            }
+            record_forwarded!(Traversal);
+            record_forwarded!(controls::ControlTraversal);
         }
+        self.sink.copy(permit, forwarded).await
     }
 }
 pub fn capture(

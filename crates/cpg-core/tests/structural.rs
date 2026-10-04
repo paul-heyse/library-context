@@ -545,15 +545,16 @@ async fn run(profile: Profile, case: Case) {
                 .await
                 .unwrap();
                 assert!(parents > 0, "independent C0 parent survives {case:?}");
-                let (changed, changed_coverage, stops) = {
+                let (changed, changed_coverage, stops, forwarded_stops) = {
                     let state = mutation_state.lock().unwrap();
-                    (state.changed, state.changed_coverage, state.stops.clone())
+                    (state.changed, state.changed_coverage, state.stops.clone(), state.forwarded_stops.clone())
                 };
                 assert!(changed > 0, "{case:?} performed its mutation");
                 if case == Case::Strengthen {
                     assert!(changed_coverage > 0);
                     assert!(!stops.is_empty());
-                    for (relation, expected) in &stops {
+                    assert_eq!(stops, forwarded_stops, "exact stop inventory survives at the actual PG sink");
+                    for relation in stops.keys() {
                         let actual =
                             sqlx::query_scalar::<_, Vec<u8>>(sqlx::AssertSqlSafe(format!(
                                 "SELECT id FROM {schema}.{relation} WHERE stop IS NOT NULL"
@@ -563,7 +564,7 @@ async fn run(profile: Profile, case: Case) {
                             .unwrap()
                             .into_iter()
                             .collect::<std::collections::BTreeSet<_>>();
-                        assert_eq!(&actual, expected, "stop inventory unchanged");
+                        assert!(actual.is_empty(), "failed Structural publication rolls back its staged stop rows");
                     }
                 }
                 eprintln!("profile={profile:?} case={case:?} refused: {detail}");
