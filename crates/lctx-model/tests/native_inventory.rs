@@ -238,7 +238,17 @@ fn inventory_and_collected_output_retain_and_release_their_reservations() {
 #[test]
 fn inventory_inputs_have_only_native_authority_and_require_native_support_validation() {
     let inputs = NativeInventory::inputs();
-    assert_eq!(inputs.len(), 105); // 52 native pairs plus the shared qualification.
+    let stored = NativeInventory::stage_inputs(lctx_model::domain::stages::Profile::Behavioral);
+    let mut expected = std::collections::BTreeSet::from([AssertionQualification::NAME]);
+    macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
+        assert!(expected.insert(<$assertion>::NAME));
+        assert!(expected.insert(<$support>::NAME));
+        let support = stored.iter().find(|i| i.name() == <$support>::NAME).unwrap();
+        assert!(support.validators().contains(&<$support>::NAME), "native support validation remains required");
+    )*};}
+    lctx_model::native_analysis_pairs!(pairs);
+    assert_eq!(inputs.len(), expected.len());
+    assert_eq!(inputs.iter().map(|i| i.name()).collect::<std::collections::BTreeSet<_>>(), expected);
     assert!(
         inputs
             .iter()

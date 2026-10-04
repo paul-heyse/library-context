@@ -69,12 +69,14 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
             assert_eq!(input.prefix(), Some(PublicationBoundary::Facts));
         }
     }
-    let mut pairs = 0;
+    let mut expected = std::collections::BTreeSet::from([assertion::AssertionQualification::NAME]);
     macro_rules! count_pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
-        assert!(stage.reads::<$assertion>() && stage.reads::<$support>());let _=$code;pairs+=1;
+        assert!(stage.reads::<$assertion>() && stage.reads::<$support>());let _=$code;
+        assert!(expected.insert(<$assertion>::NAME));assert!(expected.insert(<$support>::NAME));
     )*};}
     lctx_model::native_analysis_pairs!(count_pairs);
-    assert_eq!(pairs, 52);
+    assert_eq!(stage.inputs.len(), expected.len(), "exact current native registry without extra reads");
+    assert_eq!(stage.inputs.iter().map(|i| i.name()).collect::<std::collections::BTreeSet<_>>(), expected);
     assert!(stage.reads::<calls::SignatureEnumerationObservation>());
     assert!(stage.reads::<calls::SignatureEnumerationSupport>());
     assert_eq!(stage.outputs.len(), 2);
@@ -83,6 +85,12 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
             && stage.writes::<native::NativeQualification>()
     );
     let catalog = native_stage(Profile::Catalog);
+    macro_rules! profile_pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
+        let requested = <$assertion as assertion::Assertion>::FAMILY != attribution::FactFamily::Flow;
+        assert_eq!(catalog.reads::<$assertion>(), requested);
+        assert_eq!(catalog.reads::<$support>(), requested);
+    )*};}
+    lctx_model::native_analysis_pairs!(profile_pairs);
     assert!(
         !catalog.reads::<flow::FlowUseObservation>()
             && !catalog.reads::<flow::FlowAttributeLoadObservation>()
