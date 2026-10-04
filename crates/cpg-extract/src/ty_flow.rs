@@ -1400,7 +1400,6 @@ impl<S: StageSink + 'static> Writer<'_, S> {
         rows_charge.grow(flow.reaching.len() * 128)?;
         let mut mapped_reaching = vec![None; flow.reaching.len()];
         let mut unattached_reaching = vec![false; flow.reaching.len()];
-        let mut unavailable_conditions = vec![false; flow.reaching.len()];
         for (native_ix, native) in flow.reaching.iter().enumerate() {
             let Some(Some((use_, scope))) = uses.get(native.use_ix as usize) else {
                 continue;
@@ -1478,8 +1477,6 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                 mapped_reaching[native_ix] = Some((row.id(), support.id()));
                 self.context.emit(support)?;
                 self.context.emit(row)?;
-            } else {
-                unavailable_conditions[native_ix] = true;
             }
         }
         rows_charge.grow(flow.candidates.len() * 128)?;
@@ -1515,7 +1512,17 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                     .collect::<Vec<_>>();
                 retained.sort();
                 retained.dedup();
-                let unavailable = c.reaching.iter().any(|i| unavailable_conditions[*i]);
+                let reachability = self.qualify(&c.condition, *scope, Some(use_.occurrence))?;
+                let narrowing = self.qualify(&c.narrowing, *scope, Some(use_.occurrence))?;
+                let unavailable = reachability.is_none();
+                if c.unattached {
+                    self.boundary(Some(use_.occurrence), ObligationKind::NativeUnavailable,
+                        "native candidate definition unattached")?;
+                }
+                if c.narrowing_precision_lost {
+                    self.boundary(Some(use_.occurrence), ObligationKind::ResourceRefused,
+                        "native candidate narrowing lost precision")?;
+                }
                 let unattached = c.unattached || c.reaching.iter().any(|i| unattached_reaching[*i]);
                 candidates.push(CandidateState {
                     kind: match c.kind {
@@ -1528,6 +1535,10 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                     pruned: c.pruned,
                     loop_expanded: c.loop_expanded,
                     unattached,
+                    reachability: reachability.as_ref().map(Record::id),
+                    narrowing: narrowing.as_ref().map(Record::id),
+                    narrowing_unavailable: narrowing.is_none(),
+                    narrowing_precision_lost: c.narrowing_precision_lost,
                     condition_unavailable: unavailable,
                     reachability_lost: c.reachability_lost,
                     mapped_count: retained.len() as i64,

@@ -428,7 +428,8 @@ pub enum FlowOriginTarget {
     Unbound {},
     Nested {},
 }
-packet!(FlowInventoryCandidate {candidate:Id<flow_inventory::FlowUseCandidate>,ordinal:i64,kind:flow_inventory::FlowCandidateKind,pruned:bool,loop_expanded:bool,unattached:bool,condition_unavailable:bool,reachability_lost:bool,mapped_count:i64});
+packet!(FlowCandidateFormula {qualification:Id<assertion::AssertionQualification>,condition:Id<conditions::Condition>,scope:Id<source::CoverageScope>,context:Id<attribution::AnalysisContext>,modality:attribution::Modality,approximation:assertion::Approximation,claim_basis:ClaimBasisPacket});
+packet!(FlowInventoryCandidate {candidate:Id<flow_inventory::FlowUseCandidate>,ordinal:i64,kind:flow_inventory::FlowCandidateKind,pruned:bool,loop_expanded:bool,unattached:bool,reachability:Nullable<FlowCandidateFormula>,narrowing:Nullable<FlowCandidateFormula>,narrowing_unavailable:bool,narrowing_precision_lost:bool,condition_unavailable:bool,reachability_lost:bool,mapped_count:i64});
 packet!(FlowInventoryReaching {member:Id<flow_inventory::FlowUseInventoryMember>,ordinal:i64,reaching:Id<flow::FlowReachingObservation>,support:Id<flow::FlowReachingSupport>,qualification:Id<assertion::AssertionQualification>,condition:Id<conditions::Condition>,target:FlowOriginTarget,loop_carried:bool});
 packet!(FlowInventoryView {view:Id<flow::FlowSourceViewObservation>,original_content:ContentHash,view_content:ContentHash,renamed_type_checking:i64,coverage:Vec<Id<attribution::ProviderCoverage>>,proof:Vec<ProofReference>});
 packet!(StoredEntryPremise {qualification:Id<assertion::AssertionQualification>,condition:Id<conditions::Condition>,claim_basis:ClaimBasisPacket});

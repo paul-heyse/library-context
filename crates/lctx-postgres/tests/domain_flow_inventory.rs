@@ -17,8 +17,15 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
-    for case in ["complete", "incomplete", "hidden", "member", "digest"] {
-        let mut fixture = fixture::Fixture::new(case != "complete");
+    for case in ["complete", "incomplete", "bound_unattached", "formula", "hidden", "member", "digest"] {
+        let mut fixture = if case == "bound_unattached" || case == "formula" {
+            fixture::Fixture::bound_unattached()
+        } else { fixture::Fixture::new(case != "complete") };
+        if case == "formula" {
+            let mut state = fixture.candidates[0].state();
+            state.reachability = Some(serde_json::from_value(serde_json::to_value([25u8; 16]).unwrap()).unwrap());
+            fixture.replace_inventory(&[state], &[]);
+        }
         if case == "hidden" {
             fixture.flow.base.put(fixture.candidates[..1].to_vec());
         }
@@ -96,6 +103,7 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
             LexicalResolution,
             LexicalResolutionSupport,
             Evidence,
+            lctx_model::domain::syntax::SubjectBoundary,
             Module,
             PlaceRoot,
             Place,
@@ -136,7 +144,7 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
             FlowValuePathSupport
         );
         generation_h.seal().await.unwrap();
-        if matches!(case, "complete" | "incomplete") {
+        if matches!(case, "complete" | "incomplete" | "bound_unattached") {
             generation_h.validate(&budget()).await.unwrap();
             generation_h.publish().await.unwrap();
             let mut lease = store.pin(&db.reader, generation, budget()).await.unwrap();
@@ -145,6 +153,20 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
                 stored.rows(),
                 fixture.base.rows::<FlowUseInventoryObservation>()
             );
+            let candidates = lease.read::<FlowUseCandidate>().await.unwrap();
+            assert_eq!(candidates.rows(), fixture.base.rows::<FlowUseCandidate>());
+            if case == "bound_unattached" {
+                assert_eq!(candidates.rows().len(), 1);
+                let candidate = &candidates.rows()[0];
+                assert_eq!(candidate.kind, FlowCandidateKind::Bound);
+                assert!(candidate.unattached);
+                assert_eq!(candidate.mapped_count, 0);
+                assert!(candidate.reachability.is_some() && candidate.narrowing.is_some());
+                let qualifications = lease.read::<AssertionQualification>().await.unwrap();
+                assert!(qualifications.rows().iter().any(|q| Some(q.id()) == candidate.reachability));
+                assert!(lease.read::<FlowReachingObservation>().await.unwrap().rows().is_empty());
+                assert!(!stored.rows()[0].complete);
+            }
             lease.release().await.unwrap();
             store.retire(generation).await.unwrap();
         } else {

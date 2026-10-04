@@ -86,6 +86,8 @@ def test_enrichment_sections_keep_native_variant_selection_and_scope_schema():
     assert "flow_inventory" in evidence_schema
     assert "entry_value_reason" in evidence_schema
     assert "native_count" in evidence_schema
+    for field in ["reachability", "narrowing", "narrowing_unavailable", "narrowing_precision_lost"]:
+        assert field in evidence_schema
 
 
 @pytest.mark.anyio

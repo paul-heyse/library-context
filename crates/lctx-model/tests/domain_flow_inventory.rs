@@ -134,6 +134,7 @@ fn each_enumeration_or_lowering_boundary_blocks_complete_closure() {
         },
         CandidateState {
             condition_unavailable: true,
+            reachability: None,
             mapped_count: 0,
             ..base.clone()
         },
@@ -219,7 +220,11 @@ fn stored_singleton_outcomes_remain_distinct_from_enumeration_closure() {
         pruned: false,
         loop_expanded: false,
         unattached: false,
-        condition_unavailable: false,
+        reachability: Some(f.q.id()),
+            narrowing: Some(f.q.id()),
+            narrowing_unavailable: false,
+            narrowing_precision_lost: false,
+            condition_unavailable: false,
         reachability_lost: false,
         mapped_count: 1,
     };
@@ -287,4 +292,100 @@ fn stored_singleton_outcomes_remain_distinct_from_enumeration_closure() {
             .is_err()
     );
     assert_eq!(tiny.reserved(), 0);
+}
+
+#[test]
+fn candidate_formula_identity_replays_unattached_and_separate_narrowing_fidelity() {
+    let mut f = fixture::Fixture::bound_unattached();
+    f.check().unwrap();
+    assert!(!f.inventory.complete);
+    assert_eq!(f.inventory.mapped_count, 0);
+    assert_eq!(f.candidates[0].kind, FlowCandidateKind::Bound);
+    assert!(f.candidates[0].reachability.is_some() && f.candidates[0].narrowing.is_some());
+    let first = f.inventory.id();
+    let unavailable = CandidateState { condition_unavailable: true, reachability: None, ..f.candidates[0].state() };
+    f.replace_inventory(&[unavailable], &[]);
+    f.check().unwrap();
+    assert_ne!(first, f.inventory.id(), "availability belongs to inventory identity");
+    let mut attached = fixture::Fixture::new(false);
+    let first = attached.inventory.id();
+    let state = CandidateState { narrowing: None, narrowing_unavailable: true, narrowing_precision_lost: true, ..attached.candidates[0].state() };
+    let members = vec![(0, attached.flow.reaching.id(), attached.flow.reaching_support.id())];
+    attached.replace_inventory(&[state], &members);
+    attached.check().unwrap();
+    assert!(attached.inventory.complete, "narrowing fidelity does not change reaching closure");
+    assert_ne!(first, attached.inventory.id());
+    let mut shuffled = fixture::Fixture::new(true);
+    let original = shuffled.inventory.id();
+    shuffled.candidates.reverse();
+    shuffled.members.reverse();
+    shuffled.flow.base.put(shuffled.candidates.clone());
+    shuffled.flow.base.put(shuffled.members.clone());
+    let mut qualifications = shuffled.flow.base.rows::<lctx_model::domain::assertion::AssertionQualification>();
+    qualifications.reverse();
+    shuffled.flow.base.put(qualifications);
+    shuffled.check().unwrap();
+    assert_eq!(shuffled.inventory.id(), original);
+    explain(shuffled.inventory.use_, &shuffled.inventory, &shuffled.candidates, &shuffled.members, &ResourceBudget::fixed(1 << 20).unwrap()).unwrap();
+}
+
+#[test]
+fn candidate_formula_replay_refuses_foreign_context_source_and_precision() {
+    use lctx_model::domain::{assertion::*, conditions::*, value::*};
+    for damage in ["context", "scope", "source", "precision", "narrowing_precision", "kind", "cardinality"] {
+        let mut f = fixture::Fixture::new(false);
+        let mut state = f.candidates[0].state();
+        let mut q = f.flow.base.rows::<AssertionQualification>()[0].clone();
+        let mut qualifications = f.flow.base.rows::<AssertionQualification>();
+        match damage {
+            "context" => { q.context = serde_json::from_value(serde_json::to_value([19u8; 16]).unwrap()).unwrap(); }
+            "scope" => { q.scope = serde_json::from_value(serde_json::to_value([20u8; 16]).unwrap()).unwrap(); }
+            "source" => {
+                let atom = EvaluationAtom { evaluation: f.flow.base.foreign.id(), context: q.context,
+                    predicate: Predicate::Truthy.id(), operand: None };
+                let diagram = Diagram::from_atom(atom.id());
+                let (condition, nodes) = diagram.records();
+                f.flow.base.put(vec![atom]);
+                let mut conditions = f.flow.base.rows::<Condition>(); conditions.push(condition.clone()); f.flow.base.put(conditions);
+                let mut all_nodes = f.flow.base.rows::<ConditionNode>(); all_nodes.extend(nodes); f.flow.base.put(all_nodes);
+                q.condition = condition.id();
+            }
+            "precision" => { state.reachability_lost = true; }
+            "narrowing_precision" => { state.narrowing_precision_lost = true; }
+            "kind" => { state.kind = FlowCandidateKind::Undefined; }
+            "cardinality" => { state.mapped_count = 0; }
+            _ => unreachable!(),
+        }
+        qualifications.push(q.clone());
+        f.flow.base.put(qualifications);
+        state.reachability = Some(q.id());
+        let members = vec![(0, f.flow.reaching.id(), f.flow.reaching_support.id())];
+        f.replace_inventory(&[state], &members);
+        assert!(f.check().is_err(), "{damage}");
+    }
+    let f = fixture::Fixture::new(false);
+    for state in [
+        CandidateState { condition_unavailable: true, ..f.candidates[0].state() },
+        CandidateState { narrowing_unavailable: true, ..f.candidates[0].state() },
+        CandidateState { unattached: true, ..f.candidates[0].state() },
+        CandidateState { mapped_count: 2, ..f.candidates[0].state() },
+    ] {
+        assert!(FlowUseInventoryObservation::new(f.inventory.qualification, f.inventory.use_, f.inventory.scope, f.inventory.view, &[state], &[]).is_err());
+    }
+}
+
+#[test]
+fn partially_attached_loop_header_keeps_members_without_kind_escape() {
+    let mut f = fixture::Fixture::new(false);
+    f.flow.reaching.loop_carried = true;
+    f.flow.reaching_support.assertion = f.flow.reaching.id();
+    f.flow.base.put(vec![f.flow.reaching.clone()]);
+    f.flow.base.put(vec![f.flow.reaching_support.clone()]);
+    let state = CandidateState { kind: FlowCandidateKind::LoopHeader, loop_expanded: true,
+        unattached: true, ..f.candidates[0].state() };
+    let members = vec![(0, f.flow.reaching.id(), f.flow.reaching_support.id())];
+    f.replace_inventory(&[state], &members);
+    f.check().unwrap();
+    assert!(!f.inventory.complete);
+    assert_eq!(f.inventory.mapped_count, 1);
 }

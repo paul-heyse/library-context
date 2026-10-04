@@ -4,6 +4,7 @@ use super::{
     attribution::*,
     charged::{ChargedMap, StateCharge},
     flow::*,
+    conditions::{Condition, ConditionNode, EvaluationAtom},
     lexical::LexicalScope,
     source::Occurrence,
     syntax::SubjectBoundary,
@@ -33,6 +34,10 @@ pub struct FlowUseCandidate {
     pub pruned: bool,
     pub loop_expanded: bool,
     pub unattached: bool,
+    pub reachability: Option<Id<AssertionQualification>>,
+    pub narrowing: Option<Id<AssertionQualification>>,
+    pub narrowing_unavailable: bool,
+    pub narrowing_precision_lost: bool,
     pub condition_unavailable: bool,
     pub reachability_lost: bool,
     pub mapped_count: i64,
@@ -79,6 +84,10 @@ pub struct CandidateState {
     pub pruned: bool,
     pub loop_expanded: bool,
     pub unattached: bool,
+    pub reachability: Option<Id<AssertionQualification>>,
+    pub narrowing: Option<Id<AssertionQualification>>,
+    pub narrowing_unavailable: bool,
+    pub narrowing_precision_lost: bool,
     pub condition_unavailable: bool,
     pub reachability_lost: bool,
     pub mapped_count: i64,
@@ -97,6 +106,10 @@ impl CandidateState {
         self.pruned.encode(key);
         self.loop_expanded.encode(key);
         self.unattached.encode(key);
+        self.reachability.encode(key);
+        self.narrowing.encode(key);
+        self.narrowing_unavailable.encode(key);
+        self.narrowing_precision_lost.encode(key);
         self.condition_unavailable.encode(key);
         self.reachability_lost.encode(key);
         self.mapped_count.encode(key);
@@ -109,6 +122,10 @@ impl FlowUseCandidate {
             pruned: self.pruned,
             loop_expanded: self.loop_expanded,
             unattached: self.unattached,
+            reachability: self.reachability,
+            narrowing: self.narrowing,
+            narrowing_unavailable: self.narrowing_unavailable,
+            narrowing_precision_lost: self.narrowing_precision_lost,
             condition_unavailable: self.condition_unavailable,
             reachability_lost: self.reachability_lost,
             mapped_count: self.mapped_count,
@@ -173,6 +190,10 @@ impl FlowUseInventoryObservation {
                 pruned: v.pruned,
                 loop_expanded: v.loop_expanded,
                 unattached: v.unattached,
+                reachability: v.reachability,
+                narrowing: v.narrowing,
+                narrowing_unavailable: v.narrowing_unavailable,
+                narrowing_precision_lost: v.narrowing_precision_lost,
                 condition_unavailable: v.condition_unavailable,
                 reachability_lost: v.reachability_lost,
                 mapped_count: v.mapped_count,
@@ -201,6 +222,10 @@ fn validate_candidate(row: &FlowUseCandidate) -> Result<(), ModelError> {
         || !(0..=MAX_USE_CANDIDATES as i64).contains(&row.mapped_count)
         || row.loop_expanded != (row.kind == FlowCandidateKind::LoopHeader)
         || (row.pruned && row.mapped_count != 0)
+        || (row.kind != FlowCandidateKind::LoopHeader && row.mapped_count > 1)
+        || (row.kind == FlowCandidateKind::Bound && row.unattached && row.mapped_count != 0)
+        || row.condition_unavailable != row.reachability.is_none()
+        || row.narrowing_unavailable != row.narrowing.is_none()
     {
         return Err(invalid("inconsistent native use candidate"));
     }
@@ -226,6 +251,9 @@ fn inventory_invariants() -> Vec<Invariant> {
             ValidationInput::of::<FlowUseObservation>(&["id"]),
             ValidationInput::of::<FlowUseSupport>(&["id"]),
             ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<ConditionNode>(&["id"]),
+            ValidationInput::of::<Condition>(&["id"]),
+            ValidationInput::of::<EvaluationAtom>(&["id"]),
             ValidationInput::of::<FlowSourceViewObservation>(&["id"]),
             ValidationInput::of::<FlowSourceViewSupport>(&["id"]),
             ValidationInput::of::<ReachingDefinition>(&["id"]),
@@ -259,6 +287,9 @@ struct InventoryCheck {
     use_observations: ChargedMap<Id<FlowUseObservation>, FlowUseObservation>,
     use_supports: ChargedMap<Id<FlowUseSupport>, FlowUseSupport>,
     qualifications: ChargedMap<Id<AssertionQualification>, AssertionQualification>,
+    conditions: ChargedMap<Id<Condition>, Condition>,
+    nodes: ChargedMap<Id<ConditionNode>, ConditionNode>,
+    atoms: ChargedMap<Id<EvaluationAtom>, EvaluationAtom>,
     views: ChargedMap<Id<FlowSourceViewObservation>, FlowSourceViewObservation>,
     view_supports: ChargedMap<Id<FlowSourceViewSupport>, FlowSourceViewSupport>,
     targets: ChargedMap<Id<ReachingDefinition>, ReachingDefinition>,
@@ -292,6 +323,9 @@ impl InvariantCheck for InventoryCheck {
         collect!(FlowUseObservation, use_observations);
         collect!(FlowUseSupport, use_supports);
         collect!(AssertionQualification, qualifications);
+        collect!(Condition, conditions);
+        collect!(ConditionNode, nodes);
+        collect!(EvaluationAtom, atoms);
         collect!(FlowSourceViewObservation, views);
         collect!(FlowSourceViewSupport, view_supports);
         collect!(ReachingDefinition, targets);
@@ -412,6 +446,41 @@ impl InvariantCheck for InventoryCheck {
             {
                 return Err(invalid("inventory source/view/context/scope mismatch"));
             }
+            for candidate in &candidates {
+                for formula in [candidate.reachability, candidate.narrowing].into_iter().flatten() {
+                    let cq = self.qualifications.get(&formula)
+                        .ok_or_else(|| invalid("candidate formula qualification missing"))?;
+                    if cq.scope != q.scope || cq.context != q.context || cq.assumptions != q.assumptions {
+                        return Err(invalid("candidate formula source/context/scope/assumptions mismatch"));
+                    }
+                    let condition = self.conditions.get(&cq.condition)
+                        .ok_or_else(|| invalid("candidate condition missing"))?;
+                    let closure = super::conditions::kernel::closure(condition.root, &self.nodes)?;
+                    for node in closure {
+                        if let ConditionNode::Branch { atom, .. } = &self.nodes[&node] {
+                            let atom = self.atoms.get(atom)
+                                .ok_or_else(|| invalid("candidate formula atom missing"))?;
+                            let evaluation = self.occurrences.get(&atom.evaluation)
+                                .ok_or_else(|| invalid("candidate formula evaluation missing"))?;
+                            if atom.context != q.context || evaluation.source != site.source {
+                                return Err(invalid("candidate formula crosses native source/context"));
+                            }
+                        }
+                    }
+                }
+                if let Some(formula) = candidate.reachability {
+                    let cq = self.qualifications.get(&formula).expect("candidate qualification checked");
+                    if candidate.reachability_lost != (cq.approximation != Approximation::Exact) {
+                        return Err(invalid("candidate reachability precision mismatch"));
+                    }
+                }
+                if let Some(formula) = candidate.narrowing {
+                    let cq = self.qualifications.get(&formula).expect("candidate qualification checked");
+                    if candidate.narrowing_precision_lost != (cq.approximation != Approximation::Exact) {
+                        return Err(invalid("candidate narrowing precision mismatch"));
+                    }
+                }
+            }
             let inventory_supports = inventory_support_index
                 .get(&row.id())
                 .cloned()
@@ -467,7 +536,8 @@ impl InvariantCheck for InventoryCheck {
                     FlowCandidateKind::Nested => matches!(target, ReachingDefinition::Nested),
                     FlowCandidateKind::LoopHeader => true,
                 };
-                if !valid && !candidate.unattached {
+                if !valid || candidate.reachability != Some(reach.qualification)
+                    || reach.loop_carried != (candidate.kind == FlowCandidateKind::LoopHeader) {
                     return Err(invalid(
                         "native candidate state disagrees with mapped target",
                     ));

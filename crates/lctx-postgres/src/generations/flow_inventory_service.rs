@@ -362,21 +362,48 @@ impl PacketLease<'_> {
                     loop_carried: reaching.loop_carried,
                 });
             }
-            let candidates = explanation
-                .candidates
-                .into_iter()
-                .map(|c| FlowInventoryCandidate {
+            let mut candidates = Vec::new();
+            for c in explanation.candidates {
+                let mut formulas = Vec::new();
+                for id in [c.reachability, c.narrowing] {
+                    let formula = if let Some(id) = id {
+                        let rows = self.read_ids::<AssertionQualification>(&[id]).await?;
+                        let q = required(&rows, id)?;
+                        if q.context != grant.context || q.scope != qualification.scope
+                            || q.assumptions != qualification.assumptions {
+                            return Err(Error::Contract);
+                        }
+                        proof.push(derivation::RowRef::of(q.id()));
+                        Some(FlowCandidateFormula {
+                            qualification: q.id(),
+                            condition: q.condition,
+                            scope: q.scope,
+                            context: q.context,
+                            modality: q.modality,
+                            approximation: q.approximation,
+                            claim_basis: self.claim_basis(q).await?,
+                        })
+                    } else { None };
+                    formulas.push(formula);
+                }
+                let narrowing = formulas.pop().expect("two native formulas");
+                let reachability = formulas.pop().expect("two native formulas");
+                candidates.push(FlowInventoryCandidate {
                     candidate: c.id(),
                     ordinal: c.ordinal,
                     kind: c.kind,
                     pruned: c.pruned,
                     loop_expanded: c.loop_expanded,
                     unattached: c.unattached,
+                    reachability: Nullable(reachability),
+                    narrowing: Nullable(narrowing),
+                    narrowing_unavailable: c.narrowing_unavailable,
+                    narrowing_precision_lost: c.narrowing_precision_lost,
                     condition_unavailable: c.condition_unavailable,
                     reachability_lost: c.reachability_lost,
                     mapped_count: c.mapped_count,
-                })
-                .collect();
+                });
+            }
             let mut view_proof = vec![ProofReference::from_canonical(derivation::RowRef::of(
                 view.id(),
             ))];

@@ -1976,3 +1976,59 @@ def unavailable():
     drop(execution);
     fixture.finish().await;
 }
+
+#[tokio::test]
+async fn original_evidence_serves_bound_unattached_native_formulas_and_wire_limits() {
+    use lctx_model::domain::{flow_inventory::FlowCandidateKind, source::Occurrence};
+    let source = b"__all__=['Box','Alias']\nclass Box[T](list[T]):\n    value = T\ntype Alias[T, U: T] = list[U]\n";
+    let fixture = ServingFixture::start_profile(source, "behavioral").await;
+    let execution = fixture.service.execution().await.unwrap();
+    let mut final_occurrence = None;
+    for text in ["class Box[T](list[T", "type Alias[T, U: T"] {
+        let start = std::str::from_utf8(source).unwrap().find(text).unwrap() as i64 + text.len() as i64 - 1;
+        let occurrence = execution.query(move |lease| Box::pin(async move {
+            let sites = lease.read::<Occurrence>().await?;
+            Ok(sites.rows().iter().find(|o| o.start == start && o.syntax_kind == lctx_model::domain::source::SyntaxKind::ExprName).unwrap().id())
+        })).await.unwrap();
+        final_occurrence = Some(occurrence);
+        let response = fixture.service.evidence(&execution, &GetEvidenceRequest {
+            source: OriginalReference::Occurrence { occurrence },
+            page: PageRequest { expanded: true, ..Default::default() },
+        }).await.unwrap();
+        let items = &response.evidence.flow_inventory.items;
+        assert_eq!(items.len(), 1);
+        let inventory = &items[0];
+        assert!(!inventory.complete && inventory.members.is_empty());
+        assert_eq!(inventory.native_count, 1);
+        assert_eq!(inventory.mapped_count, 0);
+        assert!(inventory.entry_outcomes.items.is_empty());
+        assert!(inventory.entry_value_reason.0.is_some());
+        let candidate = &inventory.candidates[0];
+        assert_eq!(candidate.kind, FlowCandidateKind::Bound);
+        assert!(candidate.unattached && !candidate.condition_unavailable && !candidate.narrowing_unavailable);
+        assert_eq!(candidate.mapped_count, 0);
+        for formula in [&candidate.reachability.0, &candidate.narrowing.0] {
+            let formula = formula.as_ref().expect("qualified native formula in raw-origin response");
+            assert_eq!(formula.condition, lctx_model::domain::conditions::Diagram::always().id());
+        }
+        let wire = serde_json::to_value(&response).unwrap();
+        let decoded: GetEvidenceResponse = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+        let candidate = &wire["evidence"]["flow_inventory"]["items"][0]["candidates"][0];
+        assert!(!candidate["reachability"].is_null() && !candidate["narrowing"].is_null());
+        assert_eq!(candidate["unattached"], true);
+        assert_eq!(candidate["mapped_count"], 0);
+    }
+    let changed = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "UPDATE \"{}\".flow_use_candidates SET reachability=NULL,condition_unavailable=TRUE WHERE unattached",
+        fixture.generation.schema(),
+    ))).execute(&fixture.db.superuser).await.unwrap();
+    assert_eq!(changed.rows_affected(), 2);
+    let damaged = fixture.service.evidence(&execution, &GetEvidenceRequest {
+        source: OriginalReference::Occurrence { occurrence: final_occurrence.unwrap() },
+        page: PageRequest { expanded: true, ..Default::default() },
+    }).await;
+    assert!(damaged.is_err(), "raw-origin hydration refuses damaged candidate evidence/digest");
+    drop(execution);
+    fixture.finish().await;
+}
