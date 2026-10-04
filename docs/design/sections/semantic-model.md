@@ -435,7 +435,18 @@ do not establish runtime invocation authority. The public verifier replays N1–
 binder before issuing `ValidatedBoundCall` and `CompositionAdmission`; arbitrary stored lower
 assessments or member rows cannot mint these tokens. P4 still owns the composition engine cutover.
 
-> Decision: ADR-0085, ADR-0103
+**Accepted target / Interface-checked, 2026-10-04:** source-body composition may use an exact,
+complete published Source-role signature enumeration for the selected callable when unrelated
+artifact signatures are unavailable. Shared replay checks every selected member, digest and support
+and the unique binding rules; a private closure token retains that evidence. Independently Known
+effective identity, compatible descriptor and admitted Known body, canonical source definition,
+complete original call-target event and Summary admission remain required. Missing/foreign or
+unavailable selected members, ambiguity, unknown wrappers and bodies refuse the token. Global
+`BindingSetAssessment` and `EffectiveInvocationAdmission` completeness do not change. This applies
+ADR-0122's scoped-versus-family distinction to declared signature closure without substituting Flow
+origin evidence. The analytical-enrichment coordinator owns implementation and qualification.
+
+> Decision: ADR-0085, ADR-0103, ADR-0123
 
 <a id="section-15-6"></a>
 
