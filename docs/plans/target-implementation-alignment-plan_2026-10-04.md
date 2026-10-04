@@ -41,6 +41,13 @@ Extension controls explain locality: adding a publication relation changes its o
 
 ## 4. Packages, prerequisites and concurrency
 
+**Operator priority, 2026-10-04:** prioritize foundational fact/contract/composition/representation
+work and fully migrate existing producers and consumers, including justified library functionality,
+architectural changes, foundational controls and old-path retirement. Assess every applicable
+opportunity through its existing package/decision route; a short critical-fix subset is not the
+combined completion boundary. The [next-agent handoff](target-implementation-alignment-handoff_2026-10-04.md)
+provides restart references and priority grouping without creating another progress ledger.
+
 | Package | Delivered capability and dependency |
 |---|---|
 | T0 | Correct current-owner guidance; settle any meaningful public/identity policy change through ADR plus owner before its consumer migration. No new framework or standing check |

@@ -40,7 +40,7 @@ the local recovery archive. All fifteen were removed; `git worktree list` now co
 | `INSTA_UPDATE=no cargo test --release -p lctx-model --test domain_handoffs` | **passed**, 2026-10-04: seven native inventory/region and retained-domain resource controls |
 | `INSTA_UPDATE=no cargo test --release -p lctx-model --lib domain::structural::` | **passed**, 2026-10-04: three conditional-alias/resource-lifetime/exhaustion controls |
 | Filtered release Nextest `cpg-core --test structural` positives/condition-erasure refusal | **passed**, 2026-10-04: three selected actual PostgreSQL controls, 234.841s; Catalog/Behavioral positives and paired refusal. Four unrelated controls filtered out; release compile passed |
-| `UV_NO_SYNC=1 just docs-check` | **passed**, 2026-10-04: 297 canonical pages, zero offline link errors; four-plan series, owner/disposition updates and handoff only |
+| `UV_NO_SYNC=1 just docs-check` | **passed**, 2026-10-04: 298 canonical pages, zero offline link errors; next-agent handoff, foundation-first priority and status; documentation only |
 | Current-source Named schema snapshot, matching CLI/native adapters and scoped store check | **not_run / pending**, 2026-10-04; four nullable fields across two existing Named enum relations require deliberate migration after source formatting |
 | Current-source full Clippy, `just hygiene`, `just test-all` and remaining Q1 journeys | **not_run / pending**, 2026-10-04, under the operator's targeted-only checkpoint request |
 | Previous model `8f8ec7c…` CLI/native adapters/schema snapshot | **passed**, 2026-10-04; 878 relations and reviewed Summary witness migration, before the latest read-region/resource changes |
@@ -99,9 +99,11 @@ retains 204 receipts, no readers/writer, and is unselected. Default store/regist
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Next: execution planning/authorization for the new series; begin analyzer A1, with S1/S2 and
-foundation contracts independently ready. Resume schema/artifact and same-tree Q0/Q1/full gates
-only under production scope; Phase 5 real-library activation remains separately stopped.
+Next: use the [foundation-first handoff](docs/plans/target-implementation-alignment-handoff_2026-10-04.md)
+for the new series: prioritize fact/contract/representation foundations and complete all applicable
+consumer migrations, library decisions, retirement and targeted controls. A1/F1/F2 are ready;
+inspect F3/F4 dependencies early. Resume shared Q0/Q1/full gates under production scope;
+Phase 5 real-library activation remains separately stopped.
 Gold/heldout/benchmarks are untouched.
 Recovery assets live under `/home/paul/.local/share/library-context/worktree-recovery/2026-10-04/`;
 its README/manifest/disposition describe preserved refs, Git bundle, patches, dirty files and raw receipts.
