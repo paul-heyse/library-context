@@ -103,6 +103,23 @@ mod tests {
         assert_eq!(q.assumptions, AssumptionSet::new([a.id(), b.id()]).unwrap().set.id());
         assert_eq!(output.flow_assumption_members.len(), 2);
         assert!(output.flow_conditions.get(conditional.id()).is_some());
+        // Conditional target/call basis is equally authoritative; conjunction is symmetric.
+        let conditional_call = AssertionQualification { condition: conditional.id(), ..call.clone() };
+        let unconditional_local = AssertionQualification { condition: Diagram::always().id(), ..local.clone() };
+        let target_q = intersect(&data, &conditional_call, &unconditional_local, artifact.id(), &mut output, &budget).unwrap();
+        assert_eq!(target_q.condition, conditional.id());
+        assert_eq!(target_q.assumptions, q.assumptions);
+        let opposite = conditional.not();
+        let (opposite_record, opposite_nodes) = opposite.records();
+        data.handoffs.entry.conditions.insert(opposite_record).unwrap();
+        for node in opposite_nodes {data.handoffs.entry.condition_nodes.insert(node).unwrap();}
+        let exclusive_local = AssertionQualification {condition: opposite.id(), ..local.clone()};
+        let false_q = intersect(&data, &conditional_call, &exclusive_local, artifact.id(), &mut output, &budget).unwrap();
+        assert_eq!(false_q.condition, Diagram::never().id(), "incompatible qualified evidence cannot become an unconditional flow");
+        assert_eq!(false_q.assumptions, q.assumptions);
+        let denied = ResourceBudget::fixed(0).unwrap();
+        assert!(matches!(intersect(&data, &call, &local, artifact.id(), &mut output, &denied), Err(ModelError::Resource {..})));
+        assert_eq!(denied.reserved(), 0);
         let foreign = AssertionQualification { context: id(8), ..local.clone() };
         assert!(intersect(&data, &call, &foreign, artifact.id(), &mut output, &budget).is_err());
         let missing = AssertionQualification { assumptions: id(9), ..local };
