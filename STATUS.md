@@ -27,7 +27,7 @@ Current scoped verification, **2026-10-04**: full workspace/all-target `just cli
 **passed** after `93278a8a`; fixture/gold/rules, Python lint/types and dependency policy passed.
 ADR-0123's owning decision link and authorized index refresh are repaired; ADR lint and
 `just docs-check` **passed**, 290 canonical pages. Scoped current-model store check passed,
-zero generations/findings; the named recipe's release CLI rebuild is in progress. These are
+zero generations/findings; all named hygiene repairs passed. These are
 composite receipts, before the remaining handoff repair and final formatting.
 `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all` initially **failed**: 997 Rust
 controls passed, 95 failed, four timed out and three skipped; Python/oracles and doctests were
@@ -36,7 +36,7 @@ integrated. All 16 selection/composition controls, all six source calls, nine re
 four actual PostgreSQL Summary controls passed. Native selected-domain explanation/JSON parity
 and the strengthened actual PostgreSQL/MCP evidence-purpose packet passed. Direct Behavioral
 Structural completed validation in 242.78s, then failed its required named-handoff positive;
-original-premise diagnostics are in progress. No current full functional pass is claimed.
+original-premise diagnostics are running against PostgreSQL. No current full functional pass is claimed.
 Current model is `ece1e6a8242aa3b7bafa039ed0aa07b7c5f6cd601db55626ef3770b76f9321a6`,
 878 relations; static migration review passed for two nullable keyed Summary witness fields
 and explicit validator input additions. Describe snapshot acceptance remains pending final

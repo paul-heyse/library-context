@@ -766,3 +766,17 @@ after `93278a8a` (`lctx-enrichment-selected-domain-clippy-rerun.log`). Scoped cu
 `lctx store check` **passed**, zero generations/findings (`lctx-enrichment-store-check-selected-domain.log`);
 default staging is untouched. The operator authorized one additional final formatting and ADR-index
 refresh, to run after the remaining functional repair and before final schema/artifact qualification.
+
+
+The current hygiene sequence is **composite passed**, 2026-10-04, before the remaining handoff
+repair/final formatting: the initial `just hygiene` and named repairs/resumption cover every
+check. Authorized `just adr index` added ADR-0123; `just adr-lint` and `just docs-check` passed
+(290 canonical pages, zero offline link errors). The first final named `just store-check`
+omitted the scoped environment and correctly refused the preserved default old-model staging
+(`lctx-enrichment-selected-domain-hygiene-final-named.log`); this read-only refusal changed
+nothing. The corrected `LCTX_DATABASE_CONFIG=<owned-empty-store> just store-check` **passed**,
+zero generations/findings (`lctx-enrichment-selected-domain-hygiene-store-scoped.log`). The
+standalone CLI still describes model `ece1e6a8242aa3b7bafa039ed0aa07b7c5f6cd601db55626ef3770b76f9321a6`,
+878 relations. These repairs are not an initially clean run or a current full functional pass.
+Two completed qualification worktrees were removed after clean status and integration checks;
+the handoff worktree remains for the open finding.
