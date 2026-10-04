@@ -110,7 +110,12 @@ pub async fn produce_with_sink<S: StageSink>(
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let settings = context.configuration()?.clone();
-    let declaration = build::stage(access.profile(), &settings, model, access.publication_order())?;
+    let declaration = build::stage(
+        access.profile(),
+        &settings,
+        model,
+        access.publication_order(),
+    )?;
     if declaration.configuration != access.stage().configuration
         || declaration.code != access.stage().code
         || declaration.name != access.stage().name
@@ -222,7 +227,9 @@ pub async fn produce_with_sink<S: StageSink>(
     lctx_model::analysis_publication!(common_publication);
     macro_rules! write {
         ($ty:ty,$rows:expr) => {{
-            if !common_type(std::any::TypeId::of::<$ty>()) {output.declare::<$ty>()?;}
+            if !common_type(std::any::TypeId::of::<$ty>()) {
+                output.declare::<$ty>()?;
+            }
             for row in $rows.iter() {
                 output.push(row.clone()).await?;
             }

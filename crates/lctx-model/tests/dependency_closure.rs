@@ -203,18 +203,81 @@ fn extra_invariant_epoch_and_fact_premise_survive_grant_projection() {
 
 #[test]
 fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
-    let model = ValidatedModel::validate(vec![Relation::of::<Probe>(), Relation::of::<Literal>(), Relation::of::<Package>()]).unwrap();
+    let model = ValidatedModel::validate(vec![
+        Relation::of::<Probe>(),
+        Relation::of::<Literal>(),
+        Relation::of::<Package>(),
+    ])
+    .unwrap();
     let order = order();
-    let build = |direct, owned: &[RelationUse], lower| DependencyClosure::grants(&model, vec![], direct, owned, PublicationBoundary::Facts, lower, &order);
-    let grants = build(vec![RelationUse::stored::<Probe>(), RelationUse::stored::<Package>()], &[], LowerLayerPolicy::OmitInferredOrdinaryFacts).unwrap();
-    assert_eq!(grants.iter().map(|r| r.name()).collect::<Vec<_>>(), vec![Probe::NAME, Literal::NAME, Package::NAME]);
-    assert_eq!(grants.iter().find(|r| r.name() == Literal::NAME).unwrap().prefix(), Some(PublicationBoundary::Facts));
-    let all = build(vec![RelationUse::stored::<Probe>()], &[], LowerLayerPolicy::IncludeInferredOrdinaryFacts).unwrap();
+    let build = |direct, owned: &[RelationUse], lower| {
+        DependencyClosure::grants(
+            &model,
+            vec![],
+            direct,
+            owned,
+            PublicationBoundary::Facts,
+            lower,
+            &order,
+        )
+    };
+    let grants = build(
+        vec![
+            RelationUse::stored::<Probe>(),
+            RelationUse::stored::<Package>(),
+        ],
+        &[],
+        LowerLayerPolicy::OmitInferredOrdinaryFacts,
+    )
+    .unwrap();
+    assert_eq!(
+        grants.iter().map(|r| r.name()).collect::<Vec<_>>(),
+        vec![Probe::NAME, Literal::NAME, Package::NAME]
+    );
+    assert_eq!(
+        grants
+            .iter()
+            .find(|r| r.name() == Literal::NAME)
+            .unwrap()
+            .prefix(),
+        Some(PublicationBoundary::Facts)
+    );
+    let all = build(
+        vec![RelationUse::stored::<Probe>()],
+        &[],
+        LowerLayerPolicy::IncludeInferredOrdinaryFacts,
+    )
+    .unwrap();
     assert!(all.iter().any(|r| r.name() == Package::NAME));
-    assert!(build(vec![RelationUse::stored::<Probe>()], &[RelationUse::of::<Probe>()], LowerLayerPolicy::OmitInferredOrdinaryFacts).is_err());
-    assert!(build(vec![RelationUse::stored::<Probe>()], &[RelationUse::of::<Package>()], LowerLayerPolicy::OmitInferredOrdinaryFacts).is_err());
+    assert!(
+        build(
+            vec![RelationUse::stored::<Probe>()],
+            &[RelationUse::of::<Probe>()],
+            LowerLayerPolicy::OmitInferredOrdinaryFacts
+        )
+        .is_err()
+    );
+    assert!(
+        build(
+            vec![RelationUse::stored::<Probe>()],
+            &[RelationUse::of::<Package>()],
+            LowerLayerPolicy::OmitInferredOrdinaryFacts
+        )
+        .is_err()
+    );
     let partial = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
-    assert!(DependencyClosure::grants(&partial, vec![], vec![RelationUse::stored::<Package>()], &[], PublicationBoundary::Facts, LowerLayerPolicy::OmitInferredOrdinaryFacts, &order).is_err());
+    assert!(
+        DependencyClosure::grants(
+            &partial,
+            vec![],
+            vec![RelationUse::stored::<Package>()],
+            &[],
+            PublicationBoundary::Facts,
+            LowerLayerPolicy::OmitInferredOrdinaryFacts,
+            &order
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -223,26 +286,73 @@ fn grant_composition_inherits_empty_validators_and_refuses_distinct_nonempty_pol
     let model = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
     let use_ = RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts);
     let order = order();
-    let build = |direct| DependencyClosure::grants(&model, vec![], direct, &[], PublicationBoundary::Facts, LowerLayerPolicy::OmitInferredOrdinaryFacts, &order);
-    for direct in [vec![use_, use_.validated_by(&["a"])], vec![use_.validated_by(&["a"]), use_], vec![use_.validated_by(&["a"]), use_.validated_by(&["a"])]] {
+    let build = |direct| {
+        DependencyClosure::grants(
+            &model,
+            vec![],
+            direct,
+            &[],
+            PublicationBoundary::Facts,
+            LowerLayerPolicy::OmitInferredOrdinaryFacts,
+            &order,
+        )
+    };
+    for direct in [
+        vec![use_, use_.validated_by(&["a"])],
+        vec![use_.validated_by(&["a"]), use_],
+        vec![use_.validated_by(&["a"]), use_.validated_by(&["a"])],
+    ] {
         assert_eq!(build(direct).unwrap()[0].validators(), ["a"]);
     }
     assert!(build(vec![use_.validated_by(&["a"]), use_.validated_by(&["b"])]).is_err());
-    assert!(build(vec![use_, RelationUse::of::<Literal>().at_epoch(PublicationBoundary::Facts)]).is_err());
-    assert!(build(vec![use_.availability(FactFamily::Types, AvailabilityPolicy::RequireComplete), use_.availability(FactFamily::Types, AvailabilityPolicy::ObserveAvailability)]).is_err());
+    assert!(
+        build(vec![
+            use_,
+            RelationUse::of::<Literal>().at_epoch(PublicationBoundary::Facts)
+        ])
+        .is_err()
+    );
+    assert!(
+        build(vec![
+            use_.availability(FactFamily::Types, AvailabilityPolicy::RequireComplete),
+            use_.availability(FactFamily::Types, AvailabilityPolicy::ObserveAvailability)
+        ])
+        .is_err()
+    );
 }
 
 #[test]
 fn sorted_name_lookup_and_grants_are_independent_of_source_order() {
-    let relations = vec![Relation::of::<Probe>(), Relation::of::<Literal>(), Relation::of::<Package>()];
+    let relations = vec![
+        Relation::of::<Probe>(),
+        Relation::of::<Literal>(),
+        Relation::of::<Package>(),
+    ];
     let first = ValidatedModel::validate(relations.clone()).unwrap();
     let shuffled = ValidatedModel::validate(relations.into_iter().rev().collect()).unwrap();
     assert_eq!(first.relation(Probe::NAME).unwrap().name(), Probe::NAME);
     assert!(first.relation("missing").is_none());
     for model in [&first, &shuffled] {
         let roots = vec![ValidationInput::of::<Probe>(&["id"])];
-        let grants = DependencyClosure::stage_grants(model, roots, &[], PublicationBoundary::Facts, LowerLayerPolicy::OmitInferredOrdinaryFacts, &order()).unwrap();
-        assert_eq!(grants.iter().map(|r| (r.name(), r.prefix())).collect::<Vec<_>>(), vec![(Probe::NAME, None), (Literal::NAME, Some(PublicationBoundary::Facts))]);
+        let grants = DependencyClosure::stage_grants(
+            model,
+            roots,
+            &[],
+            PublicationBoundary::Facts,
+            LowerLayerPolicy::OmitInferredOrdinaryFacts,
+            &order(),
+        )
+        .unwrap();
+        assert_eq!(
+            grants
+                .iter()
+                .map(|r| (r.name(), r.prefix()))
+                .collect::<Vec<_>>(),
+            vec![
+                (Probe::NAME, None),
+                (Literal::NAME, Some(PublicationBoundary::Facts))
+            ]
+        );
     }
 }
 
@@ -250,7 +360,12 @@ fn sorted_name_lookup_and_grants_are_independent_of_source_order() {
 fn local_missing_predecessor_is_a_typed_rejection() {
     let incomplete = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
     for profile in Profile::ALL {
-        let result = local_semantics::stage(profile, &local_semantics::definition().1, &incomplete, &order());
+        let result = local_semantics::stage(
+            profile,
+            &local_semantics::definition().1,
+            &incomplete,
+            &order(),
+        );
         assert!(matches!(result, Err(ModelError::Invalid(_))));
     }
 }

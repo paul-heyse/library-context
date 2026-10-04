@@ -719,8 +719,16 @@ pub fn stage(
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
     macro_rules! output{($($t:ty),*)=>{$(outputs.push(RelationUse::of::<$t>());)*};}
-    outputs.extend(owner::publication_relations().iter().map(RelationUse::of_relation));
-    output!(assertion::AssertionQualification,conditions::Condition,conditions::ConditionNode);
+    outputs.extend(
+        owner::publication_relations()
+            .iter()
+            .map(RelationUse::of_relation),
+    );
+    output!(
+        assertion::AssertionQualification,
+        conditions::Condition,
+        conditions::ConditionNode
+    );
     let own = outputs
         .iter()
         .filter(|r| !is_vocabulary(r.name()))
@@ -744,7 +752,8 @@ pub fn stage(
         "id",
     ]));
     let relation = |name| {
-        model.relation(name)
+        model
+            .relation(name)
             .ok_or_else(|| invalid(format!("analytic relation absent: {name}")))
     };
     let mut inputs = vec![];

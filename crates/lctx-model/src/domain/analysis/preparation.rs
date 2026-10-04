@@ -151,13 +151,25 @@ pub fn configuration_relations() -> Vec<Relation> {
 }
 /// Native attribution validation and its nominal reference closure are facts-owned. Bind every
 /// vocabulary read to the facts prefix even when later consumers add further vocabulary.
-pub fn native_stage(profile: Profile, model: &ValidatedModel, order: &PublicationOrder) -> Result<Stage, ModelError> {
-    let outputs = super::native::relations().iter().map(RelationUse::of_relation).collect::<Vec<_>>();
+pub fn native_stage(
+    profile: Profile,
+    model: &ValidatedModel,
+    order: &PublicationOrder,
+) -> Result<Stage, ModelError> {
+    let outputs = super::native::relations()
+        .iter()
+        .map(RelationUse::of_relation)
+        .collect::<Vec<_>>();
     let direct = NativeInventory::stage_inputs(profile);
     let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &direct)?;
     let inputs = dependency_closure::DependencyClosure::grants(
-        model, roots, direct, &outputs, PublicationBoundary::Facts,
-        dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts, order,
+        model,
+        roots,
+        direct,
+        &outputs,
+        PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts,
+        order,
     )?;
     Ok(Stage {
         name: "analysis_native_inventory",

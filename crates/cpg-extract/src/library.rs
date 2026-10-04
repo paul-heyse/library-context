@@ -29,7 +29,8 @@ pub(crate) fn fail(msg: impl Into<String>) -> ExtractError {
 /// PEP 503: lowercase, with runs of `-`, `_` and `.` as one `-`.
 pub fn normalize(name: &str) -> Result<String, String> {
     pep508_rs::PackageName::new(name.to_owned())
-        .map(|name| name.to_string()).map_err(|e| e.to_string())
+        .map(|name| name.to_string())
+        .map_err(|e| e.to_string())
 }
 
 /// The files Pyrefly's module finder reads (`py.typed` changes how a package resolves).
@@ -87,7 +88,13 @@ fn parse_definition(text: &str) -> Result<Definition, String> {
     let [requirement] = <[String; 1]>::try_from(p.project.dependencies)
         .map_err(|_| "[project] dependencies must be one requirement".to_owned())?;
     crate::deployment_parser::requirement(&requirement)?;
-    let release: Vec<String> = p.tool.lctx.release.iter().map(|r| normalize(r)).collect::<Result<_, _>>()?;
+    let release: Vec<String> = p
+        .tool
+        .lctx
+        .release
+        .iter()
+        .map(|r| normalize(r))
+        .collect::<Result<_, _>>()?;
     if release.is_empty() {
         return Err("[tool.lctx] release must name distributions".to_owned());
     }

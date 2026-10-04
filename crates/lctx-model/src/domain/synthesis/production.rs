@@ -98,7 +98,11 @@ pub fn stage(
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
     macro_rules! outputs{($($ty:ty),*)=>{$(outputs.push(RelationUse::of::<$ty>());)*};}
-    outputs.extend(owner::publication_relations().iter().map(RelationUse::of_relation));
+    outputs.extend(
+        owner::publication_relations()
+            .iter()
+            .map(RelationUse::of_relation),
+    );
     outputs!(assertion::AssertionQualification);
     macro_rules! observation_outputs{($($f:ident:$t:ty,)*)=>{$(outputs.push(RelationUse::of::<$t>());)*};}
     crate::synthesis_observation_outputs!(observation_outputs);
@@ -110,7 +114,8 @@ pub fn stage(
         analysis::AnalysisMethod::Synthesis,
     ));
     let relation = |name| {
-        model.relation(name)
+        model
+            .relation(name)
             .ok_or_else(|| ModelError::Invalid(format!("S0 relation absent: {name}")))
     };
     let mut inputs = vec![];

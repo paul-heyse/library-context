@@ -58,7 +58,9 @@ def test_missing_lockfile_is_not_run_not_failure(tmp_path: Path) -> None:
 MANIFEST = """[workspace.dependencies]
 {dep}
 """
-PINS = "# Pins\n\n| Component | Pin | Reason | Revisit when | Verified |\n|---|---|---|---|---|\n{row}"
+PINS = (
+    "# Pins\n\n| Component | Pin | Reason | Revisit when | Verified |\n|---|---|---|---|---|\n{row}"
+)
 
 
 @pytest.mark.parametrize(

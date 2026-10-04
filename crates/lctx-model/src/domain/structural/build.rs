@@ -537,8 +537,18 @@ pub fn stage(
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
     macro_rules! output {($($ty:ty),*)=>{$(outputs.push(RelationUse::of::<$ty>());)*};}
-    outputs.extend(publication::publication_relations().iter().map(RelationUse::of_relation));
-    output!(assertion::AssertionQualification,conditions::Condition,conditions::ConditionNode,assumptions::AssumptionSet,assumptions::AssumptionSetMember);
+    outputs.extend(
+        publication::publication_relations()
+            .iter()
+            .map(RelationUse::of_relation),
+    );
+    output!(
+        assertion::AssertionQualification,
+        conditions::Condition,
+        conditions::ConditionNode,
+        assumptions::AssumptionSet,
+        assumptions::AssumptionSetMember
+    );
     let own = outputs
         .iter()
         .filter(|r| !is_vocabulary(r.name()))
@@ -574,8 +584,12 @@ pub fn stage(
     ]));
     requested.retain(|input| !own.contains(input.name()));
     let inputs = dependency_closure::DependencyClosure::stage_grants(
-        model, requested, &outputs, PublicationBoundary::Local,
-        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+        model,
+        requested,
+        &outputs,
+        PublicationBoundary::Local,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        order,
     )?;
     let mut key = KeySink::new("structural-stage");
     settings.id().encode(&mut key);

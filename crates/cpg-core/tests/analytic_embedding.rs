@@ -103,9 +103,16 @@ async fn run(mode: Mode) {
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
         configuration.declaration(),
-        analysis::preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap(),
+        analysis::preparation::native_stage(profile, &model, &alignment_publication_order())
+            .unwrap(),
         normalized::callable_aspects::stage(profile),
-        text::stage(profile, &text_definition, &model, &alignment_publication_order()).unwrap(),
+        text::stage(
+            profile,
+            &text_definition,
+            &model,
+            &alignment_publication_order(),
+        )
+        .unwrap(),
         configuration::stage(selection.as_ref()),
         analytic::stage(profile, requested, &model, &alignment_publication_order()).unwrap(),
     ]);
@@ -417,5 +424,6 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
-    ]).unwrap()
+    ])
+    .unwrap()
 }

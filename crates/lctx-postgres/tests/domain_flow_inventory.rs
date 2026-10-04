@@ -17,13 +17,24 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
-    for case in ["complete", "incomplete", "bound_unattached", "formula", "hidden", "member", "digest"] {
+    for case in [
+        "complete",
+        "incomplete",
+        "bound_unattached",
+        "formula",
+        "hidden",
+        "member",
+        "digest",
+    ] {
         let mut fixture = if case == "bound_unattached" || case == "formula" {
             fixture::Fixture::bound_unattached()
-        } else { fixture::Fixture::new(case != "complete") };
+        } else {
+            fixture::Fixture::new(case != "complete")
+        };
         if case == "formula" {
             let mut state = fixture.candidates[0].state();
-            state.reachability = Some(serde_json::from_value(serde_json::to_value([25u8; 16]).unwrap()).unwrap());
+            state.reachability =
+                Some(serde_json::from_value(serde_json::to_value([25u8; 16]).unwrap()).unwrap());
             fixture.replace_inventory(&[state], &[]);
         }
         if case == "hidden" {
@@ -163,8 +174,20 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
                 assert_eq!(candidate.mapped_count, 0);
                 assert!(candidate.reachability.is_some() && candidate.narrowing.is_some());
                 let qualifications = lease.read::<AssertionQualification>().await.unwrap();
-                assert!(qualifications.rows().iter().any(|q| Some(q.id()) == candidate.reachability));
-                assert!(lease.read::<FlowReachingObservation>().await.unwrap().rows().is_empty());
+                assert!(
+                    qualifications
+                        .rows()
+                        .iter()
+                        .any(|q| Some(q.id()) == candidate.reachability)
+                );
+                assert!(
+                    lease
+                        .read::<FlowReachingObservation>()
+                        .await
+                        .unwrap()
+                        .rows()
+                        .is_empty()
+                );
                 assert!(!stored.rows()[0].complete);
             }
             lease.release().await.unwrap();
@@ -172,11 +195,16 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
         } else {
             let validation = generation_h.validate(&budget()).await;
             if case == "formula" {
-                assert!(matches!(&validation, Err(Error::Database(error))
+                assert!(
+                    matches!(&validation, Err(Error::Database(error))
                     if error.as_database_error().and_then(|e| e.code()).as_deref() == Some("23503")),
-                    "missing nominal qualification is rejected by the declared foreign key: {validation:?}");
+                    "missing nominal qualification is rejected by the declared foreign key: {validation:?}"
+                );
             } else {
-                assert!(matches!(&validation, Err(Error::Model(_))), "{case}: {validation:?}");
+                assert!(
+                    matches!(&validation, Err(Error::Model(_))),
+                    "{case}: {validation:?}"
+                );
             }
             assert!(generation_h.publish().await.is_err());
             generation_h.abort().await.unwrap();

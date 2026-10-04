@@ -74,7 +74,10 @@ async fn run(forged: bool) {
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
     ]);
-    stages.push(analysis::preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap());
+    stages.push(
+        analysis::preparation::native_stage(profile, &model, &alignment_publication_order())
+            .unwrap(),
+    );
     let mut inputs = entity_normalization::stage().inputs;
     macro_rules! entity {($($field:ident:$ty:ty,)*)=>{$(inputs.push(RelationUse::stored::<$ty>());)*};}
     lctx_model::normalized_entity_outputs!(entity);
@@ -304,5 +307,6 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
-    ]).unwrap()
+    ])
+    .unwrap()
 }

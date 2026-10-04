@@ -198,7 +198,12 @@ mod sqlstate_controls {
         for code in ["40001", "40P01", "08006", "57P01"] {
             assert!(FailureClass::retryable_sqlstate(code));
         }
-        for (code, class) in [("23505", FailureClass::Invalid), ("53100", FailureClass::Limit), ("54000", FailureClass::Limit), ("42501", FailureClass::Refused)] {
+        for (code, class) in [
+            ("23505", FailureClass::Invalid),
+            ("53100", FailureClass::Limit),
+            ("54000", FailureClass::Limit),
+            ("42501", FailureClass::Refused),
+        ] {
             assert_eq!(FailureClass::sqlstate(code), class);
             assert!(!FailureClass::retryable_sqlstate(code));
         }

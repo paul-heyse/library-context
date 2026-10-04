@@ -439,8 +439,10 @@ impl ValidatedModel {
     }
     /// Relations are canonicalized by name during validation.
     pub fn relation(&self, name: &str) -> Option<&Relation> {
-        self.relations.binary_search_by_key(&name, |relation| relation.name())
-            .ok().map(|index| &self.relations[index])
+        self.relations
+            .binary_search_by_key(&name, |relation| relation.name())
+            .ok()
+            .map(|index| &self.relations[index])
     }
     pub fn relations(&self) -> &[Relation] {
         &self.relations

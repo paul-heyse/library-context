@@ -35,7 +35,8 @@ macro_rules! code_schema { ($($ty:ty),* $(,)?)=>{$(
 )*}; }
 code_schema!(
     attribution::FactFamily,
-    attribution::CoverageStatus,    attribution::Fidelity,
+    attribution::CoverageStatus,
+    attribution::Fidelity,
     attribution::Origin,
     attribution::ExtractionMode,
     execution::ExactRuntimeException,

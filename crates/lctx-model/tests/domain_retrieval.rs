@@ -166,26 +166,99 @@ fn api_corpus_preserves_default_uncertainty_and_exact_values() {
         catalog::CatalogDefault::Factory { expression: id(21) },
     ];
     for (index, default) in defaults.into_iter().enumerate() {
-        let subject = d.source.catalog.subjects.insert(catalog::CatalogOptionSubject::SourceParameter { parameter: id(30 + index as u8) }).unwrap();
+        let subject = d
+            .source
+            .catalog
+            .subjects
+            .insert(catalog::CatalogOptionSubject::SourceParameter {
+                parameter: id(30 + index as u8),
+            })
+            .unwrap();
         let default = d.source.catalog.defaults.insert(default).unwrap();
-        d.source.catalog.options.insert(catalog::CatalogOption { member, subject, evidence: id(40 + index as u8), default }).unwrap();
+        d.source
+            .catalog
+            .options
+            .insert(catalog::CatalogOption {
+                member,
+                subject,
+                evidence: id(40 + index as u8),
+                default,
+            })
+            .unwrap();
     }
-    for (index, literal) in [Literal::Integer { decimal: "123456789012345678901234567890".into() }, Literal::Float { bits: (-0.0f64).to_bits() as i64 }, Literal::Bytes { value: EvidenceBytes(vec![0, 128, 255]) }].into_iter().enumerate() {
-        let subject = d.source.catalog.subjects.insert(catalog::CatalogOptionSubject::SourceParameter { parameter: id(50 + index as u8) }).unwrap();
+    for (index, literal) in [
+        Literal::Integer {
+            decimal: "123456789012345678901234567890".into(),
+        },
+        Literal::Float {
+            bits: (-0.0f64).to_bits() as i64,
+        },
+        Literal::Bytes {
+            value: EvidenceBytes(vec![0, 128, 255]),
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let subject = d
+            .source
+            .catalog
+            .subjects
+            .insert(catalog::CatalogOptionSubject::SourceParameter {
+                parameter: id(50 + index as u8),
+            })
+            .unwrap();
         let literal = d.facts.literals.insert(literal).unwrap();
-        let default = d.source.catalog.defaults.insert(catalog::CatalogDefault::Literal { literal }).unwrap();
-        d.source.catalog.options.insert(catalog::CatalogOption { member, subject, evidence: id(60 + index as u8), default }).unwrap();
+        let default = d
+            .source
+            .catalog
+            .defaults
+            .insert(catalog::CatalogDefault::Literal { literal })
+            .unwrap();
+        d.source
+            .catalog
+            .options
+            .insert(catalog::CatalogOption {
+                member,
+                subject,
+                evidence: id(60 + index as u8),
+                default,
+            })
+            .unwrap();
     }
     let out = retrieval::build::build(&d, &b).unwrap();
-    let corpus = out.corpus.iter().find(|c| c.family == Family::ApiOptions).unwrap();
+    let corpus = out
+        .corpus
+        .iter()
+        .find(|c| c.family == Family::ApiOptions)
+        .unwrap();
     let text = corpus.text.as_str();
-    for expected in ["default=Absent\n", "default=Unknown\n", "default=Unavailable\n", "default=Unevaluated expression\n", "default=Factory (not evaluated)\n", "default=Literal 123456789012345678901234567890\n", "default=Literal -0.0\n", "default=Literal b\"\\x00\\x80\\xff\"\n"] {
-        assert!(text.contains(expected), "missing exact default presentation: {expected}");
+    for expected in [
+        "default=Absent\n",
+        "default=Unknown\n",
+        "default=Unavailable\n",
+        "default=Unevaluated expression\n",
+        "default=Factory (not evaluated)\n",
+        "default=Literal 123456789012345678901234567890\n",
+        "default=Literal -0.0\n",
+        "default=Literal b\"\\x00\\x80\\xff\"\n",
+    ] {
+        assert!(
+            text.contains(expected),
+            "missing exact default presentation: {expected}"
+        );
     }
     assert!(!text.contains("default=None"));
     assert!(!text.contains("Integer {"));
-    let predecessor = CorpusText { rendering_version: RENDER_VERSION - 1, ..corpus.clone() };
-    assert_ne!(corpus.id(), predecessor.id(), "rendering migration invalidates old corpus identity even when bytes agree");
+    let predecessor = CorpusText {
+        rendering_version: RENDER_VERSION - 1,
+        ..corpus.clone()
+    };
+    assert_ne!(
+        corpus.id(),
+        predecessor.id(),
+        "rendering migration invalidates old corpus identity even when bytes agree"
+    );
 }
 #[test]
 fn unicode_fragments_are_canonical_contiguous_and_addressable() {
@@ -567,7 +640,13 @@ fn final_stage_has_completed_named_owners_and_exact_immutable_effect() {
     for profile in stages::Profile::ALL {
         for requested in [false, true] {
             let definition = Definition::builtin(requested);
-            let stage = retrieval::build::stage(profile, &definition, &model, &alignment_publication_order()).unwrap();
+            let stage = retrieval::build::stage(
+                profile,
+                &definition,
+                &model,
+                &alignment_publication_order(),
+            )
+            .unwrap();
             assert_eq!(
                 stage.effect,
                 if requested {
@@ -609,5 +688,6 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
-    ]).unwrap()
+    ])
+    .unwrap()
 }

@@ -174,10 +174,14 @@ async fn canonical_search_filters_before_ranking_and_retains_original_contexts()
         families: vec![retrieval::Family::ApiOptions],
         page: PageRequest::default(),
     });
-    assert!(matches!(retrieval.request(&execution, &request, None, None).await,
-        Err(lctx_postgres::generations::Error::LibraryAdmission(_))));
+    assert!(matches!(
+        retrieval.request(&execution, &request, None, None).await,
+        Err(lctx_postgres::generations::Error::LibraryAdmission(_))
+    ));
     // Omitted filter nominates the admitted generation union.
-    let Request::SearchEvidence(mut request) = request else {panic!("typed route")};
+    let Request::SearchEvidence(mut request) = request else {
+        panic!("typed route")
+    };
     request.library = Optional::default();
     let request = Request::SearchEvidence(request);
     let prepared = retrieval

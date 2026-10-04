@@ -138,9 +138,27 @@ async fn run(profile: Profile) {
     ]);
     declarations.extend(catalog_runtime::stages(profile, &model));
     declarations.extend([
-        execution::enriched_production::stage(profile, &enriched_definition, &model, &fixture_publication_order()).unwrap(),
-        execution::model_production::stage(profile, &model_definition, &model, &fixture_publication_order()).unwrap(),
-        execution::summary_replay::stage(profile, &summary_definition, &model, &fixture_publication_order()).unwrap(),
+        execution::enriched_production::stage(
+            profile,
+            &enriched_definition,
+            &model,
+            &fixture_publication_order(),
+        )
+        .unwrap(),
+        execution::model_production::stage(
+            profile,
+            &model_definition,
+            &model,
+            &fixture_publication_order(),
+        )
+        .unwrap(),
+        execution::summary_replay::stage(
+            profile,
+            &summary_definition,
+            &model,
+            &fixture_publication_order(),
+        )
+        .unwrap(),
     ]);
     let schedule = catalog_schedule::schedule(&model, declarations, profile);
     assert!(

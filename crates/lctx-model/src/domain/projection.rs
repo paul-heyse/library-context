@@ -83,11 +83,30 @@ pub struct ProjectionSpec {
 impl ProjectionSpec {
     pub const VERSION: i32 = 3;
     pub(crate) fn encode_contract(self, sink: &mut KeySink) {
-        sink.part(b"universe", match self.universe() { UniversePolicy::InputEntitiesAndContextTargets => b"input-entities-and-context-targets" });
-        sink.part(b"multiplicity", match self.multiplicity() { MultiplicityPolicy::PreserveTypedParallelArcs => b"preserve-typed-parallel-arcs" });
-        sink.part(b"availability", match self.availability() { AvailabilityPolicy::RetainEveryRequiredScope => b"retain-every-required-scope" });
+        sink.part(
+            b"universe",
+            match self.universe() {
+                UniversePolicy::InputEntitiesAndContextTargets => {
+                    b"input-entities-and-context-targets"
+                }
+            },
+        );
+        sink.part(
+            b"multiplicity",
+            match self.multiplicity() {
+                MultiplicityPolicy::PreserveTypedParallelArcs => b"preserve-typed-parallel-arcs",
+            },
+        );
+        sink.part(
+            b"availability",
+            match self.availability() {
+                AvailabilityPolicy::RetainEveryRequiredScope => b"retain-every-required-scope",
+            },
+        );
         sink.part(b"role-count", &(self.roles().len() as u64).to_le_bytes());
-        for role in self.roles() { role.encode(sink); }
+        for role in self.roles() {
+            role.encode(sink);
+        }
         self.call_policy().encode(sink);
     }
     pub fn builtin(name: ProjectionName) -> Self {

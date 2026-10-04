@@ -31,7 +31,9 @@ async def observe(spec: dict) -> None:
     capability = expected["capability"]["capability"]
     uri = f"lctx://capability/{bytes(capability).hex()}"
     async with Client(transport, timeout=90, init_timeout=90) as client:
-        tool = await client.call_tool("get_capability", {"capability": capability, "page": {"expanded": True}})
+        tool = await client.call_tool(
+            "get_capability", {"capability": capability, "page": {"expanded": True}}
+        )
         assert not tool.is_error
         assert tool.structured_content == expected
         contents = await client.read_resource(uri)
@@ -45,18 +47,36 @@ async def observe(spec: dict) -> None:
         assert hashlib.sha256(text[: len(body)].encode()).hexdigest() == spec["authored_sha256"]
         suffix = text[len(body) :]
         metadata = json.loads(suffix.split("```json\n", 1)[1].split("\n```", 1)[0])
-        assert metadata == {"generation": expected["generation"], "capability": capability, "uri_scope": "process"}
+        assert metadata == {
+            "generation": expected["generation"],
+            "capability": capability,
+            "uri_scope": "process",
+        }
         assertion_text = suffix.split("## Assertion evidence\n", 1)[1]
-        retained = [json.loads(block.split("\n```", 1)[0]) for block in assertion_text.split("```json\n")[1:]]
+        retained = [
+            json.loads(block.split("\n```", 1)[0])
+            for block in assertion_text.split("```json\n")[1:]
+        ]
         assert len(retained) == len(expected["capability"]["assertions"])
         for actual, original in zip(retained, expected["capability"]["assertions"], strict=True):
-            for field in ["assertion", "status", "kind", "qualification", "claim_basis", "terminal_question", "text", "supports"]:
+            for field in [
+                "assertion",
+                "status",
+                "kind",
+                "qualification",
+                "claim_basis",
+                "terminal_question",
+                "text",
+                "supports",
+            ]:
                 assert actual[field] == original[field]
         result = ReadResourceResult(contents=contents)
         bound = json.loads(wire_tool("get_capability"))["byte_limits"]["expanded"]
         stdio, http = response_encodings(result, "snapshot-λ")
         assert len(stdio) <= bound and len(http) <= bound
-    print("actual capability stdio: authored bytes/hash, tool/resource snapshot, assertion evidence and SDK envelopes passed")
+    print(
+        "actual capability stdio: authored bytes/hash, tool/resource snapshot, assertion evidence and SDK envelopes passed"
+    )
 
 
 if __name__ == "__main__":

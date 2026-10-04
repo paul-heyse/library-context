@@ -903,10 +903,15 @@ fn completed_stage_inventory_requires_core_and_original_receipts_without_flow_or
             .any(|r| r.contains("brief") || r.contains("embedding"))
     );
     assert!(
-        !catalog::build::stage(stages::Profile::Catalog, &model, &alignment_publication_order()).unwrap()
-            .outputs
-            .iter()
-            .any(|r| r.name() == CatalogScenario::NAME)
+        !catalog::build::stage(
+            stages::Profile::Catalog,
+            &model,
+            &alignment_publication_order()
+        )
+        .unwrap()
+        .outputs
+        .iter()
+        .any(|r| r.name() == CatalogScenario::NAME)
     );
 }
 
@@ -1677,5 +1682,6 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
-    ]).unwrap()
+    ])
+    .unwrap()
 }

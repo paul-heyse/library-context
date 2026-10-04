@@ -123,10 +123,12 @@ impl CatalogService {
         ))?;
         let wire = wire_identity();
         drop(held);
-        let (domains, distributions) = guard.prepare_cpu(move |budget| {
-            let domains = PreparedLibraryDomains::prepare(&admission, budget)?;
-            Ok((domains, admission.distributions))
-        }).await?;
+        let (domains, distributions) = guard
+            .prepare_cpu(move |budget| {
+                let domains = PreparedLibraryDomains::prepare(&admission, budget)?;
+                Ok((domains, admission.distributions))
+            })
+            .await?;
         guard.check().await?;
         let selection = service.selection();
         for row in ownership.iter() {
@@ -163,7 +165,10 @@ impl CatalogService {
     pub fn service(&self) -> &GenerationService {
         &self.state.service
     }
-    pub(super) fn resolve_library(&self, name: Option<&Name>) -> Result<ResolvedLibraryDomain<'_>, Error> {
+    pub(super) fn resolve_library(
+        &self,
+        name: Option<&Name>,
+    ) -> Result<ResolvedLibraryDomain<'_>, Error> {
         Ok(self.state.domains.resolve(name)?)
     }
     pub(super) fn prepared(&self) -> &selection::evaluate::Prepared {
@@ -274,17 +279,36 @@ impl CatalogService {
         }
         Ok(bytes)
     }
-    pub(super) fn belongs(&self, m: &catalog::CatalogMember, domain: &ResolvedLibraryDomain<'_>) -> bool {
-        let Some(module) = self.prepared().data().source.core.modules.get(m.access) else {return false;};
-        let owned = self.state.ownership.iter().any(|r| r.artifact == module.source);
+    pub(super) fn belongs(
+        &self,
+        m: &catalog::CatalogMember,
+        domain: &ResolvedLibraryDomain<'_>,
+    ) -> bool {
+        let Some(module) = self.prepared().data().source.core.modules.get(m.access) else {
+            return false;
+        };
+        let owned = self
+            .state
+            .ownership
+            .iter()
+            .any(|r| r.artifact == module.source);
         if owned {
-            self.state.ownership.iter().filter(|r| r.artifact == module.source).any(|r| {
-                self.state.verifications.get(r.distribution).is_some_and(|v| domain.contains_capture(m.input, v.release))
-            })
+            self.state
+                .ownership
+                .iter()
+                .filter(|r| r.artifact == module.source)
+                .any(|r| {
+                    self.state
+                        .verifications
+                        .get(r.distribution)
+                        .is_some_and(|v| domain.contains_capture(m.input, v.release))
+                })
         } else {
-            self.state.distributions.iter().any(|r| r.input == m.input
-                && r.role == input::DistributionRole::FirstParty
-                && domain.contains_capture(r.input, r.release))
+            self.state.distributions.iter().any(|r| {
+                r.input == m.input
+                    && r.role == input::DistributionRole::FirstParty
+                    && domain.contains_capture(r.input, r.release)
+            })
         }
     }
     pub(super) fn path(&self, m: &CatalogMember) -> Result<Vec<String>, Error> {
@@ -472,7 +496,11 @@ impl CatalogService {
         });
         Ok(rows)
     }
-    fn candidate(&self, c: &CandidateSelection, domain: &ResolvedLibraryDomain<'_>) -> Result<OperationCandidate, Error> {
+    fn candidate(
+        &self,
+        c: &CandidateSelection,
+        domain: &ResolvedLibraryDomain<'_>,
+    ) -> Result<OperationCandidate, Error> {
         let d = self.prepared().data();
         let member = d
             .source
@@ -480,14 +508,21 @@ impl CatalogService {
             .members
             .get(c.member)
             .ok_or(Error::Contract)?;
-        let releases = self.member_releases(member)?.into_iter()
+        let releases = self
+            .member_releases(member)?
+            .into_iter()
             .filter(|release| domain.contains_capture(member.input, *release))
             .map(|release| {
                 let row = d.facts.releases.get(release).ok_or(Error::Contract)?;
                 let package = d.facts.packages.get(row.package).ok_or(Error::Contract)?;
-                Ok(ReleaseIdentity {input: member.input, release,
-                    distribution: name(package.name.clone())?, version: name(row.version.clone())?})
-            }).collect::<Result<Vec<_>, Error>>()?;
+                Ok(ReleaseIdentity {
+                    input: member.input,
+                    release,
+                    distribution: name(package.name.clone())?,
+                    version: name(row.version.clone())?,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
         let mut requirements = Vec::new();
         for r in &c.requirements {
             let mut contexts = BTreeSet::new();

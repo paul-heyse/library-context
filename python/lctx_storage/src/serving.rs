@@ -14,12 +14,18 @@ use pyo3::{
 use std::{
     collections::BTreeSet,
     path::PathBuf,
-    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 pyo3::create_exception!(lctx_storage, StorageError, PyRuntimeError);
 fn error(error: Error) -> PyErr {
     if matches!(error, Error::LibraryAdmission(_)) {
-        return refused("unknown_library", "requested library is not admitted to this generation");
+        return refused(
+            "unknown_library",
+            "requested library is not admitted to this generation",
+        );
     }
     let kind = match FailureClass::of(&error) {
         FailureClass::Resource | FailureClass::Limit | FailureClass::Contention => {
@@ -88,7 +94,10 @@ impl NumericalAttempt {
         // Python callback runs while it is held.
         if let Ok(mut numerical) = self.state.numerical.lock() {
             self.cancelled.store(true, Ordering::Release);
-            if numerical.as_ref().is_some_and(|ready| Arc::ptr_eq(&ready.attempt, &self.cancelled)) {
+            if numerical
+                .as_ref()
+                .is_some_and(|ready| Arc::ptr_eq(&ready.attempt, &self.cancelled))
+            {
                 numerical.take();
             }
         } else {
@@ -102,7 +111,9 @@ struct PreparationWait {
 }
 impl Drop for PreparationWait {
     fn drop(&mut self) {
-        if !self.completed { self.attempt.cancel(); }
+        if !self.completed {
+            self.attempt.cancel();
+        }
     }
 }
 #[pyclass]
@@ -114,7 +125,9 @@ impl NumericalCancellation {
     fn __call__(&self, future: &Bound<'_, PyAny>) -> PyResult<()> {
         // The bridge polls a ready inner future before its cancellation receiver.
         // Observe the actual Python future as well, including that ready-result race.
-        if future.call_method0("cancelled")?.extract::<bool>()? { self.attempt.cancel(); }
+        if future.call_method0("cancelled")?.extract::<bool>()? {
+            self.attempt.cancel();
+        }
         Ok(())
     }
 }
@@ -659,10 +672,16 @@ impl Service {
         callback: Py<PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let state = self.state.clone();
-        let attempt = Arc::new(NumericalAttempt { state: state.clone(), cancelled: Arc::new(AtomicBool::new(false)) });
+        let attempt = Arc::new(NumericalAttempt {
+            state: state.clone(),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        });
         let cleanup = attempt.clone();
         let future = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut waiting = PreparationWait { attempt: attempt.clone(), completed: false };
+            let mut waiting = PreparationWait {
+                attempt: attempt.clone(),
+                completed: false,
+            };
             let cancelled = attempt.cancelled.clone();
             let reservation = state
                 .service
@@ -673,10 +692,15 @@ impl Service {
             let retrieval = state.service.retrieval().clone();
             let result = retrieval
                 .prepare_numerical(move |corpus, budget| {
-                    let _initializing = state.numerical_preparation.lock().map_err(|_| Error::State)?;
+                    let _initializing = state
+                        .numerical_preparation
+                        .lock()
+                        .map_err(|_| Error::State)?;
                     {
                         let numerical = state.numerical.lock().map_err(|_| Error::State)?;
-                        if cancelled.load(Ordering::Acquire) { return Err(Error::State); }
+                        if cancelled.load(Ordering::Acquire) {
+                            return Err(Error::State);
+                        }
                         if numerical.is_some() {
                             return Ok(Err(invalid("numerical corpus already initialized")));
                         }
@@ -705,10 +729,17 @@ impl Service {
                     });
                     if result.is_ok() {
                         let mut numerical = state.numerical.lock().map_err(|_| Error::State)?;
-                        if cancelled.load(Ordering::Acquire) { return Err(Error::State); }
-                        if numerical.is_some() { return Ok(Err(invalid("numerical corpus already initialized"))); }
-                        *numerical = Some(NumericalState { _reservation: reservation,
-                            documents: corpus.documents.len(), attempt: cancelled });
+                        if cancelled.load(Ordering::Acquire) {
+                            return Err(Error::State);
+                        }
+                        if numerical.is_some() {
+                            return Ok(Err(invalid("numerical corpus already initialized")));
+                        }
+                        *numerical = Some(NumericalState {
+                            _reservation: reservation,
+                            documents: corpus.documents.len(),
+                            attempt: cancelled,
+                        });
                     }
                     Ok(result)
                 })
@@ -717,9 +748,17 @@ impl Service {
             waiting.completed = result.is_ok();
             result
         })?;
-        let callback = match Py::new(py, NumericalCancellation { attempt: cleanup.clone() }) {
+        let callback = match Py::new(
+            py,
+            NumericalCancellation {
+                attempt: cleanup.clone(),
+            },
+        ) {
             Ok(callback) => callback,
-            Err(error) => { cleanup.cancel(); return Err(error); }
+            Err(error) => {
+                cleanup.cancel();
+                return Err(error);
+            }
         };
         if let Err(error) = future.call_method1("add_done_callback", (callback,)) {
             cleanup.cancel();
@@ -1046,9 +1085,7 @@ impl Service {
                         .and_then(|n| n.checked_add(8192))
                         .ok_or(Error::ResourceRefused("capability resource bytes"))?;
                     let _charge = budget.reserve("python-capability-resource-codec", bytes)?;
-                    let text = response
-                        .resource_text()
-                        .map_err(|_| Error::Contract)?;
+                    let text = response.resource_text().map_err(|_| Error::Contract)?;
                     if text.len() > ResourceLimits::default().expanded_response_bytes as usize {
                         return Err(Error::ResourceRefused("capability resource bytes"));
                     }

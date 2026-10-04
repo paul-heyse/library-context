@@ -1516,12 +1516,18 @@ impl<S: StageSink + 'static> Writer<'_, S> {
                 let narrowing = self.qualify(&c.narrowing, *scope, Some(use_.occurrence))?;
                 let unavailable = reachability.is_none();
                 if c.unattached {
-                    self.boundary(Some(use_.occurrence), ObligationKind::NativeUnavailable,
-                        "native candidate definition unattached")?;
+                    self.boundary(
+                        Some(use_.occurrence),
+                        ObligationKind::NativeUnavailable,
+                        "native candidate definition unattached",
+                    )?;
                 }
                 if c.narrowing_precision_lost {
-                    self.boundary(Some(use_.occurrence), ObligationKind::ResourceRefused,
-                        "native candidate narrowing lost precision")?;
+                    self.boundary(
+                        Some(use_.occurrence),
+                        ObligationKind::ResourceRefused,
+                        "native candidate narrowing lost precision",
+                    )?;
                 }
                 let unattached = c.unattached || c.reaching.iter().any(|i| unattached_reaching[*i]);
                 candidates.push(CandidateState {

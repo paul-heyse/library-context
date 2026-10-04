@@ -79,7 +79,8 @@ async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipt
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
         configuration.declaration(),
-        analysis::preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap(),
+        analysis::preparation::native_stage(profile, &model, &alignment_publication_order())
+            .unwrap(),
         normalized::callable_aspects::stage(profile),
         build::stage(profile, &model, &alignment_publication_order()).unwrap(),
     ]);
@@ -322,5 +323,6 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
-    ]).unwrap()
+    ])
+    .unwrap()
 }

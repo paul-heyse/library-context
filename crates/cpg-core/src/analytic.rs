@@ -149,7 +149,9 @@ pub async fn produce(
     lctx_model::analysis_publication!(common_publication);
     macro_rules! write {
         ($t:ty,$rows:expr) => {{
-            if !common_type(std::any::TypeId::of::<$t>()) {output.declare::<$t>()?;}
+            if !common_type(std::any::TypeId::of::<$t>()) {
+                output.declare::<$t>()?;
+            }
             for row in $rows.iter() {
                 output.push(row.clone()).await?;
             }

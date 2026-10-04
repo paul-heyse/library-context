@@ -732,7 +732,11 @@ impl InvariantCheck for Check {
         self.output.matches(&build(&self.data, &self.budget)?)
     }
 }
-pub fn stage(profile: stages::Profile, model: &ValidatedModel, order: &stages::PublicationOrder) -> Result<stages::Stage, ModelError> {
+pub fn stage(
+    profile: stages::Profile,
+    model: &ValidatedModel,
+    order: &stages::PublicationOrder,
+) -> Result<stages::Stage, ModelError> {
     let mut inputs = crate::domain::normalized::coverage::stage(profile).inputs;
     inputs.extend(crate::domain::normalized::callable_aspects::stage(profile).inputs);
     inputs.extend(
@@ -750,8 +754,13 @@ pub fn stage(profile: stages::Profile, model: &ValidatedModel, order: &stages::P
     let outputs = stage_outputs();
     let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &inputs)?;
     let inputs = dependency_closure::DependencyClosure::grants(
-        model, roots, inputs, &outputs, stages::PublicationBoundary::Facts,
-        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+        model,
+        roots,
+        inputs,
+        &outputs,
+        stages::PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        order,
     )?;
     Ok(stages::Stage {
         name: "catalog_core",
@@ -811,7 +820,11 @@ fn stage_outputs() -> Vec<stages::RelationUse> {
         .iter()
         .map(stages::RelationUse::of_relation)
         .collect::<Vec<_>>();
-    outputs.extend(analysis::catalog_core::publication_relations().iter().map(stages::RelationUse::of_relation));
+    outputs.extend(
+        analysis::catalog_core::publication_relations()
+            .iter()
+            .map(stages::RelationUse::of_relation),
+    );
     outputs
 }
 /// Map every retained slot/context to its own admitted computation, even without signatures.

@@ -30,7 +30,12 @@ impl Column {
             Scalar::FiniteF64 => "double precision",
             Scalar::Id | Scalar::Digest | Scalar::Binary => "bytea",
         };
-        format!("{}:{base}{}:{}", self.name, if self.list { "[]" } else { "" }, !self.nullable)
+        format!(
+            "{}:{base}{}:{}",
+            self.name,
+            if self.list { "[]" } else { "" },
+            !self.nullable
+        )
     }
     pub fn definition(&self, generation: GenerationId) -> ColumnDef {
         let ty = match self.scalar {
@@ -49,11 +54,19 @@ impl Column {
         } else {
             ColumnDef::new_with_type(self.name.clone(), ty)
         };
-        if !self.nullable { column.not_null(); }
+        if !self.nullable {
+            column.not_null();
+        }
         match self.value {
-            Value::Generation => { column.default(Expr::cust(format!("decode('{}', 'hex')", generation.hex()))); }
-            Value::Epoch => { column.default(0); }
-            Value::Subtype(code) => { column.generated(Expr::val(code), true); }
+            Value::Generation => {
+                column.default(Expr::cust(format!("decode('{}', 'hex')", generation.hex())));
+            }
+            Value::Epoch => {
+                column.default(0);
+            }
+            Value::Subtype(code) => {
+                column.generated(Expr::val(code), true);
+            }
             Value::Ordinary => {}
         }
         column
@@ -61,32 +74,70 @@ impl Column {
 }
 pub(super) fn columns(relation: &Relation) -> Vec<Column> {
     let mut columns = vec![
-        Column { name: "generation_id".into(), scalar: Scalar::Id, list: false, nullable: false, value: Value::Generation },
-        Column { name: "id".into(), scalar: Scalar::Id, list: false, nullable: false, value: Value::Ordinary },
+        Column {
+            name: "generation_id".into(),
+            scalar: Scalar::Id,
+            list: false,
+            nullable: false,
+            value: Value::Generation,
+        },
+        Column {
+            name: "id".into(),
+            scalar: Scalar::Id,
+            list: false,
+            nullable: false,
+            value: Value::Ordinary,
+        },
     ];
     if stages::is_vocabulary(relation.name()) {
-        columns.push(Column { name: "introduced_epoch".into(), scalar: Scalar::Int16, list: false, nullable: false, value: Value::Epoch });
+        columns.push(Column {
+            name: "introduced_epoch".into(),
+            scalar: Scalar::Int16,
+            list: false,
+            nullable: false,
+            value: Value::Epoch,
+        });
     }
     for field in relation.fields() {
-        columns.push(Column { name: field.name().into(), scalar: field.scalar(), list: field.list(), nullable: field.nullable(), value: Value::Ordinary });
+        columns.push(Column {
+            name: field.name().into(),
+            scalar: field.scalar(),
+            list: field.list(),
+            nullable: field.nullable(),
+            value: Value::Ordinary,
+        });
         if let (Some(_), Some(code)) = (field.target(), field.subtype()) {
-            columns.push(Column { name: format!("__{}_tag", field.name()), scalar: Scalar::Int16, list: false, nullable: true, value: Value::Subtype(code) });
+            columns.push(Column {
+                name: format!("__{}_tag", field.name()),
+                scalar: Scalar::Int16,
+                list: false,
+                nullable: true,
+                value: Value::Subtype(code),
+            });
         }
     }
     columns
 }
 pub(super) fn projection(relation: &Relation) -> String {
-    columns(relation).iter().map(|column| quoted(&column.name)).collect::<Vec<_>>().join(",")
+    columns(relation)
+        .iter()
+        .map(|column| quoted(&column.name))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lctx_model::{Domain, domain::{Record, source, value}};
+    use lctx_model::{
+        Domain,
+        domain::{Record, source, value},
+    };
     #[derive(Debug, Clone, PartialEq, Domain)]
-    #[model(name="physical_column_controls")]
+    #[model(name = "physical_column_controls")]
     struct Control {
-        #[model(key)] key: String,
+        #[model(key)]
+        key: String,
         optional: Option<i32>,
         names: Vec<String>,
         flag: bool,
@@ -99,14 +150,43 @@ mod tests {
     #[test]
     fn independent_physical_shapes_preserve_hidden_and_semantic_boundaries() {
         let relation = Relation::of::<Control>();
-        assert_eq!(columns(&relation).iter().map(Column::signature).collect::<Vec<_>>(), [
-            "generation_id:bytea:true", "id:bytea:true", "key:text:true", "optional:integer:false", "names:text[]:true", "flag:boolean:true", "small:smallint:true", "wide:bigint:true", "fraction:double precision:true", "digest:bytea:true", "literal:bytea:true", "__literal_tag:smallint:false",
-        ]);
+        assert_eq!(
+            columns(&relation)
+                .iter()
+                .map(Column::signature)
+                .collect::<Vec<_>>(),
+            [
+                "generation_id:bytea:true",
+                "id:bytea:true",
+                "key:text:true",
+                "optional:integer:false",
+                "names:text[]:true",
+                "flag:boolean:true",
+                "small:smallint:true",
+                "wide:bigint:true",
+                "fraction:double precision:true",
+                "digest:bytea:true",
+                "literal:bytea:true",
+                "__literal_tag:smallint:false",
+            ]
+        );
         assert_eq!(relation.fields().len(), 9);
-        assert_eq!(columns(&Relation::of::<source::SourceArtifact>())[0].name, "generation_id");
+        assert_eq!(
+            columns(&Relation::of::<source::SourceArtifact>())[0].name,
+            "generation_id"
+        );
         let literal = columns(&Relation::of::<value::Literal>());
         assert_eq!(literal[2].signature(), "introduced_epoch:smallint:true");
-        assert!(literal.iter().any(|column| column.signature() == "string_value:bytea:false"));
-        assert!(!<Control as Record>::schema().fields().iter().any(|field| field.name() == "generation_id"));
+        assert!(
+            literal
+                .iter()
+                .any(|column| column.signature() == "string_value:bytea:false")
+        );
+        assert!(
+            !<Control as Record>::schema()
+                .fields()
+                .iter()
+                .any(|field| field.name() == "generation_id")
+        );
     }
 }

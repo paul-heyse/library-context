@@ -61,7 +61,10 @@ async fn run(profile: Profile) {
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
     ]);
-    stages.push(analysis::preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap());
+    stages.push(
+        analysis::preparation::native_stage(profile, &model, &alignment_publication_order())
+            .unwrap(),
+    );
     let (parameters, definition) = lctx_model::domain::local_semantics::definition();
     let configuration = analysis::preparation::Configuration::new(
         captured.config().catalog(),
@@ -70,7 +73,10 @@ async fn run(profile: Profile) {
     )
     .unwrap();
     stages.push(configuration.declaration());
-    stages.push(local_semantics::stage(profile, &definition, &model, &alignment_publication_order()).unwrap());
+    stages.push(
+        local_semantics::stage(profile, &definition, &model, &alignment_publication_order())
+            .unwrap(),
+    );
     let facts_members = stages
         .iter()
         .filter(|s| s.name != "analyze_local" && s.outputs.iter().any(|r| is_vocabulary(r.name())))
@@ -531,5 +537,6 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
-    ]).unwrap()
+    ])
+    .unwrap()
 }

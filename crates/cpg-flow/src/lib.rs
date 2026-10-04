@@ -1171,7 +1171,8 @@ impl<'db> Walk<'_, 'db> {
                         if let DefinitionKind::LoopHeader(inner) = d.kind(self.db) {
                             pending.push(inner.clone());
                         } else {
-                            let nested = matches!(d.kind(self.db), DefinitionKind::NestedBindings(_));
+                            let nested =
+                                matches!(d.kind(self.db), DefinitionKind::NestedBindings(_));
                             let def_ix = self.def(scope, d);
                             out.push((def_ix, nested, def_ix.is_none() && !nested));
                         }

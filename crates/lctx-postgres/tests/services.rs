@@ -199,18 +199,30 @@ async fn failed_migration_discards_its_session_lock_and_repeat_install_recovers(
     let s = services().await;
     let migrator = s.config.connect_migrator().await.unwrap();
     migrator.migrate().await.unwrap();
-    let checksum: Vec<u8> = sqlx::query_scalar("SELECT checksum FROM public._sqlx_migrations ORDER BY version LIMIT 1")
-        .fetch_one(s.db.owner.pool()).await.unwrap();
+    let checksum: Vec<u8> =
+        sqlx::query_scalar("SELECT checksum FROM public._sqlx_migrations ORDER BY version LIMIT 1")
+            .fetch_one(s.db.owner.pool())
+            .await
+            .unwrap();
     sqlx::query("UPDATE public._sqlx_migrations SET checksum = $1")
-        .bind(vec![0u8]).execute(s.db.owner.pool()).await.unwrap();
+        .bind(vec![0u8])
+        .execute(s.db.owner.pool())
+        .await
+        .unwrap();
     for _ in 0..3 {
         assert!(matches!(migrator.migrate().await, Err(Error::Migration)));
         let locks: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())")
             .fetch_one(&s.db.superuser).await.unwrap();
-        assert_eq!(locks, 0, "a failed migration must not retain its session lock in the pool");
+        assert_eq!(
+            locks, 0,
+            "a failed migration must not retain its session lock in the pool"
+        );
     }
     sqlx::query("UPDATE public._sqlx_migrations SET checksum = $1")
-        .bind(checksum).execute(s.db.owner.pool()).await.unwrap();
+        .bind(checksum)
+        .execute(s.db.owner.pool())
+        .await
+        .unwrap();
     migrator.migrate().await.unwrap();
     migrator.check().await.unwrap();
 }

@@ -1038,7 +1038,11 @@ pub fn stage(
         .iter()
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
-    outputs.extend(analysis::catalog_evidence::publication_relations().iter().map(stages::RelationUse::of_relation));
+    outputs.extend(
+        analysis::catalog_evidence::publication_relations()
+            .iter()
+            .map(stages::RelationUse::of_relation),
+    );
     let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &inputs)?;
     let inputs = dependency_closure::DependencyClosure::grants(
         model,

@@ -2,9 +2,7 @@
 //! P1.5). Role identity is shared by the generation store and the dormant serving code.
 use crate::{Error, load_protected};
 use serde::{Deserialize, Serialize};
-use sqlx::{
-    postgres::PgConnectOptions,
-};
+use sqlx::postgres::PgConnectOptions;
 use std::path::Path;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
@@ -142,20 +140,27 @@ impl RoleConfig {
         if options.get_username() != self.role.name() {
             return Err(Error::Config("connection role mismatch"));
         }
-        Ok(crate::connection_options::session(options,
-            match self.role { Role::Importer => "lctx-import", Role::Serving => "lctx-serving" },
-            self.statement_timeout_seconds, self.lock_timeout_seconds, "pg_catalog,lctx_ext")
-            .options([
-                ("transaction_timeout", "30s".to_owned()),
-                (
-                    "default_transaction_read_only",
-                    if self.role == Role::Serving {
-                        "on"
-                    } else {
-                        "off"
-                    }
-                    .to_owned(),
-                ),
-            ]))
+        Ok(crate::connection_options::session(
+            options,
+            match self.role {
+                Role::Importer => "lctx-import",
+                Role::Serving => "lctx-serving",
+            },
+            self.statement_timeout_seconds,
+            self.lock_timeout_seconds,
+            "pg_catalog,lctx_ext",
+        )
+        .options([
+            ("transaction_timeout", "30s".to_owned()),
+            (
+                "default_transaction_read_only",
+                if self.role == Role::Serving {
+                    "on"
+                } else {
+                    "off"
+                }
+                .to_owned(),
+            ),
+        ]))
     }
 }

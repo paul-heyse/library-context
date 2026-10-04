@@ -201,9 +201,7 @@ pub fn stage(
     outputs.extend(owner::publication_relations());
     outputs.extend(owner::support::relations());
     macro_rules! output{($($t:ty),*)=>{$(outputs.push(Relation::of::<$t>());)*};}
-    output!(
-        owner::ObligationSource
-    );
+    output!(owner::ObligationSource);
     macro_rules! vocabulary{($($f:ident:$t:ty,)*)=>{$(outputs.push(Relation::of::<$t>());)*};}
     crate::summary_vocabulary!(vocabulary);
     outputs.sort_by_key(Relation::name);
@@ -215,11 +213,20 @@ pub fn stage(
     requested.push(ValidationInput::of::<analysis::ProjectionDefinition>(&[
         "id",
     ]));
-    let owned = outputs.iter().map(RelationUse::of_relation).collect::<Vec<_>>();
-    requested.retain(|input| is_vocabulary(input.name()) || !owned.iter().any(|row| row.name() == input.name()));
+    let owned = outputs
+        .iter()
+        .map(RelationUse::of_relation)
+        .collect::<Vec<_>>();
+    requested.retain(|input| {
+        is_vocabulary(input.name()) || !owned.iter().any(|row| row.name() == input.name())
+    });
     let inputs = dependency_closure::DependencyClosure::stage_grants(
-        model, requested, &owned, PublicationBoundary::Model,
-        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+        model,
+        requested,
+        &owned,
+        PublicationBoundary::Model,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        order,
     )?;
     let mut configuration = KeySink::new("summary-stage");
     definition.id().encode(&mut configuration);

@@ -51,10 +51,15 @@ impl Translator<'_> {
         // token-boundary assertion while still seeking the first possibly intersecting token.
         let tokens = self.module.tokens();
         let first = tokens.partition_point(|token| token.range().end() <= range.start());
-        for token in tokens[first..].iter().take_while(|token| token.range().start() < range.end()) {
+        for token in tokens[first..]
+            .iter()
+            .take_while(|token| token.range().start() < range.end())
+        {
             let token_range = token.range();
             if token.kind() == ruff_python_ast_ty::token::TokenKind::Comment
-                && token_range.start() >= range.start() && token_range.end() <= range.end() {
+                && token_range.start() >= range.start()
+                && token_range.end() <= range.end()
+            {
                 let start = usize::from(token_range.start());
                 out.push_str(&self.original[at..start]);
                 at = usize::from(token_range.end());
@@ -548,8 +553,7 @@ impl Translator<'_> {
     ) -> Condition {
         let Some(place) = self.place(subject) else {
             return Condition::atom(
-                Atom::opaque(&self.uncommented(subject.range()))
-                    .evaluated(evaluation.clone()),
+                Atom::opaque(&self.uncommented(subject.range())).evaluated(evaluation.clone()),
             );
         };
         match kind {
@@ -569,7 +573,9 @@ impl Translator<'_> {
                         Condition::atom(Atom::Equals { place, value }.evaluated(evaluation.clone()))
                     }
                     None => Condition::atom(
-                        Atom::opaque(&self.uncommented(v.node_ref(self.db).node(self.module).range()))
+                        Atom::opaque(
+                            &self.uncommented(v.node_ref(self.db).node(self.module).range()),
+                        )
                         .evaluated(evaluation.clone()),
                     ),
                 }
@@ -610,8 +616,7 @@ impl Translator<'_> {
 
     fn pattern_opaque(&self, subject: &Expr, evaluation: &EvaluationSite) -> Condition {
         Condition::atom(
-            Atom::opaque(&self.uncommented(subject.range()))
-                .evaluated(evaluation.clone()),
+            Atom::opaque(&self.uncommented(subject.range())).evaluated(evaluation.clone()),
         )
     }
 }

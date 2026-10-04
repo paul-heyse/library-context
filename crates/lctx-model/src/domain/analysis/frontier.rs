@@ -404,11 +404,20 @@ pub fn stage(
         Target::Analysis => analysis_relations(),
         Target::Catalog => catalog_relations(),
     };
-    let owned = outputs.iter().map(stages::RelationUse::of_relation).collect::<Vec<_>>();
+    let owned = outputs
+        .iter()
+        .map(stages::RelationUse::of_relation)
+        .collect::<Vec<_>>();
     let inputs = dependency_closure::DependencyClosure::stage_grants(
-        model, FrontierData::inputs(target), &owned,
-        match target {Target::Analysis=>stages::PublicationBoundary::Analytic, Target::Catalog=>stages::PublicationBoundary::Synthesis},
-        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+        model,
+        FrontierData::inputs(target),
+        &owned,
+        match target {
+            Target::Analysis => stages::PublicationBoundary::Analytic,
+            Target::Catalog => stages::PublicationBoundary::Synthesis,
+        },
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        order,
     )?;
     let mut code = KeySink::new("final-frontier-shared-kernel");
     for bytes in [

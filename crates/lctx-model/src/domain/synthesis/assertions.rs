@@ -150,7 +150,9 @@ fn invalid(s: impl Into<String>) -> ModelError {
     ModelError::Invalid(s.into())
 }
 fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
-    rows.required(id, || invalid(format!("programmatic assertion input absent: {}", R::NAME)))
+    rows.required(id, || {
+        invalid(format!("programmatic assertion input absent: {}", R::NAME))
+    })
 }
 /// All constructors use the same status/policy operation. Requested status is not an input.
 struct AssertionContent<'a> {
@@ -747,8 +749,9 @@ fn structural_text(
             };
             let expression = occurrence_text(d, *occurrence, b)?;
             let literal = need(&d.literals, argument.literal)?;
-            let presentation = value::presentation::render(literal, value::presentation::Mode::Human, None, b)?
-                .map_err(|_| invalid("human literal presentation unavailable"))?;
+            let presentation =
+                value::presentation::render(literal, value::presentation::Mode::Human, None, b)?
+                    .map_err(|_| invalid("human literal presentation unavailable"))?;
             let literal = &presentation.text;
             (
                 AssertionKind::TransformedControl,

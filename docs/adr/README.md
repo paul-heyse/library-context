@@ -72,6 +72,8 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0121](0121-analytical-evidence-packets.md) | Model-owned enrichment preserves source roles and native overload selection limits | 2026-10-04 | [§3.6](../design/sections/facts-and-identity.md#section-3-6), [§4.2](../design/sections/acquisition-and-extraction.md#section-4-2), [§9](../design/sections/analytics.md#section-9), [§14](../design/sections/api-and-evidence-product.md#section-14), [§15](../design/sections/semantic-model.md#section-15) | Interface-checked |  |
 | [ADR-0122](0122-per-use-native-origin-closure.md) | Use attributed per-use native inventories for exact origin closure | 2026-10-04 | [§3.9](../design/sections/behavior-model.md#section-3-9), [§9.3](../design/sections/analytics.md#section-9-3), [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§15.6](../design/sections/semantic-model.md#section-15-6) | Interface-checked | ADR-0111 |
 | [ADR-0123](0123-selected-source-signature-closure.md) | Compose known source bodies from exact declared signature closure | 2026-10-04 | [§15.5](../design/sections/semantic-model.md#section-15-5), [§15.6](../design/sections/semantic-model.md#section-15-6) | Interface-checked |  |
+| [ADR-0124](0124-captured-evidence-admission-compatibility.md) | Preserve captured evidence, admitted domains and explicit compatibility contracts | 2026-10-04 | section-14-1, section-15-3 | Proposed |  |
+| [ADR-0125](0125-dependencies-float.md) | Dependencies float; exact pins need a recorded reason | 2026-10-04 | [§7](../design/DESIGN.md#section-7) | Tested |  |
 
 ## Proposed: open choices, not accepted decisions
 

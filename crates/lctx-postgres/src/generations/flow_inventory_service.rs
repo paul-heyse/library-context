@@ -369,8 +369,10 @@ impl PacketLease<'_> {
                     let formula = if let Some(id) = id {
                         let rows = self.read_ids::<AssertionQualification>(&[id]).await?;
                         let q = required(&rows, id)?;
-                        if q.context != grant.context || q.scope != qualification.scope
-                            || q.assumptions != qualification.assumptions {
+                        if q.context != grant.context
+                            || q.scope != qualification.scope
+                            || q.assumptions != qualification.assumptions
+                        {
                             return Err(Error::Contract);
                         }
                         proof.push(derivation::RowRef::of(q.id()));
@@ -383,7 +385,9 @@ impl PacketLease<'_> {
                             approximation: q.approximation,
                             claim_basis: self.claim_basis(q).await?,
                         })
-                    } else { None };
+                    } else {
+                        None
+                    };
                     formulas.push(formula);
                 }
                 let narrowing = formulas.pop().expect("two native formulas");

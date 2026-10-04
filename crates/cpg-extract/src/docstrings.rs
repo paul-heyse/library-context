@@ -136,7 +136,7 @@ pub(crate) fn locate_description(literal: &str, name: &str, text: &str) -> Optio
 
 #[cfg(test)]
 mod docstring_tests {
-    use super::{Located, locate_description, literal_body};
+    use super::{Located, literal_body, locate_description};
 
     fn at(literal: &str, located: Option<Located>) -> String {
         match located.expect("located") {
@@ -200,7 +200,13 @@ mod docstring_tests {
             let (start, end) = literal_body(literal).unwrap();
             assert_eq!(&literal[start..end], "café");
         }
-        for malformed in ["not a literal", "r\"unfinished", "'''mixed\"", "'", "\"\"\"\"\""] {
+        for malformed in [
+            "not a literal",
+            "r\"unfinished",
+            "'''mixed\"",
+            "'",
+            "\"\"\"\"\"",
+        ] {
             assert!(literal_body(malformed).is_none(), "{malformed}");
         }
     }

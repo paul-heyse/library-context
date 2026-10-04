@@ -334,8 +334,11 @@ pub fn enrich_all(
             let mut context_round_bound = 1usize;
             for occurrence in facts.occurrences.iter() {
                 step()?;
-                if occurrence.syntax_kind == source::SyntaxKind::StmtWith && selected(occurrence.source) {
-                    context_round_bound = context_round_bound.checked_add(1)
+                if occurrence.syntax_kind == source::SyntaxKind::StmtWith
+                    && selected(occurrence.source)
+                {
+                    context_round_bound = context_round_bound
+                        .checked_add(1)
                         .ok_or_else(|| invalid("enriched context round bound overflow"))?;
                 }
             }
@@ -868,12 +871,21 @@ pub fn stage(
             initial.extend(check.inputs.iter().cloned());
         }
     }
-    let owned = outputs.iter().map(RelationUse::of_relation).collect::<Vec<_>>();
+    let owned = outputs
+        .iter()
+        .map(RelationUse::of_relation)
+        .collect::<Vec<_>>();
     // A publication check can name the records being written; only its predecessors are roots.
-    initial.retain(|input| is_vocabulary(input.name()) || !owned.iter().any(|row| row.name() == input.name()));
+    initial.retain(|input| {
+        is_vocabulary(input.name()) || !owned.iter().any(|row| row.name() == input.name())
+    });
     let inputs = dependency_closure::DependencyClosure::stage_grants(
-        model, initial, &owned, PublicationBoundary::Facts,
-        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+        model,
+        initial,
+        &owned,
+        PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        order,
     )?;
     let mut key = KeySink::new("enriched-execution-definition");
     definition.id().encode(&mut key);

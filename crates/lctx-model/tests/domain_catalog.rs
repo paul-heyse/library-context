@@ -716,7 +716,16 @@ fn nested_paths_join_declaration_identity_and_rebinding_is_explicit() {
 fn catalog_stage_declares_completed_nominal_and_shared_invariant_inputs() {
     use std::collections::BTreeSet;
     let model = model().unwrap();
-    let stage = stage(stages::Profile::Catalog, &model, &stages::PublicationOrder::planning(&[stages::PublicationGroup::new(stages::PublicationBoundary::Facts, vec!["facts"])]).unwrap()).unwrap();
+    let stage = stage(
+        stages::Profile::Catalog,
+        &model,
+        &stages::PublicationOrder::planning(&[stages::PublicationGroup::new(
+            stages::PublicationBoundary::Facts,
+            vec!["facts"],
+        )])
+        .unwrap(),
+    )
+    .unwrap();
     let declared: BTreeSet<_> = stage.inputs.iter().map(|r| r.name()).collect();
     let facts: BTreeSet<_> = facts_relations().iter().map(Relation::name).collect();
     for relation in model

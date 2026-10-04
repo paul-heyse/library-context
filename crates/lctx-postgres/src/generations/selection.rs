@@ -97,10 +97,12 @@ impl super::GenerationGuard {
                 .await?;
         }
         drop(locked);
-        let (prepared, admission) = self.prepare_cpu(move |budget| {
-            admission.validate(&data, &output, budget)?;
-            Ok((Prepared::from_local_rows(data, output, budget)?, admission))
-        }).await?;
+        let (prepared, admission) = self
+            .prepare_cpu(move |budget| {
+                admission.validate(&data, &output, budget)?;
+                Ok((Prepared::from_local_rows(data, output, budget)?, admission))
+            })
+            .await?;
         let mut locked = self.state.lease.lock().await;
         let lease = locked.as_mut().ok_or(Error::State)?;
         lease.verify_selection_sources(&admission, profile).await?;

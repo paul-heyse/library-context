@@ -79,110 +79,113 @@ impl RetrievalService {
         drop(held);
         let generation = GenerationKey(*catalog.service().generation().bytes());
         let (data, unit_occurrences, member_occurrences, unit_corpus, member_corpus, charge) =
-            guard.prepare_cpu(move |budget| {
-                let mut charge = budget.reserve("retrieval-occurrence-joins", 0)?;
-                let mut bytes = 0usize;
-                let mut unit_occurrences = Vec::new();
-                let mut member_occurrences = Vec::new();
-                let mut text = Vec::new();
-                for unit in data.units.iter() {
-                    let member_ids = data
-                        .unit_subjects
-                        .iter()
-                        .filter(|s| s.unit == unit.id())
-                        .map(|s| data.subjects.get(s.subject).ok_or(Error::Contract))
-                        .collect::<Result<Vec<_>, _>>()?
-                        .into_iter()
-                        .filter_map(|s| {
-                            if let Subject::Member { member } = s {
-                                Some(*member)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<BTreeSet<_>>();
-                    let mut anchors = data
-                        .anchors
-                        .iter()
-                        .filter(|a| a.unit == unit.id())
-                        .map(|a| Some(a.id()))
-                        .collect::<Vec<_>>();
-                    if anchors.is_empty() {
-                        anchors.push(None);
-                    }
-                    for fragment in data.fragments.iter().filter(|f| f.corpus == unit.corpus) {
-                        for anchor in &anchors {
-                            let occurrence = Occurrence {
-                                target: Target::Unit { unit: unit.id() },
-                                unit: unit.id(),
-                                fragment: fragment.id(),
-                                context: unit.context,
-                                anchor: *anchor,
-                                family: unit.family,
-                            };
-                            bytes = bytes
-                                .checked_add(768 + fragment.text.len() * 2 + member_ids.len() * 512)
-                                .ok_or(Error::ResourceRefused("retrieval join size"))?;
-                            charge.try_resize(bytes)?;
-                            unit_occurrences.push(occurrence);
-                            text.push(TextOccurrence {
-                                occurrence,
-                                text: fragment.text.as_str().to_owned(),
-                            });
-                            for member in &member_ids {
-                                member_occurrences.push(Occurrence {
-                                    target: Target::Member { member: *member },
-                                    ..occurrence
+            guard
+                .prepare_cpu(move |budget| {
+                    let mut charge = budget.reserve("retrieval-occurrence-joins", 0)?;
+                    let mut bytes = 0usize;
+                    let mut unit_occurrences = Vec::new();
+                    let mut member_occurrences = Vec::new();
+                    let mut text = Vec::new();
+                    for unit in data.units.iter() {
+                        let member_ids = data
+                            .unit_subjects
+                            .iter()
+                            .filter(|s| s.unit == unit.id())
+                            .map(|s| data.subjects.get(s.subject).ok_or(Error::Contract))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into_iter()
+                            .filter_map(|s| {
+                                if let Subject::Member { member } = s {
+                                    Some(*member)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<BTreeSet<_>>();
+                        let mut anchors = data
+                            .anchors
+                            .iter()
+                            .filter(|a| a.unit == unit.id())
+                            .map(|a| Some(a.id()))
+                            .collect::<Vec<_>>();
+                        if anchors.is_empty() {
+                            anchors.push(None);
+                        }
+                        for fragment in data.fragments.iter().filter(|f| f.corpus == unit.corpus) {
+                            for anchor in &anchors {
+                                let occurrence = Occurrence {
+                                    target: Target::Unit { unit: unit.id() },
+                                    unit: unit.id(),
+                                    fragment: fragment.id(),
+                                    context: unit.context,
+                                    anchor: *anchor,
+                                    family: unit.family,
+                                };
+                                bytes = bytes
+                                    .checked_add(
+                                        768 + fragment.text.len() * 2 + member_ids.len() * 512,
+                                    )
+                                    .ok_or(Error::ResourceRefused("retrieval join size"))?;
+                                charge.try_resize(bytes)?;
+                                unit_occurrences.push(occurrence);
+                                text.push(TextOccurrence {
+                                    occurrence,
+                                    text: fragment.text.as_str().to_owned(),
                                 });
+                                for member in &member_ids {
+                                    member_occurrences.push(Occurrence {
+                                        target: Target::Member { member: *member },
+                                        ..occurrence
+                                    });
+                                }
                             }
                         }
                     }
-                }
-                let policy = RankingPolicy::default();
-                let channel = ChannelBinding::lexical(&policy, "preparation")?;
-                let units = data
-                    .units
-                    .iter()
-                    .map(|u| Target::Unit { unit: u.id() })
-                    .collect::<Vec<_>>();
-                let unit_preparation = PreparedRanking::new(
-                    generation,
-                    policy.clone(),
-                    &[channel],
-                    &units,
-                    &unit_occurrences,
-                    &budget,
-                )?;
-                let unit_corpus = Arc::new(unit_preparation.prepare_lexical(&text)?);
-                drop(text);
-                drop(unit_preparation);
-                let members = member_occurrences
-                    .iter()
-                    .map(|o| o.target)
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect::<Vec<_>>();
-                let member_preparation = PreparedRanking::new(
-                    generation,
-                    policy,
-                    &[channel],
-                    &members,
-                    &member_occurrences,
-                    &budget,
-                )?;
-                let member_corpus =
-                    member_preparation.project_member_lexical(unit_corpus.clone())?;
-                drop(member_preparation);
-                Ok::<_, Error>((
-                    data,
-                    unit_occurrences,
-                    member_occurrences,
-                    unit_corpus,
-                    member_corpus,
-                    charge,
-                ))
-            })
-            .await?;
+                    let policy = RankingPolicy::default();
+                    let channel = ChannelBinding::lexical(&policy, "preparation")?;
+                    let units = data
+                        .units
+                        .iter()
+                        .map(|u| Target::Unit { unit: u.id() })
+                        .collect::<Vec<_>>();
+                    let unit_preparation = PreparedRanking::new(
+                        generation,
+                        policy.clone(),
+                        &[channel],
+                        &units,
+                        &unit_occurrences,
+                        &budget,
+                    )?;
+                    let unit_corpus = Arc::new(unit_preparation.prepare_lexical(&text)?);
+                    drop(text);
+                    drop(unit_preparation);
+                    let members = member_occurrences
+                        .iter()
+                        .map(|o| o.target)
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>();
+                    let member_preparation = PreparedRanking::new(
+                        generation,
+                        policy,
+                        &[channel],
+                        &members,
+                        &member_occurrences,
+                        &budget,
+                    )?;
+                    let member_corpus =
+                        member_preparation.project_member_lexical(unit_corpus.clone())?;
+                    drop(member_preparation);
+                    Ok::<_, Error>((
+                        data,
+                        unit_occurrences,
+                        member_occurrences,
+                        unit_corpus,
+                        member_corpus,
+                        charge,
+                    ))
+                })
+                .await?;
         guard.check().await?;
         let vectors = if vector_enabled {
             Some(guard.vector_artifact().await?)
@@ -212,22 +215,28 @@ impl RetrievalService {
     /// This allowance is not a measurement of Python, NumPy or total process RSS.
     pub async fn reserve_numerical(&self) -> Result<super::PreparedReservation, Error> {
         let this = self.clone();
-        let bytes = self.state.catalog.service().guard().prepare_cpu(move |_| {
-        let mut bytes = 4096usize;
-        for document in this.state.unit_corpus.documents() {
-            bytes = bytes
-                .checked_add(document.text.len().checked_mul(8).ok_or(Error::Contract)?)
-                .and_then(|n| n.checked_add(512))
-                .ok_or(Error::Contract)?;
-            for token in &document.tokens {
-                bytes = bytes
-                    .checked_add(token.len().checked_mul(8).ok_or(Error::Contract)?)
-                    .and_then(|n| n.checked_add(192))
-                    .ok_or(Error::Contract)?;
-            }
-        }
-        Ok(bytes)
-        }).await?;
+        let bytes = self
+            .state
+            .catalog
+            .service()
+            .guard()
+            .prepare_cpu(move |_| {
+                let mut bytes = 4096usize;
+                for document in this.state.unit_corpus.documents() {
+                    bytes = bytes
+                        .checked_add(document.text.len().checked_mul(8).ok_or(Error::Contract)?)
+                        .and_then(|n| n.checked_add(512))
+                        .ok_or(Error::Contract)?;
+                    for token in &document.tokens {
+                        bytes = bytes
+                            .checked_add(token.len().checked_mul(8).ok_or(Error::Contract)?)
+                            .and_then(|n| n.checked_add(192))
+                            .ok_or(Error::Contract)?;
+                    }
+                }
+                Ok(bytes)
+            })
+            .await?;
         self.state
             .catalog
             .service()
@@ -249,38 +258,77 @@ impl RetrievalService {
     }
     /// Startup handoff uses the original preparation budget rather than a request deadline.
     /// The caller retains this allowance through conversion and numerical initialization.
-    pub async fn prepare_numerical<T: Send + 'static>(&self, work: impl FnOnce(NumericalCorpus, &resources::ResourceBudget) -> Result<T, Error> + Send + 'static) -> Result<T, Error> {
+    pub async fn prepare_numerical<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(NumericalCorpus, &resources::ResourceBudget) -> Result<T, Error>
+        + Send
+        + 'static,
+    ) -> Result<T, Error> {
         let this = self.clone();
-        self.state.catalog.service().guard().prepare_cpu(move |budget| {
-            let (corpus, _handoff) = this.preparation_corpus(budget)?;
-            work(corpus, budget)
-        }).await
+        self.state
+            .catalog
+            .service()
+            .guard()
+            .prepare_cpu(move |budget| {
+                let (corpus, _handoff) = this.preparation_corpus(budget)?;
+                work(corpus, budget)
+            })
+            .await
     }
-    fn preparation_corpus(&self, budget: &resources::ResourceBudget) -> Result<(NumericalCorpus, Box<dyn resources::Reservation>), Error> {
+    fn preparation_corpus(
+        &self,
+        budget: &resources::ResourceBudget,
+    ) -> Result<(NumericalCorpus, Box<dyn resources::Reservation>), Error> {
         let documents = self.state.unit_corpus.documents();
         let bytes = documents.iter().try_fold(4096usize, |bytes, document| {
             let tokens = document.tokens.iter().try_fold(0usize, |bytes, token| {
-                bytes.checked_add(token.len()).and_then(|n| n.checked_add(64)).ok_or(Error::Contract)
+                bytes
+                    .checked_add(token.len())
+                    .and_then(|n| n.checked_add(64))
+                    .ok_or(Error::Contract)
             })?;
-            bytes.checked_add(document.text.len().checked_mul(2).ok_or(Error::Contract)?)
-                .and_then(|n| n.checked_add(tokens)).and_then(|n| n.checked_add(256)).ok_or(Error::Contract)
+            bytes
+                .checked_add(document.text.len().checked_mul(2).ok_or(Error::Contract)?)
+                .and_then(|n| n.checked_add(tokens))
+                .and_then(|n| n.checked_add(256))
+                .ok_or(Error::Contract)
         })?;
         let charge = budget.reserve("numerical preparation handoff", bytes)?;
-        Ok((NumericalCorpus { policy: RankingPolicy::default(), documents: documents.to_vec() }, charge))
+        Ok((
+            NumericalCorpus {
+                policy: RankingPolicy::default(),
+                documents: documents.to_vec(),
+            },
+            charge,
+        ))
     }
     fn belongs(&self, unit: &Unit, domain: &ResolvedLibraryDomain<'_>) -> bool {
         let data = self.state.catalog.prepared().data();
         let mut associated = false;
-        let explicit = self.state.data.unit_subjects.iter().filter(|s| s.unit == unit.id())
-            .filter_map(|s| self.state.data.subjects.get(s.subject)).any(|subject| {
+        let explicit = self
+            .state
+            .data
+            .unit_subjects
+            .iter()
+            .filter(|s| s.unit == unit.id())
+            .filter_map(|s| self.state.data.subjects.get(s.subject))
+            .any(|subject| {
                 associated = true;
                 match subject {
-                    Subject::Member { member } => data.source.catalog.members.get(*member)
+                    Subject::Member { member } => data
+                        .source
+                        .catalog
+                        .members
+                        .get(*member)
                         .is_some_and(|m| self.state.catalog.belongs(m, domain)),
                     Subject::Release { release } => domain.contains_release(*release),
                 }
             });
-        if associated {explicit} else {domain.contains_corpus(unit.input)}
+        if associated {
+            explicit
+        } else {
+            domain.contains_corpus(unit.input)
+        }
     }
     pub async fn request(
         &self,
@@ -306,7 +354,11 @@ impl RetrievalService {
                     r.library.clone(),
                     r.query.clone(),
                     selection::Selection::default(),
-                    if r.families.is_empty() { FAMILIES.to_vec() } else { r.families.clone() },
+                    if r.families.is_empty() {
+                        FAMILIES.to_vec()
+                    } else {
+                        r.families.clone()
+                    },
                     false,
                     false,
                 ),

@@ -526,9 +526,24 @@ fn expand_code(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("inventory") {
-                    inventory = Some(if meta.input.peek(syn::Token![=]) { { let value = meta.value()?.parse::<LitStr>()?; if value.value() != "slice" { return Err(syn::Error::new_spanned(value, "inventory supports only slice")); } true } } else { false });
+                    inventory = Some(if meta.input.peek(syn::Token![=]) {
+                        {
+                            let value = meta.value()?.parse::<LitStr>()?;
+                            if value.value() != "slice" {
+                                return Err(syn::Error::new_spanned(
+                                    value,
+                                    "inventory supports only slice",
+                                ));
+                            }
+                            true
+                        }
+                    } else {
+                        false
+                    });
                     Ok(())
-                } else { Err(meta.error("expected inventory")) }
+                } else {
+                    Err(meta.error("expected inventory"))
+                }
             })?;
         }
     }
@@ -564,9 +579,15 @@ fn expand_code(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         for attr in &variant.attrs {
             if attr.path().is_ident("model") {
                 attr.parse_nested_meta(|meta| {
-                    if meta.path.is_ident("wire") { wire = meta.value()?.parse()?; Ok(()) }
-                    else if meta.path.is_ident("label") { label = Some(meta.value()?.parse::<LitStr>()?); Ok(()) }
-                    else { Err(meta.error("expected wire or label")) }
+                    if meta.path.is_ident("wire") {
+                        wire = meta.value()?.parse()?;
+                        Ok(())
+                    } else if meta.path.is_ident("label") {
+                        label = Some(meta.value()?.parse::<LitStr>()?);
+                        Ok(())
+                    } else {
+                        Err(meta.error("expected wire or label"))
+                    }
                 })?;
             }
         }
@@ -576,7 +597,13 @@ fn expand_code(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         codes.push(value);
     }
     let count = variants.len();
-    let inventory = inventory.map(|slice| if slice {quote! {pub const ALL: &'static [Self] = &[#(Self::#variants,)*];}} else {quote! {pub const ALL: [Self; #count] = [#(Self::#variants,)*];}});
+    let inventory = inventory.map(|slice| {
+        if slice {
+            quote! {pub const ALL: &'static [Self] = &[#(Self::#variants,)*];}
+        } else {
+            quote! {pub const ALL: [Self; #count] = [#(Self::#variants,)*];}
+        }
+    });
     Ok(quote! {
         impl #name {
             #inventory

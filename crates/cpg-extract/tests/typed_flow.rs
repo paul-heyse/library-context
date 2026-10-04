@@ -673,7 +673,9 @@ async fn native_bound_unattached_keeps_qualified_formulas_without_unbound_observ
     let files = typed_driver::files("native_candidate_inventory");
     let source = std::str::from_utf8(&files["cases.py"]).unwrap();
     let tables = Tables::default();
-    typed_driver::run_behavioral(&files, Flow(tables.clone())).await.unwrap();
+    typed_driver::run_behavioral(&files, Flow(tables.clone()))
+        .await
+        .unwrap();
     let uses = rows::<FlowUse>(&tables);
     let sites = rows::<Occurrence>(&tables);
     let candidates = rows::<FlowUseCandidate>(&tables);
@@ -683,10 +685,16 @@ async fn native_bound_unattached_keeps_qualified_formulas_without_unbound_observ
     let qualifications = rows::<AssertionQualification>(&tables);
     for text in ["class Box[T](list[T", "type Alias[T, U: T"] {
         let start = source.find(text).unwrap() as i64 + text.len() as i64 - 1;
-        let site = sites.iter().find(|o| o.start == start && o.syntax_kind == SyntaxKind::ExprName).unwrap();
+        let site = sites
+            .iter()
+            .find(|o| o.start == start && o.syntax_kind == SyntaxKind::ExprName)
+            .unwrap();
         let use_ = uses.iter().find(|u| u.occurrence == site.id()).unwrap();
         let inventory = inventories.iter().find(|i| i.use_ == use_.id()).unwrap();
-        let native = candidates.iter().filter(|c| c.inventory == inventory.id()).collect::<Vec<_>>();
+        let native = candidates
+            .iter()
+            .filter(|c| c.inventory == inventory.id())
+            .collect::<Vec<_>>();
         assert_eq!(native.len(), 1);
         let c = native[0];
         assert_eq!(c.kind, FlowCandidateKind::Bound);
@@ -695,27 +703,58 @@ async fn native_bound_unattached_keeps_qualified_formulas_without_unbound_observ
         assert_eq!(inventory.mapped_count, 0);
         assert_eq!(c.mapped_count, 0);
         for id in [c.reachability, c.narrowing] {
-            let q = qualifications.iter().find(|q| Some(q.id()) == id).expect("native formula retained");
-            assert_eq!(q.context, qualifications.iter().find(|q| q.id() == inventory.qualification).unwrap().context);
+            let q = qualifications
+                .iter()
+                .find(|q| Some(q.id()) == id)
+                .expect("native formula retained");
+            assert_eq!(
+                q.context,
+                qualifications
+                    .iter()
+                    .find(|q| q.id() == inventory.qualification)
+                    .unwrap()
+                    .context
+            );
             assert_eq!(q.condition, Diagram::always().id());
         }
         assert!(!reaches.iter().any(|r| r.use_ == use_.id()));
         assert!(!narrowing.iter().any(|r| r.use_ == use_.id()));
-        assert!(rows::<lctx_model::domain::syntax::SubjectBoundary>(&tables).iter().any(|b| b.subject == Some(site.id()) && b.reason == lctx_model::domain::obligation::ObligationKind::NativeUnavailable));
+        assert!(
+            rows::<lctx_model::domain::syntax::SubjectBoundary>(&tables)
+                .iter()
+                .any(|b| b.subject == Some(site.id())
+                    && b.reason
+                        == lctx_model::domain::obligation::ObligationKind::NativeUnavailable)
+        );
     }
     for kind in [FlowCandidateKind::Undefined, FlowCandidateKind::Deleted] {
-        assert!(candidates.iter().any(|c| c.kind == kind && c.mapped_count == 1 && !c.unattached));
+        assert!(
+            candidates
+                .iter()
+                .any(|c| c.kind == kind && c.mapped_count == 1 && !c.unattached)
+        );
     }
     for c in &candidates {
         assert_eq!(c.condition_unavailable, c.reachability.is_none());
         assert_eq!(c.narrowing_unavailable, c.narrowing.is_none());
     }
-    assert!(candidates.iter().any(|c| c.pruned && c.reachability.is_some() && c.mapped_count == 0));
+    assert!(
+        candidates
+            .iter()
+            .any(|c| c.pruned && c.reachability.is_some() && c.mapped_count == 0)
+    );
     let alternative = source.find("def unavailable_alternative").unwrap();
-    let start = alternative + source[alternative..].find("return observed").unwrap() + "return ".len();
-    let site = sites.iter().find(|o| o.start == start as i64 && o.syntax_kind == SyntaxKind::ExprName).unwrap();
+    let start =
+        alternative + source[alternative..].find("return observed").unwrap() + "return ".len();
+    let site = sites
+        .iter()
+        .find(|o| o.start == start as i64 && o.syntax_kind == SyntaxKind::ExprName)
+        .unwrap();
     let use_ = uses.iter().find(|u| u.occurrence == site.id()).unwrap();
     let inventory = inventories.iter().find(|i| i.use_ == use_.id()).unwrap();
-    assert!(candidates.iter().any(|c| c.inventory == inventory.id() && (c.condition_unavailable || c.narrowing_unavailable)),
-        "OR-pattern alternatives retain explicit native formula unavailability");
+    assert!(
+        candidates.iter().any(|c| c.inventory == inventory.id()
+            && (c.condition_unavailable || c.narrowing_unavailable)),
+        "OR-pattern alternatives retain explicit native formula unavailability"
+    );
 }

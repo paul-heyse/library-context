@@ -30,23 +30,47 @@ impl DependencyClosure {
         Ok(Self::build(model, roots, direct, owned, vocabulary, lower, order)?.grants)
     }
     /// Read declarations are roots too. Their epoch is retained, rather than inferred by name.
-    pub fn roots_from_uses(model: &ValidatedModel, uses: &[RelationUse]) -> Result<Vec<ValidationInput>, ModelError> {
-        uses.iter().map(|use_| {
-            let relation = model.relation(use_.name()).ok_or_else(|| ModelError::Invalid(format!("closure relation absent: {}", use_.name())))?;
-            let input = ValidationInput::of_relation(relation, &["id"]);
-            Ok(if let Some(epoch) = use_.prefix() { input.at_epoch(epoch) } else { input })
-        }).collect()
+    pub fn roots_from_uses(
+        model: &ValidatedModel,
+        uses: &[RelationUse],
+    ) -> Result<Vec<ValidationInput>, ModelError> {
+        uses.iter()
+            .map(|use_| {
+                let relation = model.relation(use_.name()).ok_or_else(|| {
+                    ModelError::Invalid(format!("closure relation absent: {}", use_.name()))
+                })?;
+                let input = ValidationInput::of_relation(relation, &["id"]);
+                Ok(if let Some(epoch) = use_.prefix() {
+                    input.at_epoch(epoch)
+                } else {
+                    input
+                })
+            })
+            .collect()
     }
 
     pub fn stage_grants(
-        model: &ValidatedModel, roots: Vec<ValidationInput>, owned: &[RelationUse],
-        vocabulary: PublicationBoundary, lower: LowerLayerPolicy, order: &PublicationOrder,
+        model: &ValidatedModel,
+        roots: Vec<ValidationInput>,
+        owned: &[RelationUse],
+        vocabulary: PublicationBoundary,
+        lower: LowerLayerPolicy,
+        order: &PublicationOrder,
     ) -> Result<Vec<RelationUse>, ModelError> {
-        let direct = roots.iter().map(|input| {
-            let relation = model.relation(input.name()).ok_or_else(|| ModelError::Invalid(format!("closure relation absent: {}", input.name())))?;
-            let use_ = RelationUse::of_relation(relation).completed_store();
-            Ok(if let Some(epoch) = input.prefix() { use_.at_epoch(epoch) } else { use_ })
-        }).collect::<Result<Vec<_>, ModelError>>()?;
+        let direct = roots
+            .iter()
+            .map(|input| {
+                let relation = model.relation(input.name()).ok_or_else(|| {
+                    ModelError::Invalid(format!("closure relation absent: {}", input.name()))
+                })?;
+                let use_ = RelationUse::of_relation(relation).completed_store();
+                Ok(if let Some(epoch) = input.prefix() {
+                    use_.at_epoch(epoch)
+                } else {
+                    use_
+                })
+            })
+            .collect::<Result<Vec<_>, ModelError>>()?;
         Self::grants(model, roots, direct, owned, vocabulary, lower, order)
     }
     pub fn build(
@@ -59,7 +83,8 @@ impl DependencyClosure {
         order: &PublicationOrder,
     ) -> Result<Self, ModelError> {
         let relation = |name| {
-            model.relation(name)
+            model
+                .relation(name)
                 .ok_or_else(|| ModelError::Invalid(format!("closure relation absent: {name}")))
         };
         let own: BTreeSet<_> = owned
@@ -135,7 +160,10 @@ impl DependencyClosure {
         for mut grant in direct {
             relation(grant.name())?;
             if own.contains(grant.name()) {
-                return Err(ModelError::Invalid(format!("predecessor requires unfinished own output: {}", grant.name())));
+                return Err(ModelError::Invalid(format!(
+                    "predecessor requires unfinished own output: {}",
+                    grant.name()
+                )));
             }
             if is_vocabulary(grant.name()) {
                 grant = grant.at_epoch(grant.prefix().unwrap_or(vocabulary));

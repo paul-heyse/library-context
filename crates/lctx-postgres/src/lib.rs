@@ -10,9 +10,7 @@ pub mod roles;
 pub mod testing;
 
 use serde::{Deserialize, Serialize};
-use sqlx::{
-    postgres::PgPoolOptions,
-};
+use sqlx::postgres::PgPoolOptions;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -165,13 +163,29 @@ impl Config {
 
     async fn connect_role(&self, migration: bool) -> Result<Store, Error> {
         self.validate()?;
-        let options = connection_options::parse(if migration {
-            &self.migration_url
-        } else { &self.application_url }, "invalid connection URL")?;
-        let options = connection_options::session(options, "lctx",
-            if migration { OWNER_STATEMENT_TIMEOUT_SECONDS } else { self.statement_timeout_seconds },
+        let options = connection_options::parse(
+            if migration {
+                &self.migration_url
+            } else {
+                &self.application_url
+            },
+            "invalid connection URL",
+        )?;
+        let options = connection_options::session(
+            options,
+            "lctx",
+            if migration {
+                OWNER_STATEMENT_TIMEOUT_SECONDS
+            } else {
+                self.statement_timeout_seconds
+            },
             self.lock_timeout_seconds,
-            if migration { "public,pg_catalog,lctx_ext" } else { "pg_catalog,lctx_ext" });
+            if migration {
+                "public,pg_catalog,lctx_ext"
+            } else {
+                "pg_catalog,lctx_ext"
+            },
+        );
         let pool = PgPoolOptions::new()
             // The owner pool serves an attempt's lifecycle connection plus its steps and cleanup.
             .max_connections(if migration {
@@ -359,7 +373,10 @@ impl MigrationStore {
         // or cancelled migration session to the pool; close-on-drop also covers cancellation.
         let mut connection = self.inner.pool.acquire().await?;
         connection.close_on_drop();
-        let result = MIGRATOR.run(&mut *connection).await.map_err(|_| Error::Migration);
+        let result = MIGRATOR
+            .run(&mut *connection)
+            .await
+            .map_err(|_| Error::Migration);
         connection.close().await?;
         result
     }

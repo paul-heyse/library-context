@@ -182,14 +182,26 @@ pub fn stage(
 ) -> Result<stages::Stage, ModelError> {
     use stages::*;
     definition.validate()?;
-    let earlier = normalized_relations().iter().map(Relation::name).collect::<std::collections::BTreeSet<_>>();
-    let outputs = relations().iter().map(RelationUse::of_relation).collect::<Vec<_>>();
+    let earlier = normalized_relations()
+        .iter()
+        .map(Relation::name)
+        .collect::<std::collections::BTreeSet<_>>();
+    let outputs = relations()
+        .iter()
+        .map(RelationUse::of_relation)
+        .collect::<Vec<_>>();
     let inputs = dependency_closure::DependencyClosure::stage_grants(
-        model, TextData::inputs(), &outputs, PublicationBoundary::Facts,
-        dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts, order,
+        model,
+        TextData::inputs(),
+        &outputs,
+        PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts,
+        order,
     )?;
     if inputs.iter().any(|input| !earlier.contains(input.name())) {
-        return Err(invalid("analytic text premise is not facts or normalized authority"));
+        return Err(invalid(
+            "analytic text premise is not facts or normalized authority",
+        ));
     }
     let mut key = KeySink::new("analytic-source-text-v2");
     definition.id().encode(&mut key);

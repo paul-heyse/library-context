@@ -111,7 +111,15 @@ async fn run(profile: Profile) {
         requested: true,
         ..embedding::text::TextDefinition::builtin()
     };
-    declarations.push(embedding::text::stage(profile, &text_definition, &model, &alignment_publication_order()).unwrap());
+    declarations.push(
+        embedding::text::stage(
+            profile,
+            &text_definition,
+            &model,
+            &alignment_publication_order(),
+        )
+        .unwrap(),
+    );
     let mut probe_inputs = event_normalization::stage(profile).inputs;
     macro_rules! probe_input { ($($field:ident: $ty:ty,)*) => { $(probe_inputs.push(RelationUse::stored::<$ty>());)* }; }
     lctx_model::normalized_event_outputs!(probe_input);
@@ -490,5 +498,6 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
-    ]).unwrap()
+    ])
+    .unwrap()
 }

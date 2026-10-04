@@ -156,9 +156,21 @@ async fn run(
     declarations.extend([
         local_semantics::stage(profile, &local, &model, &fixture_publication_order()).unwrap(),
         structural::build::stage(profile, &settings, &model, &fixture_publication_order()).unwrap(),
-        embedding::text::stage(profile, &text_definition, &model, &fixture_publication_order()).unwrap(),
+        embedding::text::stage(
+            profile,
+            &text_definition,
+            &model,
+            &fixture_publication_order(),
+        )
+        .unwrap(),
         embedding::configuration::stage(service.as_ref()),
-        embedding::analytic::stage(profile, vectors_requested, &model, &fixture_publication_order()).unwrap(),
+        embedding::analytic::stage(
+            profile,
+            vectors_requested,
+            &model,
+            &fixture_publication_order(),
+        )
+        .unwrap(),
         analytics::build::stage(profile, &settings, &model, &fixture_publication_order()).unwrap(),
     ]);
     let facts_members = declarations

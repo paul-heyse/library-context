@@ -47,13 +47,34 @@ impl Field {
     /// Versioned declaration bytes, independent of Arrow metadata and Rust Debug formatting.
     pub(crate) fn encode_contract(&self, sink: &mut super::KeySink) {
         sink.part(b"field", self.name.as_bytes());
-        sink.part(b"scalar", match self.scalar {
-            Scalar::Text => b"text", Scalar::Bool => b"bool", Scalar::Int16 => b"i16",
-            Scalar::Int32 => b"i32", Scalar::Int64 => b"i64", Scalar::Id => b"id",
-            Scalar::Digest => b"digest", Scalar::Binary => b"binary", Scalar::FiniteF64 => b"finite-f64",
-        });
-        sink.part(b"roles", &[u8::from(self.key), u8::from(self.provenance), u8::from(self.nullable), u8::from(self.list)]);
-        sink.part(b"target", self.target.map_or(b"".as_slice(), |(_, name)| name.as_bytes()));
+        sink.part(
+            b"scalar",
+            match self.scalar {
+                Scalar::Text => b"text",
+                Scalar::Bool => b"bool",
+                Scalar::Int16 => b"i16",
+                Scalar::Int32 => b"i32",
+                Scalar::Int64 => b"i64",
+                Scalar::Id => b"id",
+                Scalar::Digest => b"digest",
+                Scalar::Binary => b"binary",
+                Scalar::FiniteF64 => b"finite-f64",
+            },
+        );
+        sink.part(
+            b"roles",
+            &[
+                u8::from(self.key),
+                u8::from(self.provenance),
+                u8::from(self.nullable),
+                u8::from(self.list),
+            ],
+        );
+        sink.part(
+            b"target",
+            self.target
+                .map_or(b"".as_slice(), |(_, name)| name.as_bytes()),
+        );
         self.subtype.encode(sink);
         sink.part(b"code-count", &(self.codes.len() as u64).to_le_bytes());
         for (code, label) in self.codes {
@@ -321,21 +342,40 @@ mod contract_encoding_tests {
         let mut sink = KeySink::new("declaration-vector/v2");
         field.encode_contract(&mut sink);
         let expected = independently_framed(&[
-            (b"domain", b"lctx-semantic/v3"), (b"type", b"declaration-vector/v2"),
-            (b"field", b"samples"), (b"scalar", b"i16"), (b"roles", &[1,0,1,1]),
-            (b"target", b""), (b"option", &[0]), (b"code-count", &0u64.to_le_bytes()),
+            (b"domain", b"lctx-semantic/v3"),
+            (b"type", b"declaration-vector/v2"),
+            (b"field", b"samples"),
+            (b"scalar", b"i16"),
+            (b"roles", &[1, 0, 1, 1]),
+            (b"target", b""),
+            (b"option", &[0]),
+            (b"code-count", &0u64.to_le_bytes()),
         ]);
         assert_eq!(sink.finish(), expected);
-        let reference = Field::of::<crate::domain::ArmId<crate::domain::value::Literal, 0>>("value", false, true);
+        let reference = Field::of::<crate::domain::ArmId<crate::domain::value::Literal, 0>>(
+            "value", false, true,
+        );
         let mut sink = KeySink::new("declaration-vector/v2");
         reference.encode_contract(&mut sink);
-        assert_eq!(sink.finish(), independently_framed(&[
-            (b"domain", b"lctx-semantic/v3"), (b"type", b"declaration-vector/v2"),
-            (b"field", b"value"), (b"scalar", b"id"), (b"roles", &[0,1,0,0]),
-            (b"target", b"literal_values"), (b"option", &[1]), (b"i16", &0i16.to_le_bytes()),
-            (b"code-count", &0u64.to_le_bytes()),
-        ]));
-        for change in [Field::of::<Vec<i16>>("samples", true, false), Field::of::<Option<Vec<i32>>>("samples", true, false), Field::of::<Option<Vec<i16>>>("samples", false, false)] {
+        assert_eq!(
+            sink.finish(),
+            independently_framed(&[
+                (b"domain", b"lctx-semantic/v3"),
+                (b"type", b"declaration-vector/v2"),
+                (b"field", b"value"),
+                (b"scalar", b"id"),
+                (b"roles", &[0, 1, 0, 0]),
+                (b"target", b"literal_values"),
+                (b"option", &[1]),
+                (b"i16", &0i16.to_le_bytes()),
+                (b"code-count", &0u64.to_le_bytes()),
+            ])
+        );
+        for change in [
+            Field::of::<Vec<i16>>("samples", true, false),
+            Field::of::<Option<Vec<i32>>>("samples", true, false),
+            Field::of::<Option<Vec<i16>>>("samples", false, false),
+        ] {
             let mut sink = KeySink::new("declaration-vector/v2");
             change.encode_contract(&mut sink);
             assert_ne!(sink.finish(), expected);
@@ -345,33 +385,69 @@ mod contract_encoding_tests {
     fn codebook_discriminants_and_wire_labels_are_identity_inputs() {
         let mut field = Field::of::<i16>("kind", false, false);
         field.codes = &[(2, "alpha"), (7, "beta")];
-        let digest = |field: &Field| { let mut sink = KeySink::new("codebook-vector/v2"); field.encode_contract(&mut sink); sink.finish() };
+        let digest = |field: &Field| {
+            let mut sink = KeySink::new("codebook-vector/v2");
+            field.encode_contract(&mut sink);
+            sink.finish()
+        };
         let expected = independently_framed(&[
-            (b"domain", b"lctx-semantic/v3"), (b"type", b"codebook-vector/v2"),
-            (b"field", b"kind"), (b"scalar", b"i16"), (b"roles", &[0,0,0,0]),
-            (b"target", b""), (b"option", &[0]), (b"code-count", &2u64.to_le_bytes()),
-            (b"code", &2i16.to_le_bytes()), (b"label", b"alpha"),
-            (b"code", &7i16.to_le_bytes()), (b"label", b"beta"),
+            (b"domain", b"lctx-semantic/v3"),
+            (b"type", b"codebook-vector/v2"),
+            (b"field", b"kind"),
+            (b"scalar", b"i16"),
+            (b"roles", &[0, 0, 0, 0]),
+            (b"target", b""),
+            (b"option", &[0]),
+            (b"code-count", &2u64.to_le_bytes()),
+            (b"code", &2i16.to_le_bytes()),
+            (b"label", b"alpha"),
+            (b"code", &7i16.to_le_bytes()),
+            (b"label", b"beta"),
         ]);
         assert_eq!(digest(&field), expected);
-        for codes in [&[(3, "alpha"), (7, "beta")][..], &[(2, "renamed"), (7, "beta")][..], &[(2, "alpha")][..]] {
+        for codes in [
+            &[(3, "alpha"), (7, "beta")][..],
+            &[(2, "renamed"), (7, "beta")][..],
+            &[(2, "alpha")][..],
+        ] {
             field.codes = codes;
             assert_ne!(digest(&field), expected);
         }
     }
     #[test]
     fn sum_codes_are_canonical_and_required_payload_changes_invalidate() {
-        let mut sum = Sum { tag: "kind", arms: vec![
-            Arm { code: 7, fields: vec![ArmField { name: "payload", required: true }] },
-            Arm { code: 2, fields: vec![] },
-        ] };
-        let digest = |sum: &Sum| { let mut sink = KeySink::new("sum-vector/v2"); sum.encode_contract(&mut sink); sink.finish() };
+        let mut sum = Sum {
+            tag: "kind",
+            arms: vec![
+                Arm {
+                    code: 7,
+                    fields: vec![ArmField {
+                        name: "payload",
+                        required: true,
+                    }],
+                },
+                Arm {
+                    code: 2,
+                    fields: vec![],
+                },
+            ],
+        };
+        let digest = |sum: &Sum| {
+            let mut sink = KeySink::new("sum-vector/v2");
+            sum.encode_contract(&mut sink);
+            sink.finish()
+        };
         let expected = independently_framed(&[
-            (b"domain", b"lctx-semantic/v3"), (b"type", b"sum-vector/v2"),
-            (b"sum-tag", b"kind"), (b"arm-count", &2u64.to_le_bytes()),
-            (b"arm-code", &2i16.to_le_bytes()), (b"arm-field-count", &0u64.to_le_bytes()),
-            (b"arm-code", &7i16.to_le_bytes()), (b"arm-field-count", &1u64.to_le_bytes()),
-            (b"arm-field", b"payload"), (b"arm-required", &[1]),
+            (b"domain", b"lctx-semantic/v3"),
+            (b"type", b"sum-vector/v2"),
+            (b"sum-tag", b"kind"),
+            (b"arm-count", &2u64.to_le_bytes()),
+            (b"arm-code", &2i16.to_le_bytes()),
+            (b"arm-field-count", &0u64.to_le_bytes()),
+            (b"arm-code", &7i16.to_le_bytes()),
+            (b"arm-field-count", &1u64.to_le_bytes()),
+            (b"arm-field", b"payload"),
+            (b"arm-required", &[1]),
         ]);
         assert_eq!(digest(&sum), expected);
         sum.arms.reverse();

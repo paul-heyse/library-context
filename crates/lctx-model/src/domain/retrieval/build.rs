@@ -10,7 +10,9 @@ pub fn invalid(s: impl Into<String>) -> ModelError {
     ModelError::Invalid(s.into())
 }
 pub fn need<R: Record>(r: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
-    r.required(id, || invalid(format!("retrieval premise absent: {}", R::NAME)))
+    r.required(id, || {
+        invalid(format!("retrieval premise absent: {}", R::NAME))
+    })
 }
 pub struct Data {
     pub source: EvidenceData,
@@ -210,7 +212,11 @@ fn api(
                 let slot = need(&d.source.core.slots, *slot)?;
                 let p = need(&d.facts.signature_parameters, slot.parameter)?;
                 let shape = need(&d.facts.shapes, p.shape)?;
-                format!("effective parameter {} ({})", shape.name.as_deref().unwrap_or("unnamed"), shape.kind.label())
+                format!(
+                    "effective parameter {} ({})",
+                    shape.name.as_deref().unwrap_or("unnamed"),
+                    shape.kind.label()
+                )
             }
             catalog::CatalogOptionSubject::Field { field } => format!(
                 "configuration field {}",
@@ -225,9 +231,17 @@ fn api(
             catalog::CatalogDefault::Unknown {} => "Unknown".into(),
             catalog::CatalogDefault::Unavailable {} => "Unavailable".into(),
             catalog::CatalogDefault::Literal { literal } => {
-                format!("Literal {}", value::presentation::render(
-                    need(&d.facts.literals, *literal)?, value::presentation::Mode::Human, None, b
-                )?.map_err(|_| invalid("human literal presentation unavailable"))?.text)
+                format!(
+                    "Literal {}",
+                    value::presentation::render(
+                        need(&d.facts.literals, *literal)?,
+                        value::presentation::Mode::Human,
+                        None,
+                        b
+                    )?
+                    .map_err(|_| invalid("human literal presentation unavailable"))?
+                    .text
+                )
             }
             catalog::CatalogDefault::Expression { .. } => "Unevaluated expression".into(),
             catalog::CatalogDefault::Factory { .. } => "Factory (not evaluated)".into(),
@@ -923,7 +937,11 @@ pub fn stage(
         .iter()
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
-    outputs.extend(analysis::retrieval::publication_relations().iter().map(RelationUse::of_relation));
+    outputs.extend(
+        analysis::retrieval::publication_relations()
+            .iter()
+            .map(RelationUse::of_relation),
+    );
     let own = outputs.iter().map(|r| r.name()).collect::<BTreeSet<_>>();
     let mut requested = super::consumption::ConsumptionData::inputs();
     requested.extend(analysis::expected::inputs(
@@ -931,8 +949,12 @@ pub fn stage(
     ));
     requested.retain(|input| !own.contains(input.name()));
     let inputs = dependency_closure::DependencyClosure::stage_grants(
-        model, requested, &outputs, PublicationBoundary::Synthesis,
-        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+        model,
+        requested,
+        &outputs,
+        PublicationBoundary::Synthesis,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        order,
     )?;
     Ok(Stage {
         name: "retrieval",

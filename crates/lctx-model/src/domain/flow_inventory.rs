@@ -3,8 +3,8 @@ use super::{
     assertion::*,
     attribution::*,
     charged::{ChargedMap, StateCharge},
-    flow::*,
     conditions::{Condition, ConditionNode, EvaluationAtom},
+    flow::*,
     lexical::LexicalScope,
     source::Occurrence,
     syntax::SubjectBoundary,
@@ -447,36 +447,62 @@ impl InvariantCheck for InventoryCheck {
                 return Err(invalid("inventory source/view/context/scope mismatch"));
             }
             for candidate in &candidates {
-                for formula in [candidate.reachability, candidate.narrowing].into_iter().flatten() {
-                    let cq = self.qualifications.get(&formula)
+                for formula in [candidate.reachability, candidate.narrowing]
+                    .into_iter()
+                    .flatten()
+                {
+                    let cq = self
+                        .qualifications
+                        .get(&formula)
                         .ok_or_else(|| invalid("candidate formula qualification missing"))?;
-                    if cq.scope != q.scope || cq.context != q.context || cq.assumptions != q.assumptions {
-                        return Err(invalid("candidate formula source/context/scope/assumptions mismatch"));
+                    if cq.scope != q.scope
+                        || cq.context != q.context
+                        || cq.assumptions != q.assumptions
+                    {
+                        return Err(invalid(
+                            "candidate formula source/context/scope/assumptions mismatch",
+                        ));
                     }
-                    let condition = self.conditions.get(&cq.condition)
+                    let condition = self
+                        .conditions
+                        .get(&cq.condition)
                         .ok_or_else(|| invalid("candidate condition missing"))?;
                     let closure = super::conditions::kernel::closure(condition.root, &self.nodes)?;
                     for node in closure {
                         if let ConditionNode::Branch { atom, .. } = &self.nodes[&node] {
-                            let atom = self.atoms.get(atom)
+                            let atom = self
+                                .atoms
+                                .get(atom)
                                 .ok_or_else(|| invalid("candidate formula atom missing"))?;
-                            let evaluation = self.occurrences.get(&atom.evaluation)
+                            let evaluation = self
+                                .occurrences
+                                .get(&atom.evaluation)
                                 .ok_or_else(|| invalid("candidate formula evaluation missing"))?;
                             if atom.context != q.context || evaluation.source != site.source {
-                                return Err(invalid("candidate formula crosses native source/context"));
+                                return Err(invalid(
+                                    "candidate formula crosses native source/context",
+                                ));
                             }
                         }
                     }
                 }
                 if let Some(formula) = candidate.reachability {
-                    let cq = self.qualifications.get(&formula).expect("candidate qualification checked");
+                    let cq = self
+                        .qualifications
+                        .get(&formula)
+                        .expect("candidate qualification checked");
                     if candidate.reachability_lost != (cq.approximation != Approximation::Exact) {
                         return Err(invalid("candidate reachability precision mismatch"));
                     }
                 }
                 if let Some(formula) = candidate.narrowing {
-                    let cq = self.qualifications.get(&formula).expect("candidate qualification checked");
-                    if candidate.narrowing_precision_lost != (cq.approximation != Approximation::Exact) {
+                    let cq = self
+                        .qualifications
+                        .get(&formula)
+                        .expect("candidate qualification checked");
+                    if candidate.narrowing_precision_lost
+                        != (cq.approximation != Approximation::Exact)
+                    {
                         return Err(invalid("candidate narrowing precision mismatch"));
                     }
                 }
@@ -536,8 +562,10 @@ impl InvariantCheck for InventoryCheck {
                     FlowCandidateKind::Nested => matches!(target, ReachingDefinition::Nested),
                     FlowCandidateKind::LoopHeader => true,
                 };
-                if !valid || candidate.reachability != Some(reach.qualification)
-                    || reach.loop_carried != (candidate.kind == FlowCandidateKind::LoopHeader) {
+                if !valid
+                    || candidate.reachability != Some(reach.qualification)
+                    || reach.loop_carried != (candidate.kind == FlowCandidateKind::LoopHeader)
+                {
                     return Err(invalid(
                         "native candidate state disagrees with mapped target",
                     ));

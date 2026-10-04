@@ -755,8 +755,17 @@ fn capability_assertion_status_is_structured_and_visible_without_rewriting_autho
     };
     let resource = response.resource_text().unwrap();
     assert!(resource.starts_with("Original authored body.\n"));
-    assert_eq!(response.capability.rendered.as_str(), "Original authored body.\n");
-    let snapshot_text = resource.split("## Snapshot metadata\n\n```json\n").nth(1).unwrap().split("\n```").next().unwrap();
+    assert_eq!(
+        response.capability.rendered.as_str(),
+        "Original authored body.\n"
+    );
+    let snapshot_text = resource
+        .split("## Snapshot metadata\n\n```json\n")
+        .nth(1)
+        .unwrap()
+        .split("\n```")
+        .next()
+        .unwrap();
     let snapshot: serde_json::Value = serde_json::from_str(snapshot_text).unwrap();
     assert_eq!(snapshot["generation"], json!(vec![7u8; 16]));
     assert_eq!(snapshot["capability"], json!(vec![6u8; 16]));

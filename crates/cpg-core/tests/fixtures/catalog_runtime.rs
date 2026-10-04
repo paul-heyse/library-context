@@ -30,21 +30,34 @@ pub fn definitions() -> Vec<(analysis::MethodParameters, analysis::AnalysisDefin
 }
 pub fn stages(profile: Profile, model: &ValidatedModel) -> Vec<Stage> {
     vec![
-        local_semantics::stage(profile, &local_semantics::definition().1, model, &alignment_publication_order()).unwrap(),
+        local_semantics::stage(
+            profile,
+            &local_semantics::definition().1,
+            model,
+            &alignment_publication_order(),
+        )
+        .unwrap(),
         execution::production::stage(
             profile,
             &execution::configuration::base_evaluation().1,
             model,
-         &alignment_publication_order())
+            &alignment_publication_order(),
+        )
         .unwrap(),
         execution::completion_production::stage(
             profile,
             &execution::configuration::base_completion().1,
             model,
-         &alignment_publication_order())
+            &alignment_publication_order(),
+        )
         .unwrap(),
-        execution::source_call::stage(profile, &execution::configuration::source_calls().1, model, &alignment_publication_order())
-            .unwrap(),
+        execution::source_call::stage(
+            profile,
+            &execution::configuration::source_calls().1,
+            model,
+            &alignment_publication_order(),
+        )
+        .unwrap(),
     ]
 }
 pub async fn run(
@@ -114,5 +127,6 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
-    ]).unwrap()
+    ])
+    .unwrap()
 }

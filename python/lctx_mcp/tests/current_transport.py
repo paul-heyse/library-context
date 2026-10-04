@@ -310,8 +310,11 @@ async def wait_events(events):
 
 
 async def test_startup_numerical_failure_releases_preparation_and_allows_retry(current_fixture):
-    service = await open_service(str(current_fixture["config"]), generation=current_fixture["generation"], vectors=False)
+    service = await open_service(
+        str(current_fixture["config"]), generation=current_fixture["generation"], vectors=False
+    )
     try:
+
         def failed(_raw):
             raise RuntimeError("startup callback control")
 
@@ -329,7 +332,9 @@ async def test_startup_numerical_failure_releases_preparation_and_allows_retry(c
 
 
 async def test_cancelled_startup_numerical_worker_is_drained_before_shutdown(current_fixture):
-    service = await open_service(str(current_fixture["config"]), generation=current_fixture["generation"], vectors=False)
+    service = await open_service(
+        str(current_fixture["config"]), generation=current_fixture["generation"], vectors=False
+    )
     entered, finished, release = threading.Event(), threading.Event(), threading.Event()
 
     def callback(_raw):
@@ -364,9 +369,15 @@ async def test_cancelled_startup_numerical_worker_is_drained_before_shutdown(cur
             await service.shutdown()
 
 
-@pytest.mark.parametrize("release_before_cancel", [False, True], ids=["cancel_first", "completion_race"])
-async def test_cancelled_startup_discards_result_and_allows_retry(current_fixture, release_before_cancel):
-    service = await open_service(str(current_fixture["config"]), generation=current_fixture["generation"], vectors=False)
+@pytest.mark.parametrize(
+    "release_before_cancel", [False, True], ids=["cancel_first", "completion_race"]
+)
+async def test_cancelled_startup_discards_result_and_allows_retry(
+    current_fixture, release_before_cancel
+):
+    service = await open_service(
+        str(current_fixture["config"]), generation=current_fixture["generation"], vectors=False
+    )
     entered, finished, release = threading.Event(), threading.Event(), threading.Event()
 
     def callback(_raw):
@@ -954,6 +965,7 @@ async def test_library_admission_native_and_schema_backed_mcp(current_fixture):
     )
     grant = await served.service.admit()
     try:
+
         def no_ranking(*args):
             pytest.fail("unknown library reached the numerical ranking callback")
 

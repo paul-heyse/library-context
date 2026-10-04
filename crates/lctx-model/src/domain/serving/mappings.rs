@@ -10,7 +10,13 @@ pub enum Capability {
     Native,
 }
 impl Capability {
-    fn name(self) -> &'static str { match self { Self::Catalog => "catalog", Self::Briefs => "briefs", Self::Native => "native" } }
+    fn name(self) -> &'static str {
+        match self {
+            Self::Catalog => "catalog",
+            Self::Briefs => "briefs",
+            Self::Native => "native",
+        }
+    }
 }
 #[derive(Debug, Clone)]
 pub struct Mapping {
@@ -131,8 +137,12 @@ pub fn identity() -> MappingIdentity {
         }
         for relation in mapping.sources {
             sink.part(b"source", relation.name().as_bytes());
-            for field in relation.fields() { field.encode_contract(&mut sink); }
-            if let Some(sum) = relation.sum() { sum.encode_contract(&mut sink); }
+            for field in relation.fields() {
+                field.encode_contract(&mut sink);
+            }
+            if let Some(sum) = relation.sum() {
+                sum.encode_contract(&mut sink);
+            }
         }
     }
     MappingIdentity(sink.finish())
@@ -149,8 +159,12 @@ pub fn identity_for(mappings: &[Mapping]) -> MappingIdentity {
         for c in m.required_capabilities {
             sink.part(b"capability", c.name().as_bytes());
         }
-        for field in m.fields() { field.encode_contract(&mut sink); }
-        if let Some(sum) = m.source.sum() { sum.encode_contract(&mut sink); }
+        for field in m.fields() {
+            field.encode_contract(&mut sink);
+        }
+        if let Some(sum) = m.source.sum() {
+            sum.encode_contract(&mut sink);
+        }
         for dep in &m.dependencies {
             sink.part(b"dependency", dep.as_bytes());
         }
@@ -183,9 +197,15 @@ pub enum PreparedDependency {
     CanonicalProof,
 }
 impl PreparedDependency {
-    fn name(self) -> &'static str { match self {
-        Self::Selection => "selection", Self::CatalogIdentity => "catalog-identity", Self::Retrieval => "retrieval", Self::Native => "native", Self::CanonicalProof => "canonical-proof",
-    } }
+    fn name(self) -> &'static str {
+        match self {
+            Self::Selection => "selection",
+            Self::CatalogIdentity => "catalog-identity",
+            Self::Retrieval => "retrieval",
+            Self::Native => "native",
+            Self::CanonicalProof => "canonical-proof",
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PacketKind {
@@ -938,26 +958,42 @@ mod encoding_controls {
     use super::*;
     #[test]
     fn mapping_bytes_match_an_independently_framed_simple_contract() {
-        let mapping = Mapping::of::<domain::input::Package>("package_control", &[Capability::Catalog]);
+        let mapping =
+            Mapping::of::<domain::input::Package>("package_control", &[Capability::Catalog]);
         let mut raw = blake3::Hasher::new();
         let mut frame = |tag: &[u8], value: &[u8]| {
-            raw.update(&(tag.len() as u64).to_le_bytes()); raw.update(tag);
-            raw.update(&(value.len() as u64).to_le_bytes()); raw.update(value);
+            raw.update(&(tag.len() as u64).to_le_bytes());
+            raw.update(tag);
+            raw.update(&(value.len() as u64).to_le_bytes());
+            raw.update(value);
         };
         frame(b"domain", b"lctx-semantic/v3");
         frame(b"type", b"serving-mapping/v2");
-        frame(b"text", b"package_control"); frame(b"text", b"packages");
-        frame(b"revision", &1u32.to_le_bytes()); frame(b"frontier", b"catalog");
+        frame(b"text", b"package_control");
+        frame(b"text", b"packages");
+        frame(b"revision", &1u32.to_le_bytes());
+        frame(b"frontier", b"catalog");
         frame(b"capability", b"catalog");
-        frame(b"field", b"name"); frame(b"scalar", b"text");
-        frame(b"roles", &[1, 0, 0, 0]); frame(b"target", b"");
-        frame(b"option", &[0]); frame(b"code-count", &0u64.to_le_bytes());
+        frame(b"field", b"name");
+        frame(b"scalar", b"text");
+        frame(b"roles", &[1, 0, 0, 0]);
+        frame(b"target", b"");
+        frame(b"option", &[0]);
+        frame(b"code-count", &0u64.to_le_bytes());
         frame(b"dependency", b"packages");
         frame(b"output", b"packages");
-        assert_eq!(identity_for(&[mapping.clone()]).0.0, *raw.finalize().as_bytes());
-        let mut revision = mapping.clone(); revision.revision = 2;
+        assert_eq!(
+            identity_for(&[mapping.clone()]).0.0,
+            *raw.finalize().as_bytes()
+        );
+        let mut revision = mapping.clone();
+        revision.revision = 2;
         assert_ne!(identity_for(&[mapping.clone()]), identity_for(&[revision]));
-        let mut other = mapping.clone(); other.name = "other";
-        assert_eq!(identity_for(&[mapping.clone(), other.clone()]), identity_for(&[other, mapping]));
+        let mut other = mapping.clone();
+        other.name = "other";
+        assert_eq!(
+            identity_for(&[mapping.clone(), other.clone()]),
+            identity_for(&[other, mapping])
+        );
     }
 }

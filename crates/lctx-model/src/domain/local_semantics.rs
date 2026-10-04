@@ -776,10 +776,17 @@ pub fn produce(
     let mut support_index = charged::ChargedMap::default();
     let mut support_charge = charged::StateCharge::new(budget, "local_selection_support_index");
     let mut nodes = Rows::<ConditionNode>::new(budget);
-    for node in data.entry.condition_nodes.iter().chain(records.nodes.iter()) {
+    for node in data
+        .entry
+        .condition_nodes
+        .iter()
+        .chain(records.nodes.iter())
+    {
         nodes.insert(node.clone())?;
     }
-    let decode_allowance = nodes.len().checked_mul(2048)
+    let decode_allowance = nodes
+        .len()
+        .checked_mul(2048)
         .ok_or_else(|| invalid("Local selection condition allocation overflow"))?;
     let _decode = budget.reserve("local_selection_condition_decode", decode_allowance)?;
     let nodes = nodes.iter().cloned().collect::<Vec<_>>();
@@ -804,11 +811,23 @@ pub fn produce(
             if !support_index.contains_key(&condition.id()) {
                 let diagram = Diagram::from_records(condition, &nodes)?;
                 // Admit before cloning the support into retained secondary-index state.
-                let _copy = budget.reserve("local_selection_support_copy", diagram.support().len().checked_mul(size_of::<Id<conditions::EvaluationAtom>>() * 2)
-                    .ok_or_else(|| invalid("Local selection support allocation overflow"))?)?;
-                support_index.insert(&mut support_charge, condition.id(), diagram.support().to_vec())?;
+                let _copy = budget.reserve(
+                    "local_selection_support_copy",
+                    diagram
+                        .support()
+                        .len()
+                        .checked_mul(size_of::<Id<conditions::EvaluationAtom>>() * 2)
+                        .ok_or_else(|| invalid("Local selection support allocation overflow"))?,
+                )?;
+                support_index.insert(
+                    &mut support_charge,
+                    condition.id(),
+                    diagram.support().to_vec(),
+                )?;
             }
-            let mentions = support_index[&condition.id()].binary_search(&influence.atom).is_ok();
+            let mentions = support_index[&condition.id()]
+                .binary_search(&influence.atom)
+                .is_ok();
             if mentions && q.context == iq.context && q.scope == iq.scope {
                 records.selections.insert(Selection {
                     influence: influence.id(),
@@ -829,11 +848,20 @@ pub fn stage(
     order: &stages::PublicationOrder,
 ) -> Result<stages::Stage, ModelError> {
     use stages::*;
-    let roots = if profile == Profile::Behavioral { LocalData::validation_inputs() } else { vec![] };
-    let mut inputs = if profile == Profile::Behavioral { vec![] } else { vec![
-        RelationUse::stored::<ProviderRun>(), RelationUse::stored::<Provider>(),
-        RelationUse::stored::<NativeQualification>(),
-    ] };
+    let roots = if profile == Profile::Behavioral {
+        LocalData::validation_inputs()
+    } else {
+        vec![]
+    };
+    let mut inputs = if profile == Profile::Behavioral {
+        vec![]
+    } else {
+        vec![
+            RelationUse::stored::<ProviderRun>(),
+            RelationUse::stored::<Provider>(),
+            RelationUse::stored::<NativeQualification>(),
+        ]
+    };
     inputs.extend([
         RelationUse::stored::<crate::domain::input::InputRevision>(),
         RelationUse::stored::<crate::domain::input::ArtifactUse>(),
@@ -857,8 +885,13 @@ pub fn stage(
     outputs.sort_by_key(|r| r.name());
     outputs.dedup_by_key(|r| r.name());
     let inputs = dependency_closure::DependencyClosure::grants(
-        model, roots, inputs, &outputs, PublicationBoundary::Facts,
-        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+        model,
+        roots,
+        inputs,
+        &outputs,
+        PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        order,
     )?;
     Ok(Stage {
         name: "analyze_local",
