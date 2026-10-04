@@ -949,13 +949,15 @@ schema control **passed**, 1.57s after removing only diagnostic output (`termina
 `terminal-wire-receipt.json` retains the failure, actual reference graph, exact commands and
 excluded runtime/full-gate boundaries. There is no production relaxation or nullable default.
 
-**Next prerequisite:** the scoped formatter/index/feature-generator exception request remains
-pending. AGENTS.md assigns these to the end-of-turn hook; absent an exception, allow that hook
-to refresh the tree before the next final build. `just docs-check` remains **failed** only
-because the generated ADR index is stale; owner links are repaired. Build the final matching
-CLI and native adapter, then execute assembled actual fixtures/Q0 and `just test-all` plus
-`just hygiene` against the prepared disposable PG18 store. All three boundaries remain
-**not_run**; source capture identities make final artifact freshness consequential. Do not
-claim the series complete or select/reset the stopped operator staging. Two newly completed
-clean worker worktrees were removed after owned-file equality checks; frozen revisions and
-external receipts remain in Git/scratch. Other historical worktrees/stashes were preserved.
+**Current prerequisite, 2026-10-04:** the operator authorized the scoped ADR-index/feature
+refreshes and one final pre-qualification formatting run. These **passed**; current docs and
+full workspace/all-target Clippy also **passed**. The active analytical-enrichment
+[coordinator §7](code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
+owns the matching final-source adapter, full-gate and scoped disposable-store receipts. The
+reviewed schema migration is committed at `b7e8629b`, model
+`a00210d0595770adc2d77c4250f24123cb9f32f46cbfab3d8d799c56431f30a8`.
+Surviving conditional/generated, Terminal and raised-type actual PG Q0 journeys remain required
+and are included by the running full workspace gate. Their pending status is not closed by
+schema acceptance or Clippy. Do not select/reset the stopped operator staging. Completed
+enrichment worktrees were removed after integration and external receipt preservation; other
+historical worktrees/stashes and shared build intermediates remain preserved.
