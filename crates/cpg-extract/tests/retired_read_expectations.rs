@@ -249,7 +249,12 @@ async fn lambda_shadow_screen_requires_actual_binding_and_lexical_support() {
             .evaluation
             .lexical_resolutions
             .iter()
-            .find(|r| r.read == call.callee)
+            .find(|r| r.read == call.callee && data.evaluation.lexical_resolution_supports.iter().any(|s| {
+                s.assertion == r.id()
+                    && s.origin == attribution::Origin::AnalyzerAssertion
+                    && s.mode == attribution::ExtractionMode::NativeTraversal
+                    && s.fidelity == attribution::Fidelity::NativeStructural
+            }))
             .unwrap();
         let resolution_id = resolution.id();
         let lexical::LexicalTarget::Binding { event } = data
@@ -262,13 +267,13 @@ async fn lambda_shadow_screen_requires_actual_binding_and_lexical_support() {
         };
         let binding = data
             .evaluation
-            .bindings
+            .ruff_bindings
             .iter()
             .find(|b| b.event == *event)
             .unwrap()
             .id();
         if mutation == "inexact binding qualification" {
-            let mut row = data.evaluation.bindings.get(binding).unwrap().clone();
+            let mut row = data.evaluation.ruff_bindings.get(binding).unwrap().clone();
             let mut q = data
                 .flow
                 .qualifications
@@ -281,17 +286,17 @@ async fn lambda_shadow_screen_requires_actual_binding_and_lexical_support() {
             data.flow.qualifications.insert(q).unwrap();
             let retained = data
                 .evaluation
-                .bindings
+                .ruff_bindings
                 .iter()
                 .filter(|b| b.id() != binding)
                 .cloned()
                 .collect::<Vec<_>>();
-            data.evaluation.bindings = normalized::Rows::new(&f.budget);
+            data.evaluation.ruff_bindings = normalized::Rows::new(&f.budget);
             for prior in retained {
-                data.evaluation.bindings.insert(prior).unwrap();
+                data.evaluation.ruff_bindings.insert(prior).unwrap();
             }
             // Keep the original native support: it cannot support this changed assertion.
-            data.evaluation.bindings.insert(row).unwrap();
+            data.evaluation.ruff_bindings.insert(row).unwrap();
         } else if mutation == "lexical support" {
             let retained = data
                 .evaluation
@@ -310,14 +315,14 @@ async fn lambda_shadow_screen_requires_actual_binding_and_lexical_support() {
         } else {
             let retained = data
                 .evaluation
-                .binding_supports
+                .ruff_binding_supports
                 .iter()
                 .filter(|s| s.assertion != binding)
                 .cloned()
                 .collect::<Vec<_>>();
-            data.evaluation.binding_supports = normalized::Rows::new(&f.budget);
+            data.evaluation.ruff_binding_supports = normalized::Rows::new(&f.budget);
             for support in retained {
-                data.evaluation.binding_supports.insert(support).unwrap();
+                data.evaluation.ruff_binding_supports.insert(support).unwrap();
             }
         }
         let output = read_from(&f, &data);

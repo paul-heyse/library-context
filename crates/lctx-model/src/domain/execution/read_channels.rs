@@ -359,6 +359,47 @@ pub(super) fn input_scope(
         _ => false,
     }
 }
+/// Native Ruff owns binding identity. Recognizer BindingObservation rows remain retained
+/// characterization and cannot replace the exact attached native event/scope proof.
+pub(super) fn native_binding<'a>(
+    data: &'a EvaluationData,
+    entry: &EntryData,
+    invocation: &publication::AnalysisInvocation,
+    event: Id<lexical::BindingEvent>,
+    work: &mut Work,
+) -> Result<Option<(&'a ruff::RuffBindingObservation, NativeSupport)>, ModelError> {
+    let Some(event) = data.binding_events.get(event) else { return Ok(None) };
+    let Some(site) = entry.occurrences.get(event.site) else { return Ok(None) };
+    let mut found = None;
+    work.scan(data.ruff_bindings.len())?;
+    for binding in data.ruff_bindings.iter().filter(|b| b.event == event.id()) {
+        work.tick()?;
+        let Some(scope) = binding.scope.and_then(|s| entry.lexical_scopes.get(s)) else { continue };
+        let Some(owner) = entry.occurrences.get(scope.owner) else { continue };
+        let Some(q) = entry.qualifications.get(binding.qualification) else { continue };
+        if binding.scope_location != ruff::AttachmentStatus::Located
+            || binding.native_name != event.name
+            || q.context != invocation.context
+            || q.modality != Modality::Definite
+            || q.approximation != Approximation::Exact
+            || site.source != owner.source
+            || !site.structural_path.starts_with(&owner.structural_path)
+        {
+            continue;
+        }
+        let Some(proof) = native(
+            NativeContext { data, entry, invocation },
+            &data.ruff_binding_supports,
+            binding.id(),
+            binding.qualification,
+            event.site,
+            work,
+        )? else { continue };
+        if found.is_some() { return Ok(None) }
+        found = Some((binding, proof));
+    }
+    Ok(found)
+}
 /// Calls may retain unresolved alternatives (Partial); that is not a runtime closure claim.
 /// Missing/unavailable inventory cannot screen imported/qualified name-driven accesses.
 pub(super) fn calls_available(
@@ -663,57 +704,22 @@ pub fn produce(
             else {
                 continue;
             };
-            let mut bindings = data.bindings.iter().filter(|b| {
-                b.event == *event
-                    && entry
-                        .lexical_scopes
-                        .get(b.scope)
-                        .is_some_and(|s| s.kind == lexical::LexicalScopeKind::Module)
-                    && entry
-                        .qualifications
-                        .get(b.qualification)
-                        .is_some_and(|q| q.context == invocation.context)
-            });
-            if let Some(binding) = bindings.next() {
-                if bindings.next().is_some() {
-                    global_ambiguous = true;
-                }
-                let supported_binding = native(
-                    super::read_channels::NativeContext {
-                        data,
-                        entry,
-                        invocation,
-                    },
-                    &data.binding_supports,
-                    binding.id(),
-                    binding.qualification,
-                    data.binding_events
-                        .get(binding.event)
-                        .ok_or_else(|| ModelError::Invalid("global binding event missing".into()))?
-                        .site,
-                    &mut work,
-                )?;
-                if let (Some(premise), Some(binding)) = (
-                    native(
-                        super::read_channels::NativeContext {
-                            data,
-                            entry,
-                            invocation,
-                        },
-                        &data.lexical_resolution_supports,
-                        resolution.id(),
-                        resolution.qualification,
-                        use_.occurrence,
-                        &mut work,
-                    )?,
-                    supported_binding,
-                ) {
+            if let Some(premise) = native(
+                NativeContext { data, entry, invocation },
+                &data.lexical_resolution_supports,
+                resolution.id(),
+                resolution.qualification,
+                use_.occurrence,
+                &mut work,
+            )?
+                && let Some((binding, proof)) = native_binding(data, entry, invocation, *event, &mut work)?
+                && binding.scope.and_then(|s| entry.lexical_scopes.get(s)).is_some_and(|s| s.kind == lexical::LexicalScopeKind::Module)
+            {
                     if global.is_some() {
                         global_ambiguous = true;
                     }
                     global = Some(premise.0);
-                    global_binding = Some(binding.0);
-                }
+                    global_binding = Some(proof.0);
             }
         }
         let read = ReadObservation {

@@ -355,25 +355,22 @@ impl Inspect<'_> {
         &mut self,
         site: Id<Occurrence>,
     ) -> Result<Option<Id<LexicalTarget>>, ModelError> {
-        let mut rows = self
-            .data
-            .lexical_resolutions
-            .iter()
-            .filter(|r| r.read == site && self.always(r.qualification));
-        let Some(row) = rows.next() else {
-            return Ok(None);
-        };
-        if rows.next().is_some()
-            || !self.observe(
+        let mut selected = None;
+        self.work.scan(self.data.lexical_resolutions.len())?;
+        for row in self.data.lexical_resolutions.iter() {
+            if row.read != site || !self.always(row.qualification) { continue }
+            if !self.observe(
                 &self.data.lexical_resolution_supports,
                 row.id(),
                 row.qualification,
                 site,
-            )?
-        {
-            return Ok(None);
-        };
-        Ok(Some(row.target))
+            )? {
+                continue;
+            }
+            if selected.is_some() { return Ok(None) }
+            selected = Some(row.target);
+        }
+        Ok(selected)
     }
     fn builtin(&mut self, site: Id<Occurrence>, name: &str) -> Result<bool, ModelError> {
         let Some(target) = self.lexical_target(site)? else {
@@ -395,63 +392,67 @@ impl Inspect<'_> {
         let Some(event) = self.data.binding_events.get(*event) else {
             return Ok(false);
         };
-        self.work.scan(self.data.bindings.len())?;
-        let mut bindings = self
-            .data
-            .bindings
-            .iter()
-            .filter(|b| b.event == event.id() && self.always(b.qualification));
-        let Some(binding) = bindings.next() else {
-            return Ok(false);
-        };
-        if bindings.next().is_some()
-            || binding.kind != BindingEventKind::Assignment
-            || binding.static_branch.is_some()
-            || self
-                .entry
-                .lexical_scopes
-                .get(binding.scope)
+        let Some((binding, proof)) = super::read_channels::native_binding(
+            self.data, self.entry, self.invocation, event.id(), self.work,
+        )? else { return Ok(false) };
+        let Some(scope) = binding.scope else { return Ok(false) };
+        if !self.always(binding.qualification)
+            || binding.kind != ruff::RuffBindingKind::Assignment
+            || binding.typing || binding.lazy || binding.deleted
+            || binding.external || binding.global || binding.nonlocal
+            || self.entry.lexical_scopes.get(scope)
                 .is_none_or(|s| s.kind != LexicalScopeKind::Function)
         {
             return Ok(false);
         }
-        self.work
-            .scan(self.data.bindings.len() + self.data.callables.len())?;
-        if self
-            .data
-            .bindings
-            .iter()
-            .filter(|b| {
-                b.scope == binding.scope
-                    && self
-                        .entry
-                        .qualifications
-                        .get(b.qualification)
-                        .is_some_and(|q| q.context == self.invocation.context)
-                    && self
-                        .data
-                        .binding_events
-                        .get(b.event)
-                        .is_some_and(|e| e.name == event.name)
-            })
-            .count()
-            != 1
-        {
+        // Retained source characterization may conservatively refuse a conditional
+        // assignment; it never supplies the positive binding or lambda-value proof.
+        self.work.scan(self.data.bindings.len())?;
+        if self.data.bindings.iter().any(|b| {
+            b.event == event.id() && b.static_branch.is_some()
+                && self.entry.qualifications.get(b.qualification)
+                    .is_some_and(|q| q.context == self.invocation.context)
+        }) { return Ok(false) }
+        self.work.scan(self.data.ruff_bindings.len())?;
+        if self.data.ruff_bindings.iter().filter(|b| {
+            b.scope == Some(scope) && b.native_name == binding.native_name
+                && self.entry.qualifications.get(b.qualification)
+                    .is_some_and(|q| q.context == self.invocation.context)
+        }).count() != 1 {
             return Ok(false);
         }
-        let Some(value) = binding.value else {
-            return Ok(false);
-        };
-        if !self.data.callables.iter().any(|c| matches!(c, CallableEntity::Source { declaration, kind: CallableKind::Lambda } if *declaration == value)) {
+        // The native binding supplies identity; the original native syntax supplies its
+        // lambda value. A recognizer's BindingObservation.value is not this proof.
+        self.work.scan(self.data.placements.len())?;
+        let mut targets = self.data.placements.iter().filter(|p| {
+            p.occurrence == event.site && self.always(p.qualification)
+        });
+        let Some(target) = targets.next() else { return Ok(false) };
+        if targets.next().is_some() || !self.observe(
+            &self.entry.placement_supports, target.id(), target.qualification, event.site,
+        )? { return Ok(false) }
+        let Some(parent) = target.parent else { return Ok(false) };
+        if self.entry.occurrences.get(parent).is_none_or(|o| o.syntax_kind != SyntaxKind::StmtAssign) {
             return Ok(false);
         }
-        self.observe(
-            &self.data.binding_supports,
-            binding.id(),
-            binding.qualification,
-            event.site,
-        )
+        self.work.scan(self.data.placements.len() + self.data.callables.len())?;
+        let mut values = self.data.placements.iter().filter(|p| {
+            p.parent == Some(parent) && p.field == SyntaxField::Value
+                && self.always(p.qualification)
+        });
+        let Some(value) = values.next() else { return Ok(false) };
+        if values.next().is_some()
+            || self.entry.occurrences.get(value.occurrence).is_none_or(|o| o.syntax_kind != SyntaxKind::ExprLambda)
+            || !self.data.callables.iter().any(|c| matches!(c, CallableEntity::Source {
+                declaration, kind: CallableKind::Lambda
+            } if *declaration == value.occurrence))
+            || !self.observe(&self.entry.placement_supports, value.id(), value.qualification, value.occurrence)?
+        { return Ok(false) }
+        self.premises.insert(self.data.premises.get(proof.0)
+            .ok_or_else(|| ModelError::Invalid("lambda native binding premise missing".into()))?.clone())?;
+        Ok(true)
     }
+
     fn global(
         &mut self,
         site: Id<Occurrence>,
