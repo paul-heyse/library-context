@@ -116,20 +116,19 @@ impl Prepared {
                 Predicate::VariantParameterType { role, .. } | Predicate::VariantReturnType { role, .. } => Some(*role),
                 _ => None,
             };
-            if matches!(&requirement.predicate, Predicate::ParameterType { .. }) {
-                if let Context::Signature { invocation, .. } = c {
-                    let invocation = need(&self.data.source.catalog.invocations, *invocation)?;
-                    if !need(&self.data.source.core.variants, invocation.variant)?.role.runtime_source() { continue; }
-                }
+            if matches!(&requirement.predicate, Predicate::ParameterType { .. })
+                && let Context::Signature { invocation, .. } = c {
+                let invocation = need(&self.data.source.catalog.invocations, *invocation)?;
+                if !need(&self.data.source.core.variants, invocation.variant)?.role.runtime_source() { continue; }
             }
-            if let Some(role) = selected_role {
-                if let Context::Signature { invocation, .. } = c {
-                    let invocation = need(&self.data.source.catalog.invocations, *invocation)?;
-                    if need(&self.data.source.core.variants, invocation.variant)?.role != role { continue; }
-                }
+            if let Some(role) = selected_role
+                && let Context::Signature { invocation, .. } = c {
+                let invocation = need(&self.data.source.catalog.invocations, *invocation)?;
+                if need(&self.data.source.core.variants, invocation.variant)?.role != role { continue; }
             }
-            if let Predicate::FacetMembership{value,..}=&requirement.predicate {
-                if !structural_facets::applicable(&self.data,value,c)?{continue;}
+            if let Predicate::FacetMembership{value,..}=&requirement.predicate
+                && !structural_facets::applicable(&self.data,value,c)? {
+                continue;
             }
             let mut evidence = Vec::new();
             for id in self.index.evidence(stored.id(), link.context) {
@@ -165,14 +164,13 @@ impl Prepared {
                     continue;
                 }
             }
-            if matches!(&requirement.predicate,Predicate::VariantReturnType{role:calls::SignatureRole::Source,..}) {
-                if let Context::Signature{invocation,..}=c {
-                    let variant=need(&self.data.source.core.variants,need(&self.data.source.catalog.invocations,*invocation)?.variant)?;
-                    if let Some(CallableEntity::Source{declaration,..})=variant.callable.and_then(|id|self.data.source.core.source_callables.get(id)) {
-                        for row in self.data.facts.type_observations.iter().filter(|r|r.subject==*declaration&&r.role==types::TypeRole::Return&&r.declared&&self.data.source.core.qualifications.get(r.qualification).is_some_and(|q|q.context==c.analysis())) {
-                            dynamic_evidence.grow(2*size_of::<Witness>())?;
-                            let witness=Witness::TypeObservation{observation:row.id()};need(&self.output.witnesses,witness.id())?;evidence.push(witness);
-                        }
+            if matches!(&requirement.predicate,Predicate::VariantReturnType{role:calls::SignatureRole::Source,..})
+                && let Context::Signature{invocation,..}=c {
+                let variant=need(&self.data.source.core.variants,need(&self.data.source.catalog.invocations,*invocation)?.variant)?;
+                if let Some(CallableEntity::Source{declaration,..})=variant.callable.and_then(|id|self.data.source.core.source_callables.get(id)) {
+                    for row in self.data.facts.type_observations.iter().filter(|r|r.subject==*declaration&&r.role==types::TypeRole::Return&&r.declared&&self.data.source.core.qualifications.get(r.qualification).is_some_and(|q|q.context==c.analysis())) {
+                        dynamic_evidence.grow(2*size_of::<Witness>())?;
+                        let witness=Witness::TypeObservation{observation:row.id()};need(&self.output.witnesses,witness.id())?;evidence.push(witness);
                     }
                 }
             }

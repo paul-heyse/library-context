@@ -57,8 +57,8 @@ pub(super) fn answer(d:&ClassificationData,v:&FacetValue,c:&Context,budget:&Reso
     // A retained mismatch cannot close an omitted/unavailable native raise trace. Existing
     // module Types coverage certifies only this emitted typing set, never runtime exceptions.
     let mut complete=false;
-    if !matched&&seen&&!unknown {
-      if let Some(declaration)=declaration(d,c)? {
+    if !matched&&seen&&!unknown
+      && let Some(declaration)=declaration(d,c)? {
         let artifact=need(&d.source.core.occurrences,declaration)?.source;
         let scope=(source::CoverageScope::Artifact{artifact}).id();
         let mut found=false;let mut all_complete=true;
@@ -67,7 +67,6 @@ pub(super) fn answer(d:&ClassificationData,v:&FacetValue,c:&Context,budget:&Reso
           if inventory.status==attribution::CoverageStatus::CompleteUnderStatedModel {out.witness(Witness::NativeTypingCoverage{coverage:inventory.id()})?;}
         }
         complete=found&&all_complete;
-      }
     }
     out.value=if matched{Some(true)}else if seen&&!unknown&&complete{Some(false)}else{None};
   }
@@ -86,8 +85,8 @@ pub(super) fn answer(d:&ClassificationData,v:&FacetValue,c:&Context,budget:&Reso
         // identity; a matching source spelling never selects a decorator target.
         let mut selected_name=None;
         let target=need(&n.reference_targets,need(&n.reference_candidates,candidate)?.target)?;
-        if let normalized::links::ReferenceEntityTarget::Binding{event,entity:target}=target {
-          if *target==entity {
+        if let normalized::links::ReferenceEntityTarget::Binding{event,entity:target}=target
+          && *target==entity {
             let event=need(&n.binding_events,*event)?;
             for binding in n.bindings.iter().filter(|r|r.event==event.id()&&matches!(r.kind,lexical::BindingEventKind::FunctionDef|lexical::BindingEventKind::ClassDef)&&exact(d,r.qualification,c.analysis())) {
               let mut supported=false;for support in d.facts.binding_supports.iter().filter(|r|r.assertion==binding.id()){out.witness(Witness::LexicalDefinition{observation:binding.id(),support:support.id()})?;supported=true;}if !supported{continue;}
@@ -99,7 +98,6 @@ pub(super) fn answer(d:&ClassificationData,v:&FacetValue,c:&Context,budget:&Reso
                 selected_name=Some(match selected_name{None=>Some(value),Some(old)=>combine(old,Some(value))});
               }
             }
-          }
         }
         for resolution in n.resolutions.iter().filter(|r|r.entity==Some(entity)&&r.context==c.analysis()&&r.status==ResolutionStatus::Resolved){
           let symbol=need(&n.symbols,resolution.symbol)?;

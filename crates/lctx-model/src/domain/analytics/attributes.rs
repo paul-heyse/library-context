@@ -613,7 +613,6 @@ fn facts(
 }
 pub fn concepts(
     d: &Data,
-    _f: &AnalyticFrame,
     sf: &structural::StructuralFrame,
     public: &BTreeSet<Id<EntityRef>>,
     result: &mut TechniqueResult,

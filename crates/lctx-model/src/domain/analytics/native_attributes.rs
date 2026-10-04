@@ -34,6 +34,9 @@ fn exact(d: &Data, qualification: Id<assertion::AssertionQualification>, ctx: Id
 fn resolves(d: &Data, symbol: Id<calls::ProviderSymbol>, entity: Id<EntityRef>, ctx: Id<attribution::AnalysisContext>) -> bool {
     d.native.symbol_resolutions.iter().any(|r| r.symbol == symbol && r.context == ctx && r.status == ResolutionStatus::Resolved && r.entity == Some(entity))
 }
+// Entity/observation/role/context identify separate semantic owners; facts and selections
+// retain independent provenance under the shared resource budget and state charge.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn metadata(
     d: &Data, entity: Id<EntityRef>, observation: &types::TypeObservation, role: TypePortRole,
     ctx: Id<attribution::AnalysisContext>, budget: &ResourceBudget, facts: &mut ChargedVec<Fact>, selections: &mut ChargedVec<Selection>, charge: &mut StateCharge,
@@ -98,6 +101,82 @@ pub(super) fn decorator(d: &Data, entity: Id<EntityRef>, decorator: &syntax::Dec
         }
         if let (Some(target),Some(assessment),Some(candidate))=(selected.entity,selected.assessment,selected.candidate){
             facts.push(charge,Fact{entity,attribute:Attribute::ResolvedDecorator{entity:target},source:IncidenceSource::ResolvedDecorator{observation:decorator.id(),assessment,candidate}})?;
+        }
+    }
+    Ok(())
+}
+
+/// Native contracts are distinct kinds from declared source ports. Native receiver slots remain
+/// present and labelled, because bound native terms may have already transformed the receiver.
+pub(super) fn variants(d: &Data, entity: Id<EntityRef>, ctx: Id<attribution::AnalysisContext>, b: &ResourceBudget,
+    facts: &mut ChargedVec<Fact>, charge: &mut StateCharge, policy: policy::AttributePolicy) -> Result<(), ModelError> {
+    let EntityRef::Callable { callable } = need(&d.native.refs, entity)? else { return Ok(()); };
+    for variant in d.native.callable_variants.iter().filter(|v| v.callable == Some(*callable) && v.context == ctx && policy.signature_roles.native(v.role)) {
+        let Some(native) = variant.native else { continue; };
+        let native = need(&d.native.native_signatures, native)?;
+        if !exact(d, native.qualification, ctx)? { continue; }
+        for support in d.native_signature_supports.iter().filter(|s| s.assertion == native.id()) {
+            facts.push(charge, Fact { entity, attribute: Attribute::NativeSignature { role: variant.role, adjustment: variant.adjustment, receiver: native.receiver,
+                complete: native.complete, term: native.term }, source: IncidenceSource::NativeSignature {
+                observation: native.id(), support: support.id(), variant: variant.id() } })?;
+            // Availability and the unmodified message are native metadata. Its exact origin
+            // remains on the cited observation; decorator spelling supplies no substitute.
+            facts.push(charge, Fact { entity, attribute: Attribute::NativeDeprecation { role: variant.role, basis: class_metadata::MetadataBasis::NativeEffective,
+                availability: native.deprecation, message: native.deprecation_message.clone() }, source: IncidenceSource::NativeSignature {
+                observation: native.id(), support: support.id(), variant: variant.id() } })?;
+        }
+        for port in d.native.signature_types.iter() {
+            if !exact(d, port.qualification, ctx)? || classes(d, port.term, ctx, b)?.is_none() { continue; }
+            let attribute = match need(&d.native.signature_type_subjects, port.subject)? {
+                types::SignatureTypeSubject::Return { signature } if *signature == variant.signature => Some(Attribute::NativeReturnType { role: variant.role, adjustment: variant.adjustment, receiver: native.receiver, term: port.term }),
+                types::SignatureTypeSubject::Parameter { parameter } => {
+                    let parameter = need(&d.native.parameters, *parameter)?;
+                    if parameter.signature != variant.signature { continue; }
+                    let shape = need(&d.native.shapes, parameter.shape)?;
+                    Some(Attribute::NativeParameterType { role: variant.role, adjustment: variant.adjustment, receiver: native.receiver, ordinal: parameter.ordinal,
+                        name: shape.name.clone(), parameter_kind: shape.kind, term: port.term })
+                }
+                _ => None,
+            };
+            if let Some(attribute) = attribute {
+                for support in d.port_supports.iter().filter(|s| s.assertion == port.id()) {
+                    facts.push(charge, Fact { entity, attribute: attribute.clone(), source: IncidenceSource::NativePort {
+                        observation: port.id(), support: support.id(), variant: variant.id() } })?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Capture and protocol typing are characterizations of observed dependence/calls. Neither
+/// unknown capture timing nor diagnostic-free exit typing implies a concrete runtime result.
+pub(super) fn dependence(d: &Data, entity: Id<EntityRef>, ctx: Id<attribution::AnalysisContext>,
+    facts: &mut ChargedVec<Fact>, charge: &mut StateCharge) -> Result<(), ModelError> {
+    for capture in d.captures.iter().filter(|c| resolves(d, c.function, entity, ctx)) {
+        if !exact(d, capture.qualification, ctx)? { continue; }
+        for support in d.capture_supports.iter().filter(|s| s.assertion == capture.id()) {
+            facts.push(charge, Fact { entity, attribute: Attribute::CaptureDependence { name: capture.name.clone(), origin: capture.origin,
+                declaring: capture.declaring, mutable: capture.mutable, timing: capture.timing }, source: IncidenceSource::Capture {
+                observation: capture.id(), support: support.id() } })?;
+        }
+    }
+    let owned = |subject| d.native.owners.iter().any(|o| o.occurrence == subject && o.entity == entity);
+    for exit in d.exits.iter().filter(|e| owned(e.subject)) {
+        if !exact(d, exit.qualification, ctx)? { continue; }
+        for support in d.exit_supports.iter().filter(|s| s.assertion == exit.id()) {
+            facts.push(charge, Fact { entity, attribute: Attribute::ExitProtocolTyping { asynchronous: exit.asynchronous, normal: exit.normal_result,
+                exceptional: exit.exceptional_result, normal_status: exit.normal_status, exceptional_status: exit.exceptional_status,
+                normal_awaitability: exit.normal_awaitability, exceptional_awaitability: exit.exceptional_awaitability },
+                source: IncidenceSource::ExitProtocol { observation: exit.id(), support: support.id() } })?;
+        }
+    }
+    for terminal in d.terminals.iter().filter(|t| owned(t.subject)) {
+        if !exact(d, terminal.qualification, ctx)? { continue; }
+        for support in d.terminal_supports.iter().filter(|s| s.assertion == terminal.id()) {
+            facts.push(charge, Fact { entity, attribute: Attribute::TerminalTyping { decision: terminal.decision, returns: terminal.return_type,
+                inferred: terminal.return_is_inferred, bound: terminal.is_bound_method }, source: IncidenceSource::Terminal {
+                observation: terminal.id(), support: support.id() } })?;
         }
     }
     Ok(())
@@ -238,80 +317,4 @@ mod tests {
         assert_eq!(collect(&d, id(1)), expected.iter().map(Record::id).collect());
         assert!(collect(&d, id(2)).is_empty(), "another context cannot borrow characterization");
     }
-}
-
-/// Native contracts are distinct kinds from declared source ports. Native receiver slots remain
-/// present and labelled, because bound native terms may have already transformed the receiver.
-pub(super) fn variants(d: &Data, entity: Id<EntityRef>, ctx: Id<attribution::AnalysisContext>, b: &ResourceBudget,
-    facts: &mut ChargedVec<Fact>, charge: &mut StateCharge, policy: policy::AttributePolicy) -> Result<(), ModelError> {
-    let EntityRef::Callable { callable } = need(&d.native.refs, entity)? else { return Ok(()); };
-    for variant in d.native.callable_variants.iter().filter(|v| v.callable == Some(*callable) && v.context == ctx && policy.signature_roles.native(v.role)) {
-        let Some(native) = variant.native else { continue; };
-        let native = need(&d.native.native_signatures, native)?;
-        if !exact(d, native.qualification, ctx)? { continue; }
-        for support in d.native_signature_supports.iter().filter(|s| s.assertion == native.id()) {
-            facts.push(charge, Fact { entity, attribute: Attribute::NativeSignature { role: variant.role, adjustment: variant.adjustment, receiver: native.receiver,
-                complete: native.complete, term: native.term }, source: IncidenceSource::NativeSignature {
-                observation: native.id(), support: support.id(), variant: variant.id() } })?;
-            // Availability and the unmodified message are native metadata. Its exact origin
-            // remains on the cited observation; decorator spelling supplies no substitute.
-            facts.push(charge, Fact { entity, attribute: Attribute::NativeDeprecation { role: variant.role, basis: class_metadata::MetadataBasis::NativeEffective,
-                availability: native.deprecation, message: native.deprecation_message.clone() }, source: IncidenceSource::NativeSignature {
-                observation: native.id(), support: support.id(), variant: variant.id() } })?;
-        }
-        for port in d.native.signature_types.iter() {
-            if !exact(d, port.qualification, ctx)? || classes(d, port.term, ctx, b)?.is_none() { continue; }
-            let attribute = match need(&d.native.signature_type_subjects, port.subject)? {
-                types::SignatureTypeSubject::Return { signature } if *signature == variant.signature => Some(Attribute::NativeReturnType { role: variant.role, adjustment: variant.adjustment, receiver: native.receiver, term: port.term }),
-                types::SignatureTypeSubject::Parameter { parameter } => {
-                    let parameter = need(&d.native.parameters, *parameter)?;
-                    if parameter.signature != variant.signature { continue; }
-                    let shape = need(&d.native.shapes, parameter.shape)?;
-                    Some(Attribute::NativeParameterType { role: variant.role, adjustment: variant.adjustment, receiver: native.receiver, ordinal: parameter.ordinal,
-                        name: shape.name.clone(), parameter_kind: shape.kind, term: port.term })
-                }
-                _ => None,
-            };
-            if let Some(attribute) = attribute {
-                for support in d.port_supports.iter().filter(|s| s.assertion == port.id()) {
-                    facts.push(charge, Fact { entity, attribute: attribute.clone(), source: IncidenceSource::NativePort {
-                        observation: port.id(), support: support.id(), variant: variant.id() } })?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Capture and protocol typing are characterizations of observed dependence/calls. Neither
-/// unknown capture timing nor diagnostic-free exit typing implies a concrete runtime result.
-pub(super) fn dependence(d: &Data, entity: Id<EntityRef>, ctx: Id<attribution::AnalysisContext>,
-    facts: &mut ChargedVec<Fact>, charge: &mut StateCharge) -> Result<(), ModelError> {
-    for capture in d.captures.iter().filter(|c| resolves(d, c.function, entity, ctx)) {
-        if !exact(d, capture.qualification, ctx)? { continue; }
-        for support in d.capture_supports.iter().filter(|s| s.assertion == capture.id()) {
-            facts.push(charge, Fact { entity, attribute: Attribute::CaptureDependence { name: capture.name.clone(), origin: capture.origin,
-                declaring: capture.declaring, mutable: capture.mutable, timing: capture.timing }, source: IncidenceSource::Capture {
-                observation: capture.id(), support: support.id() } })?;
-        }
-    }
-    let owned = |subject| d.native.owners.iter().any(|o| o.occurrence == subject && o.entity == entity);
-    for exit in d.exits.iter().filter(|e| owned(e.subject)) {
-        if !exact(d, exit.qualification, ctx)? { continue; }
-        for support in d.exit_supports.iter().filter(|s| s.assertion == exit.id()) {
-            facts.push(charge, Fact { entity, attribute: Attribute::ExitProtocolTyping { asynchronous: exit.asynchronous, normal: exit.normal_result,
-                exceptional: exit.exceptional_result, normal_status: exit.normal_status, exceptional_status: exit.exceptional_status,
-                normal_awaitability: exit.normal_awaitability, exceptional_awaitability: exit.exceptional_awaitability },
-                source: IncidenceSource::ExitProtocol { observation: exit.id(), support: support.id() } })?;
-        }
-    }
-    for terminal in d.terminals.iter().filter(|t| owned(t.subject)) {
-        if !exact(d, terminal.qualification, ctx)? { continue; }
-        for support in d.terminal_supports.iter().filter(|s| s.assertion == terminal.id()) {
-            facts.push(charge, Fact { entity, attribute: Attribute::TerminalTyping { decision: terminal.decision, returns: terminal.return_type,
-                inferred: terminal.return_is_inferred, bound: terminal.is_bound_method }, source: IncidenceSource::Terminal {
-                observation: terminal.id(), support: support.id() } })?;
-        }
-    }
-    Ok(())
 }

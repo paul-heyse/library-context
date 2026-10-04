@@ -641,7 +641,7 @@ pub fn produce_with_policy(d: &Data, f: &AnalyticFrame, invocations: &Rows<owner
     ] {
         let mut r = methods.remove(&(method as i16)).unwrap();
         if r.selected {
-            super::attributes::concepts(d, f, sf, &public, &mut r, &mut out, b, attributes)?;
+            super::attributes::concepts(d, sf, &public, &mut r, &mut out, b, attributes)?;
         }
         out.results.insert(r)?;
     }
