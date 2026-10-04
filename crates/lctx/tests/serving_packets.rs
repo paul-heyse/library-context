@@ -94,7 +94,20 @@ class Settings:
         incoming.extend(packet.incoming_references.items); cursor=packet.incoming_references.continuation;
     }
     assert_eq!(incoming.len(),3,"decorator and two value uses; shadowed formal is another entity");
-    assert!(incoming.iter().any(|r|r.field==SyntaxField::Decorator));
+    // A decorator wrapper sits in FunctionDef.Decorator; its ExprName is an
+    // immediate Child of that wrapper. Preserve the actual placement field and
+    // prove decorator participation through the canonical source ancestry.
+    let decorator_start=std::str::from_utf8(source).unwrap().find("@decorate").unwrap()+1;
+    let decorator=incoming.iter().find(|r|r.start==decorator_start as i64 && r.end==(decorator_start+"decorate".len()) as i64).expect("exact original decorator name is an incoming reference");
+    let lexical=execution.read::<lctx_model::domain::lexical::ReferenceObservation>().await.unwrap();
+    let syntax=execution.read::<lctx_model::domain::source::Occurrence>().await.unwrap();
+    let placements=execution.read::<lctx_model::domain::syntax::SyntaxPlacement>().await.unwrap();
+    let reference=lexical.rows().iter().find(|r|r.id()==decorator.reference).unwrap();
+    let parent=syntax.rows().iter().find(|o|o.id()==reference.parent).unwrap();
+    assert_eq!(parent.kind,lctx_model::domain::source::SyntaxKind::Decorator);
+    assert_eq!(decorator.field,reference.field);
+    assert_eq!(decorator.field,SyntaxField::Child);
+    assert!(placements.rows().iter().any(|p|p.occurrence==reference.parent && p.parent.is_some() && p.field==SyntaxField::Decorator));
     assert!(incoming.iter().all(|r|!r.call_target_syntax && !r.proof.is_empty()));
     let fields=request("demo.Settings",vec![OperationSection::Relationships]);
     let response=fixture.catalog.operation(&execution,&fields).await.unwrap();
