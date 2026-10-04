@@ -170,10 +170,9 @@ pub fn compare(d: &ClassificationData, member: Id<CatalogMember>, context: Id<at
     }
     let returns=|variant: &SignatureVariant| {
         let mut terms=d.source.core.return_types.iter().filter(|t|t.variant==variant.id()).filter_map(|t|d.source.core.signature_types.get(t.observation)).filter(|o|d.source.core.qualifications.get(o.qualification).is_some_and(|q|q.context==context)).map(|t|t.term).collect::<Vec<_>>();
-        if variant.role.runtime_source() {
-            if let Some(super::entities::CallableEntity::Source {declaration,..})=variant.callable.and_then(|c|d.source.core.source_callables.get(c)) {
-                terms.extend(d.facts.type_observations.iter().filter(|o|o.subject==*declaration && o.role==TypeRole::Return && d.source.core.qualifications.get(o.qualification).is_some_and(|q|q.context==context)).map(|o|o.term));
-            }
+        if variant.role.runtime_source()
+            && let Some(super::entities::CallableEntity::Source {declaration,..})=variant.callable.and_then(|c|d.source.core.source_callables.get(c)) {
+            terms.extend(d.facts.type_observations.iter().filter(|o|o.subject==*declaration && o.role==TypeRole::Return && d.source.core.qualifications.get(o.qualification).is_some_and(|q|q.context==context)).map(|o|o.term));
         }
         terms.sort(); terms.dedup(); terms
     };
@@ -195,7 +194,7 @@ pub fn compare(d: &ClassificationData, member: Id<CatalogMember>, context: Id<at
     for link in d.source.core.parameter_links.iter().filter(|p|parameter_ids.contains(&p.parameter)) {
         if let Some(super::entities::ParameterEntity::Source {declaration})=d.source.core.parameters.get(link.entity) {source_subjects.insert(*declaration);}
     }
-    for variant in [l,r] {if variant.role.runtime_source() {if let Some(super::entities::CallableEntity::Source {declaration,..})=variant.callable.and_then(|c|d.source.core.source_callables.get(c)) {source_subjects.insert(*declaration);}}}
+    for variant in [l,r] {if variant.role.runtime_source() && let Some(super::entities::CallableEntity::Source {declaration,..})=variant.callable.and_then(|c|d.source.core.source_callables.get(c)) {source_subjects.insert(*declaration);}}
     for observation in d.source.core.signature_types.iter().filter(|o|d.facts.signature_subjects.get(o.subject).is_some_and(|s|match s {SignatureTypeSubject::Parameter {parameter}=>parameter_ids.contains(parameter),SignatureTypeSubject::Return {signature}=>*signature==l.signature || *signature==r.signature}) && d.source.core.qualifications.get(o.qualification).is_some_and(|q|q.context==context)) {
         charge.try_resize(charge.size().saturating_add(512))?;
         proof.push(derivation::RowRef::of(observation.id()));
