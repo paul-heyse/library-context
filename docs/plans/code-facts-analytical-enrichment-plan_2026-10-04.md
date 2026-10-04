@@ -83,7 +83,7 @@ The canonical syntax provider is independent Ruff 0.16.10/crates 0.0.16, source 
 Pyrefly is 1.4.0-dev.3, fork `72bb34d6d67c2bc14720c77e2ad7eff6b89d360f`, parent
 `80cec3f57364bc11d4a39a419f6894a8eabcaa00`, with its embedded registry Ruff 0.0.14 isolated.
 [Current pins](../pins.md), manifests and fork checks own future revisions. C2 may advance the
-minimal Pyrefly observation patch while preserving this upstream premise; no unrelated upgrade.
+minimal Pyrefly observation patch while preserving this upstream premise; no unrelated Pyrefly upgrade.
 The `python-analyzers` supplier index and exact source underpin API choices; its historical project
 notes and Python/CLI documentation do not establish current Rust embedding behavior.
 

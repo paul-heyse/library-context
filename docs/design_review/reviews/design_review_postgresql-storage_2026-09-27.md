@@ -312,7 +312,7 @@ second model. No positive foundation assessment closes an unresolved execution g
 
 ### Rust: SQLx first, with a meaningful runner-up
 
-**Proposed selection: SQLx 0.9.0**, exact version to be qualified by `pin-check` before adoption.
+**Proposed selection: SQLx 0.9.0**, qualified at its locked version before adoption.
 It fits the current Tokio runtime and SQL/relational style, with pooling, transactions, migrations
 and optional checked SQL in one library. Use PostgreSQL-specific types rather than `AnyPool`.
 Its tagged manifest declares Rust 1.94.0, below this workspace's 1.98.1. That clears an MSRV
@@ -524,7 +524,7 @@ owns current finding disposition. ADR-0065 is a proposal; this dated assessment 
 |---|---|---|
 | Select the cache experiment and state its success criteria | Operator / storage owner; schedule in the current plan if chosen | F01/F03; avoid a second plan |
 | Decide cache authority and immutable capture | ADR responding to ADR-0043 and ADR-0047 and affected §B7/§B12/§B14; update storage and embedding owners | F01; ADR-0043 and §B14 explicitly bind the canonical cache/version semantics; accepted records remain immutable; snapshot/schema/compiler migration is explicit |
-| Qualify SQLx and implement one cache owner | `pin-check`, `cpg-core`, narrow SQL migrations | F04; no unused ORM, provider framework or PG vector extension |
+| Qualify SQLx and implement one cache owner | locked-version qualification, `cpg-core`, narrow SQL migrations | F04; no unused ORM, provider framework or PG vector extension |
 | Replace global cache path after parity and measurement | `embed`, schema, attempt, bundle and readers | F01; delete replaced Delta global writer and unneeded reader branches after consumer search |
 | Add operator/workflow state when a consumer lands | Its coherent domain owner and explicit input-capture contract | Preserve snapshot semantics; no mutable review/vocabulary backdoor |
 | Choose indexed serving only on its trigger | New ADR responding to ADR-0043, §B12/§B13 and the LanceDB deferral; generation/retrieval owners | F02/F04; compare engines at trigger, delete the replaced retrieval path once selected |

@@ -27,13 +27,13 @@ contract, or an explicit ADR deliberately changes the required contract.
 
 Use pinned source/primary documentation, including the
 [odis implication engine interface](https://docs.rs/odis/2026.9.1/odis/traits/implication_engine/trait.ImplicationEngine.html).
-No license is a rejection reason. If AGPL-3.0 blocks the chosen dev dependency, widen the narrowly
-applicable dependency policy rather than replacing the oracle for licensing reasons.
+No license is a rejection reason, and `just deps` does not check licences (ADR-0125), so AGPL-3.0
+does not block the chosen dev dependency.
 
 ## 2. K1 — Integrate the independent finite-context oracle
 
 Own the harness in `crates/lctx-analytics/tests`; root owns shared manifests/lock/pins/policy changes.
-Add exact workspace versions `odis = "=2026.9.1"` and `bit-set = "=0.8.0"`, referenced only from
+Add exact workspace versions (oracle pins with a pins row) `odis = "=2026.9.1"` and `bit-set = "=0.8.0"`, referenced only from
 the analytics dev-dependency surface. bit-set 0.8.0 already exists in the current lock and supplies
 the public type used by this odis release. Existing fcars remains for its independent concept route.
 Qualify odis's full transitive dependency/policy burden, including reqwest/rust-sugiyama despite this

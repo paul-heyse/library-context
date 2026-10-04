@@ -560,7 +560,7 @@ stable IDs. AP/F02–F06 and retained semantic findings keep their existing owne
 catalog boundaries, with their design owners updated together. A local refactor within that
 contract needs no further ADR. Selecting Salsa persistence or a new inference owner would be a
 separate lifecycle decision; accepted ADR-0071/0072 remain unchanged. Direct dependency adoption
-follows pin-check, records exact features and uses appropriate focused probes.
+needs no pin-check (dependencies float, ADR-0125), records the enabled features and uses appropriate focused probes.
 
 ## 12. Architectural judgment and decision
 

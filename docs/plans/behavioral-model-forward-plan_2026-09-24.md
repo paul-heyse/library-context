@@ -184,8 +184,8 @@ writes receive focused controls. No new library or framework is needed (FP-01–
 **PR2–PR5 steps Implemented, 2026-09-29.** These refine existing PR2–PR5, not a
 parallel workstream. Do not implement the whole classifier before its evidence or change PR0
 evaluation freezes. The [library policy §14.11](../design/sections/api-and-evidence-product.md#section-14-11)
-owns selected versus conditional mechanisms; exact direct pins/features follow pin-check during
-implementation, with no dependency-family upgrade assumed.
+owns selected versus conditional mechanisms; direct dependencies float (ADR-0125) and a deliberate pin
+follows pin-check during implementation, with no dependency-family upgrade assumed.
 
 | Order / owner | Concrete work | Acceptance and deletion obligation |
 |---|---|---|

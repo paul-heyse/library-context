@@ -357,7 +357,7 @@ contracts. Both reviews retain dated source findings; their current disposition 
 the [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings).
 
 At adoption, the PostgreSQL effect owner records the driver decision and scope through
-ADR + owning DESIGN sections, updates pins through pin-check, and implements one migration
+ADR + owning DESIGN sections, records any deliberate pin through pin-check, and implements one migration
 history. Follow the existing acceptance timing and the operator-requested two-plan split:
 PostgreSQL detail lives in its plan, with sequencing and dispositions in the forward plan.
 Ordinary semantic development keeps database-independent builds. If the alternative is

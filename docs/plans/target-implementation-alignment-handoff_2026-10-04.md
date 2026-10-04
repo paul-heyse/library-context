@@ -84,7 +84,7 @@ The coordinator §7 includes the full original M1–M4/N2 inventory and all name
 | [Analyzer evidence](../design_review/evidence/2026-10-04_library-leverage/l2-analyzers.md); python-analyzers skill | Export/Branch observations, policy comparisons, custom builtins, source helpers and conditional Glean/Griffe/docstring/SCIP uses |
 | [Reasoning/graph evidence](../design_review/evidence/2026-10-04_library-leverage/l3-reasoning-graphs.md); rust-reasoning/rust-graphs/fixedbitset skills | Fused BDD exists policy, evidence-preserving SCC, weighted ranking, FCA/RCA and Ascent BYODS/custom relations under the actual bounded contract |
 | Serving plan IS packages; FastMCP/PyO3 skills | Final bytes, startup admission/cancel/drain, task tracking and embedding twin boundaries |
-| [Pins](../pins.md), [skill selection](../../.config/library-skills.toml), [pin-check](../../.claude/skills/pin-check/SKILL.md) | Exact sources/features/family boundaries, useful pydantic/vLLM skill selection, custom engine build compatibility and migrations after an upgrade |
+| [Pins](../pins.md), [skill selection](../../.config/library-skills.toml), [pin-check](../../.claude/skills/pin-check/SKILL.md) | Deliberate pins (sources/features/family boundaries), useful pydantic/vLLM skill selection, custom engine build compatibility and migrations after an upgrade |
 
 Use `.claude/skills/<name>/SKILL.md` as the live pinned capability route; check pins before transferring a claim. For an uncovered library consult Context7 per AGENTS, and source-check the required pinned Rust capability when Python docs are inadequate. Source/code review is not itself a Context7 requirement.
 
