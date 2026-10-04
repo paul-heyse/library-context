@@ -21,7 +21,6 @@ impl Records {
     }
 }
 pub(crate) fn location(span:Option<EvidenceSourceSpanId>)->DiagnosticLocation {if span.is_some(){DiagnosticLocation::Available}else{DiagnosticLocation::Unavailable}}
-#[allow(clippy::too_many_arguments)]
 pub fn ruff(artifact:&SourceArtifact,source:&str,parsed:&Parsed<ModModule>,native:&ruff_linter::semantic_facts::Settings,q:&AssertionQualification,budget:&ResourceBudget)->Result<Records,ModelError>{
     let mut out=Records::new(budget);
     // All inputs are captured. Never call Default/for_rules, which read Ruff's cached cwd.

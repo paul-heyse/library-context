@@ -93,13 +93,12 @@ impl Spans {
         candidates.retain(|id| {
             let Some((_,_,kind)) = self.ranges.get(id) else {return false;};
             let parent = self.parent(*id).and_then(|(parent,field)| self.ranges.get(&parent).map(|(_,_,kind)|(*kind,field)));
-            match (*kind,self.role_of(*id),is_load,parent) {
-                (SyntaxKind::ExprName,Some(OccurrenceRole::Read),true,_) => true,
-                (SyntaxKind::ExprName,Some(OccurrenceRole::Binding),true,Some((SyntaxKind::StmtAugAssign,SyntaxField::Target))) => true,
-                (SyntaxKind::ExprName,Some(OccurrenceRole::Syntax),false,Some((SyntaxKind::StmtDelete,_))) => true,
-                (SyntaxKind::Identifier,Some(OccurrenceRole::Syntax),true,Some((SyntaxKind::StmtNonlocal|SyntaxKind::StmtGlobal,_))) => true,
-                _ => false,
-            }
+            matches!((*kind,self.role_of(*id),is_load,parent),
+                (SyntaxKind::ExprName,Some(OccurrenceRole::Read),true,_)
+                | (SyntaxKind::ExprName,Some(OccurrenceRole::Binding),true,Some((SyntaxKind::StmtAugAssign,SyntaxField::Target)))
+                | (SyntaxKind::ExprName,Some(OccurrenceRole::Syntax),false,Some((SyntaxKind::StmtDelete,_)))
+                | (SyntaxKind::Identifier,Some(OccurrenceRole::Syntax),true,Some((SyntaxKind::StmtNonlocal|SyntaxKind::StmtGlobal,_)))
+            )
         });
         match candidates.as_slice() {[id]=>Some(*id),_=>None}
     }

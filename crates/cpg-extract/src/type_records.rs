@@ -1349,7 +1349,23 @@ pub fn records<'a>(
         }
         b.trace(call.site, TypeRole::CallResult, spans.range_of(call.site))?;
         if let Some(Type::BoundMethod(method)) = spans.range_of(call.callee).and_then(|range| ctx.answers.get_type_trace(range)) {
-            let receiver = match &method.obj { Type::ClassType(c) | Type::SelfType(c) => Some(c), _ => None };
+            let receiver = match &method.obj {
+                Type::ClassType(c) | Type::SelfType(c) => Some(c),
+                Type::Literal(_) | Type::LiteralString(_) | Type::Callable(_) | Type::TypeLevelDslCall(_)
+                | Type::Function(_) | Type::BoundMethod(_) | Type::Overload(_) | Type::Overloaded(_)
+                | Type::Union(_) | Type::Intersect(_) | Type::ClassDef(_) | Type::TypedDict(_)
+                | Type::PartialTypedDict(_) | Type::ShapedArray(_) | Type::IntTuple(_) | Type::NamedInts(_)
+                | Type::NNModule(_) | Type::DataFrame(_) | Type::Series(_) | Type::Int(_) | Type::Tuple(_)
+                | Type::Module(_) | Type::Forall(_) | Type::Var(_) | Type::Quantified(_)
+                | Type::QuantifiedValue(_) | Type::ElementOfTypeVarTuple(_) | Type::TypeGuard(_)
+                | Type::TypeIs(_) | Type::Annotated(..) | Type::Unpack(_) | Type::TypeVar(_)
+                | Type::ParamSpec(_) | Type::TypeVarTuple(_) | Type::SpecialForm(_) | Type::Concatenate(..)
+                | Type::ParamSpecValue(_) | Type::Args(_) | Type::Kwargs(_) | Type::ArgsValue(_)
+                | Type::KwargsValue(_) | Type::Type(_) | Type::TypeForm(_) | Type::Ellipsis
+                | Type::Any(_) | Type::Never(_) | Type::TypeAlias(_) | Type::UntypedAlias(_)
+                | Type::Sentinel(_) | Type::SuperInstance(_) | Type::KwCall(_) | Type::Materialization
+                | Type::None => None,
+            };
             let kind = match &method.func { BoundMethodType::Function(f) => &f.metadata.kind, BoundMethodType::Forall(f) => &f.body.metadata.kind, BoundMethodType::Overload(f) => &f.metadata.kind };
             let owner = b.function(kind)?;
             if let (Some(receiver), Some(owner)) = (receiver, owner) {

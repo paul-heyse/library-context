@@ -7,7 +7,7 @@ use pyrefly_python::symbol_kind::SymbolKind;
 use ruff_text_size::Ranged;
 pub struct Records {pub rows:Vec<NativeParameterDefinitionObservation>,pub evidence:Vec<Evidence>,charge:StateCharge}
 fn symbol(kind:SymbolKind)->NativeDefinitionSymbolKind {match kind {SymbolKind::Module=>NativeDefinitionSymbolKind::Module,SymbolKind::Attribute=>NativeDefinitionSymbolKind::Attribute,SymbolKind::Variable=>NativeDefinitionSymbolKind::Variable,SymbolKind::Constant=>NativeDefinitionSymbolKind::Constant,SymbolKind::Parameter=>NativeDefinitionSymbolKind::Parameter,SymbolKind::TypeParameter=>NativeDefinitionSymbolKind::TypeParameter,SymbolKind::TypeAlias=>NativeDefinitionSymbolKind::TypeAlias,SymbolKind::Function=>NativeDefinitionSymbolKind::Function,SymbolKind::Method=>NativeDefinitionSymbolKind::Method,SymbolKind::Class=>NativeDefinitionSymbolKind::Class}}
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "native session, captured source, syntax correspondence, qualification and refusal are independent inputs under one resource budget")]
 pub fn records(transaction:&Transaction<'_>,handle:&Handle,artifact:&SourceArtifact,source:&str,syntax:&Syntax,spans:&Spans,q:&AssertionQualification,native_reason:Option<ObligationKind>,budget:&ResourceBudget)->Result<Records,ModelError>{
     let mut out=Records {rows:vec![],evidence:vec![],charge:StateCharge::new(budget,"native-parameter-definitions")};
     let info=transaction.get_module_info(handle);let ast=transaction.get_ast(handle);

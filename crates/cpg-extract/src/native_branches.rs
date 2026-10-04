@@ -6,9 +6,11 @@ use ruff_python_ast::helpers::any_over_expr;
 use ruff_text_size::Ranged;
 use std::collections::BTreeMap;
 
+type BranchObservation = (Vec<Option<(u32,u32)>>, Vec<Option<(StaticBranch,bool)>>);
+
 pub struct NativeBranches {
     _charge: StateCharge,
-    rows: BTreeMap<(u32,u32), Option<(Vec<Option<(u32,u32)>>, Vec<Option<(StaticBranch,bool)>>)>>,
+    rows: BTreeMap<(u32,u32), Option<BranchObservation>>,
 }
 impl NativeBranches {
     pub fn unavailable(budget:&ResourceBudget)->Self {Self {_charge:StateCharge::new(budget,"native-branch-adapter"),rows:BTreeMap::new()}}

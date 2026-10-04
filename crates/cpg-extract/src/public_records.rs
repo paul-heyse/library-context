@@ -72,7 +72,7 @@ pub fn public_names(
     for access in analyzed {
         let handle=access.handle;
         // No export adapter query is attempted when its retained parse is absent.
-        let definitions=transaction.get_ast(handle).map(|ast|Definitions::new(&ast.body,handle.module(),handle.path().is_init(),handle.sys_info().clone()));
+        let definitions=transaction.get_ast(handle).map(|ast|Definitions::new(&ast.body,handle.module(),handle.path().is_init(),*handle.sys_info()));
         if definitions.is_none() {
             let (set,members)=LiteralSet::of(std::iter::empty());
             out.enumerations.push(ExportEnumerationObservation {qualification:access.qualification.id(),access:access.module,names:set.id(),status:ExportEnumerationStatus::Unavailable,basis:ExportEnumerationBasis::Missing});

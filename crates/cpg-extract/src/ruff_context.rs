@@ -113,9 +113,8 @@ impl CanonicalSyntax<'_> {
                 let row=match fact {
                     Fact::Node(node) if node.origin==NodeOrigin::Source => {
                         let subject=match self.spans.get(node.range,crate::typed_syntax::kind(node.kind)) { Ok(id)=>id,Err(_)=>{self.output.unlocated+=1;return Ok(());} };
-                        if let Some(expected)=node.expr_context.map(|role|match role {ruff_python_ast_latest::ExprContext::Load=>OccurrenceRole::Read,ruff_python_ast_latest::ExprContext::Store=>OccurrenceRole::Binding,_=>OccurrenceRole::Syntax}) {
-                            if node.kind==ruff_python_ast_latest::NodeKind::ExprName && self.spans.role_of(subject)!=Some(expected) {self.output.unlocated+=1;return Ok(());}
-                        }
+                        if let Some(expected)=node.expr_context.map(|role|match role {ruff_python_ast_latest::ExprContext::Load=>OccurrenceRole::Read,ruff_python_ast_latest::ExprContext::Store=>OccurrenceRole::Binding,_=>OccurrenceRole::Syntax})
+                            && node.kind==ruff_python_ast_latest::NodeKind::ExprName && self.spans.role_of(subject)!=Some(expected) {self.output.unlocated+=1;return Ok(());}
                         let flags=Flags::from_bits_retain(node.flags);
                         Some(RuffContextObservation {
                             qualification:self.qualification,subject,phase:ContextPhase::ActiveNode,reference_load:None,

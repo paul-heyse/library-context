@@ -763,7 +763,7 @@ fn session<S: StageSink + 'static>(
             )
         };
         let mut spans = Spans::new(context.budget());
-        let emitted = typed_syntax::emit(&ast, &text, invocation, limits, |event| {
+        let emitted = typed_syntax::emit(ast, &text, invocation, limits, |event| {
             let occurrence = event.occurrence.id();
             spans.insert(&event.occurrence)?;
             if let Some((parent, field, _)) = event.placement {
@@ -846,7 +846,7 @@ fn session<S: StageSink + 'static>(
             Ok(_) => {
                 let mut contextual=canonical.context_rows(&spans,&qualification,context.budget())?;
                 let records = syntax_records::records(
-                    &ast,
+                    ast,
                     &module_name,
                     is_package,
                     &spans,
@@ -868,7 +868,7 @@ fn session<S: StageSink + 'static>(
                 write_records(context, records, &|family, subject| {
                     support(family, subject)
                 })?;
-                let stars = star_imports(&transaction, handle, &module_name, is_package, &ast);
+                let stars = star_imports(&transaction, handle, &module_name, is_package, ast);
                 let candidate = AssertionQualification {
                     modality: Modality::Candidate,
                     ..qualification.clone()
@@ -960,7 +960,7 @@ fn session<S: StageSink + 'static>(
                     &ruff_run,
                     &ruff_surface,
                     root,
-                    &ast,
+                    ast,
                 )?;
                 types.reconcile_class_traits(&projected_classes)?;
                 unattached.1 += types.class_trait_boundaries.len();
@@ -982,7 +982,7 @@ fn session<S: StageSink + 'static>(
                     types_partial = true;
                 }
                 let docs = symbol_records::parameter_docs(
-                    &ast,
+                    ast,
                     &text,
                     artifact.id(),
                     &spans,
@@ -2464,7 +2464,7 @@ fn types(
             let info = transaction
                 .get_module_info(&found)
                 .ok_or_else(|| invalid("inherited field text unavailable".into()))?;
-            let canonical = crate::ruff_context::CanonicalSyntax::parse(artifact, info.lined_buffer().contents(), &context_info, crate::ruff_context::ContextSettings::default(), budget)?;
+            let canonical = crate::ruff_context::CanonicalSyntax::parse(artifact, info.lined_buffer().contents(), context_info, crate::ruff_context::ContextSettings::default(), budget)?;
             let ast = canonical.module();
             let mut spans = Spans::new(budget);
             let invocation = SyntaxInvocation {
@@ -2474,7 +2474,7 @@ fn types(
                 surface,
             };
             let complete = match typed_syntax::emit(
-                &ast,
+                ast,
                 info.lined_buffer().contents(),
                 invocation,
                 limits,

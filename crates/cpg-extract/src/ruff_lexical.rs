@@ -130,10 +130,9 @@ impl NativeRows {
                     let binding=bindings.get(&reference.binding).copied();let final_binding=events.get(&reference.binding).copied();
                     let qualified_name=binding.and_then(|b|b.qualified_name.as_ref());
                     out._charge.grow(1024+qualified_name.map_or(0,HeapSize::heap_bytes))?;out.contexts.push(RuffContextObservation {qualification:qualification.id(),subject,phase:ContextPhase::FinalReference,reference_load:Some(reference.is_load),typing:Some(reference.typing_context),typing_only_annotation:Some(reference.typing_only_annotation),runtime_annotation:Some(reference.runtime_annotation),string_annotation:Some(reference.string_annotation),type_checking:Some(reference.type_checking),qualified_name:qualified_name.cloned(),final_binding,final_binding_location:Some(if final_binding.is_some(){AttachmentStatus::Located}else{AttachmentStatus::Unlocated}),unresolved_wildcard:None,unresolved_annotation_binding:None});
-                    if reference.is_load && let (Some(binding),Some(event))=(binding,final_binding) {
-                        if reference.scope==binding.scope {let target=LexicalTarget::Binding{event};let row=LexicalResolution{qualification:qualification.id(),read:subject,target:target.id(),captured:false};let emit=!source.resolutions.iter().any(|r|r.id()==row.id());out._charge.grow(1024)?;out.targets.push(target);out.resolutions.push((row,emit));}
-                        // A different native scope does not supply closure capture authority.
-                    }
+                    // A different native scope does not supply closure capture authority.
+                    if reference.is_load && let (Some(binding),Some(event))=(binding,final_binding)
+                        && reference.scope==binding.scope {let target=LexicalTarget::Binding{event};let row=LexicalResolution{qualification:qualification.id(),read:subject,target:target.id(),captured:false};let emit=!source.resolutions.iter().any(|r|r.id()==row.id());out._charge.grow(1024)?;out.targets.push(target);out.resolutions.push((row,emit));}
                 }
                 Fact::Unresolved{range,wildcard_import,annotation_binding,..}=>{
                     let Some(subject)=spans.reference(*range,true) else {out.unlocated+=1;continue;};
