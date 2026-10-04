@@ -271,7 +271,7 @@ IDs from earlier reviews remain separate. Supporting plans own design detail, no
 | [O05](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O05) | Model import route/serving, C5 | **Scheduled / open**; bounded supported route, cycle/coverage/candidate controls |
 | [O06](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O06) | Model types/extractor/serving, C6/C7 | **Scheduled / conditional**; existing Expected interpretation required; argument extension only after demonstrated useful retained trace |
 | [O07](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O07) | Model references and ty test harness, R1/R2 | **Scheduled / open**; scoped incoming-reference product and attributed oracle discrepancies; production ty search deferred on resource non-fit |
-| [O08](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O08) | Analytics tests/model bounds, K1/K2 | **Scheduled / open**; independent consequence/iceberg controls, production charged kernel retained |
+| [O08](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O08) | Analytics tests/model bounds, K1/K2 | **Closed / focused Tested, 2026-10-04**; four independent finite-context controls passed, production charged kernel retained. Full-series gates remain separate |
 
 Conditional decisions belong here when executed: name the inspected fixture/API, outcome,
 dependent packages enabled or deferred, and reopening trigger. A not-demonstrated benefit may
@@ -297,13 +297,15 @@ Production execution is **in progress**, 2026-10-04. A0/A2 model ownership and q
 composition, C1–C6, enabled C7, R1 and G1 observation/explanation consumers are integrated.
 The current assembled CLI/extractor release compile passed; individual functional receipts below
 do not qualify Q1. K1/K2's independent finite-context controls passed; R2's differential oracle is
-implemented with runtime qualification pending. G2/G3 remain Deferred under the G0 decision. Final PostgreSQL/MCP journeys, adapter
-migration, `just test-all` and `just hygiene` remain **not_run** on the assembled tree.
+implemented with its bounded joined-process runtime oracle passed; explicit source-context controls are being strengthened. G2/G3 remain Deferred under the G0 decision. Final PostgreSQL/MCP journeys and same-tree adapter freshness remain pending. The first
+`just test-all` and `just hygiene` attempts **failed** at a concurrent uv build-cache lock timeout;
+functional and named hygiene reruns are underway on the assembled tree.
 
 **G0 passed**, 2026-10-04: `cargo test --release -p cpg-flow --test flow_shapes
 native_guarded_origin_search -- --nocapture` on the flow branch. The actual fixture
-`fixtures/python/guarded_origin_inventory/cases.py` retained ten identity-return reads, six with two
-alternatives, plus an incomplete loop join and native branch-local/early-return singletons. No
+`fixtures/python/guarded_origin_inventory/cases.py` retained eleven identity-return reads, seven with two
+alternatives: nine inventories complete and two incomplete, including loop-expanded back-edges.
+Native branch-local/early-return singletons remain distinct. No
 multi-candidate native Value/region condition excluded every competitor. **G2/G3 Deferred**:
 reopen on an actual multi-candidate case with an attributed native Value condition Q whose
 conjunction excludes every competing candidate, under complete per-use inventory. G1 and A2
@@ -332,13 +334,14 @@ concurrent advisory `docs/library-utilization.jsonl` refresh is preserved outsid
 |---|---|
 | `cargo check --release -p lctx -p cpg-extract --tests`, assembled main (`lctx-enrichment-integrated-check4.log`) | **passed**; includes supplier `63cda076`, typed observations/association and serving consumers. Subsequent bounded resource refinements require a focused rerun |
 | `cargo test --release -p lctx-model --test structural` | **passed**, five controls |
-| `cargo test --release -p lctx-model --lib singleton_conditional_basis_is_not_promoted_or_erased` | **passed** at the initial A2 implementation; expanded conditional-call/false-conjunction controls pending |
+| `cargo test --release -p lctx-model --lib singleton_conditional_basis_is_not_promoted_or_erased` | **passed** on the assembled tree, including conditional-call, false-conjunction, incompatible context, premise preservation and budget-refusal controls |
 | `cargo test --release -p cpg-core --test structural` | **failed** before publication: the hand-built fixture model omitted SummaryExceptionOutcome. Canonical model inventory repair integrated; actual PG replay/adversarial rerun pending |
-| `cargo test --release -p cpg-extract --test typed_flow actual_native_inventory -- --nocapture`, flow branch | **passed**, 26 actual native inventories and 34 candidates; real loop back-edge preserves loop-expanded/reachability-loss flags. Catalog does not request flow. Supplier was `72bb34d6`; final assembled native rerun remains required |
+| `cargo test --release -p cpg-extract --test typed_flow actual_native_inventory -- --nocapture`, flow branch | **passed**, 26 actual native inventories and 34 candidates; real loop back-edge preserves loop-expanded/reachability-loss flags. Catalog does not request flow. Initial supplier was `72bb34d6`; the assembled rerun at `63cda076` also **passed** the 26-inventory/34-candidate boundary |
 | Release model `domain_selection_catalog` and `serving_contracts`, API branch | **passed**, 41 controls; three additional argument Expected/stored singleton/original inventory controls also **passed**. This is not a served PG receipt |
 | Existing API actual PG journey, API branch | **failed** at the old selected-location invariant rejecting captured argument Expected. Exact CallArgument membership/context repair integrated; rerun pending |
 | `cargo test --release -p lctx-analytics --test implication_oracle -- --nocapture`, assembled main | **passed**, four controls over 22 finite contexts: independent consequences, full/iceberg concepts, nominal reordering, adversarial mutations and charged cap behavior |
-| `cargo test --release -p cpg-extract --test native_overload_origins -- --nocapture`, assembled main | **composite pending**: actual equal-shaped declarations retain distinct origins through normalization, and original native vector replay rejects dropped/altered members (**passed**, two controls). Direct selection control **failed** because fixture lookup selected a declaration instead of the final call; exact call lookup repaired, rerun pending |
+| `cargo test --release -p cpg-extract --test native_overload_origins -- --nocapture`, assembled main | **composite passed**, three controls: exact original declarations through equal-shaped normalization, selection/recovery limits and unavailable generic/bound basis, and replay refusal for dropped/altered/coherently moved vectors. Initial direct control **failed** because fixture lookup selected a declaration instead of the final call; exact lookup repaired before the passing rerun |
+| `cargo test --release -p lctx-model --lib diagnostic_uses::tests`, assembled main | **passed**, six controls: exact primary/nearest use, distinct-subject ambiguity, duplicate attribution, foreign artifact/context and secondary-span refusal |
 | `cargo test --release -p lctx-model --lib original_members_associate` | **passed**, one control; shape equality does not establish native declaration identity |
 
 C7 is **enabled**: actual retained Expected supplies useful `list[int]` context for `consume([])`
@@ -348,13 +351,54 @@ The corrected native Expected probe **passed**, one control. Expected is not suc
 `63cda076956013cd0bd1d0d05c785f747fe6adc0` preserves the upstream parent and embedded Ruff premise.
 Its isolated supplier compile **passed** with the existing allocative patch. Original candidates,
 selection limits, exact declaration/support association and packets are implemented; native identity,
-old/new checker parity and actual PG packet acceptance remain pending. The unchanged old-supplier
+remaining native controls and actual PG packet acceptance remain pending. **Old/new checker parity
+passed**, 2026-10-04: unchanged eight-case harness JSON compared exactly, including inferred
+Infer/Any distinctions, old getters and sorted diagnostics. The unchanged old-supplier
 checker receipt **passed**; its canonical JSON is retained at
 `/home/paul/.cache/lctx-api-overload-checker-old.json` (SHA256
 `03a0f28150b2db2ad865be040af953757e5f30303a459f99a6563497a9340df7`).
+
+R1's current `domain_selection_catalog` adversarial support and exact input-inventory controls
+**passed**, two tests (`lctx-api-root-model-tests-rerun.log`), after repairing test-only occurrence
+roles and ambiguous Fidelity imports. Actual PG serving rerun **failed** before packet assertions
+at duplicate Structural Condition declaration; the single vocabulary emitter repair is integrated
+at `17a034e7` and its focused release compile **passed**. PG rerun remains pending.
+R2's first native run **failed** at an incorrect differently spelled import-alias expectation.
+Pinned source confirms requested-spelling filtering despite ResolveAliases and `None` for both
+empty search and unavailable resolution. Explicit positive/negative spelling controls and the
+honest ambiguous-empty boundary are integrated. The next rerun **failed** at a keyword label
+on an untyped decorated callable; a separate known-signature positive control and explicit
+unavailable decorated-keyword negative control repair that assumption. Final
+`cargo test --release -p cpg-extract --test python_reference_oracle -- --nocapture` **passed**,
+2026-10-04: joined parent/child controls completed in 0.40 seconds, with included-file reorder,
+shadowing, keyword/member/property/augmented assignment and original-range normalization checks.
+The ignored child is invoked and joined by the passing bounded parent; it is not skipped evidence.
 
 Superseded task-owned compile/test processes ended with scoped SIGINT (exit 130) to release a
 confirmed fine-grained Cargo lock cycle. They are interrupted **not_run** receipts, never passing
 tests. Jobs, release optimization, shared cache and normal build settings were preserved. Current
 queues are performing normal compile/link work; no resource or performance claim follows.
-Full functional/hygiene, same-tree adapter readiness and Q1 remain **not_run**.
+The initial `NEXTEST_TEST_THREADS=8 just test-all` **failed** before Nextest: CLI compilation
+passed, but `uv sync --locked` timed out waiting for the concurrently rebuilding editable adapter.
+The retry uses `UV_LOCK_TIMEOUT=3600`, preserving ordinary Cargo parallelism and owning one
+adapter rebuild. No workspace functional pass or current adapter-freshness pass is claimed yet.
+
+`just hygiene` initially **failed** at the same uv cache timeout after `lint-agents` passed. Named
+checks are repaired separately: `UV_NO_SYNC=1 just adr-lint` **passed** (67 records), `just
+docs-check` **passed** (289 canonical pages, zero offline errors), `UV_NO_SYNC=1 just ruff`,
+`just types`, fixtures/gold/rules checks, full workspace/all-target `just clippy`, and `just deps`
+**passed**, 2026-10-04. Dependency repairs remove unused oracle imports, admit libcst's PSF-2.0
+license and retain the exact development-only family exceptions; no production oracle closure
+is added. The two generated refreshes use the operator's previously granted scoped exception.
+Default `just store-check` **failed** with three findings: the installation and preserved staging
+use the earlier model/lowering, so the checker does not compare their generation shape. This is
+the explicitly preserved operator state, not authorization to reset it. A separate disposable
+PostgreSQL 18 database using the unchanged four service roles was provisioned; current-model
+`lctx --database <qualification-config> store install` **passed**, and named `just store-check`
+with `LCTX_DATABASE_CONFIG=<qualification-config>` is running. This scopes store qualification
+to the planned fixture state; default operator-store migration remains outside Q1.
+
+Actual serving journeys progressed past Analytic after `ca887c56`, then **failed** before packet
+assertions at Synthesis's missing declared Terminal input loader. The narrow dispatcher repair
+`014d8d29` compiled successfully; all affected native/PostgreSQL journeys are rerunning. It
+changes neither declared input inventory nor validators. Composite hygiene and Q1 remain open.

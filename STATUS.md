@@ -2,19 +2,23 @@
 
 _Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Analytical enrichment implementation is in progress; assembled acceptance is pending.**
+**Analytical enrichment is integrated; assembled acceptance is in progress.**
 The [coordinator §7](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
-owns F01/F02/O01–O08 and current receipts. Model-owned Structural outcome replay and qualified
-singleton flow composition are integrated, with focused model controls passed. C1–C7, R1 and G1
-consumers are integrated; actual PostgreSQL publication and packet qualification are pending.
-G1's repaired loop adapter passed within its recorded supplier boundary. C2's observation-only
-Pyrefly fork is published and pinned; actual equal-shaped declaration association and native
-vector replay controls passed. Paired old/new checker parity, R2's reference oracle and remaining
-native controls are pending. K1/K2's four independent finite-context controls passed.
+owns F01/F02/O01–O08 and current receipts. Model-owned Structural outcome replay, qualified
+singleton composition, C1–C7, R1 and G1 consumers are integrated. Native overload identity/replay
+controls and exact eight-case old/new checker parity passed; ty's joined-process differential oracle
+passed, with explicit typing-only/unreachable controls being strengthened. K1/K2's four independent
+finite-context controls passed. G1's native inventories and domain/PG forgery controls passed.
+Actual upper serving qualification revealed missing Analytic and Synthesis declared input loaders;
+both narrow repairs compiled and affected PostgreSQL journeys are rerunning. A0's truthful fixture
+now needs the genuine upper stages required by whole-model validation; sink adversaries remain scoped.
 G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
-inventory supplies exclusion conditions. C7 is enabled: useful retained argument Expected also
-occurs in failed calls, so it carries uncertainty. Ty references and odis remain development-only.
-No current Q1, full test/hygiene, adapter-readiness or operator-activation pass is claimed.
+inventory supplies exclusion conditions. C7 is enabled and carries retained Expected uncertainty.
+Ty references and odis remain development-only. No Q1 or full functional pass is claimed yet.
+Full workspace Clippy and named hygiene repairs passed. The initial full gate stopped at a uv
+build-cache timeout; both adapters have rebuilt, and the retry is running. Default store-check
+refused the preserved old-model staging; current-model store qualification uses an isolated PG18
+database. Operator registrations/staging are untouched and activation remains excluded.
 
 **The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
 The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
@@ -30,7 +34,7 @@ supply current wiring/status where its project notes lag. No shared skill was ch
 
 | Command / boundary | Outcome and date |
 |---|---|
-| Plan authoring `just docs-check` | **passed**, 2026-10-04: 288 canonical pages, zero offline link errors; five plans, disposition transfer and handoff only |
+| Enrichment current `just docs-check` | **passed**, 2026-10-04: 289 canonical pages, zero offline link errors; source owners, ADR-0121, pins and coordinator |
 | Review `just docs-check` | **passed**, 2026-10-04: 283 canonical pages, zero offline link errors; review/evidence/handoff publication only |
 | Full workspace/all-target `just clippy` | **passed**, 2026-10-03 at `92f45e92`; earlier failures/repairs retained in coordinator §7; not a current-tree hygiene pass |
 | Expansion targeted native/model/core/real-PG/wire controls | **passed** within recorded package scopes, 2026-10-03; coordinator §7 retains failures and composite receipts |
@@ -87,4 +91,5 @@ complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`jus
 Surviving Q0 fixture journeys are included; real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release
 intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
-The end-of-turn hook owns formatting/generated refreshes; generators have not been run manually.
+The end-of-turn hook owns formatting. ADR index and dependency feature manifest were refreshed
+under the operator’s previously granted scoped exception; no formatter was run manually.
