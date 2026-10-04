@@ -12,6 +12,11 @@ def operation(value: int) -> int:
 reference = operation
 result = operation(value=1)
 
+def parameter_control(value: int) -> int:
+    return value
+
+parameter_result = parameter_control(value=2)
+
 def shadow(operation):
     return operation
 

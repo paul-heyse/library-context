@@ -95,9 +95,12 @@ fn ty_reference_oracle_child() {
     assert!(references(&db, "api.py", unused, false).is_none(),"the pinned public API returns None for an empty search, not Some(empty)");
     assert_eq!(references(&db,"api.py",unused,true).unwrap().len(),1);
     assert!(references(&db, "api.py", API.find("pass").unwrap(), false).is_none());
-    let parameter = API.find("value: int").unwrap();
+    let parameter = API.find("parameter_control(value").unwrap()+"parameter_control(".len();
     let parameters = references(&db, "api.py", parameter, false).unwrap();
-    assert!(parameters.iter().any(|r| r.0.ends_with("api.py") && &API[r.1..r.2] == "value" && r.1 == API.find("value=1").unwrap()), "keyword label is a native semantic reference, outside the initial lexical-name product");
+    let keyword=API.find("parameter_control(value=2").unwrap()+"parameter_control(".len();
+    assert!(parameters.iter().any(|r| r.0.ends_with("api.py") && &API[r.1..r.2] == "value" && r.1 == keyword), "keyword label of a known callable is a native semantic reference, outside the initial lexical-name product: {parameters:?}");
+    let decorated=references(&db,"api.py",API.find("value: int").unwrap(),false).unwrap();
+    assert!(!decorated.iter().any(|r|r.0=="/captured/api.py" && r.1==API.find("value=1").unwrap()),"the untyped decorator does not retain a known call signature for keyword-origin lookup");
     let property = API.find("property_value(self)").unwrap();
     assert!(references(&db, "api.py", property, false).unwrap().iter().any(|r| r.1 == API.rfind("property_value").unwrap()));
     let copy = API.find("copy = value").unwrap();
