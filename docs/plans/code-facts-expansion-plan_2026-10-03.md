@@ -839,6 +839,6 @@ The receipt is composite: frontier PG6 preceded that inspection-only repair; aff
 and actual read controls were rerun. Its private Ruff revision `8f01d800` differs from main's
 current canonical fork. Current-main terminal, assembled Q0 and full gates must re-exercise
 these contracts on the final union. `cargo check -p lctx-model -p cpg-core --tests` **passed**
-(`b3-check-9.log`, 55.46s, dev profile); main assembled release check is pending. The additive
+(`b3-check-9.log`, 55.46s, dev profile); `cargo check --release -p lctx-model --tests -p cpg-core --test behavioral_frontiers -p lctx --test serving_qualification` **passed** on `603d1a63` plus its owner receipt (`b3-assembled-check.log`, 1m09s). The additive
 Model/Summary relations and append-only claim3/support13 are a schema migration; terminal
 packets, snapshots, adapter and full gate acceptance remain open.
