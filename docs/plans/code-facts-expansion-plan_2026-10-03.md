@@ -167,7 +167,7 @@ source IDs remain unchanged. `I-Fxx` means the fresh assembled implementation re
 | E-F03 parameter identity | N0/P0 | Independently specified parameter/receiver incidences and release-class type-layer test; scheduled/open |
 | I-F01 omitted native raise trace | P2; fresh implementation review F01 | Existing same-context Types closure witness27 correction integrated; model checks passed, actual mixed/complete serving remains open |
 | I-F02 official corpus mentions | P1; fresh implementation review F02 | Exact existing CorpusLibrary link consumed; stored-row replay/refusal checks compiled, actual fixed-policy journey remains open |
-| I-F03 terminal source scope | P4; fresh implementation review F03 | Correction integrated at `ae9af4e6` using shared ScopeIndex and actual packet scope; Artifact/Input and foreign-scope controls compiled. Actual terminal serving and final independent judgment remain open; `5928f043` static defect retained |
+| I-F03 terminal source scope | P4; fresh implementation review F03 | Correction integrated at `ae9af4e6` using shared ScopeIndex and actual packet scope; Artifact/Input and foreign-scope controls compiled. Actual terminal serving remains open; final independent judgment accepts the correction at static strength, retaining the `5928f043` defect |
 
 Do not close a shared finding on a provider build alone. Add dated command receipts and remaining
 limits here as work completes. A later discovery must link its source and responsible component
@@ -242,11 +242,11 @@ assembled runtime acceptance.
 | B0/B1/B2/B4 | Required bases, conditional atom restrictions, bounded direct captures and exact finite exceptions are integrated. Their scoped producer controls passed; the completed packet cascade still requires assembled acceptance. |
 | B3 | Producer integrated at `603d1a63`: bounded dispatch/protocol/terminal questions reach Summary, with 18 distinct scoped controls passed. Original Candidate/open runtime alternatives remain unchanged. Purpose-specific declaration inspection preserves report fidelity; executable reads remain native structural. Current-pin assembled qualification and P4 terminal serving remain open. |
 | P0/P1/P2 | Parameter analytics, native characterization/roles, typed facets and stored witnesses are integrated. Scoped analytic/native/model/service controls passed; generated-role control and same-tree assembled journeys remain open. |
-| Raised-type review correction | Independent assembled review found that retained nonmatching raises could incorrectly close an unavailable native raise trace. P2 now requires existing complete Types coverage at the same source/context for a negative, with append-only witness27; matching positives remain valid under partial coverage. Targeted model/service checks and two units plus the classification inventory control passed; actual mixed/complete native service controls and final independent review remain open. |
+| Raised-type review correction | Independent assembled review found that retained nonmatching raises could incorrectly close an unavailable native raise trace. P2 now requires existing complete Types coverage at the same source/context for a negative, with append-only witness27; matching positives remain valid under partial coverage. Targeted model/service checks and two units plus the classification inventory control passed; actual mixed/complete native service controls remain open; final independent review accepts the correction at static strength. |
 | Corpus mention review correction | The selected-analytics Q0 fixture exposed an Installed/Corpus input mismatch that silently discarded valid official co-mentions. P1 now consumes existing `CorpusLibrary` and follows only exact declared corpus→library links, retaining context, Document role, resolved universe and deduplication. Targeted check passed; actual split-input and unlinked-corpus controls remain open. |
 | P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics and repaired usage both passed as a two-control composite; the repair retains opaque module/local assignment negatives alongside direct import/re-export positives. Current-tree assembled qualification remains open. |
-| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Terminal output is integrated at `5928f043`, but independent review found I-F03: the checker requires Input scope while the native frontier retains Artifact scope. Its shared ownership correction is integrated at `ae9af4e6`; actual qualification and final review remain open. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
-| Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. The integrated both-profile stdio fixture explicitly selects fixed communities/PageRank/FCA/RCA/type/mention policies; kNN/embeddings remain off. Old operator staging and real-library/activation remain excluded. |
+| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Terminal output is integrated at `5928f043`, but independent review found I-F03: the checker requires Input scope while the native frontier retains Artifact scope. Its shared ownership correction is integrated at `ae9af4e6`; actual qualification remains open; final independent review accepts the scope correction at static strength. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
+| Q0 | **not_run**: functional packages are integrated and independent assembled review accepts at static strength. Current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` remain prerequisites. The integrated both-profile stdio fixture explicitly selects fixed communities/PageRank/FCA/RCA/type/mention policies; kNN/embeddings remain off. Old operator staging and real-library/activation remain excluded. |
 
 | Package / command, 2026-10-03 | Outcome and boundary |
 |---|---|
@@ -881,3 +881,20 @@ packet scope. Original three questions and ten refusal twins remain unchanged.
 initial test-import failure remains in log1. Final independent review, runtime and same-tree
 full gates remain open. Scope-end formatter/ADR-index/feature-union refresh permission is
 pending under AGENTS hook ownership; no refresh was inferred from elapsed time.
+
+Assembled static review published, 2026-10-03: the [independent implementation review](../design_review/reviews/design_review_code-facts-expansion-implementation_2026-10-03.md)
+accepts scoped C1–C12 at **Implemented/static evidence**, baseline `ae9af4e6` plus
+documentation-only `bb7a68b4`. Original I-F01/I-F02/I-F03 defects and separate correction
+judgments are preserved. Runtime/Q0, current artifacts and full gates remain open.
+
+Scope-end `just clippy` **failed**, exit101, on the integrated functional tree
+(`/home/paul/.cache/lctx-code-facts/assembled-clippy-01.log`). Root repair `a669c775`
+uses existing native SupportAttribution composites, removes redundant borrows/map-key loops,
+and preserves nominally distinct admission inputs with documented narrow arity allowances.
+`cargo check --release -p lctx-model --tests` **passed**, 1m17s
+(`clippy-model-root-check-01.log`). Analytics/selection repair `fec38c06` plus annotation-only
+`f9d1377f` removes an unused frame input, retains short-circuit order and relocates unchanged
+tests. Final `cargo check --release -p lctx-model --all-targets` **passed**, 53.43s; focused
+release Nextest `test(raised_coverage_tests) | test(native_attributes::tests)` **passed**, six
+controls, before only the lint-reason annotation changed. Logs are `hygiene-analytics-final-check.log`
+and `hygiene-analytics-tests.log` in the same scratch directory. Full Clippy rerun is pending.
