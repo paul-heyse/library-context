@@ -122,7 +122,7 @@ fn invalid(s: &str) -> ModelError {
     ModelError::Invalid(s.into())
 }
 fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, FieldLocationReason> {
-    rows.get(id).ok_or(FieldLocationReason::MissingEvidence)
+    rows.required(id, || FieldLocationReason::MissingEvidence)
 }
 fn same_node(data: &FieldData, a: Id<Occurrence>, b: Id<Occurrence>) -> bool {
     match (data.entry.occurrences.get(a), data.entry.occurrences.get(b)) {

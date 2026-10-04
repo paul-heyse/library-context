@@ -327,7 +327,19 @@ pub fn enrich_all(
                     }
                 }
             }
-            for _ in 0..64 {
+            // Every progressing round adds a context for a previously unseen selected with
+            // statement. Contexts are append-only and the next round skips those statements.
+            // Thus N selected statements admit at most N progressing rounds, followed by one
+            // stable round. The independent finite-work meter still refuses exhausted work.
+            let mut context_round_bound = 1usize;
+            for occurrence in facts.occurrences.iter() {
+                step()?;
+                if occurrence.syntax_kind == source::SyntaxKind::StmtWith && selected(occurrence.source) {
+                    context_round_bound = context_round_bound.checked_add(1)
+                        .ok_or_else(|| invalid("enriched context round bound overflow"))?;
+                }
+            }
+            for _ in 0..context_round_bound {
                 let mut progress = false;
                 for occurrence in facts.occurrences.iter().filter(|row| {
                     row.syntax_kind == source::SyntaxKind::StmtWith && selected(row.source)

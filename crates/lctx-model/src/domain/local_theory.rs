@@ -697,7 +697,7 @@ fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
 fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, TheoryReason> {
-    rows.get(id).ok_or(TheoryReason::MissingEvidence)
+    rows.required(id, || TheoryReason::MissingEvidence)
 }
 fn frame(
     data: &TheoryData,

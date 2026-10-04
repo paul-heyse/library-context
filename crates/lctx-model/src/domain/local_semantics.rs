@@ -155,7 +155,7 @@ impl LocalEmission {
     }
 }
 fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ObligationKind> {
-    rows.get(id).ok_or(ObligationKind::MissingEvidence)
+    rows.required(id, || ObligationKind::MissingEvidence)
 }
 fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
@@ -771,6 +771,18 @@ pub fn produce(
     produce_symbolic_stores(data, invocation, &mut records, budget)?;
     produce_guards(data, invocation, definition, &mut records, budget)?;
     crate::domain::atom_decision::produce(data, invocation, definition, &mut records, budget)?;
+    // Each transfer condition is decoded once. The secondary support index serves the
+    // repeated influence/alternative membership query, retaining nominal sorted atom IDs.
+    let mut support_index = charged::ChargedMap::default();
+    let mut support_charge = charged::StateCharge::new(budget, "local_selection_support_index");
+    let mut nodes = Rows::<ConditionNode>::new(budget);
+    for node in data.entry.condition_nodes.iter().chain(records.nodes.iter()) {
+        nodes.insert(node.clone())?;
+    }
+    let decode_allowance = nodes.len().checked_mul(2048)
+        .ok_or_else(|| invalid("Local selection condition allocation overflow"))?;
+    let _decode = budget.reserve("local_selection_condition_decode", decode_allowance)?;
+    let nodes = nodes.iter().cloned().collect::<Vec<_>>();
     for influence in records.influences.iter() {
         for alternative in records.alternatives.iter() {
             let q = records
@@ -789,37 +801,14 @@ pub fn produce(
                 .get(q.condition)
                 .or_else(|| data.entry.conditions.get(q.condition))
                 .ok_or_else(|| invalid("Local transfer condition absent"))?;
-            let _cursor = budget.reserve(
-                "local_selection_work",
-                data.entry
-                    .condition_nodes
-                    .len()
-                    .checked_mul(64)
-                    .ok_or_else(|| invalid("Local selection buffer overflow"))?,
-            )?;
-            let mut cursor = vec![condition.root];
-            let mut visited = charged::ChargedSet::default();
-            let mut visit_charge = charged::StateCharge::new(budget, "local_selection_nodes");
-            let mut work = 0;
-            let mut mentions = false;
-            while let Some(id) = cursor.pop() {
-                if !visited.insert(&mut visit_charge, id)? {
-                    continue;
-                }
-                work += 1;
-                if work > 100_000 {
-                    return Err(invalid("Local selection traversal exhausted"));
-                }
-                if let Some(ConditionNode::Branch { atom, low, high }) = records
-                    .nodes
-                    .get(id)
-                    .or_else(|| data.entry.condition_nodes.get(id))
-                {
-                    mentions |= *atom == influence.atom;
-                    cursor.push(*low);
-                    cursor.push(*high);
-                }
+            if !support_index.contains_key(&condition.id()) {
+                let diagram = Diagram::from_records(condition, &nodes)?;
+                // Admit before cloning the support into retained secondary-index state.
+                let _copy = budget.reserve("local_selection_support_copy", diagram.support().len().checked_mul(size_of::<Id<conditions::EvaluationAtom>>() * 2)
+                    .ok_or_else(|| invalid("Local selection support allocation overflow"))?)?;
+                support_index.insert(&mut support_charge, condition.id(), diagram.support().to_vec())?;
             }
+            let mentions = support_index[&condition.id()].binary_search(&influence.atom).is_ok();
             if mentions && q.context == iq.context && q.scope == iq.scope {
                 records.selections.insert(Selection {
                     influence: influence.id(),
