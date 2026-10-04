@@ -2,119 +2,99 @@
 
 _Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Analytical enrichment is integrated; full-gate failures are being repaired.**
+**Analytical enrichment is integrated; the operator requested a clean implementation checkpoint.**
 The [coordinator §7](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
-owns F01/F02/O01–O08 and current receipts. Model-owned Structural outcome replay, qualified
-singleton composition, C1–C7, R1 and G1 consumers are integrated. Native overload identity/replay
-controls and exact eight-case old/new checker parity passed; ty's joined-process differential oracle
-passed, including explicit typing-only/unreachable controls. K1/K2's four independent
-finite-context controls passed. G1's native inventories and domain/PG forgery controls passed.
-Actual upper serving qualification revealed missing Analytic and Synthesis declared input loaders;
-the complete decoder inventories passed both-profile controls and matching adapters rebuilt.
-A0's genuine full-layer fixture published both profiles, then exposed a named-handoff consumer
-that still requires global family completeness; ADR-0122 selects per-use inventory authority
-for Entry/handoff admission. Native Partial-family/complete-use controls passed; a bounded
-independent audit accepted the final exact-source helper guards statically.
-Synthesis's Catalog input mask now excludes the six new Flow inputs without invoking native Flow.
-Actual C2 packets passed; the first API test's decorator-parent expectation is repaired.
-Focused model inventory/stability/native-request controls passed (4/11/18), and the Catalog Flow
-profile control passed. Final PostgreSQL/MCP journeys and sink adversaries remain pending; the reviewed schema
-migration and its assertion rerun passed.
-G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
-inventory supplies exclusion conditions. C7 is enabled and carries retained Expected uncertainty.
-Ty references and odis remain development-only. No Q1 or full functional pass is claimed yet.
-Current scoped verification, **2026-10-04**: final formatted-source full workspace/all-target
-`UV_LOCK_TIMEOUT=3600 just clippy` **passed**. The authorized final `just fmt` and ADR index
-refresh, matching release CLI/native adapters and reviewed schema snapshot migration all passed.
-Last artifact-qualified model was `8f8ec7cdbf9ee0e21d61f84ac6698186320cb9b9d1f2e5c1ac543c33b77a6f86`, 878 relations. Only the owned empty qualification store was reset; scoped deps/store-check
-passed with zero generations/findings. Default staging retains 204 receipts and is unselected.
-Final scoped `just hygiene` passed agents/ADR/fixtures/gold/rules/Python lint/types, then failed
-only at an unfinished parallel-review documentation link. The operator explicitly excludes that
-concurrent review finding; final deps, Clippy and scoped store-check separately passed.
-`UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all` initially **failed**: 997 Rust
-controls passed, 95 failed, four timed out and three skipped; Python/oracles and doctests were
-not_run after that failure. Native scope/TypedDict/Summary/role/read/source-closure repairs are
-integrated. All 16 selection/composition controls, all six source calls, nine read controls and
-four actual PostgreSQL Summary controls passed. Native selected-domain explanation/JSON parity
-and the strengthened actual PostgreSQL/MCP evidence-purpose packet passed. Behavioral Structural
-failed its required named-handoff positive; exact source-covering Input/Artifact/Module coverage
-now shares the same scope predicate with admission. Three seeded admission controls passed;
-the final actual PostgreSQL positive failed at condition implication (240.88s). Exact native
-region/conditional alias repair is integrated; six seeded admission controls passed. Two resource
-findings from a bounded audit are being repaired; superseded gate interrupted before tests. Q1 is open.
+owns F01/F02/O01–O08, implementation status, failures and qualification receipts.
+A0/A1/A2, C1–C7 (C7 enabled), G1, R1/R2 and K1/K2 are integrated on `main`.
+Native overload identity/replay and exact eight-case old/new checker parity passed; the joined ty
+reference oracle passed, including alias-policy, typing-only and unreachable-use controls.
+K1/K2's four independent finite-context controls passed. Actual PostgreSQL selection, source-call,
+read, Summary explanation and evidence-purpose/MCP packet controls have bounded passing receipts.
+The native named-handoff positive exposed a final implication defect: exact native containing
+read-region lineage is now retained rather than erasing ty's call-return condition. Conditional
+alias composition preserves that domain and all original premise bases (`5d5a4c0b`, `1107a957`).
+`8bac19ab` also preserves Resource exhaustion classification and charged admission lifetime.
+G0 closed its native usefulness investigation; G2/G3 remain Deferred until a complete native
+multi-candidate inventory supplies useful exclusion conditions. Ty references and odis remain
+development-only. No Q1 or current full-series functional pass is claimed.
 
-**The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
-The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
-is the sole disposition/receipt owner for its source-qualified findings and M/N/B/P packages.
-The [independent implementation review](docs/design_review/reviews/design_review_code-facts-expansion-implementation_2026-10-03.md)
-accepts that bounded implementation statically; the new architectural review is a separate assessment.
-Current pins are Pyrefly 1.4.0-dev.3, independent Ruff 0.16.10/crates 0.0.16, ty 0.0.16/salsa
-0.28.5, with Pyrefly's embedded Ruff 0.0.14 isolated (ADR-0117/0118). Both narrow forks are published
-at immutable revisions. The shared `python-analyzers` skill supplies pinned APIs; repository owners
-supply current wiring/status where its project notes lag. No shared skill was changed by this review.
+The implementation subagents have concluded and their changes are integrated. All thirteen recent
+targeted controls passed; the documentation checkpoint is complete. The operator will
+specify the implementation review's structure; no new review is initiated by this closeout.
+All older worktrees were assessed as integrated or superseded, with no missing production slice.
+Their committed history, dirty files and the spike's 24,589 raw receipt files were verified in
+the local recovery archive. All fifteen were removed; `git worktree list` now contains only `main`.
 
 ## Current verification boundaries
 
 | Command / boundary | Outcome and date |
 |---|---|
-| Enrichment scoped hygiene | **composite passed with parallel-review docs failure excluded by operator**, 2026-10-04; final source, deps, Clippy and empty current-model store checks passed |
-| Review `just docs-check` | **passed**, 2026-10-04: 283 canonical pages, zero offline link errors; review/evidence/handoff publication only |
-| [Library-leverage review](docs/design_review/reviews/design_review_library-leverage_2026-10-04.md) `just docs-check` | **passed**, 2026-10-04, 292 pages. Static review, decision **Revise**; F01–F10 are routed or Deferred in its §11, with no plan owner yet. Probes ran only in an isolated crate; no product runs (`not_run`) |
-| Final workspace/all-target `just clippy` | **passed**, 2026-10-04 after handoff repair and authorized final formatting; warnings denied |
-| Expansion targeted native/model/core/real-PG/wire controls | **passed** within recorded package scopes, 2026-10-03; coordinator §7 retains failures and composite receipts |
-| Final CLI/native adapters/schema snapshot | **passed**, 2026-10-04; matching source fingerprint and reviewed schema migration; full functional gate pending |
-| New review probes/builds, CLI parity, product runs and performance | **not_run**; static source/types/interfaces settle this review's diagnoses, not runtime qualification |
-| Prior alignment final `NEXTEST_TEST_THREADS=8 just test-all` | **passed**, 2026-10-03: 944 Rust, 230 Python/oracle, 32 doctests; two optional measurements skipped |
-| Prior alignment `just hygiene` plus named repairs | **composite passed**, 2026-10-03; includes full workspace/all-target Clippy for that earlier tree |
-| Prior alignment `just native-adapter-ready` | **passed**, 2026-10-03; CLI/installed storage matched all 240 model-source captures for that earlier tree |
-| Prior confirmed `lctx store reset`, then `just store-check` | **passed**, 2026-10-03: empty current model, zero generations/findings before interrupted reconstruction |
-| Real-library reconstruction/activation, live vectors, R4 and measurements | **not_run** after operator review pivot; preserved staging is unselected; quality, speed and total RSS remain unmeasured |
+| `INSTA_UPDATE=no cargo test --release -p lctx-model --test domain_handoffs` | **passed**, 2026-10-04: seven native inventory/region and retained-domain resource controls |
+| `INSTA_UPDATE=no cargo test --release -p lctx-model --lib domain::structural::` | **passed**, 2026-10-04: three conditional-alias/resource-lifetime/exhaustion controls |
+| Filtered release Nextest `cpg-core --test structural` positives/condition-erasure refusal | **passed**, 2026-10-04: three selected actual PostgreSQL controls, 234.841s; Catalog/Behavioral positives and paired refusal. Four unrelated controls filtered out; release compile passed |
+| `UV_NO_SYNC=1 just docs-check` | **passed**, 2026-10-04: 292 canonical pages, zero offline link errors; checkpoint documentation only |
+| Current-source Named schema snapshot, matching CLI/native adapters and scoped store check | **not_run / pending**, 2026-10-04; four nullable fields across two existing Named enum relations require deliberate migration after source formatting |
+| Current-source full Clippy, `just hygiene`, `just test-all` and remaining Q1 journeys | **not_run / pending**, 2026-10-04, under the operator's targeted-only checkpoint request |
+| Previous model `8f8ec7c…` CLI/native adapters/schema snapshot | **passed**, 2026-10-04; 878 relations and reviewed Summary witness migration, before the latest read-region/resource changes |
+| Previous `8f8ec7c…` workspace/all-target `just clippy` | **passed**, 2026-10-04, warnings denied; this predecessor receipt does not qualify newest production changes |
+| Previous scoped hygiene plus named repairs | **composite passed with parallel-review docs failure excluded by operator**, 2026-10-04; not an initially clean `just hygiene` exit |
+| Superseded diagnostic `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all` | Interrupted with scoped SIGINT/exit130 before tests launched; Rust/Python/oracles/doctests **not_run** |
+| Expansion targeted native/model/core/real-PG/wire controls | **passed** within recorded package scopes, 2026-10-03; expansion coordinator §7 retains failures and composite receipts |
+| [Library-leverage review](docs/design_review/reviews/design_review_library-leverage_2026-10-04.md) `just docs-check` | **passed**, 2026-10-04, 292 pages. Static decision **Revise**; F01–F10 routed or Deferred in its §11, with no plan owner yet. Isolated probes only; product runs **not_run** |
+| Prior alignment `NEXTEST_TEST_THREADS=8 just test-all` | **passed**, 2026-10-03: 944 Rust, 230 Python/oracle, 32 doctests; two optional measurements skipped |
+| Prior alignment `just hygiene` plus named repairs | **composite passed**, 2026-10-03, including full workspace/all-target Clippy for that earlier tree |
+| Real-library reconstruction/activation, live vectors, R4 and measurements | **not_run** after operator review pivot; staging remains unselected; quality, speed and total RSS unmeasured |
 
-Surviving Q0 conditional/generated, Terminal and raised-type PostgreSQL journeys have bounded
-passing receipts; the full repaired-tree gate remains required; matching final artifacts passed.
-The source-default/scalar bridge and real-PG stdio qualification runner are integrated; recorded
-focused receipts establish only their bounded cases. There is no current full-series acceptance.
+The initial enrichment full functional attempt failed: 997 Rust controls passed, 95 failed,
+four timed out and three skipped. Subsequent targeted repairs and passes remain composite receipts,
+not a current full gate. The coordinator preserves those failures and the remaining Q0/Q1 journeys.
+Final snapshot/adapters must follow hook-owned source formatting because model identity hashes Rust
+source. `f7e94515` retains observed automatic formatting; diff/token inspection found only formatting
+changes. Runtime receipts precede it at `8bac19ab`; no new fingerprint acceptance is inferred.
+No further formatter/generator exception is requested for this checkpoint.
 
 ## Preserved architecture and earlier acceptance
 
+The [five-plan code-facts expansion](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
+is functionally integrated; its coordinator owns M/N/B/P findings and assembled qualification.
+The [independent implementation review](docs/design_review/reviews/design_review_code-facts-expansion-implementation_2026-10-03.md)
+accepted that bounded implementation statically; later architectural reviews are separate assessments.
+Current pins are Pyrefly 1.4.0-dev.3, independent Ruff 0.16.10/crates 0.0.16 and ty 0.0.16/salsa
+0.28.5, with Pyrefly's embedded Ruff 0.0.14 isolated (ADR-0117/0118/0121).
+Both narrow forks are published at immutable revisions. The shared `python-analyzers` skill supplies
+pinned APIs; repository owners supply current wiring where its project notes lag.
+
 The [four-plan incremental alignment series](docs/plans/semantic-model-incremental-alignment-plan_2026-10-02.md)
-is complete within scoped Tested acceptance. Its coordinator §7 owns F01–F08/O1–O6 and §8 owns
-functional/composite hygiene receipts; latest functional corrections are `50f58ffa`, with ADR-0115/0116.
-Its independent implementation review, including Appendix C dated 2026-10-03, accepts that bounded
-design at Implemented strength. Those receipts do not qualify the expanded current fact pipeline.
+is complete within scoped Tested acceptance. Its coordinator §7 owns F01–F08/O1–O6 and §8 receipts;
+latest functional corrections are `50f58ffa`, with ADR-0115/0116. Its independent implementation
+review accepts that bounded design at Implemented strength, not the expanded current fact pipeline.
 Logs remain under `/home/paul/.cache/lctx-alignment-execution/receipts-2026-10-03/`.
-The earlier model digest `12242a5558134418fc3b54fdb526628d1715720e60e6199a8a6079f6066582da`
-and reviewed describe snapshot bound that schema-migration receipt, not current adapter freshness.
 
 The model owns semantic meaning and native preparation/formal resolution; PostgreSQL stores relations;
 DataFusion computes in process. Storage retains receipt/membership/guard checks and admission.
-Typed requirements, finite bindings and one analytic policy retain explicit support limits.
 Catalog Flow remains NotRequested, default stability Unknown, finite associations stay scoped,
-five verdicts remain distinct, and Python owns transport effects. The new review identifies
-remaining corrections to those ownership/claim boundaries rather than certifying all implementations.
+five verdicts remain distinct, and Python owns transport effects. Review findings identify remaining
+ownership/claim corrections rather than certifying every implementation.
 
 ## Operator state and next action
 
 **Phase 5 qualification remains stopped at the operator's 2026-10-03 review pivot.**
-Both profiles were selected with communities, PageRank, FCA/RCA and type/mention layers;
-kNN/embeddings are off and client registrations unchanged. PR6 remains paused until serving is qualified.
+Previously selected profiles include communities, PageRank, FCA/RCA and type/mention layers;
+kNN/embeddings are off, client registrations unchanged, and PR6 paused until serving is qualified.
 [Phase 5 §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
 owns serving receipts/limits; [cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
 owns older findings. R4 simultaneous multi-variant Summary qualification is not_run.
 
-Old unselected staging `de1e0c2b09a319134fcef595a9bcbe89` was retired with no readers or serving
-vectors/artifacts. `retirement-controls.json` preserves 14 control tables/204 receipts, SHA256
-`49dc3c2e4863df869151194544edfe3caf8a457f2e1b4fa3c5ae639ad00d0fa3`; reset/store-check passed.
-The later catalog compile was interrupted with SIGINT/exit130. Staging
-`d3a3fa026a1237a1c4e175b9b1019eeb` retains 204 receipts, no readers/writer, and remains unselected.
+The earlier unselected staging was retired with preserved controls/204 receipts; the subsequent
+catalog reconstruction was interrupted. Current staging `d3a3fa026a1237a1c4e175b9b1019eeb`
+retains 204 receipts, no readers/writer, and is unselected. Default store/registrations remain untouched.
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Next: qualify native region/alias controls and the repaired Structural positive, then full
-`just test-all`; scoped hygiene is complete with the operator-excluded parallel-review docs finding.
-Generated-wrapper and both raised-type journeys passed in the earlier failed gate; Terminal
-also passed directly. Prior source schema/adapters/CLI and focused selection/read/Summary/packet
-controls passed. Q1 waits for the final functional gate. Real-library activation remains separately authorized.
-Gold/heldout/benchmarks are untouched. Cargo retains shared release intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
-The end-of-turn hook owns formatting; scoped formatting/index/feature exceptions are operator-authorized.
-Six completed task/qualification worktrees were removed after integration and receipt preservation checks.
+Next: await the operator's instructions for the implementation review. After review disposition, resume deliberate schema/artifact refresh
+and outstanding same-tree Q1/full gates only under the resulting authorized scope. Real-library
+activation remains separately stopped. Gold/heldout/benchmarks are untouched.
+Recovery assets live under `/home/paul/.local/share/library-context/worktree-recovery/2026-10-04/`;
+its README/manifest/disposition describe preserved refs, Git bundle, patches, dirty files and raw receipts.
+Cargo retains shared release intermediates/jobs16/frontend1; Nextest8 limits concurrent test processes.
+The end-of-turn hook owns formatting and routine generators.

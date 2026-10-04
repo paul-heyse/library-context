@@ -1,13 +1,15 @@
 # Code-facts analytical enrichment: coordinated implementation plan
 
-**Proposed, 2026-10-04.** This series actions the
+**Implemented; assembled acceptance pending, 2026-10-04.** This series actions the
 [analytical architecture review](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md)
 under core principles 3.2, code-intelligence profile 1.3 and the
 [repository binding](../design_review/design_principles/binding/library-context.md).
 Inspected baseline: clean `main` at `dbabbe6904a347cc9bb6a074fa00bacf6a0c54d2`.
 The operator committed the previously dirty implementation during preparation; its source was
-preserved. Current source and exact pinned Rust APIs were inspected on 2026-10-04 at
-**Interface-checked** strength. All production changes and acceptance below remain **Proposed / not_run**.
+preserved. The authoring baseline and Interface-checked assessment below explain the selected
+design. A0/A1/A2, C1–C7 (C7 enabled), G1, R1/R2 and K1/K2 are now integrated on `main`,
+with focused Tested receipts in §7. G0 closed its investigation; G2/G3 are Deferred under its
+explicit reopening trigger. Q1 and current-source assembled qualification remain open.
 This document is the **sole mutable execution and disposition owner for this new series**.
 
 ## 1. Outcome and boundary
@@ -262,15 +264,15 @@ IDs from earlier reviews remain separate. Supporting plans own design detail, no
 
 | Source ID | Responsible component / package | Current disposition and required closure evidence |
 |---|---|---|
-| [F01](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#F01) | Model Structural/core adapter, A0 | **Scheduled / open**; canonical outcome replay plus adversarial real-PG publication controls |
+| [F01](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#F01) | Model Structural/core adapter, A0 | **Implemented; assembled acceptance open**; model-owned outcome computation/replay and genuine PostgreSQL publication/refusal controls are integrated. Recent actual Catalog/Behavioral positives and condition-erasure refusal passed; Q1 remains separate |
 | [F02](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#F02) | Current architecture/extraction guidance, A1 | **Closed / Implemented guidance and Tested publication, 2026-10-04**; source-aligned owners, ADR-0121/0122 and final docs check passed (289 pages, zero errors) |
-| [O01](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O01) | Model callable/serving and native trace adapter, C1/C2 | **Scheduled / open**; role comparison answer and identity-qualified chosen/candidate association; ambiguous origin remains explicit |
-| [O02](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O02) | Model Selection/catalog, C3 | **Scheduled / open**; hydrated predicate and exact source-field packet, runtime unknown preserved |
-| [O03](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O03) | Flow/Entry/Local/Structural, A2/G0–G3 | **Scheduled / conditional**; qualification correction and complete inventory/explanation required; native usefulness evidence admits proof branch or records Deferred proof with trigger |
-| [O04](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O04) | Model C1 evidence/serving, C4 | **Scheduled / open**; exact diagnostic-use correlation with unassociated remainder and no execution verdict |
-| [O05](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O05) | Model import route/serving, C5 | **Scheduled / open**; bounded supported route, cycle/coverage/candidate controls |
-| [O06](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O06) | Model types/extractor/serving, C6/C7 | **Scheduled / conditional**; existing Expected interpretation required; argument extension only after demonstrated useful retained trace |
-| [O07](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O07) | Model references and ty test harness, R1/R2 | **Scheduled / open**; scoped incoming-reference product and attributed oracle discrepancies; production ty search deferred on resource non-fit |
+| [O01](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O01) | Model callable/serving and native trace adapter, C1/C2 | **Implemented / focused Tested; Q1 open**; role comparison, exact native candidate/selection identity and declaration/support association are integrated; native parity and actual PostgreSQL/MCP packet controls passed within their recorded scopes |
+| [O02](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O02) | Model Selection/catalog, C3 | **Implemented / focused Tested; Q1 open**; hydrated Selection and exact source-field packets are integrated. Actual association-purpose qualification passed; source Known/runtime Unknown and distinct DeclaredField/NativeField evidence remain explicit |
+| [O03](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O03) | Flow/Entry/Local/Structural, A2/G0–G3 | **A2/G1 Implemented; focused acceptance recorded below; G2/G3 Deferred**; G0 demonstrated no useful complete multi-candidate exclusion case. Exact native read-region singleton lineage, conditional alias composition and resource repairs are integrated; full Q1 is open |
+| [O04](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O04) | Model C1 evidence/serving, C4 | **Implemented / focused Tested; Q1 open**; exact diagnostic-use correlation and original-source evidence are integrated, with ambiguous/unassociated remainder retained and no execution verdict |
+| [O05](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O05) | Model import route/serving, C5 | **Implemented / focused Tested; Q1 open**; bounded public access routes are integrated with exact supported termination, cycle/coverage/candidate refusal controls and unresolved route uncertainty |
+| [O06](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O06) | Model types/extractor/serving, C6/C7 | **C6/C7 Implemented / focused Tested; Q1 open**; useful retained argument Expected enabled C7. Context packets and native trace controls passed within scope; Expected remains distinct from successful applicability |
+| [O07](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O07) | Model references and ty test harness, R1/R2 | **R1/R2 Implemented / focused Tested; Q1 open**; scoped incoming references and joined-process native ty differential controls passed, including alias-policy, typing-only and unreachable-use boundaries. Production ty project/IDE search remains Deferred |
 | [O08](../design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md#O08) | Analytics tests/model bounds, K1/K2 | **Closed / focused Tested, 2026-10-04**; four independent finite-context controls passed, production charged kernel retained. Full-series gates remain separate |
 
 Conditional decisions belong here when executed: name the inspected fixture/API, outcome,
@@ -293,13 +295,12 @@ have these concrete routes; they are not a demand to extract the full survey:
 | Other class/framework/ordering flags, directive fixes, notebook/PEP723/editor APIs | **Deferred**; trigger a named operation/example journey whose answer changes, then establish source/role/resource contract. No current selected consumer establishes benefit |
 | General recursive relations, new graph ranking or universal flow graph | **Deferred**; trigger a concrete repeated recursive/path question not answered by current finite operations; no current requirement |
 
-Production execution is **in progress**, 2026-10-04. A0/A2 model ownership and qualification
-composition, C1–C6, enabled C7, R1 and G1 observation/explanation consumers are integrated.
-The current assembled CLI/extractor release compile passed; individual functional receipts below
-do not qualify Q1. K1/K2's independent finite-context controls passed; R2's differential oracle is
-implemented with its bounded joined-process runtime oracle passed, including explicit typing-only and unreachable-use controls. G2/G3 remain Deferred under the G0 decision. Final PostgreSQL/MCP journeys and same-tree adapter freshness remain pending. The first
-`just test-all` and `just hygiene` attempts **failed** at a concurrent uv build-cache lock timeout;
-functional and named hygiene reruns are underway on the assembled tree.
+Production execution is **integrated; operator-directed implementation checkpoint complete**, 2026-10-04.
+All selected functional packages are on `main`; scoped native/model/PostgreSQL/MCP receipts below
+establish their bounded acceptance. The last native read-region repair and its resource-lifetime
+correction are integrated. Subagent work, worktree cleanup, recent targeted checks and checkpoint
+documentation are concluded. This does not establish Q1 or a current full gate.
+Historical failure receipts below retain their original dates and baseline boundaries.
 
 **G0 passed**, 2026-10-04: `cargo test --release -p cpg-flow --test flow_shapes
 native_guarded_origin_search -- --nocapture` on the flow branch. The actual fixture
@@ -311,10 +312,11 @@ reopen on an actual multi-candidate case with an attributed native Value conditi
 conjunction excludes every competing candidate, under complete per-use inventory. G1 and A2
 remain required; this decision does not claim guarded proof implementation.
 
-Next: complete native overload/reference/FCA controls and actual PostgreSQL publication/packet
-journeys, including the retained conditional/generated/Terminal/raised-type Q0 obligations; then
-run the same-tree full functional and hygiene gates. The authoring receipt below retains its
-original documentation-only boundary.
+Next: await the operator's instructions for structuring the implementation review. Do not begin another review or resume comprehensive
+qualification as part of this closeout. After review disposition, remaining acceptance work is the
+new Named schema snapshot, source-matching CLI/native adapters and scoped store checks, required
+PostgreSQL/MCP journeys and same-tree full functional/hygiene gates. Real-library activation remains
+separately stopped. The authoring receipt below retains its original documentation-only boundary.
 
 ### Authoring receipt
 
@@ -855,3 +857,60 @@ progress; current source runtime qualification and refreshed artifacts/snapshot 
 The superseded diagnostic `just test-all` was interrupted with scoped SIGINT/exit130 while still
 compiling, before any tests launched (`lctx-enrichment-test-all-repaired-final.log`); its tests,
 Python/oracles and doctests are **not_run**, not a passing receipt.
+
+### Operator-directed implementation checkpoint
+
+**Implemented / focused Tested; checkpoint complete**, 2026-10-04. `8bac19ab` integrates both
+bounded audit repairs: Resource exhaustion remains Resource, and the admitted native read domain
+retains its charged reservation through implication and caller consumption. This completes the
+identified production repairs; no selected functional package remains unstarted. G2/G3 and
+production ty project/IDE search remain conditional deferrals, not incomplete selected packages.
+
+- **passed**: `INSTA_UPDATE=no cargo test --release -p lctx-model --test domain_handoffs`,
+  seven controls, including exact native inventory/region refusals and retained-domain exhaustion
+  (`/home/paul/.cache/lctx-enrichment-closeout-handoff-tests.log`).
+- **passed**: `INSTA_UPDATE=no cargo test --release -p lctx-model --lib domain::structural::`,
+  three controls, including conditional alias premise preservation, returned admission lifetime
+  and Resource classification (`/home/paul/.cache/lctx-enrichment-closeout-qualification-tests.log`).
+- **passed**: `INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p cpg-core
+  --test structural -E 'test(structural_candidates_paths_and_usage_publish_in_catalog) |
+  test(structural_candidates_paths_and_usage_publish_in_behavioral) |
+  test(structural_refuses_erased_condition)'`, three selected actual PostgreSQL controls,
+  234.841s total; four unrelated controls excluded by the filter. Catalog positive passed in
+  79.293s, paired condition-erasure refusal in 139.538s and Behavioral positive in 234.841s,
+  including exact same-run native region lineage and conditional alias publication. The release
+  build **passed**, 15m03s (`/home/paul/.cache/lctx-enrichment-closeout-structural-tests.log`).
+- **passed**: `UV_NO_SYNC=1 just docs-check`, 292 canonical pages, zero offline link errors
+  (`/home/paul/.cache/lctx-enrichment-closeout-docs-check.log`); checkpoint documentation only.
+  The final publication rerun initially **failed** on the newly added architecture-to-plan relative
+  link; that link was corrected and the same publication check **passed** on rerun: 292 pages,
+  zero errors (`/home/paul/.cache/lctx-enrichment-closeout-docs-check-final-rerun.log`).
+
+The newest native read-region changes add four nullable fields across two existing Named enum
+relations. Their deliberate schema snapshot migration, final source-matching adapters/CLI,
+current-model scoped store qualification and final full Clippy/hygiene/functional gates are
+**not_run / pending**, by the operator's checkpoint request. Earlier `8f8ec7c…` schema/artifact and
+Clippy/hygiene receipts qualify only that predecessor source. The interrupted superseded full gate
+launched no tests; it supplies no current acceptance. Automatic hook formatting was observed after
+the targeted runtime receipts; `f7e94515` retains that four-file output. Focused diff/token inspection
+found only reflow, trailing separators and equivalent blocks, with no changed identifiers, literals
+or operations (`/home/paul/.cache/lctx-enrichment-closeout-hook-format-inspection.json`). The runtime
+receipts belong to `8bac19ab`, before this formatting; no final fingerprint/store/adapters acceptance
+is inferred. No formatter was manually run in this checkpoint; formatting remains hook-owned.
+Default staging `d3a3fa026a1237a1c4e175b9b1019eeb` retains 204 receipts and remains unselected;
+operator registrations and stopped real-library activation are unchanged.
+
+All implementation and worktree-assessment subagents concluded. Selected production changes are
+integrated; static source/history comparison found no missing useful integration in the fifteen
+remaining older trees. All fifteen were removed after verifying committed-history recovery and
+byte-preserved dirty/untracked payloads. Three additional older clean patch-integrated trees and
+all current task worktrees were already removed. `git worktree list` now contains only shared `main`.
+Recovery assets are outside the checkout at
+`/home/paul/.local/share/library-context/worktree-recovery/2026-10-04/`: README, per-tree disposition,
+archive refs/Git bundle, separate staged/unstaged binary patches, dirty-file archives and checksums.
+The historical Pyrefly spike's 24,589 unique raw receipt files (528,588,592 bytes) were independently
+streaming-checksummed before removal. Reproducible targets/environments were omitted; shared Cargo
+intermediates were untouched. Existing Git branches/tags remain; no force-push or reset was used.
+`docs/pins.md` now names current manifests/scoped pin receipts rather than the retired spike as pin
+authority. This is historical recovery, not an alternate production model or acceptance source.
+No new design review is initiated: its structure awaits the operator.

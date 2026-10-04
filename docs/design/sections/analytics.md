@@ -95,18 +95,22 @@ cited events. Identity and Derived value relationships remain distinct from cont
 Normalized receiver/binding evidence determines ownership; matching field names cannot manufacture
 cross-method storage or reader identity.
 
-**Accepted target**, 2026-10-04 (ADR-0122): named Flow handoffs require complete attributed
+**Implemented**, 2026-10-04 (ADR-0122): named Flow handoffs require complete attributed
 per-use enumeration plus exact use/reaching/definition premises. Global family coverage is cited
 evidence and cannot establish or suppress enumeration closure for an individual use; legitimate
 Partial family coverage remains distinct from incomplete per-use inventory. Implementation and
 qualification are owned by the analytical-enrichment coordinator.
 
-**Implemented; runtime qualification pending**, 2026-10-04: when the structural use condition
+**Implemented / focused Tested**, 2026-10-04: when the structural use condition
 alone does not imply the native reaching condition, named origins retain the exact same-run
 containing execution region and support. The combined read domain must still imply reaching;
 missing, ambiguous or foreign region evidence refuses admission. Call-return predicates remain
 in that domain and in published alias-flow qualifications and their assumption bases. Canonical
 stored handoff/setup lineage is retained; this does not add a serving explanation endpoint.
+Seven admission and three qualification/resource controls, plus actual PostgreSQL Catalog/Behavioral
+positives and paired condition-erasure refusal passed. The
+[coordinator checkpoint](../../plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
+bounds those receipts; schema/artifact refresh and full-series acceptance remain pending.
 
 > Decision: ADR-0122
 

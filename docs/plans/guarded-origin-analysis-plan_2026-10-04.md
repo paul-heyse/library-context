@@ -1,9 +1,13 @@
 # Per-use alternatives and guarded entry-origin analysis
 
-**Proposed, 2026-10-04.** Supporting plan for source-review O03 in the
-[coordinator](code-facts-analytical-enrichment-plan_2026-10-04.md); coordinator §7 is the sole
-mutable disposition/decision owner. Baseline `dbabbe6904a3`, **Interface-checked, 2026-10-04**.
-New native fixtures, derivation, publication and served results are **not_run**.
+**Implemented G0/G1 and A2; G2/G3 Deferred, 2026-10-04.** Supporting design for O03 in the
+[coordinator](code-facts-analytical-enrichment-plan_2026-10-04.md); §7 owns current decisions,
+dispositions and receipts. `dbabbe6904a3` is the authoring baseline. Actual native usefulness
+search passed, but supplied no complete multi-candidate case with the required exclusion
+conditions, so guarded proof expansion is Deferred under its explicit trigger. Attributed
+inventories, explanation, per-use singleton admission and qualification preservation are integrated.
+The latest native read-region/alias repair passed its seven admission, three qualification/resource
+and three actual PostgreSQL Structural controls. Those bounded receipts remain separate from Q1. No guarded multi-candidate proof or whole-program completeness is claimed.
 
 ## 1. Intended question and current proof boundary
 
@@ -12,12 +16,15 @@ its original parameter value?” A further answer, if actual native supply warra
 read's admitted native access condition, only the original parameter can reach.” This is a bounded
 extension of Entry origin, not general heap/alias flow or arbitrary caller-selected guard evaluation.
 
-Current `conditions/entry.rs` already resolves owner/formal/read/context/run and admits
-`EntryAccessSource::Use/Value/Guard`. `DerivedEntryValue` is qualified, but `EntryValueWitness`
-stores one reaching row and replay requires a global supported singleton. Guard stability permits
-only an exact pre-test Guard source; Value/Use proof does not supply it. Keep those authorities and
-meanings. Adding another witness is justified by a different conditional theorem and stronger
-complete-alternative evidence, not compatibility with an obsolete contract.
+Current `conditions/entry.rs` resolves owner/formal/read/context/run and admits
+`EntryAccessSource::Use/Value/Guard`. `DerivedEntryValue` is qualified; `EntryValueWitness`
+retains the selected reaching row and complete attributed per-use inventory/support under
+ADR-0122. Family coverage remains separate evidence. Guard stability permits only an exact
+pre-test Guard source; Value/Use proof does not supply it. The integrated named-origin repair
+uses a canonical native containing region when necessary to prove read-domain implication,
+and retains its support and condition through alias publication. It does not admit competing
+origins. A future guarded witness still requires the distinct conditional theorem and complete
+multi-alternative evidence described below.
 
 The current ty flow exporter retains Unbound for Undefined/Deleted and separates reachability from
 narrowing. It can prune false candidates, expand loop headers into no rows and omit unattached or

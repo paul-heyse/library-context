@@ -1,9 +1,12 @@
 # Scoped Python incoming-reference enrichment
 
-**Proposed, 2026-10-04.** Supporting plan for O07 in the
-[coordinator](code-facts-analytical-enrichment-plan_2026-10-04.md); its §7 owns mutable status,
-conditional decisions and deferrals. Baseline `dbabbe6904a3`; supplier and current source contracts
-are **Interface-checked, 2026-10-04**. New product/oracle implementation and tests are **not_run**.
+**Implemented R1/R2, 2026-10-04; assembled acceptance pending.** Supporting design for O07
+in the [coordinator](code-facts-analytical-enrichment-plan_2026-10-04.md); §7 owns current
+receipts, dispositions and deferrals. `dbabbe6904a3` is the authoring baseline. The scoped
+incoming-reference product and joined-process development oracle are integrated. Focused model
+controls and the actual differential oracle passed, including alias-policy, typing-only and
+unreachable controls. Q1 remains open; production ty project/IDE search remains Deferred under
+the resource-contract trigger below. No new production provider is required to finish this scope.
 
 ## 1. Selected result and provider boundary
 

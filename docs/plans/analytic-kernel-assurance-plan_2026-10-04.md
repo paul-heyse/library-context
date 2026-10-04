@@ -1,9 +1,11 @@
 # Independent assurance for bounded FCA and implication analysis
 
-**Proposed, 2026-10-04.** Supporting plan for O08 in the
-[coordinator](code-facts-analytical-enrichment-plan_2026-10-04.md); its §7 owns mutable status.
-Baseline `dbabbe6904a3`; current kernels and odis 2026.9.1 sources are
-**Interface-checked, 2026-10-04**. New dependency integration and verification are **not_run**.
+**Implemented and focused-Tested K1/K2, 2026-10-04.** Supporting design for O08 in the
+[coordinator](code-facts-analytical-enrichment-plan_2026-10-04.md); §7 owns current receipts
+and disposition. `dbabbe6904a3` is the authoring baseline. The exact development-only odis/bit-set
+integration and four independent finite-context controls passed. The production charged kernel
+is retained. This establishes the recorded oracle/control scope, not current full-series Q1
+acceptance, performance measurement or a production-library substitution.
 
 ## 1. Selected library use and production fit
 

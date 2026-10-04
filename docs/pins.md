@@ -69,8 +69,9 @@ Exact pins at the versions `Cargo.lock` already held, so none moved; `just deps`
 
 ## Analyzers (ADR-0117)
 
-Both analyzers are workspace dependencies since increment 1, slice 1 (`Cargo.toml`, `Cargo.lock`).
-These rows record what spike `spike/pyrefly-inproc` (`d00bab5`) read, built and checked.
+The linked analyzer families are workspace dependencies (`Cargo.toml`, `Cargo.lock`).
+These rows record the current pins and their individually scoped verification receipts; the
+archived in-process Pyrefly prototype is historical evidence, not the current pin authority.
 
 | Component | Pin | Verified | How |
 |---|---|---|---|

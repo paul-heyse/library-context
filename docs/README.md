@@ -69,3 +69,10 @@ prerequisite. To recover a deleted path:
   `f54b09d090e66abcee1fcc90d2005524defe4582` holds all of it (`git show f54b09d:<path>`).
 - Raw evidence is in Git LFS: `git lfs fetch origin <commit>^ --include=<path>`, then
   `git show <commit>^:<path> | git lfs smudge`.
+
+The 2026-10-04 retirement of superseded implementation worktrees has local recovery assets at
+`/home/paul/.local/share/library-context/worktree-recovery/2026-10-04/`. Its README, disposition,
+verified Git bundle, patches and dirty/untracked archives preserve their content without retaining
+active checkouts. Repository refs `refs/archive/worktree-closeout/2026-10-04/*` also anchor their
+committed history. The archived Pyrefly prototype's unique raw analysis receipts are stored there;
+these historical assets are not runtime inputs or current qualification evidence.

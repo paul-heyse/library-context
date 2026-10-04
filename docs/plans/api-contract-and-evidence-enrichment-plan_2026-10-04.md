@@ -1,10 +1,12 @@
 # API contract and original-evidence enrichment
 
-**Proposed, 2026-10-04.** Supporting plan for O01/O02/O04/O05/O06 in the
-[coordinator](code-facts-analytical-enrichment-plan_2026-10-04.md), whose §7 owns all mutable
-status and source-review dispositions. Baseline `dbabbe6904a3`; current contracts and pinned
-Rust source are **Interface-checked, 2026-10-04**. Implementation and verification are **not_run**.
-Read the coordinator for shared migration, qualification and operator-state boundaries.
+**Implemented, 2026-10-04; assembled acceptance pending.** Supporting design for
+O01/O02/O04/O05/O06 in the [coordinator](code-facts-analytical-enrichment-plan_2026-10-04.md),
+whose §7 owns current dispositions and dated receipts. `dbabbe6904a3` is the authoring baseline.
+C1–C6 and the enabled C7 Expected argument-trace extension are integrated. Focused native,
+model, PostgreSQL and MCP packet receipts establish their recorded scopes; they do not establish
+Q1 or real-library activation. No selected implementation package remains unstarted here.
+Final source-stable schema/adapters and assembled validation remain open in coordinator §7.
 
 ## 1. Result and reusable foundations
 
@@ -111,7 +113,7 @@ Exact Pyrefly source establishes a narrow observation opportunity: before trace 
 `lib/alt/overload.rs` carries `TargetWithTParams<Function>` and `FunctionKind::as_func_def_id`;
 original targets can supply optional module/FuncDefIndex/class identity and an original call-local
 input-vector ordinal. FuncDefIndex is source-definition identity, not a declaration overload ordinal.
-`OverloadTrace` currently retains only Callable/tparams. Extend the minimally patched fork's
+At the authoring baseline, `OverloadTrace` retained only Callable/tparams. C2 extends the minimally patched fork's
 tracing-only seam to retain optional original member identity, call/site/run and original-vector
 identity/ordinal, callable/TParams and actual selection state. The ordinal is query/run/vector-local;
 original FuncDefId correspondence, not ordinal equality across calls, identifies a declaration.
@@ -230,7 +232,7 @@ status. Removing a link or changing target/channel/config must not retain a supp
 
 **Prerequisite:** captured module universe, exact public exposure/member and existing aliases,
 ImportModuleAssessment/Candidate, module-resolution supports and typed ImportReference projection.
-The current access packet retains exposure/candidate IDs but no ordered route. Direct joins establish
+Before C5, the access packet retained exposure/candidate IDs but no ordered route. Direct joins establish
 each admitted edge before traversal; serving SQL is not an export interpreter.
 
 A model-owned request-time operation takes the exact selected public path/member, captured context
