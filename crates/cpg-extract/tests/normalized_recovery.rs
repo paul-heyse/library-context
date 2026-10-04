@@ -153,7 +153,12 @@ async fn recovered_unicode_reexport_uses_the_implementation_and_keeps_signature_
         })
         .collect();
     assert_eq!(exposed.len(), 1);
-    assert_eq!(exposed[0].status, ResolutionStatus::Resolved);
+    assert_eq!(exposed[0].status, ResolutionStatus::Resolved,
+        "unicode exposure={:?}; raw public={:?}; origin={:?}; same-name native symbols/resolutions={:?}; public supports={:?}",
+        exposed[0], data.public_names.get(exposed[0].observation), data.export_origins.get(exposed[0].origin),
+        data.symbols.iter().filter(|s| s.name == "build").map(|s| (s, data.provider_modules.get(s.module),
+            data.symbol_resolutions.iter().filter(|r| r.symbol == s.id()).collect::<Vec<_>>())).collect::<Vec<_>>(),
+        data.public_supports.iter().filter(|s| s.assertion == exposed[0].observation).collect::<Vec<_>>());
     for candidate in data
         .entity_exposure_candidates
         .iter()
