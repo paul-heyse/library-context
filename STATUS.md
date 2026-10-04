@@ -2,7 +2,12 @@
 
 _Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Analytical enrichment is integrated; the operator requested a clean implementation checkpoint.**
+**Analytical enrichment is integrated; the target-implementation design review is complete.**
+The [target-alignment review](docs/design_review/reviews/design_review_target-implementation-alignment_2026-10-04.md)
+assesses the current implementation and documented API/evidence target under core 3.2 and CI 1.3.
+Its static decision is **Revise**, through incremental corrections; remedies remain Proposed.
+It independently reassesses the library-leverage recommendations and owns its new unscheduled
+findings until transfer to an implementation plan. No production remediation or qualification ran.
 The [coordinator §7](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
 owns F01/F02/O01–O08, implementation status, failures and qualification receipts.
 A0/A1/A2, C1–C7 (C7 enabled), G1, R1/R2 and K1/K2 are integrated on `main`.
@@ -19,8 +24,8 @@ multi-candidate inventory supplies useful exclusion conditions. Ty references an
 development-only. No Q1 or current full-series functional pass is claimed.
 
 The implementation subagents have concluded and their changes are integrated. All thirteen recent
-targeted controls passed; the documentation checkpoint is complete. The operator will
-specify the implementation review's structure; no new review is initiated by this closeout.
+targeted controls passed; the documentation checkpoint is complete. The subsequent design review
+preserves those historical verification boundaries rather than claiming current full acceptance.
 All older worktrees were assessed as integrated or superseded, with no missing production slice.
 Their committed history, dirty files and the spike's 24,589 raw receipt files were verified in
 the local recovery archive. All fifteen were removed; `git worktree list` now contains only `main`.
@@ -32,7 +37,7 @@ the local recovery archive. All fifteen were removed; `git worktree list` now co
 | `INSTA_UPDATE=no cargo test --release -p lctx-model --test domain_handoffs` | **passed**, 2026-10-04: seven native inventory/region and retained-domain resource controls |
 | `INSTA_UPDATE=no cargo test --release -p lctx-model --lib domain::structural::` | **passed**, 2026-10-04: three conditional-alias/resource-lifetime/exhaustion controls |
 | Filtered release Nextest `cpg-core --test structural` positives/condition-erasure refusal | **passed**, 2026-10-04: three selected actual PostgreSQL controls, 234.841s; Catalog/Behavioral positives and paired refusal. Four unrelated controls filtered out; release compile passed |
-| `UV_NO_SYNC=1 just docs-check` | **passed**, 2026-10-04: 292 canonical pages, zero offline link errors; checkpoint documentation only |
+| `UV_NO_SYNC=1 just docs-check` | **passed**, 2026-10-04: 293 canonical pages, zero offline link errors; target-alignment review and handoff documentation only |
 | Current-source Named schema snapshot, matching CLI/native adapters and scoped store check | **not_run / pending**, 2026-10-04; four nullable fields across two existing Named enum relations require deliberate migration after source formatting |
 | Current-source full Clippy, `just hygiene`, `just test-all` and remaining Q1 journeys | **not_run / pending**, 2026-10-04, under the operator's targeted-only checkpoint request |
 | Previous model `8f8ec7c…` CLI/native adapters/schema snapshot | **passed**, 2026-10-04; 878 relations and reviewed Summary witness migration, before the latest read-region/resource changes |
@@ -91,7 +96,8 @@ retains 204 receipts, no readers/writer, and is unselected. Default store/regist
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Next: await the operator's instructions for the implementation review. After review disposition, resume deliberate schema/artifact refresh
+Next: translate the target-alignment review's accepted recommendations into an implementation plan.
+After review disposition, resume deliberate schema/artifact refresh
 and outstanding same-tree Q1/full gates only under the resulting authorized scope. Real-library
 activation remains separately stopped. Gold/heldout/benchmarks are untouched.
 Recovery assets live under `/home/paul/.local/share/library-context/worktree-recovery/2026-10-04/`;
