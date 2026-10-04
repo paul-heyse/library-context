@@ -166,7 +166,7 @@ mod class_trait_tests {
     fn native_class_trait_support_requires_identical_unique_report_payload() {
         fn id<R>(n:u8)->Id<R>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
         let row=symbols::ClassTraitObservation {qualification:id(1),symbol:id(2),synthesized:false,dataclass:false,named_tuple:false,typed_dict:false};
-        assert!(trait_projection_agreement(&row,&[row.clone()]).is_ok());
+        assert!(trait_projection_agreement(&row,std::slice::from_ref(&row)).is_ok());
         for changed in [symbols::ClassTraitObservation{synthesized:true,..row.clone()},symbols::ClassTraitObservation{dataclass:true,..row.clone()},symbols::ClassTraitObservation{named_tuple:true,..row.clone()},symbols::ClassTraitObservation{typed_dict:true,..row.clone()}] {
             assert_eq!(changed.id(),row.id(),"payload disagreement must not overwrite the keyed assertion");
             assert_eq!(trait_projection_agreement(&row,&[changed]),Err(ObligationKind::ProviderDisagreement));
