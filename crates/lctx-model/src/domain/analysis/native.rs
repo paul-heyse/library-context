@@ -130,7 +130,7 @@ macro_rules! native_analysis_pairs {
         34: ParameterAnnotationObservation => $crate::domain::symbols::ParameterAnnotationObservation, $crate::domain::symbols::ParameterAnnotationSupport;
         35: PublicNameObservation => $crate::domain::symbols::PublicNameObservation, $crate::domain::symbols::PublicNameSupport;
         36: ParameterDocObservation => $crate::domain::symbols::ParameterDocObservation, $crate::domain::symbols::ParameterDocSupport;
-        37: ModuleResolutionObservation => $crate::domain::symbols::ModuleResolutionObservation, $crate::domain::symbols::ModuleResolutionSupport;
+        // Tag 37 belonged to retired DependencyModuleObservation and is never reused.
         38: SyntaxPlacement => $crate::domain::syntax::SyntaxPlacement, $crate::domain::syntax::SyntaxPlacementSupport;
         39: SyntaxDetailObservation => $crate::domain::syntax::SyntaxDetailObservation, $crate::domain::syntax::SyntaxDetailSupport;
         40: DeclarationObservation => $crate::domain::syntax::DeclarationObservation, $crate::domain::syntax::DeclarationSupport;
@@ -168,6 +168,7 @@ macro_rules! native_analysis_pairs {
         72: FlowUseInventory => $crate::domain::flow_inventory::FlowUseInventoryObservation, $crate::domain::flow_inventory::FlowUseInventorySupport;
         73: NativeOverload => $crate::domain::types::NativeOverloadObservation, $crate::domain::types::NativeOverloadSupport;
         74: NativeOverloadCandidate => $crate::domain::types::NativeOverloadCandidate, $crate::domain::types::NativeOverloadCandidateSupport;
+        75: ModuleResolutionObservation => $crate::domain::symbols::ModuleResolutionObservation, $crate::domain::symbols::ModuleResolutionSupport;
     } };
 }
 crate::native_analysis_pairs!(native_pairs);
