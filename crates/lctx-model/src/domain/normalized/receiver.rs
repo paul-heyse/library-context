@@ -296,6 +296,15 @@ fn support_frame(
     }
     Ok(s.run)
 }
+// Native calls and canonical syntax have independent providers. Compose their exact
+// receipts only within one input, analysis context and extraction configuration.
+fn same_source_frame(data: &ReceiverData, left: Id<ProviderRun>, right: Id<ProviderRun>) -> bool {
+    data.runs.get(left).zip(data.runs.get(right)).is_some_and(|(left, right)| {
+        left.input == right.input
+            && left.context == right.context
+            && left.configuration == right.configuration
+    })
+}
 fn derive(
     data: &ReceiverData,
     target: &CallTarget,
@@ -406,6 +415,7 @@ fn derive(
     }
     let expected = run.unwrap();
     supports = 0;
+    let mut syntax_run = None;
     for support in data
         .syntax_supports
         .iter()
@@ -417,17 +427,23 @@ fn derive(
         });
         if support.origin != Origin::SourceObservation
             || support.mode != ExtractionMode::NativeTraversal
-            || support_frame(
-                data,
-                support.attribution(),
-                cq,
-                FactFamily::Syntax,
-                call.site,
-                premises,
-            )? != expected
         {
             return Err(ReceiverReason::SupportDisagreement);
         }
+        let observed = support_frame(
+            data,
+            support.attribution(),
+            cq,
+            FactFamily::Syntax,
+            call.site,
+            premises,
+        )?;
+        if !same_source_frame(data, expected, observed)
+            || syntax_run.is_some_and(|run| run != observed)
+        {
+            return Err(ReceiverReason::SupportDisagreement);
+        }
+        syntax_run = Some(observed);
     }
     if supports == 0 {
         return Err(ReceiverReason::MissingSupport);
@@ -451,7 +467,7 @@ fn derive(
                 FactFamily::Syntax,
                 placement.occurrence,
                 premises,
-            )? != expected
+            )? != syntax_run.unwrap()
         {
             return Err(ReceiverReason::SupportDisagreement);
         }

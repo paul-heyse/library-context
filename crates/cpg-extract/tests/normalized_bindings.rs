@@ -793,7 +793,7 @@ async fn class_of_replay_refuses_missing_ambiguous_foreign_and_contradictory_pre
         panic!("{assessment:?}")
     };
     let original = data.placements.get(*placement).unwrap();
-    for mutation in 0..8 {
+    for mutation in 0..11 {
         let mut inputs = receiver_input(&data, &budget);
         match mutation {
             0 => {
@@ -878,7 +878,7 @@ async fn class_of_replay_refuses_missing_ambiguous_foreign_and_contradictory_pre
                     inputs.coverage.insert(c).unwrap();
                 }
             }
-            _ => {
+            7 => {
                 inputs.placement_supports = Rows::new(&budget);
                 for p in data
                     .placement_supports
@@ -888,6 +888,52 @@ async fn class_of_replay_refuses_missing_ambiguous_foreign_and_contradictory_pre
                     inputs.placement_supports.insert(p.clone()).unwrap();
                 }
             }
+            8 => {
+                let support = data.placement_supports.iter()
+                    .find(|s| s.assertion == *placement).unwrap();
+                let original_run = support.run;
+                let mut run = data.runs.get(original_run).unwrap().clone();
+                run.configuration = ContentHash::of(b"foreign-extraction-configuration");
+                let foreign = run.id();
+                inputs.runs.insert(run).unwrap();
+                inputs.syntax_supports = Rows::new(&budget);
+                for s in data.syntax_supports.iter() {
+                    let mut s = s.clone();
+                    if s.run == original_run { s.run = foreign; }
+                    inputs.syntax_supports.insert(s).unwrap();
+                }
+                inputs.placement_supports = Rows::new(&budget);
+                for s in data.placement_supports.iter() {
+                    let mut s = s.clone();
+                    if s.run == original_run { s.run = foreign; }
+                    inputs.placement_supports.insert(s).unwrap();
+                }
+                for c in data.coverage.iter().filter(|c| c.run == Some(original_run)) {
+                    let mut c = c.clone();
+                    c.run = Some(foreign);
+                    inputs.coverage.insert(c).unwrap();
+                }
+            }
+            9 => {
+                inputs.coverage = Rows::new(&budget);
+                for c in data.coverage.iter() {
+                    let mut c = c.clone();
+                    if c.family == attribution::FactFamily::Syntax {
+                        c.status = attribution::CoverageStatus::Partial;
+                        c.reason = Some(attribution::ObligationKind::MissingEvidence);
+                    }
+                    inputs.coverage.insert(c).unwrap();
+                }
+            }
+            10 => {
+                inputs.syntax_supports = Rows::new(&budget);
+                for s in data.syntax_supports.iter() {
+                    let mut s = s.clone();
+                    s.fidelity = attribution::Fidelity::ReportProjection;
+                    inputs.syntax_supports.insert(s).unwrap();
+                }
+            }
+            _ => unreachable!(),
         }
         let derived = receiver::normalize(&inputs, &budget).unwrap();
         assert!(
