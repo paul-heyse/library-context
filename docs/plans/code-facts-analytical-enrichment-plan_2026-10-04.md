@@ -596,7 +596,8 @@ The direct generated CPython challenge **passed**, 2026-10-04:
 1,800-second Nextest budget; product limits and all challenge assertions remain unchanged.
 A live CPU sample identified repeated admitted syntax-index construction in completion,
 not a stopped service or compiler termination (`lctx-enrichment-soundness-cpu-stack.txt`).
-Bounded per-frame index reuse is under assessment; no performance improvement is claimed.
+Bounded per-frame index reuse is integrated; its context/resource/work-reset controls passed
+in the direct focused model run below. No performance improvement is claimed.
 The split structural/documentary rerun **failed**: four passed, four failed, no timeouts
 (`lctx-enrichment-structural-documentary-rerun.log`). Exact earlier coverage refusal, failed-stage
 rollback controls, named-handoff admission and duplicate signature-role option candidates are
