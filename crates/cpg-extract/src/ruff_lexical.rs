@@ -419,10 +419,13 @@ impl NativeRows {
                         unresolved_wildcard: None,
                         unresolved_annotation_binding: None,
                     });
-                    // A different native scope does not supply closure capture authority.
+                    // A different native scope or a forwarded global/nonlocal binding does
+                    // not supply uncaptured local-resolution authority.
                     if reference.is_load
                         && let (Some(binding), Some(event)) = (binding, final_binding)
                         && reference.scope == binding.scope
+                        && !BindingFlags::from_bits_retain(binding.flags)
+                            .intersects(BindingFlags::NONLOCAL | BindingFlags::GLOBAL)
                     {
                         let target = LexicalTarget::Binding { event };
                         let row = LexicalResolution {

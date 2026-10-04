@@ -526,7 +526,13 @@ fn provider_identity_covers_the_lockfile_the_pyrefly_patch_and_the_sources() {
             include_str!("../src/natives.rs"),
             include_str!("../src/symbol_records.rs"),
             include_str!("../src/public_records.rs"),
-            include_str!("../src/docstrings.rs")
+            include_str!("../src/docstrings.rs"),
+            include_str!("../src/type_records.rs"),
+            include_str!("../src/call_records.rs"),
+            include_str!("../src/protocol_records.rs"),
+            include_str!("../src/capture_records.rs"),
+            include_str!("../src/diagnostic_records.rs"),
+            include_str!("../src/parameter_definition_records.rs"),
         ])
     );
 }
