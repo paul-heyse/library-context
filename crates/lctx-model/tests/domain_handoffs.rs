@@ -391,6 +391,25 @@ fn native_containing_region_preserves_call_continuation_in_named_origin_proof() 
 }
 
 #[test]
+fn native_region_domain_stays_charged_during_the_reaching_implication() {
+    let mut f = Fixture::with_conditional_reaching(false, true);
+    let domain = f.reaching_domain();
+    f.region(&domain);
+    let predecessor = f.data.entry.condition_nodes.len() * 2048;
+    let first = Diagram::always().binary_allocation_allowance(&domain).unwrap();
+    let implication = domain.binary_allocation_allowance(&domain).unwrap();
+    let retained = domain.allocation_allowance();
+    assert!(implication >= first);
+    // Decoding and the first apply fit. The implication must also account its still-live domain.
+    let budget = ResourceBudget::fixed(predecessor + implication + retained - 1).unwrap();
+    let result = handoffs::named_definition(&f.data, &f.read, f.context, &budget);
+    assert!(matches!(result, Err(ModelError::Resource { owner: "condition_binary", used, requested, .. })
+        if used == predecessor + retained && requested == implication),
+        "the binary-operation refusal remains a Resource with its derived domain charged");
+    assert_eq!(budget.reserved(), 0);
+}
+
+#[test]
 fn missing_foreign_ambiguous_false_or_unsupported_regions_refuse_conditional_named_origins() {
     for mutation in 0..10 {
         let mut f = Fixture::with_conditional_reaching(false, true);

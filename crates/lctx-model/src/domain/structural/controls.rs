@@ -838,8 +838,11 @@ fn alias_covers(
     let local = Diagram::from_records(need(&h.entry.conditions, local.condition)?, &nodes)?;
     let covered = read
         .admitted_binary(&local, BooleanOperation::Conjunction, budget)
-        .map_err(|e| invalid(format!("alias condition refused: {e:?}")))?;
-    Ok(covered.into_parts().0.id() == read.id())
+        .map_err(|e| match e {
+            conditions::DiagramAdmissionError::Resource(error) => error,
+            conditions::DiagramAdmissionError::Boundary(boundary) => invalid(format!("alias condition refused: {boundary:?}")),
+        })?;
+    Ok(covered.id() == read.id())
 }
 
 /// Retain a source parameter read even when no canonical formal mapping exists.

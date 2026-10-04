@@ -150,6 +150,13 @@ fn source_covered(
         _ => false,
     })
 }
+fn condition_error(error: conditions::DiagramAdmissionError) -> ModelError {
+    match error {
+        conditions::DiagramAdmissionError::Resource(error) => error,
+        conditions::DiagramAdmissionError::Boundary(boundary) =>
+            invalid(format!("named handoff condition boundary: {boundary:?}")),
+    }
+}
 fn read_region(
     d: &Data,
     observation: &FlowUseObservation,
@@ -181,7 +188,7 @@ pub(crate) fn named_condition(
     d: &Data,
     value: &ValueSource,
     budget: &resources::ResourceBudget,
-) -> Result<Diagram, ModelError> {
+) -> Result<conditions::AdmittedDiagram, ModelError> {
     let ValueSource::Named { observation, support, reaching, region, region_support, .. } = value else {
         return Err(invalid("nested value has no named read condition"));
     };
@@ -192,28 +199,28 @@ pub(crate) fn named_condition(
         .ok_or_else(|| invalid("named read condition overflow"))?)?;
     let nodes = d.entry.condition_nodes.iter().cloned().collect::<Vec<_>>();
     let condition = Diagram::from_records(need(&d.entry.conditions, q.condition)?, &nodes)?;
-    let domain = match (*region, *region_support) {
-        (None, None) => condition,
+    let region_admission;
+    let domain: &Diagram = match (*region, *region_support) {
+        (None, None) => &condition,
         (Some(region), Some(region_support)) => {
             if read_region(d, observation, support)? != Some((region, region_support)) {
                 return Err(invalid("named read region does not replay"));
             }
             let rq = need(&d.entry.qualifications, need(&d.entry.regions, region)?.qualification)?;
             let region_condition = Diagram::from_records(need(&d.entry.conditions, rq.condition)?, &nodes)?;
-            let admitted = condition.admitted_binary(&region_condition, BooleanOperation::Conjunction, budget)
-                .map_err(|e| invalid(format!("named read region boundary: {e:?}")))?;
-            let domain = admitted.into_parts().0;
-            if domain.is_false() { return Err(invalid("named read region has no execution domain")); }
-            domain
+            region_admission = condition.admitted_binary(&region_condition, BooleanOperation::Conjunction, budget)
+                .map_err(condition_error)?;
+            if region_admission.is_false() { return Err(invalid("named read region has no execution domain")); }
+            &region_admission
         }
         _ => return Err(invalid("named read region and support must be paired")),
     };
     let rq = need(&d.entry.qualifications, need(&d.entry.reaching, *reaching)?.qualification)?;
     let reaching = Diagram::from_records(need(&d.entry.conditions, rq.condition)?, &nodes)?;
     let covered = domain.admitted_binary(&reaching, BooleanOperation::Conjunction, budget)
-        .map_err(|e| invalid(format!("named read implication boundary: {e:?}")))?;
-    if covered.into_parts().0.id() != domain.id() { return Err(invalid("named read condition does not imply reaching")); }
-    Ok(domain)
+        .map_err(condition_error)?;
+    if covered.id() != domain.id() { return Err(invalid("named read condition does not imply reaching")); }
+    Ok(covered)
 }
 /// One reaching definition under the read condition, in the same provider invocation and scope.
 /// Rebinding selects its actual new definition; unions, loops, foreign supports and captured state refuse.
@@ -319,10 +326,12 @@ pub fn named_definition(
     let condition = Diagram::from_records(need(&d.entry.conditions, use_q.condition)?, &nodes)?;
     let reach_condition =
         Diagram::from_records(need(&d.entry.conditions, reach_q.condition)?, &nodes)?;
-    let admitted = condition
-        .admitted_binary(&reach_condition, BooleanOperation::Conjunction, budget)
-        .map_err(|e| invalid(format!("handoff condition boundary: {e:?}")))?;
-    let directly_covered = admitted.into_parts().0.id() == condition.id();
+    let directly_covered = {
+        let admitted = condition
+            .admitted_binary(&reach_condition, BooleanOperation::Conjunction, budget)
+            .map_err(condition_error)?;
+        admitted.id() == condition.id()
+    };
     for support in d
         .entry
         .use_supports
@@ -373,11 +382,11 @@ pub fn named_definition(
             let rq = need(&d.entry.qualifications, need(&d.entry.regions, region)?.qualification)?;
             let region_condition = Diagram::from_records(need(&d.entry.conditions, rq.condition)?, &nodes)?;
             let domain = condition.admitted_binary(&region_condition, BooleanOperation::Conjunction, budget)
-                .map_err(|e| invalid(format!("handoff read region boundary: {e:?}")))?.into_parts().0;
+                .map_err(condition_error)?;
             if domain.is_false() { continue }
             let covered = domain.admitted_binary(&reach_condition, BooleanOperation::Conjunction, budget)
-                .map_err(|e| invalid(format!("handoff region implication boundary: {e:?}")))?;
-            if covered.into_parts().0.id() != domain.id() { continue }
+                .map_err(condition_error)?;
+            if covered.id() != domain.id() { continue }
             Some((region, region_support))
         };
         for rs in d.entry.reaching_supports.iter().filter(|s| {
@@ -727,4 +736,46 @@ fn modality(base: &build::Data, row: &NormalizedCallAlternative) -> Result<Modal
             q.modality
         },
     )
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+    fn id<R: Record>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    #[test]
+    fn named_condition_owns_its_allowance_and_routes_apply_exhaustion() {
+        // Condition-kernel ownership control over admitted predecessor rows, not native acquisition.
+        let retained = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let mut data = Data::new(&retained);
+        let diagram = Diagram::from_atom(id(1));
+        let (condition, nodes) = diagram.records();
+        data.entry.conditions.insert(condition.clone()).unwrap();
+        for node in nodes { data.entry.condition_nodes.insert(node).unwrap(); }
+        let q = AssertionQualification { assumptions: assumptions::AssumptionSet::empty_id(), context: id(2), scope: id(3), condition: condition.id(), modality: Modality::Definite, approximation: Approximation::Exact };
+        let observation = FlowUseObservation { qualification: q.id(), use_: id(4), scope: id(5), annotation: false };
+        let support = FlowUseSupport { assertion: observation.id(), run: id(6), surface: id(7), evidence: id(8), origin: attribution::Origin::AnalyzerAssertion, mode: attribution::ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural };
+        let reaching = FlowReachingObservation { qualification: q.id(), use_: id(4), target: id(9), loop_carried: false };
+        data.entry.qualifications.insert(q).unwrap();
+        data.entry.use_observations.insert(observation.clone()).unwrap();
+        data.entry.use_supports.insert(support.clone()).unwrap();
+        data.entry.reaching.insert(reaching.clone()).unwrap();
+        let value = ValueSource::Named { observation: observation.id(), support: support.id(), reaching: reaching.id(), reaching_support: id(10), definition: id(11), definition_support: id(12), inventory: id(13), inventory_support: id(14), region: None, region_support: None, coverage: id(15) };
+        let predecessor = data.entry.condition_nodes.len() * 2048;
+        let denied = resources::ResourceBudget::fixed(predecessor).unwrap();
+        assert!(matches!(named_condition(&data, &value, &denied), Err(ModelError::Resource { owner: "condition_binary", used, .. }) if used == predecessor), "decoding fits; apply exhaustion retains its Resource class");
+        assert_eq!(denied.reserved(), 0);
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let named = named_condition(&data, &value, &budget).unwrap();
+        assert_eq!(named.id(), diagram.id());
+        assert_eq!(budget.reserved(), named.reserved_bytes());
+        assert!(named.reserved_bytes() > 0);
+        let covered = named.admitted_binary(&Diagram::always(), BooleanOperation::Conjunction, &budget).unwrap();
+        assert_eq!(budget.reserved(), named.reserved_bytes() + covered.reserved_bytes());
+        drop(covered);
+        assert_eq!(budget.reserved(), named.reserved_bytes());
+        drop(named);
+        assert_eq!(budget.reserved(), 0);
+    }
 }
