@@ -14,7 +14,7 @@ use pyo3::{
 use std::{
     collections::BTreeSet,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
 };
 pyo3::create_exception!(lctx_storage, StorageError, PyRuntimeError);
 fn error(error: Error) -> PyErr {
@@ -74,10 +74,54 @@ fn serialized_len<T: serde::Serialize>(value: &T) -> Result<usize, Error> {
 struct NumericalState {
     _reservation: PreparedReservation,
     documents: usize,
+    attempt: Arc<AtomicBool>,
+}
+// The actual CPU job outlives a cancelled bridge future, but its prepared result
+// must not become reusable after that waiter has gone away.
+struct NumericalAttempt {
+    state: Arc<State>,
+    cancelled: Arc<AtomicBool>,
+}
+impl NumericalAttempt {
+    fn cancel(&self) {
+        // Publication and attempt-specific removal share this short lock. No
+        // Python callback runs while it is held.
+        if let Ok(mut numerical) = self.state.numerical.lock() {
+            self.cancelled.store(true, Ordering::Release);
+            if numerical.as_ref().is_some_and(|ready| Arc::ptr_eq(&ready.attempt, &self.cancelled)) {
+                numerical.take();
+            }
+        } else {
+            self.cancelled.store(true, Ordering::Release);
+        }
+    }
+}
+struct PreparationWait {
+    attempt: Arc<NumericalAttempt>,
+    completed: bool,
+}
+impl Drop for PreparationWait {
+    fn drop(&mut self) {
+        if !self.completed { self.attempt.cancel(); }
+    }
+}
+#[pyclass]
+struct NumericalCancellation {
+    attempt: Arc<NumericalAttempt>,
+}
+#[pymethods]
+impl NumericalCancellation {
+    fn __call__(&self, future: &Bound<'_, PyAny>) -> PyResult<()> {
+        // The bridge polls a ready inner future before its cancellation receiver.
+        // Observe the actual Python future as well, including that ready-result race.
+        if future.call_method0("cancelled")?.extract::<bool>()? { self.attempt.cancel(); }
+        Ok(())
+    }
 }
 struct State {
     service: ServingService,
     numerical: Mutex<Option<NumericalState>>,
+    numerical_preparation: Mutex<()>,
 }
 #[pyclass(module = "lctx_storage", frozen)]
 pub struct Service {
@@ -615,7 +659,11 @@ impl Service {
         callback: Py<PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let state = self.state.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        let attempt = Arc::new(NumericalAttempt { state: state.clone(), cancelled: Arc::new(AtomicBool::new(false)) });
+        let cleanup = attempt.clone();
+        let future = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut waiting = PreparationWait { attempt: attempt.clone(), completed: false };
+            let cancelled = attempt.cancelled.clone();
             let reservation = state
                 .service
                 .retrieval()
@@ -623,11 +671,15 @@ impl Service {
                 .await
                 .map_err(error)?;
             let retrieval = state.service.retrieval().clone();
-            retrieval
+            let result = retrieval
                 .prepare_numerical(move |corpus, budget| {
-                    let mut numerical = state.numerical.lock().map_err(|_| Error::State)?;
-                    if numerical.is_some() {
-                        return Ok(Err(invalid("numerical corpus already initialized")));
+                    let _initializing = state.numerical_preparation.lock().map_err(|_| Error::State)?;
+                    {
+                        let numerical = state.numerical.lock().map_err(|_| Error::State)?;
+                        if cancelled.load(Ordering::Acquire) { return Err(Error::State); }
+                        if numerical.is_some() {
+                            return Ok(Err(invalid("numerical corpus already initialized")));
+                        }
                     }
                     let bytes = corpus
                         .documents
@@ -652,16 +704,28 @@ impl Service {
                             })
                     });
                     if result.is_ok() {
-                        *numerical = Some(NumericalState {
-                            _reservation: reservation,
-                            documents: corpus.documents.len(),
-                        });
+                        let mut numerical = state.numerical.lock().map_err(|_| Error::State)?;
+                        if cancelled.load(Ordering::Acquire) { return Err(Error::State); }
+                        if numerical.is_some() { return Ok(Err(invalid("numerical corpus already initialized"))); }
+                        *numerical = Some(NumericalState { _reservation: reservation,
+                            documents: corpus.documents.len(), attempt: cancelled });
                     }
                     Ok(result)
                 })
                 .await
-                .map_err(error)?
-        })
+                .map_err(error)?;
+            waiting.completed = result.is_ok();
+            result
+        })?;
+        let callback = match Py::new(py, NumericalCancellation { attempt: cleanup.clone() }) {
+            Ok(callback) => callback,
+            Err(error) => { cleanup.cancel(); return Err(error); }
+        };
+        if let Err(error) = future.call_method1("add_done_callback", (callback,)) {
+            cleanup.cancel();
+            return Err(error);
+        }
+        Ok(future)
     }
     #[allow(
         clippy::too_many_arguments,
@@ -1031,6 +1095,7 @@ fn open_service(
             state: Arc::new(State {
                 service,
                 numerical: Mutex::new(None),
+                numerical_preparation: Mutex::new(()),
             }),
         })
     })

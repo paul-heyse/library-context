@@ -364,6 +364,41 @@ async def test_cancelled_startup_numerical_worker_is_drained_before_shutdown(cur
             await service.shutdown()
 
 
+@pytest.mark.parametrize("release_before_cancel", [False, True], ids=["cancel_first", "completion_race"])
+async def test_cancelled_startup_discards_result_and_allows_retry(current_fixture, release_before_cancel):
+    service = await open_service(str(current_fixture["config"]), generation=current_fixture["generation"], vectors=False)
+    entered, finished, release = threading.Event(), threading.Event(), threading.Event()
+
+    def callback(_raw):
+        entered.set()
+        try:
+            if not release.wait(15):
+                raise RuntimeError("startup retry control timed out")
+        finally:
+            finished.set()
+
+    pending = asyncio.ensure_future(service.initialize_numerical(callback))
+    try:
+        await wait_events([entered])
+        if release_before_cancel:
+            release.set()
+        assert pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        release.set()
+        await wait_events([finished])
+        from lctx_mcp.retrieval import NumericalScorer
+
+        numerical = NumericalScorer()
+        await service.initialize_numerical(numerical.initialize)
+        grant = await service.admit()
+        grant.release()
+    finally:
+        release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        await service.shutdown()
+
+
 @pytest.mark.parametrize("codec", [False, True], ids=["numerical", "envelope"])
 async def test_cancelled_python_numerical_worker_keeps_actual_native_grant(current_fixture, codec):
     served = await open_generation(
