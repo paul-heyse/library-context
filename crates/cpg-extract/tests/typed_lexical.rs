@@ -383,13 +383,14 @@ async fn each_scoping_rule_resolves_as_python_defines_it() {
     assert!(f.scope_observations.iter().all(|o| o.parent.is_none()
         == (f.scopes.iter().find(|s| s.id() == o.scope).unwrap().kind
             == LexicalScopeKind::Module)));
+    let recognizer_coverage = f.coverage.iter().filter(|c| {
+        c.family == FactFamily::Lexical && f.providers.iter().any(|p| {
+            Some(p.id()) == c.provider && p.tool == "pyrefly"
+        })
+    }).collect::<Vec<_>>();
+    assert!(!recognizer_coverage.is_empty(), "recognizer coverage must be retained");
     assert!(
-        f.coverage
-            .iter()
-            .filter(|c| c.family == FactFamily::Lexical && f.providers.iter().any(|p| {
-                Some(p.id()) == c.provider && p.tool == "pyrefly"
-            }))
-            .all(|c| c.status == CoverageStatus::CompleteUnderStatedModel),
+        recognizer_coverage.iter().all(|c| c.status == CoverageStatus::CompleteUnderStatedModel),
         "{:?}",
         f.coverage
     );
