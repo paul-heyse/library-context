@@ -300,6 +300,16 @@ class Settings:
             _ => None,
         })
         .collect::<Vec<_>>();
+    if links.len() != 2 {
+        eprintln!("source-field packet multiplicity: {:?}", packet.relationships.items);
+        let schema = fixture.generation.schema();
+        let kinds: Vec<(String, i16, i16, i16, i16, String, String, String)> =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT r.name,fe.kind,ps.kind,pe.kind,sig.role,encode(a.parameter,'hex'),encode(l.association,'hex'),encode(l.reader,'hex') FROM {schema}.catalog_source_field_links l JOIN {schema}.source_field_reader_links k ON k.id=l.reader JOIN {schema}.source_field_readers r ON r.id=k.reader JOIN {schema}.source_field_associations a ON a.id=l.association JOIN {schema}.signature_parameters p ON p.id=a.parameter JOIN {schema}.signature_observations sig ON sig.id=p.signature JOIN {schema}.catalog_options fo ON fo.id=l.field_option JOIN {schema}.catalog_option_evidence fe ON fe.id=fo.evidence JOIN {schema}.catalog_options po ON po.id=l.parameter_option JOIN {schema}.catalog_option_subjects ps ON ps.id=po.subject JOIN {schema}.catalog_option_evidence pe ON pe.id=po.evidence ORDER BY r.name,fe.kind,sig.role"
+            )))
+            .fetch_all(fixture.db.owner.pool()).await.unwrap();
+        eprintln!("source-field actual reader,field-evidence,parameter-subject,parameter-evidence,signature-role,parameter,association,reader-link={kinds:?}");
+    }
     assert_eq!(
         links.len(),
         2,
