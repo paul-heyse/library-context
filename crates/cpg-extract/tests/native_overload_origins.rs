@@ -118,10 +118,10 @@ async fn actual_equal_shapes_associate_only_through_original_declaration_origins
     let mut data=callable_normalization::CallableData::new(&budget);
     macro_rules! native {($($field:ident:$ty:ty,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){data.$field.insert(row).unwrap();})*};}
     lctx_model::normalized_callable_inputs!(native);
-    macro_rules! entities {($($field:ident:$ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty>::encode(&relations.entities.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    macro_rules! entities {($($field:ident:$ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty as Record>::encode(&relations.entities.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::normalized_entity_outputs!(entities);
     macro_rules! normalized {($($field:ident:$ty:ty,)*)=>{$(
-        let batch=<$ty>::encode(&links.$field.iter().cloned().collect::<Vec<_>>()).unwrap();
+        let batch=<$ty as Record>::encode(&links.$field.iter().cloned().collect::<Vec<_>>()).unwrap();
         data.visit(<$ty>::NAME,&batch).unwrap();
     )*};}
     lctx_model::normalized_relation_outputs!(normalized);
