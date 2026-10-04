@@ -475,6 +475,23 @@ async fn retained_source_shapes_preserve_invocation_and_frame_boundaries() {
                 eprintln!("SOURCE_CALL_BOUNDARY {boundary:?}");
                 for attempt in data.output.attempts.iter().filter(|a| a.event == boundary.event).take(4) {
                     eprintln!("SOURCE_CALL_ATTEMPT {attempt:?}");
+                    if let Some(signature) = attempt.signature.and_then(|id| data.bindings.signatures.get(id)) {
+                        eprintln!("SOURCE_CALL_SELECTED_SIGNATURE {signature:?}");
+                        for support in data.bindings.signature_supports.iter().filter(|s| s.assertion == signature.id()).take(4) {
+                            eprintln!("SOURCE_CALL_SIGNATURE_SUPPORT {support:?}");
+                            for coverage in data.bindings.coverage.iter().filter(|c| {
+                                c.scope == signature.scope && c.run == Some(support.run)
+                                    && c.family == attribution::FactFamily::Signatures
+                            }).take(4) {
+                                eprintln!("SOURCE_CALL_SIGNATURE_COVERAGE {coverage:?}");
+                            }
+                        }
+                        for boundary in f.rows::<attribution::SubjectBoundary>().iter().filter(|b| {
+                            b.scope == signature.scope && b.family == attribution::FactFamily::Signatures
+                        }).take(8) {
+                            eprintln!("SOURCE_CALL_SIGNATURE_BOUNDARY {boundary:?}");
+                        }
+                    }
                     if let Some(effective) = attempt.effective.and_then(|id| data.bindings.callable_assessments.get(id)) {
                         eprintln!("SOURCE_CALL_EFFECTIVE {effective:?}");
                         for variant in data.bindings.callable_variants.iter().filter(|v| {
