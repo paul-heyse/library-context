@@ -12,9 +12,12 @@ pub struct LibraryAdmissionError;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LibraryCoveragePacket {
+    /// Representative canonical receipt, not an exhaustive list of the group's scopes.
     pub coverage: Id<attribution::ProviderCoverage>,
     pub input: Id<input::InputRevision>,
+    /// Scope of the representative receipt; counts never certify unobserved scopes.
     pub scope: Id<source::CoverageScope>,
+    pub observations: u64,
     pub context: Id<attribution::AnalysisContext>,
     pub provider: Nullable<Id<attribution::Provider>>,
     pub run: Nullable<Id<attribution::ProviderRun>>,
@@ -29,7 +32,8 @@ pub struct LibraryCapturePacket {
     pub corpora: Vec<Id<input::InputRevision>>,
     /// Collection coverage is separate from enumeration of canonical catalog members.
     pub collection: Availability,
-    /// Missing receipts remain Unavailable; NotRequested and Partial receipts retain their status.
+    /// Exact groups by input/provider/run/context/family/status/reason, with representative references.
+    /// Missing receipts remain Unavailable; NotRequested and Partial groups retain their status.
     pub coverage: Vec<LibraryCoveragePacket>,
     /// Captured inputs without any scoped provider collection receipt.
     pub unavailable_inputs: Vec<Id<input::InputRevision>>,
@@ -152,29 +156,41 @@ impl PreparedLibraryDomains {
             if data.inputs.get(capture.input).is_none() {return Err(ModelError::Invalid("admitted library input is absent".into()));}
             let release=data.releases.get(capture.release).ok_or_else(||ModelError::Invalid("admitted library release is absent".into()))?;
             let package=data.packages.get(release.package).ok_or_else(||ModelError::Invalid("admitted library package is absent".into()))?;
-            let mut coverage_count=0usize;
-            for row in data.coverage.iter() {
-                let scope=data.scopes.get(row.scope).ok_or_else(||ModelError::Invalid("library coverage scope is absent".into()))?;
-                coverage_count+=usize::from(data.relevant(row,scope,capture)?);
-            }
             let corpus_count=data.corpora.iter().filter(|c|c.library==capture.input).count();
             charge.grow((package.name.len()*2+release.version.len()+1024)
                 .saturating_add(2*size_of::<LibraryCapturePacket>())
-                .saturating_add(coverage_count.saturating_mul(size_of::<LibraryCoveragePacket>()))
                 .saturating_add((2*corpus_count+1).saturating_mul(size_of::<Id<input::InputRevision>>())) )?;
             let mut corpora=Vec::with_capacity(corpus_count);
             for corpus in data.corpora.iter().filter(|c|c.library==capture.input) {
                 if data.inputs.get(corpus.corpus).is_none() {return Err(ModelError::Invalid("admitted corpus input is absent".into()));}
                 corpora.push(corpus.corpus);
             }
-            corpora.sort();corpora.dedup();
-            let mut coverage=Vec::with_capacity(coverage_count);
+            corpora.sort_unstable();corpora.dedup();
+            let mut coverage:Vec<LibraryCoveragePacket>=Vec::new();
             for row in data.coverage.iter() {
                 let scope=data.scopes.get(row.scope).ok_or_else(||ModelError::Invalid("library coverage scope is absent".into()))?;
                 if data.relevant(row,scope,capture)? {
-                    coverage.push(LibraryCoveragePacket {coverage:row.id(),input:data.coverage_input(row,scope,capture)?,scope:row.scope,context:row.context,provider:Nullable(row.provider),run:Nullable(row.run),family:row.family,status:row.status,reason:Nullable(row.reason)});
+                    let input=data.coverage_input(row,scope,capture)?;
+                    if let Some(group)=coverage.iter_mut().find(|c|c.input==input && c.context==row.context
+                        && c.provider.0==row.provider && c.run.0==row.run && c.family==row.family
+                        && c.status==row.status && c.reason.0==row.reason) {
+                        group.observations=group.observations.checked_add(1)
+                            .ok_or_else(||ModelError::Invalid("library coverage count overflow".into()))?;
+                        if row.id()<group.coverage {group.coverage=row.id();group.scope=row.scope;}
+                    } else {
+                        // Account the capacity step before allocating a new finite status group.
+                        if coverage.len()==coverage.capacity() {
+                            let additional=coverage.capacity().max(4);
+                            charge.grow(additional.saturating_mul(size_of::<LibraryCoveragePacket>()))?;
+                            coverage.reserve_exact(additional);
+                        }
+                        coverage.push(LibraryCoveragePacket {coverage:row.id(),input,scope:row.scope,
+                            observations:1,context:row.context,provider:Nullable(row.provider),run:Nullable(row.run),
+                            family:row.family,status:row.status,reason:Nullable(row.reason)});
+                    }
                 }
             }
+            coverage.sort_unstable_by_key(|c|(c.input,c.context,c.provider.0,c.run.0,c.family as i16,c.status as i16,c.reason.0));
             let mut unavailable_inputs=Vec::with_capacity(corpus_count+1);
             for input in std::iter::once(capture.input).chain(corpora.iter().copied()) {
                 if !coverage.iter().any(|c|c.input==input) {unavailable_inputs.push(input);}
@@ -202,8 +218,8 @@ impl PreparedLibraryDomains {
                 domains.push(LibraryDomainPacket{name:bounded_name(&package.name)?,captures:vec![capture]});
             }
         }
-        domains.sort_by(|a,b|a.name.as_str().cmp(b.name.as_str()));
-        for domain in &mut domains {domain.captures.sort_by_key(|c|(c.release.input,c.release.release));}
+        domains.sort_unstable_by(|a,b|a.name.as_str().cmp(b.name.as_str()));
+        for domain in &mut domains {domain.captures.sort_unstable_by_key(|c|(c.release.input,c.release.release));}
         Ok(Self{domains,_charge:charge})
     }
     pub fn resolve<'a>(&'a self,name:Option<&Name>)->Result<ResolvedLibraryDomain<'a>,LibraryAdmissionError> {

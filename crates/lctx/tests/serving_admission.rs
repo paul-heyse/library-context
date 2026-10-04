@@ -21,6 +21,21 @@ async fn admitted_empty_corpus_and_unknown_domain_agree_through_pg_native_and_wi
     assert_eq!(found.domains.len(),1);
     assert_eq!(found.domains[0].name.as_str(),"demo");
     assert_eq!(found.domains[0].captures.len(),1);
+    let old_policy=identity::policy_identity(&(
+        "catalog-complete/v1", "public-path-member-analysis-order", "source-declaration-ownership"
+    )).unwrap();
+    let old_cursor=Cursor{offset:0,binding:CursorBinding{
+        generation:GenerationKey(*fixture.generation.bytes()),
+        request:Request::FindOperations(find.clone()).canonical_identity().unwrap(),
+        policy:old_policy,wire:wire_identity(),
+        channels:ChannelState{lexical:false,vector:VectorChannel::Disabled{}}.identity(),
+        group:Name::new("supported").unwrap(),section:Name::new("members").unwrap(),member:None,
+        ordering:domain::ContentHash::of(b"catalog-public-path/member/analysis/v1"),
+    }}.encode().unwrap();
+    let mut legacy=find.clone();legacy.page.cursor=Optional(Some(old_cursor));
+    assert!(matches!(fixture.catalog.find(&execution,&legacy).await,Err(Error::Codec(_))),
+        "pre-admission catalog policy cannot resume under the new contract");
+
     assert!(!found.domains[0].captures[0].corpora.is_empty());
     assert!(!found.domains[0].captures[0].coverage.is_empty());
     assert!(found.domains[0].captures[0].coverage.iter().any(|c|c.status==domain::attribution::CoverageStatus::NotRequested));

@@ -1,5 +1,5 @@
 //! Hand-expected domain captures, coverage and semantic refusal, independent of catalog members.
-use lctx_model::domain::{attribution::*, input::*, resources::ResourceBudget, serving::*, source::CoverageScope, *};
+use lctx_model::domain::{self, attribution::*, input::*, resources::ResourceBudget, serving::*, source::CoverageScope, *};
 fn id<T>(n:u8)->Id<T> {serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([n;16].into_iter())).unwrap()}
 fn capture(d:&mut LibraryAdmissionData,n:u8,name:&str,version:&str,role:DistributionRole)->(Id<InputRevision>,Id<Release>) {
     let input=InputRevision{manifest:ContentHash::of(&[n])};
@@ -90,4 +90,46 @@ fn schema_and_mapping_expose_admission_and_optional_search_filter() {
     let binding=mappings::prepared_binding(mappings::PreparedDependency::CatalogIdentity).lowered();
     let names=binding.sources.iter().map(|r|r.name()).collect::<std::collections::BTreeSet<_>>();
     for expected in ["input_revisions","packages","releases","input_distributions","corpus_libraries","provider_coverage","coverage_scopes","modules","source_artifacts"] {assert!(names.contains(expected),"{expected}");}
+}
+
+#[test]
+fn grouped_counts_preserve_mixed_statuses_and_representatives_under_row_shuffle() {
+    fn fixture(reverse:bool,b:&ResourceBudget)->LibraryAdmissionData {
+        let mut d=LibraryAdmissionData::new(b);
+        let (input,_)=capture(&mut d,1,"demo","1",DistributionRole::FirstParty);
+        let run=d.runs.insert(ProviderRun{provider:id(8),context:id(7),input,
+            configuration:ContentHash::of(b"config"),requested_families:ContentHash::of(b"docs")}).unwrap();
+        let mut rows=Vec::new();
+        for (n,status) in [(1,CoverageStatus::Partial),(2,CoverageStatus::Partial),
+            (3,CoverageStatus::CompleteUnderStatedModel),(4,CoverageStatus::NotRequested),
+            (5,CoverageStatus::Unavailable)] {
+            let artifact=d.artifacts.insert(domain::source::SourceArtifact::from_bytes(input,format!("doc{n}.md"),&[n]).unwrap()).unwrap();
+            let scope=d.scopes.insert(CoverageScope::Artifact{artifact}).unwrap();
+            rows.push(ProviderCoverage{scope,context:id(7),provider:(status!=CoverageStatus::NotRequested).then(||id(8)),
+                run:(status!=CoverageStatus::NotRequested).then_some(run),family:FactFamily::Docs,status,
+                reason:matches!(status,CoverageStatus::Partial | CoverageStatus::Unavailable).then_some(ObligationKind::IncompleteCoverage),diagnostic:None});
+        }
+        if reverse {rows.reverse();}
+        for row in rows {d.coverage.insert(row).unwrap();}
+        d
+    }
+    let b=ResourceBudget::fixed(1<<20).unwrap();
+    let forward=fixture(false,&b);let reverse=fixture(true,&b);
+    let a=PreparedLibraryDomains::prepare(&forward,&b).unwrap();
+    let z=PreparedLibraryDomains::prepare(&reverse,&b).unwrap();
+    let a=a.resolve(None).unwrap();let z=z.resolve(None).unwrap();
+    assert_eq!(a.domains(),z.domains());
+    let capture=&a.domains()[0].captures[0];
+    assert!(matches!(capture.collection,Availability::Partial{..}));
+    assert!(capture.unavailable_inputs.is_empty());
+    assert_eq!(capture.coverage.len(),4);
+    assert_eq!(capture.coverage.iter().map(|c|c.observations).sum::<u64>(),5);
+    let partial=capture.coverage.iter().find(|c|c.status==CoverageStatus::Partial).unwrap();
+    assert_eq!(partial.observations,2);
+    let representative=forward.coverage.get(partial.coverage).unwrap();
+    assert_eq!(representative.status,CoverageStatus::Partial);
+    assert_eq!(representative.scope,partial.scope);
+    assert!(capture.coverage.iter().any(|c|c.status==CoverageStatus::NotRequested && c.provider.0.is_none()));
+    assert!(capture.coverage.iter().any(|c|c.status==CoverageStatus::CompleteUnderStatedModel));
+    assert!(capture.coverage.iter().any(|c|c.status==CoverageStatus::Unavailable));
 }
