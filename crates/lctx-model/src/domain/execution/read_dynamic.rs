@@ -453,72 +453,65 @@ impl Inspect<'_> {
         Ok(true)
     }
 
+    /// Inspect a sole native module assignment and its original syntax value. Retained
+    /// recognizer rows can refuse conditional source shapes, but never supply this proof.
+    fn global_value(&mut self, event: &BindingEvent) -> Result<Option<Id<Occurrence>>, ModelError> {
+        let Some((binding, proof)) = super::read_channels::native_binding(
+            self.data, self.entry, self.invocation, event.id(), self.work,
+        )? else { return Ok(None) };
+        let Some(scope) = binding.scope else { return Ok(None) };
+        if !self.always(binding.qualification)
+            || binding.kind != ruff::RuffBindingKind::Assignment
+            || binding.typing || binding.lazy || binding.deleted
+            || binding.external || binding.global || binding.nonlocal
+            || self.entry.lexical_scopes.get(scope)
+                .is_none_or(|s| s.kind != LexicalScopeKind::Module)
+        { return Ok(None) }
+        self.work.scan(self.data.bindings.len() + self.data.ruff_bindings.len())?;
+        if self.data.bindings.iter().any(|b| {
+            b.event == event.id() && b.static_branch.is_some()
+                && self.entry.qualifications.get(b.qualification)
+                    .is_some_and(|q| q.context == self.invocation.context)
+        }) || self.data.ruff_bindings.iter().filter(|b| {
+            b.scope == Some(scope) && b.native_name == binding.native_name
+                && self.entry.qualifications.get(b.qualification)
+                    .is_some_and(|q| q.context == self.invocation.context)
+        }).count() != 1 { return Ok(None) }
+        self.work.scan(self.data.placements.len())?;
+        let mut targets = self.data.placements.iter().filter(|p| {
+            p.occurrence == event.site && self.always(p.qualification)
+        });
+        let Some(target) = targets.next() else { return Ok(None) };
+        if targets.next().is_some() || !self.observe(
+            &self.entry.placement_supports, target.id(), target.qualification, event.site,
+        )? { return Ok(None) }
+        let Some(parent) = target.parent else { return Ok(None) };
+        if self.entry.occurrences.get(parent).is_none_or(|o| o.syntax_kind != SyntaxKind::StmtAssign) {
+            return Ok(None);
+        }
+        self.work.scan(self.data.placements.len())?;
+        let mut values = self.data.placements.iter().filter(|p| {
+            p.parent == Some(parent) && p.field == SyntaxField::Value && self.always(p.qualification)
+        });
+        let Some(value) = values.next() else { return Ok(None) };
+        if values.next().is_some() || !self.observe(
+            &self.entry.placement_supports, value.id(), value.qualification, value.occurrence,
+        )? { return Ok(None) }
+        self.premises.insert(self.data.premises.get(proof.0)
+            .ok_or_else(|| ModelError::Invalid("global native binding premise missing".into()))?.clone())?;
+        Ok(Some(value.occurrence))
+    }
     fn global(
         &mut self,
         site: Id<Occurrence>,
         depth: usize,
     ) -> Result<Option<(Id<ClassEntity>, DeclaredClassOrigin)>, ModelError> {
-        let Some(target) = self.lexical_target(site)? else {
-            return Ok(None);
-        };
+        let Some(target) = self.lexical_target(site)? else { return Ok(None) };
         let Some(LexicalTarget::Binding { event }) = self.data.lexical_targets.get(target) else {
             return Ok(None);
         };
-        let Some(event) = self.data.binding_events.get(*event) else {
-            return Ok(None);
-        };
-        let mut rows = self
-            .data
-            .bindings
-            .iter()
-            .filter(|b| b.event == event.id() && self.always(b.qualification));
-        let Some(binding) = rows.next() else {
-            return Ok(None);
-        };
-        if rows.next().is_some()
-            || binding.kind != BindingEventKind::Assignment
-            || binding.static_branch.is_some()
-            || self
-                .entry
-                .lexical_scopes
-                .get(binding.scope)
-                .is_none_or(|s| s.kind != LexicalScopeKind::Module)
-        {
-            return Ok(None);
-        };
-        // Every declaration of this module binding is retained; a selected final definition cannot
-        // hide an earlier assignment or conditional branch.
-        let mut count = 0;
-        for row in self.data.bindings.iter() {
-            self.work.tick()?;
-            if row.scope == binding.scope
-                && self
-                    .data
-                    .binding_events
-                    .get(row.event)
-                    .is_some_and(|e| e.name == event.name)
-                && self
-                    .entry
-                    .qualifications
-                    .get(row.qualification)
-                    .is_some_and(|q| q.context == self.invocation.context)
-            {
-                count += 1;
-            }
-        }
-        if count != 1
-            || !self.observe(
-                &self.data.binding_supports,
-                binding.id(),
-                binding.qualification,
-                event.site,
-            )?
-        {
-            return Ok(None);
-        };
-        let Some(value) = binding.value else {
-            return Ok(None);
-        };
+        let Some(event) = self.data.binding_events.get(*event) else { return Ok(None) };
+        let Some(value) = self.global_value(event)? else { return Ok(None) };
         self.constructed_class(value, depth)
     }
     fn constructed_class(
@@ -556,24 +549,23 @@ impl Inspect<'_> {
         let Some(event) = self.data.binding_events.get(*event) else {
             return Ok(None);
         };
-        let mut rows = self.data.bindings.iter().filter(|b| {
-            b.event == event.id()
-                && b.kind == BindingEventKind::ClassDef
-                && self.always(b.qualification)
-        });
-        let Some(row) = rows.next() else {
-            return Ok(None);
-        };
-        if rows.next().is_some()
-            || !self.observe(
-                &self.data.binding_supports,
-                row.id(),
-                row.qualification,
-                event.site,
-            )?
-        {
-            return Ok(None);
-        };
+        let Some((binding, proof)) = super::read_channels::native_binding(
+            self.data, self.entry, self.invocation, event.id(), self.work,
+        )? else { return Ok(None) };
+        let Some(scope) = binding.scope else { return Ok(None) };
+        if binding.kind != ruff::RuffBindingKind::ClassDefinition
+            || !self.always(binding.qualification)
+            || binding.typing || binding.lazy || binding.deleted || binding.external
+            || binding.global || binding.nonlocal
+        { return Ok(None) }
+        self.work.scan(self.data.ruff_bindings.len())?;
+        if self.data.ruff_bindings.iter().filter(|b| {
+            b.scope == Some(scope) && b.native_name == binding.native_name
+                && self.entry.qualifications.get(b.qualification)
+                    .is_some_and(|q| q.context == self.invocation.context)
+        }).count() != 1 { return Ok(None) }
+        self.premises.insert(self.data.premises.get(proof.0)
+            .ok_or_else(|| ModelError::Invalid("class native binding premise missing".into()))?.clone())?;
         let class = ClassEntity::Source {
             declaration: event.site,
         };
@@ -626,7 +618,14 @@ impl Inspect<'_> {
         {
             return Ok(None);
         };
-        let module_binding=self.data.lexical_resolutions.iter().filter(|r|r.read==site&&self.always(r.qualification)).any(|r|matches!(self.data.lexical_targets.get(r.target),Some(LexicalTarget::Binding{event})if self.data.bindings.iter().any(|b|b.event==*event&&self.entry.lexical_scopes.get(b.scope).is_some_and(|s|s.kind==LexicalScopeKind::Module))));
+        let target = self.lexical_target(site)?;
+        self.work.scan(self.data.ruff_bindings.len())?;
+        let module_binding = target.is_some_and(|t| matches!(
+            self.data.lexical_targets.get(t), Some(LexicalTarget::Binding { event })
+                if self.data.ruff_bindings.iter().any(|b| b.event == *event
+                    && b.scope.is_some_and(|scope| self.entry.lexical_scopes.get(scope)
+                        .is_some_and(|s| s.kind == LexicalScopeKind::Module)))
+        ));
         if module_binding {
             return self.global(site, depth + 1);
         }
@@ -1095,34 +1094,6 @@ pub(super) fn global_candidate(
     let Some(event) = data.binding_events.get(binding.event) else {
         return Ok(None);
     };
-    if binding.kind != BindingEventKind::Assignment
-        || binding.static_branch.is_some()
-        || entry
-            .lexical_scopes
-            .get(binding.scope)
-            .is_none_or(|s| s.kind != LexicalScopeKind::Module)
-    {
-        return Ok(None);
-    };
-    let mut count = 0;
-    for b in data.bindings.iter() {
-        work.tick()?;
-        if b.scope == binding.scope
-            && data
-                .binding_events
-                .get(b.event)
-                .is_some_and(|e| e.name == event.name)
-            && entry
-                .qualifications
-                .get(b.qualification)
-                .is_some_and(|q| q.context == invocation.context)
-        {
-            count += 1;
-        }
-    }
-    if count != 1 {
-        return Ok(None);
-    };
     let mut inspect = Inspect {
         data,
         entry,
@@ -1131,19 +1102,7 @@ pub(super) fn global_candidate(
         budget,
         premises: Rows::new(budget),
     };
-    if !inspect.always(binding.qualification)
-        || !inspect.observe(
-            &data.binding_supports,
-            binding.id(),
-            binding.qualification,
-            event.site,
-        )?
-    {
-        return Ok(None);
-    };
-    let Some(value) = binding.value else {
-        return Ok(None);
-    };
+    let Some(value) = inspect.global_value(event)? else { return Ok(None) };
     let Some((class, _)) = inspect.constructed_class(value, 0)? else {
         return Ok(None);
     };

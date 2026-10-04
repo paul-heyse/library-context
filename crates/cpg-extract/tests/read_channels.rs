@@ -130,6 +130,42 @@ async fn actual_read_inventory_and_complete_negative_are_replayed() {
             .any(|d| d.kind == execution::read_dynamic::DynamicKind::Dictionary)
     );
     assert!(records.reads.dynamic.iter().any(|d|text(&f,d.site)=="getattr(fixed, name)"&&d.declared_class==Some(choice)));
+    // Source initializer inspection requires independently paired native binding and syntax
+    // authority. Retained recognizer bindings cannot replace a missing native premise.
+    for mutation in ["initializer binding", "class binding", "initializer syntax"] {
+        let mut missing = source_fixture::data(&f);
+        if mutation == "initializer syntax" {
+            let value = missing.evaluation.placements.iter().find(|p| {
+                p.field == lexical::SyntaxField::Value && text(&f, p.occurrence) == "ChoiceA()"
+                    && p.parent.is_some_and(|parent| text(&f, parent) == "fixed = ChoiceA()")
+            }).unwrap().id();
+            let retained = missing.flow.placement_supports.iter()
+                .filter(|support| support.assertion != value).cloned().collect::<Vec<_>>();
+            missing.flow.placement_supports = Rows::new(&f.budget);
+            for support in retained { missing.flow.placement_supports.insert(support).unwrap(); }
+        } else {
+            let binding = missing.evaluation.ruff_bindings.iter().find(|b| {
+                missing.evaluation.binding_events.get(b.event).is_some_and(|event| {
+                    if mutation == "initializer binding" {
+                        event.name == "fixed" && text(&f, event.site) == "fixed"
+                    } else {
+                        text(&f, event.site).starts_with("class ChoiceA:")
+                    }
+                })
+            }).unwrap().id();
+            let retained = missing.evaluation.ruff_binding_supports.iter()
+                .filter(|support| support.assertion != binding).cloned().collect::<Vec<_>>();
+            missing.evaluation.ruff_binding_supports = Rows::new(&f.budget);
+            for support in retained { missing.evaluation.ruff_binding_supports.insert(support).unwrap(); }
+        }
+        let roots = missing.flow.artifacts.iter().filter(|a| a.input == invocation.input)
+            .map(Record::id).collect();
+        let refused = produce(&missing.evaluation, &missing.flow, &invocation, &roots, &f.budget).unwrap();
+        let fixed = refused.dynamic.iter().find(|d| text(&f, d.site) == "getattr(fixed, name)").unwrap();
+        assert_eq!(fixed.declared_class, None, "{mutation}: {fixed:?}");
+        assert_eq!(fixed.inspection, execution::read_dynamic::ClassInspection::Unknown);
+        assert_eq!(fixed.reason, Some(obligation::ObligationKind::DynamicAccess));
+    }
     assert_eq!(
         records
             .reads
