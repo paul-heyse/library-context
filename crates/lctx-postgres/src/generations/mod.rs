@@ -4,6 +4,7 @@ mod catalog;
 mod codec;
 mod ddl;
 mod evidence_service;
+mod flow_inventory_service;
 mod failure;
 mod guard;
 mod install;

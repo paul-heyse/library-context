@@ -59,7 +59,7 @@ code_schema!(
     selection::Fidelity,
     selection::CheckAxis,
     selection::DeploymentField,
-    lexical::SyntaxField,
+    lexical::SyntaxField, flow_inventory::FlowCandidateKind,
     calls::ParameterKind,
     calls::SignatureForm,
     calls::SignatureRole,

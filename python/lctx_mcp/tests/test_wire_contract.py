@@ -82,6 +82,10 @@ def test_enrichment_sections_keep_native_variant_selection_and_scope_schema():
     assert "external_consumers_unknown" in response_schema
     assert "runtime_value" in response_schema
     assert "formal_identity" in response_schema
+    evidence_schema = wire_schema("GetEvidenceResponse", True)
+    assert "flow_inventory" in evidence_schema
+    assert "entry_value_reason" in evidence_schema
+    assert "native_count" in evidence_schema
 
 
 @pytest.mark.anyio

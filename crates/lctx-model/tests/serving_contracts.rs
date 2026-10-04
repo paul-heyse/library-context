@@ -876,3 +876,15 @@ fn behavior_requires_explicit_direct_capture_provenance_even_when_empty() {
         );
     }
 }
+
+#[test]
+fn original_flow_inventory_schema_preserves_native_closure_and_value_boundary() {
+    let value=serde_json::to_value(schemars::schema_for!(EvidencePacket)).unwrap().to_string();
+    for field in ["flow_inventory","native_count","mapped_count","complete","condition_unavailable","reachability_lost","entry_value_reason","renamed_type_checking","view_content"] {
+        assert!(value.contains(field),"original evidence loses {field}");
+    }
+    let binding=<EvidencePacket as lctx_model::domain::serving::mappings::PacketOutput>::binding();
+    assert!(binding.permits::<lctx_model::domain::flow_inventory::FlowUseCandidate>());
+    assert!(binding.permits::<lctx_model::domain::flow_inventory::FlowUseInventoryMember>());
+    assert!(binding.permits::<lctx_model::domain::flow::FlowReachingSupport>());
+}

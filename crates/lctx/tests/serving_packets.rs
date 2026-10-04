@@ -1092,3 +1092,54 @@ class Settings:
     drop(execution);
     fixture.finish().await;
 }
+
+#[tokio::test]
+async fn original_evidence_explains_complete_native_use_inventory() {
+    use lctx_model::domain::{flow::*,flow_inventory::*,source::Occurrence};
+    let source=br#"__all__=['choose','echo']
+def choose(flag: bool):
+    if flag:
+        value = 1
+    else:
+        value = 2
+    return value
+def echo(value: int) -> int:
+    return value
+"#;
+    let fixture=ServingFixture::start_profile(source,"behavioral").await;
+    let execution=fixture.service.execution().await.unwrap();
+    let start=std::str::from_utf8(source).unwrap().find("return value").unwrap()+"return ".len();
+    let occurrence=execution.query(move |lease|Box::pin(async move {
+        let inventories=lease.read::<FlowUseInventoryObservation>().await?;
+        let uses=lease.read_ids::<FlowUse>(&inventories.rows().iter().map(|i|i.use_).collect::<Vec<_>>()).await?;
+        let occurrences=lease.read_ids::<Occurrence>(&uses.rows().iter().map(|u|u.occurrence).collect::<Vec<_>>()).await?;
+        Ok(occurrences.rows().iter().find(|o|o.start==start as i64).expect("original return read has a native inventory").id())
+    })).await.unwrap();
+    let response=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Occurrence {occurrence},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
+    let items=&response.evidence.flow_inventory.items;
+    assert!(!items.is_empty(),"actual provider inventory reaches original evidence");
+    for inventory in items {
+        assert_eq!(inventory.occurrence,occurrence);
+        assert_eq!(inventory.start,start as u64);
+        assert_eq!(inventory.native_count,inventory.candidates.len() as u64);
+        assert_eq!(inventory.mapped_count,inventory.members.len() as u64);
+        assert_eq!(inventory.entry_value_reason.0,Some(lctx_model::domain::obligation::ObligationKind::EntryValueUnknown));
+        assert!(inventory.entry_outcomes.items.is_empty());
+        assert!(!inventory.members.is_empty() && !inventory.proof.is_empty());
+        assert!(!inventory.view.coverage.is_empty());
+        assert!(inventory.members.iter().all(|m|matches!(m.target,FlowOriginTarget::Bound {..})));
+    }
+    assert_eq!(response.evidence.flow_inventory.omitted,0);
+    assert!(!response.evidence.flow_inventory.truncated);
+    let echo_start=std::str::from_utf8(source).unwrap().rfind("return value").unwrap()+"return ".len();
+    let echo=execution.query(move |lease|Box::pin(async move {
+        let inventories=lease.read::<FlowUseInventoryObservation>().await?;
+        let uses=lease.read_ids::<FlowUse>(&inventories.rows().iter().map(|i|i.use_).collect::<Vec<_>>()).await?;
+        let occurrences=lease.read_ids::<Occurrence>(&uses.rows().iter().map(|u|u.occurrence).collect::<Vec<_>>()).await?;
+        Ok(occurrences.rows().iter().find(|o|o.start==echo_start as i64).expect("echo return inventory").id())
+    })).await.unwrap();
+    let echo=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Occurrence {occurrence:echo},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
+    assert!(echo.evidence.flow_inventory.items.iter().any(|i|!i.entry_outcomes.items.is_empty() && i.entry_value_reason.0.is_none()),"admitted singleton parameter outcome survives alongside enumeration");
+    assert!(echo.evidence.flow_inventory.items.iter().flat_map(|i|&i.entry_outcomes.items).all(|o|!o.premises.is_empty() && !o.proof.is_empty()));
+    drop(execution);fixture.finish().await;
+}

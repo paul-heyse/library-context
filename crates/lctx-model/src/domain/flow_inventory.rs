@@ -195,3 +195,23 @@ pub fn explain<'a>(use_:Id<FlowUse>,inventory:&'a FlowUseInventoryObservation,ca
     if inventory.complete != (!states.is_empty() && states.iter().all(CandidateState::complete)) || selected.iter().enumerate().any(|(i,c)|c.ordinal!=i as i64) || states.len() as i64!=inventory.native_count || pairs.len() as i64!=inventory.mapped_count || candidate_digest(&states)!=inventory.candidate_digest || member_digest(&pairs)!=inventory.member_digest { return Err(invalid("explanation requires full inventory hydration")); }
     Ok(UseInventoryExplanation { inventory,candidates:selected,members:mapped,_charge:charge })
 }
+/// A view of already publication-replayed singleton outcomes, never fresh entry authority.
+pub struct StoredEntryOutcomes<'a> {
+    pub witnesses:Vec<&'a conditions::entry::EntryValueWitness>,
+    _charge:StateCharge,
+}
+impl StoredEntryOutcomes<'_> {
+    pub fn reason(&self)->Option<obligation::ObligationKind> {
+        self.witnesses.is_empty().then_some(obligation::ObligationKind::EntryValueUnknown)
+    }
+}
+impl UseInventoryExplanation<'_> {
+    pub fn entry_outcomes<'a>(&self,use_:&FlowUse,context:Id<AnalysisContext>,runs:&[Id<ProviderRun>],witnesses:&'a [conditions::entry::EntryValueWitness],budget:&resources::ResourceBudget)->Result<StoredEntryOutcomes<'a>,ModelError> {
+        if use_.id()!=self.inventory.use_ {return Err(invalid("singleton lookup names a different read"))}
+        if witnesses.len()>MAX_USE_CANDIDATES {return Err(invalid("stored per-read singleton outcome bound"))}
+        let mut charge=StateCharge::new(budget,"flow-inventory-stored-entry-outcomes");charge.grow((witnesses.len()+1)*128)?;
+        let mut selected=witnesses.iter().filter(|w|w.access==use_.occurrence && w.context==context && runs.contains(&w.run)).collect::<Vec<_>>();
+        selected.sort_by_key(|w|w.id());
+        Ok(StoredEntryOutcomes {witnesses:selected,_charge:charge})
+    }
+}

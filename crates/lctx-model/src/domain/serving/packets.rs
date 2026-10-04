@@ -375,7 +375,21 @@ pub struct EvidenceBodyPage {
     /// The page omitted results because of its declared bound.
     pub truncated: bool,
 }
-packet!(EvidencePacket {original:OriginalRange,body:EvidenceBodyPage,#[doc="Selected positive native source observations within this original range. An empty section proves neither diagnostic absence nor successful execution."] source_characterization:SectionPage<SourceCharacterizationPacket>,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,derivation:SectionPage<DerivationStep>});
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+pub enum FlowOriginTarget {
+    Bound { definition:Id<flow::FlowDefinition>, occurrence:Id<source::Occurrence> },
+    Unbound {},
+    Nested {},
+}
+packet!(FlowInventoryCandidate {candidate:Id<flow_inventory::FlowUseCandidate>,ordinal:i64,kind:flow_inventory::FlowCandidateKind,pruned:bool,loop_expanded:bool,unattached:bool,condition_unavailable:bool,reachability_lost:bool,mapped_count:i64});
+packet!(FlowInventoryReaching {member:Id<flow_inventory::FlowUseInventoryMember>,ordinal:i64,reaching:Id<flow::FlowReachingObservation>,support:Id<flow::FlowReachingSupport>,qualification:Id<assertion::AssertionQualification>,condition:Id<conditions::Condition>,target:FlowOriginTarget,loop_carried:bool});
+packet!(FlowInventoryView {view:Id<flow::FlowSourceViewObservation>,original_content:ContentHash,view_content:ContentHash,renamed_type_checking:i64,coverage:Vec<Id<attribution::ProviderCoverage>>,proof:Vec<ProofReference>});
+packet!(StoredEntryPremise {qualification:Id<assertion::AssertionQualification>,condition:Id<conditions::Condition>,claim_basis:ClaimBasisPacket});
+packet!(StoredEntryContribution {contribution:Id<local_semantics::LocalContribution>,qualification:Id<assertion::AssertionQualification>,condition:Id<conditions::Condition>,claim_basis:ClaimBasisPacket,status:analysis::policy::EvidenceStatus});
+packet!(StoredEntryOutcome {witness:Id<conditions::entry::EntryValueWitness>,formal:Id<normalized::entities::ParameterEntity>,owner:Id<normalized::entities::EntityRef>,run:Id<attribution::ProviderRun>,access_source:Id<conditions::entry::EntryAccessSource>,coverage:Id<attribution::ProviderCoverage>,premises:Vec<StoredEntryPremise>,contributions:Vec<StoredEntryContribution>,proof:Vec<ProofReference>});
+packet!(FlowInventoryPacket {inventory:Id<flow_inventory::FlowUseInventoryObservation>,use_:Id<flow::FlowUse>,occurrence:Id<source::Occurrence>,artifact:Id<source::SourceArtifact>,start:u64,end:u64,context:Id<attribution::AnalysisContext>,qualification:Id<assertion::AssertionQualification>,condition:Id<conditions::Condition>,native_count:u64,mapped_count:u64,#[doc="Full native enumeration closure; this is not Python or entry-value completeness."] complete:bool,candidates:Vec<FlowInventoryCandidate>,members:Vec<FlowInventoryReaching>,view:FlowInventoryView,#[doc="Per-use inventory alone cannot prove entry-value provenance."] entry_value_reason:Nullable<obligation::ObligationKind>,#[doc="Already publication-replayed singleton outcomes for this exact access/context/run. Lookup availability does not certify all possible entry proofs."] entry_outcomes:SectionPage<StoredEntryOutcome>,proof:Vec<ProofReference>});
+packet!(EvidencePacket {original:OriginalRange,body:EvidenceBodyPage,#[doc="Fully hydrated native per-use inventories in the granted original range; omitted inventories do not establish absence."] flow_inventory:SectionPage<FlowInventoryPacket>,#[doc="Selected positive native source observations within this original range. An empty section proves neither diagnostic absence nor successful execution."] source_characterization:SectionPage<SourceCharacterizationPacket>,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,derivation:SectionPage<DerivationStep>});
 packet!(DerivationStep {source:ProofReference,rule:Name,conclusion:ProofReference,premises:Vec<PremisePacket>});
 packet!(PremisePacket {
     #[doc = "Declared relationship or support role; interpret it within the accompanying evidence context."]

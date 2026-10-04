@@ -44,3 +44,24 @@ fn each_enumeration_or_lowering_boundary_blocks_complete_closure() {
     let (empty,_,_)=FlowUseInventoryObservation::new(f.inventory.qualification,f.inventory.use_,f.inventory.scope,f.inventory.view,&[],&[]).unwrap();assert!(!empty.complete,"empty enumeration is not a completeness proof");
     let too_many=vec![base;MAX_USE_CANDIDATES+1];assert!(FlowUseInventoryObservation::new(f.inventory.qualification,f.inventory.use_,f.inventory.scope,f.inventory.view,&too_many,&[]).is_err());
 }
+
+#[path="fixtures/stability.rs"]
+mod entry_fixture;
+#[test]
+fn stored_singleton_outcomes_remain_distinct_from_enumeration_closure() {
+    let f=entry_fixture::Fixture::new();let proof=f.derive().unwrap();let witness=proof.witness().clone();f.validate(&witness).unwrap();
+    let artifact=f.data.artifacts.iter().find(|a|a.id()==f.data.occurrences.get(f.use_.occurrence).unwrap().source).unwrap();
+    let view=FlowSourceViewObservation {qualification:f.q.id(),source:artifact.id(),original_content:artifact.content,view_content:artifact.content,byte_len:artifact.byte_len,renamed_type_checking:0};
+    let scope=f.data.use_observations.get(witness.use_observation).unwrap().scope;
+    let state=CandidateState {kind:FlowCandidateKind::Bound,pruned:false,loop_expanded:false,unattached:false,condition_unavailable:false,reachability_lost:false,mapped_count:1};
+    let (inventory,candidates,members)=FlowUseInventoryObservation::new(f.q.id(),f.use_.id(),scope,view.id(),&[state],&[(0,witness.reaching,witness.reaching_support)]).unwrap();
+    let explanation=explain(f.use_.id(),&inventory,&candidates,&members,&f.budget).unwrap();
+    let witnesses=vec![witness.clone()];
+    let selected=explanation.entry_outcomes(&f.use_,f.request.context,&[f.request.run],&witnesses,&f.budget).unwrap();
+    assert_eq!(selected.witnesses.len(),1);assert_eq!(selected.reason(),None);
+    let absent=explanation.entry_outcomes(&f.use_,f.request.context,&[],&witnesses,&f.budget).unwrap();
+    assert!(absent.witnesses.is_empty());assert_eq!(absent.reason(),Some(obligation::ObligationKind::EntryValueUnknown));
+    let other=FlowUse {occurrence:f.data.occurrences.iter().find(|o|o.id()!=f.use_.occurrence).unwrap().id(),..f.use_.clone()};
+    assert!(explanation.entry_outcomes(&other,f.request.context,&[f.request.run],&witnesses,&f.budget).is_err());
+    let tiny=ResourceBudget::fixed(1).unwrap();assert!(explanation.entry_outcomes(&f.use_,f.request.context,&[f.request.run],&witnesses,&tiny).is_err());assert_eq!(tiny.reserved(),0);
+}
