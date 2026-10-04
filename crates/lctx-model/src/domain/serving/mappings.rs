@@ -770,6 +770,7 @@ binding!(
         domain::conditions::ConditionNode,
         domain::models::ModelCatalog,
         domain::execution::summary_consequences::SummaryClaim,
+        domain::transfer::summary::SummaryPremise,
         domain::transfer::summary::TransferKey,
         domain::transfer::summary::TransferAlternative,
         domain::execution::summary_capture::SummaryCaptureContribution,

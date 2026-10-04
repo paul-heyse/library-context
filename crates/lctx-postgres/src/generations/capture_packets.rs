@@ -19,7 +19,7 @@ use lctx_model::domain::{
     normalized::entities::*,
     serving::*,
     source::*,
-    transfer::summary::{TransferAlternative, TransferKey},
+    transfer::summary::{SummaryPremise, TransferAlternative, TransferKey},
     *,
 };
 
@@ -355,6 +355,7 @@ pub(super) async fn captures(
     let mut charge = lease.lease.budget.reserve("behavior-direct-captures", 0)?;
     let ClaimProof::Finite {
         claim,
+        source,
         qualification: proof_q,
         ..
     } = proof
@@ -376,6 +377,12 @@ pub(super) async fn captures(
     let key = row(lease, transfer).await?;
     if key.context != invocation.context {
         return Err(Error::Contract);
+    }
+    // Local and declared-model seeds have no composed transfer alternative. Their
+    // finite proof remains valid, but it has no direct captured-entry contribution.
+    let premise = row(lease, *source).await?;
+    if matches!(premise, SummaryPremise::Local { .. } | SummaryPremise::Model { .. }) {
+        return Ok((Vec::new(), charge));
     }
     let alternatives = lease
         .read_for::<TransferAlternative, TransferKey>("transfer", &[transfer])
