@@ -30,19 +30,18 @@ pub fn relations() -> Vec<crate::domain::Relation> {
 /// Adding an exact runtime exception also declares its required native hierarchy evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
+#[model(inventory = "slice")]
 pub enum ExactRuntimeException {
+    #[model(wire = "TypeError")]
     TypeError = 0,
+    #[model(wire = "ValueError")]
     ValueError = 1,
+    #[model(wire = "RuntimeError")]
     RuntimeError = 2,
+    #[model(wire = "Exception")]
     Exception = 3,
 }
 impl ExactRuntimeException {
-    pub const ALL: &[Self] = &[
-        Self::TypeError,
-        Self::ValueError,
-        Self::RuntimeError,
-        Self::Exception,
-    ];
     pub const fn class(self) -> (&'static str, &'static str) {
         match self {
             Self::TypeError => ("builtins", "TypeError"),

@@ -503,7 +503,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
 }
 
 /// Closed, explicitly numbered codebooks. Existing discriminants are never inferred or renumbered.
-#[proc_macro_derive(DomainCode)]
+#[proc_macro_derive(DomainCode, attributes(model))]
 pub fn domain_code(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     match expand_code(input) {
@@ -521,6 +521,19 @@ fn expand_code(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let name = &input.ident;
     let mut variants = Vec::new();
     let mut codes = Vec::new();
+    let mut inventory = None;
+    for attr in &input.attrs {
+        if attr.path().is_ident("model") {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("inventory") {
+                    inventory = Some(if meta.input.peek(syn::Token![=]) { { let value = meta.value()?.parse::<LitStr>()?; if value.value() != "slice" { return Err(syn::Error::new_spanned(value, "inventory supports only slice")); } true } } else { false });
+                    Ok(())
+                } else { Err(meta.error("expected inventory")) }
+            })?;
+        }
+    }
+    let mut wire_names = Vec::new();
+    let mut labels = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for variant in &data.variants {
         if !matches!(variant.fields, Fields::Unit) {
@@ -546,15 +559,34 @@ fn expand_code(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         if !seen.insert(value) {
             return Err(syn::Error::new_spanned(code, "duplicate code"));
         }
+        let mut wire = LitStr::new(&variant.ident.to_string(), variant.ident.span());
+        let mut label = None;
+        for attr in &variant.attrs {
+            if attr.path().is_ident("model") {
+                attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("wire") { wire = meta.value()?.parse()?; Ok(()) }
+                    else if meta.path.is_ident("label") { label = Some(meta.value()?.parse::<LitStr>()?); Ok(()) }
+                    else { Err(meta.error("expected wire or label")) }
+                })?;
+            }
+        }
+        labels.push(label.unwrap_or_else(|| wire.clone()));
+        wire_names.push(wire);
         variants.push(&variant.ident);
         codes.push(value);
     }
+    let count = variants.len();
+    let inventory = inventory.map(|slice| if slice {quote! {pub const ALL: &'static [Self] = &[#(Self::#variants,)*];}} else {quote! {pub const ALL: [Self; #count] = [#(Self::#variants,)*];}});
     Ok(quote! {
+        impl #name {
+            #inventory
+            pub const fn label(self) -> &'static str { match self { #(Self::#variants => #labels,)* } }
+        }
         impl ::lctx_model::domain::FlatValue for #name {}
         impl ::lctx_model::domain::HeapSize for #name {}
         impl ::lctx_model::domain::FieldValue for #name {
             const SCALAR: ::lctx_model::domain::Scalar = ::lctx_model::domain::Scalar::Int16;
-            fn codes() -> &'static [(i16, &'static str)] { &[#((#codes, stringify!(#variants)),)*] }
+            fn codes() -> &'static [(i16, &'static str)] { &[#((#codes, #wire_names),)*] }
         }
         impl ::lctx_model::domain::Codebook for #name {
             fn code(&self) -> i16 { match self { #(Self::#variants => #codes,)* } }

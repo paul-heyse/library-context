@@ -13,21 +13,20 @@ use crate::domain::{
 use crate::{Domain, DomainCode, DomainSum};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
+#[model(inventory = "slice")]
 pub enum ModelChannel {
+    #[model(wire = "Transfers")]
     Transfers = 0,
+    #[model(wire = "Effects")]
     Effects = 1,
+    #[model(wire = "Callbacks")]
     Callbacks = 2,
+    #[model(wire = "Resources")]
     Resources = 3,
+    #[model(wire = "Exceptions")]
     Exceptions = 4,
 }
 impl ModelChannel {
-    pub const ALL: &[Self] = &[
-        Self::Transfers,
-        Self::Effects,
-        Self::Callbacks,
-        Self::Resources,
-        Self::Exceptions,
-    ];
     pub fn declared(self, channels: &models::Channels) -> DeclaredCoverage {
         match match self {
             Self::Transfers => channels.transfers,

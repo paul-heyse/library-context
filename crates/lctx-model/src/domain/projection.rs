@@ -52,19 +52,16 @@ pub fn exposure_roles() -> Vec<EndpointRole> {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
+#[model(inventory)]
 pub enum ProjectionName {
+    #[model(wire = "CallableInvocation")]
     CallableInvocation = 0,
+    #[model(wire = "DefinitionContainment")]
     DefinitionContainment = 1,
+    #[model(wire = "ImportReference")]
     ImportReference = 2,
+    #[model(wire = "PublicExposure")]
     PublicExposure = 3,
-}
-impl ProjectionName {
-    pub const ALL: [Self; 4] = [
-        Self::CallableInvocation,
-        Self::DefinitionContainment,
-        Self::ImportReference,
-        Self::PublicExposure,
-    ];
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UniversePolicy {

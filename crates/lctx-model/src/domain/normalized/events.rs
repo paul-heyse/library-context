@@ -28,21 +28,20 @@ impl PhaseGroup {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
+#[model(inventory)]
 pub enum CallPolicy {
+    #[model(wire = "Invocation")]
     Invocation = 0,
+    #[model(wire = "Dataflow")]
     Dataflow = 1,
+    #[model(wire = "Summary")]
     Summary = 2,
+    #[model(wire = "Usage")]
     Usage = 3,
+    #[model(wire = "Association")]
     Association = 4,
 }
 impl CallPolicy {
-    pub const ALL: [Self; 5] = [
-        Self::Invocation,
-        Self::Dataflow,
-        Self::Summary,
-        Self::Usage,
-        Self::Association,
-    ];
     pub fn view_name(self) -> &'static str {
         match self {
             Self::Invocation => "invocation_calls",

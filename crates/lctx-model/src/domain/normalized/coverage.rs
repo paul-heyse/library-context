@@ -16,45 +16,44 @@ use std::collections::BTreeMap;
 /// Entities covers the source/entity universe and ownership; Symbols covers correspondence;
 /// PublicExposure owns export paths; FlowLinks owns N2 place/test-operand links and FlowEvents
 /// owns N4 flow-call links. Output receipts attest completion of each owning stage as a whole.
+#[model(inventory)]
 pub enum Capability {
+    #[model(wire = "Entities")]
     Entities = 0,
+    #[model(wire = "Symbols")]
     Symbols = 1,
+    #[model(wire = "References")]
     References = 2,
+    #[model(wire = "Imports")]
     Imports = 3,
+    #[model(wire = "Ancestry")]
     Ancestry = 4,
+    #[model(wire = "Types")]
     Types = 5,
+    #[model(wire = "Mentions")]
     Mentions = 6,
+    #[model(wire = "Callables")]
     Callables = 7,
+    #[model(wire = "Calls")]
     Calls = 8,
+    #[model(wire = "Bindings")]
     Bindings = 9,
+    #[model(wire = "FlowLinks")]
     FlowLinks = 10,
+    #[model(wire = "InvocationProjection")]
     InvocationProjection = 11,
+    #[model(wire = "DefinitionProjection")]
     DefinitionProjection = 12,
+    #[model(wire = "ReferenceProjection")]
     ReferenceProjection = 13,
+    #[model(wire = "ExposureProjection")]
     ExposureProjection = 14,
+    #[model(wire = "PublicExposure")]
     PublicExposure = 15,
+    #[model(wire = "FlowEvents")]
     FlowEvents = 16,
 }
 impl Capability {
-    pub const ALL: [Self; 17] = [
-        Self::Entities,
-        Self::Symbols,
-        Self::References,
-        Self::Imports,
-        Self::Ancestry,
-        Self::Types,
-        Self::Mentions,
-        Self::Callables,
-        Self::Calls,
-        Self::Bindings,
-        Self::FlowLinks,
-        Self::InvocationProjection,
-        Self::DefinitionProjection,
-        Self::ReferenceProjection,
-        Self::ExposureProjection,
-        Self::PublicExposure,
-        Self::FlowEvents,
-    ];
     pub fn anchor(self) -> FactFamily {
         match self {
             Self::Entities => FactFamily::Syntax,
