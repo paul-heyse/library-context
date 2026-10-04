@@ -179,6 +179,7 @@ pub struct PairOutcome {
 #[macro_export]
 macro_rules! summary_owned_inputs{($apply:ident)=>{$apply!{
  atom_restrictions:$crate::domain::atom_decision::AtomRestriction,
+ terminal_frontiers:$crate::domain::execution::protocol_interpretation::ConditionalTerminalFrontier,normal_restrictions:$crate::domain::execution::protocol_interpretation::NormalContinuationRestriction,closed_targets:$crate::domain::execution::closed_targets::ClosedTargetAssessment,
  captured_entries:$crate::domain::execution::capture_bridge::CapturedEntryBinding,captured_values:$crate::domain::execution::capture_bridge::CapturedValueSource,fresh_calls:$crate::domain::execution::enriched_records::SourceExecutionInvocation,
  exception_bodies:$crate::domain::execution::enriched_records::BodyExecution,exception_values:$crate::domain::execution::enriched_records::ExecutionOutcome,
  symbolic_classes:$crate::domain::normalized::symbolic_fields::SourceFieldClass,symbolic_stores:$crate::domain::normalized::symbolic_fields::SourceFieldStore,symbolic_associations:$crate::domain::normalized::symbolic_fields::SourceFieldAssociation,symbolic_readers:$crate::domain::normalized::symbolic_fields::SourceFieldReader,symbolic_links:$crate::domain::normalized::symbolic_fields::SourceFieldReaderLink,symbolic_local_stores:$crate::domain::local_symbolic::SymbolicFieldStore,
@@ -232,6 +233,7 @@ impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{graphs:projection::nor
 crate::summary_owned_inputs!(data);
 #[macro_export]
 macro_rules! summary_outputs{($apply:ident)=>{$apply!{
+ terminal_witnesses:$crate::domain::execution::summary_terminal::SummaryTerminalWitness,
  capture_witnesses:$crate::domain::execution::summary_capture::SummaryCaptureWitness,capture_contributions:$crate::domain::execution::summary_capture::SummaryCaptureContribution,
  exception_outcomes:$crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
  symbolic_alternatives:$crate::domain::execution::summary_symbolic::SymbolicFieldAlternative,
@@ -2040,6 +2042,7 @@ pub fn produce(
         out.outcome.reason = Some(obligation::ObligationKind::IncompleteCoverage);
     }
     super::summary_symbolic::produce(data, invocation, &mut out, budget)?;
+    super::summary_terminal::produce(data,invocation,definition,&mut out,budget)?;
     out.consequences(data, invocation, definition, profile, budget)?;
     Ok(out)
 }

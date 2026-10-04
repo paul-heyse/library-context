@@ -69,6 +69,7 @@ pub async fn apply(
         lctx_model::model_pin_inputs!(inputs);
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
+        inputs!{members:class_metadata::ClassMemberObservation,metadata:class_metadata::ClassMetadataObservation,origins:calls::CallOrigin,origin_steps:calls::CallOriginStep,terminals:protocols::NativeTerminalObservation,exits:protocols::NativeExitObservation,literals:value::Literal,}
     }
     macro_rules! read{($($ty:ty),*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
     read!(
@@ -144,6 +145,12 @@ pub async fn apply(
         owner::CoverageRequiredSource,
         owner::AnalysisCoveragePremise,
         owner::CoverageSource,
+        execution::closed_targets::ClosedTargetAssessment,
+        execution::protocol_interpretation::ProtocolActionAssessment,
+        execution::protocol_interpretation::TerminalFrontierAssessment,
+        execution::protocol_interpretation::ConditionalTerminalFrontier,
+        execution::protocol_interpretation::NormalContinuationRestriction,
+        execution::protocol_interpretation::NativeExitCharacterization,
         ModelRun,
         assumptions_universe::AssumptionUniverseSupport,
         assumptions::AssumptionSet,
@@ -262,6 +269,7 @@ pub async fn apply(
         let records = apply_all(&data, &invocation, definition, profile, budget)?;
         macro_rules! write{($($field:ident,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
         write!(
+            closed_targets,protocol_actions,terminal_assessments,terminal_frontiers,normal_restrictions,exit_characterizations,
             assumption_sets,
             assumption_members,
             assumptions,

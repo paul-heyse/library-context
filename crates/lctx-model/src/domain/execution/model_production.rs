@@ -133,7 +133,7 @@ pub struct ModelRun {
     pub refused: i64,
 }
 
-macro_rules! output_rows{($apply:ident)=>{$apply!{assumption_sets:assumptions::AssumptionSet,assumption_members:assumptions::AssumptionSetMember,assumptions:assumptions::Assumption,assumption_universes:assumptions::AssumptionUniverse,universe_supports:assumptions_universe::AssumptionUniverseSupport,applications:ModelApplication,application_premises:ApplicationPremise,boundaries:ApplicationBoundary,targets:TargetAssessment,rules:AppliedRule,channels:ChannelAssessment,operations:ModeledOperation,resources:ResourceIdentity,paths:ModelValuePath,action_assessments:ActionAssessment,action_sources:ActionSource,postconditions:ActionPostcondition,
+macro_rules! output_rows{($apply:ident)=>{$apply!{closed_targets:super::closed_targets::ClosedTargetAssessment,protocol_actions:super::protocol_interpretation::ProtocolActionAssessment,terminal_assessments:super::protocol_interpretation::TerminalFrontierAssessment,terminal_frontiers:super::protocol_interpretation::ConditionalTerminalFrontier,normal_restrictions:super::protocol_interpretation::NormalContinuationRestriction,exit_characterizations:super::protocol_interpretation::NativeExitCharacterization,assumption_sets:assumptions::AssumptionSet,assumption_members:assumptions::AssumptionSetMember,assumptions:assumptions::Assumption,assumption_universes:assumptions::AssumptionUniverse,universe_supports:assumptions_universe::AssumptionUniverseSupport,applications:ModelApplication,application_premises:ApplicationPremise,boundaries:ApplicationBoundary,targets:TargetAssessment,rules:AppliedRule,channels:ChannelAssessment,operations:ModeledOperation,resources:ResourceIdentity,paths:ModelValuePath,action_assessments:ActionAssessment,action_sources:ActionSource,postconditions:ActionPostcondition,
  context_transfers:super::model_context_transfer::ContextTransferWitness,context_resources:super::model_protocol::ContextResource,context_values:super::model_protocol::ContextEntryValue,context_postconditions:super::model_protocol::ContextPostcondition,transfer_witnesses:super::model_transfer::ModelTransferWitness,transfer_keys:transfer::model::TransferKey,transfer_alternatives:transfer::model::TransferAlternative,transfer_supports:transfer::model::TransferSupport,
  transfer_roots:value::PlaceRoot,transfer_places:value::Place,qualifications:assertion::AssertionQualification,conditions:conditions::Condition,condition_nodes:conditions::ConditionNode,
  subjects:publication::ObligationSubject,support_sources:publication::SupportSource,derivations:publication::AnalysisDerivation,propositions:publication::AnalysisProposition,derivation_premises:publication::AnalysisDerivationPremise,}};}
@@ -143,6 +143,7 @@ impl ModelRecords{fn new(invocation:Id<publication::AnalysisInvocation>,budget:&
 };}
 output_rows!(output);
 pub struct ModelData {
+    pub protocol:super::protocol_interpretation::ProtocolData,
     pub context_bindings: Rows<super::context_binding::ContextEntryBinding>,
     pub context_binding_sources: Rows<super::context_binding::BindingSource>,
     pub context_binding_members: Rows<super::context_binding::BindingMember>,
@@ -171,6 +172,7 @@ pub struct ModelData {
 impl ModelData {
     pub fn new(budget: &ResourceBudget) -> Self {
         Self {
+            protocol:super::protocol_interpretation::ProtocolData::new(budget),
             context_bindings: Rows::new(budget),
             context_binding_sources: Rows::new(budget),
             context_binding_members: Rows::new(budget),
@@ -202,6 +204,7 @@ impl ModelData {
         name: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
+        self.protocol.visit(name,batch)?;
         self.execution.visit(name, batch)?;
         self.early.visit(name, batch)?;
         self.bindings.visit(name, batch)?;
@@ -211,6 +214,7 @@ impl ModelData {
     }
     pub fn inputs() -> Vec<ValidationInput> {
         let mut rows = ModelApplicationData::validation_inputs();
+        rows.extend(super::protocol_interpretation::ProtocolData::inputs());
         rows.extend(BindingOutput::validation_inputs());
         rows.extend(super::enriched_production::EnrichedData::inputs());
         rows.extend([
@@ -708,6 +712,7 @@ pub fn apply_all(
             }
         }
     }
+    super::protocol_interpretation::emit(data,catalog,&verified,invocation,&mut records,budget)?;
     records.run.applied = records.applications.len() as i64;
     records.run.refused = records.boundaries.len() as i64;
     if !records.boundaries.is_empty()
@@ -814,6 +819,8 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<ActionPostcondition>(),
         Relation::of::<ModelRun>(),
     ];
+    rows.extend(super::closed_targets::relations());
+    rows.extend(super::protocol_interpretation::relations());
     rows.extend(model_rules::relations());
     rows.extend(super::model_transfer::relations());
     rows.extend(super::model_protocol::relations());

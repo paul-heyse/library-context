@@ -2,7 +2,7 @@
 //! exact runtime class, allocation, mutable-state stability or complete member universe.
 use super::{
     evaluation::EvaluationData,
-    read_channels::{Work, native, selected},
+    read_channels::{Work, native, declared_class_inspection, selected},
 };
 use crate::domain::{
     analysis::{
@@ -112,7 +112,7 @@ impl Inspect<'_> {
         q: Id<AssertionQualification>,
         site: Id<Occurrence>,
     ) -> Result<bool, ModelError> {
-        let selected = native(
+        let selected = declared_class_inspection(
             super::read_channels::NativeContext {
                 data: self.data,
                 entry: self.entry,
@@ -206,38 +206,23 @@ impl Inspect<'_> {
             if !matches {
                 continue;
             }
-            let mut runs = self
-                .entry
-                .use_observations
-                .iter()
-                .filter(|o| {
-                    self.entry
-                        .uses
-                        .get(o.use_)
-                        .is_some_and(|u| u.occurrence == site)
-                })
-                .flat_map(|o| {
-                    self.entry
-                        .use_supports
-                        .iter()
-                        .filter(move |s| s.assertion == o.id())
-                })
-                .filter_map(|s| s.attribution())
-                .filter(|a| {
-                    self.entry.runs.get(a.run).is_some_and(|r| {
-                        r.input == self.invocation.input && r.context == self.invocation.context
-                    })
-                });
-            let Some(run) = runs.next() else { continue };
-            if runs.next().is_some() {
-                return Ok(None);
-            };
+            let mut run = None;
+            for observation in self.entry.use_observations.iter().filter(|o| self.entry.uses.get(o.use_).is_some_and(|u| u.occurrence == site)) {
+                if let Some((_, candidate, _)) = declared_class_inspection(
+                    super::read_channels::NativeContext {data:self.data,entry:self.entry,invocation:self.invocation},
+                    &self.entry.use_supports, observation.id(), observation.qualification, site, self.work,
+                )? {
+                    if run.is_some() { return Ok(None); }
+                    run = Some(candidate);
+                }
+            }
+            let Some(run) = run else { continue };
             let request = conditions::entry::EntryRequest {
                 owner,
                 formal: formal.id(),
                 access: site,
                 context: self.invocation.context,
-                run: run.run,
+                run,
             };
             let Ok(proof) =
                 conditions::entry::EntryValueWitness::derive(self.entry, request, self.budget)?

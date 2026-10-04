@@ -104,3 +104,7 @@ pub mod summary_symbolic;
 pub mod read_fields;
 
 pub mod summary_exceptions;
+
+pub mod closed_targets;
+pub mod protocol_interpretation;
+pub mod summary_terminal;

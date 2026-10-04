@@ -62,6 +62,8 @@ pub struct Records {
     pub protocols: Option<crate::protocol_records::Records>,
     charge: StateCharge,
     pub class_metadata: Vec<ClassMetadataObservation>,
+    pub native_class_traits: Vec<symbols::ClassTraitObservation>,
+    pub class_trait_boundaries: Vec<(ObligationKind, String)>,
     pub class_members: Vec<(ClassMemberObservation, Fidelity)>,
     pub record_options: Vec<RecordOptions>,
     pub transforms: Vec<RecordTransformDefaults>,
@@ -94,6 +96,8 @@ impl Records {
             protocols:None,
             charge: StateCharge::new(budget, "native_type_records"),
             class_metadata: vec![],
+            native_class_traits: vec![],
+            class_trait_boundaries: vec![],
             class_members: vec![],
             record_options: vec![],
             transforms: vec![],
@@ -123,6 +127,52 @@ impl Records {
                 .saturating_mul(4)
                 .saturating_add(value.heap_bytes()),
         )
+    }
+    /// A native proof can support an existing projection only when every payload field agrees.
+    /// The projection remains the assertion writer; this retains only extra native supports.
+    pub fn reconcile_class_traits(&mut self, projected: &[symbols::ClassTraitObservation]) -> Result<(), ModelError> {
+        let native = std::mem::take(&mut self.native_class_traits);
+        for row in &native {
+            if trait_projection_agreement(row, projected).is_ok() {
+                self.native_class_traits.push(row.clone());
+            } else {
+                let reason = trait_projection_agreement(row, projected).unwrap_err();
+                let detail = format!("native class trait {:?} has no identical unique report projection", row.symbol);
+                self.hold(&detail)?;
+                self.class_trait_boundaries.push((reason, detail));
+            }
+        }
+        for row in projected {
+            if !native.iter().any(|n| n.id() == row.id()) {
+                let detail = format!("native class trait {:?} is unavailable", row.symbol);
+                self.hold(&detail)?;
+                self.class_trait_boundaries.push((ObligationKind::NativeUnavailable, detail));
+            }
+        }
+        Ok(())
+    }
+}
+fn trait_projection_agreement(row: &symbols::ClassTraitObservation, projected: &[symbols::ClassTraitObservation]) -> Result<(), ObligationKind> {
+    let mut matches = projected.iter().filter(|p| p.id() == row.id());
+    let other = matches.next().ok_or(ObligationKind::MissingEvidence)?;
+    if matches.next().is_some() { return Err(ObligationKind::AmbiguousBinding); }
+    if other != row { return Err(ObligationKind::ProviderDisagreement); }
+    Ok(())
+}
+#[cfg(test)]
+mod class_trait_tests {
+    use super::*;
+    #[test]
+    fn native_class_trait_support_requires_identical_unique_report_payload() {
+        fn id<R>(n:u8)->Id<R>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+        let row=symbols::ClassTraitObservation {qualification:id(1),symbol:id(2),synthesized:false,dataclass:false,named_tuple:false,typed_dict:false};
+        assert!(trait_projection_agreement(&row,&[row.clone()]).is_ok());
+        for changed in [symbols::ClassTraitObservation{synthesized:true,..row.clone()},symbols::ClassTraitObservation{dataclass:true,..row.clone()},symbols::ClassTraitObservation{named_tuple:true,..row.clone()},symbols::ClassTraitObservation{typed_dict:true,..row.clone()}] {
+            assert_eq!(changed.id(),row.id(),"payload disagreement must not overwrite the keyed assertion");
+            assert_eq!(trait_projection_agreement(&row,&[changed]),Err(ObligationKind::ProviderDisagreement));
+        }
+        assert_eq!(trait_projection_agreement(&row,&[]),Err(ObligationKind::MissingEvidence));
+        assert_eq!(trait_projection_agreement(&row,&[row.clone(),row.clone()]),Err(ObligationKind::AmbiguousBinding));
     }
 }
 #[derive(Clone, Copy)]
@@ -1162,7 +1212,7 @@ pub fn records<'a>(
     ) -> Result<Option<Id<Occurrence>>, ModelError>,
 ) -> Result<Records, ModelError> {
     use pyrefly::{
-        binding::binding::{Key, KeyAnnotation, KeyClassMetadata, KeyAbstractClassCheck, KeyClassSynthesizedFields},
+        binding::binding::{Key, KeyAnnotation, KeyClass, BindingClass, KeyClassMetadata, KeyAbstractClassCheck, KeyClassSynthesizedFields},
         report::pysa::{
             class::{
                 get_all_classes, get_class_field_declaration,
@@ -1390,6 +1440,29 @@ pub fn records<'a>(
         for class in get_all_classes(ctx) {
             let metadata = solutions.get(&KeyClassMetadata(class.index()));
             let native_class = b.class(&class)?;
+            let mut native_bindings = ctx.bindings().keys::<KeyClass>().filter_map(|key| {
+                match ctx.bindings().get(key) {
+                    BindingClass::ClassDef(binding) => (binding.def_index == class.index()).then_some(false),
+                    BindingClass::FunctionalClassDef(index, _, _) => (*index == class.index()).then_some(true),
+                }
+            });
+            match (native_bindings.next(), native_bindings.next()) {
+                (Some(synthesized), None) => {
+                    let trait_row = symbols::ClassTraitObservation {
+                        qualification: qualification.id(), symbol: native_class, synthesized,
+                        dataclass: metadata.dataclass_metadata().is_some(),
+                        named_tuple: metadata.named_tuple_metadata().is_some(),
+                        typed_dict: metadata.typed_dict_metadata().is_some(),
+                    };
+                    b.out.hold(&trait_row)?;
+                    b.out.native_class_traits.push(trait_row);
+                }
+                (first, _) => {
+                    let detail = format!("native class trait {native_class:?} has missing or ambiguous BindingClass identity");
+                    b.out.hold(&detail)?;
+                    b.out.class_trait_boundaries.push((if first.is_some() {ObligationKind::AmbiguousBinding} else {ObligationKind::NativeUnavailable}, detail));
+                }
+            }
             let metaclass = b.class(metadata.metaclass(&ctx.stdlib).class_object())?;
             let custom_metaclass = metadata.custom_metaclass().map(|c| b.class(c.class_object())).transpose()?;
             let mut abstract_members: Vec<_> = solutions.get(&KeyAbstractClassCheck(class.index()))

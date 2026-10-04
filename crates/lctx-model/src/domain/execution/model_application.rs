@@ -25,6 +25,7 @@ macro_rules! model_pin_inputs {($apply:ident)=>{$apply!{
  contexts:$crate::domain::attribution::AnalysisContext,acquisitions:$crate::domain::input::InputAcquisition,fingerprints:$crate::domain::input::EnvironmentFingerprint,
  packages:$crate::domain::input::Package,releases:$crate::domain::input::Release,distributions:$crate::domain::input::InputDistribution,verifications:$crate::domain::input::DistributionVerification,
  ownership:$crate::domain::input::ArtifactOwnership,uses:$crate::domain::input::ArtifactUse,
+ native_type_supports:$crate::domain::types::TypeSupport,native_class_supports:$crate::domain::symbols::ClassTraitSupport,native_member_supports:$crate::domain::class_metadata::ClassMemberSupport,native_metadata_supports:$crate::domain::class_metadata::ClassMetadataSupport,native_terminal_supports:$crate::domain::protocols::NativeTerminalSupport,native_exit_supports:$crate::domain::protocols::NativeExitSupport,
  native:$crate::domain::analysis::native::NativeQualification,premises:$crate::domain::analysis::native::NativeAssertionPremise,
 
 }};}
@@ -111,6 +112,7 @@ impl<'a> CheckedModelApplication<'a> {
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         let mut charge = charged::StateCharge::new(budget, "checked-model-application");
         charge.grow(size_of::<Self>())?;
+        if let Err(reason)=super::closed_targets::runtime_identity(catalog, data, bound, shape, effective, budget)? {return Ok(Err(reason));}
         let result = (|| {
             if !shape.admits(bound) {
                 return Err(ObligationKind::IncompatibleContexts);
@@ -136,7 +138,6 @@ impl<'a> CheckedModelApplication<'a> {
                     )
                     .is_ok()
             }))?;
-            runtime_identity(data, bound, shape, effective)?;
             exact(bindings, signature.qualification, shape.context())?;
             for rule in &compiled.model().rules {
                 match rule {
@@ -357,11 +358,12 @@ pub(super) fn append_native_evidence_rows(
     }
     Ok(())
 }
-pub(super) fn runtime_identity(
+pub(super) fn runtime_identity_native(
     data: &ModelApplicationData,
     bound: &ValidatedBoundCall,
     shape: &BindingShapeAdmission,
     effective: Option<&EffectiveInvocationAdmission>,
+    receiver: Option<&super::closed_targets::CheckedRuntimeReceiver>,
 ) -> Result<(), ObligationKind> {
     let bindings = &data.bindings;
     let signature = need(&bindings.signatures, bound.bound().signature())?;
@@ -376,7 +378,7 @@ pub(super) fn runtime_identity(
     };
     match callable {
         CallableEntity::Source { .. } => {
-            if effective.is_none_or(|e| {
+            if receiver.is_none_or(|r|!r.admits(bound,shape)) && effective.is_none_or(|e| {
                 !e.admits(bound)
                     || e.callee() != shape.callee()
                     || e.input() != shape.input()

@@ -62,6 +62,7 @@ fn claim<'a>(
 }
 fn entity(d: &Data, claim: &SummaryClaim) -> Result<Id<EntityRef>, ModelError> {
     match claim {
+        SummaryClaim::NoNormalContinuation {owner,..} => Ok(*owner),
         SummaryClaim::FiniteAlternative { transfer, .. } => {
             Ok(need(&d.transfers, *transfer)?.owner)
         }
@@ -126,6 +127,7 @@ pub fn evidence(
             qualification,
             ..
         } => (*channel, *phase, *qualification),
+        SummaryClaim::NoNormalContinuation { .. } => return Err(invalid("terminal frontier requires its dedicated scoped source")),
         SummaryClaim::SymbolicFieldAssociation { .. } => {
             return Err(invalid("symbolic association cannot cite a finite proof"));
         }
@@ -359,6 +361,7 @@ pub fn extend_observations(
         let (channel, phase) = match claim {
             SummaryClaim::FiniteAlternative { channel, phase, .. }
             | SummaryClaim::CallClosure { channel, phase, .. } => (*channel, *phase),
+            SummaryClaim::NoNormalContinuation { .. } => return Err(invalid("terminal frontier requires its dedicated scoped source")),
             SummaryClaim::SymbolicFieldAssociation { .. } => {
                 return Err(invalid("symbolic association cannot emit a finding"));
             }
@@ -485,6 +488,7 @@ pub fn text(
             input.hex(),
             output.hex()
         ),
+        Some(SummaryClaim::NoNormalContinuation {..}) => "Given invocation entered, the qualified direct normal continuation is excluded; exceptions, effects and cleanup remain unresolved".into(),
         None => "Behavioral analysis for this captured frame".into(),
     };
     let basis = match qualification {

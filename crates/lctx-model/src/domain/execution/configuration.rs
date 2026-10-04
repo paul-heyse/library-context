@@ -53,6 +53,7 @@ pub fn summaries(
     ContentHash::of(include_bytes!("summary_worklist.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_schedule.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_consequences.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("summary_terminal.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_symbolic.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_exceptions.rs")).encode(&mut key);
     enriched_execution(catalog)
@@ -92,6 +93,8 @@ pub fn base_evaluation() -> (MethodParameters, AnalysisDefinition) {
     ContentHash::of(include_bytes!("builtin_read.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("model_context.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("model_application.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("closed_targets.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("protocol_interpretation.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("production.rs")).encode(&mut key);
     let definition = AnalysisDefinition {
         method: AnalysisMethod::Execution,
@@ -146,6 +149,8 @@ fn enriched_version() -> ContentHash {
     ContentHash::of(include_bytes!("modeled_call.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("enriched_production.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("model_application.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("closed_targets.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("protocol_interpretation.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("../normalized/binding_normalization.rs")).encode(&mut key);
     base_evaluation().1.semantic_version.encode(&mut key);
     base_completion().1.semantic_version.encode(&mut key);
@@ -182,6 +187,10 @@ pub fn models(
     parameters.model_catalog = Some(catalog);
     let mut key = KeySink::new("authored-model-rule-set");
     ContentHash::of(include_bytes!("model_application.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("closed_targets.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("protocol_interpretation.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("../normalized/binding_normalization.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("../normalized/signature_applicability.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("model_context.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("model_construction.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("model_transfer.rs")).encode(&mut key);

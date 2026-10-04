@@ -1805,6 +1805,7 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
     use lctx_model::domain::normalized::{
         Rows, callables::*, entities::*, signature_applicability::*,
     };
+    for original_overrides in [false, true] {
     for mutation in 0..5 {
         let f = Fixture::new();
         let budget = budget();
@@ -1896,10 +1897,16 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
             adjustment: SignatureAdjustment::Unknown,
         };
         let (call, arguments) = f.call(&[]);
+        let original_destination = if original_overrides {
+            CallDestination::Overrides { symbol: f.symbol.id() }
+        } else {
+            f.destination.clone()
+        };
+        let target = CallTarget { destination: original_destination.id(), ..f.target.clone() };
         let application = establish(Application {
-            target: &f.target,
+            target: &target,
             qualification: &f.qualification,
-            destination: &f.destination,
+            destination: &original_destination,
             channel: &f.channel,
             receiver: &f.receiver,
             receiver_proof: None,
@@ -1923,6 +1930,7 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
         assert_eq!(application.is_ok(), mutation == 0, "mutation {mutation}");
         if let Ok(application) = application {
             assert_eq!(application.authority(), BindingAuthority::SourceInspection);
+            assert_eq!(application.reason(), if original_overrides { AuthorityReason::DispatchOpen } else { AuthorityReason::EffectiveUnknown });
             let bound = bind(BindingInput {
                 application: &application,
                 parameters: &parameters,
@@ -1930,10 +1938,11 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
                 arguments: &arguments,
             })
             .unwrap();
-            assert_eq!(bound.target(), f.target.id());
+            assert_eq!(bound.target(), target.id());
             assert_eq!(bound.signature(), signature.id());
             assert_ne!(f.symbol.id(), signature.symbol);
         }
+    }
     }
 }
 

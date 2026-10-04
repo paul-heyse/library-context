@@ -122,10 +122,9 @@ pub fn establish(
     let a = application;
     let symbol = match a.destination {
         CallDestination::Resolved { symbol } if a.dispatch_proof.is_none() => *symbol,
-        CallDestination::Overrides { .. } => a
-            .dispatch_proof
-            .ok_or(attribution::ObligationKind::CallTransfer)?
-            .symbol(),
+        // The original named method remains an inspectable source shape even when captured
+        // dispatch is incomplete. It never establishes an effective invocation or target set.
+        CallDestination::Overrides { symbol } => a.dispatch_proof.map_or(*symbol, |p| p.symbol()),
         _ => return Err(attribution::ObligationKind::CallTransfer),
     };
     let EntityRef::Callable { callable } = a.entity else {
@@ -198,7 +197,7 @@ pub fn establish(
     }) {
         return Err(MissingEvidence);
     }
-    let reason = if a.dispatch_proof.is_some() {
+    let reason = if matches!(a.destination, CallDestination::Overrides { .. }) {
         AuthorityReason::DispatchOpen
     } else {
         authority(&a)

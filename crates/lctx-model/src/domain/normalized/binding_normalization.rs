@@ -568,6 +568,33 @@ impl HeapSize for ValidatedBoundCall {
         self.bound.heap_bytes()
     }
 }
+/// A replayed source binding for an alternative-specific typing question. This capability
+/// proves neither event completeness nor runtime invocation or effects.
+pub struct SourceBindingShape {
+    attempt: Id<CallBindingAttempt>,
+    event: Id<NormalizedCallEvent>,
+    context: Id<AnalysisContext>,
+    input: Id<input::InputRevision>,
+    owner_entity: Id<EntityRef>,
+    owner_declaration: Id<Occurrence>,
+    target: Id<CallTarget>,
+    phase: CallPhase,
+    bindings: ContentHash,
+}
+impl SourceBindingShape {
+    pub fn context(&self) -> Id<AnalysisContext> { self.context }
+    pub fn input(&self) -> Id<input::InputRevision> { self.input }
+    pub fn owner_entity(&self) -> Id<EntityRef> { self.owner_entity }
+    pub fn owner_declaration(&self) -> Id<Occurrence> { self.owner_declaration }
+    pub fn target(&self) -> Id<CallTarget> { self.target }
+    pub fn phase(&self) -> CallPhase { self.phase }
+    pub fn admits(&self, bound: &ValidatedBoundCall) -> bool {
+        self.attempt == bound.attempt && self.event == bound.event
+            && self.context == bound.context && self.target == bound.bound.target()
+            && self.bindings == bound.bindings
+    }
+}
+impl HeapSize for SourceBindingShape {}
 /// Complete native event and one compatible signature shape. This does not certify the
 /// runtime callable identity, its body, definition-time defaults or Summary policy.
 /// Model applicability must independently supply an exact authored runtime contract.
@@ -810,6 +837,7 @@ impl HeapSize for CompositionAdmission {
 pub struct VerifiedBindings {
     bound: ChargedMap<Id<CallBindingAttempt>, ValidatedBoundCall>,
     shape: ChargedMap<Id<CallBindingAttempt>, BindingShapeAdmission>,
+    source_shape: ChargedMap<Id<CallBindingAttempt>, SourceBindingShape>,
     effective: ChargedMap<Id<CallBindingAttempt>, EffectiveInvocationAdmission>,
     composition: ChargedMap<Id<CallBindingAttempt>, CompositionAdmission>,
     _charge: StateCharge,
@@ -820,6 +848,9 @@ impl VerifiedBindings {
     }
     pub fn shape(&self, attempt: Id<CallBindingAttempt>) -> Option<&BindingShapeAdmission> {
         self.shape.get(&attempt)
+    }
+    pub fn source_shape(&self, attempt: Id<CallBindingAttempt>) -> Option<&SourceBindingShape> {
+        self.source_shape.get(&attempt)
     }
     pub fn effective_invocation(
         &self,
@@ -844,6 +875,7 @@ pub fn verify(
     let mut result = VerifiedBindings {
         bound: Default::default(),
         shape: Default::default(),
+        source_shape: Default::default(),
         effective: Default::default(),
         composition: Default::default(),
         _charge: StateCharge::new(budget, "validated-bindings"),
@@ -890,6 +922,18 @@ pub fn verify(
                 bindings: row.bindings,
             },
         )?;
+        let event = need(&data.event_events, row.event)?;
+        let owner = need(&data.owners, event.owner)?;
+        let target = original_target(data, alternative)?;
+        if owner.occurrence != event.site {
+            return Err(invalid("source shape owner differs from event site"));
+        }
+        result.source_shape.insert(&mut result._charge, row.id(), SourceBindingShape {
+            attempt: row.id(), event: row.event, context: event.context,
+            input: application.input(), owner_entity: owner.entity,
+            owner_declaration: owner.owner, target: target.id(), phase: target.phase,
+            bindings: row.bindings,
+        })?;
         if let Some(complete) = events.get(row.event) {
             for member in stored.members.iter().filter(|m| m.attempt == row.id()) {
                 let selected = need(&stored.variants, member.variant)?;

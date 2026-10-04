@@ -56,6 +56,14 @@ pub enum SummaryClaim {
         alternative: Id<super::summary_symbolic::SymbolicFieldAlternative>,
         qualification: Id<AssertionQualification>,
     },
+    #[model(code = 3)]
+    NoNormalContinuation {
+        owner: Id<normalized::entities::EntityRef>,
+        frontier: Id<super::protocol_interpretation::ConditionalTerminalFrontier>,
+        restriction: Id<super::protocol_interpretation::NormalContinuationRestriction>,
+        qualification: Id<AssertionQualification>,
+        question: super::protocol_interpretation::InvocationQuestion,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="summary_claim_members",rule="summary_claim_member",conclusion=claim)]

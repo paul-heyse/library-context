@@ -479,6 +479,11 @@ async fn run_fixture(
         .unwrap();
         assert!(native_negative > 0);
         let dynamic:(i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT count(*),count(*) FILTER (WHERE inspection=0) FROM {}.base_dynamic_access_observations",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
+        eprintln!("B3_DYNAMIC {dynamic:?}");
+        for relation in [symbols::FunctionTraitSupport::NAME,declarations::SymbolDeclarationSupport::NAME,declarations::ParameterDeclarationSupport::NAME,flow::FlowUseSupport::NAME] {
+            let attribution:Vec<(i16,i16,i16,i64)>=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT origin,mode,fidelity,count(*) FROM {}.{relation} GROUP BY 1,2,3 ORDER BY 1,2,3",id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
+            eprintln!("B3_INSPECTION_SUPPORT {relation} {attribution:?}");
+        }
         assert!(dynamic.0 > 0 && dynamic.1 > 0);
     }
     if fixture == "field_read_screen" {
@@ -628,6 +633,24 @@ async fn run_fixture(
         } else {
             assert_eq!((counts.0, counts.1), (0, 0));
         }
+    }
+    if fixture == "execution_channels" && profile == Profile::Behavioral && enriched {
+        let transitions: Vec<(String,i64,i16,i16,bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT name.spelling,item.ordinal,before.kind,after.kind,item.suppressed FROM {0}.context_executions execution JOIN {0}.context_execution_items item ON item.execution=execution.id JOIN {0}.execution_outcomes before ON before.id=item.exit_input JOIN {0}.execution_outcomes after ON after.id=item.exit_output JOIN {0}.entity_refs e ON e.id=execution.owner JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations name ON name.occurrence=d.name WHERE name.spelling IN ('with_preserve','with_preserve_return','with_suppress','with_nonmatch','with_multiple','with_finalizer_return') ORDER BY 1,2",id.schema())))
+            .fetch_all(db.owner.pool()).await.unwrap();
+        assert_eq!(transitions,vec![
+            ("with_finalizer_return".to_owned(),0,1,1,false),
+            ("with_multiple".to_owned(),0,0,0,false),
+            ("with_multiple".to_owned(),1,2,0,true),
+            ("with_nonmatch".to_owned(),0,2,2,false),
+            ("with_preserve".to_owned(),0,0,0,false),
+            ("with_preserve_return".to_owned(),0,1,1,false),
+            ("with_suppress".to_owned(),0,2,0,true),
+        ],"Python reverse exits pass the inner suppressed outcome to the outer manager; a finalizer return replaces the exception before exits");
+        let unsupported_contexts:i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {0}.context_executions execution JOIN {0}.entity_refs e ON e.id=execution.owner JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations name ON name.occurrence=d.name WHERE name.spelling IN ('with_unknown_body','with_async','with_missing_target_constructor')",id.schema())))
+            .fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(unsupported_contexts,0,"missing body/constructor evidence and async cleanup never acquire exact context completion");
     }
     if fixture == "exact_exception_shapes" && profile == Profile::Behavioral && enriched {
         let rows: Vec<(String, i16, Option<i16>, Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(

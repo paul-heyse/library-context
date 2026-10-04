@@ -908,6 +908,11 @@ fn session<S: StageSink + 'static>(
                     false,
                     context.budget(),
                 )?;
+                let _class_projection_charge = context.budget().reserve(
+                    "native-class-trait-projection",
+                    definitions.classes.len().saturating_mul(size_of::<ClassTraitObservation>() * 2),
+                )?;
+                let projected_classes = definitions.classes.clone();
                 unattached = write_symbols(
                     context,
                     definitions,
@@ -940,7 +945,7 @@ fn session<S: StageSink + 'static>(
                     &surfaces,
                     &pysa_evidence,
                 )?;
-                let types = types(
+                let mut types = types(
                     &transaction,
                     handle,
                     &qualification,
@@ -957,6 +962,8 @@ fn session<S: StageSink + 'static>(
                     root,
                     &ast,
                 )?;
+                types.reconcile_class_traits(&projected_classes)?;
+                unattached.1 += types.class_trait_boundaries.len();
                 types_partial = native_parse_error || !types.boundaries.is_empty();
                 unattached.1 += types.signatures.iter().filter(|(s, _, _)| s.form == SignatureForm::NativeUnavailable).count();
                 write_types(
@@ -2541,6 +2548,13 @@ fn write_types<S: StageSink + 'static>(
         context.emit(row)?;
     }
     for row in records.class_metadata { supported!(ClassMetadataSupport, row, Fidelity::NativeStructural); }
+    for row in records.native_class_traits {
+        // The identical assertion was emitted by write_symbols; retain distinct native evidence.
+        context.emit(ClassTraitSupport { assertion: row.id(), run: run.id(), surface: surfaces[&FactFamily::Signatures].id(), evidence: evidence.id(), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural })?;
+    }
+    for (reason, detail) in records.class_trait_boundaries {
+        context.contribute(SubjectBoundary { scope: scope.id(), provider: provider.id(), context: analysis.id(), family: FactFamily::Signatures, subject: None, reason, detail: Some(detail) })?;
+    }
     for (row, members, shapes) in records.signatures {
         for shape in shapes { context.emit(shape)?; }
         context.emit(SignatureSupport { assertion: row.id(), run: run.id(), surface: surfaces[&FactFamily::Signatures].id(), evidence: evidence.id(), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural })?;

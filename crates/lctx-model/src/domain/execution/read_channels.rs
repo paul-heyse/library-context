@@ -404,6 +404,115 @@ pub(super) struct NativeContext<'a> {
     pub(super) invocation: &'a publication::AnalysisInvocation,
 }
 
+// The same assertion can retain recognizer and native supports. This operation admits the
+// authority of its own question; retained characterization is not a second native answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NativeQuestion { ExecutableRead, DeclaredClassInspection }
+fn native_authority(
+    attribution: &SupportAttribution,
+    premise: &NativeAssertionPremise,
+    qualification: &analysis::native::NativeQualification,
+    question: NativeQuestion,
+) -> bool {
+    use NativeAssertionPremise as P;
+    // These are source-syntax questions, including CallSyntax used by read_dynamic.
+    // Parameter declarations and function traits remain analyzer questions even though
+    // their families can also contain canonical parameter syntax.
+    let source_syntax = matches!(premise,P::SyntaxObservation{..}|P::SyntaxPlacement{..}
+        |P::CallSyntax{..}|P::DeclarationObservation{..}|P::SyntaxDetailObservation{..}
+        |P::ParameterSyntaxObservation{..});
+    let report_inspection = question == NativeQuestion::DeclaredClassInspection
+        && matches!(premise, P::FunctionTraitObservation{..}|P::SymbolDeclaration{..}|P::ParameterDeclaration{..})
+        && attribution.origin == Origin::AnalyzerAssertion && attribution.fidelity == Fidelity::ReportProjection;
+    attribution.mode==ExtractionMode::NativeTraversal && attribution.fidelity==qualification.fidelity
+        && (report_inspection ||
+        if source_syntax {
+            attribution.origin==Origin::SourceObservation
+                && matches!(attribution.fidelity,Fidelity::Raw|Fidelity::NativeStructural)
+        } else {
+            attribution.origin==Origin::AnalyzerAssertion && attribution.fidelity==Fidelity::NativeStructural
+        })
+}
+
+#[cfg(test)]
+mod native_authority_tests {
+    use super::*;
+    fn id<R>(n:u8)->Id<R>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+    fn frame(budget:&resources::ResourceBudget)->(EvaluationData,EntryData,publication::AnalysisInvocation,AssertionQualification,Occurrence,ProviderRun){
+        let data=EvaluationData::new(budget);let mut entry=EntryData::new(budget);
+        let input=id(1);let context=id(2);
+        let scope=CoverageScope::Input{input};entry.scopes.insert(scope.clone()).unwrap();
+        let q=AssertionQualification{context,scope:scope.id(),condition:conditions::Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact,assumptions:assumptions::AssumptionSet::empty_id()};
+        let site=Occurrence{source:id(3),start:0,end:1,syntax_kind:SyntaxKind::ExprName,role:OccurrenceRole::Read,structural_path:vec![]};
+        let run=ProviderRun{provider:id(4),context,input,configuration:ContentHash::of(b"configured"),requested_families:ContentHash::of(b"question")};
+        entry.qualifications.insert(q.clone()).unwrap();entry.occurrences.insert(site.clone()).unwrap();entry.runs.insert(run.clone()).unwrap();
+        let (invocation,_)=publication::AnalysisInvocation::new(input,context,id(5),None,[]);
+        (data,entry,invocation,q,site,run)
+    }
+    #[test]
+    fn native_read_keeps_native_citation_without_promoting_recognizer_or_mismatched_fidelity(){
+        for scenario in 0..3 {
+            let budget=resources::ResourceBudget::fixed(1<<24).unwrap();
+            let (mut data,entry,invocation,q,site,run)=frame(&budget);
+            let native=lexical::LexicalResolutionSupport{assertion:id(6),run:run.id(),surface:id(7),evidence:id(8),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
+            let recognizer=lexical::LexicalResolutionSupport{origin:Origin::DerivedAnalysis,mode:ExtractionMode::Recognizer,fidelity:Fidelity::NormalizedStructural,..native.clone()};
+            let expected=NativeAssertionPremise::LexicalResolution{assertion:native.assertion,support:native.id()};
+            for support in std::iter::once(recognizer).chain((scenario!=1).then_some(native.clone())) {
+                let pair=NativeAssertionPremise::LexicalResolution{assertion:support.assertion,support:support.id()};
+                let fidelity=if scenario==2 && support.id()==native.id(){Fidelity::NormalizedStructural}else{support.fidelity};
+                let n=analysis::native::NativeQualification{premise:pair.id(),qualification:q.id(),family:FactFamily::Lexical,fidelity,status:EvidenceStatus::StructurallyObserved};
+                data.lexical_resolution_supports.insert(support).unwrap();data.premises.insert(pair).unwrap();data.native.insert(n).unwrap();
+            }
+            let mut work=Work::new(&data,&entry,&invocation,&budget).unwrap();
+            let selected=super::native(NativeContext{data:&data,entry:&entry,invocation:&invocation},&data.lexical_resolution_supports,native.assertion,q.id(),site.id(),&mut work).unwrap();
+            assert_eq!(selected,if scenario==0{Some((expected.id(),run.id(),EvidenceStatus::StructurallyObserved))}else{None});
+        }
+    }
+    #[test]
+    fn native_read_preserves_raw_and_native_structural_canonical_source_syntax(){
+        for fidelity in [Fidelity::Raw,Fidelity::NativeStructural] {
+            let budget=resources::ResourceBudget::fixed(1<<24).unwrap();
+            let (mut data,entry,invocation,q,site,run)=frame(&budget);
+            let support=SyntaxSupport{assertion:id(6),run:run.id(),surface:id(7),evidence:id(8),origin:Origin::SourceObservation,mode:ExtractionMode::NativeTraversal,fidelity};
+            let pair=NativeAssertionPremise::SyntaxObservation{assertion:support.assertion,support:support.id()};
+            let n=analysis::native::NativeQualification{premise:pair.id(),qualification:q.id(),family:FactFamily::Syntax,fidelity,status:EvidenceStatus::StructurallyObserved};
+            data.spelling_supports.insert(support.clone()).unwrap();data.premises.insert(pair.clone()).unwrap();data.native.insert(n).unwrap();
+            let mut work=Work::new(&data,&entry,&invocation,&budget).unwrap();
+            assert_eq!(super::native(NativeContext{data:&data,entry:&entry,invocation:&invocation},&data.spelling_supports,support.assertion,q.id(),site.id(),&mut work).unwrap(),Some((pair.id(),run.id(),EvidenceStatus::StructurallyObserved)));
+        }
+    }
+    #[test]
+    fn report_projection_is_only_a_named_declared_class_inspection_premise(){
+        let a=SupportAttribution{run:id(1),surface:id(2),evidence:id(3),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::ReportProjection};
+        for pair in [NativeAssertionPremise::FunctionTraitObservation{assertion:id(4),support:id(5)},NativeAssertionPremise::SymbolDeclaration{assertion:id(4),support:id(5)},NativeAssertionPremise::ParameterDeclaration{assertion:id(4),support:id(5)}] {
+            let n=analysis::native::NativeQualification{premise:pair.id(),qualification:id(6),family:FactFamily::Signatures,fidelity:Fidelity::ReportProjection,status:EvidenceStatus::StructurallyObserved};
+            assert!(native_authority(&a,&pair,&n,NativeQuestion::DeclaredClassInspection));
+            assert!(!native_authority(&a,&pair,&n,NativeQuestion::ExecutableRead));
+            assert!(!native_authority(&a,&pair,&analysis::native::NativeQualification{fidelity:Fidelity::NativeStructural,..n},NativeQuestion::DeclaredClassInspection));
+        }
+        let pair=NativeAssertionPremise::Use{assertion:id(4),support:id(5)};
+        let n=analysis::native::NativeQualification{premise:pair.id(),qualification:id(6),family:FactFamily::Flow,fidelity:Fidelity::ReportProjection,status:EvidenceStatus::StructurallyObserved};
+        assert!(!native_authority(&a,&pair,&n,NativeQuestion::DeclaredClassInspection));
+    }
+    #[test]
+    fn declared_inspection_run_selection_does_not_promote_a_recognizer_duplicate(){
+        for recognizer_only in [false,true] {
+            let budget=resources::ResourceBudget::fixed(1<<24).unwrap();
+            let (mut data,entry,invocation,q,site,run)=frame(&budget);
+            let report=symbols::FunctionTraitSupport{assertion:id(6),run:run.id(),surface:id(7),evidence:id(8),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::ReportProjection};
+            let recognizer=symbols::FunctionTraitSupport{origin:Origin::DerivedAnalysis,mode:ExtractionMode::Recognizer,fidelity:Fidelity::NormalizedStructural,..report.clone()};
+            let expected=NativeAssertionPremise::FunctionTraitObservation{assertion:report.assertion,support:report.id()};
+            for support in std::iter::once(recognizer).chain((!recognizer_only).then_some(report.clone())) {
+                let pair=NativeAssertionPremise::FunctionTraitObservation{assertion:support.assertion,support:support.id()};
+                let n=analysis::native::NativeQualification{premise:pair.id(),qualification:q.id(),family:FactFamily::Signatures,fidelity:support.fidelity,status:EvidenceStatus::StructurallyObserved};
+                data.function_trait_supports.insert(support).unwrap();data.premises.insert(pair).unwrap();data.native.insert(n).unwrap();
+            }
+            let mut work=Work::new(&data,&entry,&invocation,&budget).unwrap();
+            assert_eq!(super::native(NativeContext{data:&data,entry:&entry,invocation:&invocation},&data.function_trait_supports,report.assertion,q.id(),site.id(),&mut work).unwrap(),None);
+            assert_eq!(super::declared_class_inspection(NativeContext{data:&data,entry:&entry,invocation:&invocation},&data.function_trait_supports,report.assertion,q.id(),site.id(),&mut work).unwrap(),if recognizer_only{None}else{Some((expected.id(),run.id(),EvidenceStatus::StructurallyObserved))});
+        }
+    }
+}
 pub(super) fn native<S: Support>(
     native_context: NativeContext<'_>,
     supports: &Rows<S>,
@@ -411,6 +520,27 @@ pub(super) fn native<S: Support>(
     q: Id<AssertionQualification>,
     site: Id<Occurrence>,
     work: &mut Work,
+) -> Result<Option<NativeSupport>, ModelError> {
+    native_for(native_context,supports,assertion,q,site,work,NativeQuestion::ExecutableRead)
+}
+pub(super) fn declared_class_inspection<S: Support>(
+    native_context: NativeContext<'_>,
+    supports: &Rows<S>,
+    assertion: Id<S::Assertion>,
+    q: Id<AssertionQualification>,
+    site: Id<Occurrence>,
+    work: &mut Work,
+) -> Result<Option<NativeSupport>, ModelError> {
+    native_for(native_context,supports,assertion,q,site,work,NativeQuestion::DeclaredClassInspection)
+}
+fn native_for<S: Support>(
+    native_context: NativeContext<'_>,
+    supports: &Rows<S>,
+    assertion: Id<S::Assertion>,
+    q: Id<AssertionQualification>,
+    site: Id<Occurrence>,
+    work: &mut Work,
+    question: NativeQuestion,
 ) -> Result<Option<NativeSupport>, ModelError> {
     let NativeContext {
         data,
@@ -457,6 +587,12 @@ pub(super) fn native<S: Support>(
         else {
             continue;
         };
+        let Some(pair) = data.premises.get(n.premise) else {
+            continue;
+        };
+        if a.fidelity != n.fidelity || !native_authority(&a,pair,n,question) {
+            continue;
+        }
         if selected.is_some() {
             return Err(ModelError::Invalid(
                 "ambiguous read provider support".into(),
