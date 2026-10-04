@@ -10,7 +10,7 @@ fn inventory_replays_complete_and_incomplete_sets_and_refuses_forgery() {
         f.flow.base.put(Vec::<FlowUseInventoryMember>::new());assert!(f.check().is_err());f.flow.base.put(f.members.clone());
         f.flow.base.put(Vec::<FlowReachingSupport>::new());assert!(f.check().is_err());f.flow.base.put(vec![f.flow.reaching_support.clone()]);
         let mut wrong=f.candidates.clone();wrong[0].kind=FlowCandidateKind::Deleted;f.flow.base.put(wrong);assert!(f.check().is_err());f.flow.base.put(f.candidates.clone());
-        let mut wrong=f.inventory.clone();wrong.complete=!wrong.complete;let id=wrong.id();
+        let mut wrong=f.inventory.clone();wrong.complete = !wrong.complete;let id=wrong.id();
         let altered_candidates=f.candidates.iter().cloned().map(|mut c|{c.inventory=id;c}).collect::<Vec<_>>();let altered_members=f.members.iter().cloned().map(|mut m|{m.inventory=id;m}).collect::<Vec<_>>();
         let original_support=f.flow.base.rows::<FlowUseInventorySupport>()[0].clone();let mut altered_support=original_support.clone();altered_support.assertion=id;
         if incomplete {
