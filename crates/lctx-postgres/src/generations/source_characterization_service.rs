@@ -434,6 +434,9 @@ impl PacketLease<'_> {
                 )));
             }
             let diagnostic_correlation=self.diagnostic_correlation(&row,grant,maximum).await?;
+            if let Some(correlation)=&diagnostic_correlation.0 {
+                proof.push(ProofReference::from_canonical(derivation::RowRef::of(correlation.assessment)));
+            }
             items.push(SourceCharacterizationPacket {
                 characterization: row.id(),
                 qualification: row.qualification,
