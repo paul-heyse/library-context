@@ -42,11 +42,15 @@ impl TargetData {
     pub fn new(b:&ResourceBudget)->Self { Self {metadata:Rows::new(b),members:Rows::new(b),origins:Rows::new(b),origin_steps:Rows::new(b)} }
     pub fn inputs()->Vec<ValidationInput> { vec![ValidationInput::of::<ClassMetadataObservation>(&["id"]),ValidationInput::of::<ClassMemberObservation>(&["id"]),ValidationInput::of::<CallOrigin>(&["id"]),ValidationInput::of::<CallOriginStep>(&["id"])] }
     pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError> {
-        if n==ClassMetadataObservation::NAME {self.metadata.decode(b)?;} if n==ClassMemberObservation::NAME {self.members.decode(b)?;} if n==CallOrigin::NAME {self.origins.decode(b)?;} if n==CallOriginStep::NAME {self.origin_steps.decode(b)?;} Ok(())
+        if n==ClassMetadataObservation::NAME {self.metadata.decode(b)?;}
+        if n==ClassMemberObservation::NAME {self.members.decode(b)?;}
+        if n==CallOrigin::NAME {self.origins.decode(b)?;}
+        if n==CallOriginStep::NAME {self.origin_steps.decode(b)?;}
+        Ok(())
     }
 }
 pub(super) fn one<'a,T>(mut rows:impl Iterator<Item=&'a T>)->Result<&'a T,ObligationKind> { let row=rows.next().ok_or(ObligationKind::MissingEvidence)?;if rows.next().is_some(){return Err(ObligationKind::AmbiguousBinding);}Ok(row) }
-pub(super) fn native<'a>(data:&'a ModelApplicationData, reference:derivation::RowRef, q:Id<AssertionQualification>, input:Id<input::InputRevision>, context:Id<AnalysisContext>)->Result<&'a analysis::native::NativeAssertionPremise,ObligationKind> {
+pub(super) fn native(data:&ModelApplicationData, reference:derivation::RowRef, q:Id<AssertionQualification>, input:Id<input::InputRevision>, context:Id<AnalysisContext>)->Result<&analysis::native::NativeAssertionPremise,ObligationKind> {
     model_application::exact(&data.bindings,q,context)?;
     let premise=one(data.native.iter().filter(|n|n.qualification==q && n.fidelity==Fidelity::NativeStructural && data.premises.get(n.premise).is_some_and(|p|p.assertion_and_support().0==reference)))?;
     let p=data.premises.get(premise.premise).ok_or(ObligationKind::MissingEvidence)?;
@@ -75,7 +79,9 @@ pub(super) struct CheckedRuntimeReceiver {
 impl CheckedRuntimeReceiver {
     pub(super) fn admits(&self,bound:&ValidatedBoundCall,shape:&BindingShapeAdmission)->bool {shape.admits(bound) && (self.target,self.signature,self.input,self.context)==(shape.target(),bound.bound().signature(),shape.input(),shape.context())}
 }
-pub(super) fn runtime_identity(catalog:&Catalog,data:&ModelApplicationData,bound:&ValidatedBoundCall,shape:&BindingShapeAdmission,effective:Option<&EffectiveInvocationAdmission>,budget:&ResourceBudget)->Result<Result<Option<(Id<source::Occurrence>,Id<symbols::ClassAncestryObservation>)>,ObligationKind>,ModelError> {
+type RuntimeReceiverEvidence = (Id<source::Occurrence>, Id<symbols::ClassAncestryObservation>);
+type RuntimeIdentityAssessment = Result<Option<RuntimeReceiverEvidence>, ObligationKind>;
+pub(super) fn runtime_identity(catalog:&Catalog,data:&ModelApplicationData,bound:&ValidatedBoundCall,shape:&BindingShapeAdmission,effective:Option<&EffectiveInvocationAdmission>,budget:&ResourceBudget)->Result<RuntimeIdentityAssessment,ModelError> {
     let b=&data.bindings;
     let target=b.targets.get(shape.target()).ok_or_else(||ModelError::Invalid("closed target absent".into()))?;
     let receiver=match b.receivers.get(target.receiver) {Some(Receiver::None)=>return Ok(model_application::runtime_identity_native(data,bound,shape,effective,None).map(|()|None)),Some(Receiver::Bound{actual})=>*actual,_=>return Ok(Err(ObligationKind::MissingEvidence))};
@@ -109,8 +115,8 @@ pub(super) fn function_identity(data:&ModelApplicationData,mut term:Id<TypeTerm>
     for _ in 0..=data.bindings.terms.len() {
         match data.bindings.terms.get(term) {
             Some(TypeTerm::Callable{function,..})=>return *function,
-            Some(TypeTerm::Generic{body,..})=>term=*body,
-            Some(TypeTerm::BoundMethod{function,..})=>term=*function,
+            Some(TypeTerm::Generic{body,..})=>term = *body,
+            Some(TypeTerm::BoundMethod{function,..})=>term = *function,
             _=>return None,
         }
     }

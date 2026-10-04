@@ -230,7 +230,7 @@ impl PacketLease<'_> {
                     assumptions_universe::AssumptionUniverseSupport::new(&u,&catalog,&model)?;
                     if (u.context,u.input,u.environment) != (native.context,native.input,native.environment) { return Err(Error::Contract); }
                     let universe = AssumptionUniversePacket {universe,context:u.context,input:u.input,environment:u.environment,model_definition:u.model_definition,support:pinned.id(),catalog:catalog.id(),model:model.id(),source_name:Name::new(catalog.source_name).map_err(|e|Error::Codec(e.to_string()))?,format:catalog.format,source:Text::new(catalog.source).map_err(|e|Error::Codec(e.to_string()))?};
-                    ClaimAssumptionPacket::NoExtraOverrides {assumption:id,class,symbol:row.symbol,synthesized:row.synthesized,dataclass:row.dataclass,named_tuple:row.named_tuple,typed_dict:row.typed_dict,support:native,universe}
+                    ClaimAssumptionPacket::NoExtraOverrides {assumption:id,class,symbol:row.symbol,synthesized:row.synthesized,dataclass:row.dataclass,named_tuple:row.named_tuple,typed_dict:row.typed_dict,support:native,universe:Box::new(universe)}
                 }
             });
         }

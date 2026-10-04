@@ -123,7 +123,7 @@ packet!(AssumptionUniversePacket {universe:Id<assumptions::AssumptionUniverse>,c
 #[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
 pub enum ClaimAssumptionPacket {
     TypeConformance { assumption:Id<assumptions::Assumption>,observation:Id<types::TypeObservation>,subject:Id<source::Occurrence>,role:types::TypeRole,declared:bool,term:Id<types::TypeTerm>,support:AssumptionNativeSupportPacket },
-    NoExtraOverrides { assumption:Id<assumptions::Assumption>,class:Id<symbols::ClassTraitObservation>,symbol:Id<calls::ProviderSymbol>,synthesized:bool,dataclass:bool,named_tuple:bool,typed_dict:bool,support:AssumptionNativeSupportPacket,universe:AssumptionUniversePacket },
+    NoExtraOverrides { assumption:Id<assumptions::Assumption>,class:Id<symbols::ClassTraitObservation>,symbol:Id<calls::ProviderSymbol>,synthesized:bool,dataclass:bool,named_tuple:bool,typed_dict:bool,support:AssumptionNativeSupportPacket,universe:Box<AssumptionUniversePacket> },
 }
 impl ClaimAssumptionPacket {
     pub fn assumption(&self) -> Id<assumptions::Assumption> { match self { Self::TypeConformance {assumption,..}|Self::NoExtraOverrides {assumption,..} => *assumption } }
@@ -149,7 +149,7 @@ packet!(BehaviorPacket {#[doc = "Direct capture provenance for this selected ans
 #[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
 #[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
 pub enum CapturedValueSourcePacket {
-    Entry { formal:Id<normalized::entities::ParameterEntity>,parameter:Id<calls::SignatureParameter>,declaration:Id<source::Occurrence>,signature:Id<calls::Signature>,ordinal:i64,name:Nullable<Name>,source_correspondence:CaptureSourceDeclarationPacket },
+    Entry { formal:Id<normalized::entities::ParameterEntity>,parameter:Id<calls::SignatureParameter>,declaration:Id<source::Occurrence>,signature:Id<calls::Signature>,ordinal:i64,name:Nullable<Name>,source_correspondence:Box<CaptureSourceDeclarationPacket> },
     Literal { value:Id<source::Occurrence>,statement:Id<source::Occurrence>,literal:LiteralPacket },
 }
 // Source declaration attribution preserves projection fidelity; it supplies correspondence only.

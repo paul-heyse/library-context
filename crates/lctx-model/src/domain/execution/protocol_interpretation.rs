@@ -76,7 +76,11 @@ pub struct ProtocolData {pub target:TargetData,pub terminals:Rows<NativeTerminal
 impl ProtocolData {
  pub fn new(b:&ResourceBudget)->Self{Self{target:TargetData::new(b),terminals:Rows::new(b),exits:Rows::new(b),literals:Rows::new(b)}}
  pub fn inputs()->Vec<ValidationInput>{let mut r=TargetData::inputs();r.extend([ValidationInput::of::<NativeTerminalObservation>(&["id"]),ValidationInput::of::<NativeExitObservation>(&["id"]),ValidationInput::of::<value::Literal>(&["id"])]);r}
- pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{self.target.visit(n,b)?;if n==NativeTerminalObservation::NAME{self.terminals.decode(b)?;}if n==NativeExitObservation::NAME{self.exits.decode(b)?;}if n==value::Literal::NAME{self.literals.decode(b)?;}Ok(())}
+ pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{self.target.visit(n,b)?;
+  if n==NativeTerminalObservation::NAME{self.terminals.decode(b)?;}
+  if n==NativeExitObservation::NAME{self.exits.decode(b)?;}
+  if n==value::Literal::NAME{self.literals.decode(b)?;}
+  Ok(())}
 }
 fn add_basis(out:&mut ModelRecords,defs:impl IntoIterator<Item=Assumption>)->Result<ResolvedAssumptions,ModelError>{let mut ids=Vec::new();for a in defs{ids.push(a.id());out.assumptions.insert(a)?;}let basis=AssumptionSet::new(ids)?;out.assumption_sets.insert(basis.set.clone())?;for m in &basis.members{out.assumption_members.insert(m.clone())?;}Ok(basis)}
 fn direct_statement(data:&ModelApplicationData,call:Id<Occurrence>)->Result<&SyntaxPlacement,ObligationKind>{let b=&data.bindings;let p=closed_targets::one(b.placements.iter().filter(|p|p.occurrence==call && p.field==SyntaxField::Value))?;let stmt=p.parent.and_then(|s|b.occurrences.get(s)).ok_or(ObligationKind::MissingEvidence)?;if stmt.syntax_kind!=SyntaxKind::StmtExpr{return Err(ObligationKind::UnsupportedControlFlow);}closed_targets::one(b.placements.iter().filter(|p|p.occurrence==stmt.id()))}

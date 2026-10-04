@@ -241,7 +241,7 @@ async fn capture(lease:&mut PacketLease<'_>,alternative:&TransferAlternative,con
             let shape=row(lease,parameter_row.shape).await?;
             proof.extend([reference(formal),reference(parameter),reference(signature.id()),reference(declared.id()),reference(links[0].id()),reference(child[0].id()),declared_proof.support.support.clone()]);
             CapturedValueSourcePacket::Entry {formal,parameter,declaration,signature:signature.id(),ordinal:parameter_row.ordinal,
-                name:Nullable(shape.name.map(|n|name(n.as_str())).transpose()?),source_correspondence:declared_proof}
+                name:Nullable(shape.name.map(|n|name(n.as_str())).transpose()?),source_correspondence:Box::new(declared_proof)}
         },
         CapturedValueSource::Literal {literal,value,statement}=>{
             occurrence(lease,value,input).await?;occurrence(lease,statement,input).await?;
