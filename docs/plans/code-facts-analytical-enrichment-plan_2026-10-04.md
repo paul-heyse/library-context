@@ -475,3 +475,21 @@ helper before its final geometry guard. No implicit reseeding was added.
 `cargo test --release -p lctx-model --lib catalog_pattern_inputs_leave_native_flow_unrequested
 -- --nocapture` **passed**, one profile control (`lctx-enrichment-catalog-flow-inputs.log`).
 Checkpoint `UV_NO_SYNC=1 just docs-check` **passed**, 289 canonical pages and zero errors.
+
+Schema migration review found that native premise tag 37 had been reused when the old
+DependencyModule observation was replaced by ModuleResolution. `7ea2f801` retires 37 and
+appends ModuleResolution at 75; no old code is renumbered and no old-format reader is retained.
+The actual describe snapshot migration is awaiting the matching final test output. Full
+workspace/all-target `just clippy` **passed** for that repair (`lctx-enrichment-clippy-codebook37.log`).
+
+The operator explicitly authorized one final `just fmt` before qualification. It **passed**,
+2026-10-04 (`lctx-enrichment-authorized-final-format.log`), and its owned changes are committed
+at `9dbe7239`. The superseded codebook-final CLI/adapter/snapshot queues were interrupted
+before tests with scoped SIGINT; they are **not_run**. The formatted-source functional gate,
+actual describe refresh and Clippy are running; Q1 remains open. `UV_NO_SYNC=1 just ruff types`
+**passed** after formatting (`lctx-enrichment-python-hygiene-formatted-final.log`). Named
+`lint-agents`, `adr-lint` (67), fixtures (187), gold, rules (three controls), `docs-check`
+(289 canonical pages, zero errors) and `deps` **passed** before the formatting-only commit;
+dependency receipt is `lctx-enrichment-deps-final.log`. The four completed task worktrees were
+removed after confirming integration, no active processes and external receipt preservation;
+shared build intermediates and unrelated worktrees remain intact.
