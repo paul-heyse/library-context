@@ -117,6 +117,8 @@ macro_rules! callable_aspect_inputs {
             symbolic_parameter_shapes:$crate::domain::calls::ParameterShape,
             symbolic_signatures:$crate::domain::calls::Signature,
             symbolic_signature_supports:$crate::domain::calls::SignatureSupport,
+            symbolic_native_signatures:$crate::domain::types::NativeSignatureObservation,
+            symbolic_native_signature_supports:$crate::domain::types::NativeSignatureSupport,
             symbolic_signature_enumerations:$crate::domain::calls::SignatureEnumerationObservation,
             symbolic_signature_members:$crate::domain::calls::SignatureEnumerationMember,
             symbolic_enumeration_supports:$crate::domain::calls::SignatureEnumerationSupport,

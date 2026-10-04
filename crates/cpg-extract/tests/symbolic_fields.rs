@@ -269,7 +269,18 @@ async fn native_premise_removal_and_coupled_membership_corruption_refuse() {
         .iter()
         .find(|r| r.class == class_symbol && r.name == "left")
         .unwrap();
-    for mutation in 0..11 {
+    let initializer = d.traits.iter().find(|t| {
+        t.defining_class == Some(class_symbol)
+            && d.symbols.get(t.symbol).is_some_and(|s| s.name == "__init__")
+    }).unwrap().symbol;
+    let signature = d.symbolic_signatures.iter().find(|s| {
+        s.symbol == initializer && s.role == calls::SignatureRole::Synthesized
+    }).unwrap().clone();
+    assert!(!d.symbolic_signature_enumerations.iter().any(|e| e.symbol == initializer));
+    let native = d.symbolic_native_signatures.iter()
+        .find(|n| n.signature == signature.id()).unwrap().clone();
+    assert!(native.complete);
+    for mutation in 0..22 {
         let mut d = data(&f);
         match mutation {
             0 => retain(&mut d.symbolic_record_supports, &f.budget, |s| {
@@ -361,6 +372,50 @@ async fn native_premise_removal_and_coupled_membership_corruption_refuse() {
                     support.mode = attribution::ExtractionMode::NativeTraversal;
                     d.symbolic_binding_supports.insert(support).unwrap();
                 }
+            }
+            11 => retain(&mut d.symbolic_native_signatures, &f.budget, |n| {
+                n.signature != signature.id()
+            }),
+            21 => retain(&mut d.symbolic_native_signature_supports, &f.budget, |n| {
+                n.assertion != native.id()
+            }),
+            12 | 15 | 16 | 18 => {
+                let mut changed = native.clone();
+                match mutation {
+                    12 => changed.complete = false,
+                    15 => changed.term = d.symbolic_native_signatures.iter()
+                        .find(|n| n.term != native.term).unwrap().term,
+                    16 => changed.scope = d.symbolic_scopes.iter()
+                        .find(|s| s.id() != native.scope).unwrap().id(),
+                    18 => changed.qualification = d.qualifications.iter()
+                        .find(|q| q.id() != native.qualification).unwrap().id(),
+                    _ => unreachable!(),
+                }
+                retain(&mut d.symbolic_native_signatures, &f.budget, |n| n.id() != native.id());
+                d.symbolic_native_signatures.insert(changed).unwrap();
+            }
+            13 | 14 | 19 | 20 => {
+                let supports = d.symbolic_native_signature_supports.iter()
+                    .cloned().collect::<Vec<_>>();
+                d.symbolic_native_signature_supports = Rows::new(&f.budget);
+                for mut support in supports {
+                    if support.assertion == native.id() {
+                        match mutation {
+                            13 => support.fidelity = attribution::Fidelity::ReportProjection,
+                            14 => support.mode = attribution::ExtractionMode::Recognizer,
+                            19 => support.run = d.symbolic_runs.iter()
+                                .find(|r| r.id() != support.run).unwrap().id(),
+                            20 => support.origin = attribution::Origin::SourceObservation,
+                            _ => unreachable!(),
+                        }
+                    }
+                    d.symbolic_native_signature_supports.insert(support).unwrap();
+                }
+            }
+            17 => {
+                let mut changed = signature.clone();
+                changed.variant += 1;
+                d.symbolic_signatures.insert(changed).unwrap();
             }
             _ => unreachable!(),
         }

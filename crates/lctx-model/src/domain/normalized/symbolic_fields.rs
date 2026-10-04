@@ -804,7 +804,10 @@ fn decorator_options(
     }
     Some((init, kw_only))
 }
-fn signature_parameters(
+// Synthesized initializer metadata supplies a source-field shape, never a source body.
+// Its native completeness receipt replaces the source enumeration that does not exist for
+// generated functions; exact slot replay still detects omission and reordered membership.
+fn generated_initializer_parameters(
     d: &AspectData,
     symbol: Id<ProviderSymbol>,
     context: Id<AnalysisContext>,
@@ -812,7 +815,7 @@ fn signature_parameters(
     let mut signatures = d
         .symbolic_signatures
         .iter()
-        .filter(|s| s.role.runtime_source() && s.symbol == symbol);
+        .filter(|s| s.role == SignatureRole::Synthesized && s.symbol == symbol);
     let signature = signatures.next()?;
     if signatures.next().is_some()
         || signature.form != SignatureForm::List
@@ -832,31 +835,32 @@ fn signature_parameters(
         .map(|p| d.symbolic_parameter_shapes.get(p.shape).cloned())
         .collect::<Option<Vec<_>>>()?;
     let q = d.qualifications.get(signature.qualification)?;
-    let enumerations = d
-        .symbolic_signature_enumerations
+    let native = d
+        .symbolic_native_signatures
         .iter()
-        .filter(|e| e.symbol == symbol)
+        .filter(|n| n.signature == signature.id())
         .collect::<Vec<_>>();
-    if enumerations.len() != 1
-        || !enumerations[0].complete
-        || !exact(d, enumerations[0].qualification, context)
-        || !source(
-            d,
-            enumerations[0],
-            &d.symbolic_enumeration_supports,
-            context,
-        )
+    if native.len() != 1
+        || !native[0].complete
+        || native[0].qualification != signature.qualification
+        || native[0].scope != signature.scope
+        || signature.native != Some(native[0].term)
+        || !d.symbolic_native_signature_supports.iter().any(|n| {
+            n.assertion == native[0].id()
+                && n.origin == Origin::AnalyzerAssertion
+                && n.mode == ExtractionMode::NativeTraversal
+                && n.fidelity == Fidelity::NativeStructural
+                && d.symbolic_runs.get(n.run).is_some_and(|r| r.context == context)
+                && d.symbolic_signature_supports.iter().any(|s| {
+                    s.assertion == signature.id()
+                        && s.run == n.run
+                        && s.surface == n.surface
+                        && s.origin == Origin::AnalyzerAssertion
+                        && s.mode == ExtractionMode::NativeTraversal
+                        && s.fidelity == Fidelity::NativeStructural
+                })
+        })
     {
-        return None;
-    }
-    let (enumeration, enumerated) =
-        SignatureEnumerationObservation::new(q, symbol, std::iter::once(signature), true).ok()?;
-    let actual = d
-        .symbolic_signature_members
-        .iter()
-        .filter(|m| m.enumeration == enumerations[0].id())
-        .collect::<Vec<_>>();
-    if enumeration != *enumerations[0] || actual.len() != 1 || enumerated[0] != *actual[0] {
         return None;
     }
     let (rebuilt, members) = Signature::new(
@@ -869,7 +873,10 @@ fn signature_parameters(
         &shapes,
     )
     .ok()?;
-    if rebuilt != *signature || members.iter().zip(&parameters).any(|(a, b)| a != *b) {
+    if rebuilt != *signature
+        || members.len() != parameters.len()
+        || members.iter().zip(&parameters).any(|(a, b)| a != *b)
+    {
         return None;
     }
     Some(parameters)
@@ -1172,7 +1179,7 @@ fn record_gate(
             return Some(ObligationKind::IncompleteDomain);
         }
     } else if init.origin == FunctionOrigin::Synthesized && generate_init {
-        let Some(parameters) = signature_parameters(d, init.symbol, context) else {
+        let Some(parameters) = generated_initializer_parameters(d, init.symbol, context) else {
             return Some(ObligationKind::MissingEvidence);
         };
         let active = fields
