@@ -23,6 +23,10 @@ struct Facts {
     dunder_all: Vec<DunderAllObservation>,
     parameters: Vec<ParameterSyntaxObservation>,
     calls: Vec<CallSyntax>,
+    symbols: Vec<ProviderSymbol>,
+    symbol_declarations: Vec<lctx_model::domain::declarations::SymbolDeclaration>,
+    signatures: Vec<Signature>,
+    specializations: Vec<lctx_model::domain::types::GenericSpecializationObservation>,
     arguments: Vec<CallArgument>,
     literals: Vec<Literal>,
     members: Vec<LiteralSetMember>,
@@ -118,6 +122,10 @@ async fn run(files: BTreeMap<String, Vec<u8>>, limits: SyntaxLimits) -> Facts {
         dunder_all: typed_driver::rows(&tables),
         parameters: typed_driver::rows(&tables),
         calls: typed_driver::rows(&tables),
+        symbols: typed_driver::rows(&tables),
+        symbol_declarations: typed_driver::rows(&tables),
+        signatures: typed_driver::rows(&tables),
+        specializations: typed_driver::rows(&tables),
         arguments: typed_driver::rows(&tables),
         literals: typed_driver::rows(&tables),
         members: typed_driver::rows(&tables),
@@ -341,13 +349,37 @@ async fn syntax_shapes_states_declarations_parameters_calls_and_operators() {
         "{syntax:?}"
     );
     assert!(f.coverage.iter().any(|c| c.family == FactFamily::Types));
-    // The public names are stated, and every definition attaches at its name span.
-    assert!(
-        f.coverage
-            .iter()
-            .filter(|c| matches!(c.family, FactFamily::Exports | FactFamily::Signatures))
-            .all(|c| c.status == CoverageStatus::CompleteUnderStatedModel)
-    );
+    // Source declarations stay located even when a native callable shape is unavailable.
+    assert!(f.coverage.iter().filter(|c| c.family == FactFamily::Exports)
+        .all(|c| c.status == CoverageStatus::CompleteUnderStatedModel));
+    for declaration in &f.declarations {
+        assert!(f.symbol_declarations.iter().any(|d| d.declaration == declaration.declaration),
+            "native declaration remains attached: {}", f.text(declaration.name));
+    }
+    for coverage in f.coverage.iter().filter(|c| c.family == FactFamily::Signatures) {
+        match coverage.status {
+            CoverageStatus::CompleteUnderStatedModel => {}
+            CoverageStatus::Partial => {
+                assert_eq!(coverage.reason, Some(ObligationKind::OutsideProviderModel), "{coverage:?}");
+                let disclosed: Vec<_> = f.boundaries.iter().filter(|b| {
+                    b.scope == coverage.scope && Some(b.provider) == coverage.provider
+                        && b.context == coverage.context && b.family == coverage.family
+                        && Some(b.reason) == coverage.reason
+                }).collect();
+                assert!(!disclosed.is_empty(), "partial signatures require their actual attributed boundary: {coverage:?}");
+                for boundary in disclosed {
+                    let detail = boundary.detail.as_deref().unwrap();
+                    if detail.starts_with("native signature variant") {
+                        assert!(f.signatures.iter().any(|s| s.form == SignatureForm::NativeUnavailable),
+                            "unavailable native binding shape remains represented: {:?}", f.symbols);
+                    } else {
+                        assert!(detail.starts_with("model-context "), "unexpected native signature boundary: {boundary:?}");
+                    }
+                }
+            }
+            other => panic!("source signature inventory must remain available: {other:?}, {coverage:?}"),
+        }
+    }
     let _ = path;
 }
 
@@ -542,9 +574,19 @@ async fn literal_all_is_stated_and_computed_all_is_a_boundary() {
                 "__all__ = sub.__all__ + [\"top\"]".into(),
                 ObligationKind::OutsideProviderModel,
                 FactFamily::Exports
-            )
+            ),
+            ("__all__.append".into(), ObligationKind::MissingEvidence, FactFamily::Types)
         ]
     );
+    let boundary = f.boundaries.iter().find(|b| {
+        b.family == FactFamily::Types && b.subject.is_some_and(|s| f.text(s) == "__all__.append")
+    }).unwrap();
+    assert_eq!(boundary.detail.as_deref(), Some("native generic receiver lacks emitted signature origin"));
+    assert!(!f.specializations.iter().any(|s| Some(s.site) == boundary.subject),
+        "missing native signature origin cannot invent a receiver substitution");
+    assert!(f.coverage.iter().any(|c| c.family == boundary.family && c.scope == boundary.scope
+        && c.context == boundary.context && c.provider == Some(boundary.provider)
+        && c.status == CoverageStatus::Partial));
     let imports = f.imports("dunder/__init__.py");
     assert_eq!(
         imports,
