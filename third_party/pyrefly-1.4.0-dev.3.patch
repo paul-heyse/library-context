@@ -1,27 +1,3 @@
-From 72bb34d6d67c2bc14720c77e2ad7eff6b89d360f Mon Sep 17 00:00:00 2001
-From: paul-heyse <paul@heyse.io>
-Date: Sat, 3 Oct 2026 07:47:24 -0400
-Subject: [PATCH] lctx: expose collectors and located native exit and terminal
- observations
-
-Rebase the minimal embedding visibility patch on 1.4.0-dev.3, retire obsolete annotation exposure, and add query-scoped owned normal/error exit and qualified terminal observations. Native reachability, hover traces and diagnostics remain unchanged.
-
-Tested 2026-10-03: pinned-nightly release State/Transaction/Answers harness passed 6 exit and 6 terminal controls, invalid-location and unforced-variable controls, before/after query parity, and byte-identical unmodified-tag inference/hover/diagnostic parity. No product qualification run.
----
- pyrefly/lib/alt.rs                       |   1 +
- pyrefly/lib/alt/class/class_field.rs     |   2 +-
- pyrefly/lib/alt/observations.rs          |  77 +++++++++++++
- pyrefly/lib/alt/solve.rs                 | 135 +++++++++++++++++++++--
- pyrefly/lib/commands/coverage.rs         |   2 +-
- pyrefly/lib/commands/coverage/collect.rs |  10 +-
- pyrefly/lib/error/collector.rs           |   9 ++
- pyrefly/lib/lib.rs                       |   4 +-
- pyrefly/lib/report/pysa.rs               |   6 +
- pyrefly/lib/report/pysa/call_graph.rs    |   4 +-
- pyrefly/lib/state/state.rs               |  41 ++++++-
- 11 files changed, 267 insertions(+), 24 deletions(-)
- create mode 100644 pyrefly/lib/alt/observations.rs
-
 diff --git a/pyrefly/lib/alt.rs b/pyrefly/lib/alt.rs
 index de6387444..3d92e161b 100644
 --- a/pyrefly/lib/alt.rs
@@ -34,6 +10,149 @@ index de6387444..3d92e161b 100644
  pub mod overload;
  pub mod polars_specials;
  pub mod regex;
+diff --git a/pyrefly/lib/alt/answers.rs b/pyrefly/lib/alt/answers.rs
+index f3dd464b1..f815a2e33 100644
+--- a/pyrefly/lib/alt/answers.rs
++++ b/pyrefly/lib/alt/answers.rs
+@@ -85,6 +85,7 @@ use crate::types::heap::TypeHeap;
+ use crate::types::stdlib::Stdlib;
+ use crate::types::types::Forall;
+ use crate::types::types::Forallable;
++use crate::types::function::FuncDefId;
+ use crate::types::types::TParams;
+ use crate::types::types::Type;
+ 
+@@ -142,6 +143,7 @@ impl VisitMut<Type> for Traces {
+                     let OverloadTrace {
+                         callable,
+                         tparams: _,
++                        origin: _,
+                     } = trace;
+                     callable.visit_mut(f);
+                 }
+@@ -149,6 +151,7 @@ impl VisitMut<Type> for Traces {
+                     for OverloadTrace {
+                         callable,
+                         tparams: _,
++                        origin: _,
+                     } in all.iter_mut().chain(std::iter::once(closest))
+                     {
+                         callable.visit_mut(f);
+@@ -163,11 +166,12 @@ impl VisitMut<Type> for Traces {
+ pub struct OverloadTrace {
+     callable: Callable,
+     tparams: Option<Arc<TParams>>,
++    origin: Option<FuncDefId>,
+ }
+ 
+ impl OverloadTrace {
+-    pub(crate) fn new(callable: Callable, tparams: Option<Arc<TParams>>) -> Self {
+-        Self { callable, tparams }
++    pub(crate) fn new(callable: Callable, tparams: Option<Arc<TParams>>, origin: Option<FuncDefId>) -> Self {
++        Self { callable, tparams, origin }
+     }
+ 
+     fn as_type(&self) -> Type {
+@@ -181,6 +185,30 @@ impl OverloadTrace {
+     }
+ }
+ 
++/// Observation-only selection state; legacy IDE recovery is not a unique member choice.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum NativeOverloadSelection {
++    Resolved,
++    Selected,
++    AmbiguousRepresentative,
++    ExpandedRepresentative,
++    ClosestOnly,
++    Recovered,
++}
++#[derive(Debug, Clone)]
++pub struct NativeOverloadCandidate {
++    pub ordinal: usize,
++    pub callable: Callable,
++    pub tparams: Option<Arc<TParams>>,
++    pub origin: Option<FuncDefId>,
++}
++#[derive(Debug, Clone)]
++pub struct NativeOverloadTrace {
++    pub candidates: Vec<NativeOverloadCandidate>,
++    pub closest_ordinal: usize,
++    pub selection: NativeOverloadSelection,
++}
++
+ #[derive(Debug, Clone)]
+ pub enum OverloadedCallee {
+     Resolved {
+@@ -190,6 +218,8 @@ pub enum OverloadedCallee {
+         all: Vec<OverloadTrace>,
+         closest: OverloadTrace,
+         is_closest_chosen: bool,
++        closest_ordinal: usize,
++        selection: NativeOverloadSelection,
+     },
+ }
+ 
+@@ -1665,6 +1695,25 @@ impl Answers {
+         }
+     }
+ 
++    /// Original member identities and run-local vector ordinals before callable erasure.
++    /// Representative and recovery states never certify a unique selected member.
++    pub fn get_native_overload_trace(&self, range: TextRange) -> Option<NativeOverloadTrace> {
++        let lock = self.trace.as_ref()?.lock();
++        let candidate = |ordinal, trace: &OverloadTrace| NativeOverloadCandidate {
++            ordinal, callable: trace.callable.clone(), tparams: trace.tparams.clone(), origin: trace.origin.clone(),
++        };
++        Some(match lock.overloaded_callees.get(&range)? {
++            OverloadedCallee::Resolved { callable } => NativeOverloadTrace {
++                candidates: vec![candidate(0, callable)], closest_ordinal: 0,
++                selection: NativeOverloadSelection::Resolved,
++            },
++            OverloadedCallee::Candidates { all, closest_ordinal, selection, .. } => NativeOverloadTrace {
++                candidates: all.iter().enumerate().map(|(ordinal, trace)| candidate(ordinal, trace)).collect(),
++                closest_ordinal: *closest_ordinal, selection: *selection,
++            },
++        })
++    }
++
+     /// Returns all the overload, and the index of a chosen one
+     pub fn get_all_overload_trace(
+         &self,
+@@ -1714,7 +1763,14 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+             self.trace_state().record_resolved_trace(
+                 loc,
+                 OverloadedCallee::Resolved {
+-                    callable: OverloadTrace::new(callable, None),
++                    callable: OverloadTrace::new(callable, None, match ty {
++                        Type::Function(function) => function.metadata.kind.as_func_def_id().cloned(),
++                        Type::Forall(forall) => match &forall.body {
++                            Forallable::Function(function) => function.metadata.kind.as_func_def_id().cloned(),
++                            _ => None,
++                        },
++                        _ => None,
++                    }),
+                 },
+             );
+         }
+@@ -1728,6 +1784,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+         all_overloads: Vec<OverloadTrace>,
+         closest_overload: OverloadTrace,
+         is_closest_overload_chosen: bool,
++        closest_ordinal: usize,
++        selection: NativeOverloadSelection,
+     ) {
+         if self.current().trace.is_some() {
+             self.trace_state().record_overload_trace(
+@@ -1736,6 +1794,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                     all: all_overloads,
+                     closest: closest_overload,
+                     is_closest_chosen: is_closest_overload_chosen,
++                    closest_ordinal,
++                    selection,
+                 },
+             );
+         }
 diff --git a/pyrefly/lib/alt/class/class_field.rs b/pyrefly/lib/alt/class/class_field.rs
 index 1e95411c5..d1936cb9d 100644
 --- a/pyrefly/lib/alt/class/class_field.rs
@@ -130,6 +249,115 @@ index 000000000..820cab09c
 +        self.decision == TerminalCallDecision::DeclaredOrInferredDivergence
 +    }
 +}
+diff --git a/pyrefly/lib/alt/overload.rs b/pyrefly/lib/alt/overload.rs
+index 68c8cb4c6..505d6d149 100644
+--- a/pyrefly/lib/alt/overload.rs
++++ b/pyrefly/lib/alt/overload.rs
+@@ -32,7 +32,7 @@ use starlark_map::small_set::SmallSet;
+ use vec1::Vec1;
+ 
+ use crate::alt::answers::LookupAnswer;
+-use crate::alt::answers::OverloadTrace;
++use crate::alt::answers::{OverloadTrace, NativeOverloadSelection};
+ use crate::alt::answers_solver::AnswersSolver;
+ use crate::alt::call::TargetWithTParams;
+ use crate::alt::callable::ArgMap;
+@@ -59,6 +59,7 @@ use crate::types::types::Var;
+ 
+ struct CalledOverload<'f> {
+     func: &'f TargetWithTParams<Function>,
++    origin_selection: NativeOverloadSelection,
+     res: Type,
+     ctor_targs: Option<TArgs>,
+     table: OverloadTable,
+@@ -348,6 +349,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+             Err(_) => (
+                 CalledOverload {
+                     func: arity_closest_overload.unwrap().0,
++                    origin_selection: NativeOverloadSelection::ClosestOnly,
+                     res: self.heap.mk_any_error(),
+                     ctor_targs: None,
+                     table: OverloadTable::default(),
+@@ -421,6 +423,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                                 && !self.is_equivalent(&expanded_res, &closest_overload.res)
+                             {
+                                 closest_overload.res = expanded_res;
++                                closest_overload.origin_selection = NativeOverloadSelection::ExpandedRepresentative;
+                                 break;
+                             }
+                             continue 'outer;
+@@ -445,6 +448,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                             .collect();
+                         closest_overload = CalledOverload {
+                             func,
++                            origin_selection: NativeOverloadSelection::ExpandedRepresentative,
+                             ctor_targs,
+                             table,
+                             argmap,
+@@ -462,6 +466,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                         break;
+                     }
+                 }
++                if !matched && arity_compatible_overloads.len() == 1 {
++                    closest_overload.origin_selection = NativeOverloadSelection::Recovered;
++                }
+                 (
+                     closest_overload,
+                     // If there was only one overload with the right arity, it definitely matched.
+@@ -486,7 +493,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                     .as_ref()
+                     .filter(|tparams| !tparams.is_empty())
+                     .cloned();
+-                OverloadTrace::new(target.1.signature.clone(), tparams)
++                OverloadTrace::new(target.1.signature.clone(), tparams, target.1.metadata.kind.as_func_def_id().cloned())
+             };
+             let all_overload_traces = overloads.iter().map(&mut overload_trace).collect();
+             let closest_overload_trace = overload_trace(closest_overload.func);
+@@ -495,6 +502,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                 all_overload_traces,
+                 closest_overload_trace,
+                 matched,
++                overloads.iter().position(|target| std::ptr::eq(target, closest_overload.func))
++                    .expect("Closest overload belongs to the original input vector"),
++                closest_overload.origin_selection,
+             );
+         }
+         if matched {
+@@ -1020,7 +1030,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                     .nth(idx)
+                     .expect("Could not find selected overload");
+                 // Now that we've selected an overload, use the hint to contextually type the arguments.
+-                let contextual_overload = self.call_overload(
++                let mut contextual_overload = self.call_overload(
+                     overload.func,
+                     metadata,
+                     shape_transform,
+@@ -1032,6 +1042,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                     Some(&overload.defaults_used),
+                     ctor_targs,
+                 );
++                contextual_overload.origin_selection = NativeOverloadSelection::Selected;
++                let mut overload = overload;
++                overload.origin_selection = NativeOverloadSelection::Selected;
+                 (
+                     // The contextual pass may legitimately introduce late resolution errors, so
+                     // we only fall back to the no-hint version on hard call errors. See
+@@ -1052,6 +1065,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+                 (
+                     CalledOverload {
+                         res: self.heap.mk_any_implicit(),
++                        origin_selection: NativeOverloadSelection::AmbiguousRepresentative,
+                         ..first_overload
+                     },
+                     true,
+@@ -1173,6 +1187,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+             );
+         CalledOverload {
+             func: callable,
++            origin_selection: NativeOverloadSelection::ClosestOnly,
+             res,
+             ctor_targs: overload_ctor_targs,
+             table,
 diff --git a/pyrefly/lib/alt/solve.rs b/pyrefly/lib/alt/solve.rs
 index 9f64166a1..ece3b7454 100644
 --- a/pyrefly/lib/alt/solve.rs
@@ -541,6 +769,3 @@ index 2cf7ec113..e130e8250 100644
      }
  
      pub fn get_module_docstring_range(&self, handle: &Handle) -> Option<TextRange> {
--- 
-2.43.0
-

@@ -355,7 +355,9 @@ new source contract; a fork compile alone does not.
   | `ArtificialCall`, `ArtificialAttributeAccess`, format-string callees | as the callee kind above, keeping the `OriginKind` | as above | as above | synthetic_model |
   | `Unresolved::True(reason)` | an `unresolved` row with the reason: `has_unresolved_remainder` on the resolution | `call` | `definite`, or `potential` under `if_called` and higher-order lists | as the site |
   | receiver fields (`implicit_receiver`, `receiver_class`, `implicit_dunder_call`, class and static method flags) | columns on the target row | — | — | — |
-  | `Target::FormatString`, `Return` shims, `global_targets`, `captured_variables`, `return_type` | **not carried**: synthetic or no consumer | — | — | — |
+  | `Target::FormatString` | synthetic formatting destination; artificial/stringify site and origin are retained | native callee phase | as reported | synthetic_model |
+  | native local/global captures | attributed function/capture records from `capture_records.rs`, including globals omitted by the exported Pysa projection | — | native asserted basis | analyzer_assertion |
+  | `Return` shims and remaining `global_targets`/`return_type` callee payload | **not carried by the call adapter**; separate type-role observations do not imply shim payload coverage | — | — | — |
   | `Define` | **not carried**: it links a nested `def` to the function it creates, which `declarations` already records | — | — | — |
 
   Pysa numbers higher-order arguments with the same `iter_source_order().enumerate()` as
@@ -486,3 +488,15 @@ drain. Earlier retired-pipeline measurements do not establish current throughput
 preserved benchmark captures keep their original boundaries.
 
 > Decision: ADR-0086, ADR-0016, ADR-0116
+
+### Native overload origin observations
+
+**Accepted target, Interface-checked 2026-10-04 (ADR-0121).** The tracing-only supplier seam retains
+original FuncDefId and original call-local vector ordinal before Callable erasure. Selected, ambiguous
+representative, expanded representative, closest-only and recovered states are distinct; resolved
+callable traces do not prove runtime applicability. Original identity joins native signature metadata
+origin, never the family implementation key, shape or declaration ordinal. Missing receiver and solved
+specialization basis remains unavailable. Legacy inferred types, diagnostics and IDE getters are
+preserved; adapter/replay and paired native controls own verification in the enrichment coordinator.
+
+> Decision: ADR-0121

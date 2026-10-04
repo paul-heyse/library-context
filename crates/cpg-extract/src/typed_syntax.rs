@@ -874,8 +874,8 @@ fn syntax_kind(k: NodeKind) -> SyntaxKind {
 }
 
 /// The pinned Pyrefly fork commit and the Ruff line its retained AST comes from.
-pub const PYREFLY_REVISION: &str = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f;ruff=0.0.14";
+pub const PYREFLY_REVISION: &str = "63cda076956013cd0bd1d0d05c785f747fe6adc0;ruff=0.0.14";
 
 /// The exact native source patch participates in the declared producer build fingerprint.
 pub const PYREFLY_PATCH_SHA256: &str =
-    "8edb905a630440b82baec9df453b26ee93db86f9ad346f73d86ad6fe80c1a077";
+    "178788fc11391c4a638306b06ba9433f15a6950dbdc184c6c5042959896e0391";

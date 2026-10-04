@@ -32,6 +32,18 @@ below lower from `lctx-model`; they are not independent SQL or Python schema aut
 
 <a id="section-14-1"></a>
 
+**Accepted target, Interface-checked 2026-10-04.** Bounded model operations extend opt-in operation
+sections with exact callable-role comparison, source constructor/reader associations, contextual
+Expected typing, supported access routes and captured incoming name references. Exact diagnostic-use
+correlation is source evidence. Native overload origins may establish a normalized variant only through
+original member identity and required receiver/specialization correspondence; representative and
+recovery states remain unavailable for unique choice. Neither retained type differences nor source
+relationships certify compatibility or runtime behavior. Ty navigation and odis remain development-only
+oracles; current production interpretation and charged kernels remain authoritative. Implementation
+and qualification are owned by the [enrichment coordinator](../../plans/code-facts-analytical-enrichment-plan_2026-10-04.md).
+
+> Decision: ADR-0121
+
 ## §14.1 What must be different from Context7
 
 Version-aware documentation, source links, search and examples are comparison baselines, not

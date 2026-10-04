@@ -54,17 +54,21 @@ reqwest = { version = "=0.12.28", default-features = false }
 
 # ADR-0117/0118: native Pyrefly keeps embedded registry Ruff 0.0.14.
 # Latest Ruff/ty use one nominal fork source; no AST type crosses the adapter boundary.
-pyrefly = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
-pyrefly_build = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
-pyrefly_config = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
-pyrefly_python = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
-pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
-pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "72bb34d6d67c2bc14720c77e2ad7eff6b89d360f" }
+pyrefly = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
+pyrefly_build = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
+pyrefly_config = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
+pyrefly_python = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
+pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
+pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
 ruff_python_ast = "=0.0.14"
 ruff_python_parser = "=0.0.14"
 ruff_source_file = "=0.0.14"
 ruff_text_size = "=0.0.14"
 # Independent Ruff/ty source; salsa and both macro crates stay exactly 0.28.5.
+ruff_ranged_value = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301" }
+ty_ide = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301" }
+ty_project = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301" }
+ty_python_semantic = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301" }
 ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301" }
 ty_module_resolver = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301" }
 ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301" }

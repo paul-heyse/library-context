@@ -1360,6 +1360,7 @@ dependencies = [
  "ruff_python_parser 0.0.14",
  "ruff_python_parser 0.0.16",
  "ruff_python_semantic",
+ "ruff_ranged_value",
  "ruff_source_file 0.0.14",
  "ruff_text_size 0.0.14",
  "ruff_text_size 0.0.16",
@@ -1372,6 +1373,10 @@ dependencies = [
  "tokio",
  "toml 1.1.6+spec-1.1.0",
  "tracing-subscriber",
+ "ty_ide",
+ "ty_project",
+ "ty_python_core",
+ "ty_python_semantic",
  "url",
  "walkdir",
 ]
@@ -1440,6 +1445,19 @@ name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
+
+[[package]]
+name = "crossbeam"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e71406cd8807725f7ac2f999a4cdd32e98f829fdf65f528343cebf945e41df1e"
+dependencies = [
+ "crossbeam-channel",
+ "crossbeam-deque",
+ "crossbeam-epoch",
+ "crossbeam-queue",
+ "crossbeam-utils",
+]
 
 [[package]]
 name = "crossbeam-channel"
@@ -2466,6 +2484,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3076,6 +3115,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap 2.14.2",
  "ordermap",
+ "parking_lot",
  "smallvec",
  "thin-vec",
 ]
@@ -5059,6 +5099,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "option-ext"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
 name = "ordered-multimap"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5075,6 +5121,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16a756ddcdeb6c0efc8927bdf0ed112885815a35ba350472a467be5104f01ca1"
 dependencies = [
  "indexmap 2.14.2",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -5754,7 +5802,7 @@ dependencies = [
 [[package]]
 name = "pyrefly"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "anstream 0.6.21",
  "anyhow",
@@ -5823,7 +5871,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_build"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -5845,7 +5893,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_bundled"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "anyhow",
  "sha2 0.10.9",
@@ -5857,7 +5905,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_config"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5891,7 +5939,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_derive"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5901,7 +5949,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_glean_schema"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5911,7 +5959,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_graph"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "dupe",
  "pyrefly_util",
@@ -5921,7 +5969,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_python"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5949,7 +5997,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_types"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "compact_str",
  "dupe",
@@ -5970,7 +6018,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_util"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "anstream 0.6.21",
  "anyhow",
@@ -6263,6 +6311,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_users"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
+dependencies = [
+ "libredox",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ref-cast"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6489,6 +6547,7 @@ dependencies = [
  "pathdiff",
  "quick-junit",
  "ruff_annotate_snippets 0.0.16",
+ "ruff_cache 0.0.16",
  "ruff_diagnostics 0.0.16",
  "ruff_memory_usage",
  "ruff_notebook 0.0.16",
@@ -6655,6 +6714,11 @@ dependencies = [
  "thiserror 2.0.21",
  "uuid",
 ]
+
+[[package]]
+name = "ruff_options_metadata"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 
 [[package]]
 name = "ruff_python_ast"
@@ -6869,6 +6933,7 @@ name = "ruff_ranged_value"
 version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
+ "get-size2",
  "ruff_db",
  "ruff_python_ast 0.0.16",
  "ruff_text_size 0.0.16",
@@ -7484,6 +7549,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shellexpand"
+version = "3.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32824fab5e16e6c4d86dc1ba84489390419a39f97699852b66480bb87d297ed8"
+dependencies = [
+ "dirs",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7567,7 +7641,7 @@ version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "287f59010008f0d7cf5e3b03196d666c1acc46c8d3e9cf34c28a1a7157601e72"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -8619,7 +8693,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 [[package]]
 name = "tsp_types"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=72bb34d6d67c2bc14720c77e2ad7eff6b89d360f#72bb34d6d67c2bc14720c77e2ad7eff6b89d360f"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
 dependencies = [
  "lsp-server",
  "serde",
@@ -8642,6 +8716,42 @@ dependencies = [
  "ruff_db",
  "ruff_python_ast 0.0.16",
  "ruff_ranged_value",
+]
+
+[[package]]
+name = "ty_ide"
+version = "0.0.0"
+source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+dependencies = [
+ "bitflags 2.13.2",
+ "compact_str",
+ "get-size2",
+ "indexmap 2.14.2",
+ "itertools 0.15.0",
+ "rayon",
+ "regex",
+ "ruff_db",
+ "ruff_diagnostics 0.0.16",
+ "ruff_index",
+ "ruff_memory_usage",
+ "ruff_python_ast 0.0.16",
+ "ruff_python_literal",
+ "ruff_python_stdlib",
+ "ruff_python_trivia 0.0.16",
+ "ruff_source_file 0.0.16",
+ "ruff_text_size 0.0.16",
+ "rustc-hash",
+ "salsa",
+ "smallvec",
+ "strum",
+ "strum_macros",
+ "toml_parser",
+ "tracing",
+ "ty_module_resolver",
+ "ty_project",
+ "ty_python_core",
+ "ty_python_semantic",
+ "ty_vendored",
 ]
 
 [[package]]
@@ -8671,6 +8781,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "ty_project"
+version = "0.0.0"
+source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+dependencies = [
+ "anyhow",
+ "bitvec",
+ "camino",
+ "char_str",
+ "colored",
+ "compact_str",
+ "crossbeam",
+ "get-size2",
+ "globset",
+ "notify",
+ "ordermap",
+ "parking_lot",
+ "pep440_rs",
+ "rayon",
+ "regex",
+ "regex-automata",
+ "ruff_cache 0.0.16",
+ "ruff_db",
+ "ruff_macros",
+ "ruff_memory_usage",
+ "ruff_options_metadata",
+ "ruff_python_ast 0.0.16",
+ "ruff_ranged_value",
+ "ruff_text_size 0.0.16",
+ "rustc-hash",
+ "salsa",
+ "serde",
+ "serde_json",
+ "shellexpand",
+ "strum",
+ "strum_macros",
+ "thiserror 2.0.21",
+ "toml 1.1.6+spec-1.1.0",
+ "tracing",
+ "ty_combine",
+ "ty_module_resolver",
+ "ty_python_core",
+ "ty_python_semantic",
+ "ty_static",
+ "ty_vendored",
+]
+
+[[package]]
 name = "ty_python_core"
 version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
@@ -8683,12 +8840,14 @@ dependencies = [
  "itertools 0.15.0",
  "ruff_db",
  "ruff_index",
+ "ruff_macros",
  "ruff_memory_usage",
  "ruff_python_ast 0.0.16",
  "ruff_python_parser 0.0.16",
  "ruff_text_size 0.0.16",
  "rustc-hash",
  "salsa",
+ "serde",
  "smallvec",
  "static_assertions",
  "thin-vec",
@@ -8697,6 +8856,51 @@ dependencies = [
  "ty_module_resolver",
  "ty_site_packages",
  "ty_vendored",
+]
+
+[[package]]
+name = "ty_python_semantic"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+dependencies = [
+ "bitflags 2.13.2",
+ "char_str",
+ "compact_str",
+ "drop_bomb",
+ "get-size2",
+ "indexmap 2.14.2",
+ "itertools 0.15.0",
+ "memchr",
+ "ordermap",
+ "rayon",
+ "ruff_db",
+ "ruff_diagnostics 0.0.16",
+ "ruff_index",
+ "ruff_macros",
+ "ruff_memory_usage",
+ "ruff_python_ast 0.0.16",
+ "ruff_python_codegen",
+ "ruff_python_edits",
+ "ruff_python_importer",
+ "ruff_python_literal",
+ "ruff_python_parser 0.0.16",
+ "ruff_python_stdlib",
+ "ruff_python_trivia 0.0.16",
+ "ruff_source_file 0.0.16",
+ "ruff_text_size 0.0.16",
+ "rustc-hash",
+ "salsa",
+ "serde",
+ "smallvec",
+ "static_assertions",
+ "strum",
+ "strum_macros",
+ "thiserror 2.0.21",
+ "tracing",
+ "ty_module_resolver",
+ "ty_python_core",
+ "ty_site_packages",
+ "ty_static",
 ]
 
 [[package]]
@@ -9662,6 +9866,7 @@ dependencies = [
  "indexmap 2.14.2",
  "memchr",
  "typed-path",
+ "zstd 0.13.3",
 ]
 
 [[package]]

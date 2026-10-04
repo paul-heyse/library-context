@@ -49,6 +49,12 @@ tokio = { workspace = true, features = ["sync"] }
 blake3.workspace = true
 
 [dev-dependencies]
+ruff_ranged_value.workspace = true
+ty_ide.workspace = true
+ty_project.workspace = true
+ty_python_semantic.workspace = true
+ty_python_core.workspace = true
+ruff_db.workspace = true
 lctx-analytics = { path = "../lctx-analytics" }
 # producer_fingerprint includes the same external shared build source.
 blake3.workspace = true
