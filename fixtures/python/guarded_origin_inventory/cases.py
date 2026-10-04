@@ -41,3 +41,8 @@ def deleted(value, flag):
     if flag:
         del value
     return value
+
+def loop_read(value, items):
+    for item in items:
+        value = value + item
+    return value

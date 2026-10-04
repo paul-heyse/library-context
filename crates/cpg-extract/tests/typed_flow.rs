@@ -483,6 +483,7 @@ async fn actual_native_inventory_retains_competitors_and_loop_limits() {
         let originals=candidates.iter().copied().filter(parameter).collect::<Vec<_>>();let competitors=candidates.iter().copied().filter(|r|!parameter(r)).collect::<Vec<_>>();investigated+=1;
         if originals.len()==1 && diagram(originals[0].qualification).and(&q).unwrap().id()==q.id() && competitors.iter().all(|r|diagram(r.qualification).and(&q).unwrap().is_false()) {useful+=1;}
     }
+    eprintln!("inventories={} candidates={} complete={} incomplete={} guarded_multicandidate_reads={} useful={}",inventories.len(),candidates.len(),inventories.iter().filter(|i|i.complete).count(),inventories.iter().filter(|i|!i.complete).count(),investigated,useful);
     assert!(investigated>=3,"actual adapter retains representative multi-candidate identity reads");assert_eq!(useful,0,"no native useful guarded-origin case established by this bounded fixture search");
     let catalog=Tables::default();typed_driver::run(&files,Flow(catalog.clone())).await.unwrap();assert!(rows::<FlowUseInventoryObservation>(&catalog).is_empty(),"Catalog does not request flow");
 }
