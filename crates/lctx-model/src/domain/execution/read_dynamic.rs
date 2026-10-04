@@ -501,16 +501,48 @@ impl Inspect<'_> {
             .ok_or_else(|| ModelError::Invalid("global native binding premise missing".into()))?.clone())?;
         Ok(Some(value.occurrence))
     }
+    /// A located finalized native reference can identify a declared module binding across
+    /// lexical scopes. This source inspection supplies no closure capture or runtime value.
+    fn module_reference(&mut self, site: Id<Occurrence>) -> Result<Option<Id<BindingEvent>>, ModelError> {
+        let Some(source) = self.entry.occurrences.get(site).map(|o| o.source) else { return Ok(None) };
+        self.work.scan(self.data.ruff_contexts.len())?;
+        let mut selected = None;
+        for row in self.data.ruff_contexts.iter().filter(|r| r.subject == site) {
+            if row.phase != ruff::ContextPhase::FinalReference
+                || row.reference_load != Some(true)
+                || row.typing != Some(false) || row.typing_only_annotation != Some(false)
+                || row.runtime_annotation != Some(false) || row.string_annotation != Some(false)
+                || row.type_checking != Some(false)
+                || row.final_binding_location != Some(ruff::AttachmentStatus::Located)
+                || !self.always(row.qualification)
+            { continue }
+            let Some(event) = row.final_binding else { continue };
+            let Some(reference) = declared_class_inspection(
+                super::read_channels::NativeContext {
+                    data: self.data, entry: self.entry, invocation: self.invocation,
+                },
+                &self.data.ruff_context_supports, row.id(), row.qualification, site, self.work,
+            )? else { continue };
+            let Some((binding, proof)) = super::read_channels::native_binding(
+                self.data, self.entry, self.invocation, event, self.work,
+            )? else { continue };
+            if reference.1 != proof.1 || binding.scope.and_then(|s| self.entry.lexical_scopes.get(s))
+                .is_none_or(|scope| scope.kind != LexicalScopeKind::Module
+                    || self.entry.occurrences.get(scope.owner).is_none_or(|o| o.source != source))
+            { continue }
+            if selected.is_some() { return Ok(None) }
+            self.premises.insert(self.data.premises.get(reference.0)
+                .ok_or_else(|| ModelError::Invalid("module reference native premise missing".into()))?.clone())?;
+            selected = Some(event);
+        }
+        Ok(selected)
+    }
     fn global(
         &mut self,
-        site: Id<Occurrence>,
+        event: Id<BindingEvent>,
         depth: usize,
     ) -> Result<Option<(Id<ClassEntity>, DeclaredClassOrigin)>, ModelError> {
-        let Some(target) = self.lexical_target(site)? else { return Ok(None) };
-        let Some(LexicalTarget::Binding { event }) = self.data.lexical_targets.get(target) else {
-            return Ok(None);
-        };
-        let Some(event) = self.data.binding_events.get(*event) else { return Ok(None) };
+        let Some(event) = self.data.binding_events.get(event) else { return Ok(None) };
         let Some(value) = self.global_value(event)? else { return Ok(None) };
         self.constructed_class(value, depth)
     }
@@ -618,16 +650,8 @@ impl Inspect<'_> {
         {
             return Ok(None);
         };
-        let target = self.lexical_target(site)?;
-        self.work.scan(self.data.ruff_bindings.len())?;
-        let module_binding = target.is_some_and(|t| matches!(
-            self.data.lexical_targets.get(t), Some(LexicalTarget::Binding { event })
-                if self.data.ruff_bindings.iter().any(|b| b.event == *event
-                    && b.scope.is_some_and(|scope| self.entry.lexical_scopes.get(scope)
-                        .is_some_and(|s| s.kind == LexicalScopeKind::Module)))
-        ));
-        if module_binding {
-            return self.global(site, depth + 1);
+        if let Some(event) = self.module_reference(site)? {
+            return self.global(event, depth + 1);
         }
         let mut reach_rows = self.entry.reaching.iter().filter(|r| {
             r.use_ == use_.id()

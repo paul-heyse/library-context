@@ -80,6 +80,8 @@ macro_rules! execution_evaluation_inputs {
             binding_events:$crate::domain::lexical::BindingEvent,
             bindings:$crate::domain::lexical::BindingObservation,
             binding_supports:$crate::domain::lexical::BindingSupport,
+            ruff_contexts:$crate::domain::ruff::RuffContextObservation,
+            ruff_context_supports:$crate::domain::ruff::RuffContextSupport,
             ruff_bindings:$crate::domain::ruff::RuffBindingObservation,
             ruff_binding_supports:$crate::domain::ruff::RuffBindingSupport,
             captures:$crate::domain::captures::CaptureObservation,

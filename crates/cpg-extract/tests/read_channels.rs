@@ -135,9 +135,39 @@ async fn actual_read_inventory_and_complete_negative_are_replayed() {
     assert!(records.reads.dynamic.iter().any(|d|text(&f,d.site)=="getattr(fixed, name)"&&d.declared_class==Some(choice)));
     // Source initializer inspection requires independently paired native binding and syntax
     // authority. Retained recognizer bindings cannot replace a missing native premise.
-    for mutation in ["initializer binding", "class binding", "initializer syntax"] {
+    for mutation in ["initializer binding", "class binding", "initializer syntax", "module reference support", "foreign module reference"] {
         let mut missing = source_fixture::data(&f);
-        if mutation == "initializer syntax" {
+        if mutation == "module reference support" || mutation == "foreign module reference" {
+            let call = missing.evaluation.call_syntax.iter().find(|c| text(&f, c.site) == "getattr(fixed, name)").unwrap();
+            let read = missing.evaluation.call_arguments.iter().find(|a| a.call == call.id() && a.ordinal == 0).unwrap().value;
+            let reference = missing.evaluation.ruff_contexts.iter().find(|r| r.subject == read
+                && r.phase == ruff::ContextPhase::FinalReference && r.final_binding.is_some()).unwrap();
+            let reference_id = reference.id();
+            let original = missing.evaluation.ruff_context_supports.iter()
+                .find(|s| s.assertion == reference_id).unwrap().clone();
+            let retained = missing.evaluation.ruff_context_supports.iter()
+                .filter(|s| s.assertion != reference_id).cloned().collect::<Vec<_>>();
+            missing.evaluation.ruff_context_supports = Rows::new(&f.budget);
+            for support in retained { missing.evaluation.ruff_context_supports.insert(support).unwrap(); }
+            if mutation == "foreign module reference" {
+                let mut foreign = original;
+                foreign.run = missing.flow.runs.iter().find(|r| r.input == invocation.input
+                    && r.context == invocation.context && r.id() != foreign.run).unwrap().id();
+                let pair = analysis::native::NativeAssertionPremise::RuffContextObservation {
+                    assertion: reference_id, support: foreign.id(),
+                };
+                // Re-pair the forged receipt so refusal tests same-run native correspondence,
+                // rather than failing merely because the altered support lacks hydration.
+                let qualification = analysis::native::NativeQualification {
+                    premise: pair.id(), qualification: reference.qualification,
+                    family: attribution::FactFamily::Lexical, fidelity: attribution::Fidelity::NativeStructural,
+                    status: analysis::policy::EvidenceStatus::StructurallyObserved,
+                };
+                missing.evaluation.ruff_context_supports.insert(foreign).unwrap();
+                missing.evaluation.premises.insert(pair).unwrap();
+                missing.evaluation.native.insert(qualification).unwrap();
+            }
+        } else if mutation == "initializer syntax" {
             let value = missing.evaluation.placements.iter().find(|p| {
                 p.field == lexical::SyntaxField::Value && text(&f, p.occurrence) == "ChoiceA()"
                     && p.parent.is_some_and(|parent| text(&f, parent) == "fixed = ChoiceA()")
