@@ -75,7 +75,13 @@ fn ty_reference_oracle_child() {
     let db = database(true, false);
     let operation = API.find("operation(value").unwrap();
     let uses = references(&db, "api.py", operation, false).unwrap();
-    assert!(uses.iter().any(|r| r.0.ends_with("uses.py")), "resolved import alias must remain in the captured universe");
+    assert!(uses.iter().any(|r| r.0.ends_with("uses.py")), "same-spelling cross-module references must remain in the captured universe: {uses:?}");
+    // ResolveAliases resolves semantic definitions, but the pinned search also filters
+    // by the requested spelling. It does not enumerate differently spelled alias uses.
+    let aliased=USES.find("value_reference = alias").unwrap()+"value_reference = ".len();
+    assert!(!uses.iter().any(|r|r.0=="/captured/uses.py" && r.1==aliased));
+    let alias_query=references(&db,"uses.py",USES.find("alias").unwrap(),false).unwrap();
+    assert!(alias_query.iter().any(|r|r.0=="/captured/uses.py" && r.1==aliased),"same-spelling alias query must retain its resolved semantic target");
     assert!(!uses.iter().any(|r| r.0.ends_with("omitted.py")));
     assert!(!uses.iter().any(|r| r.1 == API.find("operation):").unwrap()), "shadowed formal is another identity");
     let with_declaration = references(&db, "api.py", operation, true).unwrap();
@@ -86,7 +92,8 @@ fn ty_reference_oracle_child() {
     assert!(!smaller.iter().any(|r| r.0.ends_with("uses.py")));
     assert!(smaller.len() < uses.len(), "omitting a captured module changes the explicit search universe");
     let unused = API.find("unused():").unwrap();
-    assert_eq!(references(&db, "api.py", unused, false).unwrap().len(), 0);
+    assert!(references(&db, "api.py", unused, false).is_none(),"the pinned public API returns None for an empty search, not Some(empty)");
+    assert_eq!(references(&db,"api.py",unused,true).unwrap().len(),1);
     assert!(references(&db, "api.py", API.find("pass").unwrap(), false).is_none());
     let parameter = API.find("value: int").unwrap();
     let parameters = references(&db, "api.py", parameter, false).unwrap();
@@ -97,7 +104,7 @@ fn ty_reference_oracle_child() {
     let copy_references = references(&db, "api.py", copy, false).unwrap();
     assert!(copy_references.iter().any(|r| r.1 == API.find("copy +=").unwrap()), "augmented assignment must retain the native kind, not invented read/write duplicates");
     compare_normalized_names(&db);
-    println!("policy=ResolveAliases; source_view=original; python=3.14; platform=linux; included=api.py,uses.py; dependencies=vendored-typeshed; provider=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301; lexical-overlap=value names; scope-differences=keyword/member references");
+    println!("policy=ResolveAliases with requested-spelling filter; empty-search=None; source_view=original; python=3.14; platform=linux; included=api.py,uses.py; dependencies=vendored-typeshed; provider=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301; lexical-overlap=value names; scope-differences=keyword/member references");
 }
 
 

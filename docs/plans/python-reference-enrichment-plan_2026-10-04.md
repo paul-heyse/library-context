@@ -27,7 +27,12 @@ Exact APIs were checked in independent Ruff/ty fork
 ProgramFile, TextSize and include_declaration, returning `Option<Vec<ReferenceTarget>>`.
 The public path uses **ResolveAliases**; preserve-alias search belongs to private rename/highlight
 paths. This plan does not advertise configurable preserve mode or add a fork just for that option.
-`None` means unavailable, distinct from an available empty result. Native kinds are retained as
+**Source-checked correction, 2026-10-04:** the pinned public search returns `None` for an empty
+result as well as unavailable resolution; preserve that ambiguous provider result without
+converting it into absence. Its ResolveAliases semantic lookup also filters by the requested
+spelling, so differently spelled alias uses require their own query. The development oracle
+tests that policy explicitly; the production incoming-reference operation retains its own
+available-empty distinction. Native kinds are retained as
 reported; augmented assignment does not automatically create invented separate read/write rows.
 
 Production ty reference integration is deferred. Reopen only for a concrete supported-reference
