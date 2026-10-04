@@ -107,7 +107,7 @@ fn provider_context_support_and_coverage_are_selected_together() {
             }
             1 => {
                 let mut c = f.coverage.clone();
-                c.status = CoverageStatus::Partial;
+                c.status = CoverageStatus::Failed;
                 c.reason = Some(ObligationKind::MissingEvidence);
                 f.data.coverage = Rows::new(&f.budget);
                 f.data.coverage.insert(c).unwrap();
@@ -215,6 +215,7 @@ fn stored_witness_cannot_choose_a_different_existing_coverage_premise() {
         ..f.coverage.clone()
     };
     f.data.coverage.insert(other.clone()).unwrap();
+    f.seed_inventory();
     let proof = f.derive().unwrap();
     f.validate(proof.witness()).unwrap();
     let mut forged = proof.witness().clone();
@@ -388,6 +389,7 @@ fn guard_identity_must_hold_before_both_truth_arms() {
         ..f.reaching.clone()
     };
     replace_reaching(&mut f, row);
+    f.seed_inventory();
     let use_entry = f.derive().unwrap();
     assert!(
         StabilityWitness::derive(&f.data, f.guard.id(), &use_entry).is_err(),
@@ -399,4 +401,25 @@ fn guard_identity_must_hold_before_both_truth_arms() {
             .is_err(),
         "positive leaf formula cannot narrow an entry-identity proof"
     );
+}
+
+
+#[test]
+fn partial_coverage_is_evidence_while_exact_false_singleton_uses_its_inventory() {
+    let mut f=Fixture::new();
+    let mut coverage=f.coverage.clone();coverage.status=CoverageStatus::Partial;coverage.reason=Some(ObligationKind::IncompleteCoverage);
+    f.data.coverage=Rows::new(&f.budget);f.data.coverage.insert(coverage).unwrap();
+    let proof=f.derive().expect("complete finite per-use inventory survives Partial family coverage");
+    f.validate(proof.witness()).unwrap();drop(proof);
+    let (condition,nodes)=Diagram::never().records();f.data.conditions.insert(condition.clone()).unwrap();for n in nodes{f.data.condition_nodes.insert(n).unwrap();}
+    let q=AssertionQualification{condition:condition.id(),..f.q.clone()};f.data.qualifications.insert(q.clone()).unwrap();
+    let observation=FlowUseObservation{qualification:q.id(),..f.data.use_observations.iter().next().unwrap().clone()};
+    let mut support=f.data.use_supports.iter().next().unwrap().clone();support.assertion=observation.id();
+    f.data.use_observations=Rows::new(&f.budget);f.data.use_observations.insert(observation).unwrap();f.data.use_supports=Rows::new(&f.budget);f.data.use_supports.insert(support).unwrap();
+    let reaching=FlowReachingObservation{qualification:q.id(),..f.reaching.clone()};replace_reaching(&mut f,reaching);
+    f.seed_inventory();
+    let proof=f.derive().expect("exact false complete singleton retains its parameter-entry proof");
+    assert_eq!(proof.condition().id(),Diagram::never().id());f.validate(proof.witness()).unwrap();drop(proof);
+    f.data.inventories=Rows::new(&f.budget);
+    assert!(matches!(f.derive(),Err(ObligationKind::EntryValueUnknown)),"Partial family coverage cannot replace missing per-use closure");
 }

@@ -376,7 +376,7 @@ impl Fixture {
             flow_surface.id(),
             Fidelity::NativeStructural
         );
-        Self {
+        let mut fixture=Self {
             data,
             request: EntryRequest {
                 owner: owner_ref.id(),
@@ -392,7 +392,33 @@ impl Fixture {
             reaching,
             use_,
             coverage,
-        }
+        };
+        fixture.seed_inventory();
+        fixture
+    }
+    /// Explicitly seed the finite singleton domain of this unit fixture; never a native probe.
+    pub fn seed_inventory(&mut self) {
+        use lctx_model::domain::flow_inventory::*;
+        let observation=self.data.use_observations.iter().find(|o|o.use_==self.use_.id()).unwrap().clone();
+        let support=self.data.use_supports.iter().find(|s|s.assertion==observation.id()).unwrap().clone();
+        assert_eq!(self.data.reaching.len(),1,"only the known finite singleton unit domain may be closed");
+        let reaching=self.data.reaching.iter().next().unwrap().clone();
+        assert!(!reaching.loop_carried);
+        assert!(matches!(self.data.targets.get(reaching.target),Some(ReachingDefinition::Bound{..})));
+        let rs=self.data.reaching_supports.iter().find(|s|s.assertion==reaching.id() && s.run==support.run).unwrap().clone();
+        let site=self.data.occurrences.get(self.use_.occurrence).unwrap();
+        let artifact=self.data.artifacts.get(site.source).unwrap();
+        let view=FlowSourceViewObservation{qualification:observation.qualification,source:artifact.id(),original_content:artifact.content,view_content:artifact.content,byte_len:artifact.byte_len,renamed_type_checking:0};
+        let view_support=FlowSourceViewSupport{assertion:view.id(),run:support.run,surface:support.surface,evidence:support.evidence,origin:support.origin,mode:support.mode,fidelity:support.fidelity};
+        let state=CandidateState{kind:FlowCandidateKind::Bound,pruned:false,loop_expanded:false,unattached:false,condition_unavailable:false,reachability_lost:false,mapped_count:1};
+        let (inventory,candidates,members)=FlowUseInventoryObservation::new(observation.qualification,self.use_.id(),observation.scope,view.id(),&[state],&[(0,reaching.id(),rs.id())]).unwrap();
+        let inventory_support=FlowUseInventorySupport{assertion:inventory.id(),run:support.run,surface:support.surface,evidence:support.evidence,origin:support.origin,mode:support.mode,fidelity:support.fidelity};
+        self.data.source_views=lctx_model::domain::normalized::Rows::new(&self.budget);self.data.source_views.insert(view).unwrap();
+        self.data.source_view_supports=lctx_model::domain::normalized::Rows::new(&self.budget);self.data.source_view_supports.insert(view_support).unwrap();
+        self.data.inventories=lctx_model::domain::normalized::Rows::new(&self.budget);self.data.inventories.insert(inventory).unwrap();
+        self.data.inventory_supports=lctx_model::domain::normalized::Rows::new(&self.budget);self.data.inventory_supports.insert(inventory_support).unwrap();
+        self.data.inventory_candidates=lctx_model::domain::normalized::Rows::new(&self.budget);for row in candidates{self.data.inventory_candidates.insert(row).unwrap();}
+        self.data.inventory_members=lctx_model::domain::normalized::Rows::new(&self.budget);for row in members{self.data.inventory_members.insert(row).unwrap();}
     }
     pub fn derive(&self) -> Result<DerivedEntryValue, ObligationKind> {
         EntryValueWitness::derive(&self.data, self.request, &self.budget).unwrap()
