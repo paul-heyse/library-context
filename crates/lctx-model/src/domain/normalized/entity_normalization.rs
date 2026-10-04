@@ -697,8 +697,11 @@ fn normalize_exposures(
                                     .into_iter()
                                     .flatten()
                                     .any(|s| {
+                                        // Pysa's reported definition inventory is a report
+                                        // projection. It selects namespace candidates only;
+                                        // source correspondence and execution proof stay separate.
                                         s.run == support.run
-                                            && s.fidelity == attribution::Fidelity::NativeStructural
+                                            && s.fidelity == attribution::Fidelity::ReportProjection
                                             && s.origin == attribution::Origin::AnalyzerAssertion
                                             && s.mode == attribution::ExtractionMode::NativeTraversal
                                     });

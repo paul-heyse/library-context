@@ -246,6 +246,35 @@ async fn recovered_unicode_reexport_uses_the_implementation_and_keeps_signature_
         facts.symbol_observations.insert(row).unwrap();
     }
     let support_rows = facts.symbol_supports.iter().cloned().collect::<Vec<_>>();
+    assert!(support_rows.iter().any(|support| {
+        facts.symbol_observations.get(support.assertion).unwrap().symbol == implementation
+            && support.fidelity == attribution::Fidelity::ReportProjection
+            && support.origin == attribution::Origin::AnalyzerAssertion
+            && support.mode == attribution::ExtractionMode::NativeTraversal
+    }));
+    // Definition inspection accepts the provider report's declared role. Display text,
+    // recognizers and derived reports cannot establish that namespace candidate inventory.
+    for (fidelity, origin, mode) in [
+        (attribution::Fidelity::DisplayOnly, attribution::Origin::AnalyzerAssertion,
+            attribution::ExtractionMode::NativeTraversal),
+        (attribution::Fidelity::ReportProjection, attribution::Origin::AnalyzerAssertion,
+            attribution::ExtractionMode::Recognizer),
+        (attribution::Fidelity::ReportProjection, attribution::Origin::DerivedAnalysis,
+            attribution::ExtractionMode::NativeTraversal),
+    ] {
+        facts.symbol_supports = Rows::new(&budget);
+        for mut support in support_rows.iter().cloned() {
+            if facts.symbol_observations.get(support.assertion).unwrap().symbol == implementation {
+                support.fidelity = fidelity;
+                support.origin = origin;
+                support.mode = mode;
+            }
+            facts.symbol_supports.insert(support).unwrap();
+        }
+        let wrong_role = entity_normalization::normalize(facts.inputs(), &budget).unwrap();
+        assert_eq!(wrong_role.exposures.get(exposed[0].id()).unwrap().status,
+            ResolutionStatus::Unresolved);
+    }
     facts.symbol_supports = Rows::new(&budget);
     for mut support in support_rows {
         if facts.symbol_observations.get(support.assertion).unwrap().symbol == implementation {
