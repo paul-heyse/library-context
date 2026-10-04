@@ -833,3 +833,25 @@ positive. The predicate remains intact; complete native inventory alone does not
 The concrete next investigation is exact same-run native execution-region evidence and its
 explicit proof lineage. The full `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all`
 is also running to expose any independent residual failures. Q1 remains open.
+
+
+`5d5a4c0b` integrates the bounded ADR-0122 implication repair, 2026-10-04. Direct native
+Use-to-Reaching implication preserves absent region refs; otherwise canonical ownership and
+same-run exact containing native region/support, including its native classification pair, are
+required. Use-and-Region must still imply reaching, without false-domain promotion or dropping
+call-return predicates. Two optional proof refs are added to each Named handoff/setup variant;
+this is a schema migration, with unchanged codebooks and no new relation. Alias publication
+composes the effective domain with call/Local qualification and unions all original premise
+assumption bases. Synthesis hydrates five canonical inputs, excluding Flow region/support in
+Catalog. Existing canonical stored lineage is retained; no new serving explanation endpoint or
+derivation expansion is claimed.
+`1107a957` strengthens the actual fixture with an intervening call after alias assignment and
+requires PostgreSQL publication of region lineage and the exact conditional alias domain.
+Six seeded named-admission controls **passed** (`lctx-enrichment-native-read-region-unit.log`).
+Two shared qualifier controls are in progress. The bounded independent review found two concrete
+resource issues: binary admission failures were wrapped as Invalid instead of Resource, and the
+derived domain's reservation was dropped before its consumer finished. Narrow repairs are in
+progress; current source runtime qualification and refreshed artifacts/snapshot remain pending.
+The superseded diagnostic `just test-all` was interrupted with scoped SIGINT/exit130 while still
+compiling, before any tests launched (`lctx-enrichment-test-all-repaired-final.log`); its tests,
+Python/oracles and doctests are **not_run**, not a passing receipt.

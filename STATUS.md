@@ -26,8 +26,7 @@ Ty references and odis remain development-only. No Q1 or full functional pass is
 Current scoped verification, **2026-10-04**: final formatted-source full workspace/all-target
 `UV_LOCK_TIMEOUT=3600 just clippy` **passed**. The authorized final `just fmt` and ADR index
 refresh, matching release CLI/native adapters and reviewed schema snapshot migration all passed.
-Current model is `8f8ec7cdbf9ee0e21d61f84ac6698186320cb9b9d1f2e5c1ac543c33b77a6f86`,
-878 relations. Only the owned empty qualification store was reset; scoped deps/store-check
+Last artifact-qualified model was `8f8ec7cdbf9ee0e21d61f84ac6698186320cb9b9d1f2e5c1ac543c33b77a6f86`, 878 relations. Only the owned empty qualification store was reset; scoped deps/store-check
 passed with zero generations/findings. Default staging retains 204 receipts and is unselected.
 Final scoped `just hygiene` passed agents/ADR/fixtures/gold/rules/Python lint/types, then failed
 only at an unfinished parallel-review documentation link. The operator explicitly excludes that
@@ -40,8 +39,9 @@ four actual PostgreSQL Summary controls passed. Native selected-domain explanati
 and the strengthened actual PostgreSQL/MCP evidence-purpose packet passed. Behavioral Structural
 failed its required named-handoff positive; exact source-covering Input/Artifact/Module coverage
 now shares the same scope predicate with admission. Three seeded admission controls passed;
-the final actual PostgreSQL positive failed at condition implication (240.88s). Native region
-evidence is the next concrete investigation; the full gate is running. No Q1 pass is claimed.
+the final actual PostgreSQL positive failed at condition implication (240.88s). Exact native
+region/conditional alias repair is integrated; six seeded admission controls passed. Two resource
+findings from a bounded audit are being repaired; superseded gate interrupted before tests. Q1 is open.
 
 **The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
 The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
@@ -110,10 +110,10 @@ The later catalog compile was interrupted with SIGINT/exit130. Staging
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Next: finish the repaired Behavioral Structural PostgreSQL positive, then the final full
+Next: qualify native region/alias controls and the repaired Structural positive, then full
 `just test-all`; scoped hygiene is complete with the operator-excluded parallel-review docs finding.
 Generated-wrapper and both raised-type journeys passed in the earlier failed gate; Terminal
-also passed directly. Final source schema/adapters/CLI and focused selection/read/Summary/packet
+also passed directly. Prior source schema/adapters/CLI and focused selection/read/Summary/packet
 controls passed. Q1 waits for the final functional gate. Real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
 The end-of-turn hook owns formatting; scoped formatting/index/feature exceptions are operator-authorized.
