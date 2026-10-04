@@ -568,7 +568,14 @@ owns integration, native/store controls and corrective reinspection of P4B3-F01.
   [Plan §6.4–§6.5](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#6-behavioral-evidence-and-finite-composition)
   owns the implemented finite engine and its independent native/store controls. Production defaults remain depth eight and proof steps sixty-four; bounded fixtures do not qualify every recursive program.
 
-> Decision: ADR-0085, ADR-0106
+**Implemented / focused-Tested, 2026-10-04 (ADR-0123).** Source composition witnesses retain
+the exact selected signature enumeration and its support when scoped declared closure is used;
+global closure leaves both references absent. Shared replay reconstructs this pair, and generic
+explanation follows the enumeration's member/signature premises. Actual PostgreSQL explanation,
+JSON round-trip and coupled-witness corruption controls passed within the analytical-enrichment
+coordinator's receipt. Global signature-family and effective-invocation completeness remain unchanged.
+
+> Decision: ADR-0085, ADR-0106, ADR-0123
 
 <a id="section-15-7"></a>
 

@@ -730,3 +730,12 @@ all 13 composition controls passed, including selected enumeration/support corru
 global-versus-declared witness lineage. Production embedding contracts and Flow authority are
 unchanged. The fresh Behavioral Structural direct journey and association-purpose diagnostic
 remain in progress; this bounded pass does not establish the full functional or hygiene gate.
+
+
+The current `UV_LOCK_TIMEOUT=3600 LCTX_DATABASE_CONFIG=<owned-empty-store> just hygiene`
+**failed** at ADR lint, 2026-10-04 (`lctx-enrichment-selected-domain-hygiene.log`): §15.6's
+decision line omitted ADR-0123, and the generated ADR index is stale. The owning section now
+records the exact selected-domain witness/explanation contract and decision link; accepted ADRs
+are unchanged. The empty scoped database was reset to the current model; default staging and
+registrations were untouched. Remaining hygiene checks were not_run after this prerequisite
+failure; generated index refresh and named check resumption remain pending.
