@@ -285,7 +285,9 @@ pub enum SignatureRole {
     Specialized = 4,
 }
 impl SignatureRole {
-    pub fn runtime_source(self) -> bool { matches!(self, Self::Source | Self::Stub) }
+    pub fn runtime_source(self) -> bool {
+        matches!(self, Self::Source | Self::Stub)
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "signature_observations", invariants = signature_invariants)]
@@ -348,7 +350,8 @@ impl Signature {
         }
         let shapes: Vec<_> = parameters.iter().map(Record::id).collect();
         let row = Self {
-            role, native,
+            role,
+            native,
             qualification: qualification.id(),
             scope: qualification.scope,
             symbol,

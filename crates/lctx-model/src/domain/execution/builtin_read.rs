@@ -18,7 +18,9 @@ pub struct CheckedBuiltinRead {
     _charge: charged::StateCharge,
 }
 impl CheckedBuiltinRead {
-    pub fn name(&self) -> &str { &self.name }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
     pub fn request(&self) -> ExpressionRequest {
         self.request
     }
@@ -204,7 +206,10 @@ impl CheckedBuiltinRead {
             }
             Ok(Self {
                 request,
-                name: { charge.grow(reference.name.len())?; reference.name.clone() },
+                name: {
+                    charge.grow(reference.name.len())?;
+                    reference.name.clone()
+                },
                 qualification,
                 status,
                 premises: [pairs[0].id(), pairs[1].id(), pairs[2].id()],

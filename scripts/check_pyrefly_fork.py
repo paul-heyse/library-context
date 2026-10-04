@@ -43,7 +43,13 @@ CLASSES: dict[str, set[str]] = {
     # Interpreter discovery: disabled by skip_interpreter_query + explicit site-package path (S2).
     "neutralized_by_config": {"PYTHONPATH", "VIRTUAL_ENV", "CONDA_PREFIX", "PATH"},
     # Read by build scripts at compile time, never at run time.
-    "build_time": {"OUT_DIR", "OUT", "TYPESHED_ROOT", "STUBS_ROOT", "CARGO_FEATURE_THIRD_PARTY_STUBS"},
+    "build_time": {
+        "OUT_DIR",
+        "OUT",
+        "TYPESHED_ROOT",
+        "STUBS_ROOT",
+        "CARGO_FEATURE_THIRD_PARTY_STUBS",
+    },
     # Tracing output only; never a fact.
     "log_only": {"PYREFLY_LOG"},
     # CLI argument overrides (`pyrefly_util::args`); the library driver never parses CLI args.

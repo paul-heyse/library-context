@@ -36,7 +36,7 @@ response!(GetCapabilityResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NativeAssessmentPacket {
-    pub claim_basis:ClaimBasisPacket,
+    pub claim_basis: ClaimBasisPacket,
     pub path: ProofReference,
     /// Original stored condition identity; request restriction has a separate result identity.
     pub original_condition: Id<conditions::Condition>,
@@ -59,7 +59,10 @@ pub struct NativeAssessmentPacket {
 }
 response!(InspectValuePathsResponse {member:Id<catalog::CatalogMember>,paths:SectionPage<NativeAssessmentPacket>});
 impl NativeAssessmentPacket {
-    pub fn from_canonical(value: &native_requests::Assessment, claim_basis:ClaimBasisPacket) -> Self {
+    pub fn from_canonical(
+        value: &native_requests::Assessment,
+        claim_basis: ClaimBasisPacket,
+    ) -> Self {
         Self {
             claim_basis,
             path: ProofReference::from_canonical(value.path),

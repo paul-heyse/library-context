@@ -75,7 +75,8 @@ impl Fixture {
             origin: TypeVariableOrigin::Pep695,
             kind: TypeVariableKind::TypeVar,
             name: "T".into(),
-            declared_variance: None, inferred_variance: None,
+            declared_variance: None,
+            inferred_variance: None,
         };
         let variable_term = TypeTerm::TypeVar {
             variable: variable.id(),
@@ -791,30 +792,137 @@ impl Fixture {
     pub fn native_signature_ports(&mut self, mismatch: &str) {
         use lctx_model::domain::calls::*;
         let type_support = self.base.rows::<TypeSupport>()[0].clone();
-        let type_run = self.base.rows::<ProviderRun>().into_iter().find(|r|r.id()==type_support.run).unwrap();
+        let type_run = self
+            .base
+            .rows::<ProviderRun>()
+            .into_iter()
+            .find(|r| r.id() == type_support.run)
+            .unwrap();
         let qualification = self.base.rows::<AssertionQualification>()[0].clone();
         let module = self.variable.module;
-        let function = ProviderSymbol {provider:type_run.provider,context:type_run.context,module,native_key:"native-port".into(),name:"native_port".into(),kind:SymbolKind::Function};
+        let function = ProviderSymbol {
+            provider: type_run.provider,
+            context: type_run.context,
+            module,
+            native_key: "native-port".into(),
+            name: "native_port".into(),
+            kind: SymbolKind::Function,
+        };
         let (list, _) = CallableParameterList::new(&[]).unwrap();
-        let term = TypeTerm::Callable {function:Some(function.id()),form:CallableForm::List,parameters:list.id(),param_spec:None,returns:self.term.id()};
-        let (mut signature, _) = Signature::new(&qualification,SignatureRole::EffectiveTyped,Some(term.id()),function.id(),0,SignatureForm::List,&[]).unwrap();
-        if mismatch == "role" {signature.role=SignatureRole::Source;}
-        let mut native = NativeSignatureObservation {qualification:qualification.id(),signature:signature.id(),scope:qualification.scope,term:if mismatch=="term" {self.term.id()} else {term.id()},family:None,implementation:Some(function.id()),metadata_origin:None,deprecation:CallableDeprecation::Unavailable,deprecation_message:None,receiver:NativeReceiver::Unbound,complete:true};
-        match mismatch {
-            "metadata_origin" => native.metadata_origin=Some(function.id()),
-            "not_deprecated_message" => {native.deprecation=CallableDeprecation::NotDeprecated;native.deprecation_message=Some("unexpected".into());}
-            "deprecated_none" => native.deprecation=CallableDeprecation::Deprecated,
-            _ => {},
+        let term = TypeTerm::Callable {
+            function: Some(function.id()),
+            form: CallableForm::List,
+            parameters: list.id(),
+            param_spec: None,
+            returns: self.term.id(),
+        };
+        let (mut signature, _) = Signature::new(
+            &qualification,
+            SignatureRole::EffectiveTyped,
+            Some(term.id()),
+            function.id(),
+            0,
+            SignatureForm::List,
+            &[],
+        )
+        .unwrap();
+        if mismatch == "role" {
+            signature.role = SignatureRole::Source;
         }
-        let subject = SignatureTypeSubject::Return {signature:signature.id()};
-        let port = SignatureTypeObservation {qualification:qualification.id(),scope:qualification.scope,subject:subject.id(),term:self.term.id()};
-        let (run,families)=ProviderRun::new(type_run.provider,type_run.context,type_run.input,type_run.configuration,[FactFamily::Signatures]).unwrap();
-        let surface = ProviderSurface {provider:type_run.provider,family:FactFamily::Signatures,name:"native signature port contract".into()};
-        let signature_support = SignatureSupport {assertion:signature.id(),run:run.id(),surface:surface.id(),evidence:type_support.evidence,origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
-        let native_support = NativeSignatureSupport {assertion:native.id(),run:type_support.run,surface:type_support.surface,evidence:type_support.evidence,origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
-        let port_support = SignatureTypeSupport {assertion:port.id(),run:type_support.run,surface:type_support.surface,evidence:type_support.evidence,origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
-        macro_rules! append {($ty:ty,$rows:expr)=>{let mut rows=self.base.rows::<$ty>();rows.extend($rows);self.base.put(rows);};}
-        append!(ProviderSymbol,vec![function]);append!(TypeTerm,vec![term]);append!(CallableParameterList,vec![list]);append!(ProviderRun,vec![run]);append!(RunFamily,families);append!(ProviderSurface,vec![surface]);
-        self.base.put(vec![signature]);self.base.put(vec![signature_support]);self.base.put(vec![native]);self.base.put(vec![native_support]);self.base.put(vec![subject]);self.base.put(vec![port]);self.base.put(vec![port_support]);
+        let mut native = NativeSignatureObservation {
+            qualification: qualification.id(),
+            signature: signature.id(),
+            scope: qualification.scope,
+            term: if mismatch == "term" {
+                self.term.id()
+            } else {
+                term.id()
+            },
+            family: None,
+            implementation: Some(function.id()),
+            metadata_origin: None,
+            deprecation: CallableDeprecation::Unavailable,
+            deprecation_message: None,
+            receiver: NativeReceiver::Unbound,
+            complete: true,
+        };
+        match mismatch {
+            "metadata_origin" => native.metadata_origin = Some(function.id()),
+            "not_deprecated_message" => {
+                native.deprecation = CallableDeprecation::NotDeprecated;
+                native.deprecation_message = Some("unexpected".into());
+            }
+            "deprecated_none" => native.deprecation = CallableDeprecation::Deprecated,
+            _ => {}
+        }
+        let subject = SignatureTypeSubject::Return {
+            signature: signature.id(),
+        };
+        let port = SignatureTypeObservation {
+            qualification: qualification.id(),
+            scope: qualification.scope,
+            subject: subject.id(),
+            term: self.term.id(),
+        };
+        let (run, families) = ProviderRun::new(
+            type_run.provider,
+            type_run.context,
+            type_run.input,
+            type_run.configuration,
+            [FactFamily::Signatures],
+        )
+        .unwrap();
+        let surface = ProviderSurface {
+            provider: type_run.provider,
+            family: FactFamily::Signatures,
+            name: "native signature port contract".into(),
+        };
+        let signature_support = SignatureSupport {
+            assertion: signature.id(),
+            run: run.id(),
+            surface: surface.id(),
+            evidence: type_support.evidence,
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        };
+        let native_support = NativeSignatureSupport {
+            assertion: native.id(),
+            run: type_support.run,
+            surface: type_support.surface,
+            evidence: type_support.evidence,
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        };
+        let port_support = SignatureTypeSupport {
+            assertion: port.id(),
+            run: type_support.run,
+            surface: type_support.surface,
+            evidence: type_support.evidence,
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        };
+        macro_rules! append {
+            ($ty:ty,$rows:expr) => {
+                let mut rows = self.base.rows::<$ty>();
+                rows.extend($rows);
+                self.base.put(rows);
+            };
+        }
+        append!(ProviderSymbol, vec![function]);
+        append!(TypeTerm, vec![term]);
+        append!(CallableParameterList, vec![list]);
+        append!(ProviderRun, vec![run]);
+        append!(RunFamily, families);
+        append!(ProviderSurface, vec![surface]);
+        self.base.put(vec![signature]);
+        self.base.put(vec![signature_support]);
+        self.base.put(vec![native]);
+        self.base.put(vec![native_support]);
+        self.base.put(vec![subject]);
+        self.base.put(vec![port]);
+        self.base.put(vec![port_support]);
     }
 }

@@ -241,10 +241,21 @@ async fn typed_dictionary_keys_are_not_parameter_names() {
     let signatures = rows::<Signature>(&tables);
     let parameters = rows::<SignatureParameter>(&tables);
     let shapes = rows::<ParameterShape>(&tables);
-    assert!(signatures.iter().filter(|s|s.role.runtime_source()).all(|s|
-        parameters.iter().filter(|p|p.signature == s.id()).all(|p|
-            shapes.iter().find(|shape|shape.id() == p.shape).unwrap().name.as_deref() != Some(""))));
-
+    assert!(
+        signatures
+            .iter()
+            .filter(|s| s.role.runtime_source())
+            .all(|s| parameters
+                .iter()
+                .filter(|p| p.signature == s.id())
+                .all(|p| shapes
+                    .iter()
+                    .find(|shape| shape.id() == p.shape)
+                    .unwrap()
+                    .name
+                    .as_deref()
+                    != Some("")))
+    );
 }
 
 #[tokio::test]

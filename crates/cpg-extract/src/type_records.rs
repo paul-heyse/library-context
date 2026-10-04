@@ -7,9 +7,16 @@ use crate::{
 use lctx_model::domain::{
     assertion::AssertionQualification,
     attribution::{Fidelity, Provider},
-    class_metadata::{ClassMetadataObservation, ClassMemberObservation, MemberKind, MemberOrigin, MetadataBasis, RecordOptions, RecordTransformDefaults, RecordTransformFieldSpecifier, FieldSpecifierKind, field_specifier_shape},
-    calls::{ParameterKind, ProviderModule, ProviderSymbol, SymbolKind, Signature, SignatureParameter, SignatureRole, SignatureForm, ParameterShape},
+    calls::{
+        ParameterKind, ParameterShape, ProviderModule, ProviderSymbol, Signature, SignatureForm,
+        SignatureParameter, SignatureRole, SymbolKind,
+    },
     charged::StateCharge,
+    class_metadata::{
+        ClassMemberObservation, ClassMetadataObservation, FieldSpecifierKind, MemberKind,
+        MemberOrigin, MetadataBasis, RecordOptions, RecordTransformDefaults,
+        RecordTransformFieldSpecifier, field_specifier_shape,
+    },
     lexical::SyntaxField,
     obligation::ObligationKind,
     resources::ResourceBudget,
@@ -27,24 +34,32 @@ use pyrefly_types::{
     quantified::{Quantified, QuantifiedKind, QuantifiedOrigin},
     tuple::Tuple,
     type_alias::TypeAliasData,
-    type_var::{Restriction, PreInferenceVariance},
+    type_var::{PreInferenceVariance, Restriction},
     typed_dict::TypedDict,
     types::{AnyStyle, BoundMethodType, Forallable, NeverStyle, Type},
 };
 use ruff_text_size::Ranged;
 use std::collections::BTreeSet;
 
-#[allow(clippy::wildcard_enum_match_arm, reason = "only native function metadata grants descriptor adjustment; other callable values remain unbound or unknown")]
+#[allow(
+    clippy::wildcard_enum_match_arm,
+    reason = "only native function metadata grants descriptor adjustment; other callable values remain unbound or unknown"
+)]
 fn native_field_receiver(ty: &Type) -> NativeReceiver {
     let flags = match ty {
         Type::Function(f) => Some(&f.metadata.flags),
-        Type::Forall(f) => match &f.body { Forallable::Function(f) => Some(&f.metadata.flags), Forallable::Callable(_) | Forallable::TypeAlias(_) => None },
+        Type::Forall(f) => match &f.body {
+            Forallable::Function(f) => Some(&f.metadata.flags),
+            Forallable::Callable(_) | Forallable::TypeAlias(_) => None,
+        },
         Type::Overload(f) => Some(&f.metadata.flags),
         Type::Callable(_) => return NativeReceiver::Unbound,
         _ => None,
     };
     match flags {
-        Some(flags) if flags.property_metadata.is_some() || flags.is_cached_property => NativeReceiver::Property,
+        Some(flags) if flags.property_metadata.is_some() || flags.is_cached_property => {
+            NativeReceiver::Property
+        }
         Some(flags) if flags.is_staticmethod => NativeReceiver::Unbound,
         Some(flags) if flags.is_classmethod => NativeReceiver::Class,
         Some(_) => NativeReceiver::Instance,
@@ -53,7 +68,12 @@ fn native_field_receiver(ty: &Type) -> NativeReceiver {
 }
 
 fn native_variance(value: PreInferenceVariance) -> Option<TypeVariance> {
-    match value { PreInferenceVariance::Covariant => Some(TypeVariance::Covariant), PreInferenceVariance::Contravariant => Some(TypeVariance::Contravariant), PreInferenceVariance::Invariant => Some(TypeVariance::Invariant), PreInferenceVariance::Undefined => None }
+    match value {
+        PreInferenceVariance::Covariant => Some(TypeVariance::Covariant),
+        PreInferenceVariance::Contravariant => Some(TypeVariance::Contravariant),
+        PreInferenceVariance::Invariant => Some(TypeVariance::Invariant),
+        PreInferenceVariance::Undefined => None,
+    }
 }
 
 pub type ResolveModule<'a> =
@@ -93,7 +113,7 @@ pub struct Records {
 impl Records {
     fn new(budget: &ResourceBudget) -> Self {
         Self {
-            protocols:None,
+            protocols: None,
             charge: StateCharge::new(budget, "native_type_records"),
             class_metadata: vec![],
             native_class_traits: vec![],
@@ -103,7 +123,10 @@ impl Records {
             transforms: vec![],
             transform_specifiers: vec![],
             specializations: vec![],
-            signatures: vec![], native_signatures: vec![], port_subjects: vec![], port_types: vec![],
+            signatures: vec![],
+            native_signatures: vec![],
+            port_subjects: vec![],
+            port_types: vec![],
             terms: vec![],
             sequences: vec![],
             members: vec![],
@@ -113,7 +136,8 @@ impl Records {
             dict_fields: vec![],
             variables: vec![],
             literals: vec![],
-            observations: vec![], queries: vec![],
+            observations: vec![],
+            queries: vec![],
             presentations: vec![],
             restrictions: vec![],
             bodies: vec![],
@@ -130,14 +154,20 @@ impl Records {
     }
     /// A native proof can support an existing projection only when every payload field agrees.
     /// The projection remains the assertion writer; this retains only extra native supports.
-    pub fn reconcile_class_traits(&mut self, projected: &[symbols::ClassTraitObservation]) -> Result<(), ModelError> {
+    pub fn reconcile_class_traits(
+        &mut self,
+        projected: &[symbols::ClassTraitObservation],
+    ) -> Result<(), ModelError> {
         let native = std::mem::take(&mut self.native_class_traits);
         for row in &native {
             if trait_projection_agreement(row, projected).is_ok() {
                 self.native_class_traits.push(row.clone());
             } else {
                 let reason = trait_projection_agreement(row, projected).unwrap_err();
-                let detail = format!("native class trait {:?} has no identical unique report projection", row.symbol);
+                let detail = format!(
+                    "native class trait {:?} has no identical unique report projection",
+                    row.symbol
+                );
                 self.hold(&detail)?;
                 self.class_trait_boundaries.push((reason, detail));
             }
@@ -146,17 +176,25 @@ impl Records {
             if !native.iter().any(|n| n.id() == row.id()) {
                 let detail = format!("native class trait {:?} is unavailable", row.symbol);
                 self.hold(&detail)?;
-                self.class_trait_boundaries.push((ObligationKind::NativeUnavailable, detail));
+                self.class_trait_boundaries
+                    .push((ObligationKind::NativeUnavailable, detail));
             }
         }
         Ok(())
     }
 }
-fn trait_projection_agreement(row: &symbols::ClassTraitObservation, projected: &[symbols::ClassTraitObservation]) -> Result<(), ObligationKind> {
+fn trait_projection_agreement(
+    row: &symbols::ClassTraitObservation,
+    projected: &[symbols::ClassTraitObservation],
+) -> Result<(), ObligationKind> {
     let mut matches = projected.iter().filter(|p| p.id() == row.id());
     let other = matches.next().ok_or(ObligationKind::MissingEvidence)?;
-    if matches.next().is_some() { return Err(ObligationKind::AmbiguousBinding); }
-    if other != row { return Err(ObligationKind::ProviderDisagreement); }
+    if matches.next().is_some() {
+        return Err(ObligationKind::AmbiguousBinding);
+    }
+    if other != row {
+        return Err(ObligationKind::ProviderDisagreement);
+    }
     Ok(())
 }
 #[cfg(test)]
@@ -164,15 +202,54 @@ mod class_trait_tests {
     use super::*;
     #[test]
     fn native_class_trait_support_requires_identical_unique_report_payload() {
-        fn id<R>(n:u8)->Id<R>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
-        let row=symbols::ClassTraitObservation {qualification:id(1),symbol:id(2),synthesized:false,dataclass:false,named_tuple:false,typed_dict:false};
-        assert!(trait_projection_agreement(&row,std::slice::from_ref(&row)).is_ok());
-        for changed in [symbols::ClassTraitObservation{synthesized:true,..row.clone()},symbols::ClassTraitObservation{dataclass:true,..row.clone()},symbols::ClassTraitObservation{named_tuple:true,..row.clone()},symbols::ClassTraitObservation{typed_dict:true,..row.clone()}] {
-            assert_eq!(changed.id(),row.id(),"payload disagreement must not overwrite the keyed assertion");
-            assert_eq!(trait_projection_agreement(&row,&[changed]),Err(ObligationKind::ProviderDisagreement));
+        fn id<R>(n: u8) -> Id<R> {
+            serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
         }
-        assert_eq!(trait_projection_agreement(&row,&[]),Err(ObligationKind::MissingEvidence));
-        assert_eq!(trait_projection_agreement(&row,&[row.clone(),row.clone()]),Err(ObligationKind::AmbiguousBinding));
+        let row = symbols::ClassTraitObservation {
+            qualification: id(1),
+            symbol: id(2),
+            synthesized: false,
+            dataclass: false,
+            named_tuple: false,
+            typed_dict: false,
+        };
+        assert!(trait_projection_agreement(&row, std::slice::from_ref(&row)).is_ok());
+        for changed in [
+            symbols::ClassTraitObservation {
+                synthesized: true,
+                ..row.clone()
+            },
+            symbols::ClassTraitObservation {
+                dataclass: true,
+                ..row.clone()
+            },
+            symbols::ClassTraitObservation {
+                named_tuple: true,
+                ..row.clone()
+            },
+            symbols::ClassTraitObservation {
+                typed_dict: true,
+                ..row.clone()
+            },
+        ] {
+            assert_eq!(
+                changed.id(),
+                row.id(),
+                "payload disagreement must not overwrite the keyed assertion"
+            );
+            assert_eq!(
+                trait_projection_agreement(&row, &[changed]),
+                Err(ObligationKind::ProviderDisagreement)
+            );
+        }
+        assert_eq!(
+            trait_projection_agreement(&row, &[]),
+            Err(ObligationKind::MissingEvidence)
+        );
+        assert_eq!(
+            trait_projection_agreement(&row, &[row.clone(), row.clone()]),
+            Err(ObligationKind::AmbiguousBinding)
+        );
     }
 }
 #[derive(Clone, Copy)]
@@ -448,89 +525,230 @@ impl Builder<'_, '_> {
         ))
     }
     /// Consume owned structural native terms, retaining generic origins and overload family.
-    #[allow(clippy::wildcard_enum_match_arm, reason = "non-callable native terms retain an opaque signature rather than invented slots")]
-    fn signature_variants(&mut self, owner: Id<ProviderSymbol>, role: SignatureRole, ty: &Type, receiver: NativeReceiver) -> Result<(), ModelError> {
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "non-callable native terms retain an opaque signature rather than invented slots"
+    )]
+    fn signature_variants(
+        &mut self,
+        owner: Id<ProviderSymbol>,
+        role: SignatureRole,
+        ty: &Type,
+        receiver: NativeReceiver,
+    ) -> Result<(), ModelError> {
         let root = self.term(ty, 0)?;
         let mut pending = vec![(root.id, root.id, receiver, ty.clone())];
         let mut leaves = Vec::new();
         while let Some((id, origin, receiver, native)) = pending.pop() {
-            if pending.len() + leaves.len() > 4096 { return Err(invalid("native signature variant work bound")); }
-            let term = self.out.terms.iter().find(|t| t.id() == id).cloned().ok_or_else(|| invalid("native callable term absent"))?;
+            if pending.len() + leaves.len() > 4096 {
+                return Err(invalid("native signature variant work bound"));
+            }
+            let term = self
+                .out
+                .terms
+                .iter()
+                .find(|t| t.id() == id)
+                .cloned()
+                .ok_or_else(|| invalid("native callable term absent"))?;
             match term {
                 TypeTerm::Generic { body, .. } => {
-                    let Type::Forall(native) = native else { return Err(invalid("generic signature native origin mismatch")); };
+                    let Type::Forall(native) = native else {
+                        return Err(invalid("generic signature native origin mismatch"));
+                    };
                     pending.push((body, origin, receiver, native.body.clone().as_type()));
                 }
                 TypeTerm::BoundMethod { function, .. } => {
-                    let Type::BoundMethod(native) = native else { return Err(invalid("bound signature native origin mismatch")); };
-                    pending.push((function, origin, NativeReceiver::Instance, native.func.clone().as_type()));
+                    let Type::BoundMethod(native) = native else {
+                        return Err(invalid("bound signature native origin mismatch"));
+                    };
+                    pending.push((
+                        function,
+                        origin,
+                        NativeReceiver::Instance,
+                        native.func.clone().as_type(),
+                    ));
                 }
-                TypeTerm::Overload { signatures, .. } | TypeTerm::Overloaded { alternatives: signatures } => {
-                    let mut children: Vec<_> = self.out.members.iter().filter(|m| m.sequence == signatures).cloned().collect();
+                TypeTerm::Overload { signatures, .. }
+                | TypeTerm::Overloaded {
+                    alternatives: signatures,
+                } => {
+                    let mut children: Vec<_> = self
+                        .out
+                        .members
+                        .iter()
+                        .filter(|m| m.sequence == signatures)
+                        .cloned()
+                        .collect();
                     children.sort_by_key(|m| (m.ordinal, m.id()));
                     children.dedup_by_key(|m| m.id());
                     let native_children: Vec<Type> = match native {
-                        Type::Overload(overload) => overload.signatures.iter().map(|s| s.as_type()).collect(),
+                        Type::Overload(overload) => {
+                            overload.signatures.iter().map(|s| s.as_type()).collect()
+                        }
                         Type::Overloaded(alternatives) => alternatives.iter().cloned().collect(),
                         _ => return Err(invalid("overload signature native origin mismatch")),
                     };
-                    if children.len() != native_children.len() { return Err(invalid("overload signature native alternatives mismatch")); }
-                    for (child, native) in children.into_iter().zip(native_children).rev() { pending.push((child.child, child.child, receiver, native)); }
+                    if children.len() != native_children.len() {
+                        return Err(invalid("overload signature native alternatives mismatch"));
+                    }
+                    for (child, native) in children.into_iter().zip(native_children).rev() {
+                        pending.push((child.child, child.child, receiver, native));
+                    }
                 }
                 other => leaves.push((other, origin, receiver, native)),
             }
         }
         for (ordinal, (term, origin, receiver, native)) in leaves.into_iter().enumerate() {
-            let (metadata_origin, deprecation, deprecation_message) = if matches!(term, TypeTerm::Callable { .. }) {
-                match native.toplevel_func_metadata() {
-                    Some(metadata) => (self.function(&metadata.kind)?,
-                        if metadata.flags.deprecation.is_some() { CallableDeprecation::Deprecated } else { CallableDeprecation::NotDeprecated },
-                        metadata.flags.deprecation.as_ref().and_then(|deprecation| deprecation.message.clone())),
-                    None => (None, CallableDeprecation::Unavailable, None),
-                }
-            } else { (None, CallableDeprecation::Unavailable, None) };
+            let (metadata_origin, deprecation, deprecation_message) =
+                if matches!(term, TypeTerm::Callable { .. }) {
+                    match native.toplevel_func_metadata() {
+                        Some(metadata) => (
+                            self.function(&metadata.kind)?,
+                            if metadata.flags.deprecation.is_some() {
+                                CallableDeprecation::Deprecated
+                            } else {
+                                CallableDeprecation::NotDeprecated
+                            },
+                            metadata
+                                .flags
+                                .deprecation
+                                .as_ref()
+                                .and_then(|deprecation| deprecation.message.clone()),
+                        ),
+                        None => (None, CallableDeprecation::Unavailable, None),
+                    }
+                } else {
+                    (None, CallableDeprecation::Unavailable, None)
+                };
             let (form, list, returns, implementation) = match &term {
-                TypeTerm::Callable { form, parameters, returns, function, .. } => (*form, Some(*parameters), Some(*returns), *function),
+                TypeTerm::Callable {
+                    form,
+                    parameters,
+                    returns,
+                    function,
+                    ..
+                } => (*form, Some(*parameters), Some(*returns), *function),
                 _ => (CallableForm::NativeUnavailable, None, None, None),
             };
-            let mut native_slots: Vec<_> = list.into_iter().flat_map(|list| self.out.slots.iter().filter(move |s| s.list == list).cloned()).collect();
+            let mut native_slots: Vec<_> = list
+                .into_iter()
+                .flat_map(|list| {
+                    self.out
+                        .slots
+                        .iter()
+                        .filter(move |s| s.list == list)
+                        .cloned()
+                })
+                .collect();
             native_slots.sort_by_key(|s| (s.ordinal, s.id()));
             native_slots.dedup_by_key(|s| s.id());
-            let shapes: Vec<_> = native_slots.iter().map(|p| ParameterShape { name: p.name.clone(), kind: p.kind, required: p.required.unwrap_or(false) }).collect();
+            let shapes: Vec<_> = native_slots
+                .iter()
+                .map(|p| ParameterShape {
+                    name: p.name.clone(),
+                    kind: p.kind,
+                    required: p.required.unwrap_or(false),
+                })
+                .collect();
             let form = match form {
                 CallableForm::List => SignatureForm::List,
                 CallableForm::Ellipsis => SignatureForm::Ellipsis,
                 CallableForm::ParamSpec if shapes.is_empty() => SignatureForm::ParamSpec,
                 _ => SignatureForm::NativeUnavailable,
             };
-            let (signature, parameters) = match Signature::new(self.qualification, role, Some(origin), owner, ordinal as i64, form, &shapes) {
+            let (signature, parameters) = match Signature::new(
+                self.qualification,
+                role,
+                Some(origin),
+                owner,
+                ordinal as i64,
+                form,
+                &shapes,
+            ) {
                 Ok(value) => value,
-                Err(ModelError::Invalid(_)) => Signature::new(self.qualification, role, Some(origin), owner, ordinal as i64, SignatureForm::NativeUnavailable, &shapes)?,
+                Err(ModelError::Invalid(_)) => Signature::new(
+                    self.qualification,
+                    role,
+                    Some(origin),
+                    owner,
+                    ordinal as i64,
+                    SignatureForm::NativeUnavailable,
+                    &shapes,
+                )?,
                 Err(error) => return Err(error),
             };
-            let implementation = self.out.terms.iter().find(|t| t.id() == root.id).and_then(|t| match t {
-                TypeTerm::Overload { function, .. } => Some(*function),
-                _ => None,
-            }).or(implementation);
-            let observation = NativeSignatureObservation { qualification: self.qualification.id(), signature: signature.id(), scope: self.qualification.scope, term: origin,
-                family: (origin != root.id).then_some(root.id), implementation, metadata_origin, deprecation, deprecation_message, receiver, complete: signature.form == SignatureForm::List && !root.opaque };
+            let implementation = self
+                .out
+                .terms
+                .iter()
+                .find(|t| t.id() == root.id)
+                .and_then(|t| match t {
+                    TypeTerm::Overload { function, .. } => Some(*function),
+                    _ => None,
+                })
+                .or(implementation);
+            let observation = NativeSignatureObservation {
+                qualification: self.qualification.id(),
+                signature: signature.id(),
+                scope: self.qualification.scope,
+                term: origin,
+                family: (origin != root.id).then_some(root.id),
+                implementation,
+                metadata_origin,
+                deprecation,
+                deprecation_message,
+                receiver,
+                complete: signature.form == SignatureForm::List && !root.opaque,
+            };
             self.out.hold(&observation)?;
-            self.out.native_signatures.push((observation, root.fidelity()));
+            self.out
+                .native_signatures
+                .push((observation, root.fidelity()));
             for (parameter, native) in parameters.iter().zip(&native_slots) {
-                self.port(SignatureTypeSubject::Parameter { parameter: parameter.id() }, native.term, root.fidelity())?;
+                self.port(
+                    SignatureTypeSubject::Parameter {
+                        parameter: parameter.id(),
+                    },
+                    native.term,
+                    root.fidelity(),
+                )?;
             }
-            if let Some(term) = returns { self.port(SignatureTypeSubject::Return { signature: signature.id() }, term, root.fidelity())?; }
+            if let Some(term) = returns {
+                self.port(
+                    SignatureTypeSubject::Return {
+                        signature: signature.id(),
+                    },
+                    term,
+                    root.fidelity(),
+                )?;
+            }
             self.out.hold(&signature)?;
-            for p in &parameters { self.out.hold(p)?; }
-            for p in &shapes { self.out.hold(p)?; }
+            for p in &parameters {
+                self.out.hold(p)?;
+            }
+            for p in &shapes {
+                self.out.hold(p)?;
+            }
             self.out.signatures.push((signature, parameters, shapes));
         }
         Ok(())
     }
-    fn port(&mut self, subject: SignatureTypeSubject, term: Id<TypeTerm>, fidelity: Fidelity) -> Result<(), ModelError> {
-        let row = SignatureTypeObservation { qualification: self.qualification.id(), subject: subject.id(), term, scope: self.qualification.scope };
-        self.out.hold(&subject)?; self.out.hold(&row)?;
-        self.out.port_subjects.push(subject); self.out.port_types.push((row, fidelity));
+    fn port(
+        &mut self,
+        subject: SignatureTypeSubject,
+        term: Id<TypeTerm>,
+        fidelity: Fidelity,
+    ) -> Result<(), ModelError> {
+        let row = SignatureTypeObservation {
+            qualification: self.qualification.id(),
+            subject: subject.id(),
+            term,
+            scope: self.qualification.scope,
+        };
+        self.out.hold(&subject)?;
+        self.out.hold(&row)?;
+        self.out.port_subjects.push(subject);
+        self.out.port_types.push((row, fidelity));
         Ok(())
     }
     fn variable(&mut self, q: &Quantified, depth: usize) -> Result<Id<TypeVariable>, ModelError> {
@@ -1134,9 +1352,10 @@ impl Builder<'_, '_> {
                 }
             }
             Type::Overloaded(alternatives) => {
-                let (alternatives, opaque) = self.types(alternatives.as_slice(), TypeChildRole::Member, depth, false)?;
+                let (alternatives, opaque) =
+                    self.types(alternatives.as_slice(), TypeChildRole::Member, depth, false)?;
                 (TypeTerm::Overloaded { alternatives }, opaque)
-            },
+            }
             Type::NamedInts(_) => (self.opaque(ty, "named_ints"), true),
             Type::TypeLevelDslCall(_) => (self.opaque(ty, "type_level_dsl_call"), true),
             Type::ShapedArray(_) => (self.opaque(ty, "shaped_array"), true),
@@ -1168,8 +1387,21 @@ impl Builder<'_, '_> {
             term: term.id,
         };
         self.out.hold(&row)?;
-        let query=lctx_model::domain::types::TypeQueryObservation {qualification:row.qualification,subject:row.subject,role:row.role,declared:row.declared,observation:Some(row.id()),status:if term.opaque {lctx_model::domain::types::TypeQueryStatus::Partial} else {lctx_model::domain::types::TypeQueryStatus::Available},reason:term.opaque.then_some(ObligationKind::OutsideProviderModel)};
-        self.out.hold(&query)?;self.out.queries.push(query);
+        let query = lctx_model::domain::types::TypeQueryObservation {
+            qualification: row.qualification,
+            subject: row.subject,
+            role: row.role,
+            declared: row.declared,
+            observation: Some(row.id()),
+            status: if term.opaque {
+                lctx_model::domain::types::TypeQueryStatus::Partial
+            } else {
+                lctx_model::domain::types::TypeQueryStatus::Available
+            },
+            reason: term.opaque.then_some(ObligationKind::OutsideProviderModel),
+        };
+        self.out.hold(&query)?;
+        self.out.queries.push(query);
         self.out.observations.push((row, term.fidelity()));
         if term.opaque {
             self.boundary(
@@ -1192,7 +1424,11 @@ impl Builder<'_, '_> {
     reason = "Native provider callbacks borrow the current module session"
 )]
 pub fn records<'a>(
-    protocol: (&pyrefly::state::state::Transaction<'_>, &pyrefly_build::handle::Handle, &ruff_python_ast_latest::ModModule),
+    protocol: (
+        &pyrefly::state::state::Transaction<'_>,
+        &pyrefly_build::handle::Handle,
+        &ruff_python_ast_latest::ModModule,
+    ),
     context: &'a ModuleContext<'a>,
     qualification: &'a AssertionQualification,
     provider: &'a Provider,
@@ -1212,7 +1448,10 @@ pub fn records<'a>(
     ) -> Result<Option<Id<Occurrence>>, ModelError>,
 ) -> Result<Records, ModelError> {
     use pyrefly::{
-        binding::binding::{Key, KeyAnnotation, KeyClass, BindingClass, KeyClassMetadata, KeyAbstractClassCheck, KeyClassSynthesizedFields},
+        binding::binding::{
+            BindingClass, Key, KeyAbstractClassCheck, KeyAnnotation, KeyClass, KeyClassMetadata,
+            KeyClassSynthesizedFields,
+        },
         report::pysa::{
             class::{
                 get_all_classes, get_class_field_declaration,
@@ -1233,30 +1472,51 @@ pub fn records<'a>(
         variables: BTreeSet::new(),
         work: 0,
     };
-    for node in pyrefly::report::pysa::function::get_all_functions(ctx).filter(|node| node.should_export(ctx)) {
+    for node in pyrefly::report::pysa::function::get_all_functions(ctx)
+        .filter(|node| node.should_export(ctx))
+    {
         use pyrefly::report::pysa::function::FunctionNode;
         let reference = node.as_function_ref(ctx);
-        let module = b.natives.module(&ctx.module_info.name().to_string(), ctx.module_info.path())?;
+        let module = b
+            .natives
+            .module(&ctx.module_info.name().to_string(), ctx.module_info.path())?;
         let owner = b.natives.symbol(module, reference.function_id.serialize_to_string(), reference.function_name.to_string(), if matches!(&node, FunctionNode::ClassField { .. }) || matches!(&node, FunctionNode::DecoratedFunction(f) if f.undecorated.defining_cls.is_some()) { SymbolKind::Method } else { SymbolKind::Function })?;
         let (ty, role, receiver) = match &node {
             FunctionNode::DecoratedFunction(f) => {
-                let key = ctx.bindings().key_to_idx(&Key::Definition(f.undecorated.identifier));
+                let key = ctx
+                    .bindings()
+                    .key_to_idx(&Key::Definition(f.undecorated.identifier));
                 let ty = ctx.answers.get_type_at(key);
                 let receiver = if f.undecorated.defining_cls.is_some() {
-                    ty.as_ref().map(native_field_receiver).unwrap_or(NativeReceiver::Unknown)
-                } else { NativeReceiver::Unbound };
+                    ty.as_ref()
+                        .map(native_field_receiver)
+                        .unwrap_or(NativeReceiver::Unknown)
+                } else {
+                    NativeReceiver::Unbound
+                };
                 (ty, SignatureRole::EffectiveTyped, receiver)
             }
             FunctionNode::ClassField { field, .. } => {
                 let ty = field.ty();
-                let receiver = if field.is_property() { NativeReceiver::Property }
-                    else if field.is_simple_instance_attribute() { NativeReceiver::Unbound }
-                    else { native_field_receiver(&ty) };
+                let receiver = if field.is_property() {
+                    NativeReceiver::Property
+                } else if field.is_simple_instance_attribute() {
+                    NativeReceiver::Unbound
+                } else {
+                    native_field_receiver(&ty)
+                };
                 (Some(ty), SignatureRole::Synthesized, receiver)
-            },
+            }
         };
-        if let Some(ty) = ty { b.signature_variants(owner, role, &ty, receiver)?; }
-        else { b.boundary(None, ObligationKind::MissingEvidence, "native effective callable type unavailable".into())?; }
+        if let Some(ty) = ty {
+            b.signature_variants(owner, role, &ty, receiver)?;
+        } else {
+            b.boundary(
+                None,
+                ObligationKind::MissingEvidence,
+                "native effective callable type unavailable".into(),
+            )?;
+        }
     }
     for f in get_all_decorated_functions(ctx) {
         let name = spans
@@ -1323,7 +1583,9 @@ pub fn records<'a>(
             }
         }
         let annotation = KeyAnnotation::ReturnAnnotation(f.undecorated.identifier);
-        let annotated = ctx.bindings().keys::<KeyAnnotation>()
+        let annotated = ctx
+            .bindings()
+            .keys::<KeyAnnotation>()
             .find(|idx| ctx.bindings().idx_to_key(*idx) == &annotation)
             .and_then(|idx| ctx.answers.get_annotation_type_at(idx));
         if let Some(ty) = annotated {
@@ -1348,58 +1610,153 @@ pub fn records<'a>(
             continue;
         }
         b.trace(call.site, TypeRole::CallResult, spans.range_of(call.site))?;
-        if let Some(Type::BoundMethod(method)) = spans.range_of(call.callee).and_then(|range| ctx.answers.get_type_trace(range)) {
+        if let Some(Type::BoundMethod(method)) = spans
+            .range_of(call.callee)
+            .and_then(|range| ctx.answers.get_type_trace(range))
+        {
             let receiver = match &method.obj {
                 Type::ClassType(c) | Type::SelfType(c) => Some(c),
-                Type::Literal(_) | Type::LiteralString(_) | Type::Callable(_) | Type::TypeLevelDslCall(_)
-                | Type::Function(_) | Type::BoundMethod(_) | Type::Overload(_) | Type::Overloaded(_)
-                | Type::Union(_) | Type::Intersect(_) | Type::ClassDef(_) | Type::TypedDict(_)
-                | Type::PartialTypedDict(_) | Type::ShapedArray(_) | Type::IntTuple(_) | Type::NamedInts(_)
-                | Type::NNModule(_) | Type::DataFrame(_) | Type::Series(_) | Type::Int(_) | Type::Tuple(_)
-                | Type::Module(_) | Type::Forall(_) | Type::Var(_) | Type::Quantified(_)
-                | Type::QuantifiedValue(_) | Type::ElementOfTypeVarTuple(_) | Type::TypeGuard(_)
-                | Type::TypeIs(_) | Type::Annotated(..) | Type::Unpack(_) | Type::TypeVar(_)
-                | Type::ParamSpec(_) | Type::TypeVarTuple(_) | Type::SpecialForm(_) | Type::Concatenate(..)
-                | Type::ParamSpecValue(_) | Type::Args(_) | Type::Kwargs(_) | Type::ArgsValue(_)
-                | Type::KwargsValue(_) | Type::Type(_) | Type::TypeForm(_) | Type::Ellipsis
-                | Type::Any(_) | Type::Never(_) | Type::TypeAlias(_) | Type::UntypedAlias(_)
-                | Type::Sentinel(_) | Type::SuperInstance(_) | Type::KwCall(_) | Type::Materialization
+                Type::Literal(_)
+                | Type::LiteralString(_)
+                | Type::Callable(_)
+                | Type::TypeLevelDslCall(_)
+                | Type::Function(_)
+                | Type::BoundMethod(_)
+                | Type::Overload(_)
+                | Type::Overloaded(_)
+                | Type::Union(_)
+                | Type::Intersect(_)
+                | Type::ClassDef(_)
+                | Type::TypedDict(_)
+                | Type::PartialTypedDict(_)
+                | Type::ShapedArray(_)
+                | Type::IntTuple(_)
+                | Type::NamedInts(_)
+                | Type::NNModule(_)
+                | Type::DataFrame(_)
+                | Type::Series(_)
+                | Type::Int(_)
+                | Type::Tuple(_)
+                | Type::Module(_)
+                | Type::Forall(_)
+                | Type::Var(_)
+                | Type::Quantified(_)
+                | Type::QuantifiedValue(_)
+                | Type::ElementOfTypeVarTuple(_)
+                | Type::TypeGuard(_)
+                | Type::TypeIs(_)
+                | Type::Annotated(..)
+                | Type::Unpack(_)
+                | Type::TypeVar(_)
+                | Type::ParamSpec(_)
+                | Type::TypeVarTuple(_)
+                | Type::SpecialForm(_)
+                | Type::Concatenate(..)
+                | Type::ParamSpecValue(_)
+                | Type::Args(_)
+                | Type::Kwargs(_)
+                | Type::ArgsValue(_)
+                | Type::KwargsValue(_)
+                | Type::Type(_)
+                | Type::TypeForm(_)
+                | Type::Ellipsis
+                | Type::Any(_)
+                | Type::Never(_)
+                | Type::TypeAlias(_)
+                | Type::UntypedAlias(_)
+                | Type::Sentinel(_)
+                | Type::SuperInstance(_)
+                | Type::KwCall(_)
+                | Type::Materialization
                 | Type::None => None,
             };
-            let kind = match &method.func { BoundMethodType::Function(f) => &f.metadata.kind, BoundMethodType::Forall(f) => &f.body.metadata.kind, BoundMethodType::Overload(f) => &f.metadata.kind };
+            let kind = match &method.func {
+                BoundMethodType::Function(f) => &f.metadata.kind,
+                BoundMethodType::Forall(f) => &f.body.metadata.kind,
+                BoundMethodType::Overload(f) => &f.metadata.kind,
+            };
             let owner = b.function(kind)?;
             if let (Some(receiver), Some(owner)) = (receiver, owner) {
-                let declarations: Vec<_> = b.out.native_signatures.iter().filter_map(|(native, _)| {
-                    b.out.signatures.iter().find(|(signature, _, _)| signature.id() == native.signature && signature.symbol == owner).map(|_| native.id())
-                }).collect();
+                let declarations: Vec<_> = b
+                    .out
+                    .native_signatures
+                    .iter()
+                    .filter_map(|(native, _)| {
+                        b.out
+                            .signatures
+                            .iter()
+                            .find(|(signature, _, _)| {
+                                signature.id() == native.signature && signature.symbol == owner
+                            })
+                            .map(|_| native.id())
+                    })
+                    .collect();
                 if !declarations.is_empty() {
                     let receiver_term = b.term(&method.obj, 0)?;
-                    for (variable, argument) in receiver.tparams().iter().zip(receiver.targs().as_slice().iter()) {
+                    for (variable, argument) in receiver
+                        .tparams()
+                        .iter()
+                        .zip(receiver.targs().as_slice().iter())
+                    {
                         let variable = b.variable(variable, 0)?;
                         let argument = b.term(argument, 0)?;
-                        let fidelity = if receiver_term.opaque || argument.opaque { Fidelity::DisplayOnly } else { Fidelity::NativeStructural };
+                        let fidelity = if receiver_term.opaque || argument.opaque {
+                            Fidelity::DisplayOnly
+                        } else {
+                            Fidelity::NativeStructural
+                        };
                         for declaration in &declarations {
-                            let row = GenericSpecializationObservation { qualification: b.qualification.id(), scope: b.qualification.scope, site: call.callee, declaration: *declaration, receiver: receiver_term.id, variable, argument: argument.id };
-                            b.out.hold(&row)?; b.out.specializations.push((row, fidelity));
+                            let row = GenericSpecializationObservation {
+                                qualification: b.qualification.id(),
+                                scope: b.qualification.scope,
+                                site: call.callee,
+                                declaration: *declaration,
+                                receiver: receiver_term.id,
+                                variable,
+                                argument: argument.id,
+                            };
+                            b.out.hold(&row)?;
+                            b.out.specializations.push((row, fidelity));
                         }
                     }
                 } else if !receiver.tparams().is_empty() {
-                    b.boundary(Some(call.callee), ObligationKind::MissingEvidence, "native generic receiver lacks emitted signature origin".into())?;
+                    b.boundary(
+                        Some(call.callee),
+                        ObligationKind::MissingEvidence,
+                        "native generic receiver lacks emitted signature origin".into(),
+                    )?;
                 }
             }
         }
         // Pyrefly overload traces are keyed by the native Arguments range. Attach
         // only through its unique canonical child, retaining the call as subject.
         let mut argument_nodes = spans.nodes().filter_map(|(node, kind)| {
-            (kind == SyntaxKind::Arguments && spans.parent(node).is_some_and(|(parent, _)| parent == call.site)).then_some(node)
+            (kind == SyntaxKind::Arguments
+                && spans
+                    .parent(node)
+                    .is_some_and(|(parent, _)| parent == call.site))
+            .then_some(node)
         });
-        let argument_range = argument_nodes.next().filter(|_| argument_nodes.next().is_none()).and_then(|node| spans.range_of(node));
+        let argument_range = argument_nodes
+            .next()
+            .filter(|_| argument_nodes.next().is_none())
+            .and_then(|node| spans.range_of(node));
         if let Some(range) = argument_range {
-        if let Some(ty) = ctx.answers.get_chosen_overload_trace(range) { b.observe(call.site, TypeRole::ChosenOverload, false, &ty)?; }
-        if let Some((alternatives, _closest_index)) = ctx.answers.get_all_overload_trace(range) {
-            // This index is merely closest in unresolved cases. Never use it as choice evidence.
-            for ty in alternatives { b.observe(call.site, TypeRole::OverloadCandidates, false, &Type::Callable(Box::new(ty)))?; }
-        }
+            if let Some(ty) = ctx.answers.get_chosen_overload_trace(range) {
+                b.observe(call.site, TypeRole::ChosenOverload, false, &ty)?;
+            }
+            if let Some((alternatives, _closest_index)) = ctx.answers.get_all_overload_trace(range)
+            {
+                // This index is merely closest in unresolved cases. Never use it as choice evidence.
+                for ty in alternatives {
+                    b.observe(
+                        call.site,
+                        TypeRole::OverloadCandidates,
+                        false,
+                        &Type::Callable(Box::new(ty)),
+                    )?;
+                }
+            }
         }
         for argument in arguments {
             b.trace(
@@ -1416,7 +1773,9 @@ pub fn records<'a>(
             let parent_kind = spans.kind(parent);
             let role = match parent_kind {
                 Some(SyntaxKind::ExprAttribute) => Some(TypeRole::AttributeBase),
-                Some(SyntaxKind::StmtAssign | SyntaxKind::StmtAnnAssign) => Some(TypeRole::AssignmentValue),
+                Some(SyntaxKind::StmtAssign | SyntaxKind::StmtAnnAssign) => {
+                    Some(TypeRole::AssignmentValue)
+                }
                 Some(SyntaxKind::StmtReturn) => Some(TypeRole::ReturnExpression),
                 _ => None,
             };
@@ -1456,16 +1815,23 @@ pub fn records<'a>(
         for class in get_all_classes(ctx) {
             let metadata = solutions.get(&KeyClassMetadata(class.index()));
             let native_class = b.class(&class)?;
-            let mut native_bindings = ctx.bindings().keys::<KeyClass>().filter_map(|key| {
-                match ctx.bindings().get(key) {
-                    BindingClass::ClassDef(binding) => (binding.def_index == class.index()).then_some(false),
-                    BindingClass::FunctionalClassDef(index, _, _) => (*index == class.index()).then_some(true),
+            let mut native_bindings = ctx.bindings().keys::<KeyClass>().filter_map(|key| match ctx
+                .bindings()
+                .get(key)
+            {
+                BindingClass::ClassDef(binding) => {
+                    (binding.def_index == class.index()).then_some(false)
+                }
+                BindingClass::FunctionalClassDef(index, _, _) => {
+                    (*index == class.index()).then_some(true)
                 }
             });
             match (native_bindings.next(), native_bindings.next()) {
                 (Some(synthesized), None) => {
                     let trait_row = symbols::ClassTraitObservation {
-                        qualification: qualification.id(), symbol: native_class, synthesized,
+                        qualification: qualification.id(),
+                        symbol: native_class,
+                        synthesized,
                         dataclass: metadata.dataclass_metadata().is_some(),
                         named_tuple: metadata.named_tuple_metadata().is_some(),
                         typed_dict: metadata.typed_dict_metadata().is_some(),
@@ -1474,109 +1840,252 @@ pub fn records<'a>(
                     b.out.native_class_traits.push(trait_row);
                 }
                 (first, _) => {
-                    let detail = format!("native class trait {native_class:?} has missing or ambiguous BindingClass identity");
+                    let detail = format!(
+                        "native class trait {native_class:?} has missing or ambiguous BindingClass identity"
+                    );
                     b.out.hold(&detail)?;
-                    b.out.class_trait_boundaries.push((if first.is_some() {ObligationKind::AmbiguousBinding} else {ObligationKind::NativeUnavailable}, detail));
+                    b.out.class_trait_boundaries.push((
+                        if first.is_some() {
+                            ObligationKind::AmbiguousBinding
+                        } else {
+                            ObligationKind::NativeUnavailable
+                        },
+                        detail,
+                    ));
                 }
             }
             let metaclass = b.class(metadata.metaclass(&ctx.stdlib).class_object())?;
-            let custom_metaclass = metadata.custom_metaclass().map(|c| b.class(c.class_object())).transpose()?;
-            let mut abstract_members: Vec<_> = solutions.get(&KeyAbstractClassCheck(class.index()))
-                .unimplemented_abstract_methods().iter().map(ToString::to_string).collect();
+            let custom_metaclass = metadata
+                .custom_metaclass()
+                .map(|c| b.class(c.class_object()))
+                .transpose()?;
+            let mut abstract_members: Vec<_> = solutions
+                .get(&KeyAbstractClassCheck(class.index()))
+                .unimplemented_abstract_methods()
+                .iter()
+                .map(ToString::to_string)
+                .collect();
             abstract_members.sort();
-            let mut protocol_members: Vec<_> = metadata.protocol_metadata().map(|p| p.members.iter().map(ToString::to_string).collect()).unwrap_or_default();
+            let mut protocol_members: Vec<_> = metadata
+                .protocol_metadata()
+                .map(|p| p.members.iter().map(ToString::to_string).collect())
+                .unwrap_or_default();
             protocol_members.sort();
-            let slots = metadata.slots_info().map(|info| { let mut names: Vec<_> = info.names.iter().map(ToString::to_string).collect(); names.sort(); names });
-            let record = if metadata.is_typed_dict() { Some(RecordKind::TypedDict) }
-                else if metadata.named_tuple_metadata().is_some() { Some(RecordKind::NamedTuple) }
-                else if metadata.is_pydantic_model() { Some(RecordKind::Pydantic) }
-                else if metadata.is_attrs_class() { Some(RecordKind::Attrs) }
-                else if metadata.dataclass_metadata().is_some() { Some(RecordKind::Dataclass) }
-                else { None };
+            let slots = metadata.slots_info().map(|info| {
+                let mut names: Vec<_> = info.names.iter().map(ToString::to_string).collect();
+                names.sort();
+                names
+            });
+            let record = if metadata.is_typed_dict() {
+                Some(RecordKind::TypedDict)
+            } else if metadata.named_tuple_metadata().is_some() {
+                Some(RecordKind::NamedTuple)
+            } else if metadata.is_pydantic_model() {
+                Some(RecordKind::Pydantic)
+            } else if metadata.is_attrs_class() {
+                Some(RecordKind::Attrs)
+            } else if metadata.dataclass_metadata().is_some() {
+                Some(RecordKind::Dataclass)
+            } else {
+                None
+            };
             let record_options = if let Some(dm) = metadata.dataclass_metadata() {
                 let k = &dm.kws;
-                let options = RecordOptions { init: k.init, eq: k.eq, order: k.order, frozen: k.frozen,
-                    match_args: k.match_args, kw_only: k.kw_only, unsafe_hash: k.unsafe_hash, slots: k.slots,
-                    extra: k.extra, strict: k.strict, auto_attribs: k.auto_attribs, attrs_setattr_frozen: k.attrs_setattr_frozen };
+                let options = RecordOptions {
+                    init: k.init,
+                    eq: k.eq,
+                    order: k.order,
+                    frozen: k.frozen,
+                    match_args: k.match_args,
+                    kw_only: k.kw_only,
+                    unsafe_hash: k.unsafe_hash,
+                    slots: k.slots,
+                    extra: k.extra,
+                    strict: k.strict,
+                    auto_attribs: k.auto_attribs,
+                    attrs_setattr_frozen: k.attrs_setattr_frozen,
+                };
                 b.out.hold(&options)?;
-                let id = options.id(); b.out.record_options.push(options); Some(id)
-            } else { None };
+                let id = options.id();
+                b.out.record_options.push(options);
+                Some(id)
+            } else {
+                None
+            };
             let transform = if let Some(t) = metadata.dataclass_transform_metadata() {
-                use pyrefly_types::{types::CalleeKind, class::ClassKind};
-                b.out.charge.grow(t.field_specifiers.len().saturating_mul(128))?;
-                let classifications: Vec<_> = t.field_specifiers.iter().map(|specifier| match specifier {
-                    CalleeKind::Callable => (FieldSpecifierKind::Callable, None),
-                    CalleeKind::Function(_) => (FieldSpecifierKind::Function, None),
-                    CalleeKind::Class(kind) => match kind {
-                        ClassKind::StaticMethod(n) => (FieldSpecifierKind::StaticMethod, Some(n.to_string())),
-                        ClassKind::ClassMethod(n) => (FieldSpecifierKind::ClassMethod, Some(n.to_string())),
-                        ClassKind::Property(n) => (FieldSpecifierKind::Property, Some(n.to_string())),
-                        ClassKind::CachedProperty(n) => (FieldSpecifierKind::CachedProperty, Some(n.to_string())),
-                        ClassKind::Class => (FieldSpecifierKind::Class, None),
-                        ClassKind::EnumMember => (FieldSpecifierKind::EnumMember, None),
-                        ClassKind::EnumNonmember => (FieldSpecifierKind::EnumNonmember, None),
-                        ClassKind::DataclassField => (FieldSpecifierKind::DataclassField, None),
-                    },
-                }).collect();
+                use pyrefly_types::{class::ClassKind, types::CalleeKind};
+                b.out
+                    .charge
+                    .grow(t.field_specifiers.len().saturating_mul(128))?;
+                let classifications: Vec<_> = t
+                    .field_specifiers
+                    .iter()
+                    .map(|specifier| match specifier {
+                        CalleeKind::Callable => (FieldSpecifierKind::Callable, None),
+                        CalleeKind::Function(_) => (FieldSpecifierKind::Function, None),
+                        CalleeKind::Class(kind) => match kind {
+                            ClassKind::StaticMethod(n) => {
+                                (FieldSpecifierKind::StaticMethod, Some(n.to_string()))
+                            }
+                            ClassKind::ClassMethod(n) => {
+                                (FieldSpecifierKind::ClassMethod, Some(n.to_string()))
+                            }
+                            ClassKind::Property(n) => {
+                                (FieldSpecifierKind::Property, Some(n.to_string()))
+                            }
+                            ClassKind::CachedProperty(n) => {
+                                (FieldSpecifierKind::CachedProperty, Some(n.to_string()))
+                            }
+                            ClassKind::Class => (FieldSpecifierKind::Class, None),
+                            ClassKind::EnumMember => (FieldSpecifierKind::EnumMember, None),
+                            ClassKind::EnumNonmember => (FieldSpecifierKind::EnumNonmember, None),
+                            ClassKind::DataclassField => (FieldSpecifierKind::DataclassField, None),
+                        },
+                    })
+                    .collect();
 
-                let defaults = RecordTransformDefaults { eq: t.eq_default, order: t.order_default,
-                    kw_only: t.kw_only_default, frozen: t.frozen_default, field_specifier_count: t.field_specifiers.len() as i64, field_specifier_shape: field_specifier_shape(&classifications),
-                    field_specifier_identity_reason: (!t.field_specifiers.is_empty()).then_some(ObligationKind::NativeUnavailable) };
+                let defaults = RecordTransformDefaults {
+                    eq: t.eq_default,
+                    order: t.order_default,
+                    kw_only: t.kw_only_default,
+                    frozen: t.frozen_default,
+                    field_specifier_count: t.field_specifiers.len() as i64,
+                    field_specifier_shape: field_specifier_shape(&classifications),
+                    field_specifier_identity_reason: (!t.field_specifiers.is_empty())
+                        .then_some(ObligationKind::NativeUnavailable),
+                };
                 if !t.field_specifiers.is_empty() {
                     b.boundary(None, ObligationKind::NativeUnavailable, "dataclass transform field-specifier payload retains callee classification, not complete structural type identity".into())?;
                 }
                 b.out.hold(&defaults)?;
                 let id = defaults.id();
                 for (ordinal, (kind, name)) in classifications.into_iter().enumerate() {
-                    let specifier = RecordTransformFieldSpecifier { transform: id, ordinal: ordinal as i64, kind, name };
-                    b.out.hold(&specifier)?; b.out.transform_specifiers.push(specifier);
+                    let specifier = RecordTransformFieldSpecifier {
+                        transform: id,
+                        ordinal: ordinal as i64,
+                        kind,
+                        name,
+                    };
+                    b.out.hold(&specifier)?;
+                    b.out.transform_specifiers.push(specifier);
                 }
-                b.out.transforms.push(defaults); Some(id)
-            } else { None };
-            let row = ClassMetadataObservation { qualification: b.qualification.id(), class: native_class,
-                basis: MetadataBasis::NativeEffective, metaclass, custom_metaclass,
-                final_declaration: metadata.is_final(), protocol: metadata.is_protocol(),
-                runtime_checkable: metadata.is_runtime_checkable_protocol(), new_type: metadata.is_new_type(),
-                enumeration: metadata.is_enum(), explicitly_abstract: metadata.is_explicitly_abstract(),
-                abstract_members, abstract_absence_known: false, protocol_members,
-                explicit_slots: metadata.has_explicit_slots(), slots, record, record_options, transform,
+                b.out.transforms.push(defaults);
+                Some(id)
+            } else {
+                None
+            };
+            let row = ClassMetadataObservation {
+                qualification: b.qualification.id(),
+                class: native_class,
+                basis: MetadataBasis::NativeEffective,
+                metaclass,
+                custom_metaclass,
+                final_declaration: metadata.is_final(),
+                protocol: metadata.is_protocol(),
+                runtime_checkable: metadata.is_runtime_checkable_protocol(),
+                new_type: metadata.is_new_type(),
+                enumeration: metadata.is_enum(),
+                explicitly_abstract: metadata.is_explicitly_abstract(),
+                abstract_members,
+                abstract_absence_known: false,
+                protocol_members,
+                explicit_slots: metadata.has_explicit_slots(),
+                slots,
+                record,
+                record_options,
+                transform,
                 deprecated: metadata.deprecation().is_some(),
-                deprecation_message: metadata.deprecation().and_then(|d| d.message.clone()) };
-            row.validate()?; b.out.hold(&row)?; b.out.class_metadata.push(row);
+                deprecation_message: metadata.deprecation().and_then(|d| d.message.clone()),
+            };
+            row.validate()?;
+            b.out.hold(&row)?;
+            b.out.class_metadata.push(row);
             let mut owners = vec![(class.clone(), ctx.clone())];
             for ancestor in get_class_mro(&class, ctx).ancestors_no_object() {
                 let declaring = ancestor.class_object();
-                let owner = if declaring.module() == &ctx.module_info { Some(ctx.clone()) } else { module_context(declaring) };
-                if let Some(owner) = owner { owners.push((declaring.clone(), owner)); }
+                let owner = if declaring.module() == &ctx.module_info {
+                    Some(ctx.clone())
+                } else {
+                    module_context(declaring)
+                };
+                if let Some(owner) = owner {
+                    owners.push((declaring.clone(), owner));
+                }
             }
             let synthesized = solutions.get(&KeyClassSynthesizedFields(class.index()));
             let mut seen = BTreeSet::new();
             for (defining, owner) in &owners {
-                let fields = &owner.bindings().metadata().get_class(defining.index()).fields;
+                let fields = &owner
+                    .bindings()
+                    .metadata()
+                    .get_class(defining.index())
+                    .fields;
                 let mut names: Vec<_> = fields.names().cloned().collect();
-                if defining == &class { names.extend(synthesized.fields().map(|(n, _)| n.clone())); }
-                names.sort(); names.dedup();
+                if defining == &class {
+                    names.extend(synthesized.fields().map(|(n, _)| n.clone()));
+                }
+                names.sort();
+                names.dedup();
                 for name in names {
-                    if !seen.insert(name.clone()) { continue; }
-                    let Some(field) = get_class_field_from_current_class_only(defining, &name, owner) else { continue; };
+                    if !seen.insert(name.clone()) {
+                        continue;
+                    }
+                    let Some(field) =
+                        get_class_field_from_current_class_only(defining, &name, owner)
+                    else {
+                        continue;
+                    };
                     let ty = field.ty();
                     let term = b.term(&ty, 0)?;
                     let enum_value = if let Type::Literal(value) = &ty {
-                        if let Lit::Enum(value) = &value.value { Some(b.term(&value.ty, 0)?) } else { None }
-                    } else { None };
-                    let declaration = fields.field_decl_range(&name).map(|r| field_occurrence(defining, r)).transpose()?.flatten();
+                        if let Lit::Enum(value) = &value.value {
+                            Some(b.term(&value.ty, 0)?)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    let declaration = fields
+                        .field_decl_range(&name)
+                        .map(|r| field_occurrence(defining, r))
+                        .transpose()?
+                        .flatten();
                     let origin = if defining != &class { MemberOrigin::Inherited }
                         else if !fields.contains(&name) || get_class_field_declaration(defining, &name, owner).is_some_and(|d|
                             matches!(d.definition, pyrefly::binding::binding::ClassFieldDefinition::DeclaredWithoutAnnotation)) { MemberOrigin::Synthesized }
                         else { MemberOrigin::Source };
-                    let row = ClassMemberObservation { qualification: qualification.id(), class: native_class,
-                        defining_class: b.class(defining)?, name: name.to_string(), basis: MetadataBasis::NativeEffective, origin,
-                        kind: if field.is_property() { MemberKind::Property } else if field.is_simple_instance_attribute() { MemberKind::InstanceAttribute } else { MemberKind::Other },
-                        term: term.id, enum_value: enum_value.map(|t| t.id), declaration, abstract_declaration: field.is_abstract(), final_declaration: field.is_final() };
-                    b.out.hold(&row)?; b.out.class_members.push((row, if enum_value.is_some_and(|t| t.opaque) { Fidelity::DisplayOnly } else { term.fidelity() }));
+                    let row = ClassMemberObservation {
+                        qualification: qualification.id(),
+                        class: native_class,
+                        defining_class: b.class(defining)?,
+                        name: name.to_string(),
+                        basis: MetadataBasis::NativeEffective,
+                        origin,
+                        kind: if field.is_property() {
+                            MemberKind::Property
+                        } else if field.is_simple_instance_attribute() {
+                            MemberKind::InstanceAttribute
+                        } else {
+                            MemberKind::Other
+                        },
+                        term: term.id,
+                        enum_value: enum_value.map(|t| t.id),
+                        declaration,
+                        abstract_declaration: field.is_abstract(),
+                        final_declaration: field.is_final(),
+                    };
+                    b.out.hold(&row)?;
+                    b.out.class_members.push((
+                        row,
+                        if enum_value.is_some_and(|t| t.opaque) {
+                            Fidelity::DisplayOnly
+                        } else {
+                            term.fidelity()
+                        },
+                    ));
                 }
             }
-
 
             let (record, names): (RecordKind, Vec<(String, Option<bool>)>) =
                 if let Some(td) = metadata.typed_dict_metadata() {
@@ -1705,9 +2214,19 @@ pub fn records<'a>(
                         )
                     }
                 };
-                let default_term = if matches!(record, RecordKind::Dataclass | RecordKind::Attrs | RecordKind::Pydantic) {
-                    field.dataclass_flags_of(answers.heap()).default.as_ref().map(|t| b.term(t, 0)).transpose()?
-                } else { None };
+                let default_term = if matches!(
+                    record,
+                    RecordKind::Dataclass | RecordKind::Attrs | RecordKind::Pydantic
+                ) {
+                    field
+                        .dataclass_flags_of(answers.heap())
+                        .default
+                        .as_ref()
+                        .map(|t| b.term(t, 0))
+                        .transpose()?
+                } else {
+                    None
+                };
                 let row = RecordFieldObservation {
                     qualification: qualification.id(),
                     class: native_class,
@@ -1726,7 +2245,14 @@ pub fn records<'a>(
                     read_only,
                 };
                 b.out.hold(&row)?;
-                b.out.fields.push((row, if default_term.is_some_and(|t| t.opaque) { Fidelity::DisplayOnly } else { term.fidelity() }));
+                b.out.fields.push((
+                    row,
+                    if default_term.is_some_and(|t| t.opaque) {
+                        Fidelity::DisplayOnly
+                    } else {
+                        term.fidelity()
+                    },
+                ));
                 ordinal += 1;
             }
         }
@@ -1737,11 +2263,22 @@ pub fn records<'a>(
             "native class/member metadata and record solutions unavailable".into(),
         )?;
     }
-    let protocols=crate::protocol_records::records(protocol.0,protocol.1,protocol.2,spans,qualification,budget,|ty| {
-        let built=b.term(ty,0)?;Ok((built.id,built.fidelity()))
-    })?;
-    for (subject,reason,detail) in &protocols.boundaries {b.boundary(*subject,*reason,detail.clone())?;}
-    b.out.protocols=Some(protocols);
+    let protocols = crate::protocol_records::records(
+        protocol.0,
+        protocol.1,
+        protocol.2,
+        spans,
+        qualification,
+        budget,
+        |ty| {
+            let built = b.term(ty, 0)?;
+            Ok((built.id, built.fidelity()))
+        },
+    )?;
+    for (subject, reason, detail) in &protocols.boundaries {
+        b.boundary(*subject, *reason, detail.clone())?;
+    }
+    b.out.protocols = Some(protocols);
     Ok(b.out)
 }
 impl Builder<'_, '_> {
@@ -1754,10 +2291,23 @@ impl Builder<'_, '_> {
         match range.and_then(|range| self.context.answers_context.answers.get_type_trace(range)) {
             Some(ty) => self.observe(subject, role, false, &ty),
             None => {
-                let query=lctx_model::domain::types::TypeQueryObservation {qualification:self.qualification.id(),subject,role,declared:false,observation:None,status:lctx_model::domain::types::TypeQueryStatus::Unavailable,reason:Some(ObligationKind::MissingEvidence)};
-                self.out.hold(&query)?;self.out.queries.push(query);
-                self.boundary(Some(subject),ObligationKind::MissingEvidence,format!("native type trace unavailable for {role:?}"))
-            },
+                let query = lctx_model::domain::types::TypeQueryObservation {
+                    qualification: self.qualification.id(),
+                    subject,
+                    role,
+                    declared: false,
+                    observation: None,
+                    status: lctx_model::domain::types::TypeQueryStatus::Unavailable,
+                    reason: Some(ObligationKind::MissingEvidence),
+                };
+                self.out.hold(&query)?;
+                self.out.queries.push(query);
+                self.boundary(
+                    Some(subject),
+                    ObligationKind::MissingEvidence,
+                    format!("native type trace unavailable for {role:?}"),
+                )
+            }
         }
     }
 }

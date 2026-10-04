@@ -185,7 +185,7 @@ pub fn normalize(
     let mut output = RelationOutput::new(budget);
     let index = Index::new(data, budget)?;
     references(data, &mut output, budget)?;
-    super::native_lexical::characterize(data,&mut output,budget)?;
+    super::native_lexical::characterize(data, &mut output, budget)?;
     imports(data, &index, &mut output, budget)?;
     ancestry(data, &index, &mut output, budget)?;
     mentions(data, &index, &mut output, budget)?;
@@ -261,7 +261,11 @@ fn references(
     Ok(())
 }
 type QualifiedPath = (Id<AnalysisContext>, Id<input::InputRevision>, String);
-type QualifiedImportAlias = (Id<AnalysisContext>, Id<input::InputRevision>, Id<Occurrence>);
+type QualifiedImportAlias = (
+    Id<AnalysisContext>,
+    Id<input::InputRevision>,
+    Id<Occurrence>,
+);
 fn imports(
     data: &RelationData,
     _index: &Index<'_>,
@@ -269,17 +273,24 @@ fn imports(
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "import-resolution-index");
-    let mut resolutions: ChargedMap<QualifiedImportAlias, Vec<&ModuleResolutionObservation>> = Default::default();
+    let mut resolutions: ChargedMap<QualifiedImportAlias, Vec<&ModuleResolutionObservation>> =
+        Default::default();
     for row in data.module_resolutions.iter() {
         need(&data.facts.provider_modules, row.module)?;
         if let Some(alias) = row.alias {
             let alias_source = need(&data.facts.occurrences, alias)?;
             if alias_source.syntax_kind != SyntaxKind::Alias {
-                return Err(invalid("module resolution alias is not an import alias occurrence"));
+                return Err(invalid(
+                    "module resolution alias is not an import alias occurrence",
+                ));
             }
             resolutions.update(
                 &mut charge,
-                (context(data, row.qualification)?, input(data, row.qualification)?, alias),
+                (
+                    context(data, row.qualification)?,
+                    input(data, row.qualification)?,
+                    alias,
+                ),
                 |rows| rows.push(row),
             )?;
         }

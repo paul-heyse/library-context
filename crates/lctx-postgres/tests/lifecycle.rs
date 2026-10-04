@@ -171,7 +171,13 @@ async fn a_missing_coverage_row_fails_validation_and_a_subset_schedule_never_beg
             inputs: vec![],
             outputs: vec![RelationUse::of::<InputRevision>()],
             contributes: vec![],
-            coverage: vec![FactFamily::Artifacts].into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:facts.capture.id()}).collect(),
+            coverage: vec![FactFamily::Artifacts]
+                .into_iter()
+                .map(|family| lctx_model::domain::stages::FamilyCoverage {
+                    family,
+                    provider: facts.capture.id(),
+                })
+                .collect(),
             profiles: vec![Profile::Catalog],
             effect: Effect::Acquisition,
             code: ContentHash::of(b"subset"),

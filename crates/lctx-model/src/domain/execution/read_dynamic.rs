@@ -2,7 +2,7 @@
 //! exact runtime class, allocation, mutable-state stability or complete member universe.
 use super::{
     evaluation::EvaluationData,
-    read_channels::{Work, native, declared_class_inspection, selected},
+    read_channels::{Work, declared_class_inspection, native, selected},
 };
 use crate::domain::{
     analysis::{
@@ -207,12 +207,27 @@ impl Inspect<'_> {
                 continue;
             }
             let mut run = None;
-            for observation in self.entry.use_observations.iter().filter(|o| self.entry.uses.get(o.use_).is_some_and(|u| u.occurrence == site)) {
+            for observation in self.entry.use_observations.iter().filter(|o| {
+                self.entry
+                    .uses
+                    .get(o.use_)
+                    .is_some_and(|u| u.occurrence == site)
+            }) {
                 if let Some((_, candidate, _)) = declared_class_inspection(
-                    super::read_channels::NativeContext {data:self.data,entry:self.entry,invocation:self.invocation},
-                    &self.entry.use_supports, observation.id(), observation.qualification, site, self.work,
+                    super::read_channels::NativeContext {
+                        data: self.data,
+                        entry: self.entry,
+                        invocation: self.invocation,
+                    },
+                    &self.entry.use_supports,
+                    observation.id(),
+                    observation.qualification,
+                    site,
+                    self.work,
                 )? {
-                    if run.is_some() { return Ok(None); }
+                    if run.is_some() {
+                        return Ok(None);
+                    }
                     run = Some(candidate);
                 }
             }

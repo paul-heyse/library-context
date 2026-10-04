@@ -67,7 +67,9 @@ pub enum AssertionTemplate {
         conclusion: Id<DocumentaryConclusion>,
     },
     #[model(code = 6)]
-    TerminalSummary { witness: Id<execution::summary_terminal::SummaryTerminalWitness> },
+    TerminalSummary {
+        witness: Id<execution::summary_terminal::SummaryTerminalWitness>,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "programmatic_assertion_sources")]
@@ -93,7 +95,9 @@ pub enum AssertionSource {
         conclusion: Id<super::patterns::AuthoredCodeConclusion>,
     },
     #[model(code = 5)]
-    TerminalSummary { witness: Id<execution::summary_terminal::SummaryTerminalWitness> },
+    TerminalSummary {
+        witness: Id<execution::summary_terminal::SummaryTerminalWitness>,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="programmatic_assertions",invariants=invariants,semantic_source=include_bytes!("assertions.rs"))]
@@ -439,7 +443,10 @@ pub fn build(
     }
     Ok(out)
 }
-#[allow(clippy::too_many_arguments, reason = "Summary assertion lowering keeps the separately owned qualification and nominal proof inputs explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Summary assertion lowering keeps the separately owned qualification and nominal proof inputs explicit."
+)]
 pub fn extend_summary(
     d: &super::summary::Data,
     observations: &super::observations::Data,
@@ -518,17 +525,41 @@ pub fn build_all(
     extend_patterns(patterns, d, &code, frames, invocations, &mut out, b)?;
     Ok(out)
 }
-#[allow(clippy::too_many_arguments, reason = "Terminal lowering retains separate nominal owners and qualified evidence.")]
-fn extend_terminal(d:&super::terminal::Data, summary:&super::summary::Data, observations:&super::observations::Data, docs:&documentary::Data, frames:&Rows<super::frames::Frame>, invocations:&Rows<owner::Invocation>, out:&mut Output, b:&ResourceBudget)->Result<(),ModelError>{
- for frame in frames.iter(){let inv=need(invocations,frame.invocation)?;
-  for checked in super::terminal::selected(d,summary,&observations.qualifications,frame,inv)?{
-   for member in super::terminal::linked(docs,checked.frontier.owner,inv)?{
-    let template=AssertionTemplate::TerminalSummary{witness:checked.witness.id()};let source=AssertionSource::TerminalSummary{witness:checked.witness.id()};
-    let (assertion,support)=emit(inv.id(),member,&template,AssertionContent{kind:AssertionKind::ApplicableCase,source:&source,facts:checked.facts(),text:"Given entry to this invocation and the retained typing assumptions, the direct following statement has no normal continuation. Invocation entry was not established; effects, exceptions and cleanup remain unknown.".into()},b)?;
-    out.templates.insert(template)?;out.sources.insert(source)?;out.assertions.insert(assertion)?;out.supports.insert(support)?;
-   }
-  }
- }Ok(())
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Terminal lowering retains separate nominal owners and qualified evidence."
+)]
+fn extend_terminal(
+    d: &super::terminal::Data,
+    summary: &super::summary::Data,
+    observations: &super::observations::Data,
+    docs: &documentary::Data,
+    frames: &Rows<super::frames::Frame>,
+    invocations: &Rows<owner::Invocation>,
+    out: &mut Output,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
+    for frame in frames.iter() {
+        let inv = need(invocations, frame.invocation)?;
+        for checked in
+            super::terminal::selected(d, summary, &observations.qualifications, frame, inv)?
+        {
+            for member in super::terminal::linked(docs, checked.frontier.owner, inv)? {
+                let template = AssertionTemplate::TerminalSummary {
+                    witness: checked.witness.id(),
+                };
+                let source = AssertionSource::TerminalSummary {
+                    witness: checked.witness.id(),
+                };
+                let (assertion,support)=emit(inv.id(),member,&template,AssertionContent{kind:AssertionKind::ApplicableCase,source:&source,facts:checked.facts(),text:"Given entry to this invocation and the retained typing assumptions, the direct following statement has no normal continuation. Invocation entry was not established; effects, exceptions and cleanup remain unknown.".into()},b)?;
+                out.templates.insert(template)?;
+                out.sources.insert(source)?;
+                out.assertions.insert(assertion)?;
+                out.supports.insert(support)?;
+            }
+        }
+    }
+    Ok(())
 }
 pub fn extend_patterns(
     d: &super::patterns::Data,
@@ -1347,7 +1378,8 @@ raise ValueError('flag required')
         let signature = d
             .parameter_signatures
             .insert(calls::Signature {
-            role: crate::domain::calls::SignatureRole::Source, native: None,
+                role: crate::domain::calls::SignatureRole::Source,
+                native: None,
                 qualification: q.id(),
                 scope: q.scope,
                 symbol: id(70),

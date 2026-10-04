@@ -393,7 +393,11 @@ fn assertion_condition_context_and_evidence_bounds_are_stored_invariants() {
         artifact: source.id(),
     };
     let mut batches = BTreeMap::new();
-    insert(&model, &mut batches, vec![assumptions::AssumptionSet::empty()]);
+    insert(
+        &model,
+        &mut batches,
+        vec![assumptions::AssumptionSet::empty()],
+    );
     insert(&model, &mut batches, vec![atom]);
     insert(&model, &mut batches, nodes);
     insert(&model, &mut batches, vec![condition.clone()]);
@@ -402,7 +406,7 @@ fn assertion_condition_context_and_evidence_bounds_are_stored_invariants() {
             &model,
             &mut batches,
             vec![AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+                assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
                 context,
                 scope: scope.id(),
                 condition: condition.id(),

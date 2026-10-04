@@ -115,48 +115,104 @@ pub struct FlowSourceViewObservation {
     #[model(key)]
     pub renamed_type_checking: i64,
 }
-fn validate_view(row: &FlowSourceViewObservation) -> Result<(),ModelError> {
-    if row.byte_len < 0 || row.renamed_type_checking < 0 || row.renamed_type_checking > row.byte_len/13 {
-        return Err(ModelError::Invalid("invalid same-length ty source view".into()));
+fn validate_view(row: &FlowSourceViewObservation) -> Result<(), ModelError> {
+    if row.byte_len < 0
+        || row.renamed_type_checking < 0
+        || row.renamed_type_checking > row.byte_len / 13
+    {
+        return Err(ModelError::Invalid(
+            "invalid same-length ty source view".into(),
+        ));
     }
     if (row.renamed_type_checking == 0) != (row.original_content == row.view_content) {
-        return Err(ModelError::Invalid("ty view content disagrees with token renames".into()));
+        return Err(ModelError::Invalid(
+            "ty view content disagrees with token renames".into(),
+        ));
     }
     Ok(())
 }
 fn view_invariants() -> Vec<Invariant> {
     vec![Invariant {
-        name:"flow_view_and_narrowing_precision",
-        inputs:vec![ValidationInput::of::<source::SourceArtifact>(&["id"]),ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<FlowSourceViewObservation>(&["id"]),ValidationInput::of::<FlowNarrowingObservation>(&["id"])],
-        create:std::sync::Arc::new(|budget|Box::new(ViewCheck {charge:StateCharge::new(budget,"flow_view_and_narrowing_precision"),..Default::default()})),
+        name: "flow_view_and_narrowing_precision",
+        inputs: vec![
+            ValidationInput::of::<source::SourceArtifact>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<FlowSourceViewObservation>(&["id"]),
+            ValidationInput::of::<FlowNarrowingObservation>(&["id"]),
+        ],
+        create: std::sync::Arc::new(|budget| {
+            Box::new(ViewCheck {
+                charge: StateCharge::new(budget, "flow_view_and_narrowing_precision"),
+                ..Default::default()
+            })
+        }),
     }]
 }
 #[derive(Default)]
 struct ViewCheck {
-    charge:StateCharge,
-    sources:ChargedMap<Id<source::SourceArtifact>,source::SourceArtifact>,
-    qualifications:ChargedMap<Id<AssertionQualification>,AssertionQualification>,
-    views:ChargedMap<Id<FlowSourceViewObservation>,FlowSourceViewObservation>,
-    narrowing:ChargedMap<Id<FlowNarrowingObservation>,FlowNarrowingObservation>,
+    charge: StateCharge,
+    sources: ChargedMap<Id<source::SourceArtifact>, source::SourceArtifact>,
+    qualifications: ChargedMap<Id<AssertionQualification>, AssertionQualification>,
+    views: ChargedMap<Id<FlowSourceViewObservation>, FlowSourceViewObservation>,
+    narrowing: ChargedMap<Id<FlowNarrowingObservation>, FlowNarrowingObservation>,
 }
 impl InvariantCheck for ViewCheck {
-    fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
-        if relation==source::SourceArtifact::NAME {for row in source::SourceArtifact::decode(batch)? {self.sources.insert(&mut self.charge,row.id(),row)?;}}
-        else if relation==AssertionQualification::NAME {for row in AssertionQualification::decode(batch)? {self.qualifications.insert(&mut self.charge,row.id(),row)?;}}
-        else if relation==FlowSourceViewObservation::NAME {for row in FlowSourceViewObservation::decode(batch)? {row.validate()?;self.views.insert(&mut self.charge,row.id(),row)?;}}
-        else if relation==FlowNarrowingObservation::NAME {for row in FlowNarrowingObservation::decode(batch)? {self.narrowing.insert(&mut self.charge,row.id(),row)?;}}
-        else {return Err(ModelError::Invalid("undeclared flow view validation input".into()));}
+    fn visit(
+        &mut self,
+        relation: &str,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        if relation == source::SourceArtifact::NAME {
+            for row in source::SourceArtifact::decode(batch)? {
+                self.sources.insert(&mut self.charge, row.id(), row)?;
+            }
+        } else if relation == AssertionQualification::NAME {
+            for row in AssertionQualification::decode(batch)? {
+                self.qualifications
+                    .insert(&mut self.charge, row.id(), row)?;
+            }
+        } else if relation == FlowSourceViewObservation::NAME {
+            for row in FlowSourceViewObservation::decode(batch)? {
+                row.validate()?;
+                self.views.insert(&mut self.charge, row.id(), row)?;
+            }
+        } else if relation == FlowNarrowingObservation::NAME {
+            for row in FlowNarrowingObservation::decode(batch)? {
+                self.narrowing.insert(&mut self.charge, row.id(), row)?;
+            }
+        } else {
+            return Err(ModelError::Invalid(
+                "undeclared flow view validation input".into(),
+            ));
+        }
         Ok(())
     }
-    fn finish(self:Box<Self>)->Result<(),ModelError> {
+    fn finish(self: Box<Self>) -> Result<(), ModelError> {
         for row in self.views.values() {
-            let source=self.sources.get(&row.source).ok_or_else(||ModelError::Invalid("flow view source missing".into()))?;
-            if source.content!=row.original_content || source.byte_len!=row.byte_len {return Err(ModelError::Invalid("flow view source snapshot mismatch".into()));}
+            let source = self
+                .sources
+                .get(&row.source)
+                .ok_or_else(|| ModelError::Invalid("flow view source missing".into()))?;
+            if source.content != row.original_content || source.byte_len != row.byte_len {
+                return Err(ModelError::Invalid(
+                    "flow view source snapshot mismatch".into(),
+                ));
+            }
         }
         for row in self.narrowing.values() {
-            let q=self.qualifications.get(&row.qualification).ok_or_else(||ModelError::Invalid("flow narrowing qualification missing".into()))?;
-            if row.precision_lost && matches!(q.approximation,super::assertion::Approximation::Exact|super::assertion::Approximation::Under) {
-                return Err(ModelError::Invalid("precision-lost narrowing cannot certify exact or under-approximate truth".into()));
+            let q = self.qualifications.get(&row.qualification).ok_or_else(|| {
+                ModelError::Invalid("flow narrowing qualification missing".into())
+            })?;
+            if row.precision_lost
+                && matches!(
+                    q.approximation,
+                    super::assertion::Approximation::Exact | super::assertion::Approximation::Under
+                )
+            {
+                return Err(ModelError::Invalid(
+                    "precision-lost narrowing cannot certify exact or under-approximate truth"
+                        .into(),
+                ));
             }
         }
         Ok(())

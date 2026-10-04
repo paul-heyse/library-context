@@ -177,14 +177,18 @@ pub struct SignatureSlotEntity {
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "signature_slot_types")]
 pub struct SignatureSlotType {
-    #[model(key)] pub slot: Id<SignatureSlot>,
-    #[model(key)] pub observation: Id<crate::domain::types::SignatureTypeObservation>,
+    #[model(key)]
+    pub slot: Id<SignatureSlot>,
+    #[model(key)]
+    pub observation: Id<crate::domain::types::SignatureTypeObservation>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "signature_return_types")]
 pub struct SignatureReturnType {
-    #[model(key)] pub variant: Id<SignatureVariant>,
-    #[model(key)] pub observation: Id<crate::domain::types::SignatureTypeObservation>,
+    #[model(key)]
+    pub variant: Id<SignatureVariant>,
+    #[model(key)]
+    pub observation: Id<crate::domain::types::SignatureTypeObservation>,
 }
 pub fn relations() -> Vec<Relation> {
     macro_rules! declare { ($($field:ident: $ty:ty,)*) => { vec![$(Relation::of::<$ty>()),*] }; }

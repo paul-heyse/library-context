@@ -681,7 +681,13 @@ impl Declared for Acquire {
             inputs: vec![],
             outputs: outputs(),
             contributes: vec![],
-            coverage: vec![FactFamily::Artifacts].into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:provider.id()}).collect(),
+            coverage: vec![FactFamily::Artifacts]
+                .into_iter()
+                .map(|family| lctx_model::domain::stages::FamilyCoverage {
+                    family,
+                    provider: provider.id(),
+                })
+                .collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Acquisition,
             code: provider.build_digest,

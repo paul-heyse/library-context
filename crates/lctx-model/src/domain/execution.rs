@@ -37,7 +37,12 @@ pub enum ExactRuntimeException {
     Exception = 3,
 }
 impl ExactRuntimeException {
-    pub const ALL: &[Self] = &[Self::TypeError, Self::ValueError, Self::RuntimeError, Self::Exception];
+    pub const ALL: &[Self] = &[
+        Self::TypeError,
+        Self::ValueError,
+        Self::RuntimeError,
+        Self::Exception,
+    ];
     pub const fn class(self) -> (&'static str, &'static str) {
         match self {
             Self::TypeError => ("builtins", "TypeError"),
@@ -50,6 +55,7 @@ impl ExactRuntimeException {
 
 pub mod body;
 pub mod body_records;
+pub mod capture_bridge;
 pub mod completion_production;
 pub mod configuration;
 pub mod enriched;
@@ -59,10 +65,9 @@ pub mod production;
 pub mod read_channels;
 pub mod read_dynamic;
 pub mod source_call;
-pub mod capture_bridge;
-pub mod summary_capture;
 pub mod source_call_records;
 pub mod source_invocation;
+pub mod summary_capture;
 
 pub mod model_application;
 pub mod model_context;

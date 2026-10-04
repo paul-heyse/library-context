@@ -61,7 +61,7 @@ fn fixture() -> (
         .core
         .qualifications
         .insert(AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context,
             scope: CoverageScope::Artifact {
                 artifact: source.id(),
@@ -222,7 +222,8 @@ fn fixture() -> (
         .facts
         .signatures
         .insert(Signature {
-            role: lctx_model::domain::calls::SignatureRole::Source, native: None,
+            role: lctx_model::domain::calls::SignatureRole::Source,
+            native: None,
             qualification: q,
             scope: CoverageScope::Artifact {
                 artifact: source.id(),
@@ -238,7 +239,9 @@ fn fixture() -> (
         .source
         .core
         .variants
-        .insert(SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None,
+        .insert(SignatureVariant {
+            role: lctx_model::domain::calls::SignatureRole::Source,
+            native: None,
             signature: sig,
             context,
             resolution: id(7),
@@ -649,7 +652,7 @@ fn release_declarations_require_exact_ownership_and_passed_interpretation() {
         .core
         .qualifications
         .insert(AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: c,
             scope: CoverageScope::Input {
                 input: source.input,
@@ -1339,7 +1342,11 @@ fn strict_preparation_owns_metadata_and_reuses_charged_indexes() {
 fn local_preparation_inventory_and_missing_membership_refusal() {
     use selection::classification::ClassificationData;
     assert_eq!(ClassificationData::inputs().len(), 79);
-    assert!(ClassificationData::inputs().iter().any(|r| r.name() == execution::summary_exceptions::SummaryExceptionOutcome::NAME));
+    assert!(
+        ClassificationData::inputs()
+            .iter()
+            .any(|r| r.name() == execution::summary_exceptions::SummaryExceptionOutcome::NAME)
+    );
     assert!(
         ClassificationData::inputs()
             .iter()
@@ -1540,39 +1547,115 @@ fn prepared_public_formal_domain_survives_absent_native_context_and_refuses_fore
 
 #[test]
 fn an_unobserved_native_role_is_unknown_even_when_source_enumeration_is_complete() {
-    let (b,d,member,context,_) = fixture();
-    let output = lctx_model::domain::selection::build::build(&d,&b).unwrap();
-    assert_eq!(classify(&d,&output,member,context,Predicate::VariantReturnType {role:SignatureRole::EffectiveTyped,r#type:StructuralType::Category {kind:0}},Quantifier::AnyApplicable,&b),Outcome::Unresolved);
+    let (b, d, member, context, _) = fixture();
+    let output = lctx_model::domain::selection::build::build(&d, &b).unwrap();
+    assert_eq!(
+        classify(
+            &d,
+            &output,
+            member,
+            context,
+            Predicate::VariantReturnType {
+                role: SignatureRole::EffectiveTyped,
+                r#type: StructuralType::Category { kind: 0 }
+            },
+            Quantifier::AnyApplicable,
+            &b
+        ),
+        Outcome::Unresolved
+    );
 }
 
 #[test]
 fn exact_exception_raises_uses_runtime_summary_and_never_native_typing_absence() {
     use execution::{ExactRuntimeException, summary_exceptions::SummaryExceptionOutcome};
     let (b, mut data, member, context, _) = fixture();
-    let owner = data.source.core.entity_candidates.iter().next().unwrap().entity;
+    let owner = data
+        .source
+        .core
+        .entity_candidates
+        .iter()
+        .next()
+        .unwrap()
+        .entity;
     let q = data.source.core.qualifications.iter().next().unwrap().id();
-    let result = SummaryExceptionOutcome { invocation: id(190), body: id(191), input: data.source.catalog.members.get(member).unwrap().input,
-        context, owner, qualification: q, outcome: id(192), exception: Some(ExactRuntimeException::ValueError), status: analysis::policy::EvidenceStatus::StructurallyObserved };
-    let requirement = |exception| Requirement { predicate: Predicate::BehavioralRaises { exception }, quantifier: Quantifier::AnyApplicable };
+    let result = SummaryExceptionOutcome {
+        invocation: id(190),
+        body: id(191),
+        input: data.source.catalog.members.get(member).unwrap().input,
+        context,
+        owner,
+        qualification: q,
+        outcome: id(192),
+        exception: Some(ExactRuntimeException::ValueError),
+        status: analysis::policy::EvidenceStatus::StructurallyObserved,
+    };
+    let requirement = |exception| Requirement {
+        predicate: Predicate::BehavioralRaises { exception },
+        quantifier: Quantifier::AnyApplicable,
+    };
     let classify = |data: &Data, exception| {
         let output = selection::build::build(data, &b).unwrap();
-        Prepared::new(data, &output, &b).unwrap().classify(member, context, &requirement(exception), &b).unwrap()
+        Prepared::new(data, &output, &b)
+            .unwrap()
+            .classify(member, context, &requirement(exception), &b)
+            .unwrap()
     };
-    assert_eq!(classify(&data, ExactRuntimeException::ValueError).outcome, Outcome::Unresolved, "no completed body is not absence");
-    data.facts.exception_outcomes.insert(result.clone()).unwrap();
+    assert_eq!(
+        classify(&data, ExactRuntimeException::ValueError).outcome,
+        Outcome::Unresolved,
+        "no completed body is not absence"
+    );
+    data.facts
+        .exception_outcomes
+        .insert(result.clone())
+        .unwrap();
     let supported = classify(&data, ExactRuntimeException::ValueError);
     assert_eq!(supported.outcome, Outcome::Supported);
     assert!(supported.witnesses.iter().any(|w| matches!(w, selection::algebra::RequirementWitness::Positive { basis: EvidenceBasis::BoundedModel, evidence, .. } if evidence.iter().any(|w|matches!(w,Witness::SummaryException {outcome} if *outcome==result.id())))));
-    assert_eq!(classify(&data, ExactRuntimeException::TypeError).outcome, Outcome::Contradicted);
+    assert_eq!(
+        classify(&data, ExactRuntimeException::TypeError).outcome,
+        Outcome::Contradicted
+    );
     data.facts.exception_outcomes = Rows::new(&b);
-    data.facts.exception_outcomes.insert(SummaryExceptionOutcome { context: id(193), ..result.clone() }).unwrap();
-    assert_eq!(classify(&data, ExactRuntimeException::ValueError).outcome, Outcome::Unresolved, "foreign context cannot supply runtime evidence");
+    data.facts
+        .exception_outcomes
+        .insert(SummaryExceptionOutcome {
+            context: id(193),
+            ..result.clone()
+        })
+        .unwrap();
+    assert_eq!(
+        classify(&data, ExactRuntimeException::ValueError).outcome,
+        Outcome::Unresolved,
+        "foreign context cannot supply runtime evidence"
+    );
     data.facts.exception_outcomes = Rows::new(&b);
-    data.facts.exception_outcomes.insert(SummaryExceptionOutcome { input: id(194), ..result.clone() }).unwrap();
-    assert_eq!(classify(&data, ExactRuntimeException::ValueError).outcome, Outcome::Unresolved, "foreign input cannot supply runtime evidence");
+    data.facts
+        .exception_outcomes
+        .insert(SummaryExceptionOutcome {
+            input: id(194),
+            ..result.clone()
+        })
+        .unwrap();
+    assert_eq!(
+        classify(&data, ExactRuntimeException::ValueError).outcome,
+        Outcome::Unresolved,
+        "foreign input cannot supply runtime evidence"
+    );
     data.facts.exception_outcomes = Rows::new(&b);
-    data.facts.exception_outcomes.insert(SummaryExceptionOutcome { exception: None, ..result }).unwrap();
-    assert_eq!(classify(&data, ExactRuntimeException::ValueError).outcome, Outcome::Contradicted, "normal admitted body supplies its own finite absence evidence");
+    data.facts
+        .exception_outcomes
+        .insert(SummaryExceptionOutcome {
+            exception: None,
+            ..result
+        })
+        .unwrap();
+    assert_eq!(
+        classify(&data, ExactRuntimeException::ValueError).outcome,
+        Outcome::Contradicted,
+        "normal admitted body supplies its own finite absence evidence"
+    );
 }
 
 #[test]

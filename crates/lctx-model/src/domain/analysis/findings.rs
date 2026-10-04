@@ -103,9 +103,14 @@ pub fn emit(
     ),
     ModelError,
 > {
-    emit_with_basis(invocation,kind,subject,members,coverage,evidence,None,budget)
+    emit_with_basis(
+        invocation, kind, subject, members, coverage, evidence, None, budget,
+    )
 }
-#[allow(clippy::too_many_arguments, reason = "Finding emission keeps subject membership, closure, evidence and assumption resolution explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Finding emission keeps subject membership, closure, evidence and assumption resolution explicit."
+)]
 pub fn emit_with_basis(
     invocation: Id<Invocation>,
     kind: FindingKind,
@@ -155,7 +160,12 @@ pub fn emit_with_basis(
             condition: e.premise.premise.condition,
         })
         .collect::<Vec<_>>();
-    let qualification = qualify_with_basis(QualificationOperation::Conjunction, &premises, basis, budget)?;
+    let qualification = qualify_with_basis(
+        QualificationOperation::Conjunction,
+        &premises,
+        basis,
+        budget,
+    )?;
     if (coverage.invocation, coverage.scope, coverage.context)
         != (
             invocation,

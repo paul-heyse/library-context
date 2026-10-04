@@ -304,55 +304,167 @@ fn validate_public_name(row: &PublicNameObservation) -> Result<(), ModelError> {
 /// Public paths and enumeration completeness are independent facts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum ExportEnumerationStatus { Complete=0, Partial=1, Unavailable=2 }
+pub enum ExportEnumerationStatus {
+    Complete = 0,
+    Partial = 1,
+    Unavailable = 2,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum ExportEnumerationBasis { Inferred=0, ExplicitAll=1, Computed=2, Invalid=3, Missing=4 }
+pub enum ExportEnumerationBasis {
+    Inferred = 0,
+    ExplicitAll = 1,
+    Computed = 2,
+    Invalid = 3,
+    Missing = 4,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name="export_enumeration_observations",validate=validate_export_enumeration,invariants=export_enumeration_invariants)]
 #[assertion(support=ExportEnumerationSupport,name="export_enumeration_supports",family=FactFamily::Exports,subjects(access))]
 pub struct ExportEnumerationObservation {
-    #[model(key)]pub qualification:Id<AssertionQualification>,
-    #[model(key)]pub access:Id<Module>,
-    pub names:Id<value::LiteralSet>,
-    pub status:ExportEnumerationStatus,
-    pub basis:ExportEnumerationBasis,
+    #[model(key)]
+    pub qualification: Id<AssertionQualification>,
+    #[model(key)]
+    pub access: Id<Module>,
+    pub names: Id<value::LiteralSet>,
+    pub status: ExportEnumerationStatus,
+    pub basis: ExportEnumerationBasis,
 }
-fn validate_export_enumeration(row:&ExportEnumerationObservation)->Result<(),ModelError> {
-    if row.status==ExportEnumerationStatus::Complete && matches!(row.basis,ExportEnumerationBasis::Computed|ExportEnumerationBasis::Invalid|ExportEnumerationBasis::Missing) {return Err(invalid("computed or invalid public enumeration cannot establish completeness"));}Ok(())
-}
-fn export_enumeration_invariants()->Vec<Invariant> {vec![Invariant {
-    name:"export_enumeration_membership",
-    inputs:vec![ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<Module>(&["id"]),ValidationInput::of::<value::Literal>(&["id"]),ValidationInput::of::<value::LiteralSetMember>(&["id"]),ValidationInput::of::<PublicNameObservation>(&["id"]),ValidationInput::of::<ExportEnumerationObservation>(&["id"])],
-    create:std::sync::Arc::new(|budget|Box::new(ExportCheck {charge:StateCharge::new(budget,"export_enumeration_membership"),..Default::default()})),
-}]}
-#[derive(Default)]
-struct ExportCheck {charge:StateCharge,qualifications:ChargedMap<Id<AssertionQualification>,AssertionQualification>,modules:ChargedMap<Id<Module>,Module>,literals:ChargedMap<Id<value::Literal>,value::Literal>,members:ChargedMap<Id<value::LiteralSet>,Vec<Id<value::Literal>>>,names:ChargedMap<(Id<AssertionQualification>,Id<Module>),Vec<String>>,enumerations:ChargedMap<Id<ExportEnumerationObservation>,ExportEnumerationObservation>}
-impl InvariantCheck for ExportCheck {
-    fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
-        if name==AssertionQualification::NAME {for row in AssertionQualification::decode(batch)? {self.qualifications.insert(&mut self.charge,row.id(),row)?;}}
-        else if name==Module::NAME {for row in Module::decode(batch)? {self.modules.insert(&mut self.charge,row.id(),row)?;}}
-        else if name==value::Literal::NAME {for row in value::Literal::decode(batch)? {self.literals.insert(&mut self.charge,row.id(),row)?;}}
-        else if name==value::LiteralSetMember::NAME {for row in value::LiteralSetMember::decode(batch)? {self.members.update(&mut self.charge,row.set,|values|values.push(row.value))?;}}
-        else if name==PublicNameObservation::NAME {for row in PublicNameObservation::decode(batch)? {self.names.update(&mut self.charge,(row.qualification,row.access),|names|names.push(row.name))?;}}
-        else if name==ExportEnumerationObservation::NAME {for row in ExportEnumerationObservation::decode(batch)? {self.enumerations.insert(&mut self.charge,row.id(),row)?;}}
-        else {return Err(invalid("undeclared export enumeration input"));}Ok(())
+fn validate_export_enumeration(row: &ExportEnumerationObservation) -> Result<(), ModelError> {
+    if row.status == ExportEnumerationStatus::Complete
+        && matches!(
+            row.basis,
+            ExportEnumerationBasis::Computed
+                | ExportEnumerationBasis::Invalid
+                | ExportEnumerationBasis::Missing
+        )
+    {
+        return Err(invalid(
+            "computed or invalid public enumeration cannot establish completeness",
+        ));
     }
-    fn finish(self:Box<Self>)->Result<(),ModelError> {
-        for row in self.enumerations.values() {
-            let q=self.qualifications.get(&row.qualification).ok_or_else(||invalid("export enumeration qualification absent"))?;
-            let module=self.modules.get(&row.access).ok_or_else(||invalid("export enumeration source module absent"))?;
-            if q.scope!=(CoverageScope::Artifact {artifact:module.source}).id() && q.scope!=(CoverageScope::Module {module:row.access}).id() {return Err(invalid("export enumeration crosses source module qualification"));}
-            let mut membership_charge=StateCharge::new(self.charge.budget().ok_or_else(||invalid("export enumeration membership has no budget"))?,"export-membership-sets");
-            let mut actual:ChargedSet<String>=Default::default();
-            for value in self.members.get(&row.names).into_iter().flatten() {
-                let Some(value::Literal::String {value})=self.literals.get(value) else {return Err(invalid("export enumeration members are literal names"));};actual.insert(&mut membership_charge,value.to_string())?;
+    Ok(())
+}
+fn export_enumeration_invariants() -> Vec<Invariant> {
+    vec![Invariant {
+        name: "export_enumeration_membership",
+        inputs: vec![
+            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<Module>(&["id"]),
+            ValidationInput::of::<value::Literal>(&["id"]),
+            ValidationInput::of::<value::LiteralSetMember>(&["id"]),
+            ValidationInput::of::<PublicNameObservation>(&["id"]),
+            ValidationInput::of::<ExportEnumerationObservation>(&["id"]),
+        ],
+        create: std::sync::Arc::new(|budget| {
+            Box::new(ExportCheck {
+                charge: StateCharge::new(budget, "export_enumeration_membership"),
+                ..Default::default()
+            })
+        }),
+    }]
+}
+#[derive(Default)]
+struct ExportCheck {
+    charge: StateCharge,
+    qualifications: ChargedMap<Id<AssertionQualification>, AssertionQualification>,
+    modules: ChargedMap<Id<Module>, Module>,
+    literals: ChargedMap<Id<value::Literal>, value::Literal>,
+    members: ChargedMap<Id<value::LiteralSet>, Vec<Id<value::Literal>>>,
+    names: ChargedMap<(Id<AssertionQualification>, Id<Module>), Vec<String>>,
+    enumerations: ChargedMap<Id<ExportEnumerationObservation>, ExportEnumerationObservation>,
+}
+impl InvariantCheck for ExportCheck {
+    fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        if name == AssertionQualification::NAME {
+            for row in AssertionQualification::decode(batch)? {
+                self.qualifications
+                    .insert(&mut self.charge, row.id(), row)?;
             }
-            let mut expected:ChargedSet<String>=Default::default();
-            for name in self.names.get(&(row.qualification,row.access)).into_iter().flatten() {expected.insert(&mut membership_charge,name.clone())?;}
-            if actual.iter().ne(expected.iter()) {return Err(invalid("export enumeration known names differ from qualified public paths"));}
-            if row.status==ExportEnumerationStatus::Unavailable && !actual.is_empty() {return Err(invalid("unavailable export enumeration cannot assert known names"));}
-        }Ok(())
+        } else if name == Module::NAME {
+            for row in Module::decode(batch)? {
+                self.modules.insert(&mut self.charge, row.id(), row)?;
+            }
+        } else if name == value::Literal::NAME {
+            for row in value::Literal::decode(batch)? {
+                self.literals.insert(&mut self.charge, row.id(), row)?;
+            }
+        } else if name == value::LiteralSetMember::NAME {
+            for row in value::LiteralSetMember::decode(batch)? {
+                self.members
+                    .update(&mut self.charge, row.set, |values| values.push(row.value))?;
+            }
+        } else if name == PublicNameObservation::NAME {
+            for row in PublicNameObservation::decode(batch)? {
+                self.names
+                    .update(&mut self.charge, (row.qualification, row.access), |names| {
+                        names.push(row.name)
+                    })?;
+            }
+        } else if name == ExportEnumerationObservation::NAME {
+            for row in ExportEnumerationObservation::decode(batch)? {
+                self.enumerations.insert(&mut self.charge, row.id(), row)?;
+            }
+        } else {
+            return Err(invalid("undeclared export enumeration input"));
+        }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        for row in self.enumerations.values() {
+            let q = self
+                .qualifications
+                .get(&row.qualification)
+                .ok_or_else(|| invalid("export enumeration qualification absent"))?;
+            let module = self
+                .modules
+                .get(&row.access)
+                .ok_or_else(|| invalid("export enumeration source module absent"))?;
+            if q.scope
+                != (CoverageScope::Artifact {
+                    artifact: module.source,
+                })
+                .id()
+                && q.scope != (CoverageScope::Module { module: row.access }).id()
+            {
+                return Err(invalid(
+                    "export enumeration crosses source module qualification",
+                ));
+            }
+            let mut membership_charge = StateCharge::new(
+                self.charge
+                    .budget()
+                    .ok_or_else(|| invalid("export enumeration membership has no budget"))?,
+                "export-membership-sets",
+            );
+            let mut actual: ChargedSet<String> = Default::default();
+            for value in self.members.get(&row.names).into_iter().flatten() {
+                let Some(value::Literal::String { value }) = self.literals.get(value) else {
+                    return Err(invalid("export enumeration members are literal names"));
+                };
+                actual.insert(&mut membership_charge, value.to_string())?;
+            }
+            let mut expected: ChargedSet<String> = Default::default();
+            for name in self
+                .names
+                .get(&(row.qualification, row.access))
+                .into_iter()
+                .flatten()
+            {
+                expected.insert(&mut membership_charge, name.clone())?;
+            }
+            if actual.iter().ne(expected.iter()) {
+                return Err(invalid(
+                    "export enumeration known names differ from qualified public paths",
+                ));
+            }
+            if row.status == ExportEnumerationStatus::Unavailable && !actual.is_empty() {
+                return Err(invalid(
+                    "unavailable export enumeration cannot assert known names",
+                ));
+            }
+        }
+        Ok(())
     }
 }
 /// A parameter a function's docstring documents: the name as written, the provider's normalized
@@ -755,13 +867,17 @@ impl InvariantCheck for SymbolCheck {
             }
         } else if relation == syntax::ImportAliasObservation::NAME {
             for row in syntax::ImportAliasObservation::decode(batch)? {
-                self.import_aliases.insert(&mut self.charge, (row.qualification, row.alias))?;
+                self.import_aliases
+                    .insert(&mut self.charge, (row.qualification, row.alias))?;
             }
         } else if relation == ModuleResolutionObservation::NAME {
             for row in ModuleResolutionObservation::decode(batch)? {
                 if let Some(alias) = row.alias
-                    && !self.import_aliases.contains(&(row.qualification, alias)) {
-                    return Err(invalid("module resolution requires its exact import alias and qualification"));
+                    && !self.import_aliases.contains(&(row.qualification, alias))
+                {
+                    return Err(invalid(
+                        "module resolution requires its exact import alias and qualification",
+                    ));
                 }
                 let located = match self
                     .modules

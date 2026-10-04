@@ -192,9 +192,10 @@ impl StageSession {
             .table_exist(permit.relation())
             .map_err(ModelError::codec)?
         {
-            return Err(ModelError::Invalid(
-                format!("stage relation already registered: {}",permit.relation()),
-            ));
+            return Err(ModelError::Invalid(format!(
+                "stage relation already registered: {}",
+                permit.relation()
+            )));
         }
         self.context
             .register_table(permit.relation(), table.provider.clone())

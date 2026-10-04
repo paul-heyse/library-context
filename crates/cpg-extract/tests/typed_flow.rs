@@ -27,35 +27,67 @@ inspector!(
 );
 #[tokio::test]
 async fn native_narrowing_and_runtime_source_view_keep_distinct_qualified_meaning() {
-    let source="from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    imported = 1\nelse:\n    imported = 2\ndef narrow(x: int | None):\n    if x is None:\n        return 0\n    return x\n";
-    let input=BTreeMap::from([("example.py".into(),source.as_bytes().to_vec())]);
-    let tables=Tables::default();
-    typed_driver::run_behavioral(&input,Flow(tables.clone())).await.unwrap();
-    let views=rows::<FlowSourceViewObservation>(&tables);
-    assert_eq!(views.len(),1);
-    let original=rows::<SourceArtifact>(&tables).into_iter().find(|row|row.path=="example.py").unwrap();
-    let (runtime,count)=cpg_flow::rename(source).unwrap();
-    assert_eq!(count,2);
-    assert_eq!(views[0].source,original.id());
-    assert_eq!(views[0].original_content,ContentHash::of(source.as_bytes()));
-    assert_eq!(views[0].view_content,ContentHash::of(runtime.as_bytes()));
-    assert_ne!(views[0].view_content,views[0].original_content);
-    assert_eq!(views[0].byte_len,source.len() as i64);
-    assert_eq!(views[0].renamed_type_checking,2);
-    let occurrences=rows::<Occurrence>(&tables);
-    let x=occurrences.iter().find(|row|row.start==source.rfind('x').unwrap() as i64 && row.syntax_kind==SyntaxKind::ExprName).unwrap();
-    let use_=rows::<FlowUse>(&tables).into_iter().find(|row|row.occurrence==x.id()).unwrap();
-    let narrowing=rows::<FlowNarrowingObservation>(&tables);
-    let selected:Vec<_>=narrowing.iter().filter(|row|row.use_==use_.id()).collect();
-    assert!(!selected.is_empty(),"actual native parameter candidate");
-    let qualifications=rows::<AssertionQualification>(&tables);
-    let always=Diagram::always().records().0.id();
-    assert!(selected.iter().any(|row|qualifications.iter().any(|q|q.id()==row.qualification && q.condition!=always && q.approximation==Approximation::Exact)));
-    assert!(selected.iter().all(|row|!row.precision_lost));
-    let predicates=rows::<Predicate>(&tables);
-    assert!(predicates.iter().any(|row|matches!(row,Predicate::IsNone)));
-    let support=rows::<FlowNarrowingSupport>(&tables);
-    assert!(selected.iter().all(|row|support.iter().any(|support|support.assertion==row.id())));
+    let source = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    imported = 1\nelse:\n    imported = 2\ndef narrow(x: int | None):\n    if x is None:\n        return 0\n    return x\n";
+    let input = BTreeMap::from([("example.py".into(), source.as_bytes().to_vec())]);
+    let tables = Tables::default();
+    typed_driver::run_behavioral(&input, Flow(tables.clone()))
+        .await
+        .unwrap();
+    let views = rows::<FlowSourceViewObservation>(&tables);
+    assert_eq!(views.len(), 1);
+    let original = rows::<SourceArtifact>(&tables)
+        .into_iter()
+        .find(|row| row.path == "example.py")
+        .unwrap();
+    let (runtime, count) = cpg_flow::rename(source).unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(views[0].source, original.id());
+    assert_eq!(
+        views[0].original_content,
+        ContentHash::of(source.as_bytes())
+    );
+    assert_eq!(views[0].view_content, ContentHash::of(runtime.as_bytes()));
+    assert_ne!(views[0].view_content, views[0].original_content);
+    assert_eq!(views[0].byte_len, source.len() as i64);
+    assert_eq!(views[0].renamed_type_checking, 2);
+    let occurrences = rows::<Occurrence>(&tables);
+    let x = occurrences
+        .iter()
+        .find(|row| {
+            row.start == source.rfind('x').unwrap() as i64
+                && row.syntax_kind == SyntaxKind::ExprName
+        })
+        .unwrap();
+    let use_ = rows::<FlowUse>(&tables)
+        .into_iter()
+        .find(|row| row.occurrence == x.id())
+        .unwrap();
+    let narrowing = rows::<FlowNarrowingObservation>(&tables);
+    let selected: Vec<_> = narrowing
+        .iter()
+        .filter(|row| row.use_ == use_.id())
+        .collect();
+    assert!(!selected.is_empty(), "actual native parameter candidate");
+    let qualifications = rows::<AssertionQualification>(&tables);
+    let always = Diagram::always().records().0.id();
+    assert!(selected.iter().any(
+        |row| qualifications.iter().any(|q| q.id() == row.qualification
+            && q.condition != always
+            && q.approximation == Approximation::Exact)
+    ));
+    assert!(selected.iter().all(|row| !row.precision_lost));
+    let predicates = rows::<Predicate>(&tables);
+    assert!(
+        predicates
+            .iter()
+            .any(|row| matches!(row, Predicate::IsNone))
+    );
+    let support = rows::<FlowNarrowingSupport>(&tables);
+    assert!(
+        selected
+            .iter()
+            .all(|row| support.iter().any(|support| support.assertion == row.id()))
+    );
 }
 #[tokio::test]
 async fn reaching_places_keep_the_binding_owner_across_scope_and_member_reads() {
@@ -361,33 +393,66 @@ async fn retired_runtime_resolution_answers_keep_typed_operand_identity() {
 
 #[tokio::test]
 async fn native_capture_timing_keeps_candidate_basis_and_actual_outer_definition() {
-    use lctx_model::domain::{captures::CaptureTiming,flow_capture::*};
-    let source="def outer(value):\n    def inner():\n        return value\n    return inner()\n";
-    let tables=Tables::default();
-    typed_driver::run_behavioral(&BTreeMap::from([("example.py".into(),source.as_bytes().to_vec())]),Flow(tables.clone())).await.unwrap();
-    let snapshots=rows::<FlowCaptureTimingObservation>(&tables);
-    assert_eq!(snapshots.len(),1);
-    let snapshot=&snapshots[0];
-    assert_eq!(snapshot.state,FlowSnapshotState::FoundBindings);
-    assert_eq!(snapshot.timing,CaptureTiming::LazySnapshot);
-    assert_ne!(snapshot.nested_scope,snapshot.enclosing_scope);
-    let qualifications=rows::<AssertionQualification>(&tables);
-    let q=qualifications.iter().find(|q|q.id()==snapshot.qualification).unwrap();
-    assert_eq!(q.modality,Modality::Candidate);
-    assert_eq!(q.assumptions,assumptions::AssumptionSet::empty_id());
-    let candidates=rows::<FlowCaptureCandidate>(&tables);
-    let candidates=candidates.iter().filter(|c|Some(c.inventory)==snapshot.inventory).collect::<Vec<_>>();
-    assert_eq!(candidates.len(),1);
-    let targets=rows::<FlowCaptureTarget>(&tables);
-    let target=targets.iter().find(|t|t.id()==candidates[0].target).unwrap();
-    let FlowCaptureTarget::Bound {definition}=target else {panic!("actual source formal candidate")};
-    let observed=rows::<FlowDefinitionObservation>(&tables);
-    let definition=observed.iter().find(|d|d.definition==*definition).unwrap();
-    assert_eq!(definition.scope,snapshot.enclosing_scope);
-    assert_eq!(definition.kind,lexical::BindingEventKind::Parameter);
-    let supports=rows::<FlowCaptureTimingSupport>(&tables);
-    assert_eq!(supports.iter().filter(|s|s.assertion==snapshot.id()).count(),1);
-    let catalog=Tables::default();
-    typed_driver::run(&BTreeMap::from([("example.py".into(),source.as_bytes().to_vec())]),Flow(catalog.clone())).await.unwrap();
-    assert!(rows::<FlowCaptureTimingObservation>(&catalog).is_empty(),"catalog never requests ty timing");
+    use lctx_model::domain::{captures::CaptureTiming, flow_capture::*};
+    let source = "def outer(value):\n    def inner():\n        return value\n    return inner()\n";
+    let tables = Tables::default();
+    typed_driver::run_behavioral(
+        &BTreeMap::from([("example.py".into(), source.as_bytes().to_vec())]),
+        Flow(tables.clone()),
+    )
+    .await
+    .unwrap();
+    let snapshots = rows::<FlowCaptureTimingObservation>(&tables);
+    assert_eq!(snapshots.len(), 1);
+    let snapshot = &snapshots[0];
+    assert_eq!(snapshot.state, FlowSnapshotState::FoundBindings);
+    assert_eq!(snapshot.timing, CaptureTiming::LazySnapshot);
+    assert_ne!(snapshot.nested_scope, snapshot.enclosing_scope);
+    let qualifications = rows::<AssertionQualification>(&tables);
+    let q = qualifications
+        .iter()
+        .find(|q| q.id() == snapshot.qualification)
+        .unwrap();
+    assert_eq!(q.modality, Modality::Candidate);
+    assert_eq!(q.assumptions, assumptions::AssumptionSet::empty_id());
+    let candidates = rows::<FlowCaptureCandidate>(&tables);
+    let candidates = candidates
+        .iter()
+        .filter(|c| Some(c.inventory) == snapshot.inventory)
+        .collect::<Vec<_>>();
+    assert_eq!(candidates.len(), 1);
+    let targets = rows::<FlowCaptureTarget>(&tables);
+    let target = targets
+        .iter()
+        .find(|t| t.id() == candidates[0].target)
+        .unwrap();
+    let FlowCaptureTarget::Bound { definition } = target else {
+        panic!("actual source formal candidate")
+    };
+    let observed = rows::<FlowDefinitionObservation>(&tables);
+    let definition = observed
+        .iter()
+        .find(|d| d.definition == *definition)
+        .unwrap();
+    assert_eq!(definition.scope, snapshot.enclosing_scope);
+    assert_eq!(definition.kind, lexical::BindingEventKind::Parameter);
+    let supports = rows::<FlowCaptureTimingSupport>(&tables);
+    assert_eq!(
+        supports
+            .iter()
+            .filter(|s| s.assertion == snapshot.id())
+            .count(),
+        1
+    );
+    let catalog = Tables::default();
+    typed_driver::run(
+        &BTreeMap::from([("example.py".into(), source.as_bytes().to_vec())]),
+        Flow(catalog.clone()),
+    )
+    .await
+    .unwrap();
+    assert!(
+        rows::<FlowCaptureTimingObservation>(&catalog).is_empty(),
+        "catalog never requests ty timing"
+    );
 }

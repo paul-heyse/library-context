@@ -34,10 +34,10 @@ impl Data {
     pub fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
         // One nominal input may feed more than one projection (notably decorators).
         // Hydrate every declared consumer, including invariant replay.
-        let source=self.source.visit(n,b)?;
-        let evidence=self.evidence.visit(n,b)?;
-        let facts=self.facts.visit(n,b)?;
-        Ok(source||evidence||facts)
+        let source = self.source.visit(n, b)?;
+        let evidence = self.evidence.visit(n, b)?;
+        let facts = self.facts.visit(n, b)?;
+        Ok(source || evidence || facts)
     }
     pub fn inputs() -> Vec<ValidationInput> {
         let mut r = EvidenceData::inputs();
@@ -207,12 +207,40 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                     }
                     for candidate in d.source.catalog.candidates.iter() {
                         let exposure = need(&d.source.catalog.exposures, candidate.exposure)?;
-                        if exposure.member != *member_id { continue; }
-                        let entity = if let Some(path) = candidate.path { Some(need(&d.source.catalog.paths, path)?.entity) }
-                            else if let Some(alias) = candidate.alias { Some(need(&d.source.catalog.aliases, alias)?.entity) }
-                            else { candidate.entity.map(|entity| need(&d.source.core.entity_candidates, entity).map(|row| row.entity)).transpose()? };
-                        for result in d.facts.exception_outcomes.iter().filter(|row| row.context == *context && row.input == member.input && Some(row.owner) == entity) {
-                            add(&mut out, &mut members, &mut charge, Context::Binding { member: *member_id, candidate: candidate.id(), analysis: *context }, Witness::SummaryException { outcome: result.id() })?;
+                        if exposure.member != *member_id {
+                            continue;
+                        }
+                        let entity = if let Some(path) = candidate.path {
+                            Some(need(&d.source.catalog.paths, path)?.entity)
+                        } else if let Some(alias) = candidate.alias {
+                            Some(need(&d.source.catalog.aliases, alias)?.entity)
+                        } else {
+                            candidate
+                                .entity
+                                .map(|entity| {
+                                    need(&d.source.core.entity_candidates, entity)
+                                        .map(|row| row.entity)
+                                })
+                                .transpose()?
+                        };
+                        for result in d.facts.exception_outcomes.iter().filter(|row| {
+                            row.context == *context
+                                && row.input == member.input
+                                && Some(row.owner) == entity
+                        }) {
+                            add(
+                                &mut out,
+                                &mut members,
+                                &mut charge,
+                                Context::Binding {
+                                    member: *member_id,
+                                    candidate: candidate.id(),
+                                    analysis: *context,
+                                },
+                                Witness::SummaryException {
+                                    outcome: result.id(),
+                                },
+                            )?;
                         }
                     }
                     semantic_complete = qualified(d, member, *context)?;
@@ -256,11 +284,39 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                             invocation: r.id(),
                             analysis: *context,
                         };
-                        for typed in d.source.core.return_types.iter().filter(|t| t.variant == variant.id()) {
-                            add(&mut out, &mut members, &mut charge, context_row.clone(), Witness::SignatureTypeObservation { observation: typed.observation })?;
+                        for typed in d
+                            .source
+                            .core
+                            .return_types
+                            .iter()
+                            .filter(|t| t.variant == variant.id())
+                        {
+                            add(
+                                &mut out,
+                                &mut members,
+                                &mut charge,
+                                context_row.clone(),
+                                Witness::SignatureTypeObservation {
+                                    observation: typed.observation,
+                                },
+                            )?;
                         }
-                        for typed in d.source.core.slot_types.iter().filter(|t| d.source.core.slots.get(t.slot).is_some_and(|s| s.variant == variant.id())) {
-                            add(&mut out, &mut members, &mut charge, context_row.clone(), Witness::SignatureTypeObservation { observation: typed.observation })?;
+                        for typed in d.source.core.slot_types.iter().filter(|t| {
+                            d.source
+                                .core
+                                .slots
+                                .get(t.slot)
+                                .is_some_and(|s| s.variant == variant.id())
+                        }) {
+                            add(
+                                &mut out,
+                                &mut members,
+                                &mut charge,
+                                context_row.clone(),
+                                Witness::SignatureTypeObservation {
+                                    observation: typed.observation,
+                                },
+                            )?;
                         }
 
                         for slot in d
@@ -620,19 +676,106 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
     // characterize available facts; context admission and truth remain evaluator decisions.
     // Later stages append vocabulary rows. Only qualifications referenced by these
     // immutable native inputs belong to C2's located-typing witness universe.
-    for row in d.source.core.native_signatures.iter(){need(&d.source.core.qualifications,row.qualification)?;out.witnesses.insert(Witness::Qualification{qualification:row.qualification})?;}
-    for row in d.facts.generic_specializations.iter(){need(&d.source.core.qualifications,row.qualification)?;out.witnesses.insert(Witness::Qualification{qualification:row.qualification})?;}
-    for row in d.source.core.signature_types.iter(){out.witnesses.insert(Witness::SignatureTypeObservation{observation:row.id()})?;}
-    for row in d.facts.type_observations.iter(){out.witnesses.insert(Witness::TypeObservation{observation:row.id()})?;}
-    for row in d.source.core.native_coverage.iter().filter(|r|r.family==attribution::FactFamily::Types){out.witnesses.insert(Witness::NativeTypingCoverage{coverage:row.id()})?;}
-    for row in d.facts.generic_specializations.iter(){out.witnesses.insert(Witness::GenericSpecialization{observation:row.id()})?;}
-    for support in d.facts.binding_supports.iter(){need(&d.source.core.bindings,support.assertion)?;out.witnesses.insert(Witness::LexicalDefinition{observation:support.assertion,support:support.id()})?;}
-    for support in d.facts.declaration_supports.iter(){need(&d.source.core.declarations,support.assertion)?;out.witnesses.insert(Witness::SourceCharacterization{observation:support.assertion,support:support.id()})?;}
-    for support in d.facts.metadata_supports.iter(){need(&d.source.core.class_metadata,support.assertion)?;out.witnesses.insert(Witness::ClassMetadata{observation:support.assertion,support:support.id()})?;}
-    for support in d.facts.native_signature_supports.iter(){need(&d.source.core.native_signatures,support.assertion)?;out.witnesses.insert(Witness::NativeCallableMetadata{observation:support.assertion,support:support.id()})?;}
-    for support in d.facts.type_supports.iter(){let row=need(&d.facts.type_observations,support.assertion)?;if row.role==types::TypeRole::Raised{out.witnesses.insert(Witness::RaisedType{observation:row.id(),support:support.id()})?;}}
-    let inputs=normalized::decorator_identity::Inputs{qualifications:&d.source.core.qualifications,occurrences:&d.source.core.occurrences,placements:&d.source.core.placements,references:&d.source.core.references,assessments:&d.source.core.reference_assessments,candidates:&d.source.core.reference_candidates,targets:&d.source.core.reference_targets,resolutions:&d.source.core.lexical_resolutions};
-    for support in d.facts.decorator_supports.iter(){let row=need(&d.facts.decorators,support.assertion)?;let q=need(&d.source.core.qualifications,row.qualification)?;let selected=inputs.select(row,q.context,b)?;for selection in selected.selections.iter(){if let(Some(assessment),Some(candidate))=(selection.assessment,selection.candidate){out.witnesses.insert(Witness::ResolvedDecorator{observation:row.id(),support:support.id(),assessment,candidate})?;}}}
+    for row in d.source.core.native_signatures.iter() {
+        need(&d.source.core.qualifications, row.qualification)?;
+        out.witnesses.insert(Witness::Qualification {
+            qualification: row.qualification,
+        })?;
+    }
+    for row in d.facts.generic_specializations.iter() {
+        need(&d.source.core.qualifications, row.qualification)?;
+        out.witnesses.insert(Witness::Qualification {
+            qualification: row.qualification,
+        })?;
+    }
+    for row in d.source.core.signature_types.iter() {
+        out.witnesses.insert(Witness::SignatureTypeObservation {
+            observation: row.id(),
+        })?;
+    }
+    for row in d.facts.type_observations.iter() {
+        out.witnesses.insert(Witness::TypeObservation {
+            observation: row.id(),
+        })?;
+    }
+    for row in d
+        .source
+        .core
+        .native_coverage
+        .iter()
+        .filter(|r| r.family == attribution::FactFamily::Types)
+    {
+        out.witnesses
+            .insert(Witness::NativeTypingCoverage { coverage: row.id() })?;
+    }
+    for row in d.facts.generic_specializations.iter() {
+        out.witnesses.insert(Witness::GenericSpecialization {
+            observation: row.id(),
+        })?;
+    }
+    for support in d.facts.binding_supports.iter() {
+        need(&d.source.core.bindings, support.assertion)?;
+        out.witnesses.insert(Witness::LexicalDefinition {
+            observation: support.assertion,
+            support: support.id(),
+        })?;
+    }
+    for support in d.facts.declaration_supports.iter() {
+        need(&d.source.core.declarations, support.assertion)?;
+        out.witnesses.insert(Witness::SourceCharacterization {
+            observation: support.assertion,
+            support: support.id(),
+        })?;
+    }
+    for support in d.facts.metadata_supports.iter() {
+        need(&d.source.core.class_metadata, support.assertion)?;
+        out.witnesses.insert(Witness::ClassMetadata {
+            observation: support.assertion,
+            support: support.id(),
+        })?;
+    }
+    for support in d.facts.native_signature_supports.iter() {
+        need(&d.source.core.native_signatures, support.assertion)?;
+        out.witnesses.insert(Witness::NativeCallableMetadata {
+            observation: support.assertion,
+            support: support.id(),
+        })?;
+    }
+    for support in d.facts.type_supports.iter() {
+        let row = need(&d.facts.type_observations, support.assertion)?;
+        if row.role == types::TypeRole::Raised {
+            out.witnesses.insert(Witness::RaisedType {
+                observation: row.id(),
+                support: support.id(),
+            })?;
+        }
+    }
+    let inputs = normalized::decorator_identity::Inputs {
+        qualifications: &d.source.core.qualifications,
+        occurrences: &d.source.core.occurrences,
+        placements: &d.source.core.placements,
+        references: &d.source.core.references,
+        assessments: &d.source.core.reference_assessments,
+        candidates: &d.source.core.reference_candidates,
+        targets: &d.source.core.reference_targets,
+        resolutions: &d.source.core.lexical_resolutions,
+    };
+    for support in d.facts.decorator_supports.iter() {
+        let row = need(&d.facts.decorators, support.assertion)?;
+        let q = need(&d.source.core.qualifications, row.qualification)?;
+        let selected = inputs.select(row, q.context, b)?;
+        for selection in selected.selections.iter() {
+            if let (Some(assessment), Some(candidate)) = (selection.assessment, selection.candidate)
+            {
+                out.witnesses.insert(Witness::ResolvedDecorator {
+                    observation: row.id(),
+                    support: support.id(),
+                    assessment,
+                    candidate,
+                })?;
+            }
+        }
+    }
     Ok(out)
 }
 pub fn invariants() -> Vec<Invariant> {

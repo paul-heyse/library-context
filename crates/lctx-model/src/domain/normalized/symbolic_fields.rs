@@ -809,7 +809,10 @@ fn signature_parameters(
     symbol: Id<ProviderSymbol>,
     context: Id<AnalysisContext>,
 ) -> Option<Vec<&SignatureParameter>> {
-    let mut signatures = d.symbolic_signatures.iter().filter(|s| s.role.runtime_source() && s.symbol == symbol);
+    let mut signatures = d
+        .symbolic_signatures
+        .iter()
+        .filter(|s| s.role.runtime_source() && s.symbol == symbol);
     let signature = signatures.next()?;
     if signatures.next().is_some()
         || signature.form != SignatureForm::List
@@ -856,8 +859,16 @@ fn signature_parameters(
     if enumeration != *enumerations[0] || actual.len() != 1 || enumerated[0] != *actual[0] {
         return None;
     }
-    let (rebuilt, members) =
-        Signature::new(q, signature.role, signature.native, symbol, signature.variant, signature.form, &shapes).ok()?;
+    let (rebuilt, members) = Signature::new(
+        q,
+        signature.role,
+        signature.native,
+        symbol,
+        signature.variant,
+        signature.form,
+        &shapes,
+    )
+    .ok()?;
     if rebuilt != *signature || members.iter().zip(&parameters).any(|(a, b)| a != *b) {
         return None;
     }

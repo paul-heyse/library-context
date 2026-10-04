@@ -4,16 +4,16 @@ pub mod algebra;
 pub mod build;
 pub mod classification;
 pub mod evaluate;
-pub mod frames;
 mod facets;
-mod structural_facets;
+pub mod frames;
 mod inventory;
 mod preparation;
-mod vocabulary;
 pub mod specialization;
+mod structural_facets;
+mod vocabulary;
 use crate::domain::*;
-pub use vocabulary::*;
 pub use facets::*;
+pub use vocabulary::*;
 pub fn relations() -> Vec<Relation> {
     macro_rules! rows {($($f:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};}
     let mut rows = crate::catalog_selection_outputs!(rows);

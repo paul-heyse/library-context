@@ -73,7 +73,7 @@ impl Fixture {
         let evidence = Evidence::Invocation { run: run.id() };
         let scope = CoverageScope::Input { input: input.id() };
         let q = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: Diagram::always().id(),
@@ -152,7 +152,9 @@ impl Fixture {
             kind: SymbolKind::Function,
         };
         let (signature, parameters) = Signature::new(
-            &q, lctx_model::domain::calls::SignatureRole::Source, None,
+            &q,
+            lctx_model::domain::calls::SignatureRole::Source,
+            None,
             symbol.id(),
             0,
             SignatureForm::List,

@@ -4,8 +4,9 @@ use crate::domain::{
     calls::{ProviderModule, ProviderSymbol, Signature, SignatureParameter, SymbolKind},
     declarations::{ParameterDeclaration, SymbolDeclaration, SymbolDeclarationSupport},
     source::{Module, Occurrence, SyntaxKind},
-    symbols::{ExportEnumerationObservation,
-        ClassTraitObservation, ExportOrigin, FunctionTraitObservation, PublicNameObservation,
+    symbols::{
+        ClassTraitObservation, ExportEnumerationObservation, ExportOrigin,
+        FunctionTraitObservation, PublicNameObservation,
     },
     types::{RecordFieldObservation, TypeTerm},
     value::Place,
@@ -198,15 +199,20 @@ pub struct FieldDeclarationLink {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum PublicPathKnowledge { Known=0, Candidate=1, Unknown=2 }
+pub enum PublicPathKnowledge {
+    Known = 0,
+    Candidate = 1,
+    Unknown = 2,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="public_enumeration_assessments")]
+#[model(name = "public_enumeration_assessments")]
 pub struct PublicEnumerationAssessment {
-    #[model(key)]pub observation:Id<ExportEnumerationObservation>,
-    pub access:Id<Module>,
-    pub context:Id<AnalysisContext>,
+    #[model(key)]
+    pub observation: Id<ExportEnumerationObservation>,
+    pub access: Id<Module>,
+    pub context: Id<AnalysisContext>,
     /// Exactly a supported, unconditional complete enumeration can establish absence.
-    pub closed:bool,
+    pub closed: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "public_exposures")]

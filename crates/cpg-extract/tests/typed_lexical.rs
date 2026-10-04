@@ -363,6 +363,8 @@ async fn each_scoping_rule_resolves_as_python_defines_it() {
         f.coverage
             .iter()
             .filter(|c| c.family == FactFamily::Lexical)
-            .all(|c| c.status == CoverageStatus::CompleteUnderStatedModel), "{:?}",f.coverage
+            .all(|c| c.status == CoverageStatus::CompleteUnderStatedModel),
+        "{:?}",
+        f.coverage
     );
 }

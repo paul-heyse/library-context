@@ -179,8 +179,16 @@ async fn call_signature_membership_support_ownership_and_readback() {
             required: false,
         },
     ];
-    let (signature, parameters) =
-        Signature::new(&qualification, lctx_model::domain::calls::SignatureRole::Source, None, symbol.id(), 0, SignatureForm::List, &shapes).unwrap();
+    let (signature, parameters) = Signature::new(
+        &qualification,
+        lctx_model::domain::calls::SignatureRole::Source,
+        None,
+        symbol.id(),
+        0,
+        SignatureForm::List,
+        &shapes,
+    )
+    .unwrap();
     let destination = CallDestination::Resolved {
         symbol: symbol.id(),
     };

@@ -418,7 +418,12 @@ fn binding_signature_join_uses_candidate_identity_and_query_text_is_bounded() {
 fn unsupported_facets_are_rejected_before_classification() {
     let b = budget();
     let requirement = Requirement {
-        predicate: Predicate::FacetMembership { facet: Facet::DelegatesTo, value: FacetValue::ParameterName { name: "timeout".into() } },
+        predicate: Predicate::FacetMembership {
+            facet: Facet::DelegatesTo,
+            value: FacetValue::ParameterName {
+                name: "timeout".into(),
+            },
+        },
         quantifier: Quantifier::AnyApplicable,
     };
     assert!(requirement.predicate.validate().is_err());

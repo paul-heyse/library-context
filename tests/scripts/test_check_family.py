@@ -112,7 +112,9 @@ def test_equal_version_from_another_source_cannot_split_the_latest_family(tmp_pa
     problems = check_family.extra_scope(lock)
     assert any("undeclared analyzer source" in p for p in problems)
     assert any("ambiguous dependency ruff_python_ast 0.0.16" in p for p in problems)
-    qualified = EXTRA.replace('"ruff_python_ast 0.0.16"', f'"ruff_python_ast 0.0.16 ({check_family.RUFF_SOURCE})"')
+    qualified = EXTRA.replace(
+        '"ruff_python_ast 0.0.16"', f'"ruff_python_ast 0.0.16 ({check_family.RUFF_SOURCE})"'
+    )
     lock.write_text(LOCK + qualified + wrong)
     assert not any("ambiguous" in p for p in check_family.extra_scope(lock))
     assert any("undeclared" in p for p in check_family.extra_scope(lock))
@@ -126,5 +128,11 @@ def test_bare_dependency_is_not_expanded_to_all_versions(tmp_path: Path) -> None
 
 def test_embedded_family_cannot_enter_ty(tmp_path: Path) -> None:
     lock = tmp_path / "Cargo.lock"
-    lock.write_text(LOCK + EXTRA.replace('dependencies = ["ruff_python_ast 0.0.16", "salsa"]', 'dependencies = ["ruff_python_ast 0.0.14", "salsa"]'))
+    lock.write_text(
+        LOCK
+        + EXTRA.replace(
+            'dependencies = ["ruff_python_ast 0.0.16", "salsa"]',
+            'dependencies = ["ruff_python_ast 0.0.14", "salsa"]',
+        )
+    )
     assert any("outside Pyrefly embedded Ruff" in p for p in check_family.extra_scope(lock))

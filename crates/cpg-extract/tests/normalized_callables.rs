@@ -19,7 +19,10 @@ async fn fixture() -> (CallableData, CallableOutput) {
         .unwrap();
     normalize_tables(&tables, false)
 }
-fn normalize_tables(tables: &typed_driver::Tables, incomplete_syntax: bool) -> (CallableData, CallableOutput) {
+fn normalize_tables(
+    tables: &typed_driver::Tables,
+    incomplete_syntax: bool,
+) -> (CallableData, CallableOutput) {
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
     let mut relations = relation_normalization::RelationData::new(&budget);
     macro_rules! facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(for row in rows::<$ty>(&tables) { relations.facts.$field.insert(row).unwrap(); })* }; }
@@ -232,10 +235,14 @@ async fn shared_validation_refuses_missing_and_falsely_admitted_callable_results
 #[tokio::test]
 async fn contextual_partial_preserves_source_identity_without_contextual_absence() {
     use attribution::*;
-    use cpg_extract::{pyrefly_stage::Pyrefly, ruff_context::ContextSettings, typed_syntax::SyntaxLimits};
+    use cpg_extract::{
+        pyrefly_stage::Pyrefly, ruff_context::ContextSettings, typed_syntax::SyntaxLimits,
+    };
     use ruff::*;
     let baseline = typed_driver::Tables::default();
-    typed_driver::run_behavioral(&files("effective_callables"), Facts(baseline.clone())).await.unwrap();
+    typed_driver::run_behavioral(&files("effective_callables"), Facts(baseline.clone()))
+        .await
+        .unwrap();
     let supports = rows::<RuffContextSupport>(&baseline);
     assert!(!supports.is_empty());
     let surfaces = rows::<assertion::ProviderSurface>(&baseline);
@@ -246,25 +253,57 @@ async fn contextual_partial_preserves_source_identity_without_contextual_absence
         assert_eq!(surface.family, FactFamily::Lexical);
         assert_eq!(surface.provider, cpg_extract::ruff_context::provider().id());
         assert_eq!(run.provider, surface.provider);
-        assert!(rows::<RunFamily>(&baseline).iter().any(|f| f.run == run.id() && f.family == FactFamily::Lexical));
+        assert!(
+            rows::<RunFamily>(&baseline)
+                .iter()
+                .any(|f| f.run == run.id() && f.family == FactFamily::Lexical)
+        );
     }
     let (data, output) = normalize_tables(&baseline, false);
     assert_eq!(named(&data, &output, "plain").identity, Knowledge::Known);
     let tables = typed_driver::Tables::default();
-    let captured = typed_driver::capture_with_ruff(&files("effective_callables"), "context-row-budget", stages::Profile::Behavioral, ContextSettings { maximum_rows: 1, ..Default::default() });
-    typed_driver::run_profile(captured, Pyrefly::new(SyntaxLimits::default()), Facts(tables.clone()), stages::Profile::Behavioral).await.unwrap();
+    let captured = typed_driver::capture_with_ruff(
+        &files("effective_callables"),
+        "context-row-budget",
+        stages::Profile::Behavioral,
+        ContextSettings {
+            maximum_rows: 1,
+            ..Default::default()
+        },
+    );
+    typed_driver::run_profile(
+        captured,
+        Pyrefly::new(SyntaxLimits::default()),
+        Facts(tables.clone()),
+        stages::Profile::Behavioral,
+    )
+    .await
+    .unwrap();
     let ruff = cpg_extract::ruff_context::provider().id();
     let coverage = rows::<ProviderCoverage>(&tables);
-    assert!(coverage.iter().any(|c| c.provider == Some(ruff) && c.family == FactFamily::Lexical && c.status == CoverageStatus::Partial));
-    assert!(coverage.iter().filter(|c| c.family == FactFamily::Syntax).all(|c| c.provider == Some(ruff) && c.status == CoverageStatus::CompleteUnderStatedModel));
-    assert!(coverage.iter().any(|c| c.provider != Some(ruff) && c.family == FactFamily::Lexical && c.status == CoverageStatus::CompleteUnderStatedModel));
+    assert!(coverage.iter().any(|c| c.provider == Some(ruff)
+        && c.family == FactFamily::Lexical
+        && c.status == CoverageStatus::Partial));
+    assert!(
+        coverage
+            .iter()
+            .filter(|c| c.family == FactFamily::Syntax)
+            .all(|c| c.provider == Some(ruff)
+                && c.status == CoverageStatus::CompleteUnderStatedModel)
+    );
+    assert!(coverage.iter().any(|c| c.provider != Some(ruff)
+        && c.family == FactFamily::Lexical
+        && c.status == CoverageStatus::CompleteUnderStatedModel));
     assert!(rows::<RuffContextObservation>(&tables).is_empty());
     let (data, output) = normalize_tables(&tables, false);
     let plain = named(&data, &output, "plain");
     assert_eq!(plain.identity, Knowledge::Known, "{plain:?}");
     assert!(plain.body_admitted, "{plain:?}");
     let declaration = data.declarations.iter().next().unwrap();
-    assert_eq!(resolved_name(&[], declaration.qualification, declaration.name), None);
+    assert_eq!(
+        resolved_name(&[], declaration.qualification, declaration.name),
+        None
+    );
     // The same source facts with the selected structural inventory incomplete cannot
     // establish decorator absence. This is a model negative control, not a provider claim.
     let (data, output) = normalize_tables(&tables, true);

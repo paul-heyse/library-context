@@ -42,13 +42,13 @@ use lctx_model::domain::{
         ParameterDeclaration, ParameterDeclarationSupport, SymbolDeclaration,
         SymbolDeclarationSupport,
     },
+    diagnostics::*,
     lexical::*,
+    ruff::*,
     source::*,
     stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage, StageSink},
     symbols::*,
     syntax::*,
-    ruff::*,
-    diagnostics::*,
     types::*,
 };
 use std::{collections::BTreeMap, path::Path};
@@ -228,7 +228,13 @@ fn outputs() -> Vec<RelationUse> {
         TypeVariable,
         TypeVariableRestriction,
         TypeRestrictionSupport,
-        NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport, GenericSpecializationObservation, GenericSpecializationSupport,
+        NativeSignatureObservation,
+        NativeSignatureSupport,
+        SignatureTypeSubject,
+        SignatureTypeObservation,
+        SignatureTypeSupport,
+        GenericSpecializationObservation,
+        GenericSpecializationSupport,
         TypeObservation,
         lctx_model::domain::types::TypeQueryObservation,
         lctx_model::domain::types::TypeQuerySupport,
@@ -257,7 +263,30 @@ impl Declared for Pyrefly {
             inputs: vec![],
             outputs: outputs(),
             contributes: crate::assembly::vocabulary(),
-            coverage: FAMILIES.to_vec().into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:if family==FactFamily::Syntax {crate::ruff_context::provider().id()} else {provider.id()}}).chain(std::iter::once(lctx_model::domain::stages::FamilyCoverage {family:FactFamily::Exports,provider:crate::ruff_context::provider().id()})).chain(std::iter::once(lctx_model::domain::stages::FamilyCoverage {family:FactFamily::Lexical,provider:crate::ruff_context::provider().id()})).collect(),
+            coverage: FAMILIES
+                .to_vec()
+                .into_iter()
+                .map(|family| lctx_model::domain::stages::FamilyCoverage {
+                    family,
+                    provider: if family == FactFamily::Syntax {
+                        crate::ruff_context::provider().id()
+                    } else {
+                        provider.id()
+                    },
+                })
+                .chain(std::iter::once(
+                    lctx_model::domain::stages::FamilyCoverage {
+                        family: FactFamily::Exports,
+                        provider: crate::ruff_context::provider().id(),
+                    },
+                ))
+                .chain(std::iter::once(
+                    lctx_model::domain::stages::FamilyCoverage {
+                        family: FactFamily::Lexical,
+                        provider: crate::ruff_context::provider().id(),
+                    },
+                ))
+                .collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Extraction,
             code: provider.build_digest,
@@ -290,20 +319,20 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             Module,
             Occurrence,
             RuffContextObservation,
-        RuffContextSupport,
-        RuffBindingObservation,
-        RuffBindingSupport,
-        RuffDefinitionObservation,
-        RuffDefinitionSupport,
-        RuffDiagnosticObservation,
-        RuffDiagnosticSupport,
-        PyreflyDiagnosticObservation,
-        PyreflyDiagnosticSupport,
-        DiagnosticSubject,
-        DiagnosticAnnotation,
-        NativeParameterDefinitionObservation,
-        NativeParameterDefinitionSupport,
-        SyntaxObservation,
+            RuffContextSupport,
+            RuffBindingObservation,
+            RuffBindingSupport,
+            RuffDefinitionObservation,
+            RuffDefinitionSupport,
+            RuffDiagnosticObservation,
+            RuffDiagnosticSupport,
+            PyreflyDiagnosticObservation,
+            PyreflyDiagnosticSupport,
+            DiagnosticSubject,
+            DiagnosticAnnotation,
+            NativeParameterDefinitionObservation,
+            NativeParameterDefinitionSupport,
+            SyntaxObservation,
             SyntaxSupport,
             SyntaxPlacement,
             SyntaxPlacementSupport,
@@ -351,8 +380,8 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             SymbolSequence,
             SymbolSequenceMember,
             lctx_model::domain::captures::CaptureObservation,
-        lctx_model::domain::captures::CaptureSupport,
-        SymbolObservation,
+            lctx_model::domain::captures::CaptureSupport,
+            SymbolObservation,
             SymbolSupport,
             FunctionTraitObservation,
             FunctionTraitSupport,
@@ -383,13 +412,13 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             CallResolutionSupport,
             CallResolutionMember,
             ClassMetadataObservation,
-        ClassMetadataSupport,
-        ClassMemberObservation,
-        ClassMemberSupport,
-        RecordOptions,
-        RecordTransformDefaults,
-        RecordTransformFieldSpecifier,
-        TypeTerm,
+            ClassMetadataSupport,
+            ClassMemberObservation,
+            ClassMemberSupport,
+            RecordOptions,
+            RecordTransformDefaults,
+            RecordTransformFieldSpecifier,
+            TypeTerm,
             TypeSequence,
             TypeSequenceMember,
             CallableParameterList,
@@ -399,10 +428,16 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             TypeVariable,
             TypeVariableRestriction,
             TypeRestrictionSupport,
-            NativeSignatureObservation, NativeSignatureSupport, SignatureTypeSubject, SignatureTypeObservation, SignatureTypeSupport, GenericSpecializationObservation, GenericSpecializationSupport,
-        TypeObservation,
-        lctx_model::domain::types::TypeQueryObservation,
-        lctx_model::domain::types::TypeQuerySupport,
+            NativeSignatureObservation,
+            NativeSignatureSupport,
+            SignatureTypeSubject,
+            SignatureTypeObservation,
+            SignatureTypeSupport,
+            GenericSpecializationObservation,
+            GenericSpecializationSupport,
+            TypeObservation,
+            lctx_model::domain::types::TypeQueryObservation,
+            lctx_model::domain::types::TypeQuerySupport,
             TypeSupport,
             TypePresentation,
             TypePresentationSupport,
@@ -410,14 +445,14 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             FunctionBodySupport,
             RecordFieldObservation,
             RecordFieldSupport,
-        lctx_model::domain::protocols::NativeExitObservation,
-        lctx_model::domain::protocols::NativeExitSupport,
-        lctx_model::domain::protocols::NativeTerminalObservation,
-        lctx_model::domain::protocols::NativeTerminalSupport,
-        lctx_model::domain::protocols::NativeExitDiagnostic,
-        lctx_model::domain::protocols::NativeExitDiagnosticSupport,
-        ExportEnumerationObservation,
-        ExportEnumerationSupport
+            lctx_model::domain::protocols::NativeExitObservation,
+            lctx_model::domain::protocols::NativeExitSupport,
+            lctx_model::domain::protocols::NativeTerminalObservation,
+            lctx_model::domain::protocols::NativeTerminalSupport,
+            lctx_model::domain::protocols::NativeExitDiagnostic,
+            lctx_model::domain::protocols::NativeExitDiagnosticSupport,
+            ExportEnumerationObservation,
+            ExportEnumerationSupport
         );
         let provider = pyrefly_provider();
         let (condition, nodes) = Diagram::always().records();
@@ -567,7 +602,9 @@ fn session<S: StageSink + 'static>(
         analysis.id(),
         captured.revision().id(),
         analysis.config_digest,
-        FAMILIES.into_iter().filter(|family| *family!=FactFamily::Syntax),
+        FAMILIES
+            .into_iter()
+            .filter(|family| *family != FactFamily::Syntax),
     )?;
     let surfaces: BTreeMap<FactFamily, ProviderSurface> = FAMILIES
         .iter()
@@ -582,16 +619,36 @@ fn session<S: StageSink + 'static>(
             )
         })
         .collect();
-    let ruff=crate::ruff_context::provider();
-    let (ruff_run,ruff_families)=ProviderRun::new(ruff.id(),analysis.id(),captured.revision().id(),analysis.config_digest,[FactFamily::Syntax,FactFamily::Exports,FactFamily::Lexical])?;
-    let ruff_surface=ProviderSurface { provider:ruff.id(),family:FactFamily::Syntax,name:"canonical structural parse".into() };
+    let ruff = crate::ruff_context::provider();
+    let (ruff_run, ruff_families) = ProviderRun::new(
+        ruff.id(),
+        analysis.id(),
+        captured.revision().id(),
+        analysis.config_digest,
+        [FactFamily::Syntax, FactFamily::Exports, FactFamily::Lexical],
+    )?;
+    let ruff_surface = ProviderSurface {
+        provider: ruff.id(),
+        family: FactFamily::Syntax,
+        name: "canonical structural parse".into(),
+    };
     context.contribute(ruff)?;
     context.contribute(ruff_run.clone())?;
-    for family in ruff_families {context.contribute(family)?;}
+    for family in ruff_families {
+        context.contribute(family)?;
+    }
     context.contribute(ruff_surface.clone())?;
-    let ruff_exports=ProviderSurface {provider:ruff_surface.provider,family:FactFamily::Exports,name:"canonical per-alias imports and __all__ literal characterization".into()};
+    let ruff_exports = ProviderSurface {
+        provider: ruff_surface.provider,
+        family: FactFamily::Exports,
+        name: "canonical per-alias imports and __all__ literal characterization".into(),
+    };
     context.contribute(ruff_exports.clone())?;
-    let ruff_context_surface=ProviderSurface {provider:ruff_surface.provider,family:FactFamily::Lexical,name:"populated lexical context and final references".into()};
+    let ruff_context_surface = ProviderSurface {
+        provider: ruff_surface.provider,
+        family: FactFamily::Lexical,
+        name: "populated lexical context and final references".into(),
+    };
     context.contribute(ruff_context_surface.clone())?;
     context.contribute(analysis.clone())?;
     context.contribute(run.clone())?;
@@ -671,10 +728,18 @@ fn session<S: StageSink + 'static>(
                     reason: Option<ObligationKind>,
                     diagnostic: Option<String>| ProviderCoverage {
         scope: scope.id(),
-        provider: Some(if family==FactFamily::Syntax {ruff_surface.provider} else {provider.id()}),
+        provider: Some(if family == FactFamily::Syntax {
+            ruff_surface.provider
+        } else {
+            provider.id()
+        }),
         context: analysis.id(),
         family,
-        run: Some(if family==FactFamily::Syntax {ruff_run.id()} else {run.id()}),
+        run: Some(if family == FactFamily::Syntax {
+            ruff_run.id()
+        } else {
+            run.id()
+        }),
         status,
         reason,
         diagnostic,
@@ -694,9 +759,17 @@ fn session<S: StageSink + 'static>(
                     None,
                 ))?;
             }
-            for family in [FactFamily::Exports,FactFamily::Lexical] {
-                let mut row=coverage(&scope,family,CoverageStatus::Unavailable,Some(*reason),None);
-                row.provider=Some(ruff_surface.provider);row.run=Some(ruff_run.id());context.contribute(row)?;
+            for family in [FactFamily::Exports, FactFamily::Lexical] {
+                let mut row = coverage(
+                    &scope,
+                    family,
+                    CoverageStatus::Unavailable,
+                    Some(*reason),
+                    None,
+                );
+                row.provider = Some(ruff_surface.provider);
+                row.run = Some(ruff_run.id());
+                context.contribute(row)?;
             }
             partial = true;
             continue;
@@ -719,7 +792,7 @@ fn session<S: StageSink + 'static>(
         context.emit(typed_module)?;
         root_modules.insert(natives.module(&module_name, handle.path())?);
         let qualification = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: analysis.id(),
             scope: scope.id(),
             condition: condition.id(),
@@ -733,16 +806,37 @@ fn session<S: StageSink + 'static>(
         // Independent syntax remains available when the native typing adapter has no parse.
         // Captured-byte verification in CanonicalSyntax::parse prevents source substitution.
         let _source_charge = if info.is_none() {
-            Some(context.budget().reserve("canonical-source-fallback", usize::try_from(artifact.byte_len).map_err(|_|invalid("source length overflow".into()))?.checked_add(128).ok_or_else(||invalid("source allowance overflow".into()))?)?)
-        } else { None };
+            Some(
+                context.budget().reserve(
+                    "canonical-source-fallback",
+                    usize::try_from(artifact.byte_len)
+                        .map_err(|_| invalid("source length overflow".into()))?
+                        .checked_add(128)
+                        .ok_or_else(|| invalid("source allowance overflow".into()))?,
+                )?,
+            )
+        } else {
+            None
+        };
         let text = match &info {
             Some(info) => info.lined_buffer().contents().clone(),
-            None => std::sync::Arc::new(fs_err::read_to_string(root.join(&artifact.path)).map_err(|error|invalid(error.to_string()))?),
+            None => std::sync::Arc::new(
+                fs_err::read_to_string(root.join(&artifact.path))
+                    .map_err(|error| invalid(error.to_string()))?,
+            ),
         };
-        let canonical = crate::ruff_context::CanonicalSyntax::parse(artifact, &text, &analysis, selected.config().ruff_settings().clone(), context.budget())?;
+        let canonical = crate::ruff_context::CanonicalSyntax::parse(
+            artifact,
+            &text,
+            &analysis,
+            selected.config().ruff_settings().clone(),
+            context.budget(),
+        )?;
         let ast = canonical.module();
         let static_decisions = match (&native_ast, &info) {
-            (Some(ast), Some(_)) => crate::native_branches::NativeBranches::observe(ast, &sys, context.budget())?,
+            (Some(ast), Some(_)) => {
+                crate::native_branches::NativeBranches::observe(ast, &sys, context.budget())?
+            }
             _ => crate::native_branches::NativeBranches::unavailable(context.budget()),
         };
 
@@ -754,8 +848,18 @@ fn session<S: StageSink + 'static>(
         };
         let support = |family: FactFamily, subject: lctx_model::domain::Id<Occurrence>| {
             (
-                if matches!(family,FactFamily::Syntax|FactFamily::Exports) {ruff_run.id()} else {run.id()},
-                if family==FactFamily::Syntax {ruff_surface.id()} else if family==FactFamily::Exports {ruff_exports.id()} else {surfaces[&family].id()},
+                if matches!(family, FactFamily::Syntax | FactFamily::Exports) {
+                    ruff_run.id()
+                } else {
+                    run.id()
+                },
+                if family == FactFamily::Syntax {
+                    ruff_surface.id()
+                } else if family == FactFamily::Exports {
+                    ruff_exports.id()
+                } else {
+                    surfaces[&family].id()
+                },
                 Evidence::Occurrence {
                     occurrence: subject,
                 }
@@ -823,8 +927,25 @@ fn session<S: StageSink + 'static>(
             Ok(())
         });
         let errors = transaction.get_errors([handle]).collect_errors();
-        write_diagnostics(context,crate::diagnostic_records::pyrefly_diagnostics!(artifact,text.as_str(),&errors,info.as_ref(),&qualification,context.budget()),&run,&surfaces[&FactFamily::Types])?;
-        write_diagnostics(context,canonical.diagnostics(artifact,&qualification,context.budget())?,&ruff_run,&ruff_context_surface)?;
+        write_diagnostics(
+            context,
+            crate::diagnostic_records::pyrefly_diagnostics!(
+                artifact,
+                text.as_str(),
+                &errors,
+                info.as_ref(),
+                &qualification,
+                context.budget()
+            ),
+            &run,
+            &surfaces[&FactFamily::Types],
+        )?;
+        write_diagnostics(
+            context,
+            canonical.diagnostics(artifact, &qualification, context.budget())?,
+            &ruff_run,
+            &ruff_context_surface,
+        )?;
         let native_parse_error = [
             &errors.ordinary,
             &errors.directives,
@@ -835,16 +956,31 @@ fn session<S: StageSink + 'static>(
         .into_iter()
         .flatten()
         .any(|error| error.error_kind() == ErrorKind::ParseError);
-        let native_exports_invalid = [&errors.ordinary,&errors.directives,&errors.suppressed,&errors.disabled,&errors.baseline]
-            .into_iter().flatten().any(|error|error.error_kind()==ErrorKind::BadDunderAll);
-        accesses.push((index,module_id,qualification.clone(),native_parse_error,native_exports_invalid));
+        let native_exports_invalid = [
+            &errors.ordinary,
+            &errors.directives,
+            &errors.suppressed,
+            &errors.disabled,
+            &errors.baseline,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|error| error.error_kind() == ErrorKind::BadDunderAll);
+        accesses.push((
+            index,
+            module_id,
+            qualification.clone(),
+            native_parse_error,
+            native_exports_invalid,
+        ));
         let parse_error = !canonical.parsed().errors().is_empty();
         let mut ruff_context_incomplete = None;
         let (mut unattached, mut unlocated, mut computed_all, mut calls_partial, mut types_partial) =
             ((0, 0), 0, false, false, false);
         let syntax = match emitted {
             Ok(_) => {
-                let mut contextual=canonical.context_rows(&spans,&qualification,context.budget())?;
+                let mut contextual =
+                    canonical.context_rows(&spans, &qualification, context.budget())?;
                 let records = syntax_records::records(
                     ast,
                     &module_name,
@@ -853,11 +989,38 @@ fn session<S: StageSink + 'static>(
                     qualification.id(),
                     &contextual.rows,
                 )?;
-                let parameter_answers=crate::parameter_definition_records::records(&transaction,handle,artifact,&text,&records,&spans,&qualification,if native_parse_error {Some(ObligationKind::SyntaxError)}else if !native_available {Some(ObligationKind::MissingEvidence)}else{None},context.budget())?;
-                write_parameter_definitions(context,parameter_answers,&run,&surfaces[&FactFamily::Types])?;
+                let parameter_answers = crate::parameter_definition_records::records(
+                    &transaction,
+                    handle,
+                    artifact,
+                    &text,
+                    &records,
+                    &spans,
+                    &qualification,
+                    if native_parse_error {
+                        Some(ObligationKind::SyntaxError)
+                    } else if !native_available {
+                        Some(ObligationKind::MissingEvidence)
+                    } else {
+                        None
+                    },
+                    context.budget(),
+                )?;
+                write_parameter_definitions(
+                    context,
+                    parameter_answers,
+                    &run,
+                    &surfaces[&FactFamily::Types],
+                )?;
                 let computed = records.computed_all.clone();
                 computed_all = !computed.is_empty();
-                imports.extend(records.import_lookups.iter().cloned().map(|lookup| (index, lookup)));
+                imports.extend(
+                    records
+                        .import_lookups
+                        .iter()
+                        .cloned()
+                        .map(|lookup| (index, lookup)),
+                );
                 let declared = symbol_records::Declared::new(
                     &records.declarations,
                     &records.parameters,
@@ -874,109 +1037,145 @@ fn session<S: StageSink + 'static>(
                     ..qualification.clone()
                 };
                 context.contribute(candidate.clone())?;
-                let facts = lexical_records::facts(ast, &spans, &static_decisions, &outside, &stars)?;
+                let facts =
+                    lexical_records::facts(ast, &spans, &static_decisions, &outside, &stars)?;
                 let lexical =
                     lexical_records::records(&facts, &spans, qualification.id(), candidate.id())?;
-                let native_lexical=contextual.lower_lexical(&spans,&lexical,&qualification,candidate.id(),context.budget())?;
-                if contextual.incomplete.is_some() || contextual.unlocated>0 {ruff_context_incomplete=Some(format!("contextual pass: {:?}; {} unattached source contexts",contextual.incomplete,contextual.unlocated));}
+                let native_lexical = contextual.lower_lexical(
+                    &spans,
+                    &lexical,
+                    &qualification,
+                    candidate.id(),
+                    context.budget(),
+                )?;
+                if contextual.incomplete.is_some() || contextual.unlocated > 0 {
+                    ruff_context_incomplete = Some(format!(
+                        "contextual pass: {:?}; {} unattached source contexts",
+                        contextual.incomplete, contextual.unlocated
+                    ));
+                }
                 for row in &contextual.rows {
-                    context.emit(RuffContextSupport { assertion:row.id(),run:ruff_run.id(),surface:ruff_context_surface.id(),evidence:Evidence::Occurrence {occurrence:row.subject}.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural })?;
+                    context.emit(RuffContextSupport {
+                        assertion: row.id(),
+                        run: ruff_run.id(),
+                        surface: ruff_context_surface.id(),
+                        evidence: Evidence::Occurrence {
+                            occurrence: row.subject,
+                        }
+                        .id(),
+                        origin: Origin::AnalyzerAssertion,
+                        mode: ExtractionMode::NativeTraversal,
+                        fidelity: Fidelity::NativeStructural,
+                    })?;
                     context.emit(row.clone())?;
                 }
-                write_native_lexical(context,native_lexical,&lexical,&ruff_run,&ruff_context_surface)?;
+                write_native_lexical(
+                    context,
+                    native_lexical,
+                    &lexical,
+                    &ruff_run,
+                    &ruff_context_surface,
+                )?;
                 write_lexical(context, lexical, &|subject| {
                     support(FactFamily::Lexical, subject)
                 })?;
                 if let (Some(_), Some(info)) = (&native_ast, &info) {
-                let locator = symbol_records::Locator {
-                    line_index: info.lined_buffer().line_index(),
-                    text: &text,
-                };
-                let linking = symbol_records::Linking {
-                    locator: &locator,
-                    spans: &spans,
-                    declared: &declared,
-                };
-                let definitions = definitions(
-                    &transaction,
-                    handle,
-                    &qualification,
-                    &mut natives,
-                    Some(linking),
-                    None,
-                    tap,
-                    false,
-                    context.budget(),
-                )?;
-                let _class_projection_charge = context.budget().reserve(
-                    "native-class-trait-projection",
-                    definitions.classes.len().saturating_mul(size_of::<ClassTraitObservation>() * 2),
-                )?;
-                let projected_classes = definitions.classes.clone();
-                unattached = write_symbols(
-                    context,
-                    definitions,
-                    &scope,
-                    provider,
-                    &analysis,
-                    &run,
-                    &surfaces,
-                    &pysa_evidence,
-                )?;
-                let calls = calls(
-                    &transaction,
-                    handle,
-                    &qualification,
-                    provider,
-                    &locator,
-                    &spans,
-                    &call_syntax,
-                    &mut natives,
-                    context.budget(),
-                )?;
-                calls_partial = !calls.boundaries.is_empty() || !calls.unattached.is_empty();
-                write_calls(
-                    context,
-                    calls,
-                    &scope,
-                    provider,
-                    &analysis,
-                    &run,
-                    &surfaces,
-                    &pysa_evidence,
-                )?;
-                let mut types = types(
-                    &transaction,
-                    handle,
-                    &qualification,
-                    &analysis,
-                    provider,
-                    &type_syntax,
-                    &spans,
-                    &mut natives,
-                    context.budget(),
-                    &analyzed,
-                    limits,
-                    &ruff_run,
-                    &ruff_surface,
-                    root,
-                    ast,
-                )?;
-                types.reconcile_class_traits(&projected_classes)?;
-                unattached.1 += types.class_trait_boundaries.len();
-                types_partial = native_parse_error || !types.boundaries.is_empty();
-                unattached.1 += types.signatures.iter().filter(|(s, _, _)| s.form == SignatureForm::NativeUnavailable).count();
-                write_types(
-                    context,
-                    types,
-                    &scope,
-                    provider,
-                    &analysis,
-                    &run,
-                    &surfaces,
-                    &pysa_evidence,
-                    !parse_error && !native_parse_error,
-                )?;
+                    let locator = symbol_records::Locator {
+                        line_index: info.lined_buffer().line_index(),
+                        text: &text,
+                    };
+                    let linking = symbol_records::Linking {
+                        locator: &locator,
+                        spans: &spans,
+                        declared: &declared,
+                    };
+                    let definitions = definitions(
+                        &transaction,
+                        handle,
+                        &qualification,
+                        &mut natives,
+                        Some(linking),
+                        None,
+                        tap,
+                        false,
+                        context.budget(),
+                    )?;
+                    let _class_projection_charge = context.budget().reserve(
+                        "native-class-trait-projection",
+                        definitions
+                            .classes
+                            .len()
+                            .saturating_mul(size_of::<ClassTraitObservation>() * 2),
+                    )?;
+                    let projected_classes = definitions.classes.clone();
+                    unattached = write_symbols(
+                        context,
+                        definitions,
+                        &scope,
+                        provider,
+                        &analysis,
+                        &run,
+                        &surfaces,
+                        &pysa_evidence,
+                    )?;
+                    let calls = calls(
+                        &transaction,
+                        handle,
+                        &qualification,
+                        provider,
+                        &locator,
+                        &spans,
+                        &call_syntax,
+                        &mut natives,
+                        context.budget(),
+                    )?;
+                    calls_partial = !calls.boundaries.is_empty() || !calls.unattached.is_empty();
+                    write_calls(
+                        context,
+                        calls,
+                        &scope,
+                        provider,
+                        &analysis,
+                        &run,
+                        &surfaces,
+                        &pysa_evidence,
+                    )?;
+                    let mut types = types(
+                        &transaction,
+                        handle,
+                        &qualification,
+                        &analysis,
+                        provider,
+                        &type_syntax,
+                        &spans,
+                        &mut natives,
+                        context.budget(),
+                        &analyzed,
+                        limits,
+                        &ruff_run,
+                        &ruff_surface,
+                        root,
+                        ast,
+                    )?;
+                    types.reconcile_class_traits(&projected_classes)?;
+                    unattached.1 += types.class_trait_boundaries.len();
+                    types_partial = native_parse_error || !types.boundaries.is_empty();
+                    unattached.1 += types
+                        .signatures
+                        .iter()
+                        .filter(|(s, _, _)| s.form == SignatureForm::NativeUnavailable)
+                        .count();
+                    write_types(
+                        context,
+                        types,
+                        &scope,
+                        provider,
+                        &analysis,
+                        &run,
+                        &surfaces,
+                        &pysa_evidence,
+                        !parse_error && !native_parse_error,
+                    )?;
                 } else {
                     calls_partial = true;
                     types_partial = true;
@@ -1027,8 +1226,19 @@ fn session<S: StageSink + 'static>(
             },
         };
         let contextual = if syntax.0 == CoverageStatus::CompleteUnderStatedModel {
-            ruff_context_incomplete.take().map_or_else(||syntax.clone(),|detail|(CoverageStatus::Partial,Some(ObligationKind::OutsideProviderModel),Some(detail)))
-        } else { syntax.clone() };
+            ruff_context_incomplete.take().map_or_else(
+                || syntax.clone(),
+                |detail| {
+                    (
+                        CoverageStatus::Partial,
+                        Some(ObligationKind::OutsideProviderModel),
+                        Some(detail),
+                    )
+                },
+            )
+        } else {
+            syntax.clone()
+        };
         context.contribute(coverage(
             &scope,
             FactFamily::Syntax,
@@ -1043,8 +1253,15 @@ fn session<S: StageSink + 'static>(
             syntax.1,
             syntax.2.clone(),
         ))?;
-        let mut contextual_coverage=coverage(&scope,FactFamily::Lexical,contextual.0,contextual.1,contextual.2.clone());
-        contextual_coverage.provider=Some(ruff_surface.provider);contextual_coverage.run=Some(ruff_run.id());
+        let mut contextual_coverage = coverage(
+            &scope,
+            FactFamily::Lexical,
+            contextual.0,
+            contextual.1,
+            contextual.2.clone(),
+        );
+        contextual_coverage.provider = Some(ruff_surface.provider);
+        contextual_coverage.run = Some(ruff_run.id());
         context.contribute(contextual_coverage)?;
         // Exports and Signatures follow the syntax; a computed `__all__`, a declaration that did not
         // attach and an unlocated parameter description each leave their family partial.
@@ -1090,7 +1307,11 @@ fn session<S: StageSink + 'static>(
             syntax.clone()
         };
         let calls = if complete && !native_available {
-            (CoverageStatus::Unavailable,Some(ObligationKind::MissingEvidence),Some("native call adapter parse unavailable".into()))
+            (
+                CoverageStatus::Unavailable,
+                Some(ObligationKind::MissingEvidence),
+                Some("native call adapter parse unavailable".into()),
+            )
         } else if complete && (calls_partial || native_parse_error) {
             (
                 CoverageStatus::Partial,
@@ -1108,7 +1329,11 @@ fn session<S: StageSink + 'static>(
             calls.2.clone(),
         ))?;
         let types = if complete && !native_available {
-            (CoverageStatus::Unavailable,Some(ObligationKind::MissingEvidence),Some("native type adapter parse unavailable".into()))
+            (
+                CoverageStatus::Unavailable,
+                Some(ObligationKind::MissingEvidence),
+                Some("native type adapter parse unavailable".into()),
+            )
         } else if complete && types_partial {
             (
                 CoverageStatus::Partial,
@@ -1128,8 +1353,10 @@ fn session<S: StageSink + 'static>(
         partial |= [&contextual, &syntax, &exports, &signatures, &calls, &types]
             .iter()
             .any(|c| c.0 != CoverageStatus::CompleteUnderStatedModel);
-        let mut source_exports=coverage(&scope,FactFamily::Exports,exports.0,exports.1,exports.2);
-        source_exports.provider=Some(ruff_surface.provider);source_exports.run=Some(ruff_run.id());
+        let mut source_exports =
+            coverage(&scope, FactFamily::Exports, exports.0, exports.1, exports.2);
+        source_exports.provider = Some(ruff_surface.provider);
+        source_exports.run = Some(ruff_run.id());
         context.contribute(source_exports)?;
         context.contribute(coverage(
             &scope,
@@ -1142,22 +1369,67 @@ fn session<S: StageSink + 'static>(
     // The public names of the analyzed modules, under each module's own qualification.
     let access: Vec<public_records::Access<'_>> = accesses
         .iter()
-        .map(|(index, module, qualification, native_parse_error, native_exports_invalid)| public_records::Access {
-            handle: &handles[*index],module: *module,qualification,native_parse_error:*native_parse_error,native_exports_invalid:*native_exports_invalid,
-        })
+        .map(
+            |(index, module, qualification, native_parse_error, native_exports_invalid)| {
+                public_records::Access {
+                    handle: &handles[*index],
+                    module: *module,
+                    qualification,
+                    native_parse_error: *native_parse_error,
+                    native_exports_invalid: *native_exports_invalid,
+                }
+            },
+        )
         .collect();
     let public = public_records::public_names(&access, &transaction, &mut natives)?;
     drop(access);
     let exports = surfaces[&FactFamily::Exports].id();
-    for q in public.qualifications {context.contribute(q)?;}
-    for literal in public.literals {context.contribute(literal)?;}
-    for (set,members) in public.sets {context.contribute(set)?;for member in members {context.contribute(member)?;}}
+    for q in public.qualifications {
+        context.contribute(q)?;
+    }
+    for literal in public.literals {
+        context.contribute(literal)?;
+    }
+    for (set, members) in public.sets {
+        context.contribute(set)?;
+        for member in members {
+            context.contribute(member)?;
+        }
+    }
     for row in public.enumerations {
-        let q=accesses.iter().find(|(_,module,_,_,_)|*module==row.access).map(|(_,_,q,_,_)|q).ok_or_else(||invalid("native export source qualification absent".into()))?;
-        let status=match row.status {ExportEnumerationStatus::Complete=>CoverageStatus::CompleteUnderStatedModel,ExportEnumerationStatus::Partial=>CoverageStatus::Partial,ExportEnumerationStatus::Unavailable=>CoverageStatus::Unavailable};
-        partial |= status!=CoverageStatus::CompleteUnderStatedModel;
-        context.contribute(ProviderCoverage {scope:q.scope,provider:Some(provider.id()),context:analysis.id(),family:FactFamily::Exports,run:Some(run.id()),status,reason:(status!=CoverageStatus::CompleteUnderStatedModel).then_some(ObligationKind::OutsideProviderModel),diagnostic:(status!=CoverageStatus::CompleteUnderStatedModel).then(||format!("native public enumeration {:?}/{:?}",row.status,row.basis))})?;
-        context.emit(ExportEnumerationSupport {assertion:row.id(),run:run.id(),surface:exports,evidence:pysa_evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;context.emit(row)?;
+        let q = accesses
+            .iter()
+            .find(|(_, module, _, _, _)| *module == row.access)
+            .map(|(_, _, q, _, _)| q)
+            .ok_or_else(|| invalid("native export source qualification absent".into()))?;
+        let status = match row.status {
+            ExportEnumerationStatus::Complete => CoverageStatus::CompleteUnderStatedModel,
+            ExportEnumerationStatus::Partial => CoverageStatus::Partial,
+            ExportEnumerationStatus::Unavailable => CoverageStatus::Unavailable,
+        };
+        partial |= status != CoverageStatus::CompleteUnderStatedModel;
+        context.contribute(ProviderCoverage {
+            scope: q.scope,
+            provider: Some(provider.id()),
+            context: analysis.id(),
+            family: FactFamily::Exports,
+            run: Some(run.id()),
+            status,
+            reason: (status != CoverageStatus::CompleteUnderStatedModel)
+                .then_some(ObligationKind::OutsideProviderModel),
+            diagnostic: (status != CoverageStatus::CompleteUnderStatedModel)
+                .then(|| format!("native public enumeration {:?}/{:?}", row.status, row.basis)),
+        })?;
+        context.emit(ExportEnumerationSupport {
+            assertion: row.id(),
+            run: run.id(),
+            surface: exports,
+            evidence: pysa_evidence.id(),
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        })?;
+        context.emit(row)?;
     }
     for origin in public.origins {
         context.emit(origin)?;
@@ -1199,9 +1471,15 @@ fn session<S: StageSink + 'static>(
             location: resolution.location,
         };
         context.emit(ModuleResolutionSupport {
-            assertion: row.id(), run: run.id(), surface: surfaces[&FactFamily::Exports].id(),
-            evidence: Evidence::Occurrence { occurrence: lookup.alias }.id(),
-            origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal,
+            assertion: row.id(),
+            run: run.id(),
+            surface: surfaces[&FactFamily::Exports].id(),
+            evidence: Evidence::Occurrence {
+                occurrence: lookup.alias,
+            }
+            .id(),
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
             fidelity: Fidelity::NativeStructural,
         })?;
         context.emit(row)?;
@@ -1397,11 +1675,7 @@ fn session<S: StageSink + 'static>(
         }
     }
     let exports = surfaces[&FactFamily::Exports].id();
-    let resolutions: Vec<_> = natives
-        .resolutions
-        .values()
-        .cloned()
-        .collect();
+    let resolutions: Vec<_> = natives.resolutions.values().cloned().collect();
     for resolution in resolutions {
         let row = ModuleResolutionObservation {
             qualification: input_qualification.id(),
@@ -1447,24 +1721,52 @@ fn resolve_import(
 ) -> Result<crate::natives::Resolution, ModelError> {
     use pyrefly_python::module_name::ModuleName;
     use pyrefly_types::types::Type;
-    let mut requested = lookup.base.clone().unwrap_or_else(|| lookup.spelling.clone());
+    let mut requested = lookup
+        .base
+        .clone()
+        .unwrap_or_else(|| lookup.spelling.clone());
     let found = if let Some(base) = &lookup.base {
         if let Some(member) = &lookup.member {
-            if let Some(Type::Module(module)) = transaction.get_type_at_preserving_declaration(importer, ruff_text_size::TextSize::new(lookup.binding_position.to_u32())) {
-                requested = module.parts().iter().map(|part| part.as_str()).collect::<Vec<_>>().join(".");
-                transaction.import_handle(importer, ModuleName::from_str(&requested), None).finding()
-            } else if let Some(base_handle) = transaction.import_handle(importer, ModuleName::from_str(base), None).finding() {
-                if member == "*" || transaction.get_exports(&base_handle).contains_key(&ruff_python_ast::name::Name::new(member)) {
+            if let Some(Type::Module(module)) = transaction.get_type_at_preserving_declaration(
+                importer,
+                ruff_text_size::TextSize::new(lookup.binding_position.to_u32()),
+            ) {
+                requested = module
+                    .parts()
+                    .iter()
+                    .map(|part| part.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                transaction
+                    .import_handle(importer, ModuleName::from_str(&requested), None)
+                    .finding()
+            } else if let Some(base_handle) = transaction
+                .import_handle(importer, ModuleName::from_str(base), None)
+                .finding()
+            {
+                if member == "*"
+                    || transaction
+                        .get_exports(&base_handle)
+                        .contains_key(&ruff_python_ast::name::Name::new(member))
+                {
                     Some(base_handle)
                 } else {
                     requested = format!("{base}.{member}");
-                    transaction.import_handle(importer, ModuleName::from_str(&requested), None).finding()
+                    transaction
+                        .import_handle(importer, ModuleName::from_str(&requested), None)
+                        .finding()
                 }
-            } else { None }
+            } else {
+                None
+            }
         } else {
-            transaction.import_handle(importer, ModuleName::from_str(base), None).finding()
+            transaction
+                .import_handle(importer, ModuleName::from_str(base), None)
+                .finding()
         }
-    } else { None };
+    } else {
+        None
+    };
     let module = match found {
         Some(found) => natives.module(&found.module().to_string(), found.path())?,
         None => natives.unresolved(&requested)?,
@@ -1700,7 +2002,7 @@ fn definitions(
         }
         kept
     });
-    let mut records=symbol_records::records(
+    let mut records = symbol_records::records(
         &definitions,
         this,
         qualification,
@@ -1712,7 +2014,16 @@ fn definitions(
         kept.as_ref(),
         budget,
     )?;
-    records.captures=Some(crate::capture_records::records(&definitions,&captured,this,current,handle.module(),qualification,natives,budget)?);
+    records.captures = Some(crate::capture_records::records(
+        &definitions,
+        &captured,
+        this,
+        current,
+        handle.module(),
+        qualification,
+        natives,
+        budget,
+    )?);
     Ok(records)
 }
 
@@ -1789,9 +2100,16 @@ fn write_symbols<S: StageSink + 'static>(
             context.emit(row)?;
         }};
     }
-    if let Some(captures)=records.captures {
+    if let Some(captures) = records.captures {
         use lctx_model::domain::captures::CaptureSupport;
-        for row in captures.rows {pysa!(CaptureSupport,row,invocation.id(),Fidelity::NativeStructural);}
+        for row in captures.rows {
+            pysa!(
+                CaptureSupport,
+                row,
+                invocation.id(),
+                Fidelity::NativeStructural
+            );
+        }
     }
     for (sequence, members) in records.sequences {
         context.emit(sequence)?;
@@ -2436,9 +2754,7 @@ fn types(
         let found = transaction
             .import_handle(handle, class.module().name(), None)
             .finding()?;
-        if found.path() != class.module().path()
-            || transaction.get_answers(&found).is_none()
-        {
+        if found.path() != class.module().path() || transaction.get_answers(&found).is_none() {
             return None;
         }
         Some(ModuleAnswersContext::create(found, transaction, module_ids))
@@ -2464,7 +2780,13 @@ fn types(
             let info = transaction
                 .get_module_info(&found)
                 .ok_or_else(|| invalid("inherited field text unavailable".into()))?;
-            let canonical = crate::ruff_context::CanonicalSyntax::parse(artifact, info.lined_buffer().contents(), context_info, crate::ruff_context::ContextSettings::default(), budget)?;
+            let canonical = crate::ruff_context::CanonicalSyntax::parse(
+                artifact,
+                info.lined_buffer().contents(),
+                context_info,
+                crate::ruff_context::ContextSettings::default(),
+                budget,
+            )?;
             let ast = canonical.module();
             let mut spans = Spans::new(budget);
             let invocation = SyntaxInvocation {
@@ -2492,7 +2814,7 @@ fn types(
             .and_then(|s| s.event(range, Some(SyntaxKind::ExprName))))
     };
     crate::type_records::records(
-        (transaction,handle,ast),
+        (transaction, handle, ast),
         &context,
         qualification,
         provider,
@@ -2537,34 +2859,94 @@ fn write_types<S: StageSink + 'static>(
             context.emit(row)?;
         }};
     }
-    for row in records.record_options { context.emit(row)?; }
-    for row in records.transforms { context.emit(row)?; }
-    for row in records.transform_specifiers { context.emit(row)?; }
-    for (row, fidelity) in records.class_members { supported!(ClassMemberSupport, row, fidelity); }
-    for mut row in records.queries {
-        if !source_complete && row.observation.is_some() {row.status=lctx_model::domain::types::TypeQueryStatus::Partial;row.reason=Some(ObligationKind::SyntaxError);}
-        let evidence=Evidence::Occurrence {occurrence:row.subject};context.contribute(evidence.clone())?;
-        context.emit(lctx_model::domain::types::TypeQuerySupport {assertion:row.id(),run:run.id(),surface,evidence:evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;
+    for row in records.record_options {
         context.emit(row)?;
     }
-    for row in records.class_metadata { supported!(ClassMetadataSupport, row, Fidelity::NativeStructural); }
+    for row in records.transforms {
+        context.emit(row)?;
+    }
+    for row in records.transform_specifiers {
+        context.emit(row)?;
+    }
+    for (row, fidelity) in records.class_members {
+        supported!(ClassMemberSupport, row, fidelity);
+    }
+    for mut row in records.queries {
+        if !source_complete && row.observation.is_some() {
+            row.status = lctx_model::domain::types::TypeQueryStatus::Partial;
+            row.reason = Some(ObligationKind::SyntaxError);
+        }
+        let evidence = Evidence::Occurrence {
+            occurrence: row.subject,
+        };
+        context.contribute(evidence.clone())?;
+        context.emit(lctx_model::domain::types::TypeQuerySupport {
+            assertion: row.id(),
+            run: run.id(),
+            surface,
+            evidence: evidence.id(),
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        })?;
+        context.emit(row)?;
+    }
+    for row in records.class_metadata {
+        supported!(ClassMetadataSupport, row, Fidelity::NativeStructural);
+    }
     for row in records.native_class_traits {
         // The identical assertion was emitted by write_symbols; retain distinct native evidence.
-        context.emit(ClassTraitSupport { assertion: row.id(), run: run.id(), surface: surfaces[&FactFamily::Signatures].id(), evidence: evidence.id(), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural })?;
+        context.emit(ClassTraitSupport {
+            assertion: row.id(),
+            run: run.id(),
+            surface: surfaces[&FactFamily::Signatures].id(),
+            evidence: evidence.id(),
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        })?;
     }
     for (reason, detail) in records.class_trait_boundaries {
-        context.contribute(SubjectBoundary { scope: scope.id(), provider: provider.id(), context: analysis.id(), family: FactFamily::Signatures, subject: None, reason, detail: Some(detail) })?;
+        context.contribute(SubjectBoundary {
+            scope: scope.id(),
+            provider: provider.id(),
+            context: analysis.id(),
+            family: FactFamily::Signatures,
+            subject: None,
+            reason,
+            detail: Some(detail),
+        })?;
     }
     for (row, members, shapes) in records.signatures {
-        for shape in shapes { context.emit(shape)?; }
-        context.emit(SignatureSupport { assertion: row.id(), run: run.id(), surface: surfaces[&FactFamily::Signatures].id(), evidence: evidence.id(), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural })?;
+        for shape in shapes {
+            context.emit(shape)?;
+        }
+        context.emit(SignatureSupport {
+            assertion: row.id(),
+            run: run.id(),
+            surface: surfaces[&FactFamily::Signatures].id(),
+            evidence: evidence.id(),
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        })?;
         context.emit(row)?;
-        for member in members { context.emit(member)?; }
+        for member in members {
+            context.emit(member)?;
+        }
     }
-    for row in records.port_subjects { context.emit(row)?; }
-    for (row, fidelity) in records.specializations { supported!(GenericSpecializationSupport, row, fidelity); }
-    for (row, fidelity) in records.native_signatures { supported!(NativeSignatureSupport, row, fidelity); }
-    for (row, fidelity) in records.port_types { supported!(SignatureTypeSupport, row, fidelity); }
+    for row in records.port_subjects {
+        context.emit(row)?;
+    }
+    for (row, fidelity) in records.specializations {
+        supported!(GenericSpecializationSupport, row, fidelity);
+    }
+    for (row, fidelity) in records.native_signatures {
+        supported!(NativeSignatureSupport, row, fidelity);
+    }
+    for (row, fidelity) in records.port_types {
+        supported!(SignatureTypeSupport, row, fidelity);
+    }
     for row in records.terms {
         context.emit(row)?;
     }
@@ -2607,11 +2989,19 @@ fn write_types<S: StageSink + 'static>(
     for (row, fidelity) in records.fields {
         supported!(RecordFieldSupport, row, fidelity);
     }
-    if let Some(protocols)=records.protocols {
-        use lctx_model::domain::protocols::{NativeExitSupport,NativeTerminalSupport,NativeExitDiagnosticSupport};
-        for (row,fidelity) in protocols.exits {supported!(NativeExitSupport,row,fidelity);}
-        for (row,fidelity) in protocols.terminals {supported!(NativeTerminalSupport,row,fidelity);}
-        for row in protocols.diagnostics {supported!(NativeExitDiagnosticSupport,row,Fidelity::NativeStructural);}
+    if let Some(protocols) = records.protocols {
+        use lctx_model::domain::protocols::{
+            NativeExitDiagnosticSupport, NativeExitSupport, NativeTerminalSupport,
+        };
+        for (row, fidelity) in protocols.exits {
+            supported!(NativeExitSupport, row, fidelity);
+        }
+        for (row, fidelity) in protocols.terminals {
+            supported!(NativeTerminalSupport, row, fidelity);
+        }
+        for row in protocols.diagnostics {
+            supported!(NativeExitDiagnosticSupport, row, Fidelity::NativeStructural);
+        }
     }
     for (subject, reason, detail) in records.boundaries {
         context.contribute(SubjectBoundary {
@@ -2627,28 +3017,139 @@ fn write_types<S: StageSink + 'static>(
     Ok(())
 }
 
-fn write_native_lexical<S:StageSink+'static>(context:&mut StageContext<S>, rows:crate::ruff_lexical::NativeLexicalRecords, source:&lexical_records::LexicalRecords, run:&ProviderRun, surface:&ProviderSurface)->Result<(),ModelError> {
-    macro_rules! support {($ty:ident,$row:expr,$subject:expr)=>{{let row=$row;let evidence=Evidence::Occurrence{occurrence:$subject};context.contribute(evidence.clone())?;context.emit($ty{assertion:row.id(),run:run.id(),surface:surface.id(),evidence:evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;}};}
-    for scope in &rows.scopes {context.emit(scope.clone())?;}
-    for (row,emit) in &rows.scope_observations {
-        let scope=rows.scopes.iter().chain(source.scopes.iter()).find(|s|s.id()==row.scope).ok_or_else(||invalid("native scope evidence has no canonical owner".into()))?;
-        support!(LexicalScopeSupport,row,scope.owner);if *emit{context.emit(row.clone())?;}
+fn write_native_lexical<S: StageSink + 'static>(
+    context: &mut StageContext<S>,
+    rows: crate::ruff_lexical::NativeLexicalRecords,
+    source: &lexical_records::LexicalRecords,
+    run: &ProviderRun,
+    surface: &ProviderSurface,
+) -> Result<(), ModelError> {
+    macro_rules! support {
+        ($ty:ident,$row:expr,$subject:expr) => {{
+            let row = $row;
+            let evidence = Evidence::Occurrence {
+                occurrence: $subject,
+            };
+            context.contribute(evidence.clone())?;
+            context.emit($ty {
+                assertion: row.id(),
+                run: run.id(),
+                surface: surface.id(),
+                evidence: evidence.id(),
+                origin: Origin::AnalyzerAssertion,
+                mode: ExtractionMode::NativeTraversal,
+                fidelity: Fidelity::NativeStructural,
+            })?;
+        }};
     }
-    for row in &rows.bindings {let event=rows.events.iter().find(|e|e.id()==row.event).ok_or_else(||invalid("native binding evidence has no canonical event".into()))?;support!(RuffBindingSupport,row,event.site);context.emit(row.clone())?;}
-    for row in &rows.definitions {support!(RuffDefinitionSupport,row,row.declaration);context.emit(row.clone())?;}
-    for target in &rows.targets {if !source.targets.iter().any(|t|t.id()==target.id()){context.emit(target.clone())?;}}
-    for (row,emit) in &rows.resolutions {support!(LexicalResolutionSupport,row,row.read);if *emit {context.emit(row.clone())?;}}
+    for scope in &rows.scopes {
+        context.emit(scope.clone())?;
+    }
+    for (row, emit) in &rows.scope_observations {
+        let scope = rows
+            .scopes
+            .iter()
+            .chain(source.scopes.iter())
+            .find(|s| s.id() == row.scope)
+            .ok_or_else(|| invalid("native scope evidence has no canonical owner".into()))?;
+        support!(LexicalScopeSupport, row, scope.owner);
+        if *emit {
+            context.emit(row.clone())?;
+        }
+    }
+    for row in &rows.bindings {
+        let event = rows
+            .events
+            .iter()
+            .find(|e| e.id() == row.event)
+            .ok_or_else(|| invalid("native binding evidence has no canonical event".into()))?;
+        support!(RuffBindingSupport, row, event.site);
+        context.emit(row.clone())?;
+    }
+    for row in &rows.definitions {
+        support!(RuffDefinitionSupport, row, row.declaration);
+        context.emit(row.clone())?;
+    }
+    for target in &rows.targets {
+        if !source.targets.iter().any(|t| t.id() == target.id()) {
+            context.emit(target.clone())?;
+        }
+    }
+    for (row, emit) in &rows.resolutions {
+        support!(LexicalResolutionSupport, row, row.read);
+        if *emit {
+            context.emit(row.clone())?;
+        }
+    }
     Ok(())
 }
 
-fn write_diagnostics<S:StageSink+'static>(context:&mut StageContext<S>,records:crate::diagnostic_records::Records,run:&ProviderRun,surface:&ProviderSurface)->Result<(),ModelError> {
-    for evidence in &records.evidence {context.contribute(evidence.clone())?;}
-    for subject in &records.subjects {context.emit(subject.clone())?;}
-    for annotation in &records.annotations {context.emit(annotation.clone())?;}
-    macro_rules! emit {($rows:expr,$support:ident)=>{for row in $rows {let evidence=row.primary.map(|span|span.id()).unwrap_or_else(||Evidence::Invocation{run:run.id()}.id());if row.primary.is_none(){context.contribute(Evidence::Invocation{run:run.id()})?;}context.emit($support {assertion:row.id(),run:run.id(),surface:surface.id(),evidence,origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;context.emit(row.clone())?;}};}
-    emit!(&records.ruff,RuffDiagnosticSupport);emit!(&records.pyrefly,PyreflyDiagnosticSupport);Ok(())
+fn write_diagnostics<S: StageSink + 'static>(
+    context: &mut StageContext<S>,
+    records: crate::diagnostic_records::Records,
+    run: &ProviderRun,
+    surface: &ProviderSurface,
+) -> Result<(), ModelError> {
+    for evidence in &records.evidence {
+        context.contribute(evidence.clone())?;
+    }
+    for subject in &records.subjects {
+        context.emit(subject.clone())?;
+    }
+    for annotation in &records.annotations {
+        context.emit(annotation.clone())?;
+    }
+    macro_rules! emit {
+        ($rows:expr,$support:ident) => {
+            for row in $rows {
+                let evidence = row
+                    .primary
+                    .map(|span| span.id())
+                    .unwrap_or_else(|| Evidence::Invocation { run: run.id() }.id());
+                if row.primary.is_none() {
+                    context.contribute(Evidence::Invocation { run: run.id() })?;
+                }
+                context.emit($support {
+                    assertion: row.id(),
+                    run: run.id(),
+                    surface: surface.id(),
+                    evidence,
+                    origin: Origin::AnalyzerAssertion,
+                    mode: ExtractionMode::NativeTraversal,
+                    fidelity: Fidelity::NativeStructural,
+                })?;
+                context.emit(row.clone())?;
+            }
+        };
+    }
+    emit!(&records.ruff, RuffDiagnosticSupport);
+    emit!(&records.pyrefly, PyreflyDiagnosticSupport);
+    Ok(())
 }
-fn write_parameter_definitions<S:StageSink+'static>(context:&mut StageContext<S>,records:crate::parameter_definition_records::Records,run:&ProviderRun,surface:&ProviderSurface)->Result<(),ModelError>{
-    for evidence in &records.evidence {context.contribute(evidence.clone())?;}
-    for row in &records.rows {let evidence=Evidence::Occurrence{occurrence:row.subject};context.contribute(evidence.clone())?;context.emit(NativeParameterDefinitionSupport {assertion:row.id(),run:run.id(),surface:surface.id(),evidence:evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural})?;context.emit(row.clone())?;}Ok(())
+fn write_parameter_definitions<S: StageSink + 'static>(
+    context: &mut StageContext<S>,
+    records: crate::parameter_definition_records::Records,
+    run: &ProviderRun,
+    surface: &ProviderSurface,
+) -> Result<(), ModelError> {
+    for evidence in &records.evidence {
+        context.contribute(evidence.clone())?;
+    }
+    for row in &records.rows {
+        let evidence = Evidence::Occurrence {
+            occurrence: row.subject,
+        };
+        context.contribute(evidence.clone())?;
+        context.emit(NativeParameterDefinitionSupport {
+            assertion: row.id(),
+            run: run.id(),
+            surface: surface.id(),
+            evidence: evidence.id(),
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        })?;
+        context.emit(row.clone())?;
+    }
+    Ok(())
 }

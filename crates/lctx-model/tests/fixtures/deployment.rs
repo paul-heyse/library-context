@@ -91,7 +91,7 @@ impl Fixture {
         let scope = CoverageScope::Input { input: input.id() };
         let (condition, nodes) = Diagram::always().records();
         let q = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: condition.id(),

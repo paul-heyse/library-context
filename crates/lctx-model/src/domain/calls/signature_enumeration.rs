@@ -59,9 +59,14 @@ impl SignatureEnumerationObservation {
         if signatures.len() > MAX_SIGNATURE_VARIANTS {
             return Err(invalid("signature enumeration work limit"));
         }
-        let role = signatures.clone().next().map_or(SignatureRole::Source, |s| s.role);
+        let role = signatures
+            .clone()
+            .next()
+            .map_or(SignatureRole::Source, |s| s.role);
         for (ordinal, signature) in signatures.clone().enumerate() {
-            if signature.role != role { return Err(invalid("signature enumeration mixes roles")); }
+            if signature.role != role {
+                return Err(invalid("signature enumeration mixes roles"));
+            }
             if signature.qualification != qualification.id()
                 || signature.scope != qualification.scope
                 || signature.symbol != symbol
@@ -107,8 +112,14 @@ fn enumeration_invariants() -> Vec<Invariant> {
         }),
     }]
 }
-type SignatureGroups =
-    ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>, SignatureRole), BTreeMap<i64, Id<Signature>>>;
+type SignatureGroups = ChargedMap<
+    (
+        Id<AssertionQualification>,
+        Id<ProviderSymbol>,
+        SignatureRole,
+    ),
+    BTreeMap<i64, Id<Signature>>,
+>;
 
 #[derive(Default)]
 struct EnumerationCheck {

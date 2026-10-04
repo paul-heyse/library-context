@@ -474,16 +474,29 @@ impl Translator<'_> {
                 self.test(x.node_ref(self.db).node(self.module))
             }
             PredicateNode::IsNonTerminalCall(call) => {
-                let expression=call.call_expr(self.db).node_ref(self.db).node(self.module);
-                self.atom(Atom::NonTerminalCall { awaiting:call.is_await(self.db) }, expression)
-            },
+                let expression = call.call_expr(self.db).node_ref(self.db).node(self.module);
+                self.atom(
+                    Atom::NonTerminalCall {
+                        awaiting: call.is_await(self.db),
+                    },
+                    expression,
+                )
+            }
             PredicateNode::IsNonEmptyIterable(expression) => {
                 let expression = expression.node_ref(self.db).node(self.module);
                 self.atom(Atom::NonEmptyIterable, expression)
             }
-            PredicateNode::ContextManagerSuppresses { expression, is_async } => {
+            PredicateNode::ContextManagerSuppresses {
+                expression,
+                is_async,
+            } => {
                 let expression = expression.node_ref(self.db).node(self.module);
-                self.atom(Atom::ContextManagerSuppresses { asynchronous:*is_async }, expression)
+                self.atom(
+                    Atom::ContextManagerSuppresses {
+                        asynchronous: *is_async,
+                    },
+                    expression,
+                )
             }
             PredicateNode::FinallyNormalPathImpossible { .. } => {
                 Condition::atom(Atom::FinallyNormalPathImpossible.evaluated(synthetic.clone()))

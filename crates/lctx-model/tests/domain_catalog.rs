@@ -136,7 +136,9 @@ fn variants(
     let seed = data.variants.len() as u8 * 4;
     let a = assessment(id, q);
     data.assessments.insert(a.clone()).unwrap();
-    let v1 = SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None,
+    let v1 = SignatureVariant {
+        role: lctx_model::domain::calls::SignatureRole::Source,
+        native: None,
         signature: nominal(21 + seed),
         context: q.context,
         resolution: nominal(22),
@@ -144,7 +146,9 @@ fn variants(
         assessment: Some(a.id()),
         adjustment: SignatureAdjustment::Unknown,
     };
-    let v2 = SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None,
+    let v2 = SignatureVariant {
+        role: lctx_model::domain::calls::SignatureRole::Source,
+        native: None,
         signature: nominal(23 + seed),
         ..v1.clone()
     };

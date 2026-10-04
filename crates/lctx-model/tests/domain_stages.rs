@@ -383,15 +383,27 @@ mod contributions {
             .id()
         };
         let mut unattributed = pipeline();
-        unattributed[0].coverage = vec![FamilyCoverage {family:FactFamily::Syntax,provider:provider("a")};2];
+        unattributed[0].coverage = vec![
+            FamilyCoverage {
+                family: FactFamily::Syntax,
+                provider: provider("a")
+            };
+            2
+        ];
         assert!(
             Schedule::build(&model, unattributed, &[], Profile::Catalog).is_err(),
             "coverage names its provider"
         );
         let mut covered = pipeline();
-        covered[0].coverage = vec![FamilyCoverage {family:FactFamily::Syntax,provider:provider("a")}];
+        covered[0].coverage = vec![FamilyCoverage {
+            family: FactFamily::Syntax,
+            provider: provider("a"),
+        }];
         let mut other = pipeline();
-        other[0].coverage = vec![FamilyCoverage {family:FactFamily::Syntax,provider:provider("b")}];
+        other[0].coverage = vec![FamilyCoverage {
+            family: FactFamily::Syntax,
+            provider: provider("b"),
+        }];
         assert_ne!(digest(pipeline()), digest(dropped));
         assert_ne!(digest(pipeline()), digest(covered.clone()));
         assert_ne!(

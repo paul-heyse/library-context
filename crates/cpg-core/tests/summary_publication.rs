@@ -18,7 +18,9 @@ use lctx_postgres::{
     testing::DisposableDatabase,
 };
 use std::sync::Arc;
-async fn run(profile: Profile) { run_fixture(profile, "phase4_summaries").await; }
+async fn run(profile: Profile) {
+    run_fixture(profile, "phase4_summaries").await;
+}
 async fn run_fixture(profile: Profile, fixture: &str) {
     let (completion, source_calls, enriched) = (true, true, true);
     let runtime = AttemptRuntime::new(RuntimeOptions {
@@ -72,7 +74,9 @@ async fn run_fixture(profile: Profile, fixture: &str) {
     declarations.extend(execution::summary_replay::output_relations());
     declarations.extend(execution::summary_path::relations());
     declarations.extend(execution::summary_proof::relations());
-    if fixture == "phase4_summaries" { declarations.push(Relation::of::<replay_probe::ProbeReceipt>()); }
+    if fixture == "phase4_summaries" {
+        declarations.push(Relation::of::<replay_probe::ProbeReceipt>());
+    }
     declarations.sort_by_key(Relation::name);
     declarations.dedup_by_key(|r| r.name());
     let model = Arc::new(ValidatedModel::validate(declarations).unwrap());
@@ -80,7 +84,8 @@ async fn run_fixture(profile: Profile, fixture: &str) {
         .await
         .unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/python").join(fixture);
+        .join("../../fixtures/python")
+        .join(fixture);
     let captured = Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(
             CapturedInput::capture(&root, &["cases.py".into()], budget).unwrap(),
@@ -160,7 +165,9 @@ async fn run_fixture(profile: Profile, fixture: &str) {
     stages.push(execution::model_production::stage(profile, &model_definition, &model).unwrap());
     stages.push(execution::summary_replay::stage(profile, &summary_definition, &model).unwrap());
     // This probe mutates the distinct symbolic constructor/reader pairs of its own fixture.
-    if fixture == "phase4_summaries" { stages.push(replay_probe::stage(&model, profile)); }
+    if fixture == "phase4_summaries" {
+        stages.push(replay_probe::stage(&model, profile));
+    }
     let facts_members = stages
         .iter()
         .filter(|s| {
@@ -531,7 +538,9 @@ async fn run_fixture(profile: Profile, fixture: &str) {
     .fetch_all(db.owner.pool())
     .await
     .unwrap();
-    if profile == Profile::Behavioral { assert!(statuses.iter().all(|s| *s == 1)); }
+    if profile == Profile::Behavioral {
+        assert!(statuses.iter().all(|s| *s == 1));
+    }
     if profile == Profile::Behavioral && fixture == "phase4_summaries" {
         assert_conditional_atom_summary(db.owner.pool(), &id.schema(), &root).await;
         assert!(proofs > 0);
@@ -586,59 +595,175 @@ async fn run_fixture(profile: Profile, fixture: &str) {
             "SELECT spelling.spelling,result.exception FROM {0}.summary_exception_outcomes result JOIN {0}.entity_refs e ON e.id=result.owner JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations spelling ON spelling.occurrence=d.name ORDER BY 1", id.schema())))
             .fetch_all(db.owner.pool()).await.unwrap();
         eprintln!("B4_SUMMARY {results:?}");
-        for (name, exception) in [("bare_class", Some(1)), ("broad_first", None), ("tuple_match", None), ("unmatched", Some(1)), ("final_return", None), ("final_raise", Some(2)), ("reraised", Some(1)), ("named_disposal", None), ("argument_order", Some(1))] {
-            assert!(results.iter().any(|row| row == &(name.to_owned(), exception)), "missing actual finite Summary {name}: {results:?}");
+        for (name, exception) in [
+            ("bare_class", Some(1)),
+            ("broad_first", None),
+            ("tuple_match", None),
+            ("unmatched", Some(1)),
+            ("final_return", None),
+            ("final_raise", Some(2)),
+            ("reraised", Some(1)),
+            ("named_disposal", None),
+            ("argument_order", Some(1)),
+        ] {
+            assert!(
+                results
+                    .iter()
+                    .any(|row| row == &(name.to_owned(), exception)),
+                "missing actual finite Summary {name}: {results:?}"
+            );
         }
-        type StoredException = (Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Option<i16>,i16,Vec<u8>,Vec<u8>,Vec<u8>,i16,i16);
+        type StoredException = (
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Option<i16>,
+            i16,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            i16,
+            i16,
+        );
         let stored: Vec<StoredException> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT s.id,s.invocation,s.body,s.input,s.context,s.owner,s.qualification,s.outcome,s.exception,s.status,q.assumptions,q.scope,q.condition,q.modality,q.approximation FROM {0}.summary_exception_outcomes s JOIN {0}.assertion_qualifications q ON q.id=s.qualification LIMIT 32", id.schema())))
             .fetch_all(db.owner.pool()).await.unwrap();
         assert!(!stored.is_empty() && stored.len() < 32);
         fn nominal<T>(bytes: Vec<u8>) -> Id<T> {
-            serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(bytes.into_iter())).unwrap()
+            serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                _,
+                serde::de::value::Error,
+            >::new(bytes.into_iter()))
+            .unwrap()
         }
-        for (record,invocation,body,input,context,owner,qualification,outcome,exception,status,assumptions,scope,condition,modality,approximation) in stored {
-            let result = execution::summary_exceptions::SummaryExceptionOutcome { invocation:nominal(invocation),body:nominal(body),input:nominal(input),context:nominal(context),owner:nominal(owner),qualification:nominal(qualification),outcome:nominal(outcome),exception:exception.map(|value|serde_json::from_value(serde_json::json!(value)).unwrap()),status:serde_json::from_value(serde_json::json!(status)).unwrap() };
-            let q = assertion::AssertionQualification { context:result.context,assumptions:nominal(assumptions),scope:nominal(scope),condition:nominal(condition),modality:serde_json::from_value(serde_json::json!(modality)).unwrap(),approximation:serde_json::from_value(serde_json::json!(approximation)).unwrap() };
+        for (
+            record,
+            invocation,
+            body,
+            input,
+            context,
+            owner,
+            qualification,
+            outcome,
+            exception,
+            status,
+            assumptions,
+            scope,
+            condition,
+            modality,
+            approximation,
+        ) in stored
+        {
+            let result = execution::summary_exceptions::SummaryExceptionOutcome {
+                invocation: nominal(invocation),
+                body: nominal(body),
+                input: nominal(input),
+                context: nominal(context),
+                owner: nominal(owner),
+                qualification: nominal(qualification),
+                outcome: nominal(outcome),
+                exception: exception
+                    .map(|value| serde_json::from_value(serde_json::json!(value)).unwrap()),
+                status: serde_json::from_value(serde_json::json!(status)).unwrap(),
+            };
+            let q = assertion::AssertionQualification {
+                context: result.context,
+                assumptions: nominal(assumptions),
+                scope: nominal(scope),
+                condition: nominal(condition),
+                modality: serde_json::from_value(serde_json::json!(modality)).unwrap(),
+                approximation: serde_json::from_value(serde_json::json!(approximation)).unwrap(),
+            };
             assert_eq!(result.id().bytes().as_slice(), record);
             assert_eq!(result.qualification, q.id());
             let packet = serving::BehavioralExceptionPacket::from_canonical(&result, &q).unwrap();
             assert_eq!(packet.exception.0, result.exception);
             assert!(packet.under_body_entry && packet.claim_basis.definitions.is_empty());
-            assert_eq!(packet.claim_basis.set, assumptions::AssumptionSet::empty_id());
+            assert_eq!(
+                packet.claim_basis.set,
+                assumptions::AssumptionSet::empty_id()
+            );
             assert_eq!(packet.proof.len(), 2);
             let mut missing = serde_json::to_value(&packet).unwrap();
             missing.as_object_mut().unwrap().remove("claim_basis");
             assert!(serde_json::from_value::<serving::BehavioralExceptionPacket>(missing).is_err());
         }
-        for name in ["dynamic_constructor", "argument_opaque", "unsupported_group", "shadowed_constructor", "invalid_handler", "named_retained", "starred_constructor", "handler_lookup_failure"] {
-            assert!(!results.iter().any(|row| row.0 == name), "unsupported body became Summary absence");
+        for name in [
+            "dynamic_constructor",
+            "argument_opaque",
+            "unsupported_group",
+            "shadowed_constructor",
+            "invalid_handler",
+            "named_retained",
+            "starred_constructor",
+            "handler_lookup_failure",
+        ] {
+            assert!(
+                !results.iter().any(|row| row.0 == name),
+                "unsupported body became Summary absence"
+            );
         }
     }
-    if fixture=="stable_capture_shapes" && profile==Profile::Behavioral {
+    if fixture == "stable_capture_shapes" && profile == Profile::Behavioral {
         let rows:Vec<(String,i16,i16,i16,bool)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT spelling.spelling, source.kind, q.modality, q.approximation, capture.under_caller_entry FROM {0}.captured_entry_bindings capture JOIN {0}.captured_value_sources source ON source.id=capture.value_source JOIN {0}.entity_refs er ON er.id=capture.caller JOIN {0}.callable_entities ce ON ce.id=er.callable_callable JOIN {0}.declaration_observations decl ON decl.declaration=ce.source_declaration JOIN {0}.syntax_observations spelling ON spelling.occurrence=decl.name JOIN {0}.assertion_qualifications q ON q.id=capture.qualification ORDER BY 1",id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
         eprintln!("B2_CAPTURE {rows:?}");
-        assert!(rows.iter().any(|r|r.0=="captured_entry"&&r.1==0));
-        assert!(rows.iter().any(|r|r.0=="captured_literal"&&r.1==1));
-        assert!(rows.iter().all(|r|r.2==0&&r.3==0&&r.4));
+        assert!(rows.iter().any(|r| r.0 == "captured_entry" && r.1 == 0));
+        assert!(rows.iter().any(|r| r.0 == "captured_literal" && r.1 == 1));
+        assert!(rows.iter().all(|r| r.2 == 0 && r.3 == 0 && r.4));
         let summaries:Vec<(String,i16,i16,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT spelling.spelling, k.kind, q.modality, q.approximation FROM {0}.summary_capture_witnesses w JOIN {0}.summary_transfer_keys k ON k.id=w.transfer JOIN {0}.entity_refs er ON er.id=k.owner JOIN {0}.callable_entities ce ON ce.id=er.callable_callable JOIN {0}.declaration_observations decl ON decl.declaration=ce.source_declaration JOIN {0}.syntax_observations spelling ON spelling.occurrence=decl.name JOIN {0}.assertion_qualifications q ON q.id=w.qualification JOIN {0}.summary_capture_contributions c ON c.witness=w.id JOIN {0}.summary_transfer_alternatives a ON a.id=c.alternative JOIN {0}.summary_transfer_supports s ON s.assertion=a.id ORDER BY 1",id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
         eprintln!("B2_SUMMARY {summaries:?}");
-        assert!(summaries.iter().any(|r|r==&("captured_entry".into(),0,0,0)),"actual supported identity transfer absent");
-        assert!(summaries.iter().any(|r|r==&("captured_literal".into(),0,0,0)),"literal capture transfer absent");
-        for name in ["mutation","call_before_assignment","escaped","delayed","nonlocal_write","global_read","loop_capture","nested_scope"] {
-            assert!(!rows.iter().any(|r|r.0==name),"unsupported capture hydrated: {name}");
-            assert!(!summaries.iter().any(|r|r.0==name),"unsupported capture became Summary: {name}");
+        assert!(
+            summaries
+                .iter()
+                .any(|r| r == &("captured_entry".into(), 0, 0, 0)),
+            "actual supported identity transfer absent"
+        );
+        assert!(
+            summaries
+                .iter()
+                .any(|r| r == &("captured_literal".into(), 0, 0, 0)),
+            "literal capture transfer absent"
+        );
+        for name in [
+            "mutation",
+            "call_before_assignment",
+            "escaped",
+            "delayed",
+            "nonlocal_write",
+            "global_read",
+            "loop_capture",
+            "nested_scope",
+        ] {
+            assert!(
+                !rows.iter().any(|r| r.0 == name),
+                "unsupported capture hydrated: {name}"
+            );
+            assert!(
+                !summaries.iter().any(|r| r.0 == name),
+                "unsupported capture became Summary: {name}"
+            );
         }
         let wrong_roots:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM {0}.summary_capture_witnesses w JOIN {0}.captured_entry_bindings b ON b.id=w.binding JOIN {0}.captured_value_sources source ON source.id=b.value_source JOIN {0}.summary_transfer_keys k ON k.id=w.transfer JOIN {0}.places p ON p.id=k.input JOIN {0}.place_roots r ON r.id=p.root WHERE (source.kind=0 AND (r.kind<>9 OR r.entry_declaration IS DISTINCT FROM source.entry_declaration)) OR (source.kind=1 AND (r.kind<>7 OR r.occurrence_occurrence IS DISTINCT FROM source.literal_value))",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
-        assert_eq!(wrong_roots,0,"formal and literal sources retain their actual distinct input roots");
+        assert_eq!(
+            wrong_roots, 0,
+            "formal and literal sources retain their actual distinct input roots"
+        );
         let formal_origin_edges:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM {0}.captured_entry_bindings b JOIN {0}.captured_value_sources source ON source.id=b.value_source JOIN {0}.flow_definition_observations d ON d.id=b.origin JOIN {0}.flow_definitions f ON f.id=d.definition JOIN {0}.occurrences native ON native.id=f.occurrence JOIN {0}.occurrences formal ON formal.id=source.entry_declaration JOIN {0}.syntax_placements p ON p.occurrence=native.id AND p.parent=formal.id WHERE source.kind=0 AND formal.syntax_kind=80 AND formal.role=2 AND native.syntax_kind=93 AND native.id<>formal.id AND native.source=formal.source AND native.start=formal.start AND native.\"end\"=formal.\"end\" AND p.field=24 AND p.ordinal=0",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
-        assert_eq!(formal_origin_edges,1,"same-range Identifier origin must use the actual Parameter child edge while retaining its distinct formal root");
+        assert_eq!(
+            formal_origin_edges, 1,
+            "same-range Identifier origin must use the actual Parameter child edge while retaining its distinct formal root"
+        );
         let forged:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {0}.entry_value_witnesses w JOIN {0}.occurrence_ownership owner ON owner.occurrence=w.access WHERE owner.entity<>w.owner",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
-        assert_eq!(forged,0,"capture never forges a native caller read");
+        assert_eq!(forged, 0, "capture never forges a native caller read");
     }
     validated.abort().await.unwrap();
     drop(captured);
@@ -659,38 +784,77 @@ async fn exact_exception_summary_projects_only_actual_completed_bodies() {
 }
 
 // Independent source locations distinguish repeated evaluations and premises through real storage.
-async fn assert_conditional_atom_summary(pool: &sqlx::PgPool, schema: &str, root: &std::path::Path) {
-    let text=std::fs::read_to_string(root.join("cases.py")).unwrap();
+async fn assert_conditional_atom_summary(
+    pool: &sqlx::PgPool,
+    schema: &str,
+    root: &std::path::Path,
+) {
+    let text = std::fs::read_to_string(root.join("cases.py")).unwrap();
     let decisions:Vec<(i64,Vec<u8>,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT o.start,d.leaf,d.outcome FROM {schema}.local_atom_decisions d JOIN {schema}.flow_test_leaf_observations l ON l.id=d.leaf JOIN {schema}.occurrences o ON o.id=l.test"
     ))).fetch_all(pool).await.unwrap();
-    for (function,expected) in [("finite_zero",0_i16),("finite_one",1),("uninhabited",3)] {
-        let start=text.find(&format!("def {function}(")).unwrap();
-        let test=(start+text[start..].find("if value == 0:").unwrap()+3) as i64;
-        assert!(decisions.iter().any(|(at,_,outcome)|*at==test && *outcome==expected),"{function} exact native decision: {decisions:?}");
+    for (function, expected) in [
+        ("finite_zero", 0_i16),
+        ("finite_one", 1),
+        ("uninhabited", 3),
+    ] {
+        let start = text.find(&format!("def {function}(")).unwrap();
+        let test = (start + text[start..].find("if value == 0:").unwrap() + 3) as i64;
+        assert!(
+            decisions
+                .iter()
+                .any(|(at, _, outcome)| *at == test && *outcome == expected),
+            "{function} exact native decision: {decisions:?}"
+        );
     }
-    let start=text.find("def finite_repeated(").unwrap();
-    let end=text[start..].find("def effectful_repeated(").unwrap()+start;
-    let repeated=decisions.iter().filter(|(at,_,_)|(*at as usize)>=start && (*at as usize)<end).map(|(_,leaf,_)|leaf).collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(repeated.len(),2,"repeated equal source predicates remain two evaluations");
+    let start = text.find("def finite_repeated(").unwrap();
+    let end = text[start..].find("def effectful_repeated(").unwrap() + start;
+    let repeated = decisions
+        .iter()
+        .filter(|(at, _, _)| (*at as usize) >= start && (*at as usize) < end)
+        .map(|(_, leaf, _)| leaf)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        repeated.len(),
+        2,
+        "repeated equal source predicates remain two evaluations"
+    );
     let forbidden:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(*) FROM {schema}.local_atom_restrictions r JOIN {schema}.local_atom_decisions d ON d.id=r.decision WHERE d.outcome IN (2,3,4)"
     ))).fetch_one(pool).await.unwrap();
-    assert_eq!(forbidden,0,"mixed, uninhabited and refused answers never prune");
+    assert_eq!(
+        forbidden, 0,
+        "mixed, uninhabited and refused answers never prune"
+    );
     let alternatives:Vec<(i64,i64,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT o.start,b.count,n.kind FROM {schema}.summary_transfer_alternatives a JOIN {schema}.summary_transfer_keys k ON k.id=a.transfer JOIN {schema}.entity_refs e ON e.id=k.owner JOIN {schema}.callable_entities callable ON callable.id=e.callable_callable JOIN {schema}.occurrences o ON o.id=callable.source_declaration JOIN {schema}.assertion_qualifications q ON q.id=a.qualification JOIN {schema}.assumption_sets b ON b.id=q.assumptions JOIN {schema}.conditions c ON c.id=q.condition JOIN {schema}.condition_nodes n ON n.id=c.root"
     ))).fetch_all(pool).await.unwrap();
-    let start=text.find("def finite_zero(").unwrap() as i64;
-    let end=text.find("def finite_one(").unwrap() as i64;
-    let zero=alternatives.iter().filter(|(at,_,_)|*at>=start && *at<end).collect::<Vec<_>>();
-    assert!(zero.iter().any(|(_,basis,condition)|*basis==1 && *condition==1),"typing premise must change a real Summary guard to true: {zero:?}");
-    assert!(zero.iter().any(|(_,basis,_)|*basis==0),"the unconditional runtime alternative survives: {zero:?}");
-    let start=text.find("def effectful_repeated(").unwrap() as i64;
-    let end=text.find("def nonconforming_runtime(").unwrap() as i64;
-    assert!(!alternatives.iter().any(|(at,basis,_)|*at>=start && *at<end && *basis>0),"effectful predicate calls cannot inherit a parameter truth premise");
+    let start = text.find("def finite_zero(").unwrap() as i64;
+    let end = text.find("def finite_one(").unwrap() as i64;
+    let zero = alternatives
+        .iter()
+        .filter(|(at, _, _)| *at >= start && *at < end)
+        .collect::<Vec<_>>();
+    assert!(
+        zero.iter()
+            .any(|(_, basis, condition)| *basis == 1 && *condition == 1),
+        "typing premise must change a real Summary guard to true: {zero:?}"
+    );
+    assert!(
+        zero.iter().any(|(_, basis, _)| *basis == 0),
+        "the unconditional runtime alternative survives: {zero:?}"
+    );
+    let start = text.find("def effectful_repeated(").unwrap() as i64;
+    let end = text.find("def nonconforming_runtime(").unwrap() as i64;
+    assert!(
+        !alternatives
+            .iter()
+            .any(|(at, basis, _)| *at >= start && *at < end && *basis > 0),
+        "effectful predicate calls cannot inherit a parameter truth premise"
+    );
 }
 
 #[tokio::test]
 async fn capture_timing_stable_entries_reach_actual_finite_summaries() {
-    run_fixture(Profile::Behavioral,"stable_capture_shapes").await;
+    run_fixture(Profile::Behavioral, "stable_capture_shapes").await;
 }

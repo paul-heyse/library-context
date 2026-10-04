@@ -357,7 +357,27 @@ fn dependency_sources(dependencies: &[PreparedDependency]) -> Vec<Relation> {
 }
 macro_rules! sources {($($ty:ty),*$(,)?)=>{vec![$(Relation::of::<$ty>()),*]};}
 fn claim_basis_sources() -> Vec<Relation> {
-    sources!(domain::assumptions::AssumptionSet,domain::assumptions::AssumptionSetMember,domain::assumptions::Assumption,domain::assumptions::AssumptionUniverse,domain::assumptions_universe::AssumptionUniverseSupport,domain::assertion::AssertionQualification,domain::types::TypeObservation,domain::types::TypeSupport,domain::symbols::ClassTraitObservation,domain::symbols::ClassTraitSupport,domain::attribution::ProviderRun,domain::attribution::Provider,domain::attribution::AnalysisContext,domain::assertion::ProviderSurface,domain::assertion::Evidence,domain::source::Occurrence,domain::source::SourceArtifact,domain::models::ModelCatalog,domain::models::AuthoredModel)
+    sources!(
+        domain::assumptions::AssumptionSet,
+        domain::assumptions::AssumptionSetMember,
+        domain::assumptions::Assumption,
+        domain::assumptions::AssumptionUniverse,
+        domain::assumptions_universe::AssumptionUniverseSupport,
+        domain::assertion::AssertionQualification,
+        domain::types::TypeObservation,
+        domain::types::TypeSupport,
+        domain::symbols::ClassTraitObservation,
+        domain::symbols::ClassTraitSupport,
+        domain::attribution::ProviderRun,
+        domain::attribution::Provider,
+        domain::attribution::AnalysisContext,
+        domain::assertion::ProviderSurface,
+        domain::assertion::Evidence,
+        domain::source::Occurrence,
+        domain::source::SourceArtifact,
+        domain::models::ModelCatalog,
+        domain::models::AuthoredModel
+    )
 }
 macro_rules! binding {
     ($name:literal,$out:ident,$caps:expr,$sources:expr,$children:expr,$prepared:expr) => {
@@ -368,7 +388,16 @@ macro_rules! binding {
                 BINDING.get_or_init(|| {
                     let prepared: &'static [PreparedDependency] = $prepared;
                     let mut sources = $sources;
-                    if matches!($name, "operation_core"|"capability"|"behavior"|"native_assessment"|"original_evidence") { sources.extend(claim_basis_sources()); }
+                    if matches!(
+                        $name,
+                        "operation_core"
+                            | "capability"
+                            | "behavior"
+                            | "native_assessment"
+                            | "original_evidence"
+                    ) {
+                        sources.extend(claim_basis_sources());
+                    }
                     sources.extend(dependency_sources(prepared));
                     sources.sort_by_key(Relation::name);
                     sources.dedup_by_key(|r| r.name());

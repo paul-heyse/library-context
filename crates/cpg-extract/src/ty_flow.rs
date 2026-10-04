@@ -98,7 +98,13 @@ impl Declared for TyFlow {
             ),
             outputs: output_types!(uses),
             contributes: crate::assembly::vocabulary(),
-            coverage: vec![FactFamily::Flow].into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:provider.id()}).collect(),
+            coverage: vec![FactFamily::Flow]
+                .into_iter()
+                .map(|family| lctx_model::domain::stages::FamilyCoverage {
+                    family,
+                    provider: provider.id(),
+                })
+                .collect(),
             profiles: vec![Profile::Behavioral],
             effect: Effect::Extraction,
             code: provider.build_digest,
@@ -902,7 +908,7 @@ impl<S: StageSink + 'static> Writer<'_, S> {
             self.context.contribute(node)?;
         }
         let q = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: self.analysis.id(),
             scope: self.scope.id(),
             condition: condition.id(),
@@ -998,9 +1004,15 @@ impl<S: StageSink + 'static> Writer<'_, S> {
             native::Atom::TypeIs { class, .. } => Predicate::TypeIs {
                 class_expression: class.clone(),
             },
-            native::Atom::NonTerminalCall { awaiting } => Predicate::NonTerminalCall { awaiting:*awaiting },
+            native::Atom::NonTerminalCall { awaiting } => Predicate::NonTerminalCall {
+                awaiting: *awaiting,
+            },
             native::Atom::NonEmptyIterable => Predicate::NonEmptyIterable,
-            native::Atom::ContextManagerSuppresses { asynchronous } => Predicate::ContextManagerSuppresses { asynchronous:*asynchronous },
+            native::Atom::ContextManagerSuppresses { asynchronous } => {
+                Predicate::ContextManagerSuppresses {
+                    asynchronous: *asynchronous,
+                }
+            }
             native::Atom::FinallyNormalPathImpossible => Predicate::FinallyNormalPathImpossible,
             native::Atom::Opaque { text } => Predicate::Opaque { text: text.clone() },
             native::Atom::Evaluated { .. } => {
@@ -1048,22 +1060,58 @@ impl<S: StageSink + 'static> Writer<'_, S> {
     }
     fn write(&mut self) -> Result<(), ModelError> {
         let flow = self.flow;
-        if let (Some(original_content),Some(view_content),Some(byte_len))=(flow.original_content,flow.view_content,flow.view_byte_len) {
-            if original_content!=self.artifact.content || byte_len!=self.artifact.byte_len as usize {
-                return Err(invalid("ty view does not preserve captured source byte geometry"));
+        if let (Some(original_content), Some(view_content), Some(byte_len)) =
+            (flow.original_content, flow.view_content, flow.view_byte_len)
+        {
+            if original_content != self.artifact.content
+                || byte_len != self.artifact.byte_len as usize
+            {
+                return Err(invalid(
+                    "ty view does not preserve captured source byte geometry",
+                ));
             }
-            let (condition,nodes)=Diagram::always().records();
+            let (condition, nodes) = Diagram::always().records();
             self.context.contribute(condition.clone())?;
-            for node in nodes {self.context.contribute(node)?;}
-            let qualification=AssertionQualification { assumptions:lctx_model::domain::assumptions::AssumptionSet::empty_id(),context:self.analysis.id(),scope:self.scope.id(),condition:condition.id(),modality:Modality::Definite,approximation:Approximation::Exact };
+            for node in nodes {
+                self.context.contribute(node)?;
+            }
+            let qualification = AssertionQualification {
+                assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+                context: self.analysis.id(),
+                scope: self.scope.id(),
+                condition: condition.id(),
+                modality: Modality::Definite,
+                approximation: Approximation::Exact,
+            };
             self.context.contribute(qualification.clone())?;
-            let row=FlowSourceViewObservation { qualification:qualification.id(),source:self.artifact.id(),original_content,view_content,byte_len:byte_len as i64,renamed_type_checking:i64::from(flow.renamed) };
+            let row = FlowSourceViewObservation {
+                qualification: qualification.id(),
+                source: self.artifact.id(),
+                original_content,
+                view_content,
+                byte_len: byte_len as i64,
+                renamed_type_checking: i64::from(flow.renamed),
+            };
             row.validate()?;
-            let evidence=Evidence::SourceSpan {source:self.artifact.id(),start:0,end:byte_len as i64};
+            let evidence = Evidence::SourceSpan {
+                source: self.artifact.id(),
+                start: 0,
+                end: byte_len as i64,
+            };
             self.context.contribute(evidence.clone())?;
-            self.context.emit(FlowSourceViewSupport { assertion:row.id(),run:self.run.id(),surface:self.surface.id(),evidence:evidence.id(),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural })?;
+            self.context.emit(FlowSourceViewSupport {
+                assertion: row.id(),
+                run: self.run.id(),
+                surface: self.surface.id(),
+                evidence: evidence.id(),
+                origin: Origin::AnalyzerAssertion,
+                mode: ExtractionMode::NativeTraversal,
+                fidelity: Fidelity::NativeStructural,
+            })?;
             self.context.emit(row)?;
-        } else {return Err(invalid("native ty source view receipt is missing"));}
+        } else {
+            return Err(invalid("native ty source view receipt is missing"));
+        }
         let mut uses = Vec::new();
         let mut definitions = Vec::new();
         let mut rows_charge = StateCharge::new(self.context.budget(), "ty_flow_nominal_rows");
@@ -1184,55 +1232,146 @@ impl<S: StageSink + 'static> Writer<'_, S> {
             definitions.push(row);
         }
         for native in &flow.captures {
-            let Some(Some((use_, nested_scope))) = uses.get(native.use_ix as usize) else { continue };
-            let Some(enclosing_scope)=self.index.scope(self.artifact.id(),native.enclosing) else {
-                self.boundary(Some(use_.occurrence),ObligationKind::ScopeBoundary,"enclosing snapshot scope unattached")?;
+            let Some(Some((use_, nested_scope))) = uses.get(native.use_ix as usize) else {
                 continue;
             };
-            rows_charge.grow(native.candidates.len()*size_of::<CaptureCandidate>()+512)?;
-            let mut candidates=Vec::new();
-            let mut attached=true;
+            let Some(enclosing_scope) = self.index.scope(self.artifact.id(), native.enclosing)
+            else {
+                self.boundary(
+                    Some(use_.occurrence),
+                    ObligationKind::ScopeBoundary,
+                    "enclosing snapshot scope unattached",
+                )?;
+                continue;
+            };
+            rows_charge.grow(native.candidates.len() * size_of::<CaptureCandidate>() + 512)?;
+            let mut candidates = Vec::new();
+            let mut attached = true;
             for candidate in &native.candidates {
-                let target=match candidate.binding {
-                    cpg_flow::SnapshotBinding::Bound(index)=>match definitions.get(index as usize) {
-                        Some(Some((definition,scope))) if *scope==enclosing_scope=>FlowCaptureTarget::Bound {definition:definition.id()},
-                        _=>{self.boundary(Some(use_.occurrence),ObligationKind::NativeUnavailable,"snapshot candidate definition unattached to enclosing scope")?;FlowCaptureTarget::Unattached}
-                    },
-                    cpg_flow::SnapshotBinding::Undefined=>FlowCaptureTarget::Undefined,
-                    cpg_flow::SnapshotBinding::Deleted=>FlowCaptureTarget::Deleted,
-                    cpg_flow::SnapshotBinding::Nested=>FlowCaptureTarget::Nested,
-                    cpg_flow::SnapshotBinding::LoopHeader=>FlowCaptureTarget::LoopHeader,
-                    cpg_flow::SnapshotBinding::Unattached=>FlowCaptureTarget::Unattached,
+                let target = match candidate.binding {
+                    cpg_flow::SnapshotBinding::Bound(index) => {
+                        match definitions.get(index as usize) {
+                            Some(Some((definition, scope))) if *scope == enclosing_scope => {
+                                FlowCaptureTarget::Bound {
+                                    definition: definition.id(),
+                                }
+                            }
+                            _ => {
+                                self.boundary(
+                                    Some(use_.occurrence),
+                                    ObligationKind::NativeUnavailable,
+                                    "snapshot candidate definition unattached to enclosing scope",
+                                )?;
+                                FlowCaptureTarget::Unattached
+                            }
+                        }
+                    }
+                    cpg_flow::SnapshotBinding::Undefined => FlowCaptureTarget::Undefined,
+                    cpg_flow::SnapshotBinding::Deleted => FlowCaptureTarget::Deleted,
+                    cpg_flow::SnapshotBinding::Nested => FlowCaptureTarget::Nested,
+                    cpg_flow::SnapshotBinding::LoopHeader => FlowCaptureTarget::LoopHeader,
+                    cpg_flow::SnapshotBinding::Unattached => FlowCaptureTarget::Unattached,
                 };
                 self.context.emit(target.clone())?;
-                let (Some(condition),Some(narrowing))=(self.qualify(&candidate.condition,enclosing_scope,Some(use_.occurrence))?,
-                    self.qualify(&candidate.narrowing,enclosing_scope,Some(use_.occurrence))?) else {attached=false;break};
-                candidates.push((target.id(),condition.condition,narrowing.condition,candidate.precision_lost));
+                let (Some(condition), Some(narrowing)) = (
+                    self.qualify(&candidate.condition, enclosing_scope, Some(use_.occurrence))?,
+                    self.qualify(&candidate.narrowing, enclosing_scope, Some(use_.occurrence))?,
+                ) else {
+                    attached = false;
+                    break;
+                };
+                candidates.push((
+                    target.id(),
+                    condition.condition,
+                    narrowing.condition,
+                    candidate.precision_lost,
+                ));
             }
-            if !attached {self.boundary(Some(use_.occurrence),ObligationKind::NativeUnavailable,"complete snapshot formula inventory unattached")?;continue;}
-            let inventory=if native.state==cpg_flow::SnapshotState::FoundBindings {
-                if candidates.len()>MAX_CAPTURE_CANDIDATES {self.boundary(Some(use_.occurrence),ObligationKind::ResourceRefused,"snapshot candidate work bound exceeded")?;continue;}
-                let (inventory,members)=FlowCaptureInventory::new(&candidates)?;
-                for member in members {self.context.emit(member)?;}
-                self.context.emit(inventory.clone())?;Some(inventory.id())
-            } else {None};
-            let constraint=match &native.constraint {
-                Some(condition)=>match self.qualify(condition,enclosing_scope,Some(use_.occurrence))? {Some(q)=>Some(q.condition),None=>{continue}},
-                None=>None,
+            if !attached {
+                self.boundary(
+                    Some(use_.occurrence),
+                    ObligationKind::NativeUnavailable,
+                    "complete snapshot formula inventory unattached",
+                )?;
+                continue;
+            }
+            let inventory = if native.state == cpg_flow::SnapshotState::FoundBindings {
+                if candidates.len() > MAX_CAPTURE_CANDIDATES {
+                    self.boundary(
+                        Some(use_.occurrence),
+                        ObligationKind::ResourceRefused,
+                        "snapshot candidate work bound exceeded",
+                    )?;
+                    continue;
+                }
+                let (inventory, members) = FlowCaptureInventory::new(&candidates)?;
+                for member in members {
+                    self.context.emit(member)?;
+                }
+                self.context.emit(inventory.clone())?;
+                Some(inventory.id())
+            } else {
+                None
             };
-            let Some(mut q)=self.qualify(&cpg_flow::Condition::always(),*nested_scope,Some(use_.occurrence))? else {continue};
-            if native.lazy {q.modality=Modality::Candidate;}
-            if native.constraint_precision_lost {q.approximation=Approximation::Over;}
+            let constraint = match &native.constraint {
+                Some(condition) => {
+                    match self.qualify(condition, enclosing_scope, Some(use_.occurrence))? {
+                        Some(q) => Some(q.condition),
+                        None => continue,
+                    }
+                }
+                None => None,
+            };
+            let Some(mut q) = self.qualify(
+                &cpg_flow::Condition::always(),
+                *nested_scope,
+                Some(use_.occurrence),
+            )?
+            else {
+                continue;
+            };
+            if native.lazy {
+                q.modality = Modality::Candidate;
+            }
+            if native.constraint_precision_lost {
+                q.approximation = Approximation::Over;
+            }
             self.context.contribute(q.clone())?;
-            let row=FlowCaptureTimingObservation {
-                qualification:q.id(),use_:use_.id(),nested_scope:*nested_scope,enclosing_scope,
-                origin:match native.origin {cpg_flow::CaptureOrigin::OuterLocal=>FlowCaptureOrigin::OuterLocal,cpg_flow::CaptureOrigin::Global=>FlowCaptureOrigin::Global,cpg_flow::CaptureOrigin::Nonlocal=>FlowCaptureOrigin::Nonlocal},
-                timing:if native.lazy {lctx_model::domain::captures::CaptureTiming::LazySnapshot} else {lctx_model::domain::captures::CaptureTiming::EagerSnapshot},
-                state:match native.state {cpg_flow::SnapshotState::FoundBindings=>FlowSnapshotState::FoundBindings,cpg_flow::SnapshotState::FoundConstraint=>FlowSnapshotState::FoundConstraint,cpg_flow::SnapshotState::NotFound=>FlowSnapshotState::NotFound,cpg_flow::SnapshotState::NoLongerInEagerContext=>FlowSnapshotState::NoLongerInEagerContext},
-                inventory,constraint,constraint_precision_lost:native.constraint_precision_lost,
+            let row = FlowCaptureTimingObservation {
+                qualification: q.id(),
+                use_: use_.id(),
+                nested_scope: *nested_scope,
+                enclosing_scope,
+                origin: match native.origin {
+                    cpg_flow::CaptureOrigin::OuterLocal => FlowCaptureOrigin::OuterLocal,
+                    cpg_flow::CaptureOrigin::Global => FlowCaptureOrigin::Global,
+                    cpg_flow::CaptureOrigin::Nonlocal => FlowCaptureOrigin::Nonlocal,
+                },
+                timing: if native.lazy {
+                    lctx_model::domain::captures::CaptureTiming::LazySnapshot
+                } else {
+                    lctx_model::domain::captures::CaptureTiming::EagerSnapshot
+                },
+                state: match native.state {
+                    cpg_flow::SnapshotState::FoundBindings => FlowSnapshotState::FoundBindings,
+                    cpg_flow::SnapshotState::FoundConstraint => FlowSnapshotState::FoundConstraint,
+                    cpg_flow::SnapshotState::NotFound => FlowSnapshotState::NotFound,
+                    cpg_flow::SnapshotState::NoLongerInEagerContext => {
+                        FlowSnapshotState::NoLongerInEagerContext
+                    }
+                },
+                inventory,
+                constraint,
+                constraint_precision_lost: native.constraint_precision_lost,
             };
             row.validate()?;
-            supported!(self,FlowCaptureTimingObservation,FlowCaptureTimingSupport,row,use_.occurrence);
+            supported!(
+                self,
+                FlowCaptureTimingObservation,
+                FlowCaptureTimingSupport,
+                row,
+                use_.occurrence
+            );
         }
         for native in &flow.reaching {
             let Some(Some((use_, scope))) = uses.get(native.use_ix as usize) else {
@@ -1267,12 +1406,25 @@ impl<S: StageSink + 'static> Writer<'_, S> {
             };
             self.context.emit(target.clone())?;
             if native.narrowing_precision_lost {
-                self.boundary(Some(use_.occurrence),ObligationKind::ResourceRefused,"native narrowing scope lost precision; terminal true is over-approximate")?;
+                self.boundary(
+                    Some(use_.occurrence),
+                    ObligationKind::ResourceRefused,
+                    "native narrowing scope lost precision; terminal true is over-approximate",
+                )?;
             }
-            if let Some(q)=self.qualify(&native.narrowing,*scope,Some(use_.occurrence))? {
-                supported!(self,FlowNarrowingObservation,FlowNarrowingSupport,FlowNarrowingObservation {
-                    qualification:q.id(),use_:use_.id(),target:target.id(),precision_lost:native.narrowing_precision_lost
-                },use_.occurrence);
+            if let Some(q) = self.qualify(&native.narrowing, *scope, Some(use_.occurrence))? {
+                supported!(
+                    self,
+                    FlowNarrowingObservation,
+                    FlowNarrowingSupport,
+                    FlowNarrowingObservation {
+                        qualification: q.id(),
+                        use_: use_.id(),
+                        target: target.id(),
+                        precision_lost: native.narrowing_precision_lost
+                    },
+                    use_.occurrence
+                );
             }
             if let Some(q) = self.qualify(&native.condition, *scope, Some(use_.occurrence))? {
                 supported!(

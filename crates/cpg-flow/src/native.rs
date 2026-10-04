@@ -40,9 +40,13 @@ pub enum Atom {
         place: String,
         class: String,
     },
-    NonTerminalCall { awaiting: bool },
+    NonTerminalCall {
+        awaiting: bool,
+    },
     NonEmptyIterable,
-    ContextManagerSuppresses { asynchronous: bool },
+    ContextManagerSuppresses {
+        asynchronous: bool,
+    },
     FinallyNormalPathImpossible,
     Opaque {
         text: String,
@@ -73,7 +77,10 @@ impl Atom {
                 place.capacity() + class.capacity()
             }
             Self::Opaque { text } => text.capacity(),
-            Self::NonTerminalCall{..}|Self::NonEmptyIterable|Self::ContextManagerSuppresses{..}|Self::FinallyNormalPathImpossible=>0,
+            Self::NonTerminalCall { .. }
+            | Self::NonEmptyIterable
+            | Self::ContextManagerSuppresses { .. }
+            | Self::FinallyNormalPathImpossible => 0,
             Self::Evaluated { atom, .. } => size_of::<Atom>() + atom.heap_bytes(),
         }
     }
@@ -107,7 +114,11 @@ impl Atom {
             | Self::IsInstance { place, .. }
             | Self::TypeIs { place, .. } => Some(place),
             Self::Evaluated { atom, .. } => atom.place(),
-            Self::Opaque { .. }|Self::NonTerminalCall{..}|Self::NonEmptyIterable|Self::ContextManagerSuppresses{..}|Self::FinallyNormalPathImpossible => None,
+            Self::Opaque { .. }
+            | Self::NonTerminalCall { .. }
+            | Self::NonEmptyIterable
+            | Self::ContextManagerSuppresses { .. }
+            | Self::FinallyNormalPathImpossible => None,
         }
     }
     pub fn site(&self) -> Option<Span> {

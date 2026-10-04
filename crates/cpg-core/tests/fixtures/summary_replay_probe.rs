@@ -162,7 +162,11 @@ pub async fn run(
             .iter()
             .all(|i| seen.contains(&(i.name(), i.prefix().map(|e| e as u8)))),
         "probe must read every declared replay input: {:?}",
-        replay_inputs.iter().filter(|i| !seen.contains(&(i.name(), i.prefix().map(|e| e as u8)))).map(|i| (i.name(), i.prefix())).collect::<Vec<_>>()
+        replay_inputs
+            .iter()
+            .filter(|i| !seen.contains(&(i.name(), i.prefix().map(|e| e as u8))))
+            .map(|i| (i.name(), i.prefix()))
+            .collect::<Vec<_>>()
     );
     let behavioral = access.profile() == Profile::Behavioral;
     // Unconditional reader and constructor observations may share one qualification.

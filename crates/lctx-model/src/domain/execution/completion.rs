@@ -149,78 +149,210 @@ impl Kernel<'_, '_, '_> {
         );
         Ok(proof)
     }
-    fn raise_expression(&mut self, expression: Id<Occurrence>) -> Result<(ExactRuntimeException, Option<PendingOutcome>)> {
-        if self.data.occurrences.get(expression).is_some_and(|node| node.syntax_kind == S::ExprCall)
-            && !self.evaluations.iter().any(|proof| proof.request().expression == expression) {
+    fn raise_expression(
+        &mut self,
+        expression: Id<Occurrence>,
+    ) -> Result<(ExactRuntimeException, Option<PendingOutcome>)> {
+        if self
+            .data
+            .occurrences
+            .get(expression)
+            .is_some_and(|node| node.syntax_kind == S::ExprCall)
+            && !self
+                .evaluations
+                .iter()
+                .any(|proof| proof.request().expression == expression)
+        {
             self.syntax.observe(expression)?;
             let children = self.syntax.children(expression)?;
-            let class = self.expression(one(&children, F::Callee)?)?.class_value().ok_or_else(|| boundary(ObligationKind::UnsupportedControlFlow))?;
+            let class = self
+                .expression(one(&children, F::Callee)?)?
+                .class_value()
+                .ok_or_else(|| boundary(ObligationKind::UnsupportedControlFlow))?;
             let kind = self.exact_exception_class(class)?;
             let arguments = self.syntax.positional_arguments(&children)?;
             for argument in arguments {
-                if let Some((site, exception)) = self.expression(argument.occurrence)?.exception() { return Ok((kind, Some(PendingOutcome::Raise { site, exception }))); }
+                if let Some((site, exception)) = self.expression(argument.occurrence)?.exception() {
+                    return Ok((kind, Some(PendingOutcome::Raise { site, exception })));
+                }
             }
             return Ok((kind, None));
         }
         let proof = self.expression(expression)?;
-        let abrupt = proof.exception().map(|(site, exception)| PendingOutcome::Raise { site, exception });
+        let abrupt = proof
+            .exception()
+            .map(|(site, exception)| PendingOutcome::Raise { site, exception });
         let instance = proof.raised_value();
         let class = proof.class_value();
-        if abrupt.is_some() { return Ok((ExactRuntimeException::TypeError, abrupt)); }
-        let kind = if let Some(kind) = instance { kind } else if let Some(class) = class { self.exact_exception_class(class)? }
-            else if self.data.occurrences.get(expression).is_some_and(|node| matches!(node.syntax_kind, S::ExprNoneLiteral | S::ExprBooleanLiteral | S::ExprNumberLiteral | S::ExprStringLiteral | S::ExprBytesLiteral | S::ExprEllipsisLiteral)) { ExactRuntimeException::TypeError }
-            else { return Err(boundary(ObligationKind::UnsupportedControlFlow)); };
+        if abrupt.is_some() {
+            return Ok((ExactRuntimeException::TypeError, abrupt));
+        }
+        let kind = if let Some(kind) = instance {
+            kind
+        } else if let Some(class) = class {
+            self.exact_exception_class(class)?
+        } else if self.data.occurrences.get(expression).is_some_and(|node| {
+            matches!(
+                node.syntax_kind,
+                S::ExprNoneLiteral
+                    | S::ExprBooleanLiteral
+                    | S::ExprNumberLiteral
+                    | S::ExprStringLiteral
+                    | S::ExprBytesLiteral
+                    | S::ExprEllipsisLiteral
+            )
+        }) {
+            ExactRuntimeException::TypeError
+        } else {
+            return Err(boundary(ObligationKind::UnsupportedControlFlow));
+        };
         Ok((kind, None))
     }
-    fn exact_exception_class(&mut self, class: Id<calls::ProviderSymbol>) -> Result<ExactRuntimeException> {
-        let symbol = self.data.symbols.get(class).ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
+    fn exact_exception_class(
+        &mut self,
+        class: Id<calls::ProviderSymbol>,
+    ) -> Result<ExactRuntimeException> {
+        let symbol = self
+            .data
+            .symbols
+            .get(class)
+            .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
         for kind in ExactRuntimeException::ALL {
-            if symbol.name == kind.class().1 && self.syntax.builtin_class(kind.class().1)? == class { return Ok(*kind); }
+            if symbol.name == kind.class().1 && self.syntax.builtin_class(kind.class().1)? == class
+            {
+                return Ok(*kind);
+            }
         }
         Err(boundary(ObligationKind::UnsupportedControlFlow))
     }
-    fn handler_classes(&mut self, expression: Id<Occurrence>, depth: usize, classes: &mut Vec<Id<calls::ProviderSymbol>>) -> Result<Option<PendingOutcome>> {
-        if depth > COMPLETION_DEPTH_LIMIT { return Err(boundary(ObligationKind::CompletionDepthLimit)); }
-        if self.data.occurrences.get(expression).is_some_and(|node| node.syntax_kind == S::ExprTuple) {
+    fn handler_classes(
+        &mut self,
+        expression: Id<Occurrence>,
+        depth: usize,
+        classes: &mut Vec<Id<calls::ProviderSymbol>>,
+    ) -> Result<Option<PendingOutcome>> {
+        if depth > COMPLETION_DEPTH_LIMIT {
+            return Err(boundary(ObligationKind::CompletionDepthLimit));
+        }
+        if self
+            .data
+            .occurrences
+            .get(expression)
+            .is_some_and(|node| node.syntax_kind == S::ExprTuple)
+        {
             self.syntax.observe(expression)?;
             let children = self.syntax.children(expression)?;
             for (ordinal, child) in children.iter().enumerate() {
-                if child.field != F::Element || child.ordinal != ordinal as i64 { return Err(boundary(ObligationKind::MissingEvidence)); }
-                if self.data.occurrences.get(child.occurrence).is_some_and(|node| node.syntax_kind == S::ExprTuple) { return Err(boundary(ObligationKind::UnsupportedControlFlow)); }
-                if let Some(outcome) = self.handler_classes(child.occurrence, depth + 1, classes)? { return Ok(Some(outcome)); }
+                if child.field != F::Element || child.ordinal != ordinal as i64 {
+                    return Err(boundary(ObligationKind::MissingEvidence));
+                }
+                if self
+                    .data
+                    .occurrences
+                    .get(child.occurrence)
+                    .is_some_and(|node| node.syntax_kind == S::ExprTuple)
+                {
+                    return Err(boundary(ObligationKind::UnsupportedControlFlow));
+                }
+                if let Some(outcome) = self.handler_classes(child.occurrence, depth + 1, classes)? {
+                    return Ok(Some(outcome));
+                }
             }
         } else {
             let proof = self.expression(expression)?;
-            if let Some((site, exception)) = proof.exception() { return Ok(Some(PendingOutcome::Raise { site, exception })); }
-            let class = proof.class_value().ok_or_else(|| boundary(ObligationKind::UnsupportedControlFlow))?;
-            if classes.len() >= 64 { return Err(boundary(ObligationKind::SummaryProofLimit)); }
-            self.charge.grow(size_of::<Id<calls::ProviderSymbol>>() * 2)?;
+            if let Some((site, exception)) = proof.exception() {
+                return Ok(Some(PendingOutcome::Raise { site, exception }));
+            }
+            let class = proof
+                .class_value()
+                .ok_or_else(|| boundary(ObligationKind::UnsupportedControlFlow))?;
+            if classes.len() >= 64 {
+                return Err(boundary(ObligationKind::SummaryProofLimit));
+            }
+            self.charge
+                .grow(size_of::<Id<calls::ProviderSymbol>>() * 2)?;
             classes.push(class);
         }
         Ok(None)
     }
     fn handler_cleanup(&mut self, handler: Id<Occurrence>, name: &str) -> Result<()> {
-        let occurrence = self.data.occurrences.get(handler).ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
-        self.syntax.tick(self.data.binding_events.len()).map_err(boundary)?;
-        self.syntax.tick(self.data.bindings.len()).map_err(boundary)?;
-        let mut matches = self.data.bindings.iter().filter(|binding| binding.kind == lexical::BindingEventKind::ExceptHandler
-            && self.data.binding_events.get(binding.event).is_some_and(|event| event.site == handler && event.name == name));
-        let binding = matches.next().ok_or_else(|| boundary(ObligationKind::HandlerNameCleanup))?;
-        if matches.next().is_some() { return Err(boundary(ObligationKind::HandlerNameCleanup)); }
-        self.syntax.support(binding, binding.qualification, handler)?;
+        let occurrence = self
+            .data
+            .occurrences
+            .get(handler)
+            .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
+        self.syntax
+            .tick(self.data.binding_events.len())
+            .map_err(boundary)?;
+        self.syntax
+            .tick(self.data.bindings.len())
+            .map_err(boundary)?;
+        let mut matches = self.data.bindings.iter().filter(|binding| {
+            binding.kind == lexical::BindingEventKind::ExceptHandler
+                && self
+                    .data
+                    .binding_events
+                    .get(binding.event)
+                    .is_some_and(|event| event.site == handler && event.name == name)
+        });
+        let binding = matches
+            .next()
+            .ok_or_else(|| boundary(ObligationKind::HandlerNameCleanup))?;
+        if matches.next().is_some() {
+            return Err(boundary(ObligationKind::HandlerNameCleanup));
+        }
+        self.syntax
+            .support(binding, binding.qualification, handler)?;
         // Rebinding an already occupied local can release an unknown object on handler entry.
-        if self.data.bindings.iter().any(|other| other.id() != binding.id() && other.scope == binding.scope
-            && self.data.binding_events.get(other.event).is_some_and(|event| event.name == name)) {
+        if self.data.bindings.iter().any(|other| {
+            other.id() != binding.id()
+                && other.scope == binding.scope
+                && self
+                    .data
+                    .binding_events
+                    .get(other.event)
+                    .is_some_and(|event| event.name == name)
+        }) {
             return Err(boundary(ObligationKind::HandlerNameCleanup));
         }
         // A builtin exception with a closed argument inventory has no user-defined disposal.
         // Writes/captures of the handler name or retained arguments keep the cleanup boundary open.
-        self.syntax.tick(self.expressions.len().saturating_mul(self.evaluations.len())).map_err(boundary)?;
-        self.syntax.tick(self.data.references.len()).map_err(boundary)?;
-        if self.expressions.iter().any(|expression| self.evaluations.iter().any(|proof| proof.request().expression == *expression && proof.release() != ReleaseSafety::Closed && proof.class_value().is_none()))
-            || self.data.binding_events.iter().any(|event| event.name == name && event.site != handler
-                && self.data.occurrences.get(event.site).is_some_and(|node| node.source == occurrence.source && node.start >= occurrence.start && node.end <= occurrence.end))
-            || self.data.references.iter().any(|reference| reference.name == name && self.data.occurrences.get(reference.read).is_some_and(|node| node.source == occurrence.source && node.start >= occurrence.start && node.end <= occurrence.end)) {
+        self.syntax
+            .tick(
+                self.expressions
+                    .len()
+                    .saturating_mul(self.evaluations.len()),
+            )
+            .map_err(boundary)?;
+        self.syntax
+            .tick(self.data.references.len())
+            .map_err(boundary)?;
+        if self.expressions.iter().any(|expression| {
+            self.evaluations.iter().any(|proof| {
+                proof.request().expression == *expression
+                    && proof.release() != ReleaseSafety::Closed
+                    && proof.class_value().is_none()
+            })
+        }) || self.data.binding_events.iter().any(|event| {
+            event.name == name
+                && event.site != handler
+                && self.data.occurrences.get(event.site).is_some_and(|node| {
+                    node.source == occurrence.source
+                        && node.start >= occurrence.start
+                        && node.end <= occurrence.end
+                })
+        }) || self.data.references.iter().any(|reference| {
+            reference.name == name
+                && self
+                    .data
+                    .occurrences
+                    .get(reference.read)
+                    .is_some_and(|node| {
+                        node.source == occurrence.source
+                            && node.start >= occurrence.start
+                            && node.end <= occurrence.end
+                    })
+        }) {
             return Err(boundary(ObligationKind::HandlerNameCleanup));
         }
         Ok(())
@@ -270,19 +402,38 @@ impl Kernel<'_, '_, '_> {
         let outcome = match kind {
             S::StmtPass if children.is_empty() => PendingOutcome::Normal,
             S::StmtAssign => {
-                let mut admitted=self.available_headers.iter().filter(|(proof,_)| {
-                    proof.caller()==self.request.owner && proof.request().input==self.request.input
-                        && proof.request().context==self.request.context
-                        && proof.captures().iter().any(|origin|origin.literal_prefix().is_some_and(|(statement,_)|statement==site))
+                let mut admitted = self.available_headers.iter().filter(|(proof, _)| {
+                    proof.caller() == self.request.owner
+                        && proof.request().input == self.request.input
+                        && proof.request().context == self.request.context
+                        && proof.captures().iter().any(|origin| {
+                            origin
+                                .literal_prefix()
+                                .is_some_and(|(statement, _)| statement == site)
+                        })
                 });
-                let (proof,row)=admitted.next().ok_or_else(||boundary(ObligationKind::CapturedStateUnavailable))?;
-                if admitted.next().is_some() {return Err(boundary(ObligationKind::AmbiguousBinding));}
-                let value=one(&children,F::Value)?;
-                if !proof.captures().iter().any(|origin|origin.literal_prefix()==Some((site,value))) {return Err(boundary(ObligationKind::CapturedStateUnavailable));}
+                let (proof, row) = admitted
+                    .next()
+                    .ok_or_else(|| boundary(ObligationKind::CapturedStateUnavailable))?;
+                if admitted.next().is_some() {
+                    return Err(boundary(ObligationKind::AmbiguousBinding));
+                }
+                let value = one(&children, F::Value)?;
+                if !proof
+                    .captures()
+                    .iter()
+                    .any(|origin| origin.literal_prefix() == Some((site, value)))
+                {
+                    return Err(boundary(ObligationKind::CapturedStateUnavailable));
+                }
                 self.expression(value)?;
-                self.charge.grow(size_of::<Id<super::source_call_records::SourceCallHeader>>() * 2)?;
+                self.charge
+                    .grow(size_of::<Id<super::source_call_records::SourceCallHeader>>() * 2)?;
                 self.headers.push(row.id());
-                self.status=analysis::support::inferred_status(analysis::Interpretation::Structural,[self.status,proof.status()]);
+                self.status = analysis::support::inferred_status(
+                    analysis::Interpretation::Structural,
+                    [self.status, proof.status()],
+                );
                 PendingOutcome::Normal
             }
             S::StmtWith => {
@@ -374,22 +525,57 @@ impl Kernel<'_, '_, '_> {
                     .ok_or_else(|| boundary(ObligationKind::UnsupportedControlFlow))?,
             },
             S::StmtRaise => {
-                if children.iter().any(|row| !matches!(row.field, F::Exc | F::Cause)) { return Err(boundary(ObligationKind::UnsupportedControlFlow)); }
+                if children
+                    .iter()
+                    .any(|row| !matches!(row.field, F::Exc | F::Cause))
+                {
+                    return Err(boundary(ObligationKind::UnsupportedControlFlow));
+                }
                 let expression = one(&children, F::Exc)?;
                 let (kind, abrupt) = self.raise_expression(expression)?;
-                if let Some(outcome) = abrupt { outcome } else {
+                if let Some(outcome) = abrupt {
+                    outcome
+                } else {
                     let mut cause_failure = None;
                     if children.iter().any(|row| row.field == F::Cause) {
                         let cause = one(&children, F::Cause)?;
-                        if self.data.occurrences.get(cause).is_some_and(|node| node.syntax_kind == S::ExprNoneLiteral) {
+                        if self
+                            .data
+                            .occurrences
+                            .get(cause)
+                            .is_some_and(|node| node.syntax_kind == S::ExprNoneLiteral)
+                        {
                             let proof = self.expression(cause)?;
-                            cause_failure = proof.exception().map(|(site, exception)| PendingOutcome::Raise { site, exception });
+                            cause_failure = proof
+                                .exception()
+                                .map(|(site, exception)| PendingOutcome::Raise { site, exception });
                         } else {
                             let (_, abrupt) = self.raise_expression(cause)?;
-                            cause_failure = abrupt.or_else(|| self.data.occurrences.get(cause).filter(|node| matches!(node.syntax_kind, S::ExprBooleanLiteral | S::ExprNumberLiteral | S::ExprStringLiteral | S::ExprBytesLiteral | S::ExprEllipsisLiteral)).map(|_| PendingOutcome::Raise { site: cause, exception: ExactRuntimeException::TypeError }));
+                            cause_failure = abrupt.or_else(|| {
+                                self.data
+                                    .occurrences
+                                    .get(cause)
+                                    .filter(|node| {
+                                        matches!(
+                                            node.syntax_kind,
+                                            S::ExprBooleanLiteral
+                                                | S::ExprNumberLiteral
+                                                | S::ExprStringLiteral
+                                                | S::ExprBytesLiteral
+                                                | S::ExprEllipsisLiteral
+                                        )
+                                    })
+                                    .map(|_| PendingOutcome::Raise {
+                                        site: cause,
+                                        exception: ExactRuntimeException::TypeError,
+                                    })
+                            });
                         }
                     }
-                    cause_failure.unwrap_or(PendingOutcome::Raise { site, exception: kind })
+                    cause_failure.unwrap_or(PendingOutcome::Raise {
+                        site,
+                        exception: kind,
+                    })
                 }
             }
             S::StmtBreak if children.is_empty() => PendingOutcome::Break { site },
@@ -430,51 +616,119 @@ impl Kernel<'_, '_, '_> {
                 }
             }
             S::StmtTry => {
-                if self.syntax.detail(site)? != Some(syntax::SyntaxDetail::TryMode { is_star: false })
-                    || children.iter().any(|row| !matches!(row.field, F::Body | F::Handler | F::Orelse | F::Finalbody)) {
+                if self.syntax.detail(site)?
+                    != Some(syntax::SyntaxDetail::TryMode { is_star: false })
+                    || children.iter().any(|row| {
+                        !matches!(row.field, F::Body | F::Handler | F::Orelse | F::Finalbody)
+                    })
+                {
                     return Err(boundary(ObligationKind::UnsupportedControlFlow));
                 }
                 let mut pending = self.suite(&children, F::Body, depth)?;
                 if let Some(exception) = pending.exception() {
-                    let mut handlers = children.iter().filter(|row| row.field == F::Handler).collect::<Vec<_>>();
-                    self.charge.grow(handlers.len() * size_of::<&SyntaxPlacement>() * 2)?;
+                    let mut handlers = children
+                        .iter()
+                        .filter(|row| row.field == F::Handler)
+                        .collect::<Vec<_>>();
+                    self.charge
+                        .grow(handlers.len() * size_of::<&SyntaxPlacement>() * 2)?;
                     handlers.sort_by_key(|row| row.ordinal);
                     for (ordinal, handler) in handlers.iter().enumerate() {
-                        if handler.ordinal != ordinal as i64 { return Err(boundary(ObligationKind::MissingEvidence)); }
+                        if handler.ordinal != ordinal as i64 {
+                            return Err(boundary(ObligationKind::MissingEvidence));
+                        }
                         self.syntax.observe(handler.occurrence)?;
-                        if self.data.occurrences.get(handler.occurrence).is_none_or(|node| node.syntax_kind != S::ExceptHandlerExceptHandler) { return Err(boundary(ObligationKind::MissingEvidence)); }
-                        let Some(syntax::SyntaxDetail::HandlerName { name }) = self.syntax.detail(handler.occurrence)? else { return Err(boundary(ObligationKind::MissingEvidence)); };
+                        if self
+                            .data
+                            .occurrences
+                            .get(handler.occurrence)
+                            .is_none_or(|node| node.syntax_kind != S::ExceptHandlerExceptHandler)
+                        {
+                            return Err(boundary(ObligationKind::MissingEvidence));
+                        }
+                        let Some(syntax::SyntaxDetail::HandlerName { name }) =
+                            self.syntax.detail(handler.occurrence)?
+                        else {
+                            return Err(boundary(ObligationKind::MissingEvidence));
+                        };
                         let handler_children = self.syntax.children(handler.occurrence)?;
-                        let mut identifiers = handler_children.iter().filter(|row| row.field == F::Child);
+                        let mut identifiers =
+                            handler_children.iter().filter(|row| row.field == F::Child);
                         match (&name, identifiers.next()) {
-                            (Some(name), Some(identifier)) if identifier.ordinal == 0 && self.data.occurrences.get(identifier.occurrence).is_some_and(|node| node.syntax_kind == S::Identifier) => {
-                                if identifiers.next().is_some() { return Err(boundary(ObligationKind::UnsupportedControlFlow)); }
+                            (Some(name), Some(identifier))
+                                if identifier.ordinal == 0
+                                    && self
+                                        .data
+                                        .occurrences
+                                        .get(identifier.occurrence)
+                                        .is_some_and(|node| node.syntax_kind == S::Identifier) =>
+                            {
+                                if identifiers.next().is_some() {
+                                    return Err(boundary(ObligationKind::UnsupportedControlFlow));
+                                }
                                 self.syntax.observe(identifier.occurrence)?;
-                                self.syntax.tick(self.data.spellings.len()).map_err(boundary)?;
-                                let mut spellings = self.data.spellings.iter().filter(|row| row.occurrence == identifier.occurrence && self.data.qualifications.get(row.qualification).is_some_and(|q| q.context == self.request.context));
-                                let spelling = spellings.next().ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
-                                if spellings.next().is_some() || spelling.spelling != *name { return Err(boundary(ObligationKind::MissingEvidence)); }
-                                self.syntax.support(spelling, spelling.qualification, identifier.occurrence)?;
+                                self.syntax
+                                    .tick(self.data.spellings.len())
+                                    .map_err(boundary)?;
+                                let mut spellings = self.data.spellings.iter().filter(|row| {
+                                    row.occurrence == identifier.occurrence
+                                        && self
+                                            .data
+                                            .qualifications
+                                            .get(row.qualification)
+                                            .is_some_and(|q| q.context == self.request.context)
+                                });
+                                let spelling = spellings
+                                    .next()
+                                    .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
+                                if spellings.next().is_some() || spelling.spelling != *name {
+                                    return Err(boundary(ObligationKind::MissingEvidence));
+                                }
+                                self.syntax.support(
+                                    spelling,
+                                    spelling.qualification,
+                                    identifier.occurrence,
+                                )?;
                             }
                             (None, None) => {}
                             _ => return Err(boundary(ObligationKind::MissingEvidence)),
                         }
-                        if handler_children.iter().any(|row| !matches!(row.field, F::Test | F::Body | F::Child)) { return Err(boundary(ObligationKind::UnsupportedControlFlow)); }
+                        if handler_children
+                            .iter()
+                            .any(|row| !matches!(row.field, F::Test | F::Body | F::Child))
+                        {
+                            return Err(boundary(ObligationKind::UnsupportedControlFlow));
+                        }
                         let matched = if handler_children.iter().any(|row| row.field == F::Test) {
                             let mut classes = Vec::new();
-                            if let Some(outcome) = self.handler_classes(one(&handler_children, F::Test)?, depth + 1, &mut classes)? { pending = outcome; break; }
+                            if let Some(outcome) = self.handler_classes(
+                                one(&handler_children, F::Test)?,
+                                depth + 1,
+                                &mut classes,
+                            )? {
+                                pending = outcome;
+                                break;
+                            }
                             let mut matched = false;
                             // Validate every tuple member, including members after a positive match.
-                            for class in classes { matched |= self.syntax.class_matches(exception, class)?; }
+                            for class in classes {
+                                matched |= self.syntax.class_matches(exception, class)?;
+                            }
                             matched
-                        } else { true };
-                        if !matched { continue; }
+                        } else {
+                            true
+                        };
+                        if !matched {
+                            continue;
+                        }
                         let active = self.active;
                         self.active = Some(exception);
                         let result = self.suite(&handler_children, F::Body, depth + 1);
                         self.active = active;
                         pending = result?;
-                        if let Some(name) = name { self.handler_cleanup(handler.occurrence, &name)?; }
+                        if let Some(name) = name {
+                            self.handler_cleanup(handler.occurrence, &name)?;
+                        }
                         break;
                     }
                 } else if pending.is_normal() {

@@ -70,7 +70,7 @@ impl Fixture {
         };
         let (condition, conditions) = Diagram::always().records();
         let qualification = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: condition.id(),

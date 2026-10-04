@@ -114,11 +114,17 @@ enum Value {
     Int(i64),
     Float(f64),
     Literal,
-    Tuple { nonempty: bool, retained: bool },
+    Tuple {
+        nonempty: bool,
+        retained: bool,
+    },
     Retained,
     OpaqueClosed,
     Class(Id<calls::ProviderSymbol>),
-    Exception { kind: super::ExactRuntimeException, retained: bool },
+    Exception {
+        kind: super::ExactRuntimeException,
+        retained: bool,
+    },
 }
 impl Value {
     fn truth(self) -> Option<bool> {
@@ -140,7 +146,13 @@ impl Value {
         }
     }
     fn release(self) -> ReleaseSafety {
-        if matches!(self, Self::Retained | Self::Tuple { retained: true, .. } | Self::Class(_) | Self::Exception { retained: true, .. }) {
+        if matches!(
+            self,
+            Self::Retained
+                | Self::Tuple { retained: true, .. }
+                | Self::Class(_)
+                | Self::Exception { retained: true, .. }
+        ) {
             ReleaseSafety::CallerRetained
         } else {
             ReleaseSafety::Closed
@@ -176,10 +188,16 @@ impl CheckedEvaluation {
         self.call_source
     }
     pub(crate) fn class_value(&self) -> Option<Id<calls::ProviderSymbol>> {
-        match self.value { Value::Class(class) => Some(class), _ => None }
+        match self.value {
+            Value::Class(class) => Some(class),
+            _ => None,
+        }
     }
     pub(crate) fn raised_value(&self) -> Option<super::ExactRuntimeException> {
-        match self.value { Value::Exception { kind, .. } => Some(kind), _ => None }
+        match self.value {
+            Value::Exception { kind, .. } => Some(kind),
+            _ => None,
+        }
     }
     pub(crate) fn exception(&self) -> Option<(Id<Occurrence>, super::ExactRuntimeException)> {
         self.exception
@@ -538,17 +556,47 @@ impl Evaluator<'_> {
         Ok(children)
     }
     /// Ruff retains the Arguments structural node; its children are in source traversal order.
-    pub(crate) fn positional_arguments(&mut self, call: &[SyntaxPlacement]) -> Result<Vec<SyntaxPlacement>, EvaluationError> {
-        if call.len() != 2 || call.iter().filter(|row| row.field == SyntaxField::Callee).count() != 1 {
+    pub(crate) fn positional_arguments(
+        &mut self,
+        call: &[SyntaxPlacement],
+    ) -> Result<Vec<SyntaxPlacement>, EvaluationError> {
+        if call.len() != 2
+            || call
+                .iter()
+                .filter(|row| row.field == SyntaxField::Callee)
+                .count()
+                != 1
+        {
             return Err(boundary(UNSUPPORTED));
         }
-        let container = call.iter().find(|row| row.field == SyntaxField::Child && row.ordinal == 0
-            && self.data.occurrences.get(row.occurrence).is_some_and(|node| node.syntax_kind == SyntaxKind::Arguments))
+        let container = call
+            .iter()
+            .find(|row| {
+                row.field == SyntaxField::Child
+                    && row.ordinal == 0
+                    && self
+                        .data
+                        .occurrences
+                        .get(row.occurrence)
+                        .is_some_and(|node| node.syntax_kind == SyntaxKind::Arguments)
+            })
             .ok_or_else(|| boundary(UNSUPPORTED))?;
         self.observe(container.occurrence)?;
         let arguments = self.children(container.occurrence)?;
-        if arguments.iter().enumerate().any(|(ordinal, row)| row.field != SyntaxField::Child || row.ordinal != ordinal as i64
-            || self.data.occurrences.get(row.occurrence).is_none_or(|node| matches!(node.syntax_kind, SyntaxKind::ExprStarred | SyntaxKind::Keyword))) {
+        if arguments.iter().enumerate().any(|(ordinal, row)| {
+            row.field != SyntaxField::Child
+                || row.ordinal != ordinal as i64
+                || self
+                    .data
+                    .occurrences
+                    .get(row.occurrence)
+                    .is_none_or(|node| {
+                        matches!(
+                            node.syntax_kind,
+                            SyntaxKind::ExprStarred | SyntaxKind::Keyword
+                        )
+                    })
+        }) {
             return Err(boundary(UNSUPPORTED));
         }
         Ok(arguments)
@@ -574,33 +622,89 @@ impl Evaluator<'_> {
         }
         Ok(found)
     }
-    pub(crate) fn builtin_class(&mut self, name: &str) -> Result<Id<calls::ProviderSymbol>, EvaluationError> {
+    pub(crate) fn builtin_class(
+        &mut self,
+        name: &str,
+    ) -> Result<Id<calls::ProviderSymbol>, EvaluationError> {
         self.tick(1).map_err(boundary)?;
-        let symbols = self.index.builtin_classes.get(&name.to_owned()).ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
-        if symbols.len() != 1 { return Err(boundary(ObligationKind::AmbiguousBinding)); }
+        let symbols = self
+            .index
+            .builtin_classes
+            .get(&name.to_owned())
+            .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
+        if symbols.len() != 1 {
+            return Err(boundary(ObligationKind::AmbiguousBinding));
+        }
         Ok(symbols[0])
     }
-    pub(crate) fn class_matches(&mut self, raised: super::ExactRuntimeException, handler: Id<calls::ProviderSymbol>) -> Result<bool, EvaluationError> {
+    pub(crate) fn class_matches(
+        &mut self,
+        raised: super::ExactRuntimeException,
+        handler: Id<calls::ProviderSymbol>,
+    ) -> Result<bool, EvaluationError> {
         let raised = self.builtin_class(raised.class().1)?;
         let base = self.builtin_class("BaseException")?;
         self.admit_class(raised)?;
         self.admit_class(handler)?;
-        let budget = self.charge.budget().ok_or_else(|| EvaluationError::Model(ModelError::Invalid("class match has no budget".into())))?;
-        let raised = super::model_context::CheckedExactClass::derive_evidence(super::model_context::ClassEvidence::evaluation(self.data, self.request.input, &self.index.native), raised, self.request.context, budget)?.map_err(boundary)?;
-        let handler = super::model_context::CheckedExactClass::derive_evidence(super::model_context::ClassEvidence::evaluation(self.data, self.request.input, &self.index.native), handler, self.request.context, budget)?.map_err(boundary)?;
-        if !handler.contains(base) { return Err(boundary(ObligationKind::UnsupportedControlFlow)); }
+        let budget = self.charge.budget().ok_or_else(|| {
+            EvaluationError::Model(ModelError::Invalid("class match has no budget".into()))
+        })?;
+        let raised = super::model_context::CheckedExactClass::derive_evidence(
+            super::model_context::ClassEvidence::evaluation(
+                self.data,
+                self.request.input,
+                &self.index.native,
+            ),
+            raised,
+            self.request.context,
+            budget,
+        )?
+        .map_err(boundary)?;
+        let handler = super::model_context::CheckedExactClass::derive_evidence(
+            super::model_context::ClassEvidence::evaluation(
+                self.data,
+                self.request.input,
+                &self.index.native,
+            ),
+            handler,
+            self.request.context,
+            budget,
+        )?
+        .map_err(boundary)?;
+        if !handler.contains(base) {
+            return Err(boundary(ObligationKind::UnsupportedControlFlow));
+        }
         raised.matches(&handler).map_err(boundary)
     }
-    pub(crate) fn admit_class(&mut self, symbol: Id<calls::ProviderSymbol>) -> Result<(), EvaluationError> {
-        let budget = self.charge.budget().ok_or_else(|| EvaluationError::Model(ModelError::Invalid("class proof has no budget".into())))?;
+    pub(crate) fn admit_class(
+        &mut self,
+        symbol: Id<calls::ProviderSymbol>,
+    ) -> Result<(), EvaluationError> {
+        let budget = self.charge.budget().ok_or_else(|| {
+            EvaluationError::Model(ModelError::Invalid("class proof has no budget".into()))
+        })?;
         let proof = super::model_context::CheckedExactClass::derive_evidence(
-            super::model_context::ClassEvidence::evaluation(self.data, self.request.input, &self.index.native), symbol, self.request.context, budget,
-        )?.map_err(boundary)?;
+            super::model_context::ClassEvidence::evaluation(
+                self.data,
+                self.request.input,
+                &self.index.native,
+            ),
+            symbol,
+            self.request.context,
+            budget,
+        )?
+        .map_err(boundary)?;
         for premise in proof.premises().iter() {
-            self.charge.grow(size_of::<Id<NativeAssertionPremise>>() * 2)?;
-            if !self.native.contains(&premise.id()) { self.native.push(premise.id()); }
+            self.charge
+                .grow(size_of::<Id<NativeAssertionPremise>>() * 2)?;
+            if !self.native.contains(&premise.id()) {
+                self.native.push(premise.id());
+            }
         }
-        self.status = analysis::support::inferred_status(analysis::Interpretation::Structural, [self.status, proof.status()]);
+        self.status = analysis::support::inferred_status(
+            analysis::Interpretation::Structural,
+            [self.status, proof.status()],
+        );
         Ok(())
     }
     fn eval(&mut self, id: Id<Occurrence>, depth: usize) -> Result<Value, EvaluationError> {
@@ -701,8 +805,16 @@ impl Evaluator<'_> {
                     self.charge.grow(size_of::<Id<Occurrence>>() * 2)?;
                     self.operands.push(id);
                     let name = proof.name();
-                    if name != "BaseException" && !super::ExactRuntimeException::ALL.iter().any(|kind| kind.class().1 == name) { return Ok(Value::Retained); }
-                    if !self.index.builtin_classes.contains_key(&name.to_owned()) { return Ok(Value::Retained); }
+                    if name != "BaseException"
+                        && !super::ExactRuntimeException::ALL
+                            .iter()
+                            .any(|kind| kind.class().1 == name)
+                    {
+                        return Ok(Value::Retained);
+                    }
+                    if !self.index.builtin_classes.contains_key(&name.to_owned()) {
+                        return Ok(Value::Retained);
+                    }
                     let symbol = self.builtin_class(name)?;
                     self.admit_class(symbol)?;
                     return Ok(Value::Class(symbol));
@@ -740,16 +852,27 @@ impl Evaluator<'_> {
             }
             SyntaxKind::ExprCall => {
                 let callee = one(SyntaxField::Callee)?;
-                let Value::Class(class) = self.eval(callee, depth + 1)? else { return Err(boundary(UNSUPPORTED)); };
+                let Value::Class(class) = self.eval(callee, depth + 1)? else {
+                    return Err(boundary(UNSUPPORTED));
+                };
                 let symbol = need(&self.data.symbols, class).map_err(boundary)?;
-                let Some(kind) = super::ExactRuntimeException::ALL.iter().copied().find(|kind| kind.class().1 == symbol.name) else { return Err(boundary(UNSUPPORTED)); };
-                if self.builtin_class(kind.class().1)? != class { return Err(boundary(UNSUPPORTED)); }
+                let Some(kind) = super::ExactRuntimeException::ALL
+                    .iter()
+                    .copied()
+                    .find(|kind| kind.class().1 == symbol.name)
+                else {
+                    return Err(boundary(UNSUPPORTED));
+                };
+                if self.builtin_class(kind.class().1)? != class {
+                    return Err(boundary(UNSUPPORTED));
+                }
                 // The builtin class token above is pinned by native identity and complete MRO.
                 // Positional arguments run in source order; star/keyword calls remain outside this finite rule.
                 let arguments = self.positional_arguments(&children)?;
                 let mut retained = false;
                 for argument in arguments {
-                    retained |= self.eval(argument.occurrence, depth + 1)?.release() != ReleaseSafety::Closed;
+                    retained |= self.eval(argument.occurrence, depth + 1)?.release()
+                        != ReleaseSafety::Closed;
                 }
                 Value::Exception { kind, retained }
             }
@@ -1024,30 +1147,66 @@ fn evaluate_prepared(
 
 /// A modeled captured entry uses the active caller's origin certificate, not a native
 /// read witness in the caller or an extra formal in the nested function.
-pub(super) fn captured_entry_evaluation(data:&EvaluationData,proof:&super::capture_bridge::CheckedCapturedEntry,
-    budget:&ResourceBudget)->Result<CheckedEvaluation,ModelError> {
-    let row=&proof.row;
-    let parent=data.occurrences.get(row.read).and_then(|o|data.artifacts.get(o.source))
-        .ok_or_else(||ModelError::Invalid("captured read source absent".into()))?;
-    let request=ExpressionRequest {input:parent.input,context:data.qualifications.get(row.qualification)
-        .ok_or_else(||ModelError::Invalid("captured qualification absent".into()))?.context,owner:row.callee,expression:row.read};
-    with_completion_syntax(data,request,budget,|syntax| {
+pub(super) fn captured_entry_evaluation(
+    data: &EvaluationData,
+    proof: &super::capture_bridge::CheckedCapturedEntry,
+    budget: &ResourceBudget,
+) -> Result<CheckedEvaluation, ModelError> {
+    let row = &proof.row;
+    let parent = data
+        .occurrences
+        .get(row.read)
+        .and_then(|o| data.artifacts.get(o.source))
+        .ok_or_else(|| ModelError::Invalid("captured read source absent".into()))?;
+    let request = ExpressionRequest {
+        input: parent.input,
+        context: data
+            .qualifications
+            .get(row.qualification)
+            .ok_or_else(|| ModelError::Invalid("captured qualification absent".into()))?
+            .context,
+        owner: row.callee,
+        expression: row.read,
+    };
+    with_completion_syntax(data, request, budget, |syntax| {
         syntax.observe(row.read)?;
-        if syntax.qualification(row.read).map_err(boundary)?!=row.qualification {return Err(boundary(ObligationKind::IncompatibleContexts));}
-        let (native,charge)=syntax.take_admission();
-        let value=match &proof.source {
-            super::capture_bridge::CapturedValueSource::Entry {..}=>Value::Retained,
-            super::capture_bridge::CapturedValueSource::Literal {literal,..}=>match data.literals.get(*literal).ok_or_else(||boundary(ObligationKind::MissingEvidence))? {
-                Literal::None=>Value::None,Literal::Bool {value}=>Value::Bool(*value),
-                Literal::Integer {decimal}=>decimal.parse::<i64>().map(Value::Int).unwrap_or(Value::Literal),
-                Literal::Float {bits}=>Value::Float(f64::from_bits(*bits as u64)),
-                Literal::String {..}|Literal::Bytes {..}=>Value::Literal,
-            }
+        if syntax.qualification(row.read).map_err(boundary)? != row.qualification {
+            return Err(boundary(ObligationKind::IncompatibleContexts));
+        }
+        let (native, charge) = syntax.take_admission();
+        let value = match &proof.source {
+            super::capture_bridge::CapturedValueSource::Entry { .. } => Value::Retained,
+            super::capture_bridge::CapturedValueSource::Literal { literal, .. } => match data
+                .literals
+                .get(*literal)
+                .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?
+            {
+                Literal::None => Value::None,
+                Literal::Bool { value } => Value::Bool(*value),
+                Literal::Integer { decimal } => decimal
+                    .parse::<i64>()
+                    .map(Value::Int)
+                    .unwrap_or(Value::Literal),
+                Literal::Float { bits } => Value::Float(f64::from_bits(*bits as u64)),
+                Literal::String { .. } | Literal::Bytes { .. } => Value::Literal,
+            },
         };
-        Ok(CheckedEvaluation {request,value,release:value.release(),
-            call_source:None,exception:None,native,operands:vec![row.read],entries:Vec::new(),_entry_charges:Vec::new(),
-            qualification:row.qualification,status:analysis::policy::EvidenceStatus::StructurallyObserved,_charge:charge})
-    })?.map_err(|reason|ModelError::Invalid(format!("captured entry evaluation refuses: {reason:?}")))
+        Ok(CheckedEvaluation {
+            request,
+            value,
+            release: value.release(),
+            call_source: None,
+            exception: None,
+            native,
+            operands: vec![row.read],
+            entries: Vec::new(),
+            _entry_charges: Vec::new(),
+            qualification: row.qualification,
+            status: analysis::policy::EvidenceStatus::StructurallyObserved,
+            _charge: charge,
+        })
+    })?
+    .map_err(|reason| ModelError::Invalid(format!("captured entry evaluation refuses: {reason:?}")))
 }
 
 /// Only the actual SourceCall replay callback invokes this lowering. A normal callee outcome

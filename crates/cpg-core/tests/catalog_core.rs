@@ -262,8 +262,16 @@ async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipt
     let class_metadata: Vec<(String, bool, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT m.name, o.abstract_absence_known, (o.record_options IS NOT NULL) FROM {s}.catalog_class_metadata x JOIN {s}.catalog_classes c ON c.id=x.class JOIN {s}.catalog_members m ON m.id=c.member JOIN {s}.class_metadata_observations o ON o.id=x.observation ORDER BY m.name", s=id.schema()
     ))).fetch_all(db.owner.pool()).await.unwrap();
-    assert!(class_metadata.iter().any(|(name, absent, options)| name == "Config" && !absent && *options));
-    assert!(class_metadata.iter().any(|(name, absent, options)| name == "Base" && !absent && !options));
+    assert!(
+        class_metadata
+            .iter()
+            .any(|(name, absent, options)| name == "Config" && !absent && *options)
+    );
+    assert!(
+        class_metadata
+            .iter()
+            .any(|(name, absent, options)| name == "Base" && !absent && !options)
+    );
     assert!(class_metadata.iter().all(|(_, absent, _)| !absent));
     let property_kinds: Vec<i16> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT o.kind FROM {s}.catalog_class_members x JOIN {s}.catalog_classes c ON c.id=x.class JOIN {s}.catalog_members m ON m.id=c.member JOIN {s}.class_member_observations o ON o.id=x.observation WHERE m.name='Accessors' AND o.name='value'", s=id.schema()

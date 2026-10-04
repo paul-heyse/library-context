@@ -1,3 +1,4 @@
+use super::FacetValue;
 use crate::domain::{
     attribution::AnalysisContext,
     catalog::evidence::{
@@ -13,7 +14,6 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-use super::FacetValue;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
@@ -321,18 +321,53 @@ pub enum Witness {
     #[model(code = 17)]
     ConstructorCandidate { link: Id<ConstructorCandidateLink> },
     #[model(code = 18)]
-    SignatureTypeObservation { observation: Id<types::SignatureTypeObservation> },
+    SignatureTypeObservation {
+        observation: Id<types::SignatureTypeObservation>,
+    },
     #[model(code = 19)]
-    SummaryException { outcome: Id<execution::summary_exceptions::SummaryExceptionOutcome> },
+    SummaryException {
+        outcome: Id<execution::summary_exceptions::SummaryExceptionOutcome>,
+    },
     #[model(code = 20)]
-    GenericSpecialization { observation: Id<types::GenericSpecializationObservation> },
-    #[model(code = 21)] SourceCharacterization {observation:Id<syntax::DeclarationObservation>,support:Id<syntax::DeclarationSupport>},
-    #[model(code = 22)] ClassMetadata {observation:Id<class_metadata::ClassMetadataObservation>,support:Id<class_metadata::ClassMetadataSupport>},
-    #[model(code = 23)] NativeCallableMetadata {observation:Id<types::NativeSignatureObservation>,support:Id<types::NativeSignatureSupport>},
-    #[model(code = 24)] RaisedType {observation:Id<types::TypeObservation>,support:Id<types::TypeSupport>},
-    #[model(code = 25)] ResolvedDecorator {observation:Id<syntax::DeclarationDecorator>,support:Id<syntax::DeclarationDecoratorSupport>,assessment:Id<normalized::links::ReferenceEntityAssessment>,candidate:Id<normalized::links::ReferenceEntityCandidate>},
-    #[model(code = 26)] LexicalDefinition {observation:Id<lexical::BindingObservation>,support:Id<lexical::BindingSupport>},
-    #[model(code = 27)] NativeTypingCoverage {coverage:Id<attribution::ProviderCoverage>},
+    GenericSpecialization {
+        observation: Id<types::GenericSpecializationObservation>,
+    },
+    #[model(code = 21)]
+    SourceCharacterization {
+        observation: Id<syntax::DeclarationObservation>,
+        support: Id<syntax::DeclarationSupport>,
+    },
+    #[model(code = 22)]
+    ClassMetadata {
+        observation: Id<class_metadata::ClassMetadataObservation>,
+        support: Id<class_metadata::ClassMetadataSupport>,
+    },
+    #[model(code = 23)]
+    NativeCallableMetadata {
+        observation: Id<types::NativeSignatureObservation>,
+        support: Id<types::NativeSignatureSupport>,
+    },
+    #[model(code = 24)]
+    RaisedType {
+        observation: Id<types::TypeObservation>,
+        support: Id<types::TypeSupport>,
+    },
+    #[model(code = 25)]
+    ResolvedDecorator {
+        observation: Id<syntax::DeclarationDecorator>,
+        support: Id<syntax::DeclarationDecoratorSupport>,
+        assessment: Id<normalized::links::ReferenceEntityAssessment>,
+        candidate: Id<normalized::links::ReferenceEntityCandidate>,
+    },
+    #[model(code = 26)]
+    LexicalDefinition {
+        observation: Id<lexical::BindingObservation>,
+        support: Id<lexical::BindingSupport>,
+    },
+    #[model(code = 27)]
+    NativeTypingCoverage {
+        coverage: Id<attribution::ProviderCoverage>,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="catalog_selection_domains",invariants=super::build::invariants,semantic_source=include_bytes!("build.rs"))]
@@ -397,7 +432,9 @@ pub enum FieldTarget {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Predicate {
     /// Exact finite body behavior under source function entry, using runtime model evidence.
-    BehavioralRaises { exception: execution::ExactRuntimeException },
+    BehavioralRaises {
+        exception: execution::ExactRuntimeException,
+    },
     FacetMembership {
         facet: Facet,
         value: FacetValue,
@@ -440,9 +477,21 @@ pub enum Predicate {
         name: String,
         r#type: StructuralType,
     },
-    VariantParameterType { role: calls::SignatureRole, name: String, r#type: StructuralType },
-    VariantReturnType { role: calls::SignatureRole, r#type: StructuralType },
-    SpecializedType { site: Id<source::Occurrence>, declaration: Id<types::NativeSignatureObservation>, subject: Id<types::SignatureTypeSubject>, r#type: StructuralType },
+    VariantParameterType {
+        role: calls::SignatureRole,
+        name: String,
+        r#type: StructuralType,
+    },
+    VariantReturnType {
+        role: calls::SignatureRole,
+        r#type: StructuralType,
+    },
+    SpecializedType {
+        site: Id<source::Occurrence>,
+        declaration: Id<types::NativeSignatureObservation>,
+        subject: Id<types::SignatureTypeSubject>,
+        r#type: StructuralType,
+    },
     DeclaresConfigurationField {
         name: String,
     },
@@ -507,7 +556,9 @@ impl Predicate {
             | Self::ParameterDefaultState { .. }
             | Self::ParameterDefault { .. }
             | Self::ParameterType { .. }
-            | Self::VariantParameterType { .. } | Self::VariantReturnType { .. } | Self::SpecializedType { .. } => DomainKind::SignatureVariants,
+            | Self::VariantParameterType { .. }
+            | Self::VariantReturnType { .. }
+            | Self::SpecializedType { .. } => DomainKind::SignatureVariants,
             Self::DeclaresConfigurationField { .. }
             | Self::ConfigurationOwner { .. }
             | Self::ConfigurationScope { .. }
@@ -566,8 +617,13 @@ impl HeapSize for Predicate {
             Self::ParameterDefault { name, value }
             | Self::ConfigurationDefault { name, value }
             | Self::ConfigurationLiteral { name, value } => name.heap_bytes() + value.heap_bytes(),
-            Self::ParameterType { name, r#type } | Self::VariantParameterType { name, r#type, .. } => name.heap_bytes() + r#type.heap_bytes(),
-            Self::VariantReturnType { r#type, .. } | Self::SpecializedType { r#type, .. } => r#type.heap_bytes(),
+            Self::ParameterType { name, r#type }
+            | Self::VariantParameterType { name, r#type, .. } => {
+                name.heap_bytes() + r#type.heap_bytes()
+            }
+            Self::VariantReturnType { r#type, .. } | Self::SpecializedType { r#type, .. } => {
+                r#type.heap_bytes()
+            }
             Self::ReleaseVersion {
                 distribution,
                 version,
@@ -609,7 +665,20 @@ impl Predicate {
             }
             Ok(())
         }
-        if matches!(self, Self::VariantParameterType { role: calls::SignatureRole::Specialized, .. } | Self::VariantReturnType { role: calls::SignatureRole::Specialized, .. }) { return Err(ModelError::Invalid("specialized type requires a located site and native declaration".into())); }
+        if matches!(
+            self,
+            Self::VariantParameterType {
+                role: calls::SignatureRole::Specialized,
+                ..
+            } | Self::VariantReturnType {
+                role: calls::SignatureRole::Specialized,
+                ..
+            }
+        ) {
+            return Err(ModelError::Invalid(
+                "specialized type requires a located site and native declaration".into(),
+            ));
+        }
         match self {
             Self::PublicPath { path: p }
             | Self::ClassOwner { path: p }
@@ -627,7 +696,8 @@ impl Predicate {
             | Self::ConfigurationLiteral { name, .. }
             | Self::ConfigurationRelationship { name, .. }
             | Self::DeploymentDeclaration { name, .. } => text(name),
-            Self::ParameterType { name, r#type } | Self::VariantParameterType { name, r#type, .. } => {
+            Self::ParameterType { name, r#type }
+            | Self::VariantParameterType { name, r#type, .. } => {
                 text(name)?;
                 match r#type {
                     StructuralType::NominalIdentity { module, name } => {
@@ -644,7 +714,11 @@ impl Predicate {
             }
             Self::VariantReturnType { r#type, .. } | Self::SpecializedType { r#type, .. } => {
                 // Reuse the same canonical structural pattern validation.
-                Self::ParameterType { name: "return".into(), r#type: r#type.clone() }.validate()
+                Self::ParameterType {
+                    name: "return".into(),
+                    r#type: r#type.clone(),
+                }
+                .validate()
             }
             Self::ReleaseVersion {
                 distribution,

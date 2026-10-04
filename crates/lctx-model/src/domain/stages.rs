@@ -694,7 +694,6 @@ impl Schedule {
                 .collect::<HashSet<_>>()
                 .len()
                 != stage.contributes.len()
-
             {
                 return Err(ModelError::Invalid(format!(
                     "duplicate contribution or coverage family for {}",

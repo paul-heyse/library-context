@@ -27,7 +27,12 @@ async fn mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration(
     assert_eq!(packet.core.release.distribution.as_str(), "demo");
     assert_eq!(packet.core.release.version.as_str(), "1.0");
     assert!(!packet.core.signatures.is_empty());
-    let signature = packet.core.signatures.iter().find(|s|s.role==lctx_model::domain::calls::SignatureRole::Source).expect("actual declared source signature");
+    let signature = packet
+        .core
+        .signatures
+        .iter()
+        .find(|s| s.role == lctx_model::domain::calls::SignatureRole::Source)
+        .expect("actual declared source signature");
     assert!(signature.complete);
     assert_eq!(signature.parameters.len(), 1);
     let source_parameter = &signature.parameters[0];
@@ -197,13 +202,21 @@ async fn complete_signature_over_default_budget_refuses_and_expanded_packet_is_c
     let OperationResolution::Unique { packet } = response.operation else {
         panic!("huge did not resolve uniquely")
     };
-    let signature=packet.core.signatures.iter().find(|s|s.role==lctx_model::domain::calls::SignatureRole::Source).unwrap();
+    let signature = packet
+        .core
+        .signatures
+        .iter()
+        .find(|s| s.role == lctx_model::domain::calls::SignatureRole::Source)
+        .unwrap();
     assert_eq!(signature.parameters.len(), 20);
     assert_eq!(signature.effective_parameters.len(), 20);
     assert!(packet.core.limits.signature_indivisible);
-    let bytes=serde_json::to_vec(&packet).unwrap().len() as u64;
-    let limits=ResourceLimits::default();
-    assert!(bytes>limits.default_response_bytes&&bytes<=limits.expanded_response_bytes,"whole packet must lie between the unchanged byte bounds: {bytes}");
+    let bytes = serde_json::to_vec(&packet).unwrap().len() as u64;
+    let limits = ResourceLimits::default();
+    assert!(
+        bytes > limits.default_response_bytes && bytes <= limits.expanded_response_bytes,
+        "whole packet must lie between the unchanged byte bounds: {bytes}"
+    );
     drop(execution);
     fixture.finish().await;
 }
@@ -536,7 +549,12 @@ async fn large_optional_brief_keeps_the_complete_core_and_resumes_with_expanded_
     let OperationResolution::Unique { packet } = response.operation else {
         panic!("api missing")
     };
-    let signature=packet.core.signatures.iter().find(|s|s.role==lctx_model::domain::calls::SignatureRole::Source).unwrap();
+    let signature = packet
+        .core
+        .signatures
+        .iter()
+        .find(|s| s.role == lctx_model::domain::calls::SignatureRole::Source)
+        .unwrap();
     assert_eq!(signature.parameters.len(), 1);
     assert!(signature.complete);
     assert!(packet.briefs.items.is_empty());
@@ -627,9 +645,9 @@ async fn large_optional_brief_keeps_the_complete_core_and_resumes_with_expanded_
 }
 
 #[tokio::test]
-async fn typed_packets_keep_wrapper_roles_generated_slots_and_native_proofs(){
- use lctx_model::domain::{calls::SignatureRole,assumptions::AssumptionSet};
- let source=br#"from typing import Callable
+async fn typed_packets_keep_wrapper_roles_generated_slots_and_native_proofs() {
+    use lctx_model::domain::{assumptions::AssumptionSet, calls::SignatureRole};
+    let source = br#"from typing import Callable
 from dataclasses import dataclass
 __all__=['changed','Settings']
 def wrap(fn: Callable[[int],int]):
@@ -644,70 +662,341 @@ class Settings:
     host: str
     port: int = 80
 "#;
- let fixture=ServingFixture::start(source).await;let execution=fixture.service.execution().await.unwrap();
- let response=fixture.catalog.operation(&execution,&GetOperationRequest{library:Name::new("demo").unwrap(),operation:path("demo.changed"),sections:vec![],page:PageRequest{expanded:true,..Default::default()}}).await.unwrap();
- let OperationResolution::Unique{packet}=response.operation else{panic!("wrapped operation missing");};
- let declared=packet.core.signatures.iter().find(|s|s.role==SignatureRole::Source).unwrap();
- let effective=packet.core.signatures.iter().find(|s|s.role==SignatureRole::EffectiveTyped).unwrap();
- assert!(declared.parameters.iter().any(|p|p.name.0.as_ref().is_some_and(|n|n.as_str()=="value")));
- assert!(effective.effective_parameters.iter().any(|p|p.name.0.as_ref().is_some_and(|n|n.as_str()=="text")&&!p.types.is_empty()&&p.formals.is_empty()),"native text slot retains typing without invented source formal");
- assert_ne!(declared.return_types,effective.return_types,"declared int is not native effective bytes");
- assert!(declared.native.0.is_none());assert!(effective.native.0.is_some());assert!(effective.complete);
- for signature in &packet.core.signatures{
-   for answer in &signature.typing{
-     assert_eq!(answer.claim_basis.set,AssumptionSet::empty().id());
-     assert!(answer.proof.iter().any(|p|p.relation.as_str().ends_with("supports")));
-     match answer.origin {SignatureTypingOrigin::SourceDeclared{..}=>assert_eq!(signature.role,SignatureRole::Source),SignatureTypingOrigin::NativeObserved{..}=>assert_ne!(signature.role,SignatureRole::Source)}
-   }
-   assert!(signature.parameters.iter().chain(signature.effective_parameters.iter()).flat_map(|p|p.type_evidence.iter()).chain(signature.return_evidence.iter()).all(|proof|signature.typing.iter().any(|answer|answer.proof.contains(proof))),"every exposed type points to its actual qualified proof");
- }
- // Native/source facet witnesses returned by discovery must exist in this generation.
- for value in [lctx_model::domain::selection::FacetValue::Async{asynchronous:false},lctx_model::domain::selection::FacetValue::DecoratorQualifiedName{module:"demo".into(),path:vec!["wrap".into()]}] {
-   use lctx_model::domain::selection::*;
-   let facet=if matches!(value,FacetValue::Async{..}){Facet::Async}else{Facet::Decorator};
-   let response=fixture.catalog.find(&execution,&FindOperationsRequest{library:Name::new("demo").unwrap(),selection:SelectionInput(Selection{requirements:vec![Requirement{predicate:Predicate::FacetMembership{facet,value},quantifier:Quantifier::AnyApplicable}],mode:Mode::Discovery,joint:JointPolicy::IndependentRecords}),page:PageRequest{size:100,..Default::default()}}).await.unwrap();
-   let result=response.supported.items.iter().find(|r|r.name.as_str()=="demo.changed").expect("actual source facet supports changed");
-   let requirement=&result.requirements[0];
-   assert!(!requirement.positive.is_empty());
-   for id in requirement.positive.iter().chain(&requirement.negative).chain(&requirement.closure){
-     let present:bool=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT EXISTS(SELECT 1 FROM {}.selection_witnesses WHERE id=$1)",fixture.generation.schema()))).bind(id.bytes().to_vec()).fetch_one(fixture.db.owner.pool()).await.unwrap();
-     assert!(present,"request-time witness has no persisted row: {id:?}");
-   }
- }
- // Independently specified source/effective return questions retain distinct answers through service preparation.
- {
-  use lctx_model::domain::selection::*;
-  let returns=|role,name:&str|Predicate::VariantReturnType{role,r#type:StructuralType::NominalIdentity{module:"builtins".into(),name:name.into()}};
-  for (predicate,quantifier,expected) in [
-   (returns(SignatureRole::Source,"int"),Quantifier::AnyApplicable,Outcome::Supported),
-   (returns(SignatureRole::Source,"bytes"),Quantifier::AllApplicable,Outcome::Contradicted),
-   (returns(SignatureRole::EffectiveTyped,"bytes"),Quantifier::AnyApplicable,Outcome::Supported),
-   (returns(SignatureRole::EffectiveTyped,"int"),Quantifier::AllApplicable,Outcome::Contradicted),
-   (Predicate::FacetMembership{facet:Facet::Async,value:FacetValue::Async{asynchronous:true}},Quantifier::AllApplicable,Outcome::Contradicted),
-   (Predicate::FacetMembership{facet:Facet::ClassMetadata,value:FacetValue::ClassMetadata{trait_kind:ClassFacet::Enumeration,present:true}},Quantifier::AnyApplicable,Outcome::Unresolved),
-   // Negative evidence cannot close an existential question under Partial provider coverage.
-   (returns(SignatureRole::Source,"bytes"),Quantifier::AnyApplicable,Outcome::Unresolved),
-  ] {
-    let result=fixture.catalog.compare(&execution,&CompareOperationsRequest{library:Name::new("demo").unwrap(),operations:vec![path("demo.changed")],selection:SelectionInput(Selection{requirements:vec![Requirement{predicate:predicate.clone(),quantifier}],mode:Mode::Discovery,joint:JointPolicy::IndependentRecords}),page:PageRequest{expanded:true,..Default::default()}}).await.unwrap();
-    assert!(!result.operations[0].candidates.is_empty());
-    if expected==Outcome::Contradicted || matches!(predicate,Predicate::VariantReturnType{role:SignatureRole::Source,..})&&expected==Outcome::Unresolved {assert!(result.operations[0].candidates.iter().all(|r|!r.requirements[0].negative.is_empty()),"actual counterexample evidence must survive");}
-    assert!(result.operations[0].candidates.iter().all(|r|r.requirements[0].outcome==expected),"role/facet service answer differs for {predicate:?}: {:?}",result.operations[0].candidates);
-  }
- }
- let encoded=serde_json::to_value(&packet).unwrap();assert!(encoded["core"]["signatures"][0].get("source").is_none(),"hard wire migration replaces misleading source-only field");
- let response=fixture.catalog.operation(&execution,&GetOperationRequest{library:Name::new("demo").unwrap(),operation:path("demo.Settings"),sections:vec![],page:PageRequest{expanded:true,..Default::default()}}).await.unwrap();
- let OperationResolution::Unique{packet}=response.operation else{panic!("generated constructor missing");};
- let generated=packet.core.signatures.iter().find(|s|s.role==SignatureRole::Synthesized&&s.effective_parameters.iter().any(|p|p.name.0.as_ref().is_some_and(|n|n.as_str()=="host"))).unwrap();
- let host=generated.effective_parameters.iter().find(|p|p.name.0.as_ref().is_some_and(|n|n.as_str()=="host")).unwrap();
- assert!(!host.types.is_empty(),"generated host slot retains its native str typing");
- // Native slot entities are actual normalized identities, not source-formal declarations.
- let formals=host.formals.clone();
- let entities=execution.query(move |lease|Box::pin(async move {lease.read_ids::<lctx_model::domain::normalized::entities::ParameterEntity>(&formals).await})).await.unwrap();
- assert_eq!(entities.rows().len(),host.formals.len());
- for entity in entities.rows() {
-  let lctx_model::domain::normalized::entities::ParameterEntity::NativeSlot{signature,parameter,..}=entity else {panic!("generated slot invented a source formal: {entity:?}");};
-  assert_eq!(*signature,generated.signature);assert_eq!(*parameter,host.parameter);
- }
- assert!(generated.typing.iter().any(|t|matches!(t.origin,SignatureTypingOrigin::NativeObserved{..})));
- drop(execution);fixture.finish().await;
+    let fixture = ServingFixture::start(source).await;
+    let execution = fixture.service.execution().await.unwrap();
+    let response = fixture
+        .catalog
+        .operation(
+            &execution,
+            &GetOperationRequest {
+                library: Name::new("demo").unwrap(),
+                operation: path("demo.changed"),
+                sections: vec![],
+                page: PageRequest {
+                    expanded: true,
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let OperationResolution::Unique { packet } = response.operation else {
+        panic!("wrapped operation missing");
+    };
+    let declared = packet
+        .core
+        .signatures
+        .iter()
+        .find(|s| s.role == SignatureRole::Source)
+        .unwrap();
+    let effective = packet
+        .core
+        .signatures
+        .iter()
+        .find(|s| s.role == SignatureRole::EffectiveTyped)
+        .unwrap();
+    assert!(
+        declared.parameters.iter().any(|p| p
+            .name
+            .0
+            .as_ref()
+            .is_some_and(|n| n.as_str() == "value"))
+    );
+    assert!(
+        effective.effective_parameters.iter().any(|p| p
+            .name
+            .0
+            .as_ref()
+            .is_some_and(|n| n.as_str() == "text")
+            && !p.types.is_empty()
+            && p.formals.is_empty()),
+        "native text slot retains typing without invented source formal"
+    );
+    assert_ne!(
+        declared.return_types, effective.return_types,
+        "declared int is not native effective bytes"
+    );
+    assert!(declared.native.0.is_none());
+    assert!(effective.native.0.is_some());
+    assert!(effective.complete);
+    for signature in &packet.core.signatures {
+        for answer in &signature.typing {
+            assert_eq!(answer.claim_basis.set, AssumptionSet::empty().id());
+            assert!(
+                answer
+                    .proof
+                    .iter()
+                    .any(|p| p.relation.as_str().ends_with("supports"))
+            );
+            match answer.origin {
+                SignatureTypingOrigin::SourceDeclared { .. } => {
+                    assert_eq!(signature.role, SignatureRole::Source)
+                }
+                SignatureTypingOrigin::NativeObserved { .. } => {
+                    assert_ne!(signature.role, SignatureRole::Source)
+                }
+            }
+        }
+        assert!(
+            signature
+                .parameters
+                .iter()
+                .chain(signature.effective_parameters.iter())
+                .flat_map(|p| p.type_evidence.iter())
+                .chain(signature.return_evidence.iter())
+                .all(|proof| signature
+                    .typing
+                    .iter()
+                    .any(|answer| answer.proof.contains(proof))),
+            "every exposed type points to its actual qualified proof"
+        );
+    }
+    // Native/source facet witnesses returned by discovery must exist in this generation.
+    for value in [
+        lctx_model::domain::selection::FacetValue::Async {
+            asynchronous: false,
+        },
+        lctx_model::domain::selection::FacetValue::DecoratorQualifiedName {
+            module: "demo".into(),
+            path: vec!["wrap".into()],
+        },
+    ] {
+        use lctx_model::domain::selection::*;
+        let facet = if matches!(value, FacetValue::Async { .. }) {
+            Facet::Async
+        } else {
+            Facet::Decorator
+        };
+        let response = fixture
+            .catalog
+            .find(
+                &execution,
+                &FindOperationsRequest {
+                    library: Name::new("demo").unwrap(),
+                    selection: SelectionInput(Selection {
+                        requirements: vec![Requirement {
+                            predicate: Predicate::FacetMembership { facet, value },
+                            quantifier: Quantifier::AnyApplicable,
+                        }],
+                        mode: Mode::Discovery,
+                        joint: JointPolicy::IndependentRecords,
+                    }),
+                    page: PageRequest {
+                        size: 100,
+                        ..Default::default()
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        let result = response
+            .supported
+            .items
+            .iter()
+            .find(|r| r.name.as_str() == "demo.changed")
+            .expect("actual source facet supports changed");
+        let requirement = &result.requirements[0];
+        assert!(!requirement.positive.is_empty());
+        for id in requirement
+            .positive
+            .iter()
+            .chain(&requirement.negative)
+            .chain(&requirement.closure)
+        {
+            let present: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT EXISTS(SELECT 1 FROM {}.selection_witnesses WHERE id=$1)",
+                fixture.generation.schema()
+            )))
+            .bind(id.bytes().to_vec())
+            .fetch_one(fixture.db.owner.pool())
+            .await
+            .unwrap();
+            assert!(present, "request-time witness has no persisted row: {id:?}");
+        }
+    }
+    // Independently specified source/effective return questions retain distinct answers through service preparation.
+    {
+        use lctx_model::domain::selection::*;
+        let returns = |role, name: &str| Predicate::VariantReturnType {
+            role,
+            r#type: StructuralType::NominalIdentity {
+                module: "builtins".into(),
+                name: name.into(),
+            },
+        };
+        for (predicate, quantifier, expected) in [
+            (
+                returns(SignatureRole::Source, "int"),
+                Quantifier::AnyApplicable,
+                Outcome::Supported,
+            ),
+            (
+                returns(SignatureRole::Source, "bytes"),
+                Quantifier::AllApplicable,
+                Outcome::Contradicted,
+            ),
+            (
+                returns(SignatureRole::EffectiveTyped, "bytes"),
+                Quantifier::AnyApplicable,
+                Outcome::Supported,
+            ),
+            (
+                returns(SignatureRole::EffectiveTyped, "int"),
+                Quantifier::AllApplicable,
+                Outcome::Contradicted,
+            ),
+            (
+                Predicate::FacetMembership {
+                    facet: Facet::Async,
+                    value: FacetValue::Async { asynchronous: true },
+                },
+                Quantifier::AllApplicable,
+                Outcome::Contradicted,
+            ),
+            (
+                Predicate::FacetMembership {
+                    facet: Facet::ClassMetadata,
+                    value: FacetValue::ClassMetadata {
+                        trait_kind: ClassFacet::Enumeration,
+                        present: true,
+                    },
+                },
+                Quantifier::AnyApplicable,
+                Outcome::Unresolved,
+            ),
+            // Negative evidence cannot close an existential question under Partial provider coverage.
+            (
+                returns(SignatureRole::Source, "bytes"),
+                Quantifier::AnyApplicable,
+                Outcome::Unresolved,
+            ),
+        ] {
+            let result = fixture
+                .catalog
+                .compare(
+                    &execution,
+                    &CompareOperationsRequest {
+                        library: Name::new("demo").unwrap(),
+                        operations: vec![path("demo.changed")],
+                        selection: SelectionInput(Selection {
+                            requirements: vec![Requirement {
+                                predicate: predicate.clone(),
+                                quantifier,
+                            }],
+                            mode: Mode::Discovery,
+                            joint: JointPolicy::IndependentRecords,
+                        }),
+                        page: PageRequest {
+                            expanded: true,
+                            ..Default::default()
+                        },
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(!result.operations[0].candidates.is_empty());
+            if expected == Outcome::Contradicted
+                || matches!(
+                    predicate,
+                    Predicate::VariantReturnType {
+                        role: SignatureRole::Source,
+                        ..
+                    }
+                ) && expected == Outcome::Unresolved
+            {
+                assert!(
+                    result.operations[0]
+                        .candidates
+                        .iter()
+                        .all(|r| !r.requirements[0].negative.is_empty()),
+                    "actual counterexample evidence must survive"
+                );
+            }
+            assert!(
+                result.operations[0]
+                    .candidates
+                    .iter()
+                    .all(|r| r.requirements[0].outcome == expected),
+                "role/facet service answer differs for {predicate:?}: {:?}",
+                result.operations[0].candidates
+            );
+        }
+    }
+    let encoded = serde_json::to_value(&packet).unwrap();
+    assert!(
+        encoded["core"]["signatures"][0].get("source").is_none(),
+        "hard wire migration replaces misleading source-only field"
+    );
+    let response = fixture
+        .catalog
+        .operation(
+            &execution,
+            &GetOperationRequest {
+                library: Name::new("demo").unwrap(),
+                operation: path("demo.Settings"),
+                sections: vec![],
+                page: PageRequest {
+                    expanded: true,
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let OperationResolution::Unique { packet } = response.operation else {
+        panic!("generated constructor missing");
+    };
+    let generated = packet
+        .core
+        .signatures
+        .iter()
+        .find(|s| {
+            s.role == SignatureRole::Synthesized
+                && s.effective_parameters
+                    .iter()
+                    .any(|p| p.name.0.as_ref().is_some_and(|n| n.as_str() == "host"))
+        })
+        .unwrap();
+    let host = generated
+        .effective_parameters
+        .iter()
+        .find(|p| p.name.0.as_ref().is_some_and(|n| n.as_str() == "host"))
+        .unwrap();
+    assert!(
+        !host.types.is_empty(),
+        "generated host slot retains its native str typing"
+    );
+    // Native slot entities are actual normalized identities, not source-formal declarations.
+    let formals = host.formals.clone();
+    let entities = execution
+        .query(move |lease| {
+            Box::pin(async move {
+                lease
+                    .read_ids::<lctx_model::domain::normalized::entities::ParameterEntity>(&formals)
+                    .await
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(entities.rows().len(), host.formals.len());
+    for entity in entities.rows() {
+        let lctx_model::domain::normalized::entities::ParameterEntity::NativeSlot {
+            signature,
+            parameter,
+            ..
+        } = entity
+        else {
+            panic!("generated slot invented a source formal: {entity:?}");
+        };
+        assert_eq!(*signature, generated.signature);
+        assert_eq!(*parameter, host.parameter);
+    }
+    assert!(
+        generated
+            .typing
+            .iter()
+            .any(|t| matches!(t.origin, SignatureTypingOrigin::NativeObserved { .. }))
+    );
+    drop(execution);
+    fixture.finish().await;
 }

@@ -469,7 +469,9 @@ fn qualification_invariants() -> Vec<Invariant> {
             Box::new(QualificationCheck {
                 charge: StateCharge::new(budget, "qualification_condition_context"),
                 assumptions: super::assumptions::AssumptionIndex::new(budget),
-                atoms: Default::default(), nodes: Default::default(), contexts: Default::default()
+                atoms: Default::default(),
+                nodes: Default::default(),
+                contexts: Default::default(),
             })
         }),
     }]
@@ -487,7 +489,9 @@ impl InvariantCheck for QualificationCheck {
         relation: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if self.assumptions.visit(relation, batch)? { return Ok(()); }
+        if self.assumptions.visit(relation, batch)? {
+            return Ok(());
+        }
         if relation == EvaluationAtom::NAME {
             for row in EvaluationAtom::decode(batch)? {
                 self.atoms.insert(&mut self.charge, row.id(), row.context)?;

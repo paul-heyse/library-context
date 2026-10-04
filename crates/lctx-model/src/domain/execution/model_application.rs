@@ -112,7 +112,11 @@ impl<'a> CheckedModelApplication<'a> {
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         let mut charge = charged::StateCharge::new(budget, "checked-model-application");
         charge.grow(size_of::<Self>())?;
-        if let Err(reason)=super::closed_targets::runtime_identity(catalog, data, bound, shape, effective, budget)? {return Ok(Err(reason));}
+        if let Err(reason) =
+            super::closed_targets::runtime_identity(catalog, data, bound, shape, effective, budget)?
+        {
+            return Ok(Err(reason));
+        }
         let result = (|| {
             if !shape.admits(bound) {
                 return Err(ObligationKind::IncompatibleContexts);
@@ -317,42 +321,69 @@ pub(super) fn append_native_evidence(
     rows: &mut Rows<analysis::native::NativeAssertionPremise>,
     status: &mut analysis::policy::EvidenceStatus,
 ) -> Result<(), RuntimeEvidenceError> {
-    append_native_evidence_rows(&data.bindings.qualifications, &data.native, &data.premises, None, reference, q, context, rows, status)
+    append_native_evidence_rows(
+        &data.bindings.qualifications,
+        &data.native,
+        &data.premises,
+        None,
+        reference,
+        q,
+        context,
+        rows,
+        status,
+    )
 }
-#[allow(clippy::too_many_arguments, reason = "Native evidence joins preserve separate qualification, premise, index and charged output owners.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Native evidence joins preserve separate qualification, premise, index and charged output owners."
+)]
 pub(super) fn append_native_evidence_rows(
-    qualifications: &Rows<AssertionQualification>, native: &Rows<analysis::native::NativeQualification>,
-    premises: &Rows<analysis::native::NativeAssertionPremise>, index: Option<&charged::ChargedMap<derivation::RowRef, Vec<Id<analysis::native::NativeQualification>>>>, reference: derivation::RowRef,
-    q: Id<AssertionQualification>, context: Id<AnalysisContext>,
-    rows: &mut Rows<analysis::native::NativeAssertionPremise>, status: &mut analysis::policy::EvidenceStatus,
+    qualifications: &Rows<AssertionQualification>,
+    native: &Rows<analysis::native::NativeQualification>,
+    premises: &Rows<analysis::native::NativeAssertionPremise>,
+    index: Option<
+        &charged::ChargedMap<derivation::RowRef, Vec<Id<analysis::native::NativeQualification>>>,
+    >,
+    reference: derivation::RowRef,
+    q: Id<AssertionQualification>,
+    context: Id<AnalysisContext>,
+    rows: &mut Rows<analysis::native::NativeAssertionPremise>,
+    status: &mut analysis::policy::EvidenceStatus,
 ) -> Result<(), RuntimeEvidenceError> {
     exact_qualification(qualifications, q, context)?;
     let mut found = false;
-    let mut append = |native: &analysis::native::NativeQualification| -> Result<(), RuntimeEvidenceError> {
-        if native.qualification != q { return Ok(()); }
-        let premise = need(premises, native.premise)?;
-        if premise.assertion_and_support().0 != reference {
-            return Ok(());
-        }
-        if native.fidelity == attribution::Fidelity::DisplayOnly
-            || native.status != analysis::policy::native_status(native.family, native.fidelity)
-        {
-            return Err(ObligationKind::MissingEvidence.into());
-        }
-        analysis::policy::behavioral_support(native.status, false)
-            .map_err(|_| ObligationKind::MissingEvidence)?;
-        rows.insert(premise.clone())?;
-        *status = analysis::support::inferred_status(
-            analysis::Interpretation::Structural,
-            [*status, native.status],
-        );
-        found = true;
-        Ok(())
-    };
+    let mut append =
+        |native: &analysis::native::NativeQualification| -> Result<(), RuntimeEvidenceError> {
+            if native.qualification != q {
+                return Ok(());
+            }
+            let premise = need(premises, native.premise)?;
+            if premise.assertion_and_support().0 != reference {
+                return Ok(());
+            }
+            if native.fidelity == attribution::Fidelity::DisplayOnly
+                || native.status != analysis::policy::native_status(native.family, native.fidelity)
+            {
+                return Err(ObligationKind::MissingEvidence.into());
+            }
+            analysis::policy::behavioral_support(native.status, false)
+                .map_err(|_| ObligationKind::MissingEvidence)?;
+            rows.insert(premise.clone())?;
+            *status = analysis::support::inferred_status(
+                analysis::Interpretation::Structural,
+                [*status, native.status],
+            );
+            found = true;
+            Ok(())
+        };
     if let Some(index) = index {
-        for id in index.get(&reference).into_iter().flatten() { append(need(native, *id)?)?; }
+        for id in index.get(&reference).into_iter().flatten() {
+            append(need(native, *id)?)?;
+        }
     } else {
-        for native in native.iter() { append(native)?; }
+        for native in native.iter() {
+            append(native)?;
+        }
     }
     if !found {
         return Err(ObligationKind::MissingEvidence.into());
@@ -379,12 +410,14 @@ pub(super) fn runtime_identity_native(
     };
     match callable {
         CallableEntity::Source { .. } => {
-            if receiver.is_none_or(|r|!r.admits(bound,shape)) && effective.is_none_or(|e| {
-                !e.admits(bound)
-                    || e.callee() != shape.callee()
-                    || e.input() != shape.input()
-                    || e.phase() != shape.phase()
-            }) {
+            if receiver.is_none_or(|r| !r.admits(bound, shape))
+                && effective.is_none_or(|e| {
+                    !e.admits(bound)
+                        || e.callee() != shape.callee()
+                        || e.input() != shape.input()
+                        || e.phase() != shape.phase()
+                })
+            {
                 return Err(ObligationKind::MissingEvidence);
             }
         }
@@ -474,7 +507,9 @@ pub(super) fn exact(
     exact_qualification(&data.qualifications, id, context)
 }
 pub(super) fn exact_qualification(
-    data: &Rows<AssertionQualification>, id: Id<AssertionQualification>, context: Id<AnalysisContext>,
+    data: &Rows<AssertionQualification>,
+    id: Id<AssertionQualification>,
+    context: Id<AnalysisContext>,
 ) -> Result<(), ObligationKind> {
     let q = need(data, id)?;
     if q.context != context {

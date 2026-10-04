@@ -1,4 +1,5 @@
 """Verify independent Ruff/ty's exact source and observational patch (ADR-0117)."""
+
 from __future__ import annotations
 
 import argparse
@@ -22,7 +23,9 @@ CONSTANT = re.compile(r'pub const (RUFF_REVISION|RUFF_PATCH_SHA256): &str =\s*"(
 def one_revision(lock: str, driver: str, pins: str, patch: bytes) -> tuple[str | None, list[str]]:
     revisions = set(LOCKED.findall(lock))
     if len(revisions) != 1:
-        return None, [f"Cargo.lock has {len(revisions)} independent Ruff revisions: {sorted(revisions)}"]
+        return None, [
+            f"Cargo.lock has {len(revisions)} independent Ruff revisions: {sorted(revisions)}"
+        ]
     revision = revisions.pop()
     constants = dict(CONSTANT.findall(driver))
     digest = hashlib.sha256(patch).hexdigest()
@@ -39,7 +42,9 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkout", type=Path)
     args = parser.parse_args(argv)
-    revision, problems = one_revision(LOCK.read_text(), DRIVER.read_text(), PINS.read_text(), PATCH.read_bytes())
+    revision, problems = one_revision(
+        LOCK.read_text(), DRIVER.read_text(), PINS.read_text(), PATCH.read_bytes()
+    )
     if revision is None or problems:
         for problem in problems:
             print(f"ruff-fork: {problem}")
@@ -51,7 +56,9 @@ def main(argv: list[str]) -> int:
         return 1
 
     def git(*arguments: str, stdin: bytes | None = None) -> bytes:
-        return subprocess.run(["git", "-C", str(checkout), *arguments], input=stdin, capture_output=True, check=True).stdout
+        return subprocess.run(
+            ["git", "-C", str(checkout), *arguments], input=stdin, capture_output=True, check=True
+        ).stdout
 
     if git("rev-parse", f"{revision}^").decode().strip() != UPSTREAM:
         problems.append("fork parent differs from reviewed Ruff 0.16.10 upstream")
@@ -62,7 +69,9 @@ def main(argv: list[str]) -> int:
     for problem in problems:
         print(f"ruff-fork: {problem}")
     if not problems:
-        print(f"ruff-fork: passed ({revision[:8]} locked, driver/pins/digest agree, upstream plus exact patch)")
+        print(
+            f"ruff-fork: passed ({revision[:8]} locked, driver/pins/digest agree, upstream plus exact patch)"
+        )
     return int(bool(problems))
 
 

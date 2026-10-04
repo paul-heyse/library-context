@@ -613,8 +613,7 @@ def qualify(
             formals = {
                 (tuple(s["analysis"]), tuple(formal))
                 for s in packet["core"]["signatures"]
-                if s["role"] == code(schema, "calls_SignatureRole", "source")
-                and s["complete"]
+                if s["role"] == code(schema, "calls_SignatureRole", "source") and s["complete"]
                 for p in s["parameters"]
                 if p["name"] == parameter_name
                 for formal in p["formals"]

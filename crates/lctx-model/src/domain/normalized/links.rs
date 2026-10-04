@@ -214,21 +214,30 @@ pub struct MentionSymbolCandidate {
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "reference_binding_characterizations")]
 pub struct ReferenceBindingCharacterization {
-    #[model(key)] pub reference: Id<lexical::ReferenceObservation>,
-    #[model(key)] pub native_context: Id<ruff::RuffContextObservation>,
-    #[model(key)] pub binding: Id<ruff::RuffBindingObservation>,
-    #[model(key)] pub context_support: Option<Id<ruff::RuffContextSupport>>,
-    #[model(key)] pub support: Option<Id<ruff::RuffBindingSupport>>,
-    #[model(key)] pub candidate: Option<Id<ReferenceEntityCandidate>>,
+    #[model(key)]
+    pub reference: Id<lexical::ReferenceObservation>,
+    #[model(key)]
+    pub native_context: Id<ruff::RuffContextObservation>,
+    #[model(key)]
+    pub binding: Id<ruff::RuffBindingObservation>,
+    #[model(key)]
+    pub context_support: Option<Id<ruff::RuffContextSupport>>,
+    #[model(key)]
+    pub support: Option<Id<ruff::RuffBindingSupport>>,
+    #[model(key)]
+    pub candidate: Option<Id<ReferenceEntityCandidate>>,
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "declaration_native_characterizations")]
 pub struct DeclarationNativeCharacterization {
-    #[model(key)] pub declaration: Id<syntax::DeclarationObservation>,
-    #[model(key)] pub native_definition: Id<ruff::RuffDefinitionObservation>,
-    #[model(key)] pub support: Option<Id<ruff::RuffDefinitionSupport>>,
+    #[model(key)]
+    pub declaration: Id<syntax::DeclarationObservation>,
+    #[model(key)]
+    pub native_definition: Id<ruff::RuffDefinitionObservation>,
+    #[model(key)]
+    pub support: Option<Id<ruff::RuffDefinitionSupport>>,
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }

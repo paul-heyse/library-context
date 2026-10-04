@@ -143,7 +143,7 @@ impl ModelRecords{fn new(invocation:Id<publication::AnalysisInvocation>,budget:&
 };}
 output_rows!(output);
 pub struct ModelData {
-    pub protocol:super::protocol_interpretation::ProtocolData,
+    pub protocol: super::protocol_interpretation::ProtocolData,
     pub context_bindings: Rows<super::context_binding::ContextEntryBinding>,
     pub context_binding_sources: Rows<super::context_binding::BindingSource>,
     pub context_binding_members: Rows<super::context_binding::BindingMember>,
@@ -172,7 +172,7 @@ pub struct ModelData {
 impl ModelData {
     pub fn new(budget: &ResourceBudget) -> Self {
         Self {
-            protocol:super::protocol_interpretation::ProtocolData::new(budget),
+            protocol: super::protocol_interpretation::ProtocolData::new(budget),
             context_bindings: Rows::new(budget),
             context_binding_sources: Rows::new(budget),
             context_binding_members: Rows::new(budget),
@@ -204,7 +204,7 @@ impl ModelData {
         name: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        self.protocol.visit(name,batch)?;
+        self.protocol.visit(name, batch)?;
         self.execution.visit(name, batch)?;
         self.early.visit(name, batch)?;
         self.bindings.visit(name, batch)?;
@@ -712,7 +712,14 @@ pub fn apply_all(
             }
         }
     }
-    super::protocol_interpretation::emit(data,catalog,&verified,invocation,&mut records,budget)?;
+    super::protocol_interpretation::emit(
+        data,
+        catalog,
+        &verified,
+        invocation,
+        &mut records,
+        budget,
+    )?;
     records.run.applied = records.applications.len() as i64;
     records.run.refused = records.boundaries.len() as i64;
     if !records.boundaries.is_empty()

@@ -14,7 +14,10 @@ struct State {
     guard: GenerationGuard,
     semantics: native_requests::PreparedNativeSemantics,
     actual: BTreeSet<RowRef>,
-    claim_bases:std::collections::BTreeMap<Id<assertion::AssertionQualification>,Arc<serving::ClaimBasisPacket>>,
+    claim_bases: std::collections::BTreeMap<
+        Id<assertion::AssertionQualification>,
+        Arc<serving::ClaimBasisPacket>,
+    >,
     _charge: Box<dyn Reservation>,
     _basis_charges: Vec<Box<dyn Reservation>>,
 }
@@ -123,13 +126,30 @@ impl GenerationService {
         let mut claim_bases = std::collections::BTreeMap::new();
         let mut sets = std::collections::BTreeMap::new();
         {
-            let mut scope = super::packet_reads::PacketLease::new::<serving::NativeAssessmentPacket>(lease);
-            for q in inputs.rows.qualifications.iter().chain(inputs.native.entry.qualifications.iter()) {
-                let basis = if let Some(basis) = sets.get(&q.assumptions) { Arc::clone(basis) }
-                else { let basis = Arc::new(scope.claim_basis(q).await?);
-                    basis_charges.push(budget.reserve("native-resolved-claim-basis", super::catalog_service::serialized_len(&*basis)?.saturating_mul(2).saturating_add(size_of::<serving::ClaimBasisPacket>()))?);
-                    sets.insert(q.assumptions,Arc::clone(&basis)); basis };
-                claim_bases.insert(q.id(),basis);
+            let mut scope =
+                super::packet_reads::PacketLease::new::<serving::NativeAssessmentPacket>(lease);
+            for q in inputs
+                .rows
+                .qualifications
+                .iter()
+                .chain(inputs.native.entry.qualifications.iter())
+            {
+                let basis = if let Some(basis) = sets.get(&q.assumptions) {
+                    Arc::clone(basis)
+                } else {
+                    let basis = Arc::new(scope.claim_basis(q).await?);
+                    basis_charges.push(
+                        budget.reserve(
+                            "native-resolved-claim-basis",
+                            super::catalog_service::serialized_len(&*basis)?
+                                .saturating_mul(2)
+                                .saturating_add(size_of::<serving::ClaimBasisPacket>()),
+                        )?,
+                    );
+                    sets.insert(q.assumptions, Arc::clone(&basis));
+                    basis
+                };
+                claim_bases.insert(q.id(), basis);
             }
         }
         let actual = inputs.actual_rows();
@@ -282,7 +302,15 @@ impl PreparedNative {
                 {
                     return Err(Error::Contract);
                 }
-                packets.push(serving::NativeAssessmentPacket::from_canonical(&assessment, self.state.claim_bases.get(&assessment.qualification).ok_or(Error::Contract)?.as_ref().clone()));
+                packets.push(serving::NativeAssessmentPacket::from_canonical(
+                    &assessment,
+                    self.state
+                        .claim_bases
+                        .get(&assessment.qualification)
+                        .ok_or(Error::Contract)?
+                        .as_ref()
+                        .clone(),
+                ));
             }
         }
         if offset > total {

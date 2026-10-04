@@ -1109,7 +1109,7 @@ pub(crate) mod tests {
             })
             .unwrap();
         let q = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: id(2),
             scope: CoverageScope::Artifact {
                 artifact: source.id(),
@@ -1310,7 +1310,7 @@ pub(crate) mod tests {
         d.artifacts.insert(artifact.clone()).unwrap();
         let context = d.core_invocations.iter().next().unwrap().context;
         let q = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context,
             scope: CoverageScope::Artifact {
                 artifact: artifact.id(),

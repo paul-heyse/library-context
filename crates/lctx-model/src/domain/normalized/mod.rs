@@ -7,8 +7,8 @@ mod callable_inventory;
 pub mod callable_normalization;
 pub mod callables;
 pub mod coverage;
-pub mod dispatch;
 pub mod decorator_identity;
+pub mod dispatch;
 pub mod entities;
 pub mod entity_normalization;
 mod event_inventory;
@@ -47,7 +47,13 @@ pub(crate) fn facts_inputs(inputs: Vec<ValidationInput>) -> Vec<ValidationInput>
 
 /// Revision of semantic normalization, included in every assessment key and stage declaration.
 pub fn policy_revision() -> ContentHash {
-    ContentHash::of(&[b"lctx-normalization/phase4/dispatch-class-of/v3".as_slice(),include_bytes!("native_lexical.rs").as_slice()].concat())
+    ContentHash::of(
+        &[
+            b"lctx-normalization/phase4/dispatch-class-of/v3".as_slice(),
+            include_bytes!("native_lexical.rs").as_slice(),
+        ]
+        .concat(),
+    )
 }
 pub fn relations() -> Vec<Relation> {
     let mut relations = entities::relations();

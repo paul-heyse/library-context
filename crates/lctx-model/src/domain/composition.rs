@@ -878,14 +878,29 @@ pub fn compose_call(
         .approximation
         .join(callee.qualification().approximation)
         .join(call.qualification.approximation);
-    let _basis_scratch = budget.reserve("composition_assumption_union", assumptions::MAX_ASSUMPTIONS.saturating_mul(4 * size_of::<assumptions::AssumptionSetMember>()))?;
-    let basis_ids = BTreeSet::from([call.qualification.assumptions, caller.qualification().assumptions, callee.qualification().assumptions]);
+    let _basis_scratch = budget.reserve(
+        "composition_assumption_union",
+        assumptions::MAX_ASSUMPTIONS
+            .saturating_mul(4 * size_of::<assumptions::AssumptionSetMember>()),
+    )?;
+    let basis_ids = BTreeSet::from([
+        call.qualification.assumptions,
+        caller.qualification().assumptions,
+        callee.qualification().assumptions,
+    ]);
     let basis = if basis_ids.len() > 1 {
         use assumptions::AssumptionResolver;
-        let resolved = basis_ids.into_iter().map(|id| catalog.assumptions.resolve(id)).collect::<Result<Vec<_>, _>>()?;
+        let resolved = basis_ids
+            .into_iter()
+            .map(|id| catalog.assumptions.resolve(id))
+            .collect::<Result<Vec<_>, _>>()?;
         Some(assumptions::ResolvedAssumptions::union(&resolved)?)
-    } else { None };
-    let basis_id = basis.as_ref().map_or(call.qualification.assumptions, |b| b.set.id());
+    } else {
+        None
+    };
+    let basis_id = basis
+        .as_ref()
+        .map_or(call.qualification.assumptions, |b| b.set.id());
     let final_q = AssertionQualification {
         assumptions: basis_id,
         context: caller_key.context,
@@ -973,7 +988,12 @@ pub fn compose_call(
             segments: shared.segments.clone(),
             ..Default::default()
         };
-        if let Some(basis) = &basis { records.assumption_sets.push(basis.set.clone()); records.assumption_members.extend(basis.members.iter().cloned()); }
+        if let Some(basis) = &basis {
+            records.assumption_sets.push(basis.set.clone());
+            records
+                .assumption_members
+                .extend(basis.members.iter().cloned());
+        }
         let input = place_row(&mut records, caller_root.clone(), input_path.clone());
         let output = place_row(&mut records, out_root, out_path);
         let qualification = AssertionQualification {
@@ -1009,7 +1029,9 @@ pub fn compose_call(
             "call_composition_output",
             composition_allowance(caller, callee, call, catalog)?
                 .saturating_add(condition.allocation_allowance())
-                .saturating_add(basis.as_ref().map_or(0, |b| size_of::<assumptions::AssumptionSet>() + b.heap_bytes())),
+                .saturating_add(basis.as_ref().map_or(0, |b| {
+                    size_of::<assumptions::AssumptionSet>() + b.heap_bytes()
+                })),
         )?;
         let (condition_row, nodes) = condition.records();
         records.atoms.extend(atoms.iter().cloned());
@@ -1228,7 +1250,9 @@ pub(crate) fn composition_invariants() -> Vec<Invariant> {
                 ValidationInput::of::<SummaryPremise>(&["id"]),
                 ValidationInput::of::<SummaryWitness>(&["id"]),
                 ValidationInput::of::<super::execution::summary_path::SummaryPathWitness>(&["id"]),
-                ValidationInput::of::<super::execution::summary_capture::SummaryCaptureWitness>(&["id"]),
+                ValidationInput::of::<super::execution::summary_capture::SummaryCaptureWitness>(&[
+                    "id",
+                ]),
                 ValidationInput::of::<SummaryContribution>(&["id"]),
                 ValidationInput::of::<super::transfer::local::TransferSupport>(&["id"]),
                 ValidationInput::of::<super::transfer::model::TransferSupport>(&["id"]),
@@ -1274,7 +1298,10 @@ struct CompositionCheck {
         Id<super::execution::summary_path::SummaryPathWitness>,
         super::execution::summary_path::SummaryPathWitness,
     >,
-    capture_witnesses:ChargedMap<Id<super::execution::summary_capture::SummaryCaptureWitness>,super::execution::summary_capture::SummaryCaptureWitness>,
+    capture_witnesses: ChargedMap<
+        Id<super::execution::summary_capture::SummaryCaptureWitness>,
+        super::execution::summary_capture::SummaryCaptureWitness,
+    >,
     contributions: super::charged::ChargedVec<SummaryContribution>,
     binding_data: BindingData,
     binding_output: BindingOutput,
@@ -1325,7 +1352,7 @@ impl CompositionCheck {
             premises: Default::default(),
             witnesses: Default::default(),
             path_witnesses: Default::default(),
-            capture_witnesses:Default::default(),
+            capture_witnesses: Default::default(),
             contributions: Default::default(),
             binding_data: BindingData::new(budget),
             binding_output: BindingOutput::new(budget),
@@ -1385,11 +1412,19 @@ impl CompositionCheck {
                 self.model_evidence.get(*source).map(|(_, facts)| facts)
             })
             .collect(),
-            SummaryPremise::Captured {witness}=> {
-                let row=Self::get(&self.capture_witnesses,witness,"capture witness absent")?;
-                let parent=Self::get(&self.invocations,&row.invocation,"capture summary invocation absent")?;
-                if (parent.input,parent.context)!=(invocation.input,invocation.context) {return Err(invalid("capture premise crosses invocation frame"));}
-                Ok(vec![super::analysis::support::DerivedEvidence::source_facts(row)])
+            SummaryPremise::Captured { witness } => {
+                let row = Self::get(&self.capture_witnesses, witness, "capture witness absent")?;
+                let parent = Self::get(
+                    &self.invocations,
+                    &row.invocation,
+                    "capture summary invocation absent",
+                )?;
+                if (parent.input, parent.context) != (invocation.input, invocation.context) {
+                    return Err(invalid("capture premise crosses invocation frame"));
+                }
+                Ok(vec![
+                    super::analysis::support::DerivedEvidence::source_facts(row),
+                ])
             }
             SummaryPremise::Path { witness } => {
                 let row = Self::get(
@@ -1456,10 +1491,20 @@ impl CompositionCheck {
                 "earlier summary witness absent",
             )?);
         }
-        if let SummaryPremise::Captured {witness}=source {
-            let row=Self::get(&self.capture_witnesses,witness,"capture witness absent")?;
-            return Ok((Self::get(&self.keys,&RowRef::of(row.transfer),"capture transfer absent")?,
-                Self::get(&self.qualifications,&row.qualification,"capture qualification absent")?));
+        if let SummaryPremise::Captured { witness } = source {
+            let row = Self::get(&self.capture_witnesses, witness, "capture witness absent")?;
+            return Ok((
+                Self::get(
+                    &self.keys,
+                    &RowRef::of(row.transfer),
+                    "capture transfer absent",
+                )?,
+                Self::get(
+                    &self.qualifications,
+                    &row.qualification,
+                    "capture qualification absent",
+                )?,
+            ));
         }
         if let SummaryPremise::Path { witness } = source {
             let row = Self::get(&self.path_witnesses, witness, "earlier path proof absent")?;
@@ -2106,8 +2151,10 @@ impl InvariantCheck for CompositionCheck {
                 self.path_witnesses
                     .insert(&mut self.charge, row.id(), row)?;
             }
-        } else if relation==super::execution::summary_capture::SummaryCaptureWitness::NAME {
-            for row in super::execution::summary_capture::SummaryCaptureWitness::decode(batch)? {self.capture_witnesses.insert(c,row.id(),row)?;}
+        } else if relation == super::execution::summary_capture::SummaryCaptureWitness::NAME {
+            for row in super::execution::summary_capture::SummaryCaptureWitness::decode(batch)? {
+                self.capture_witnesses.insert(c, row.id(), row)?;
+            }
         } else if relation == SummaryWitness::NAME {
             for row in SummaryWitness::decode(batch)? {
                 self.witnesses.insert(c, row.id(), row)?;

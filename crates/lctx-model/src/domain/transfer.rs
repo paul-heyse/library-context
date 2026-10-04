@@ -331,7 +331,10 @@ pub fn merge<K: TransferKeyRecord>(
                 ObligationKind::SummaryPairWorkLimit,
             ));
         }
-        let id = (branch.key().id(), analysis::support::alternative_basis(branch.qualification()));
+        let id = (
+            branch.key().id(),
+            analysis::support::alternative_basis(branch.qualification()),
+        );
         let alternative = branch.alternative().id();
         match merged.get_mut(&id) {
             Some(existing) => {

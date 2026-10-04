@@ -139,14 +139,28 @@ impl ServingFixture {
             let tree = dir.path().join("sources/demo/corpus");
             write(&tree.join("guide.md"), document);
             let git = |args: &[&str]| {
-                let output = Command::new("git").current_dir(&tree)
+                let output = Command::new("git")
+                    .current_dir(&tree)
                     .env("GIT_CONFIG_NOSYSTEM", "1")
                     .env("GIT_CONFIG_GLOBAL", "/dev/null")
                     .env("GIT_AUTHOR_DATE", "2026-10-03T00:00:00Z")
                     .env("GIT_COMMITTER_DATE", "2026-10-03T00:00:00Z")
-                    .args(["-c", "core.hooksPath=/dev/null", "-c", "user.name=Serving fixture", "-c", "user.email=fixture@example.invalid"])
-                    .args(args).output().unwrap();
-                assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+                    .args([
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "-c",
+                        "user.name=Serving fixture",
+                        "-c",
+                        "user.email=fixture@example.invalid",
+                    ])
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
                 String::from_utf8(output.stdout).unwrap().trim().to_owned()
             };
             git(&["init", "-q", "--template=", "--object-format=sha1"]);

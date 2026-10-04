@@ -294,48 +294,138 @@ pub enum Attribute {
     #[model(code = 7)]
     ResolvedDecorator { entity: Id<EntityRef> },
     #[model(code = 8)]
-    TypeClassTrait { role: TypePortRole, class: Id<EntityRef>, basis: class_metadata::MetadataBasis, trait_kind: TypeClassTrait },
+    TypeClassTrait {
+        role: TypePortRole,
+        class: Id<EntityRef>,
+        basis: class_metadata::MetadataBasis,
+        trait_kind: TypeClassTrait,
+    },
     #[model(code = 9)]
-    TypeClassRecord { role: TypePortRole, class: Id<EntityRef>, basis: class_metadata::MetadataBasis, record: types::RecordKind, options: Option<Id<class_metadata::RecordOptions>> },
+    TypeClassRecord {
+        role: TypePortRole,
+        class: Id<EntityRef>,
+        basis: class_metadata::MetadataBasis,
+        record: types::RecordKind,
+        options: Option<Id<class_metadata::RecordOptions>>,
+    },
     #[model(code = 10)]
-    TypeClassMember { role: TypePortRole, class: Id<EntityRef>, basis: class_metadata::MetadataBasis, origin: class_metadata::MemberOrigin, member_kind: class_metadata::MemberKind, name: String, term: Id<types::TypeTerm> },
+    TypeClassMember {
+        role: TypePortRole,
+        class: Id<EntityRef>,
+        basis: class_metadata::MetadataBasis,
+        origin: class_metadata::MemberOrigin,
+        member_kind: class_metadata::MemberKind,
+        name: String,
+        term: Id<types::TypeTerm>,
+    },
     #[model(code = 11)]
-    TypeClassDeprecation { role: TypePortRole, class: Id<EntityRef>, basis: class_metadata::MetadataBasis, message: Option<String> },
+    TypeClassDeprecation {
+        role: TypePortRole,
+        class: Id<EntityRef>,
+        basis: class_metadata::MetadataBasis,
+        message: Option<String>,
+    },
     #[model(code = 12)]
-    NativeSignature { role: calls::SignatureRole, adjustment: normalized::callables::SignatureAdjustment, receiver: types::NativeReceiver, complete: bool, term: Id<types::TypeTerm> },
+    NativeSignature {
+        role: calls::SignatureRole,
+        adjustment: normalized::callables::SignatureAdjustment,
+        receiver: types::NativeReceiver,
+        complete: bool,
+        term: Id<types::TypeTerm>,
+    },
     #[model(code = 13)]
-    NativeParameterType { role: calls::SignatureRole, adjustment: normalized::callables::SignatureAdjustment, receiver: types::NativeReceiver, ordinal: i64, name: Option<Utf8Text>, parameter_kind: calls::ParameterKind, term: Id<types::TypeTerm> },
+    NativeParameterType {
+        role: calls::SignatureRole,
+        adjustment: normalized::callables::SignatureAdjustment,
+        receiver: types::NativeReceiver,
+        ordinal: i64,
+        name: Option<Utf8Text>,
+        parameter_kind: calls::ParameterKind,
+        term: Id<types::TypeTerm>,
+    },
     #[model(code = 14)]
-    NativeReturnType { role: calls::SignatureRole, adjustment: normalized::callables::SignatureAdjustment, receiver: types::NativeReceiver, term: Id<types::TypeTerm> },
+    NativeReturnType {
+        role: calls::SignatureRole,
+        adjustment: normalized::callables::SignatureAdjustment,
+        receiver: types::NativeReceiver,
+        term: Id<types::TypeTerm>,
+    },
     #[model(code = 15)]
-    CaptureDependence { name: String, origin: captures::CaptureOrigin, declaring: Option<Id<calls::ProviderSymbol>>, mutable: Option<bool>, timing: captures::CaptureTiming },
+    CaptureDependence {
+        name: String,
+        origin: captures::CaptureOrigin,
+        declaring: Option<Id<calls::ProviderSymbol>>,
+        mutable: Option<bool>,
+        timing: captures::CaptureTiming,
+    },
     #[model(code = 16)]
-    ExitProtocolTyping { asynchronous: bool, normal: Id<types::TypeTerm>, exceptional: Id<types::TypeTerm>, normal_status: protocols::NativeCallStatus, exceptional_status: protocols::NativeCallStatus, normal_awaitability: protocols::ExitAwaitability, exceptional_awaitability: protocols::ExitAwaitability },
+    ExitProtocolTyping {
+        asynchronous: bool,
+        normal: Id<types::TypeTerm>,
+        exceptional: Id<types::TypeTerm>,
+        normal_status: protocols::NativeCallStatus,
+        exceptional_status: protocols::NativeCallStatus,
+        normal_awaitability: protocols::ExitAwaitability,
+        exceptional_awaitability: protocols::ExitAwaitability,
+    },
     #[model(code = 17)]
-    TerminalTyping { decision: protocols::TerminalDecision, returns: Option<Id<types::TypeTerm>>, inferred: Option<bool>, bound: bool },
+    TerminalTyping {
+        decision: protocols::TerminalDecision,
+        returns: Option<Id<types::TypeTerm>>,
+        inferred: Option<bool>,
+        bound: bool,
+    },
     #[model(code = 18)]
-    NativeDeprecation { role: calls::SignatureRole, basis: class_metadata::MetadataBasis, availability: types::CallableDeprecation, message: Option<String> },
+    NativeDeprecation {
+        role: calls::SignatureRole,
+        basis: class_metadata::MetadataBasis,
+        availability: types::CallableDeprecation,
+        message: Option<String>,
+    },
 }
 /// Classes reached structurally from declared ports, distinct from callable traits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum TypePortRole { Parameter = 0, Return = 1 }
+pub enum TypePortRole {
+    Parameter = 0,
+    Return = 1,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum TypeClassTrait { FinalDeclaration = 0, Protocol = 1, RuntimeCheckableProtocol = 2, NewType = 3, Enumeration = 4, ExplicitlyAbstract = 5, AbstractMember = 6, ExplicitSlots = 7 }
+pub enum TypeClassTrait {
+    FinalDeclaration = 0,
+    Protocol = 1,
+    RuntimeCheckableProtocol = 2,
+    NewType = 3,
+    Enumeration = 4,
+    ExplicitlyAbstract = 5,
+    AbstractMember = 6,
+    ExplicitSlots = 7,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum MetadataSelectionStatus { Available = 0, MissingMetadata = 1, QualifiedUncertainty = 2, MissingSupport = 3 }
+pub enum MetadataSelectionStatus {
+    Available = 0,
+    MissingMetadata = 1,
+    QualifiedUncertainty = 2,
+    MissingSupport = 3,
+}
 /// Missing metadata is retained separately from Boolean incidence; absence supplies no negation.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "analytic_type_metadata_selections")]
 pub struct TypeMetadataSelection {
-    #[model(key)] pub scope: Id<ConceptScope>,
-    #[model(key)] pub entity: Id<EntityRef>,
-    #[model(key)] pub observation: Id<types::TypeObservation>,
-    #[model(key)] pub class: Id<EntityRef>,
-    #[model(key)] pub role: TypePortRole,
-    #[model(key)] pub metadata: Option<Id<class_metadata::ClassMetadataObservation>>,
+    #[model(key)]
+    pub scope: Id<ConceptScope>,
+    #[model(key)]
+    pub entity: Id<EntityRef>,
+    #[model(key)]
+    pub observation: Id<types::TypeObservation>,
+    #[model(key)]
+    pub class: Id<EntityRef>,
+    #[model(key)]
+    pub role: TypePortRole,
+    #[model(key)]
+    pub metadata: Option<Id<class_metadata::ClassMetadataObservation>>,
     pub status: MetadataSelectionStatus,
     pub abstract_absence_known: Option<bool>,
 }
@@ -344,10 +434,14 @@ pub use crate::domain::normalized::decorator_identity::DecoratorSelectionStatus;
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "analytic_decorator_selections")]
 pub struct DecoratorSelection {
-    #[model(key)] pub scope: Id<ConceptScope>,
-    #[model(key)] pub entity: Id<EntityRef>,
-    #[model(key)] pub observation: Id<syntax::DeclarationDecorator>,
-    #[model(key)] pub assessment: Option<Id<normalized::links::ReferenceEntityAssessment>>,
+    #[model(key)]
+    pub scope: Id<ConceptScope>,
+    #[model(key)]
+    pub entity: Id<EntityRef>,
+    #[model(key)]
+    pub observation: Id<syntax::DeclarationDecorator>,
+    #[model(key)]
+    pub assessment: Option<Id<normalized::links::ReferenceEntityAssessment>>,
     pub status: DecoratorSelectionStatus,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
@@ -372,21 +466,50 @@ pub enum IncidenceSource {
         occurrence: Id<structural::handoffs::Handoff>,
     },
     #[model(code = 5)]
-    TypeClassMetadata { observation: Id<types::TypeObservation>, metadata: Id<class_metadata::ClassMetadataObservation>, support: Id<class_metadata::ClassMetadataSupport> },
+    TypeClassMetadata {
+        observation: Id<types::TypeObservation>,
+        metadata: Id<class_metadata::ClassMetadataObservation>,
+        support: Id<class_metadata::ClassMetadataSupport>,
+    },
     #[model(code = 6)]
-    TypeClassMember { observation: Id<types::TypeObservation>, member: Id<class_metadata::ClassMemberObservation>, support: Id<class_metadata::ClassMemberSupport> },
+    TypeClassMember {
+        observation: Id<types::TypeObservation>,
+        member: Id<class_metadata::ClassMemberObservation>,
+        support: Id<class_metadata::ClassMemberSupport>,
+    },
     #[model(code = 7)]
-    ResolvedDecorator { observation: Id<syntax::DeclarationDecorator>, assessment: Id<normalized::links::ReferenceEntityAssessment>, candidate: Id<normalized::links::ReferenceEntityCandidate> },
+    ResolvedDecorator {
+        observation: Id<syntax::DeclarationDecorator>,
+        assessment: Id<normalized::links::ReferenceEntityAssessment>,
+        candidate: Id<normalized::links::ReferenceEntityCandidate>,
+    },
     #[model(code = 8)]
-    NativeSignature { observation: Id<types::NativeSignatureObservation>, support: Id<types::NativeSignatureSupport>, variant: Id<normalized::callables::SignatureVariant> },
+    NativeSignature {
+        observation: Id<types::NativeSignatureObservation>,
+        support: Id<types::NativeSignatureSupport>,
+        variant: Id<normalized::callables::SignatureVariant>,
+    },
     #[model(code = 9)]
-    NativePort { observation: Id<types::SignatureTypeObservation>, support: Id<types::SignatureTypeSupport>, variant: Id<normalized::callables::SignatureVariant> },
+    NativePort {
+        observation: Id<types::SignatureTypeObservation>,
+        support: Id<types::SignatureTypeSupport>,
+        variant: Id<normalized::callables::SignatureVariant>,
+    },
     #[model(code = 10)]
-    Capture { observation: Id<captures::CaptureObservation>, support: Id<captures::CaptureSupport> },
+    Capture {
+        observation: Id<captures::CaptureObservation>,
+        support: Id<captures::CaptureSupport>,
+    },
     #[model(code = 11)]
-    ExitProtocol { observation: Id<protocols::NativeExitObservation>, support: Id<protocols::NativeExitSupport> },
+    ExitProtocol {
+        observation: Id<protocols::NativeExitObservation>,
+        support: Id<protocols::NativeExitSupport>,
+    },
     #[model(code = 12)]
-    Terminal { observation: Id<protocols::NativeTerminalObservation>, support: Id<protocols::NativeTerminalSupport> },
+    Terminal {
+        observation: Id<protocols::NativeTerminalObservation>,
+        support: Id<protocols::NativeTerminalSupport>,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "analytic_incidences")]

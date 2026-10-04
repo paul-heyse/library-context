@@ -700,14 +700,21 @@ pub fn normalize(
             Some(DescriptorKind::Property) => SignatureAdjustment::PropertyAccess,
             None => SignatureAdjustment::Unknown,
         };
-        let native = data.native_signatures.iter().find(|n| n.signature == signature.id() && n.qualification == signature.qualification);
-        let adjustment = if let Some(native) = native { match native.receiver {
-            NativeReceiver::Unbound => SignatureAdjustment::None,
-            NativeReceiver::Instance => SignatureAdjustment::BindInstanceReceiver,
-            NativeReceiver::Class => SignatureAdjustment::BindClassReceiver,
-            NativeReceiver::Property => SignatureAdjustment::PropertyAccess,
-            NativeReceiver::Unknown => SignatureAdjustment::Unknown,
-        } } else { adjustment };
+        let native = data
+            .native_signatures
+            .iter()
+            .find(|n| n.signature == signature.id() && n.qualification == signature.qualification);
+        let adjustment = if let Some(native) = native {
+            match native.receiver {
+                NativeReceiver::Unbound => SignatureAdjustment::None,
+                NativeReceiver::Instance => SignatureAdjustment::BindInstanceReceiver,
+                NativeReceiver::Class => SignatureAdjustment::BindClassReceiver,
+                NativeReceiver::Property => SignatureAdjustment::PropertyAccess,
+                NativeReceiver::Unknown => SignatureAdjustment::Unknown,
+            }
+        } else {
+            adjustment
+        };
         output.variants.insert(SignatureVariant {
             signature: signature.id(),
             role: signature.role,
@@ -736,7 +743,9 @@ pub fn normalize(
             DefaultSlot::Required
         } else if signature.role.runtime_source() {
             DefaultSlot::DefinitionTime
-        } else { DefaultSlot::NativeUnknown };
+        } else {
+            DefaultSlot::NativeUnknown
+        };
         let variant = *variants
             .get(&parameter.signature)
             .ok_or_else(|| invalid("parameter has no total signature variant"))?;
@@ -758,8 +767,22 @@ pub fn normalize(
     }
     for observation in data.signature_types.iter() {
         match need(&data.signature_type_subjects, observation.subject)? {
-            SignatureTypeSubject::Parameter { parameter } => { output.slot_types.insert(SignatureSlotType { slot: *slots.get(parameter).ok_or_else(|| invalid("typed parameter slot absent"))?, observation: observation.id() })?; }
-            SignatureTypeSubject::Return { signature } => { output.return_types.insert(SignatureReturnType { variant: *variants.get(signature).ok_or_else(|| invalid("typed return variant absent"))?, observation: observation.id() })?; }
+            SignatureTypeSubject::Parameter { parameter } => {
+                output.slot_types.insert(SignatureSlotType {
+                    slot: *slots
+                        .get(parameter)
+                        .ok_or_else(|| invalid("typed parameter slot absent"))?,
+                    observation: observation.id(),
+                })?;
+            }
+            SignatureTypeSubject::Return { signature } => {
+                output.return_types.insert(SignatureReturnType {
+                    variant: *variants
+                        .get(signature)
+                        .ok_or_else(|| invalid("typed return variant absent"))?,
+                    observation: observation.id(),
+                })?;
+            }
         }
     }
     Ok(output)

@@ -449,7 +449,7 @@ pub fn build(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), Model
                 })?;
                 let text = documentary::read_range(d, c, cs, ce, b)?;
                 let qualification = assertion::AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+                    assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
                     context: inv.context,
                     scope: (source::CoverageScope::Input { input: inv.input }).id(),
                     condition: conditions::Diagram::always().id(),
@@ -686,7 +686,8 @@ mod tests {
             .unwrap()
             .clone();
         let signature = Signature {
-            role: crate::domain::calls::SignatureRole::Source, native: None,
+            role: crate::domain::calls::SignatureRole::Source,
+            native: None,
             qualification: q.id(),
             scope: q.scope,
             symbol: id(151 + ordinal as u8),
@@ -714,7 +715,9 @@ mod tests {
         let subject = if effective {
             let variant = d
                 .option_variants
-                .insert(SignatureVariant { role: crate::domain::calls::SignatureRole::Source, native: None,
+                .insert(SignatureVariant {
+                    role: crate::domain::calls::SignatureRole::Source,
+                    native: None,
                     signature: signature.id(),
                     context: core.context,
                     resolution: id(161),

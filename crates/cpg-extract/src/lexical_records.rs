@@ -2,6 +2,7 @@
 //! occurrences the traversal emitted, and its facts become the model's scopes, binding events,
 //! binding and reference observations, targets and resolutions. A resolution with several
 //! candidates, or one an unknown star import may bind, is qualified as a candidate.
+use crate::native_branches::NativeBranches;
 use crate::{
     lexical::{Lexical, LexicalFacts, Outside, Stars, Target},
     syntax_records::Spans,
@@ -9,7 +10,6 @@ use crate::{
 use lctx_model::domain::{
     Id, ModelError, Record, assertion::AssertionQualification, lexical::*, source::Occurrence,
 };
-use crate::native_branches::NativeBranches;
 use ruff_python_ast_latest::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
 use ruff_python_ast_latest::{AnyNodeRef, Expr, ModModule};
 use ruff_text_size_latest::Ranged;

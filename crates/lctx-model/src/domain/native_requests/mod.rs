@@ -112,7 +112,7 @@ pub struct ExactRequest<'a> {
 
 #[derive(Debug)]
 pub struct Assessment {
-    pub qualification:Id<crate::domain::assertion::AssertionQualification>,
+    pub qualification: Id<crate::domain::assertion::AssertionQualification>,
     pub path: RowRef,
     pub original_condition: Id<Condition>,
     pub restricted_result: Option<RestrictedResultId>,

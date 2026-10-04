@@ -979,7 +979,9 @@ impl CatalogService {
                         .read_ids::<assertion::AssertionQualification>(&qualification_ids)
                         .await?;
                     let mut claim_bases = std::collections::BTreeMap::new();
-                    for q in qualifications.rows() { claim_bases.insert(q.id(), lease.claim_basis(q).await?); }
+                    for q in qualifications.rows() {
+                        claim_bases.insert(q.id(), lease.claim_basis(q).await?);
+                    }
                     let proofs = lease
                         .read_ids::<ClaimProof>(
                             &conclusions
@@ -1005,13 +1007,25 @@ impl CatalogService {
                     let mut captures = std::collections::BTreeMap::new();
                     let mut capture_charges = Vec::new();
                     for conclusion in conclusions.rows() {
-                        let q = borrowed(&qualifications, conclusion.qualification.ok_or(Error::Contract)?)?;
+                        let q = borrowed(
+                            &qualifications,
+                            conclusion.qualification.ok_or(Error::Contract)?,
+                        )?;
                         let invocation = borrowed(&invocations, conclusion.invocation)?;
                         let (packet, charge) = if let Some(id) = conclusion.proof {
-                            super::capture_packets::captures(lease, borrowed(&proofs, id)?, invocation, q,
-                                claim_bases.get(&q.id()).ok_or(Error::Contract)?).await?
+                            super::capture_packets::captures(
+                                lease,
+                                borrowed(&proofs, id)?,
+                                invocation,
+                                q,
+                                claim_bases.get(&q.id()).ok_or(Error::Contract)?,
+                            )
+                            .await?
                         } else {
-                            (Vec::new(), lease.lease.budget.reserve("behavior-empty-captures", 0)?)
+                            (
+                                Vec::new(),
+                                lease.lease.budget.reserve("behavior-empty-captures", 0)?,
+                            )
                         };
                         captures.insert(conclusion.id(), packet);
                         capture_charges.push(charge);
@@ -1191,8 +1205,14 @@ impl CatalogService {
                     proof.push(ProofReference::from_canonical(derivation::RowRef::of(id)));
                 }
                 let packet = BehaviorPacket {
-                    captures:captures.get(&conclusion.id()).ok_or(Error::Contract)?.clone(),
-                    claim_basis:claim_bases.get(&qualification.id()).ok_or(Error::Contract)?.clone(),
+                    captures: captures
+                        .get(&conclusion.id())
+                        .ok_or(Error::Contract)?
+                        .clone(),
+                    claim_basis: claim_bases
+                        .get(&qualification.id())
+                        .ok_or(Error::Contract)?
+                        .clone(),
                     condition: condition.id(),
                     verdict: facet.verdict,
                     model,

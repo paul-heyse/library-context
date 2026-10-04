@@ -341,7 +341,9 @@ impl Harness {
                 ($($ty:ty),*) => { $(output.declare::<$ty>()?;)* };
             }
             vocabulary!(declare);
-            if *name == "empty_facts" { output.push(assumptions::AssumptionSet::empty()).await?; }
+            if *name == "empty_facts" {
+                output.push(assumptions::AssumptionSet::empty()).await?;
+            }
             output.finish(ProviderOutcome::Complete).await?;
         }
         let mut output = StageOutput::new(
@@ -697,7 +699,15 @@ pub mod fixtures {
                     inputs: vec![],
                     outputs,
                     contributes: vec![],
-                    coverage: coverage.into_iter().map(|family|lctx_model::domain::stages::FamilyCoverage {family,provider:provider.expect("covered fixture stage names its provider").id()}).collect(),
+                    coverage: coverage
+                        .into_iter()
+                        .map(|family| lctx_model::domain::stages::FamilyCoverage {
+                            family,
+                            provider: provider
+                                .expect("covered fixture stage names its provider")
+                                .id(),
+                        })
+                        .collect(),
                     profiles: vec![Profile::Catalog],
                     effect: Effect::Extraction,
                     code: ContentHash::of(name.as_bytes()),

@@ -91,15 +91,22 @@ pub struct CatalogClass {
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "catalog_class_members", rule = "catalog_class_member_typing")]
 pub struct CatalogClassMember {
-    #[model(key)] pub class: Id<CatalogClass>,
-    #[model(key, premise)] pub observation: Id<super::class_metadata::ClassMemberObservation>,
+    #[model(key)]
+    pub class: Id<CatalogClass>,
+    #[model(key, premise)]
+    pub observation: Id<super::class_metadata::ClassMemberObservation>,
 }
 /// A catalog class's provider-owned typing characterization, preserving every support-qualified observation.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "catalog_class_metadata", rule = "catalog_class_typing_metadata")]
+#[model(
+    name = "catalog_class_metadata",
+    rule = "catalog_class_typing_metadata"
+)]
 pub struct CatalogClassMetadata {
-    #[model(key)] pub class: Id<CatalogClass>,
-    #[model(key, premise)] pub observation: Id<super::class_metadata::ClassMetadataObservation>,
+    #[model(key)]
+    pub class: Id<CatalogClass>,
+    #[model(key, premise)]
+    pub observation: Id<super::class_metadata::ClassMetadataObservation>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]

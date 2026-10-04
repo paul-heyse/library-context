@@ -45,17 +45,29 @@ pub struct NativeContextConfig {
 }
 impl NativeContextConfig {
     pub fn new(profile: Profile, catalog: Arc<CatalogSelection>) -> Self {
-        Self { profile, catalog, ruff: Default::default() }
-    }
-    pub fn with_ruff(mut self, mut settings: crate::ruff_context::ContextSettings) -> Result<Self,ModelError> {
-        for names in [&mut settings.typing_modules,&mut settings.custom_builtins] {
-            if names.iter().any(|name| name.trim().is_empty()) { return Err(ModelError::Invalid("empty Ruff contextual name".into())); }
-            names.sort(); names.dedup();
+        Self {
+            profile,
+            catalog,
+            ruff: Default::default(),
         }
-        self.ruff=settings;
+    }
+    pub fn with_ruff(
+        mut self,
+        mut settings: crate::ruff_context::ContextSettings,
+    ) -> Result<Self, ModelError> {
+        for names in [&mut settings.typing_modules, &mut settings.custom_builtins] {
+            if names.iter().any(|name| name.trim().is_empty()) {
+                return Err(ModelError::Invalid("empty Ruff contextual name".into()));
+            }
+            names.sort();
+            names.dedup();
+        }
+        self.ruff = settings;
         Ok(self)
     }
-    pub fn ruff_settings(&self) -> &crate::ruff_context::ContextSettings { &self.ruff }
+    pub fn ruff_settings(&self) -> &crate::ruff_context::ContextSettings {
+        &self.ruff
+    }
     /// An outer caller explicitly selects the embedded committed catalog.
     pub fn committed(profile: Profile, budget: &ResourceBudget) -> Result<Self, ModelError> {
         Ok(Self::new(profile, CatalogSelection::committed(budget)?))
@@ -90,7 +102,10 @@ impl NativeContextConfig {
         let mut hash = KeySink::new("native-context-configuration");
         hash.part(b"profile", self.profile.name().as_bytes());
         hash.part(b"authored-catalog", &self.catalog().digest().0);
-        hash.part(b"ruff-context", &serde_json::to_vec(&self.ruff).expect("owned contextual settings serialize"));
+        hash.part(
+            b"ruff-context",
+            &serde_json::to_vec(&self.ruff).expect("owned contextual settings serialize"),
+        );
         hash.finish()
     }
     pub fn requirements(

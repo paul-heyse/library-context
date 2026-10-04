@@ -314,15 +314,25 @@ async fn run(profile: Profile) {
             "SELECT occurrence.start, decision.outcome FROM {0}.local_atom_decisions decision JOIN {0}.flow_test_leaf_observations leaf ON leaf.id=decision.leaf JOIN {0}.occurrences occurrence ON occurrence.id=leaf.test", id.schema()
         ))).fetch_all(db.owner.pool()).await.unwrap();
         let text = std::fs::read_to_string(root.join("cases.py")).unwrap();
-        for (function, expected) in [("finite_zero", 1_i16), ("finite_one", 0), ("uninhabited", 3)] {
+        for (function, expected) in [
+            ("finite_zero", 1_i16),
+            ("finite_one", 0),
+            ("uninhabited", 3),
+        ] {
             let start = text.find(&format!("def {function}(")).unwrap();
             let test = start + text[start..].find("if value:").unwrap() + 3;
-            assert!(decisions.contains(&(test as i64, expected)), "missing independent {function} decision at {test}: {decisions:?}");
+            assert!(
+                decisions.contains(&(test as i64, expected)),
+                "missing independent {function} decision at {test}: {decisions:?}"
+            );
         }
         let refinements: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM {0}.local_atom_restrictions r JOIN {0}.local_transfer_alternatives original ON original.id=r.original JOIN {0}.assertion_qualifications oldq ON oldq.id=original.qualification JOIN {0}.assertion_qualifications newq ON newq.id=r.qualification JOIN {0}.assumption_sets oldbasis ON oldbasis.id=oldq.assumptions JOIN {0}.assumption_sets newbasis ON newbasis.id=newq.assumptions WHERE oldbasis.count=0 AND newbasis.count=1 AND oldq.condition<>newq.condition", id.schema()
         ))).fetch_one(db.owner.pool()).await.unwrap();
-        assert!(refinements >= 2, "true and false refinements must change actual transfers while preserving originals");
+        assert!(
+            refinements >= 2,
+            "true and false refinements must change actual transfers while preserving originals"
+        );
         // Independent branch expectations: both a predicate and its negation are restricted.
         // The leaf's provider formula is not an ambient guard that excludes the negative arm.
         let constants: Vec<(i64, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -331,7 +341,10 @@ async fn run(profile: Profile) {
         for function in ["finite_zero", "finite_one"] {
             let start = text.find(&format!("def {function}(")).unwrap();
             let test = (start + text[start..].find("if value:").unwrap() + 3) as i64;
-            assert!(constants.contains(&(test, 0)) && constants.contains(&(test, 1)), "both polarities need independent conditional restrictions for {function}: {constants:?}");
+            assert!(
+                constants.contains(&(test, 0)) && constants.contains(&(test, 1)),
+                "both polarities need independent conditional restrictions for {function}: {constants:?}"
+            );
         }
         let empty_refinements: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM {0}.local_atom_restrictions r JOIN {0}.local_atom_decisions d ON d.id=r.decision WHERE d.outcome=3", id.schema()

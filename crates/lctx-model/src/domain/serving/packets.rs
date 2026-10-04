@@ -70,11 +70,17 @@ impl DefaultValue {
 packet!(ParameterPacket {parameter:Id<calls::SignatureParameter>,slot:Nullable<Id<normalized::callables::SignatureSlot>>,#[doc = "Normalized parameter identities. A source identity denotes an observed source formal; a native slot identity does not imply a source declaration."] formals:Vec<Id<normalized::entities::ParameterEntity>>,ordinal:i64,name:Nullable<Name>,#[doc = "Finite canonical kind; the numeric codebook lists supported choices."] kind:calls::ParameterKind,required:bool,types:Vec<Id<types::TypeTerm>>,type_evidence:Vec<ProofReference>,default:DefaultValue});
 packet!(SignaturePacket {signature:Id<calls::Signature>,role:calls::SignatureRole,native:Nullable<Id<types::NativeSignatureObservation>>,variant:Id<normalized::callables::SignatureVariant>,analysis:Id<attribution::AnalysisContext>,#[doc = "Declared canonical signature form."] form:calls::SignatureForm,#[doc = "Normalized signature adjustment applied to the effective callable, preserving the source signature."] adjustment:normalized::callables::SignatureAdjustment,parameters:Vec<ParameterPacket>,effective_parameters:Vec<ParameterPacket>,return_types:Vec<Id<types::TypeTerm>>,return_evidence:Vec<ProofReference>,typing:Vec<SignatureTypingPacket>,complete:bool});
 /// Typing characterization is separate from unrestricted runtime behavior.
-#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SignatureTypingOrigin {
-    SourceDeclared { observation:Id<types::TypeObservation>, subject:Id<source::Occurrence> },
-    NativeObserved { observation:Id<types::SignatureTypeObservation>, subject:Id<types::SignatureTypeSubject> },
+    SourceDeclared {
+        observation: Id<types::TypeObservation>,
+        subject: Id<source::Occurrence>,
+    },
+    NativeObserved {
+        observation: Id<types::SignatureTypeObservation>,
+        subject: Id<types::SignatureTypeSubject>,
+    },
 }
 packet!(SignatureTypingPacket {origin:SignatureTypingOrigin,term:Id<types::TypeTerm>,qualification:Id<assertion::AssertionQualification>,claim_basis:ClaimBasisPacket,proof:Vec<ProofReference>});
 packet!(InvocationPacket {callable:Id<catalog::CatalogCallable>,invocation:Id<catalog::CatalogInvocation>,assessment:Id<normalized::callables::EffectiveCallableAssessment>,analysis:Id<attribution::AnalysisContext>,#[doc = "Completeness of the effective callable evidence; unknown does not mean absent."] knowledge:normalized::callables::Knowledge,#[doc = "Declared invocation or signature form; an absent value means form evidence is unavailable."] form:Nullable<selection::InvocationForm>});
@@ -112,45 +118,134 @@ packet!(AssertionSupportPacket {support:Id<synthesis::assertions::ProgrammaticAs
 // Fully resolved premises of a conditional claim. Empty is an explicit canonical set row.
 packet!(ClaimBasisPacket {set:Id<assumptions::AssumptionSet>,members_digest:ContentHash,definitions:Vec<ClaimAssumptionPacket>});
 packet!(AssumptionNativeSupportPacket {support:ProofReference,run:Id<attribution::ProviderRun>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,environment:ContentHash,provider:Name,provider_revision:Name,provider_build:ContentHash,surface:Name,evidence:AssumptionEvidencePacket,fidelity:attribution::Fidelity});
-#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AssumptionEvidencePacket {
-    Invocation { run:Id<attribution::ProviderRun> },
-    Source { artifact:Id<source::SourceArtifact>,path:Name,content:ContentHash,start:i64,end:i64 },
+    Invocation {
+        run: Id<attribution::ProviderRun>,
+    },
+    Source {
+        artifact: Id<source::SourceArtifact>,
+        path: Name,
+        content: ContentHash,
+        start: i64,
+        end: i64,
+    },
 }
 packet!(AssumptionUniversePacket {universe:Id<assumptions::AssumptionUniverse>,context:Id<attribution::AnalysisContext>,input:Id<input::InputRevision>,environment:ContentHash,model_definition:ContentHash,support:Id<assumptions_universe::AssumptionUniverseSupport>,catalog:Id<models::ModelCatalog>,model:Id<models::AuthoredModel>,source_name:Name,format:i64,source:Text<0,262144>});
-#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ClaimAssumptionPacket {
-    TypeConformance { assumption:Id<assumptions::Assumption>,observation:Id<types::TypeObservation>,subject:Id<source::Occurrence>,role:types::TypeRole,declared:bool,term:Id<types::TypeTerm>,support:AssumptionNativeSupportPacket },
-    NoExtraOverrides { assumption:Id<assumptions::Assumption>,class:Id<symbols::ClassTraitObservation>,symbol:Id<calls::ProviderSymbol>,synthesized:bool,dataclass:bool,named_tuple:bool,typed_dict:bool,support:AssumptionNativeSupportPacket,universe:Box<AssumptionUniversePacket> },
+    TypeConformance {
+        assumption: Id<assumptions::Assumption>,
+        observation: Id<types::TypeObservation>,
+        subject: Id<source::Occurrence>,
+        role: types::TypeRole,
+        declared: bool,
+        term: Id<types::TypeTerm>,
+        support: AssumptionNativeSupportPacket,
+    },
+    NoExtraOverrides {
+        assumption: Id<assumptions::Assumption>,
+        class: Id<symbols::ClassTraitObservation>,
+        symbol: Id<calls::ProviderSymbol>,
+        synthesized: bool,
+        dataclass: bool,
+        named_tuple: bool,
+        typed_dict: bool,
+        support: AssumptionNativeSupportPacket,
+        universe: Box<AssumptionUniversePacket>,
+    },
 }
 impl ClaimAssumptionPacket {
-    pub fn assumption(&self) -> Id<assumptions::Assumption> { match self { Self::TypeConformance {assumption,..}|Self::NoExtraOverrides {assumption,..} => *assumption } }
+    pub fn assumption(&self) -> Id<assumptions::Assumption> {
+        match self {
+            Self::TypeConformance { assumption, .. }
+            | Self::NoExtraOverrides { assumption, .. } => *assumption,
+        }
+    }
 }
 impl ClaimBasisPacket {
-    pub fn from_canonical(basis:&assumptions::ResolvedAssumptions, mut definitions:Vec<ClaimAssumptionPacket>) -> Result<Self,ModelError> {
+    pub fn from_canonical(
+        basis: &assumptions::ResolvedAssumptions,
+        mut definitions: Vec<ClaimAssumptionPacket>,
+    ) -> Result<Self, ModelError> {
         basis.check(basis.set.id())?;
         definitions.sort_by_key(ClaimAssumptionPacket::assumption);
-        if definitions.iter().map(ClaimAssumptionPacket::assumption).collect::<Vec<_>>() != basis.members.iter().map(|m|m.assumption).collect::<Vec<_>>() { return Err(ModelError::Invalid("packet assumption definitions missing or differ".into())); }
-        Ok(Self {set:basis.set.id(),members_digest:basis.set.members,definitions})
+        if definitions
+            .iter()
+            .map(ClaimAssumptionPacket::assumption)
+            .collect::<Vec<_>>()
+            != basis
+                .members
+                .iter()
+                .map(|m| m.assumption)
+                .collect::<Vec<_>>()
+        {
+            return Err(ModelError::Invalid(
+                "packet assumption definitions missing or differ".into(),
+            ));
+        }
+        Ok(Self {
+            set: basis.set.id(),
+            members_digest: basis.set.members,
+            definitions,
+        })
     }
 }
 packet!(AssertionPacket {assertion:Id<synthesis::assertions::ProgrammaticAssertion>,#[doc = "Finite canonical kind; the numeric codebook lists supported choices."] kind:analysis::policy::AssertionKind,#[doc = "Authored brief section to which the assertion belongs."] section:analysis::policy::BriefSection,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,qualification:Id<assertion::AssertionQualification>,claim_basis:ClaimBasisPacket,#[doc = "A scoped given-entry terminal question. Null means this assertion has no such question; it does not establish normal continuation."] terminal_question:Nullable<TerminalQuestionPacket>,text:Text<0,262144>,supports:Vec<AssertionSupportPacket>});
 packet!(TerminalQuestionPacket {witness:Id<execution::summary_terminal::SummaryTerminalWitness>,frontier:Id<execution::protocol_interpretation::ConditionalTerminalFrontier>,restriction:Id<execution::protocol_interpretation::NormalContinuationRestriction>,claim:Id<execution::summary_consequences::SummaryClaim>,target:Id<execution::closed_targets::ClosedTargetAssessment>,target_basis:execution::closed_targets::TargetBasis,original_target_qualification:Nullable<Id<assertion::AssertionQualification>>,receiver_qualification:Nullable<Id<assertion::AssertionQualification>>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,qualification:Id<assertion::AssertionQualification>,owner:Id<normalized::entities::EntityRef>,call:Id<source::Occurrence>,statement:Id<source::Occurrence>,following:Id<source::Occurrence>,#[doc = "GivenInvocationEntered is the scope of the question, never evidence that the invocation executed."] question:execution::protocol_interpretation::InvocationQuestion,scope:Id<source::CoverageScope>,#[doc = "No effect completion certificate is implied."] effects_unknown:bool,#[doc = "No exception outcome is implied."] exceptions_unknown:bool,#[doc = "Finally and context cleanup remain outside this scoped normal edge."] cleanup_unknown:bool,proof:Vec<ProofReference>});
 impl TerminalQuestionPacket {
- pub fn from_canonical(checked:&synthesis::terminal::Checked<'_>)->Self{
-  Self{witness:checked.witness.id(),frontier:checked.frontier.id(),restriction:checked.restriction.id(),claim:checked.witness.claim,target:checked.target.id(),target_basis:checked.target.basis,original_target_qualification:Nullable(checked.target.original_qualification),receiver_qualification:Nullable(checked.target.receiver_qualification),input:checked.input,context:checked.context,qualification:checked.witness.qualification,owner:checked.frontier.owner,call:checked.frontier.call,statement:checked.frontier.statement,following:checked.restriction.to,question:checked.witness.question,scope:checked.scope,effects_unknown:true,exceptions_unknown:true,cleanup_unknown:true,proof:checked.proof().into_iter().map(ProofReference::from_canonical).collect()}
- }
+    pub fn from_canonical(checked: &synthesis::terminal::Checked<'_>) -> Self {
+        Self {
+            witness: checked.witness.id(),
+            frontier: checked.frontier.id(),
+            restriction: checked.restriction.id(),
+            claim: checked.witness.claim,
+            target: checked.target.id(),
+            target_basis: checked.target.basis,
+            original_target_qualification: Nullable(checked.target.original_qualification),
+            receiver_qualification: Nullable(checked.target.receiver_qualification),
+            input: checked.input,
+            context: checked.context,
+            qualification: checked.witness.qualification,
+            owner: checked.frontier.owner,
+            call: checked.frontier.call,
+            statement: checked.frontier.statement,
+            following: checked.restriction.to,
+            question: checked.witness.question,
+            scope: checked.scope,
+            effects_unknown: true,
+            exceptions_unknown: true,
+            cleanup_unknown: true,
+            proof: checked
+                .proof()
+                .into_iter()
+                .map(ProofReference::from_canonical)
+                .collect(),
+        }
+    }
 }
 packet!(CapabilityPacket {capability:Id<synthesis::briefs::Brief>,title:Name,rendered:Text<0,262144>,assertions:Vec<AssertionPacket>,originals:Vec<OriginalRange>,#[doc = "Section availability; unavailable or not-requested data must not be interpreted as absence."] availability:Availability,unreviewed:bool,documentation_only:bool});
 packet!(BehaviorPacket {#[doc = "Direct capture provenance for this selected answer. Empty does not establish absence of captures."] captures:Vec<BehavioralCapturePacket>,claim_basis:ClaimBasisPacket,condition:Id<conditions::Condition>,#[doc = "Model-qualified verdict, never proof of unrestricted runtime behavior."] verdict:obligation::Verdict,model:Id<models::ModelCatalog>,proof:Vec<ProofReference>,presentation:RenderedConditionPacket,presentation_truncated:bool});
 /// A runtime value source is explicit and independent of native snapshot candidates.
-#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CapturedValueSourcePacket {
-    Entry { formal:Id<normalized::entities::ParameterEntity>,parameter:Id<calls::SignatureParameter>,declaration:Id<source::Occurrence>,signature:Id<calls::Signature>,ordinal:i64,name:Nullable<Name>,source_correspondence:Box<CaptureSourceDeclarationPacket> },
-    Literal { value:Id<source::Occurrence>,statement:Id<source::Occurrence>,literal:LiteralPacket },
+    Entry {
+        formal: Id<normalized::entities::ParameterEntity>,
+        parameter: Id<calls::SignatureParameter>,
+        declaration: Id<source::Occurrence>,
+        signature: Id<calls::Signature>,
+        ordinal: i64,
+        name: Nullable<Name>,
+        source_correspondence: Box<CaptureSourceDeclarationPacket>,
+    },
+    Literal {
+        value: Id<source::Occurrence>,
+        statement: Id<source::Occurrence>,
+        literal: LiteralPacket,
+    },
 }
 // Source declaration attribution preserves projection fidelity; it supplies correspondence only.
 packet!(CaptureSourceSupportPacket {support:ProofReference,run:Id<attribution::ProviderRun>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,environment:ContentHash,provider_id:Id<attribution::Provider>,provider:Name,provider_revision:Name,provider_build:ContentHash,surface:Name,evidence:AssumptionEvidencePacket,origin:attribution::Origin,mode:attribution::ExtractionMode,fidelity:attribution::Fidelity});
@@ -158,11 +253,19 @@ packet!(CaptureSourceDeclarationPacket {assertion:Id<declarations::ParameterDecl
 packet!(CaptureNativeProofPacket {assertion:ProofReference,qualification:Id<assertion::AssertionQualification>,scope:Id<source::CoverageScope>,condition:Id<conditions::Condition>,modality:attribution::Modality,approximation:assertion::Approximation,claim_basis:ClaimBasisPacket,support:AssumptionNativeSupportPacket});
 packet!(CaptureOriginPacket {definition:Id<flow::FlowDefinition>,occurrence:Id<source::Occurrence>,place:Id<value::Place>,scope:Id<lexical::LexicalScope>,declaring:Id<source::Occurrence>,kind:lexical::BindingEventKind,proof:CaptureNativeProofPacket});
 packet!(NativeCapturePacket {function:Id<calls::ProviderSymbol>,declaring:Nullable<Id<calls::ProviderSymbol>>,name:Name,origin:captures::CaptureOrigin,mutable:Nullable<bool>,timing:captures::CaptureTiming,proof:CaptureNativeProofPacket});
-#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CaptureCandidateTargetPacket {
-    Bound {definition:Id<flow::FlowDefinition>,occurrence:Id<source::Occurrence>,place:Id<value::Place>},
-    Undefined {},Deleted {},Nested {},LoopHeader {},Unattached {},
+    Bound {
+        definition: Id<flow::FlowDefinition>,
+        occurrence: Id<source::Occurrence>,
+        place: Id<value::Place>,
+    },
+    Undefined {},
+    Deleted {},
+    Nested {},
+    LoopHeader {},
+    Unattached {},
 }
 packet!(CaptureCandidatePacket {ordinal:i64,target:CaptureCandidateTargetPacket,condition:Id<conditions::Condition>,narrowing:Id<conditions::Condition>,precision_lost:bool});
 packet!(CaptureTimingPacket {use_:Id<flow::FlowUse>,nested_scope:Id<lexical::LexicalScope>,enclosing_scope:Id<lexical::LexicalScope>,origin:flow_capture::FlowCaptureOrigin,timing:captures::CaptureTiming,state:flow_capture::FlowSnapshotState,candidates:Vec<CaptureCandidatePacket>,constraint:Nullable<Id<conditions::Condition>>,constraint_precision_lost:bool,#[doc = "Native eager/lazy snapshot characterization; this is never call-time value authority."] characterization_only:bool,proof:CaptureNativeProofPacket});
@@ -171,17 +274,42 @@ packet!(BehavioralCapturePacket {witness:Id<execution::summary_capture::SummaryC
 packet!(OperationPacket {core:OperationCore,scenarios:SectionPage<ScenarioPacket>,deployment:SectionPage<DeploymentPacket>,relationships:SectionPage<RelationshipPacket>,conflicts:SectionPage<ConflictPacket>,briefs:SectionPage<CapabilityPacket>,behavior:SectionPage<BehaviorPacket>});
 packet!(BehavioralExceptionPacket {summary:Id<execution::summary_exceptions::SummaryExceptionOutcome>,body:Id<execution::enriched_records::BodyExecution>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,owner:Id<normalized::entities::EntityRef>,qualification:Id<assertion::AssertionQualification>,scope:Id<source::CoverageScope>,condition:Id<conditions::Condition>,#[doc = "Exact finite builtin runtime exception under body entry. Null means this admitted body completed normally; missing bodies never produce absence evidence."] exception:Nullable<execution::ExactRuntimeException>,#[doc = "This result is conditional on entering the source body and uses the bounded runtime model, independently of typing characterization."] under_body_entry:bool,claim_basis:ClaimBasisPacket,proof:Vec<ProofReference>});
 impl BehavioralExceptionPacket {
-    pub fn from_canonical(result: &execution::summary_exceptions::SummaryExceptionOutcome, q: &assertion::AssertionQualification) -> Result<Self, ModelError> {
+    pub fn from_canonical(
+        result: &execution::summary_exceptions::SummaryExceptionOutcome,
+        q: &assertion::AssertionQualification,
+    ) -> Result<Self, ModelError> {
         let empty = assumptions::AssumptionSet::empty();
-        if result.qualification != q.id() || result.context != q.context || q.assumptions != empty.id()
-            || q.condition != conditions::Diagram::always().id() || q.modality != attribution::Modality::Definite
-            || q.approximation != assertion::Approximation::Exact {
-            return Err(ModelError::Invalid("runtime exception packet changes its exact entry basis".into()));
+        if result.qualification != q.id()
+            || result.context != q.context
+            || q.assumptions != empty.id()
+            || q.condition != conditions::Diagram::always().id()
+            || q.modality != attribution::Modality::Definite
+            || q.approximation != assertion::Approximation::Exact
+        {
+            return Err(ModelError::Invalid(
+                "runtime exception packet changes its exact entry basis".into(),
+            ));
         }
-        Ok(Self { summary: result.id(), body: result.body, input: result.input, context: result.context, owner: result.owner,
-            qualification: q.id(), scope: q.scope, condition: q.condition, exception: Nullable(result.exception), under_body_entry: true,
-            claim_basis: ClaimBasisPacket { set: empty.id(), members_digest: empty.members, definitions: Vec::new() },
-            proof: vec![ProofReference::from_canonical(derivation::RowRef::of(result.id())), ProofReference::from_canonical(derivation::RowRef::of(result.body))],
+        Ok(Self {
+            summary: result.id(),
+            body: result.body,
+            input: result.input,
+            context: result.context,
+            owner: result.owner,
+            qualification: q.id(),
+            scope: q.scope,
+            condition: q.condition,
+            exception: Nullable(result.exception),
+            under_body_entry: true,
+            claim_basis: ClaimBasisPacket {
+                set: empty.id(),
+                members_digest: empty.members,
+                definitions: Vec::new(),
+            },
+            proof: vec![
+                ProofReference::from_canonical(derivation::RowRef::of(result.id())),
+                ProofReference::from_canonical(derivation::RowRef::of(result.body)),
+            ],
         })
     }
 }
@@ -318,7 +446,10 @@ impl LiteralPacket {
 }
 packet!(TypePresentationPacket {presentation:Id<types::TypePresentation>,term:Id<types::TypeTerm>,qualification:Id<assertion::AssertionQualification>,claim_basis:ClaimBasisPacket,display:Text<0,262144>,detail:Nullable<Text<0,262144>>});
 impl TypePresentationPacket {
-    pub fn from_canonical(row: &types::TypePresentation, claim_basis:ClaimBasisPacket) -> Result<Self, WireError> {
+    pub fn from_canonical(
+        row: &types::TypePresentation,
+        claim_basis: ClaimBasisPacket,
+    ) -> Result<Self, WireError> {
         Ok(Self {
             claim_basis,
             presentation: row.id(),
@@ -349,13 +480,48 @@ impl CapabilityPacket {
 packet!(SourceCharacterizationSpan {artifact:Id<source::SourceArtifact>,start:u64,end:u64});
 packet!(SourceAnnotationPacket {annotation:Id<diagnostics::DiagnosticAnnotation>,location:Availability,span:Nullable<SourceCharacterizationSpan>,label:Nullable<Text<0,16384>>});
 packet!(NativeSourceSupportPacket {support:ProofReference,run:Id<attribution::ProviderRun>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,environment:ContentHash,provider:Name,revision:Name,build:ContentHash,surface:Name,evidence:ProofReference,fidelity:attribution::Fidelity});
-#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SourceCharacterizationPayload {
-    Usage {usage:SourceUsagePacket},
-    RuffDiagnostic {observation:Id<diagnostics::RuffDiagnosticObservation>,rule:diagnostics::SelectedRuffRule,native_id:Name,native_code:Name,primary_location:diagnostics::DiagnosticLocation,severity:diagnostics::DiagnosticSeverity,channel:diagnostics::DiagnosticChannel,message:Text<0,16384>,settings:ContentHash,annotations:Vec<SourceAnnotationPacket>},
-    PyreflyDiagnostic {observation:Id<diagnostics::PyreflyDiagnosticObservation>,category:Name,primary_location:diagnostics::DiagnosticLocation,severity:diagnostics::DiagnosticSeverity,channel:diagnostics::DiagnosticChannel,baseline:diagnostics::NativeBaselineStatus,header:Text<0,16384>,details:Nullable<Text<0,16384>>,annotations:Vec<SourceAnnotationPacket>},
-    ParameterDefinition {observation:Id<diagnostics::NativeParameterDefinitionObservation>,parameter:Id<syntax::ParameterSyntaxObservation>,answer:diagnostics::DefinitionAnswer,answer_count:u64,role:diagnostics::NativeParameterRole,reason:Nullable<obligation::ObligationKind>,metadata:Nullable<diagnostics::NativeDefinitionMetadata>,symbol_kind:Nullable<diagnostics::NativeDefinitionSymbolKind>,target_location:Availability,target:Nullable<SourceCharacterizationSpan>,target_name:Nullable<Text<0,16384>>},
+    Usage {
+        usage: SourceUsagePacket,
+    },
+    RuffDiagnostic {
+        observation: Id<diagnostics::RuffDiagnosticObservation>,
+        rule: diagnostics::SelectedRuffRule,
+        native_id: Name,
+        native_code: Name,
+        primary_location: diagnostics::DiagnosticLocation,
+        severity: diagnostics::DiagnosticSeverity,
+        channel: diagnostics::DiagnosticChannel,
+        message: Text<0, 16384>,
+        settings: ContentHash,
+        annotations: Vec<SourceAnnotationPacket>,
+    },
+    PyreflyDiagnostic {
+        observation: Id<diagnostics::PyreflyDiagnosticObservation>,
+        category: Name,
+        primary_location: diagnostics::DiagnosticLocation,
+        severity: diagnostics::DiagnosticSeverity,
+        channel: diagnostics::DiagnosticChannel,
+        baseline: diagnostics::NativeBaselineStatus,
+        header: Text<0, 16384>,
+        details: Nullable<Text<0, 16384>>,
+        annotations: Vec<SourceAnnotationPacket>,
+    },
+    ParameterDefinition {
+        observation: Id<diagnostics::NativeParameterDefinitionObservation>,
+        parameter: Id<syntax::ParameterSyntaxObservation>,
+        answer: diagnostics::DefinitionAnswer,
+        answer_count: u64,
+        role: diagnostics::NativeParameterRole,
+        reason: Nullable<obligation::ObligationKind>,
+        metadata: Nullable<diagnostics::NativeDefinitionMetadata>,
+        symbol_kind: Nullable<diagnostics::NativeDefinitionSymbolKind>,
+        target_location: Availability,
+        target: Nullable<SourceCharacterizationSpan>,
+        target_name: Nullable<Text<0, 16384>>,
+    },
 }
 packet!(SourceCharacterizationPacket {characterization:Id<catalog::evidence::SourceCharacterization>,qualification:Id<assertion::AssertionQualification>,#[doc="Captured source anchor. A diagnostic with unavailable primary location uses its artifact anchor; this is not a fabricated diagnostic range."] source:SourceCharacterizationSpan,#[doc="Containing scenarios characterize source context only. An empty list is unassociated Unknown, never proof of an API target or test execution."] containing_scenarios:Vec<Id<catalog::evidence::CatalogScenario>>,payload:SourceCharacterizationPayload,support:NativeSourceSupportPacket,proof:Vec<ProofReference>});
 
@@ -365,9 +531,12 @@ packet!(UsageBindingPacket {binding:Id<normalized::bindings::CallBinding>,slot:I
 packet!(UsageApplicabilityPacket {attempt:Id<normalized::bindings::CallBindingAttempt>,variant:Nullable<Id<normalized::callables::SignatureVariant>>,signature:Nullable<Id<calls::Signature>>,role:Nullable<calls::SignatureRole>,receiver:Id<calls::Receiver>,adjustment:normalized::callables::SignatureAdjustment,authority:normalized::signature_applicability::BindingAuthority,authority_reason:normalized::signature_applicability::AuthorityReason,outcome:normalized::bindings::BindingOutcome,reason:normalized::bindings::BindingReason,refusal:Nullable<obligation::ObligationKind>,bindings:Vec<UsageBindingPacket>});
 packet!(UsageAssociationPacket {association:Id<catalog::evidence::ScenarioAssociation>,member:Id<catalog::CatalogMember>,path:Vec<Name>,basis:catalog::evidence::AssociationBasis});
 /// Native callback characterization does not establish invocation, effects or execution.
-#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,JsonSchema)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
-pub enum UsageChannel {Direct {},HigherOrder {argument_index:u64}}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum UsageChannel {
+    Direct {},
+    HigherOrder { argument_index: u64 },
+}
 packet!(UsageTargetPacket {alternative:Id<normalized::events::NormalizedCallAlternative>,target:Id<calls::CallTarget>,qualification:Id<assertion::AssertionQualification>,scope:Id<source::CoverageScope>,condition:Id<conditions::Condition>,modality:attribution::Modality,approximation:assertion::Approximation,claim_basis:ClaimBasisPacket,channel:Id<calls::CallChannel>,channel_kind:UsageChannel,implicit:bool,destination:Id<calls::CallDestination>,symbol:Nullable<Id<calls::ProviderSymbol>>,unresolved:Nullable<obligation::ObligationKind>,native_unresolved:Nullable<calls::PysaUnresolvedReason>,entity:Nullable<Id<normalized::entities::EntityRef>>,resolution:normalized::entities::ResolutionStatus,reason:normalized::links::LinkReason,phase:calls::CallPhase,receiver:Id<calls::Receiver>,receiver_location:Availability,receiver_span:Nullable<SourceCharacterizationSpan>,receiver_class:Nullable<Id<calls::ProviderSymbol>>,passing:Nullable<calls::ReceiverPassing>,associations:Vec<UsageAssociationPacket>,applicability:Vec<UsageApplicabilityPacket>,support:Vec<NativeSourceSupportPacket>});
 packet!(UsageOverloadPacket {observation:Id<types::TypeObservation>,role:types::TypeRole,term:Id<types::TypeTerm>,#[doc="Native trace type identity is retained independently of normalized signature variants; shape matching cannot supply missing chosen-variant correspondence."] variant_availability:Availability,variant:Nullable<Id<normalized::callables::SignatureVariant>>,support:Vec<NativeSourceSupportPacket>});
 packet!(SourceUsagePacket {usage:Id<catalog::evidence::SourceUsage>,event:Id<normalized::events::NormalizedCallEvent>,site:Id<source::Occurrence>,syntax:Nullable<Id<calls::CallSyntax>>,syntax_location:Availability,callee:Nullable<Id<source::Occurrence>>,callee_location:Availability,callee_span:Nullable<SourceCharacterizationSpan>,arguments:Vec<UsageArgumentPacket>,arguments_support:Vec<NativeSourceSupportPacket>,targets:Vec<UsageTargetPacket>,#[doc="No target/entity association is represented explicitly; matching spelling never resolves it."] association:Availability,overloads:Vec<UsageOverloadPacket>,#[doc="Absence of a chosen native trace is unavailability; candidates, including a closest failed alternative, do not select a variant."] chosen:Availability});

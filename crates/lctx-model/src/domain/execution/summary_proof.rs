@@ -166,9 +166,9 @@ impl InvariantCheck for CostCheck {
                     .get(id)
                     .ok_or_else(|| invalid("cost parent premise absent"))?
                 {
-                    SummaryPremise::Local { .. } | SummaryPremise::Model { .. } | SummaryPremise::Captured {..}=> {
-                        Ok(ProofCost::SOURCE)
-                    }
+                    SummaryPremise::Local { .. }
+                    | SummaryPremise::Model { .. }
+                    | SummaryPremise::Captured { .. } => Ok(ProofCost::SOURCE),
                     SummaryPremise::Witness { .. } | SummaryPremise::Path { .. } => costs
                         .get(&id)
                         .copied()

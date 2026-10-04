@@ -270,7 +270,9 @@ impl Case {
             entity: Some(f.request.owner),
             reason: EntityReason::DeclarationAgreement,
         };
-        let variant = SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None,
+        let variant = SignatureVariant {
+            role: lctx_model::domain::calls::SignatureRole::Source,
+            native: None,
             signature,
             context: f.request.context,
             resolution: resolution.id(),
@@ -1437,7 +1439,14 @@ fn distinct_unexamined_causes_survive_model_packet_serialization_without_assignm
         (ObligationKind::EntryValueUnknown, 49),
     ] {
         let assessment = unexamined(&request, &entry, cause, &path, &case.f.budget).unwrap();
-        let packet = serving::NativeAssessmentPacket::from_canonical(&assessment, serving::ClaimBasisPacket::from_canonical(&assumptions::ResolvedAssumptions::empty(),vec![]).unwrap());
+        let packet = serving::NativeAssessmentPacket::from_canonical(
+            &assessment,
+            serving::ClaimBasisPacket::from_canonical(
+                &assumptions::ResolvedAssumptions::empty(),
+                vec![],
+            )
+            .unwrap(),
+        );
         let json = serde_json::to_value(&packet).unwrap();
         assert_eq!(json["reason"], serde_json::json!(code));
         assert_eq!(json["exact"], "unknown");

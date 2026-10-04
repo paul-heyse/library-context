@@ -24,12 +24,25 @@ fn invalid(message: String) -> ModelError {
 
 /// Owned offsets at the nominal provider boundary. This carries no foreign AST node.
 #[derive(Debug, Clone, Copy)]
-pub struct ByteRange { start:u32, end:u32 }
+pub struct ByteRange {
+    start: u32,
+    end: u32,
+}
 impl From<ruff_text_size::TextRange> for ByteRange {
-    fn from(range:ruff_text_size::TextRange)->Self { Self { start:range.start().to_u32(),end:range.end().to_u32() } }
+    fn from(range: ruff_text_size::TextRange) -> Self {
+        Self {
+            start: range.start().to_u32(),
+            end: range.end().to_u32(),
+        }
+    }
 }
 impl From<TextRange> for ByteRange {
-    fn from(range:TextRange)->Self { Self { start:range.start().to_u32(),end:range.end().to_u32() } }
+    fn from(range: TextRange) -> Self {
+        Self {
+            start: range.start().to_u32(),
+            end: range.end().to_u32(),
+        }
+    }
 }
 
 /// The occurrences one module's traversal emitted, by span and kind, with each one's parent and
@@ -37,7 +50,7 @@ impl From<TextRange> for ByteRange {
 pub struct Spans {
     charge: StateCharge,
     source: Option<Id<lctx_model::domain::source::SourceArtifact>>,
-    roles: HashMap<Id<Occurrence>,OccurrenceRole>,
+    roles: HashMap<Id<Occurrence>, OccurrenceRole>,
     ranges: HashMap<Id<Occurrence>, (i64, i64, SyntaxKind)>,
     map: HashMap<(i64, i64, i16), Option<Id<Occurrence>>>,
     parents: HashMap<Id<Occurrence>, (Id<Occurrence>, lctx_model::domain::lexical::SyntaxField)>,
@@ -49,7 +62,8 @@ impl Spans {
     pub fn new(budget: &ResourceBudget) -> Self {
         Self {
             charge: StateCharge::new(budget, "syntax_spans"),
-            source:None, roles:HashMap::new(),
+            source: None,
+            roles: HashMap::new(),
             ranges: HashMap::new(),
             map: HashMap::new(),
             parents: HashMap::new(),
@@ -58,11 +72,16 @@ impl Spans {
         }
     }
     pub fn insert(&mut self, occurrence: &Occurrence) -> Result<(), ModelError> {
-        if self.source.is_some_and(|source|source!=occurrence.source) {return Err(invalid("canonical span index mixes sources".into()));}
-        self.source=Some(occurrence.source);
+        if self
+            .source
+            .is_some_and(|source| source != occurrence.source)
+        {
+            return Err(invalid("canonical span index mixes sources".into()));
+        }
+        self.source = Some(occurrence.source);
         // Covers hash-table spare capacity, keys, values and each range's candidate buffer.
         self.charge.grow(768)?;
-        self.roles.insert(occurrence.id(),occurrence.role);
+        self.roles.insert(occurrence.id(), occurrence.role);
         self.ranges.insert(
             occurrence.id(),
             (occurrence.start, occurrence.end, occurrence.syntax_kind),
@@ -81,26 +100,53 @@ impl Spans {
             .push((occurrence.syntax_kind, occurrence.role, occurrence.id()));
         Ok(())
     }
-    pub fn source(&self)->Option<Id<lctx_model::domain::source::SourceArtifact>> {self.source}
-    pub fn role_of(&self,subject:Id<Occurrence>)->Option<OccurrenceRole> {self.roles.get(&subject).copied()}
+    pub fn source(&self) -> Option<Id<lctx_model::domain::source::SourceArtifact>> {
+        self.source
+    }
+    pub fn role_of(&self, subject: Id<Occurrence>) -> Option<OccurrenceRole> {
+        self.roles.get(&subject).copied()
+    }
     /// A finalized semantic reference may name a load, an augmented target, a deletion or a
     /// nonlocal declaration. Admit only the corresponding exact canonical structure.
     pub fn reference(&self, range: impl Into<ByteRange>, is_load: bool) -> Option<Id<Occurrence>> {
         use lctx_model::domain::lexical::SyntaxField;
         let range = range.into();
-        let mut candidates = self.event_candidates(range,Some(SyntaxKind::ExprName));
-        candidates.extend(self.event_candidates(range,Some(SyntaxKind::Identifier)));
+        let mut candidates = self.event_candidates(range, Some(SyntaxKind::ExprName));
+        candidates.extend(self.event_candidates(range, Some(SyntaxKind::Identifier)));
         candidates.retain(|id| {
-            let Some((_,_,kind)) = self.ranges.get(id) else {return false;};
-            let parent = self.parent(*id).and_then(|(parent,field)| self.ranges.get(&parent).map(|(_,_,kind)|(*kind,field)));
-            matches!((*kind,self.role_of(*id),is_load,parent),
-                (SyntaxKind::ExprName,Some(OccurrenceRole::Read),true,_)
-                | (SyntaxKind::ExprName,Some(OccurrenceRole::Binding),true,Some((SyntaxKind::StmtAugAssign,SyntaxField::Target)))
-                | (SyntaxKind::ExprName,Some(OccurrenceRole::Syntax),false,Some((SyntaxKind::StmtDelete,_)))
-                | (SyntaxKind::Identifier,Some(OccurrenceRole::Syntax),true,Some((SyntaxKind::StmtNonlocal|SyntaxKind::StmtGlobal,_)))
+            let Some((_, _, kind)) = self.ranges.get(id) else {
+                return false;
+            };
+            let parent = self.parent(*id).and_then(|(parent, field)| {
+                self.ranges.get(&parent).map(|(_, _, kind)| (*kind, field))
+            });
+            matches!(
+                (*kind, self.role_of(*id), is_load, parent),
+                (SyntaxKind::ExprName, Some(OccurrenceRole::Read), true, _)
+                    | (
+                        SyntaxKind::ExprName,
+                        Some(OccurrenceRole::Binding),
+                        true,
+                        Some((SyntaxKind::StmtAugAssign, SyntaxField::Target))
+                    )
+                    | (
+                        SyntaxKind::ExprName,
+                        Some(OccurrenceRole::Syntax),
+                        false,
+                        Some((SyntaxKind::StmtDelete, _))
+                    )
+                    | (
+                        SyntaxKind::Identifier,
+                        Some(OccurrenceRole::Syntax),
+                        true,
+                        Some((SyntaxKind::StmtNonlocal | SyntaxKind::StmtGlobal, _))
+                    )
             )
         });
-        match candidates.as_slice() {[id]=>Some(*id),_=>None}
+        match candidates.as_slice() {
+            [id] => Some(*id),
+            _ => None,
+        }
     }
     pub fn place(
         &mut self,
@@ -128,7 +174,11 @@ impl Spans {
     }
     /// Exact range plus native kind; an implicit event lacking a native syntax kind accepts only
     /// one semantic expression/statement candidate. Same-span alternatives remain unattached.
-    pub fn event(&self, range: impl Into<ByteRange>, kind: Option<SyntaxKind>) -> Option<Id<Occurrence>> {
+    pub fn event(
+        &self,
+        range: impl Into<ByteRange>,
+        kind: Option<SyntaxKind>,
+    ) -> Option<Id<Occurrence>> {
         match self.event_candidates(range, kind).as_slice() {
             [id] => Some(*id),
             _ => None,
@@ -192,13 +242,16 @@ impl Spans {
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
-    pub fn get(&self, range: impl Into<ByteRange>, kind: SyntaxKind) -> Result<Id<Occurrence>, ModelError> {
+    pub fn get(
+        &self,
+        range: impl Into<ByteRange>,
+        kind: SyntaxKind,
+    ) -> Result<Id<Occurrence>, ModelError> {
         let range = range.into();
-        match self.map.get(&(
-            i64::from(range.start),
-            i64::from(range.end),
-            kind as i16,
-        )) {
+        match self
+            .map
+            .get(&(i64::from(range.start), i64::from(range.end), kind as i16))
+        {
             Some(Some(id)) => Ok(*id),
             Some(None) => Err(invalid(format!(
                 "two {kind:?} occurrences share the span {range:?}"
@@ -303,22 +356,41 @@ fn is_dunder_all(expr: &Expr) -> bool {
     matches!(expr, Expr::Name(n) if n.id.as_str() == "__all__")
 }
 /// Known literal string subset, without guessing values from names or arbitrary calls.
-struct StringSubset { literal: bool, names: Vec<String> }
+struct StringSubset {
+    literal: bool,
+    names: Vec<String>,
+}
 fn string_sequence(expr: &Expr) -> StringSubset {
     let elements = match expr {
         Expr::List(list) => &list.elts,
         Expr::Tuple(tuple) => &tuple.elts,
         Expr::BinOp(binary) if binary.op == ruff_python_ast_latest::Operator::Add => {
-            let mut left=string_sequence(&binary.left); let right=string_sequence(&binary.right);
-            left.names.extend(right.names);left.literal=false;return left;
+            let mut left = string_sequence(&binary.left);
+            let right = string_sequence(&binary.right);
+            left.names.extend(right.names);
+            left.literal = false;
+            return left;
         }
-        _ => return StringSubset {literal:false,names:vec![]},
+        _ => {
+            return StringSubset {
+                literal: false,
+                names: vec![],
+            };
+        }
     };
-    let mut out=StringSubset {literal:true,names:vec![]};
+    let mut out = StringSubset {
+        literal: true,
+        names: vec![],
+    };
     for element in elements {
-        if let Some(string)=element.as_string_literal_expr() {out.names.push(string.value.to_str().to_owned());}
-        else if let Expr::Starred(starred)=element {out.literal=false;out.names.extend(string_sequence(&starred.value).names);}
-        else {out.literal=false;}
+        if let Some(string) = element.as_string_literal_expr() {
+            out.names.push(string.value.to_str().to_owned());
+        } else if let Expr::Starred(starred) = element {
+            out.literal = false;
+            out.names.extend(string_sequence(&starred.value).names);
+        } else {
+            out.literal = false;
+        }
     }
     out
 }
@@ -466,7 +538,9 @@ impl Walker<'_> {
         names: StringSubset,
     ) -> Result<(), ModelError> {
         let statement = self.occ(statement, kind)?;
-        if !names.literal {self.records.computed_all.push(statement);}
+        if !names.literal {
+            self.records.computed_all.push(statement);
+        }
         match (names.literal, names.names) {
             (literal, names) if literal || !names.is_empty() => {
                 let literals: Vec<Literal> = names
@@ -515,7 +589,12 @@ impl Walker<'_> {
                         base: Some(alias.name.to_string()),
                         member: None,
                         spelling: alias.name.to_string(),
-                        binding_position: alias.asname.as_ref().unwrap_or(&alias.name).range().start(),
+                        binding_position: alias
+                            .asname
+                            .as_ref()
+                            .unwrap_or(&alias.name)
+                            .range()
+                            .start(),
                     });
                 }
             }
@@ -523,7 +602,12 @@ impl Walker<'_> {
                 for alias in &from.names {
                     let level = i64::from(from.level);
                     let occurrence = self.occ(alias.range(), SyntaxKind::Alias)?;
-                    let base = absolute_module(self.module, self.is_package, level, from.module.as_deref());
+                    let base = absolute_module(
+                        self.module,
+                        self.is_package,
+                        level,
+                        from.module.as_deref(),
+                    );
                     self.records.imports.push(ImportAliasObservation {
                         qualification: self.qualification,
                         statement: self.occ(stmt.range(), SyntaxKind::StmtImportFrom)?,
@@ -536,8 +620,21 @@ impl Walker<'_> {
                         alias: occurrence,
                         base,
                         member: Some(alias.name.to_string()),
-                        spelling: format!("{}{}{}", ".".repeat(from.level as usize), from.module.as_deref().map(|module| format!("{module}.")).unwrap_or_default(), alias.name),
-                        binding_position: alias.asname.as_ref().unwrap_or(&alias.name).range().start(),
+                        spelling: format!(
+                            "{}{}{}",
+                            ".".repeat(from.level as usize),
+                            from.module
+                                .as_deref()
+                                .map(|module| format!("{module}."))
+                                .unwrap_or_default(),
+                            alias.name
+                        ),
+                        binding_position: alias
+                            .asname
+                            .as_ref()
+                            .unwrap_or(&alias.name)
+                            .range()
+                            .start(),
                     });
                 }
             }
@@ -577,10 +674,14 @@ impl Walker<'_> {
                         .filter(|_| call.arguments.len() == 1);
                     let names = match (attribute.attr.as_str(), argument) {
                         ("extend", Some(argument)) => string_sequence(argument),
-                        ("append", Some(Expr::StringLiteral(s))) => {
-                            StringSubset {literal:true,names:vec![s.value.to_str().to_owned()]}
-                        }
-                        _ => StringSubset {literal:false,names:vec![]},
+                        ("append", Some(Expr::StringLiteral(s))) => StringSubset {
+                            literal: true,
+                            names: vec![s.value.to_str().to_owned()],
+                        },
+                        _ => StringSubset {
+                            literal: false,
+                            names: vec![],
+                        },
                     };
                     self.dunder_all(stmt.range(), SyntaxKind::StmtExpr, names)?;
                 }

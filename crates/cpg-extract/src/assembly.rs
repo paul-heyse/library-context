@@ -71,7 +71,8 @@ impl Declared for Assemble {
 impl<S: StageSink + 'static> ProviderStage<S> for Assemble {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
         use lctx_model::domain::{
-            assertion::*, assumptions::*, attribution::*, conditions::*, source::CoverageScope, syntax::*, value::*,
+            assertion::*, assumptions::*, attribution::*, conditions::*, source::CoverageScope,
+            syntax::*, value::*,
         };
         macro_rules! declare { ($($ty:ty),+) => { $( context.declare::<$ty>()?; )+ }; }
         declare!(
@@ -170,7 +171,8 @@ impl<S: StageSink + 'static> ProviderStage<S> for Assemble {
 pub fn vocabulary() -> Vec<lctx_model::domain::stages::RelationUse> {
     use lctx_model::domain::stages::RelationUse;
     use lctx_model::domain::{
-        assertion::*, assumptions::*, attribution::*, conditions::*, source::CoverageScope, syntax::*, value::*,
+        assertion::*, assumptions::*, attribution::*, conditions::*, source::CoverageScope,
+        syntax::*, value::*,
     };
     macro_rules! uses { ($($ty:ty),+) => { vec![$(RelationUse::of::<$ty>()),+] }; }
     uses!(

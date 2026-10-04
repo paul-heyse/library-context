@@ -594,13 +594,24 @@ fn module_resolution_belongs_to_the_exact_source_alias_and_qualification() {
     let mut wrong = Fixture::new().with_import_alias();
     wrong.module_resolutions.last_mut().unwrap().alias = Some(wrong.occ["Base"].id());
     wrong.sync();
-    refused(&wrong, "a declaration cannot stand in for an alias", "exact import alias and qualification");
+    refused(
+        &wrong,
+        "a declaration cannot stand in for an alias",
+        "exact import alias and qualification",
+    );
     let mut wrong = Fixture::new().with_import_alias();
-    let candidate = AssertionQualification { modality: Modality::Candidate, ..wrong.qualification.clone() };
+    let candidate = AssertionQualification {
+        modality: Modality::Candidate,
+        ..wrong.qualification.clone()
+    };
     wrong.imports[0].qualification = candidate.id();
     wrong.sync();
     let mut qualifications = wrong.rows::<AssertionQualification>();
     qualifications.push(candidate);
     wrong.put(qualifications);
-    refused(&wrong, "an alias in another qualification", "exact import alias and qualification");
+    refused(
+        &wrong,
+        "an alias in another qualification",
+        "exact import alias and qualification",
+    );
 }

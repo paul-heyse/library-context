@@ -15,9 +15,16 @@ def test_exact_source_and_digest_are_required() -> None:
     assert fork.one_revision(lock, driver, pins, patch) == (revision, [])
     assert fork.one_revision(lock, driver, pins, patch + b"changed")[1]
     assert fork.one_revision(lock, driver, "", patch)[1]
-    assert fork.one_revision(lock + lock.replace(revision, "b" * 40), driver, pins, patch)[0] is None
+    assert (
+        fork.one_revision(lock + lock.replace(revision, "b" * 40), driver, pins, patch)[0] is None
+    )
 
 
 def test_repository_names_exact_locked_fork() -> None:
-    revision, problems = fork.one_revision(fork.LOCK.read_text(), fork.DRIVER.read_text(), fork.PINS.read_text(), fork.PATCH.read_bytes())
+    revision, problems = fork.one_revision(
+        fork.LOCK.read_text(),
+        fork.DRIVER.read_text(),
+        fork.PINS.read_text(),
+        fork.PATCH.read_bytes(),
+    )
     assert revision is not None and not problems

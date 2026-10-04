@@ -28,12 +28,12 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+use crate::native_branches::NativeBranches;
 use lctx_model::domain::{
     lexical::{BindingEventKind as BindingKind, LexicalScopeKind, StaticBranch, SyntaxField},
     obligation::ObligationKind,
     source::SyntaxKind,
 };
-use crate::native_branches::NativeBranches;
 use ruff_python_ast_latest::{AnyNodeRef, Expr, Stmt};
 use ruff_text_size_latest::{Ranged, TextRange, TextSize};
 
@@ -1075,7 +1075,7 @@ impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
 
 #[cfg(test)]
 mod tests {
-        use pyrefly_python::sys_info::{PythonPlatform, PythonVersion, SysInfo};
+    use pyrefly_python::sys_info::{PythonPlatform, PythonVersion, SysInfo};
     use ruff_python_ast::visitor::source_order::{SourceOrderVisitor, walk_stmt};
     use ruff_python_ast::{PySourceType, Stmt, StmtIf};
 

@@ -51,9 +51,20 @@ impl Prepared {
     ) -> Result<Classified, ModelError> {
         requirement.predicate.validate()?;
         if let Predicate::FacetMembership { value, .. } = &requirement.predicate {
-            let _lowering = b.reserve("typed-facet-lowering", size_of::<Requirement>().saturating_add(value.heap_bytes()))?;
+            let _lowering = b.reserve(
+                "typed-facet-lowering",
+                size_of::<Requirement>().saturating_add(value.heap_bytes()),
+            )?;
             if let Some(predicate) = value.predicate() {
-                let mut result = self.classify(member, analysis, &Requirement { predicate, quantifier: requirement.quantifier }, b)?;
+                let mut result = self.classify(
+                    member,
+                    analysis,
+                    &Requirement {
+                        predicate,
+                        quantifier: requirement.quantifier,
+                    },
+                    b,
+                )?;
                 // The equivalent evaluation never substitutes the caller's canonical query identity.
                 result.requirement = requirement.clone();
                 return Ok(result);
@@ -90,7 +101,8 @@ impl Prepared {
             .saturating_add((evidence_count + closure_count).saturating_mul(size_of::<Witness>()));
         let _reservation = b.reserve("selection-domain-observations", retained)?;
         let mut observations = Vec::new();
-        let mut dynamic_evidence=charged::StateCharge::new(b,"selection-characterization-clones");
+        let mut dynamic_evidence =
+            charged::StateCharge::new(b, "selection-characterization-clones");
         for link in members {
             let link = need(&self.output.members, *link)?;
             let c = need(&self.output.contexts, link.context)?;
@@ -113,21 +125,32 @@ impl Prepared {
             }
             let selected_role = match &requirement.predicate {
                 Predicate::ParameterType { .. } => None,
-                Predicate::VariantParameterType { role, .. } | Predicate::VariantReturnType { role, .. } => Some(*role),
+                Predicate::VariantParameterType { role, .. }
+                | Predicate::VariantReturnType { role, .. } => Some(*role),
                 _ => None,
             };
             if matches!(&requirement.predicate, Predicate::ParameterType { .. })
-                && let Context::Signature { invocation, .. } = c {
+                && let Context::Signature { invocation, .. } = c
+            {
                 let invocation = need(&self.data.source.catalog.invocations, *invocation)?;
-                if !need(&self.data.source.core.variants, invocation.variant)?.role.runtime_source() { continue; }
+                if !need(&self.data.source.core.variants, invocation.variant)?
+                    .role
+                    .runtime_source()
+                {
+                    continue;
+                }
             }
             if let Some(role) = selected_role
-                && let Context::Signature { invocation, .. } = c {
+                && let Context::Signature { invocation, .. } = c
+            {
                 let invocation = need(&self.data.source.catalog.invocations, *invocation)?;
-                if need(&self.data.source.core.variants, invocation.variant)?.role != role { continue; }
+                if need(&self.data.source.core.variants, invocation.variant)?.role != role {
+                    continue;
+                }
             }
-            if let Predicate::FacetMembership{value,..}=&requirement.predicate
-                && !structural_facets::applicable(&self.data,value,c)? {
+            if let Predicate::FacetMembership { value, .. } = &requirement.predicate
+                && !structural_facets::applicable(&self.data, value, c)?
+            {
                 continue;
             }
             let mut evidence = Vec::new();
@@ -164,32 +187,80 @@ impl Prepared {
                     continue;
                 }
             }
-            if matches!(&requirement.predicate,Predicate::VariantReturnType{role:calls::SignatureRole::Source,..})
-                && let Context::Signature{invocation,..}=c {
-                let variant=need(&self.data.source.core.variants,need(&self.data.source.catalog.invocations,*invocation)?.variant)?;
-                if let Some(CallableEntity::Source{declaration,..})=variant.callable.and_then(|id|self.data.source.core.source_callables.get(id)) {
-                    for row in self.data.facts.type_observations.iter().filter(|r|r.subject==*declaration&&r.role==types::TypeRole::Return&&r.declared&&self.data.source.core.qualifications.get(r.qualification).is_some_and(|q|q.context==c.analysis())) {
-                        dynamic_evidence.grow(2*size_of::<Witness>())?;
-                        let witness=Witness::TypeObservation{observation:row.id()};need(&self.output.witnesses,witness.id())?;evidence.push(witness);
+            if matches!(
+                &requirement.predicate,
+                Predicate::VariantReturnType {
+                    role: calls::SignatureRole::Source,
+                    ..
+                }
+            ) && let Context::Signature { invocation, .. } = c
+            {
+                let variant = need(
+                    &self.data.source.core.variants,
+                    need(&self.data.source.catalog.invocations, *invocation)?.variant,
+                )?;
+                if let Some(CallableEntity::Source { declaration, .. }) = variant
+                    .callable
+                    .and_then(|id| self.data.source.core.source_callables.get(id))
+                {
+                    for row in self.data.facts.type_observations.iter().filter(|r| {
+                        r.subject == *declaration
+                            && r.role == types::TypeRole::Return
+                            && r.declared
+                            && self
+                                .data
+                                .source
+                                .core
+                                .qualifications
+                                .get(r.qualification)
+                                .is_some_and(|q| q.context == c.analysis())
+                    }) {
+                        dynamic_evidence.grow(2 * size_of::<Witness>())?;
+                        let witness = Witness::TypeObservation {
+                            observation: row.id(),
+                        };
+                        need(&self.output.witnesses, witness.id())?;
+                        evidence.push(witness);
                     }
                 }
             }
-            let facet_answer=if let Predicate::FacetMembership{value,..}=&requirement.predicate{Some(structural_facets::answer(&self.data,value,c,b)?)}else{None};
-            let value=if let Some(answer)=&facet_answer{
-                for witness in answer.evidence.iter(){need(&self.output.witnesses,witness.id())?;self.data.validate_witness(c,witness)?;dynamic_evidence.grow(2*size_of::<Witness>()+witness.heap_bytes())?;evidence.push(witness.clone());}
+            let facet_answer =
+                if let Predicate::FacetMembership { value, .. } = &requirement.predicate {
+                    Some(structural_facets::answer(&self.data, value, c, b)?)
+                } else {
+                    None
+                };
+            let value = if let Some(answer) = &facet_answer {
+                for witness in answer.evidence.iter() {
+                    need(&self.output.witnesses, witness.id())?;
+                    self.data.validate_witness(c, witness)?;
+                    dynamic_evidence.grow(2 * size_of::<Witness>() + witness.heap_bytes())?;
+                    evidence.push(witness.clone());
+                }
                 answer.value
-            }else{evaluate(&self.data,&requirement.predicate,c,&evidence,link.complete)?};
+            } else {
+                evaluate(
+                    &self.data,
+                    &requirement.predicate,
+                    c,
+                    &evidence,
+                    link.complete,
+                )?
+            };
             let context = ClaimContext::Declaration(c.clone());
             let admissible = if value == Some(true) {
                 vec![context.clone()]
             } else {
                 vec![]
             };
-            let basis = if let Some(answer)=facet_answer{answer.basis}else if matches!(requirement.predicate, Predicate::BehavioralRaises { .. }) {
+            let basis = if let Some(answer) = facet_answer {
+                answer.basis
+            } else if matches!(requirement.predicate, Predicate::BehavioralRaises { .. }) {
                 EvidenceBasis::BoundedModel
             } else if matches!(c, Context::Scenario { .. }) {
                 EvidenceBasis::ObservedScenario
-            } else if matches!(&requirement.predicate, Predicate::VariantParameterType {role,..} | Predicate::VariantReturnType {role,..} if !role.runtime_source()) {
+            } else if matches!(&requirement.predicate, Predicate::VariantParameterType {role,..} | Predicate::VariantReturnType {role,..} if !role.runtime_source())
+            {
                 EvidenceBasis::ProviderDeclaration
             } else {
                 EvidenceBasis::SourceDeclaration
@@ -207,56 +278,143 @@ impl Prepared {
             let r = need(&self.output.closure, *id)?;
             closure.push(need(&self.output.witnesses, r.evidence)?.clone());
         }
-        let role_requested = matches!(&requirement.predicate, Predicate::VariantParameterType { .. } | Predicate::VariantReturnType { .. } | Predicate::FacetMembership{..});
+        let role_requested = matches!(
+            &requirement.predicate,
+            Predicate::VariantParameterType { .. }
+                | Predicate::VariantReturnType { .. }
+                | Predicate::FacetMembership { .. }
+        );
         let role_observed = !observations.is_empty();
         let domain = Domain {
             corpus_complete: stored.corpus_complete,
-            analyzer_complete: if matches!(requirement.predicate, Predicate::BehavioralRaises { .. }) {
+            analyzer_complete: if matches!(
+                requirement.predicate,
+                Predicate::BehavioralRaises { .. }
+            ) {
                 !observations.is_empty() && observations.iter().all(|row| row.value.is_some())
-            } else { stored.analyzer_complete && (!role_requested || role_observed)
-                || matches!(
-                    requirement.predicate,
-                    Predicate::PublicPath { .. } | Predicate::PublicModule { .. }
-                ) },
+            } else {
+                stored.analyzer_complete && (!role_requested || role_observed)
+                    || matches!(
+                        requirement.predicate,
+                        Predicate::PublicPath { .. } | Predicate::PublicModule { .. }
+                    )
+            },
             closure,
             observations,
         };
         algebra::classify(requirement, &domain, b)
     }
     fn classify_specialized(
-        &self, member: Id<catalog::CatalogMember>, analysis: Id<attribution::AnalysisContext>,
-        requirement: &Requirement, b: &ResourceBudget,
+        &self,
+        member: Id<catalog::CatalogMember>,
+        analysis: Id<attribution::AnalysisContext>,
+        requirement: &Requirement,
+        b: &ResourceBudget,
     ) -> Result<Classified, ModelError> {
-        let Predicate::SpecializedType {site, declaration, subject, r#type} = &requirement.predicate else {return Err(ModelError::Invalid("located specialization requires its typed predicate".into()));};
-        let domain_id=self.index.domain(member,analysis,DomainKind::SignatureVariants)?;
-        let stored=need(&self.output.domains,domain_id)?;
+        let Predicate::SpecializedType {
+            site,
+            declaration,
+            subject,
+            r#type,
+        } = &requirement.predicate
+        else {
+            return Err(ModelError::Invalid(
+                "located specialization requires its typed predicate".into(),
+            ));
+        };
+        let domain_id = self
+            .index
+            .domain(member, analysis, DomainKind::SignatureVariants)?;
+        let stored = need(&self.output.domains, domain_id)?;
         // The native declaration must be a signature of the requested catalog member.
-        let mut applicable=None;
+        let mut applicable = None;
         for id in self.index.members(domain_id) {
-            let row=need(&self.output.members,*id)?;
-            let context=need(&self.output.contexts,row.context)?;
-            if let Context::Signature {invocation,..}=context {
-                let variant=need(&self.data.source.core.variants,need(&self.data.source.catalog.invocations,*invocation)?.variant)?;
-                if variant.native==Some(*declaration) {
-                    if applicable.is_some() {return Err(ModelError::Invalid("located specialization has ambiguous catalog invocation".into()));}
-                    applicable=Some(context);
+            let row = need(&self.output.members, *id)?;
+            let context = need(&self.output.contexts, row.context)?;
+            if let Context::Signature { invocation, .. } = context {
+                let variant = need(
+                    &self.data.source.core.variants,
+                    need(&self.data.source.catalog.invocations, *invocation)?.variant,
+                )?;
+                if variant.native == Some(*declaration) {
+                    if applicable.is_some() {
+                        return Err(ModelError::Invalid(
+                            "located specialization has ambiguous catalog invocation".into(),
+                        ));
+                    }
+                    applicable = Some(context);
                 }
             }
         }
-        let context=applicable.ok_or_else(||ModelError::Invalid("located specialization crosses catalog member or native role".into()))?;
-        let result=self.specialize_port(*site,*declaration,*subject,analysis,b)?;
-        let resolved=result.specialized.status==crate::domain::normalized::generic_specialization::SpecializationStatus::Resolved;
-        let value=if resolved {type_match_overlay(&self.data,Some(&result.specialized.structure),result.specialized.term,r#type,analysis)?} else {None};
-        let _scratch=b.reserve("located-selection-evidence",result.specialized.support.len().saturating_add(2).saturating_mul(size_of::<Witness>()).saturating_add(size_of::<Observation>()))?;
-        let mut evidence=vec![Witness::SignatureTypeObservation {observation:result.observation},Witness::Qualification {qualification:result.specialized.qualification}];
-        evidence.extend(result.specialized.support.iter().map(|observation|Witness::GenericSpecialization {observation:*observation}));
-        for witness in &evidence {need(&self.output.witnesses,witness.id())?;}
-        let claim=ClaimContext::Declaration(context.clone());
-        let observations=vec![Observation {context:claim.clone(),basis:EvidenceBasis::ProviderDeclaration,value,evidence:evidence.clone(),admissible:if value==Some(true) {vec![claim]} else {vec![]}}];
+        let context = applicable.ok_or_else(|| {
+            ModelError::Invalid(
+                "located specialization crosses catalog member or native role".into(),
+            )
+        })?;
+        let result = self.specialize_port(*site, *declaration, *subject, analysis, b)?;
+        let resolved = result.specialized.status
+            == crate::domain::normalized::generic_specialization::SpecializationStatus::Resolved;
+        let value = if resolved {
+            type_match_overlay(
+                &self.data,
+                Some(&result.specialized.structure),
+                result.specialized.term,
+                r#type,
+                analysis,
+            )?
+        } else {
+            None
+        };
+        let _scratch = b.reserve(
+            "located-selection-evidence",
+            result
+                .specialized
+                .support
+                .len()
+                .saturating_add(2)
+                .saturating_mul(size_of::<Witness>())
+                .saturating_add(size_of::<Observation>()),
+        )?;
+        let mut evidence = vec![
+            Witness::SignatureTypeObservation {
+                observation: result.observation,
+            },
+            Witness::Qualification {
+                qualification: result.specialized.qualification,
+            },
+        ];
+        evidence.extend(result.specialized.support.iter().map(|observation| {
+            Witness::GenericSpecialization {
+                observation: *observation,
+            }
+        }));
+        for witness in &evidence {
+            need(&self.output.witnesses, witness.id())?;
+        }
+        let claim = ClaimContext::Declaration(context.clone());
+        let observations = vec![Observation {
+            context: claim.clone(),
+            basis: EvidenceBasis::ProviderDeclaration,
+            value,
+            evidence: evidence.clone(),
+            admissible: if value == Some(true) {
+                vec![claim]
+            } else {
+                vec![]
+            },
+        }];
         // This closure concerns one located native answer, never all runtime invocations.
-        algebra::classify(requirement,&Domain {corpus_complete:stored.corpus_complete,analyzer_complete:resolved,closure:evidence,observations},b)
+        algebra::classify(
+            requirement,
+            &Domain {
+                corpus_complete: stored.corpus_complete,
+                analyzer_complete: resolved,
+                closure: evidence,
+                observations,
+            },
+            b,
+        )
     }
-
 }
 /// All result groups remain available; strict eligibility is a separate finite view.
 pub struct CandidateSelection {
@@ -434,7 +592,12 @@ pub(super) fn type_match_overlay(
     query: &StructuralType,
     analysis: Id<attribution::AnalysisContext>,
 ) -> Result<Option<bool>, ModelError> {
-    let t = overlay.and_then(|g| g.terms.get(term)).or_else(|| d.facts.type_terms.get(term)).ok_or_else(|| ModelError::Invalid("structural term absent from base and specialization".into()))?;
+    let t = overlay
+        .and_then(|g| g.terms.get(term))
+        .or_else(|| d.facts.type_terms.get(term))
+        .ok_or_else(|| {
+            ModelError::Invalid("structural term absent from base and specialization".into())
+        })?;
     if matches!(
         t,
         types::TypeTerm::Other { .. }
@@ -444,12 +607,16 @@ pub(super) fn type_match_overlay(
         return Ok(None);
     }
     Ok(match query {
-        StructuralType::CanonicalTerm { term: expected } => {
-            overlay.and_then(|g| g.terms.get(*expected)).or_else(|| d.facts.type_terms.get(*expected)).map(|_| term == *expected)
-        }
+        StructuralType::CanonicalTerm { term: expected } => overlay
+            .and_then(|g| g.terms.get(*expected))
+            .or_else(|| d.facts.type_terms.get(*expected))
+            .map(|_| term == *expected),
         StructuralType::Category { kind } => Some(t.tag() == *kind),
         StructuralType::DeclaredUnionMember { term: expected }
-            if overlay.and_then(|g|g.terms.get(*expected)).or_else(||d.facts.type_terms.get(*expected)).is_none() =>
+            if overlay
+                .and_then(|g| g.terms.get(*expected))
+                .or_else(|| d.facts.type_terms.get(*expected))
+                .is_none() =>
         {
             None
         }
@@ -459,7 +626,11 @@ pub(super) fn type_match_overlay(
                     .type_sequences
                     .iter()
                     .any(|r| r.sequence == *members && r.child == *expected)
-                    || overlay.is_some_and(|g|g.members.iter().any(|r|r.sequence==*members && r.child==*expected)),
+                    || overlay.is_some_and(|g| {
+                        g.members
+                            .iter()
+                            .any(|r| r.sequence == *members && r.child == *expected)
+                    }),
             ),
             _ => Some(false),
         },
@@ -612,7 +783,8 @@ fn parameter(
         | Predicate::ParameterRequired { name, .. }
         | Predicate::ParameterDefaultState { name, .. }
         | Predicate::ParameterDefault { name, .. }
-        | Predicate::ParameterType { name, .. } | Predicate::VariantParameterType { name, .. } => name,
+        | Predicate::ParameterType { name, .. }
+        | Predicate::VariantParameterType { name, .. } => name,
         _ => return Ok(None),
     };
     let mut found = None;
@@ -639,7 +811,10 @@ fn parameter(
         let complete = if variant.role.runtime_source() {
             assessment.signatures == Knowledge::Known
         } else {
-            variant.native.and_then(|id| d.source.core.native_signatures.get(id)).is_some_and(|n| n.complete)
+            variant
+                .native
+                .and_then(|id| d.source.core.native_signatures.get(id))
+                .is_some_and(|n| n.complete)
         };
         return Ok((signature.form == calls::SignatureForm::List
             && complete
@@ -664,12 +839,24 @@ fn parameter(
             Ok(consensus(values))
         }
         Predicate::VariantParameterType { role, r#type, .. } => {
-            if variant.role != *role { return Ok(None); }
+            if variant.role != *role {
+                return Ok(None);
+            }
             let mut values = Vec::new();
-            for link in d.source.core.slot_types.iter().filter(|r| r.slot == slot.id()) {
+            for link in d
+                .source
+                .core
+                .slot_types
+                .iter()
+                .filter(|r| r.slot == slot.id())
+            {
                 let raw = need(&d.source.core.signature_types, link.observation)?;
                 let q = need(&d.source.core.qualifications, raw.qualification)?;
-                if q.context == c.analysis() && q.approximation == assertion::Approximation::Exact && q.modality == attribution::Modality::Definite && q.condition == conditions::Diagram::always().id() {
+                if q.context == c.analysis()
+                    && q.approximation == assertion::Approximation::Exact
+                    && q.modality == attribution::Modality::Definite
+                    && q.condition == conditions::Diagram::always().id()
+                {
                     values.push(type_match(d, raw.term, r#type, c.analysis())?);
                 }
             }
@@ -733,17 +920,34 @@ fn evaluate(
     let member = member_of(d, c)?;
     match p {
         Predicate::BehavioralRaises { exception } => {
-            let Context::Binding { candidate, .. } = c else { return Ok(None); };
+            let Context::Binding { candidate, .. } = c else {
+                return Ok(None);
+            };
             let owner = candidate_entity(d, *candidate)?;
-            let mut results = w.iter().filter_map(|witness| match witness { Witness::SummaryException { outcome } => d.facts.exception_outcomes.get(*outcome), _ => None });
-            let Some(result) = results.next() else { return Ok(None); };
-            if results.next().is_some() || result.context != c.analysis() || Some(result.owner) != owner
-                || member.is_none_or(|member| member.input != result.input) { return Ok(None); }
+            let mut results = w.iter().filter_map(|witness| match witness {
+                Witness::SummaryException { outcome } => d.facts.exception_outcomes.get(*outcome),
+                _ => None,
+            });
+            let Some(result) = results.next() else {
+                return Ok(None);
+            };
+            if results.next().is_some()
+                || result.context != c.analysis()
+                || Some(result.owner) != owner
+                || member.is_none_or(|member| member.input != result.input)
+            {
+                return Ok(None);
+            }
             let q = need(&d.source.core.qualifications, result.qualification)?;
-            if q.context != c.analysis() || q.condition != conditions::Diagram::always().id()
+            if q.context != c.analysis()
+                || q.condition != conditions::Diagram::always().id()
                 || q.assumptions != assumptions::AssumptionSet::empty().id()
-                || q.modality != attribution::Modality::Definite || q.approximation != assertion::Approximation::Exact
-                || analysis::policy::behavioral_support(result.status, false).is_err() { return Ok(None); }
+                || q.modality != attribution::Modality::Definite
+                || q.approximation != assertion::Approximation::Exact
+                || analysis::policy::behavioral_support(result.status, false).is_err()
+            {
+                return Ok(None);
+            }
             Ok(Some(result.exception == Some(*exception)))
         }
         Predicate::PublicPath { path } => Ok(member
@@ -886,31 +1090,57 @@ fn evaluate(
         | Predicate::ParameterRequired { .. }
         | Predicate::ParameterDefaultState { .. }
         | Predicate::ParameterDefault { .. }
-        | Predicate::ParameterType { .. } | Predicate::VariantParameterType { .. } => parameter(d, p, c),
+        | Predicate::ParameterType { .. }
+        | Predicate::VariantParameterType { .. } => parameter(d, p, c),
         Predicate::VariantReturnType { role, r#type } => {
-            let Context::Signature { invocation, .. } = c else { return Ok(None); };
+            let Context::Signature { invocation, .. } = c else {
+                return Ok(None);
+            };
             let invocation = need(&d.source.catalog.invocations, *invocation)?;
             let variant = need(&d.source.core.variants, invocation.variant)?;
-            if variant.role != *role { return Ok(None); }
+            if variant.role != *role {
+                return Ok(None);
+            }
             let mut values = Vec::new();
-            if role.runtime_source(){
-                if let Some(CallableEntity::Source{declaration,..})=variant.callable.and_then(|id|d.source.core.source_callables.get(id)){
-                    for raw in d.facts.type_observations.iter().filter(|r|r.subject==*declaration&&r.role==types::TypeRole::Return&&r.declared){
-                        let q=need(&d.source.core.qualifications,raw.qualification)?;
-                        if q.context==c.analysis()&&q.approximation==assertion::Approximation::Exact&&q.modality==attribution::Modality::Definite&&q.condition==conditions::Diagram::always().id(){values.push(type_match(d,raw.term,r#type,c.analysis())?);}
+            if role.runtime_source() {
+                if let Some(CallableEntity::Source { declaration, .. }) = variant
+                    .callable
+                    .and_then(|id| d.source.core.source_callables.get(id))
+                {
+                    for raw in d.facts.type_observations.iter().filter(|r| {
+                        r.subject == *declaration && r.role == types::TypeRole::Return && r.declared
+                    }) {
+                        let q = need(&d.source.core.qualifications, raw.qualification)?;
+                        if q.context == c.analysis()
+                            && q.approximation == assertion::Approximation::Exact
+                            && q.modality == attribution::Modality::Definite
+                            && q.condition == conditions::Diagram::always().id()
+                        {
+                            values.push(type_match(d, raw.term, r#type, c.analysis())?);
+                        }
                     }
                 }
                 return Ok(consensus(values));
             }
-            for link in d.source.core.return_types.iter().filter(|r| r.variant == variant.id()) {
+            for link in d
+                .source
+                .core
+                .return_types
+                .iter()
+                .filter(|r| r.variant == variant.id())
+            {
                 let raw = need(&d.source.core.signature_types, link.observation)?;
                 let q = need(&d.source.core.qualifications, raw.qualification)?;
-                if q.context == c.analysis() && q.approximation == assertion::Approximation::Exact && q.modality == attribution::Modality::Definite && q.condition == conditions::Diagram::always().id() {
+                if q.context == c.analysis()
+                    && q.approximation == assertion::Approximation::Exact
+                    && q.modality == attribution::Modality::Definite
+                    && q.condition == conditions::Diagram::always().id()
+                {
                     values.push(type_match(d, raw.term, r#type, c.analysis())?);
                 }
             }
             Ok(consensus(values))
-        },
+        }
         Predicate::DeclaresConfigurationField { name }
         | Predicate::ConfigurationDefault { name, .. }
         | Predicate::ConfigurationLiteral { name, .. }

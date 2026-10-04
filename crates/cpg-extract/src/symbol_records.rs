@@ -565,7 +565,9 @@ pub fn records(
         } else {
             None
         };
-        if !base.is_def_statement { continue; }
+        if !base.is_def_statement {
+            continue;
+        }
         let enumeration_start = out.signatures.len();
         let count = function.undecorated_signatures.len();
         if count > MAX_SIGNATURE_VARIANTS {
@@ -578,7 +580,13 @@ pub fn records(
             let (form, formals) = formals(&signature.parameters);
             let shapes: Vec<ParameterShape> = formals.iter().map(|f| f.shape.clone()).collect();
             let (row, members) = match Signature::new(
-                qualification, if base.is_stub { lctx_model::domain::calls::SignatureRole::Stub } else { lctx_model::domain::calls::SignatureRole::Source }, None,
+                qualification,
+                if base.is_stub {
+                    lctx_model::domain::calls::SignatureRole::Stub
+                } else {
+                    lctx_model::domain::calls::SignatureRole::Source
+                },
+                None,
                 symbol,
                 variant as i64,
                 form,
@@ -588,7 +596,13 @@ pub fn records(
                 Err(ModelError::Invalid(detail)) if form == SignatureForm::List => {
                     out.native_unavailable.push((symbol, format!("native signature variant {variant} is unavailable for binding: {detail}")));
                     Signature::new(
-                        qualification, if base.is_stub { lctx_model::domain::calls::SignatureRole::Stub } else { lctx_model::domain::calls::SignatureRole::Source }, None,
+                        qualification,
+                        if base.is_stub {
+                            lctx_model::domain::calls::SignatureRole::Stub
+                        } else {
+                            lctx_model::domain::calls::SignatureRole::Source
+                        },
+                        None,
                         symbol,
                         variant as i64,
                         SignatureForm::NativeUnavailable,

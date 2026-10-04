@@ -462,8 +462,16 @@ fn facts(
         )?;
     }
     for row in out.capture_witnesses.iter() {
-        if row.invocation!=invocation.id() {return Err(invalid("capture consequence foreign witness"));}
-        add(need(&out.keys,row.transfer)?.descriptor(),row.qualification,SummaryPremise::Captured {witness:row.id()},row.status,false)?;
+        if row.invocation != invocation.id() {
+            return Err(invalid("capture consequence foreign witness"));
+        }
+        add(
+            need(&out.keys, row.transfer)?.descriptor(),
+            row.qualification,
+            SummaryPremise::Captured { witness: row.id() },
+            row.status,
+            false,
+        )?;
     }
     for row in out.path_witnesses.iter() {
         if row.invocation != invocation.id() {
@@ -1237,7 +1245,7 @@ mod tests {
             owner::AnalysisInvocation::new(nominal(1), nominal(2), definition.id(), None, []);
         let condition = Diagram::never();
         let q = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: invocation.context,
             scope: nominal(3),
             condition: condition.id(),
@@ -1380,7 +1388,7 @@ mod tests {
         let no = Diagram::never();
         let conditional = Diagram::from_atom(nominal(3));
         let q = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: nominal(1),
             scope: nominal(2),
             condition: yes.id(),

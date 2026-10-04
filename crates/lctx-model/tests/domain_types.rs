@@ -866,10 +866,24 @@ fn opaque_children_keep_typed_ports_without_structural_support() {
 
 #[test]
 fn native_signature_ports_keep_role_origin_and_qualification() {
-    for mismatch in ["none", "role", "term", "metadata_origin", "not_deprecated_message", "deprecated_none"] {
+    for mismatch in [
+        "none",
+        "role",
+        "term",
+        "metadata_origin",
+        "not_deprecated_message",
+        "deprecated_none",
+    ] {
         let mut f = Fixture::new(false);
         f.native_signature_ports(mismatch);
-        let check = NativeSignatureObservation::invariants().into_iter().find(|i|i.name=="native_signature_ports").unwrap();
-        assert_eq!(f.base.check(&check).is_ok(),matches!(mismatch,"none"|"deprecated_none"),"{mismatch}");
+        let check = NativeSignatureObservation::invariants()
+            .into_iter()
+            .find(|i| i.name == "native_signature_ports")
+            .unwrap();
+        assert_eq!(
+            f.base.check(&check).is_ok(),
+            matches!(mismatch, "none" | "deprecated_none"),
+            "{mismatch}"
+        );
     }
 }

@@ -91,7 +91,7 @@ impl Fixture {
         };
         let (condition, nodes) = Diagram::always().records();
         let qualification = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: condition.id(),
@@ -211,7 +211,9 @@ impl Fixture {
             },
         ];
         let (signature, members) = Signature::new(
-            &qualification, lctx_model::domain::calls::SignatureRole::Source, None,
+            &qualification,
+            lctx_model::domain::calls::SignatureRole::Source,
+            None,
             function.id(),
             0,
             SignatureForm::List,

@@ -2,8 +2,8 @@
 //! distinct from producer schedule through coverage to admission.
 use lctx_model::domain::{
     admission::*, attribution::*, calls::*, declarations::*, deployment::*, documents::*, flow::*,
-    input::*, lexical::*, ruff::*, resources::ResourceBudget, source::*, stages::*, symbols::*, syntax::*,
-    transfer::local::TransferKey, types::*, *,
+    input::*, lexical::*, resources::ResourceBudget, ruff::*, source::*, stages::*, symbols::*,
+    syntax::*, transfer::local::TransferKey, types::*, *,
 };
 use std::{
     collections::BTreeMap,
@@ -485,7 +485,15 @@ impl World {
                     inputs: vec![],
                     outputs,
                     contributes: vec![],
-                    coverage: coverage.into_iter().map(|family|lctx_model::domain::stages::FamilyCoverage {family,provider:provider.expect("covered fixture stage names its provider").id()}).collect(),
+                    coverage: coverage
+                        .into_iter()
+                        .map(|family| lctx_model::domain::stages::FamilyCoverage {
+                            family,
+                            provider: provider
+                                .expect("covered fixture stage names its provider")
+                                .id(),
+                        })
+                        .collect(),
                     profiles,
                     effect: Effect::Extraction,
                     code: ContentHash::of(name.as_bytes()),
@@ -1154,7 +1162,10 @@ fn preflight_refuses_schedules_that_cannot_produce_the_frontier() {
         .into_iter()
         .filter(|(s, _)| matches!(s.name, "acquire" | "pyrefly" | "assemble"))
         .collect();
-    subset[1].0.coverage.retain(|grant|grant.family==FactFamily::Syntax);
+    subset[1]
+        .0
+        .coverage
+        .retain(|grant| grant.family == FactFamily::Syntax);
     frontier_refusal(
         contract.preflight(&catalog(subset)),
         "no scheduled stage covers requested Lexical",

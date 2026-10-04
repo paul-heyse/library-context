@@ -300,12 +300,30 @@ async fn definitions_nest_carry_their_traits_and_attach_at_their_name_spans() {
         .filter(|c| c.family == FactFamily::Signatures)
         .map(|c| c.status)
         .collect();
-    assert_eq!(signatures.len(),2);
-    for coverage in f.rows::<ProviderCoverage>().into_iter().filter(|c|c.family==FactFamily::Signatures) {
-        if coverage.status==CoverageStatus::Partial {
-            assert!(coverage.diagnostic.as_ref().is_some_and(|d|d.contains("native signature variants are unavailable")),"{coverage:?}");
-            assert!(f.rows::<Signature>().iter().any(|s|s.scope==coverage.scope && !s.role.runtime_source() && s.form==SignatureForm::NativeUnavailable));
-        } else {assert_eq!(coverage.status,CoverageStatus::CompleteUnderStatedModel);}
+    assert_eq!(signatures.len(), 2);
+    for coverage in f
+        .rows::<ProviderCoverage>()
+        .into_iter()
+        .filter(|c| c.family == FactFamily::Signatures)
+    {
+        if coverage.status == CoverageStatus::Partial {
+            assert!(
+                coverage
+                    .diagnostic
+                    .as_ref()
+                    .is_some_and(|d| d.contains("native signature variants are unavailable")),
+                "{coverage:?}"
+            );
+            assert!(
+                f.rows::<Signature>()
+                    .iter()
+                    .any(|s| s.scope == coverage.scope
+                        && !s.role.runtime_source()
+                        && s.form == SignatureForm::NativeUnavailable)
+            );
+        } else {
+            assert_eq!(coverage.status, CoverageStatus::CompleteUnderStatedModel);
+        }
     }
 }
 
@@ -468,9 +486,19 @@ async fn public_names_docs_and_module_resolutions_are_stated() {
     assert_eq!(resolved.get("gone"), Some(&None));
     // Canonical source enumeration is complete; unavailable explicit targets keep native
     // enumeration partial, without discarding their declared public paths.
-    let enumerations=f.rows::<ExportEnumerationObservation>();
-    assert!(enumerations.iter().any(|e|e.status==ExportEnumerationStatus::Partial && e.basis==ExportEnumerationBasis::Invalid));
-    assert!(f.rows::<ProviderCoverage>().iter().filter(|c|c.family==FactFamily::Exports).any(|c|c.status==CoverageStatus::CompleteUnderStatedModel));
+    let enumerations = f.rows::<ExportEnumerationObservation>();
+    assert!(
+        enumerations
+            .iter()
+            .any(|e| e.status == ExportEnumerationStatus::Partial
+                && e.basis == ExportEnumerationBasis::Invalid)
+    );
+    assert!(
+        f.rows::<ProviderCoverage>()
+            .iter()
+            .filter(|c| c.family == FactFamily::Exports)
+            .any(|c| c.status == CoverageStatus::CompleteUnderStatedModel)
+    );
 }
 
 inspector!(
@@ -512,10 +540,32 @@ async fn a_literal_dunder_all_built_by_assignment_augmentation_and_append_is_the
             .map(|p| p.name)
             .collect()
     };
-    assert_eq!(of("dunder"), BTreeSet::from(["alpha","beta","top"].map(str::to_owned)));
-    let qualifications: BTreeMap<_,_>=rows::<assertion::AssertionQualification>(&tables).into_iter().map(|q|(q.id(),q)).collect();
-    for name in rows::<PublicNameObservation>(&tables).into_iter().filter(|p|modules[&p.access]=="dunder" && p.name!="top") {assert_eq!(qualifications[&name.qualification].modality,Modality::Candidate);}
-    for name in rows::<PublicNameObservation>(&tables).into_iter().filter(|p|modules[&p.access]=="dunder.dyn") {assert_eq!(qualifications[&name.qualification].modality,Modality::Candidate);}
+    assert_eq!(
+        of("dunder"),
+        BTreeSet::from(["alpha", "beta", "top"].map(str::to_owned))
+    );
+    let qualifications: BTreeMap<_, _> = rows::<assertion::AssertionQualification>(&tables)
+        .into_iter()
+        .map(|q| (q.id(), q))
+        .collect();
+    for name in rows::<PublicNameObservation>(&tables)
+        .into_iter()
+        .filter(|p| modules[&p.access] == "dunder" && p.name != "top")
+    {
+        assert_eq!(
+            qualifications[&name.qualification].modality,
+            Modality::Candidate
+        );
+    }
+    for name in rows::<PublicNameObservation>(&tables)
+        .into_iter()
+        .filter(|p| modules[&p.access] == "dunder.dyn")
+    {
+        assert_eq!(
+            qualifications[&name.qualification].modality,
+            Modality::Candidate
+        );
+    }
     assert_eq!(
         of("dunder.dyn"),
         BTreeSet::from(["alpha_call", "dyn_other", "dyn_public"].map(str::to_owned))

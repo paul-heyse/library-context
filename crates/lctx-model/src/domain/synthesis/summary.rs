@@ -62,7 +62,7 @@ fn claim<'a>(
 }
 fn entity(d: &Data, claim: &SummaryClaim) -> Result<Id<EntityRef>, ModelError> {
     match claim {
-        SummaryClaim::NoNormalContinuation {owner,..} => Ok(*owner),
+        SummaryClaim::NoNormalContinuation { owner, .. } => Ok(*owner),
         SummaryClaim::FiniteAlternative { transfer, .. } => {
             Ok(need(&d.transfers, *transfer)?.owner)
         }
@@ -127,7 +127,11 @@ pub fn evidence(
             qualification,
             ..
         } => (*channel, *phase, *qualification),
-        SummaryClaim::NoNormalContinuation { .. } => return Err(invalid("terminal frontier requires its dedicated scoped source")),
+        SummaryClaim::NoNormalContinuation { .. } => {
+            return Err(invalid(
+                "terminal frontier requires its dedicated scoped source",
+            ));
+        }
         SummaryClaim::SymbolicFieldAssociation { .. } => {
             return Err(invalid("symbolic association cannot cite a finite proof"));
         }
@@ -361,7 +365,11 @@ pub fn extend_observations(
         let (channel, phase) = match claim {
             SummaryClaim::FiniteAlternative { channel, phase, .. }
             | SummaryClaim::CallClosure { channel, phase, .. } => (*channel, *phase),
-            SummaryClaim::NoNormalContinuation { .. } => return Err(invalid("terminal frontier requires its dedicated scoped source")),
+            SummaryClaim::NoNormalContinuation { .. } => {
+                return Err(invalid(
+                    "terminal frontier requires its dedicated scoped source",
+                ));
+            }
             SummaryClaim::SymbolicFieldAssociation { .. } => {
                 return Err(invalid("symbolic association cannot emit a finding"));
             }
@@ -492,8 +500,13 @@ pub fn text(
         None => "Behavioral analysis for this captured frame".into(),
     };
     let basis = match qualification {
-        Some(q) if q.assumptions == assumptions::AssumptionSet::empty_id() => "No additional typing or closed-world assumptions".to_owned(),
-        Some(q) => format!("Conditional on the stated typing or closed-world premises (basis {})", q.assumptions.hex()),
+        Some(q) if q.assumptions == assumptions::AssumptionSet::empty_id() => {
+            "No additional typing or closed-world assumptions".to_owned()
+        }
+        Some(q) => format!(
+            "Conditional on the stated typing or closed-world premises (basis {})",
+            q.assumptions.hex()
+        ),
         None => "Qualification and assumption basis are unavailable".to_owned(),
     };
     Ok(format!(
@@ -545,7 +558,7 @@ mod tests {
             conditions::Diagram::always()
         };
         let q = assertion::AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: inv.context,
             scope: source::CoverageScope::Artifact { artifact: id(71) }.id(),
             condition: condition.id(),
@@ -666,7 +679,11 @@ mod tests {
         let (facets, _) = build(&d, &docs, &f, &i, &b).unwrap();
         let facet = facets.iter().next().unwrap();
         let original = o.qualifications.get(facet.qualification.unwrap()).unwrap();
-        assert!(text(&d, facet, Some(original), &b).unwrap().contains("No additional typing or closed-world assumptions"));
+        assert!(
+            text(&d, facet, Some(original), &b)
+                .unwrap()
+                .contains("No additional typing or closed-world assumptions")
+        );
         let mut qualified = original.clone();
         qualified.assumptions = id(97);
         let mut conditional = facet.clone();
@@ -689,9 +706,14 @@ mod tests {
             let facet = facets.iter().next().unwrap();
             assert_eq!(facet.verdict, verdict);
             assert!(
-                text(&d, facet, facet.qualification.and_then(|q|o.qualifications.get(q)), &b)
-                    .unwrap()
-                    .contains(&format!("{verdict:?}"))
+                text(
+                    &d,
+                    facet,
+                    facet.qualification.and_then(|q| o.qualifications.get(q)),
+                    &b
+                )
+                .unwrap()
+                .contains(&format!("{verdict:?}"))
             );
             let mut out = super::super::observations::Output::new(&b);
             extend_observations(&d, &o, &facets, &f, &i, &c, &mut out, &b).unwrap();

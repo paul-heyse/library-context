@@ -156,7 +156,8 @@ impl CatalogService {
                                 .chain(s.effective_parameters.iter())
                                 .map(|p| p.types.len().saturating_add(p.type_evidence.len()))
                                 .sum::<usize>()
-                                .saturating_add(s.return_types.len()).saturating_add(s.return_evidence.len())
+                                .saturating_add(s.return_types.len())
+                                .saturating_add(s.return_evidence.len())
                         })
                         .sum::<usize>(),
                 )
@@ -185,9 +186,18 @@ impl CatalogService {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
-        let _typing= e.budget().reserve("mandatory-typing-drafts",lookup_items.saturating_mul(2*size_of::<TypingDraft>()+128))?;
-        let typing=this_typing(&cores,self)?;
-        let native_ids=cores.iter().flat_map(|c|c.signatures.iter()).filter_map(|s|s.native.0).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+        let _typing = e.budget().reserve(
+            "mandatory-typing-drafts",
+            lookup_items.saturating_mul(2 * size_of::<TypingDraft>() + 128),
+        )?;
+        let typing = this_typing(&cores, self)?;
+        let native_ids = cores
+            .iter()
+            .flat_map(|c| c.signatures.iter())
+            .filter_map(|s| s.native.0)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
         let (presentations, evidence, claim_bases, typing, type_supports, port_supports, native_supports) = e
             .query(move |lease| {
                 Box::pin(async move {
@@ -234,45 +244,137 @@ impl CatalogService {
                         }
                     }
                 }
-                let typing_count=cores.iter().flat_map(|c|c.signatures.iter()).map(|s|signature_evidence(s).count()).sum::<usize>();
-                let maximum_proofs=type_supports.rows().len().saturating_add(port_supports.rows().len()).saturating_add(native_supports.rows().len()).saturating_mul(5).saturating_add(3);
-                allowance=allowance.saturating_add(typing_count.saturating_mul(2*size_of::<SignatureTypingPacket>()+maximum_proofs.saturating_mul(2*size_of::<ProofReference>()+128)));
+                let typing_count = cores
+                    .iter()
+                    .flat_map(|c| c.signatures.iter())
+                    .map(|s| signature_evidence(s).count())
+                    .sum::<usize>();
+                let maximum_proofs = type_supports
+                    .rows()
+                    .len()
+                    .saturating_add(port_supports.rows().len())
+                    .saturating_add(native_supports.rows().len())
+                    .saturating_mul(5)
+                    .saturating_add(3);
+                allowance = allowance.saturating_add(typing_count.saturating_mul(
+                    2 * size_of::<SignatureTypingPacket>()
+                        + maximum_proofs.saturating_mul(2 * size_of::<ProofReference>() + 128),
+                ));
                 // Each typing answer retains its exact canonical premise definitions.
-                for draft in &typing { let basis=claim_bases.get(&draft.qualification).ok_or(Error::Contract)?; allowance=allowance.saturating_add(serialized_len(basis)?.saturating_mul(typing_count.saturating_mul(2))); }
+                for draft in &typing {
+                    let basis = claim_bases
+                        .get(&draft.qualification)
+                        .ok_or(Error::Contract)?;
+                    allowance = allowance.saturating_add(
+                        serialized_len(basis)?.saturating_mul(typing_count.saturating_mul(2)),
+                    );
+                }
                 let _construction =
                     budget.reserve("mandatory-type-presentation-dtos", allowance)?;
                 let mut cores = cores;
                 for core in &mut cores {
                     for signature in &mut core.signatures {
-                        let mut seen=BTreeSet::new();
-                        let mut packets=Vec::new();
+                        let mut seen = BTreeSet::new();
+                        let mut packets = Vec::new();
                         for reference in signature_evidence(signature) {
-                            if !seen.insert((reference.relation.as_str(),reference.row)) {continue;}
-                            let draft=typing.iter().find(|r|r.reference==*reference).ok_or(Error::Contract)?;
-                            let qualification=this.prepared().data().source.core.qualifications.get(draft.qualification).ok_or(Error::Contract)?;
-                            if qualification.context!=signature.analysis {return Err(Error::Contract);}
-                            let mut proof=vec![reference.clone(),ProofReference::from_canonical(derivation::RowRef::of(draft.qualification))];
-                            macro_rules! supports {($rows:expr,$id:expr)=>{{let mut found=false;for row in $rows.iter().filter(|r|r.assertion==$id){found=true;proof.push(ProofReference::from_canonical(derivation::RowRef::of(row.id())));proof.push(ProofReference::from_canonical(derivation::RowRef::of(row.run)));proof.push(ProofReference::from_canonical(derivation::RowRef::of(row.surface)));proof.push(ProofReference::from_canonical(derivation::RowRef::of(row.evidence)));}if !found{return Err(Error::Contract);}}};}
+                            if !seen.insert((reference.relation.as_str(), reference.row)) {
+                                continue;
+                            }
+                            let draft = typing
+                                .iter()
+                                .find(|r| r.reference == *reference)
+                                .ok_or(Error::Contract)?;
+                            let qualification = this
+                                .prepared()
+                                .data()
+                                .source
+                                .core
+                                .qualifications
+                                .get(draft.qualification)
+                                .ok_or(Error::Contract)?;
+                            if qualification.context != signature.analysis {
+                                return Err(Error::Contract);
+                            }
+                            let mut proof = vec![
+                                reference.clone(),
+                                ProofReference::from_canonical(derivation::RowRef::of(
+                                    draft.qualification,
+                                )),
+                            ];
+                            macro_rules! supports {
+                                ($rows:expr,$id:expr) => {{
+                                    let mut found = false;
+                                    for row in $rows.iter().filter(|r| r.assertion == $id) {
+                                        found = true;
+                                        proof.push(ProofReference::from_canonical(
+                                            derivation::RowRef::of(row.id()),
+                                        ));
+                                        proof.push(ProofReference::from_canonical(
+                                            derivation::RowRef::of(row.run),
+                                        ));
+                                        proof.push(ProofReference::from_canonical(
+                                            derivation::RowRef::of(row.surface),
+                                        ));
+                                        proof.push(ProofReference::from_canonical(
+                                            derivation::RowRef::of(row.evidence),
+                                        ));
+                                    }
+                                    if !found {
+                                        return Err(Error::Contract);
+                                    }
+                                }};
+                            }
                             match &draft.origin {
-                                SignatureTypingOrigin::SourceDeclared{observation,..}=>supports!(type_supports.rows(),*observation),
-                                SignatureTypingOrigin::NativeObserved{observation,..}=>{
-                                    supports!(port_supports.rows(),*observation);
-                                    let native=signature.native.0.ok_or(Error::Contract)?;
-                                    let declaration=this.prepared().data().source.core.native_signatures.get(native).ok_or(Error::Contract)?;
-                                    if declaration.qualification!=draft.qualification || declaration.signature!=signature.signature {return Err(Error::Contract);}
-                                    supports!(native_supports.rows(),native);
-                                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(native)));
+                                SignatureTypingOrigin::SourceDeclared { observation, .. } => {
+                                    supports!(type_supports.rows(), *observation)
+                                }
+                                SignatureTypingOrigin::NativeObserved { observation, .. } => {
+                                    supports!(port_supports.rows(), *observation);
+                                    let native = signature.native.0.ok_or(Error::Contract)?;
+                                    let declaration = this
+                                        .prepared()
+                                        .data()
+                                        .source
+                                        .core
+                                        .native_signatures
+                                        .get(native)
+                                        .ok_or(Error::Contract)?;
+                                    if declaration.qualification != draft.qualification
+                                        || declaration.signature != signature.signature
+                                    {
+                                        return Err(Error::Contract);
+                                    }
+                                    supports!(native_supports.rows(), native);
+                                    proof.push(ProofReference::from_canonical(
+                                        derivation::RowRef::of(native),
+                                    ));
                                 }
                             }
-                            let packet=SignatureTypingPacket{origin:draft.origin.clone(),term:draft.term,qualification:draft.qualification,claim_basis:claim_bases.get(&draft.qualification).ok_or(Error::Contract)?.clone(),proof};
+                            let packet = SignatureTypingPacket {
+                                origin: draft.origin.clone(),
+                                term: draft.term,
+                                qualification: draft.qualification,
+                                claim_basis: claim_bases
+                                    .get(&draft.qualification)
+                                    .ok_or(Error::Contract)?
+                                    .clone(),
+                                proof,
+                            };
                             packets.push(packet);
                         }
-                        signature.typing=packets;
+                        signature.typing = packets;
                     }
                     for row in presentations.rows() {
                         if this.core_has_presentation(core, row) {
                             core.type_presentations.push(
-                                TypePresentationPacket::from_canonical(row, claim_bases.get(&row.qualification).ok_or(Error::Contract)?.clone()).map_err(wire_error)?,
+                                TypePresentationPacket::from_canonical(
+                                    row,
+                                    claim_bases
+                                        .get(&row.qualification)
+                                        .ok_or(Error::Contract)?
+                                        .clone(),
+                                )
+                                .map_err(wire_error)?,
                             );
                         }
                     }
@@ -371,12 +473,23 @@ impl CatalogService {
                         .filter(|l| l.parameter == parameter.id())
                         .count();
                     allowance.items::<ParameterPacket>(slots.saturating_add(1));
-                    for observation in n.signature_types.iter().filter(|r|r.qualification==signature.qualification){
+                    for observation in n
+                        .signature_types
+                        .iter()
+                        .filter(|r| r.qualification == signature.qualification)
+                    {
                         allowance.items::<Id<types::TypeTerm>>(slots.saturating_add(2));
                         allowance.items::<ProofReference>(slots.saturating_add(2));
                         allowance.items::<derivation::RowRef>(slots.saturating_add(2));
-                        allowance.bytes(types::SignatureTypeObservation::NAME.len(),slots.saturating_add(2));
-                        if let Some(types::TypeTerm::Literal{value})=f.type_terms.get(observation.term){allowance.literal(f.literals.get(*value).ok_or(Error::Contract)?);}
+                        allowance.bytes(
+                            types::SignatureTypeObservation::NAME.len(),
+                            slots.saturating_add(2),
+                        );
+                        if let Some(types::TypeTerm::Literal { value }) =
+                            f.type_terms.get(observation.term)
+                        {
+                            allowance.literal(f.literals.get(*value).ok_or(Error::Contract)?);
+                        }
                     }
                     allowance.items::<DefaultValue>(slots.saturating_add(2));
                     allowance.bytes(
@@ -415,23 +528,33 @@ impl CatalogService {
                             .saturating_mul(slots.saturating_add(1)),
                     );
                 }
-                for link in n.return_types.iter().filter(|r|r.variant==variant.id()) {
-                    let observation=n.signature_types.get(link.observation).ok_or(Error::Contract)?;
-                    allowance.items::<Id<types::TypeTerm>>(2);allowance.items::<ProofReference>(2);allowance.items::<derivation::RowRef>(2);allowance.bytes(types::SignatureTypeObservation::NAME.len(),2);
-                    if let Some(types::TypeTerm::Literal{value})=f.type_terms.get(observation.term){allowance.literal(f.literals.get(*value).ok_or(Error::Contract)?);}
-                }
-                if let Some(CallableEntity::Source { declaration, .. }) =
-                    n.source_callables.get(assessment.callable).filter(|_|variant.role.runtime_source())
-                {
-                    for observation in f
-                        .type_observations
-                        .iter()
-                        .filter(|r| r.subject == *declaration && r.role == types::TypeRole::Return && r.declared)
+                for link in n.return_types.iter().filter(|r| r.variant == variant.id()) {
+                    let observation = n
+                        .signature_types
+                        .get(link.observation)
+                        .ok_or(Error::Contract)?;
+                    allowance.items::<Id<types::TypeTerm>>(2);
+                    allowance.items::<ProofReference>(2);
+                    allowance.items::<derivation::RowRef>(2);
+                    allowance.bytes(types::SignatureTypeObservation::NAME.len(), 2);
+                    if let Some(types::TypeTerm::Literal { value }) =
+                        f.type_terms.get(observation.term)
                     {
+                        allowance.literal(f.literals.get(*value).ok_or(Error::Contract)?);
+                    }
+                }
+                if let Some(CallableEntity::Source { declaration, .. }) = n
+                    .source_callables
+                    .get(assessment.callable)
+                    .filter(|_| variant.role.runtime_source())
+                {
+                    for observation in f.type_observations.iter().filter(|r| {
+                        r.subject == *declaration && r.role == types::TypeRole::Return && r.declared
+                    }) {
                         allowance.items::<Id<types::TypeTerm>>(2);
                         allowance.items::<ProofReference>(2);
                         allowance.items::<derivation::RowRef>(2);
-                        allowance.bytes(types::TypeObservation::NAME.len(),2);
+                        allowance.bytes(types::TypeObservation::NAME.len(), 2);
                         if let Some(types::TypeTerm::Literal { value }) =
                             f.type_terms.get(observation.term)
                         {
@@ -529,12 +652,14 @@ impl CatalogService {
                         .collect::<Vec<_>>();
                     let mut types = BTreeSet::new();
                     let mut type_evidence = BTreeSet::new();
-                    for formal in formals.iter().filter(|_|variant.role.runtime_source()) {
+                    for formal in formals.iter().filter(|_| variant.role.runtime_source()) {
                         if let Some(ParameterEntity::Source { declaration }) =
                             n.parameters.get(*formal)
                         {
                             for observation in f.type_observations.iter().filter(|r| {
-                                r.subject == *declaration && r.role == types::TypeRole::Parameter && r.declared
+                                r.subject == *declaration
+                                    && r.role == types::TypeRole::Parameter
+                                    && r.declared
                             }) {
                                 if n.qualifications
                                     .get(observation.qualification)
@@ -547,8 +672,13 @@ impl CatalogService {
                         }
                     }
                     if !variant.role.runtime_source() {
-                        let subject=types::SignatureTypeSubject::Parameter {parameter:parameter.id()}.id();
-                        for observation in n.signature_types.iter().filter(|r|r.subject==subject && r.qualification==source.qualification) {
+                        let subject = types::SignatureTypeSubject::Parameter {
+                            parameter: parameter.id(),
+                        }
+                        .id();
+                        for observation in n.signature_types.iter().filter(|r| {
+                            r.subject == subject && r.qualification == source.qualification
+                        }) {
                             types.insert(observation.term);
                             type_evidence.insert(derivation::RowRef::of(observation.id()));
                         }
@@ -587,7 +717,10 @@ impl CatalogService {
                         kind: shape.kind,
                         required: shape.required,
                         types: types.into_iter().collect(),
-                        type_evidence:type_evidence.into_iter().map(ProofReference::from_canonical).collect(),
+                        type_evidence: type_evidence
+                            .into_iter()
+                            .map(ProofReference::from_canonical)
+                            .collect(),
                         default: source_default,
                     };
                     for slot in slots {
@@ -595,9 +728,27 @@ impl CatalogService {
                         effective.slot = Nullable(Some(slot.id()));
                         effective.ordinal = slot.ordinal;
                         if !variant.role.runtime_source() {
-                            let observations=n.slot_types.iter().filter(|r|r.slot==slot.id()).map(|r|n.signature_types.get(r.observation).ok_or(Error::Contract)).collect::<Result<Vec<_>,_>>()?;
-                            effective.types=observations.iter().map(|r|r.term).collect::<BTreeSet<_>>().into_iter().collect();
-                            effective.type_evidence=observations.iter().map(|r|derivation::RowRef::of(r.id())).collect::<BTreeSet<_>>().into_iter().map(ProofReference::from_canonical).collect();
+                            let observations = n
+                                .slot_types
+                                .iter()
+                                .filter(|r| r.slot == slot.id())
+                                .map(|r| {
+                                    n.signature_types.get(r.observation).ok_or(Error::Contract)
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+                            effective.types = observations
+                                .iter()
+                                .map(|r| r.term)
+                                .collect::<BTreeSet<_>>()
+                                .into_iter()
+                                .collect();
+                            effective.type_evidence = observations
+                                .iter()
+                                .map(|r| derivation::RowRef::of(r.id()))
+                                .collect::<BTreeSet<_>>()
+                                .into_iter()
+                                .map(ProofReference::from_canonical)
+                                .collect();
                         }
                         effective.formals = n
                             .slot_entities
@@ -620,7 +771,9 @@ impl CatalogService {
                                 DefaultSlot::Required | DefaultSlot::Collector => {
                                     DefaultValue::Absent {}
                                 }
-                                DefaultSlot::DefinitionTime | DefaultSlot::NativeUnknown => DefaultValue::Unknown {},
+                                DefaultSlot::DefinitionTime | DefaultSlot::NativeUnknown => {
+                                    DefaultValue::Unknown {}
+                                }
                             }
                         } else if default_rows.windows(2).all(|w| w[0] == w[1]) {
                             DefaultValue::from_canonical(default_rows[0])
@@ -634,15 +787,15 @@ impl CatalogService {
                 parameters.sort_by_key(|p| (p.ordinal, p.parameter));
                 effective_parameters.sort_by_key(|p| (p.ordinal, p.parameter));
                 let mut returns = BTreeSet::new();
-                let mut return_evidence=BTreeSet::new();
-                if let Some(CallableEntity::Source { declaration, .. }) =
-                    n.source_callables.get(assessment.callable).filter(|_|variant.role.runtime_source())
+                let mut return_evidence = BTreeSet::new();
+                if let Some(CallableEntity::Source { declaration, .. }) = n
+                    .source_callables
+                    .get(assessment.callable)
+                    .filter(|_| variant.role.runtime_source())
                 {
-                    for observation in f
-                        .type_observations
-                        .iter()
-                        .filter(|r| r.subject == *declaration && r.role == types::TypeRole::Return && r.declared)
-                    {
+                    for observation in f.type_observations.iter().filter(|r| {
+                        r.subject == *declaration && r.role == types::TypeRole::Return && r.declared
+                    }) {
                         if n.qualifications
                             .get(observation.qualification)
                             .is_some_and(|q| q.context == variant.context)
@@ -653,17 +806,22 @@ impl CatalogService {
                     }
                 }
                 if !variant.role.runtime_source() {
-                    for link in n.return_types.iter().filter(|r|r.variant==variant.id()) {
-                        let observation=n.signature_types.get(link.observation).ok_or(Error::Contract)?;
-                        if observation.qualification!=source.qualification {return Err(Error::Contract);}
+                    for link in n.return_types.iter().filter(|r| r.variant == variant.id()) {
+                        let observation = n
+                            .signature_types
+                            .get(link.observation)
+                            .ok_or(Error::Contract)?;
+                        if observation.qualification != source.qualification {
+                            return Err(Error::Contract);
+                        }
                         returns.insert(observation.term);
                         return_evidence.insert(derivation::RowRef::of(observation.id()));
                     }
                 }
                 signatures.push(SignaturePacket {
                     signature: source.id(),
-                    role:variant.role,
-                    native:Nullable(variant.native),
+                    role: variant.role,
+                    native: Nullable(variant.native),
                     variant: variant.id(),
                     analysis: variant.context,
                     form: source.form,
@@ -671,10 +829,19 @@ impl CatalogService {
                     parameters,
                     effective_parameters,
                     return_types: returns.into_iter().collect(),
-                    return_evidence:return_evidence.into_iter().map(ProofReference::from_canonical).collect(),
-                    typing:vec![], // Hydrated before response publication through the same packet lease.
-                    complete: (if variant.role.runtime_source() {assessment.signatures==Knowledge::Known} else {variant.native.and_then(|id|n.native_signatures.get(id)).is_some_and(|r|r.complete)})
-                        && source.form == SignatureForm::List
+                    return_evidence: return_evidence
+                        .into_iter()
+                        .map(ProofReference::from_canonical)
+                        .collect(),
+                    typing: vec![], // Hydrated before response publication through the same packet lease.
+                    complete: (if variant.role.runtime_source() {
+                        assessment.signatures == Knowledge::Known
+                    } else {
+                        variant
+                            .native
+                            .and_then(|id| n.native_signatures.get(id))
+                            .is_some_and(|r| r.complete)
+                    }) && source.form == SignatureForm::List
                         && variant.adjustment != SignatureAdjustment::Unknown,
                 });
             }
@@ -758,23 +925,74 @@ fn check_indivisible<T: serde::Serialize>(value: &T, expanded: bool) -> Result<(
     Ok(())
 }
 
-struct TypingDraft { reference:ProofReference, origin:SignatureTypingOrigin, term:Id<types::TypeTerm>, qualification:Id<assertion::AssertionQualification> }
-fn signature_evidence(signature:&SignaturePacket)->impl Iterator<Item=&ProofReference> {
-    signature.parameters.iter().chain(signature.effective_parameters.iter()).flat_map(|p|p.type_evidence.iter()).chain(signature.return_evidence.iter())
+struct TypingDraft {
+    reference: ProofReference,
+    origin: SignatureTypingOrigin,
+    term: Id<types::TypeTerm>,
+    qualification: Id<assertion::AssertionQualification>,
 }
-fn this_typing(cores:&[OperationCore],service:&CatalogService)->Result<Vec<TypingDraft>,Error> {
-    let data=service.prepared().data();
-    let mut seen=BTreeSet::new();let mut result=Vec::new();
-    for reference in cores.iter().flat_map(|c|c.signatures.iter()).flat_map(signature_evidence) {
-        if !seen.insert((reference.relation.as_str(),reference.row)){continue;}
-        let draft=if reference.relation.as_str()==types::TypeObservation::NAME {
-            let row=data.facts.type_observations.iter().find(|r|r.id().bytes()==&reference.row).ok_or(Error::Contract)?;
-            if !row.declared {return Err(Error::Contract);}
-            TypingDraft{reference:reference.clone(),origin:SignatureTypingOrigin::SourceDeclared{observation:row.id(),subject:row.subject},term:row.term,qualification:row.qualification}
-        } else if reference.relation.as_str()==types::SignatureTypeObservation::NAME {
-            let row=data.source.core.signature_types.iter().find(|r|r.id().bytes()==&reference.row).ok_or(Error::Contract)?;
-            TypingDraft{reference:reference.clone(),origin:SignatureTypingOrigin::NativeObserved{observation:row.id(),subject:row.subject},term:row.term,qualification:row.qualification}
-        } else {return Err(Error::Contract);};
+fn signature_evidence(signature: &SignaturePacket) -> impl Iterator<Item = &ProofReference> {
+    signature
+        .parameters
+        .iter()
+        .chain(signature.effective_parameters.iter())
+        .flat_map(|p| p.type_evidence.iter())
+        .chain(signature.return_evidence.iter())
+}
+fn this_typing(
+    cores: &[OperationCore],
+    service: &CatalogService,
+) -> Result<Vec<TypingDraft>, Error> {
+    let data = service.prepared().data();
+    let mut seen = BTreeSet::new();
+    let mut result = Vec::new();
+    for reference in cores
+        .iter()
+        .flat_map(|c| c.signatures.iter())
+        .flat_map(signature_evidence)
+    {
+        if !seen.insert((reference.relation.as_str(), reference.row)) {
+            continue;
+        }
+        let draft = if reference.relation.as_str() == types::TypeObservation::NAME {
+            let row = data
+                .facts
+                .type_observations
+                .iter()
+                .find(|r| r.id().bytes() == &reference.row)
+                .ok_or(Error::Contract)?;
+            if !row.declared {
+                return Err(Error::Contract);
+            }
+            TypingDraft {
+                reference: reference.clone(),
+                origin: SignatureTypingOrigin::SourceDeclared {
+                    observation: row.id(),
+                    subject: row.subject,
+                },
+                term: row.term,
+                qualification: row.qualification,
+            }
+        } else if reference.relation.as_str() == types::SignatureTypeObservation::NAME {
+            let row = data
+                .source
+                .core
+                .signature_types
+                .iter()
+                .find(|r| r.id().bytes() == &reference.row)
+                .ok_or(Error::Contract)?;
+            TypingDraft {
+                reference: reference.clone(),
+                origin: SignatureTypingOrigin::NativeObserved {
+                    observation: row.id(),
+                    subject: row.subject,
+                },
+                term: row.term,
+                qualification: row.qualification,
+            }
+        } else {
+            return Err(Error::Contract);
+        };
         result.push(draft);
     }
     Ok(result)

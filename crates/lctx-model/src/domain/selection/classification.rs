@@ -384,50 +384,157 @@ impl ClassificationData {
             build::{invalid, need},
         };
         match w {
-            Witness::LexicalDefinition{observation,support}=>{let row=need(&self.source.core.bindings,*observation)?;let support=need(&self.facts.binding_supports,*support)?;if support.assertion!=row.id()||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("lexical definition witness crosses observation or context"));}}
-            Witness::SourceCharacterization{observation,support}=>{
-                let row=need(&self.source.core.declarations,*observation)?;let support=need(&self.facts.declaration_supports,*support)?;
-                if support.assertion!=row.id()||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("source characterization witness crosses observation or context"));}
-            }
-            Witness::ClassMetadata{observation,support}=>{
-                let row=need(&self.source.core.class_metadata,*observation)?;let support=need(&self.facts.metadata_supports,*support)?;
-                if support.assertion!=row.id()||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("class metadata witness crosses observation or context"));}
-            }
-            Witness::NativeCallableMetadata{observation,support}=>{
-                let row=need(&self.source.core.native_signatures,*observation)?;let support=need(&self.facts.native_signature_supports,*support)?;
-                let Context::Signature{invocation,..}=c else{return Err(invalid("native metadata witness lacks signature context"));};
-                let variant=need(&self.source.core.variants,need(&self.source.catalog.invocations,*invocation)?.variant)?;
-                if support.assertion!=row.id()||variant.native!=Some(row.id())||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("native metadata witness crosses signature or context"));}
-            }
-            Witness::NativeTypingCoverage{coverage}=>{
-                let row=need(&self.source.core.native_coverage,*coverage)?;
-                let declaration=super::structural_facets::declaration(self,c)?.ok_or_else(||invalid("typing coverage lacks source callable"))?;
-                let artifact=need(&self.source.core.occurrences,declaration)?.source;
-                if row.context!=c.analysis()||row.scope!=(source::CoverageScope::Artifact{artifact}).id()
-                    ||row.family!=attribution::FactFamily::Types||row.status!=attribution::CoverageStatus::CompleteUnderStatedModel {
-                    return Err(invalid("typing coverage crosses source, context or complete native type inventory"));
+            Witness::LexicalDefinition {
+                observation,
+                support,
+            } => {
+                let row = need(&self.source.core.bindings, *observation)?;
+                let support = need(&self.facts.binding_supports, *support)?;
+                if support.assertion != row.id()
+                    || need(&self.source.core.qualifications, row.qualification)?.context
+                        != c.analysis()
+                {
+                    return Err(invalid(
+                        "lexical definition witness crosses observation or context",
+                    ));
                 }
             }
-            Witness::RaisedType{observation,support}=>{
-                let row=need(&self.facts.type_observations,*observation)?;let support=need(&self.facts.type_supports,*support)?;
-                if row.role!=types::TypeRole::Raised||support.assertion!=row.id()||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("raised typing witness crosses observation or context"));}
+            Witness::SourceCharacterization {
+                observation,
+                support,
+            } => {
+                let row = need(&self.source.core.declarations, *observation)?;
+                let support = need(&self.facts.declaration_supports, *support)?;
+                if support.assertion != row.id()
+                    || need(&self.source.core.qualifications, row.qualification)?.context
+                        != c.analysis()
+                {
+                    return Err(invalid(
+                        "source characterization witness crosses observation or context",
+                    ));
+                }
             }
-            Witness::ResolvedDecorator{observation,support,assessment,candidate}=>{
-                let row=need(&self.facts.decorators,*observation)?;let support=need(&self.facts.decorator_supports,*support)?;
-                need(&self.source.core.reference_assessments,*assessment)?;let candidate=need(&self.source.core.reference_candidates,*candidate)?;
-                if support.assertion!=row.id()||candidate.assessment!=*assessment||need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis(){return Err(invalid("decorator witness crosses selected identity or context"));}
+            Witness::ClassMetadata {
+                observation,
+                support,
+            } => {
+                let row = need(&self.source.core.class_metadata, *observation)?;
+                let support = need(&self.facts.metadata_supports, *support)?;
+                if support.assertion != row.id()
+                    || need(&self.source.core.qualifications, row.qualification)?.context
+                        != c.analysis()
+                {
+                    return Err(invalid(
+                        "class metadata witness crosses observation or context",
+                    ));
+                }
+            }
+            Witness::NativeCallableMetadata {
+                observation,
+                support,
+            } => {
+                let row = need(&self.source.core.native_signatures, *observation)?;
+                let support = need(&self.facts.native_signature_supports, *support)?;
+                let Context::Signature { invocation, .. } = c else {
+                    return Err(invalid("native metadata witness lacks signature context"));
+                };
+                let variant = need(
+                    &self.source.core.variants,
+                    need(&self.source.catalog.invocations, *invocation)?.variant,
+                )?;
+                if support.assertion != row.id()
+                    || variant.native != Some(row.id())
+                    || need(&self.source.core.qualifications, row.qualification)?.context
+                        != c.analysis()
+                {
+                    return Err(invalid(
+                        "native metadata witness crosses signature or context",
+                    ));
+                }
+            }
+            Witness::NativeTypingCoverage { coverage } => {
+                let row = need(&self.source.core.native_coverage, *coverage)?;
+                let declaration = super::structural_facets::declaration(self, c)?
+                    .ok_or_else(|| invalid("typing coverage lacks source callable"))?;
+                let artifact = need(&self.source.core.occurrences, declaration)?.source;
+                if row.context != c.analysis()
+                    || row.scope != (source::CoverageScope::Artifact { artifact }).id()
+                    || row.family != attribution::FactFamily::Types
+                    || row.status != attribution::CoverageStatus::CompleteUnderStatedModel
+                {
+                    return Err(invalid(
+                        "typing coverage crosses source, context or complete native type inventory",
+                    ));
+                }
+            }
+            Witness::RaisedType {
+                observation,
+                support,
+            } => {
+                let row = need(&self.facts.type_observations, *observation)?;
+                let support = need(&self.facts.type_supports, *support)?;
+                if row.role != types::TypeRole::Raised
+                    || support.assertion != row.id()
+                    || need(&self.source.core.qualifications, row.qualification)?.context
+                        != c.analysis()
+                {
+                    return Err(invalid(
+                        "raised typing witness crosses observation or context",
+                    ));
+                }
+            }
+            Witness::ResolvedDecorator {
+                observation,
+                support,
+                assessment,
+                candidate,
+            } => {
+                let row = need(&self.facts.decorators, *observation)?;
+                let support = need(&self.facts.decorator_supports, *support)?;
+                need(&self.source.core.reference_assessments, *assessment)?;
+                let candidate = need(&self.source.core.reference_candidates, *candidate)?;
+                if support.assertion != row.id()
+                    || candidate.assessment != *assessment
+                    || need(&self.source.core.qualifications, row.qualification)?.context
+                        != c.analysis()
+                {
+                    return Err(invalid(
+                        "decorator witness crosses selected identity or context",
+                    ));
+                }
             }
             Witness::SummaryException { outcome } => {
                 let result = need(&self.facts.exception_outcomes, *outcome)?;
                 let q = need(&self.source.core.qualifications, result.qualification)?;
-                let Context::Binding { member, candidate, analysis } = c else { return Err(invalid("exception witness lacks source binding context")); };
+                let Context::Binding {
+                    member,
+                    candidate,
+                    analysis,
+                } = c
+                else {
+                    return Err(invalid("exception witness lacks source binding context"));
+                };
                 let candidate = need(&self.source.catalog.candidates, *candidate)?;
-                let owner = if let Some(path) = candidate.path { Some(need(&self.source.catalog.paths, path)?.entity) }
-                    else if let Some(alias) = candidate.alias { Some(need(&self.source.catalog.aliases, alias)?.entity) }
-                    else { candidate.entity.map(|id| need(&self.source.core.entity_candidates, id).map(|row| row.entity)).transpose()? };
-                if result.context != *analysis || q.context != result.context || Some(result.owner) != owner
-                    || result.input != need(&self.source.catalog.members, *member)?.input {
-                    return Err(invalid("exception summary witness crosses source/context/input"));
+                let owner = if let Some(path) = candidate.path {
+                    Some(need(&self.source.catalog.paths, path)?.entity)
+                } else if let Some(alias) = candidate.alias {
+                    Some(need(&self.source.catalog.aliases, alias)?.entity)
+                } else {
+                    candidate
+                        .entity
+                        .map(|id| {
+                            need(&self.source.core.entity_candidates, id).map(|row| row.entity)
+                        })
+                        .transpose()?
+                };
+                if result.context != *analysis
+                    || q.context != result.context
+                    || Some(result.owner) != owner
+                    || result.input != need(&self.source.catalog.members, *member)?.input
+                {
+                    return Err(invalid(
+                        "exception summary witness crosses source/context/input",
+                    ));
                 }
             }
             Witness::Candidate { candidate } => {
@@ -463,19 +570,52 @@ impl ClassificationData {
                 }
             }
             Witness::GenericSpecialization { observation } => {
-                let row=need(&self.facts.generic_specializations,*observation)?;
-                if need(&self.source.core.qualifications,row.qualification)?.context!=c.analysis() {return Err(invalid("specialization witness crosses analysis"));}
-                let Context::Signature {invocation,..}=c else {return Err(invalid("specialization witness lacks signature context"));};
-                let variant=need(&self.source.core.variants,need(&self.source.catalog.invocations,*invocation)?.variant)?;
-                if variant.native!=Some(row.declaration) {return Err(invalid("specialization witness crosses native declaration"));}
+                let row = need(&self.facts.generic_specializations, *observation)?;
+                if need(&self.source.core.qualifications, row.qualification)?.context
+                    != c.analysis()
+                {
+                    return Err(invalid("specialization witness crosses analysis"));
+                }
+                let Context::Signature { invocation, .. } = c else {
+                    return Err(invalid("specialization witness lacks signature context"));
+                };
+                let variant = need(
+                    &self.source.core.variants,
+                    need(&self.source.catalog.invocations, *invocation)?.variant,
+                )?;
+                if variant.native != Some(row.declaration) {
+                    return Err(invalid("specialization witness crosses native declaration"));
+                }
             }
             Witness::SignatureTypeObservation { observation } => {
                 let row = need(&self.source.core.signature_types, *observation)?;
-                if need(&self.source.core.qualifications, row.qualification)?.context != c.analysis() { return Err(invalid("typed port witness crosses analysis")); }
-                let Context::Signature { invocation, .. } = c else { return Err(invalid("typed port witness lacks signature context")); };
+                if need(&self.source.core.qualifications, row.qualification)?.context
+                    != c.analysis()
+                {
+                    return Err(invalid("typed port witness crosses analysis"));
+                }
+                let Context::Signature { invocation, .. } = c else {
+                    return Err(invalid("typed port witness lacks signature context"));
+                };
                 let variant = need(&self.source.catalog.invocations, *invocation)?.variant;
-                if !self.source.core.return_types.iter().any(|r| r.variant == variant && r.observation == *observation)
-                    && !self.source.core.slot_types.iter().any(|r| r.observation == *observation && self.source.core.slots.get(r.slot).is_some_and(|s| s.variant == variant)) { return Err(invalid("typed port witness crosses signature")); }
+                if !self
+                    .source
+                    .core
+                    .return_types
+                    .iter()
+                    .any(|r| r.variant == variant && r.observation == *observation)
+                    && !self.source.core.slot_types.iter().any(|r| {
+                        r.observation == *observation
+                            && self
+                                .source
+                                .core
+                                .slots
+                                .get(r.slot)
+                                .is_some_and(|s| s.variant == variant)
+                    })
+                {
+                    return Err(invalid("typed port witness crosses signature"));
+                }
             }
             Witness::SignatureSlot { slot } => {
                 let r = need(&self.source.core.slots, *slot)?;

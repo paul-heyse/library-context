@@ -1,47 +1,97 @@
 //! Owned static branch decisions from Pyrefly's native AST adapter.
-use lctx_model::domain::{ModelError, charged::StateCharge, resources::ResourceBudget, lexical::StaticBranch};
+use lctx_model::domain::{
+    ModelError, charged::StateCharge, lexical::StaticBranch, resources::ResourceBudget,
+};
 use pyrefly_python::{ast::Ast, sys_info::SysInfo};
-use ruff_python_ast::{Expr, StmtIf, ModModule};
 use ruff_python_ast::helpers::any_over_expr;
+use ruff_python_ast::{Expr, ModModule, StmtIf};
 use ruff_text_size::Ranged;
 use std::collections::BTreeMap;
 
-type BranchObservation = (Vec<Option<(u32,u32)>>, Vec<Option<(StaticBranch,bool)>>);
+type BranchObservation = (Vec<Option<(u32, u32)>>, Vec<Option<(StaticBranch, bool)>>);
 
 pub struct NativeBranches {
     _charge: StateCharge,
-    rows: BTreeMap<(u32,u32), Option<BranchObservation>>,
+    rows: BTreeMap<(u32, u32), Option<BranchObservation>>,
 }
 impl NativeBranches {
-    pub fn unavailable(budget:&ResourceBudget)->Self {Self {_charge:StateCharge::new(budget,"native-branch-adapter"),rows:BTreeMap::new()}}
-    pub fn observe(ast: &ModModule, sys: &SysInfo, budget: &ResourceBudget) -> Result<Self,ModelError> {
-        use ruff_python_ast::statement_visitor::{StatementVisitor,walk_stmt};
-        struct Collect<'a> { output: &'a mut NativeBranches, sys: &'a SysInfo, error: Option<ModelError> }
+    pub fn unavailable(budget: &ResourceBudget) -> Self {
+        Self {
+            _charge: StateCharge::new(budget, "native-branch-adapter"),
+            rows: BTreeMap::new(),
+        }
+    }
+    pub fn observe(
+        ast: &ModModule,
+        sys: &SysInfo,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
+        struct Collect<'a> {
+            output: &'a mut NativeBranches,
+            sys: &'a SysInfo,
+            error: Option<ModelError>,
+        }
         impl<'t> StatementVisitor<'t> for Collect<'_> {
             fn visit_stmt(&mut self, stmt: &'t ruff_python_ast::Stmt) {
-                if self.error.is_some() { return; }
-                if let ruff_python_ast::Stmt::If(branch) = stmt {
-                    let tests: Vec<_> = Ast::if_branches(branch).map(|(test,_)| test.map(|t| (t.start().to_u32(),t.end().to_u32()))).collect();
-                    if let Err(error) = self.output._charge.grow(256+tests.len()*64) { self.error=Some(error); return; }
-                    let marks=clause_marks(self.sys,branch);
-                    self.output.rows.entry((branch.start().to_u32(),branch.end().to_u32())).and_modify(|value| *value=None).or_insert(Some((tests,marks)));
+                if self.error.is_some() {
+                    return;
                 }
-                walk_stmt(self,stmt);
+                if let ruff_python_ast::Stmt::If(branch) = stmt {
+                    let tests: Vec<_> = Ast::if_branches(branch)
+                        .map(|(test, _)| test.map(|t| (t.start().to_u32(), t.end().to_u32())))
+                        .collect();
+                    if let Err(error) = self.output._charge.grow(256 + tests.len() * 64) {
+                        self.error = Some(error);
+                        return;
+                    }
+                    let marks = clause_marks(self.sys, branch);
+                    self.output
+                        .rows
+                        .entry((branch.start().to_u32(), branch.end().to_u32()))
+                        .and_modify(|value| *value = None)
+                        .or_insert(Some((tests, marks)));
+                }
+                walk_stmt(self, stmt);
             }
         }
-        let mut output=Self { _charge:StateCharge::new(budget,"native-branch-adapter"),rows:BTreeMap::new() };
-        let mut collect=Collect { output:&mut output,sys,error:None };
+        let mut output = Self {
+            _charge: StateCharge::new(budget, "native-branch-adapter"),
+            rows: BTreeMap::new(),
+        };
+        let mut collect = Collect {
+            output: &mut output,
+            sys,
+            error: None,
+        };
         collect.visit_body(&ast.body);
-        if let Some(error)=collect.error { return Err(error); }
+        if let Some(error) = collect.error {
+            return Err(error);
+        }
         Ok(output)
     }
-    pub fn marks(&self, branch: &ruff_python_ast_latest::StmtIf) -> Vec<Option<(StaticBranch,bool)>> {
+    pub fn marks(
+        &self,
+        branch: &ruff_python_ast_latest::StmtIf,
+    ) -> Vec<Option<(StaticBranch, bool)>> {
         use ruff_text_size_latest::Ranged;
-        let tests: Vec<_> = std::iter::once(Some((branch.test.start().to_u32(),branch.test.end().to_u32())))
-            .chain(branch.elif_else_clauses.iter().map(|clause| clause.test.as_ref().map(|t| (t.start().to_u32(),t.end().to_u32())))).collect();
-        match self.rows.get(&(branch.start().to_u32(),branch.end().to_u32())) {
-            Some(Some((native_tests,marks))) if native_tests == &tests => marks.clone(),
-            _ => vec![None;tests.len()],
+        let tests: Vec<_> = std::iter::once(Some((
+            branch.test.start().to_u32(),
+            branch.test.end().to_u32(),
+        )))
+        .chain(branch.elif_else_clauses.iter().map(|clause| {
+            clause
+                .test
+                .as_ref()
+                .map(|t| (t.start().to_u32(), t.end().to_u32()))
+        }))
+        .collect();
+        match self
+            .rows
+            .get(&(branch.start().to_u32(), branch.end().to_u32()))
+        {
+            Some(Some((native_tests, marks))) if native_tests == &tests => marks.clone(),
+            _ => vec![None; tests.len()],
         }
     }
 }
@@ -113,4 +163,3 @@ fn static_kind(test: &Expr) -> StaticBranch {
         _ => StaticBranch::Combined,
     }
 }
-

@@ -771,40 +771,88 @@ fn discovery_explains_codes_and_closed_packet_bindings_cover_composition() {
 #[test]
 fn unsupported_facets_are_refused_by_every_selection_wire_route() {
     let selection = json!({"requirements":[{"predicate":{"FacetMembership":{"facet":6,"value":{"ParameterName":{"name":"timeout"}}}},"quantifier":0}],"mode":0,"joint":1});
-    for tool in ["search_operations", "find_operations", "browse_library", "compare_operations"] {
+    for tool in [
+        "search_operations",
+        "find_operations",
+        "browse_library",
+        "compare_operations",
+    ] {
         let mut request = json!({"library":"control", "selection":selection});
-        if tool.starts_with("search_") { request["query"] = json!("timeout"); }
-        if tool == "compare_operations" { request["operations"] = json!([{"kind":"public_path","path":["control","api"]}]); }
-        assert!(matches!(decode(tool, request), Err(WireError::Invalid(message)) if message.contains("facet membership")), "{tool} must reject before service admission");
+        if tool.starts_with("search_") {
+            request["query"] = json!("timeout");
+        }
+        if tool == "compare_operations" {
+            request["operations"] = json!([{"kind":"public_path","path":["control","api"]}]);
+        }
+        assert!(
+            matches!(decode(tool, request), Err(WireError::Invalid(message)) if message.contains("facet membership")),
+            "{tool} must reject before service admission"
+        );
     }
 }
 
 #[test]
 fn behavior_requires_explicit_direct_capture_provenance_even_when_empty() {
     use lctx_model::domain::{assumptions::AssumptionSet, conditions::Diagram};
-    let empty=AssumptionSet::empty();
-    let mut wire=json!({"captures":[],"claim_basis":{"set":empty.id(),"members_digest":empty.members,"definitions":[]},
+    let empty = AssumptionSet::empty();
+    let mut wire = json!({"captures":[],"claim_basis":{"set":empty.id(),"members_digest":empty.members,"definitions":[]},
         "condition":Diagram::always().id(),"verdict":0,"model":vec![1u8;16],"proof":[],
         "presentation":{"terms":[],"truncated":false},"presentation_truncated":false});
-    let packet:BehaviorPacket=serde_json::from_value(wire.clone()).unwrap();
+    let packet: BehaviorPacket = serde_json::from_value(wire.clone()).unwrap();
     assert!(packet.captures.is_empty());
-    assert_eq!(packet.claim_basis.set,AssumptionSet::empty_id());
+    assert_eq!(packet.claim_basis.set, AssumptionSet::empty_id());
     wire.as_object_mut().unwrap().remove("captures");
     assert!(serde_json::from_value::<BehaviorPacket>(wire).is_err());
-    let schema=schema_for::<BehaviorPacket>(true);
-    assert!(schema["required"].as_array().unwrap().contains(&json!("captures")));
-    let timing=schema_for::<CaptureTimingPacket>(true);
-    assert!(timing["required"].as_array().unwrap().contains(&json!("characterization_only")));
-    let correspondence=schema_for::<CaptureSourceDeclarationPacket>(true);
-    for field in ["source_correspondence_only","qualification","claim_basis","support"] {
-        assert!(correspondence["required"].as_array().unwrap().contains(&json!(field)));
+    let schema = schema_for::<BehaviorPacket>(true);
+    assert!(
+        schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("captures"))
+    );
+    let timing = schema_for::<CaptureTimingPacket>(true);
+    assert!(
+        timing["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("characterization_only"))
+    );
+    let correspondence = schema_for::<CaptureSourceDeclarationPacket>(true);
+    for field in [
+        "source_correspondence_only",
+        "qualification",
+        "claim_basis",
+        "support",
+    ] {
+        assert!(
+            correspondence["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(field))
+        );
     }
-    let source_support=schema_for::<CaptureSourceSupportPacket>(true);
-    for field in ["origin","mode","fidelity","provider_id","evidence"] {
-        assert!(source_support["required"].as_array().unwrap().contains(&json!(field)));
+    let source_support = schema_for::<CaptureSourceSupportPacket>(true);
+    for field in ["origin", "mode", "fidelity", "provider_id", "evidence"] {
+        assert!(
+            source_support["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(field))
+        );
     }
-    let native=schema_for::<CaptureNativeProofPacket>(true);
-    for field in ["qualification","modality","approximation","claim_basis","support"] {
-        assert!(native["required"].as_array().unwrap().contains(&json!(field)));
+    let native = schema_for::<CaptureNativeProofPacket>(true);
+    for field in [
+        "qualification",
+        "modality",
+        "approximation",
+        "claim_basis",
+        "support",
+    ] {
+        assert!(
+            native["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(field))
+        );
     }
 }

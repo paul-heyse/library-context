@@ -30,11 +30,27 @@ pub struct EnrichedFrame<'a> {
     _charge: charged::StateCharge,
 }
 impl<'a> EnrichedFrame<'a> {
-    pub(super) fn push_capture(&mut self,proof:&super::capture_bridge::CheckedCapturedEntry)->Result<(),ModelError> {
-        if self.evaluations.iter().any(|(_,p)|*p==EvaluationPremise::CapturedEntry(proof.row.id())) {return Ok(());}
-        let evaluation=super::evaluation::captured_entry_evaluation(&self.data.evaluation,proof,self.budget)?;
-        self._charge.grow(size_of::<(CheckedEvaluation,EvaluationPremise)>()*2)?;
-        self.evaluations.push((evaluation,EvaluationPremise::CapturedEntry(proof.row.id())));Ok(())
+    pub(super) fn push_capture(
+        &mut self,
+        proof: &super::capture_bridge::CheckedCapturedEntry,
+    ) -> Result<(), ModelError> {
+        if self
+            .evaluations
+            .iter()
+            .any(|(_, p)| *p == EvaluationPremise::CapturedEntry(proof.row.id()))
+        {
+            return Ok(());
+        }
+        let evaluation = super::evaluation::captured_entry_evaluation(
+            &self.data.evaluation,
+            proof,
+            self.budget,
+        )?;
+        self._charge
+            .grow(size_of::<(CheckedEvaluation, EvaluationPremise)>() * 2)?;
+        self.evaluations
+            .push((evaluation, EvaluationPremise::CapturedEntry(proof.row.id())));
+        Ok(())
     }
     pub(crate) fn push_binding(
         &mut self,

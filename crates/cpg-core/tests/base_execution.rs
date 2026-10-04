@@ -458,14 +458,18 @@ async fn run_fixture(
         .fetch_one(db.owner.pool())
         .await
         .unwrap();
-        if fixture != "exact_exception_shapes" { assert!(entries > 0); }
+        if fixture != "exact_exception_shapes" {
+            assert!(entries > 0);
+        }
     } else {
         assert_eq!((counts.0, counts.1), (0, 0));
         assert!(statuses.iter().all(|s| *s == 3));
     }
     let read_counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.base_read_observations),(SELECT count(*) FROM {}.base_formal_read_assessments),(SELECT count(*) FROM {}.base_attribute_reads)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
     if profile == Profile::Behavioral {
-        if fixture != "exact_exception_shapes" { assert!(read_counts.0 > 0 && read_counts.1 > 0 && read_counts.2 > 0); }
+        if fixture != "exact_exception_shapes" {
+            assert!(read_counts.0 > 0 && read_counts.1 > 0 && read_counts.2 > 0);
+        }
     } else {
         assert_eq!(read_counts, (0, 0, 0));
     }
@@ -480,7 +484,12 @@ async fn run_fixture(
         assert!(native_negative > 0);
         let dynamic:(i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT count(*),count(*) FILTER (WHERE inspection=0) FROM {}.base_dynamic_access_observations",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
         eprintln!("B3_DYNAMIC {dynamic:?}");
-        for relation in [symbols::FunctionTraitSupport::NAME,declarations::SymbolDeclarationSupport::NAME,declarations::ParameterDeclarationSupport::NAME,flow::FlowUseSupport::NAME] {
+        for relation in [
+            symbols::FunctionTraitSupport::NAME,
+            declarations::SymbolDeclarationSupport::NAME,
+            declarations::ParameterDeclarationSupport::NAME,
+            flow::FlowUseSupport::NAME,
+        ] {
             let attribution:Vec<(i16,i16,i16,i64)>=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT origin,mode,fidelity,count(*) FROM {}.{relation} GROUP BY 1,2,3 ORDER BY 1,2,3",id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
             eprintln!("B3_INSPECTION_SUPPORT {relation} {attribution:?}");
         }
@@ -506,8 +515,12 @@ async fn run_fixture(
         .unwrap();
         if profile == Profile::Behavioral {
             let body_counts:(i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.base_source_body_completions),(SELECT count(*) FROM {}.base_source_body_boundaries)",id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
-            if fixture != "exact_exception_shapes" { assert!(body_counts.0 > 0 && body_counts.1 > 0); }
-            if fixture != "exact_exception_shapes" { assert!(counts.0 > 0 && counts.1 > 0); }
+            if fixture != "exact_exception_shapes" {
+                assert!(body_counts.0 > 0 && body_counts.1 > 0);
+            }
+            if fixture != "exact_exception_shapes" {
+                assert!(counts.0 > 0 && counts.1 > 0);
+            }
             assert!(statuses.iter().all(|s| *s == 1));
             let sources: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT count(*) FROM {}.base_completion_sources WHERE kind=1",
@@ -539,7 +552,9 @@ async fn run_fixture(
         let counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.source_call_headers),(SELECT count(*) FROM {}.source_call_boundaries),(SELECT count(*) FROM {}.source_call_runs)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
         assert!(counts.2 > 0);
         if profile == Profile::Behavioral {
-            if fixture != "exact_exception_shapes" { assert!(counts.0 > 0 && counts.1 > 0); }
+            if fixture != "exact_exception_shapes" {
+                assert!(counts.0 > 0 && counts.1 > 0);
+            }
             let invoked: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT count(*) FROM {}.source_call_invocations",
                 id.schema()
@@ -547,7 +562,9 @@ async fn run_fixture(
             .fetch_one(db.owner.pool())
             .await
             .unwrap();
-            if fixture != "exact_exception_shapes" { assert!(invoked > 0); }
+            if fixture != "exact_exception_shapes" {
+                assert!(invoked > 0);
+            }
         } else {
             assert_eq!((counts.0, counts.1), (0, 0));
         }
@@ -569,66 +586,68 @@ async fn run_fixture(
         let counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.statement_executions),(SELECT count(*) FROM {}.execution_sources WHERE kind=2),(SELECT count(*) FROM {}.execution_runs)",id.schema(),id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
         assert!(counts.2 > 0);
         if profile == Profile::Behavioral {
-            if fixture != "exact_exception_shapes" { assert!(counts.0 > 0 && counts.1 > 0); }
             if fixture != "exact_exception_shapes" {
-            let modeled: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {}.modeled_call_evaluations",
-                id.schema()
-            )))
-            .fetch_one(db.owner.pool())
-            .await
-            .unwrap();
-            assert!(modeled > 0);
-            let fresh: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {}.source_execution_invocations",
-                id.schema()
-            )))
-            .fetch_one(db.owner.pool())
-            .await
-            .unwrap();
-            assert!(fresh > 0);
-            let args: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {}.source_frame_arguments",
-                id.schema()
-            )))
-            .fetch_one(db.owner.pool())
-            .await
-            .unwrap();
-            assert!(args > 0);
-            let defaults: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {}.definition_evaluations",
-                id.schema()
-            )))
-            .fetch_one(db.owner.pool())
-            .await
-            .unwrap();
-            assert!(defaults > 0);
-            let contexts: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {}.context_executions",
-                id.schema()
-            )))
-            .fetch_one(db.owner.pool())
-            .await
-            .unwrap();
-            assert!(contexts > 0);
-            let suppressed: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {}.context_execution_items WHERE suppressed",
-                id.schema()
-            )))
-            .fetch_one(db.owner.pool())
-            .await
-            .unwrap();
-            assert!(suppressed > 0);
-            let bindings: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {}.context_entry_bindings",
-                id.schema()
-            )))
-            .fetch_one(db.owner.pool())
-            .await
-            .unwrap();
-            assert!(bindings > 0);
-            let retained_bindings:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.context_entry_bindings WHERE release=1 AND entry_actual IS NOT NULL",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
-            assert!(retained_bindings > 0);
+                assert!(counts.0 > 0 && counts.1 > 0);
+            }
+            if fixture != "exact_exception_shapes" {
+                let modeled: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT count(*) FROM {}.modeled_call_evaluations",
+                    id.schema()
+                )))
+                .fetch_one(db.owner.pool())
+                .await
+                .unwrap();
+                assert!(modeled > 0);
+                let fresh: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT count(*) FROM {}.source_execution_invocations",
+                    id.schema()
+                )))
+                .fetch_one(db.owner.pool())
+                .await
+                .unwrap();
+                assert!(fresh > 0);
+                let args: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT count(*) FROM {}.source_frame_arguments",
+                    id.schema()
+                )))
+                .fetch_one(db.owner.pool())
+                .await
+                .unwrap();
+                assert!(args > 0);
+                let defaults: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT count(*) FROM {}.definition_evaluations",
+                    id.schema()
+                )))
+                .fetch_one(db.owner.pool())
+                .await
+                .unwrap();
+                assert!(defaults > 0);
+                let contexts: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT count(*) FROM {}.context_executions",
+                    id.schema()
+                )))
+                .fetch_one(db.owner.pool())
+                .await
+                .unwrap();
+                assert!(contexts > 0);
+                let suppressed: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT count(*) FROM {}.context_execution_items WHERE suppressed",
+                    id.schema()
+                )))
+                .fetch_one(db.owner.pool())
+                .await
+                .unwrap();
+                assert!(suppressed > 0);
+                let bindings: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT count(*) FROM {}.context_entry_bindings",
+                    id.schema()
+                )))
+                .fetch_one(db.owner.pool())
+                .await
+                .unwrap();
+                assert!(bindings > 0);
+                let retained_bindings:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.context_entry_bindings WHERE release=1 AND entry_actual IS NOT NULL",id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
+                assert!(retained_bindings > 0);
             }
         } else {
             assert_eq!((counts.0, counts.1), (0, 0));
@@ -638,19 +657,26 @@ async fn run_fixture(
         let transitions: Vec<(String,i64,i16,i16,bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT name.spelling,item.ordinal,before.kind,after.kind,item.suppressed FROM {0}.context_executions execution JOIN {0}.context_execution_items item ON item.execution=execution.id JOIN {0}.execution_outcomes before ON before.id=item.exit_input JOIN {0}.execution_outcomes after ON after.id=item.exit_output JOIN {0}.entity_refs e ON e.id=execution.owner JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations name ON name.occurrence=d.name WHERE name.spelling IN ('with_preserve','with_preserve_return','with_suppress','with_nonmatch','with_multiple','with_finalizer_return') ORDER BY 1,2",id.schema())))
             .fetch_all(db.owner.pool()).await.unwrap();
-        assert_eq!(transitions,vec![
-            ("with_finalizer_return".to_owned(),0,1,1,false),
-            ("with_multiple".to_owned(),0,0,0,false),
-            ("with_multiple".to_owned(),1,2,0,true),
-            ("with_nonmatch".to_owned(),0,2,2,false),
-            ("with_preserve".to_owned(),0,0,0,false),
-            ("with_preserve_return".to_owned(),0,1,1,false),
-            ("with_suppress".to_owned(),0,2,0,true),
-        ],"Python reverse exits pass the inner suppressed outcome to the outer manager; a finalizer return replaces the exception before exits");
+        assert_eq!(
+            transitions,
+            vec![
+                ("with_finalizer_return".to_owned(), 0, 1, 1, false),
+                ("with_multiple".to_owned(), 0, 0, 0, false),
+                ("with_multiple".to_owned(), 1, 2, 0, true),
+                ("with_nonmatch".to_owned(), 0, 2, 2, false),
+                ("with_preserve".to_owned(), 0, 0, 0, false),
+                ("with_preserve_return".to_owned(), 0, 1, 1, false),
+                ("with_suppress".to_owned(), 0, 2, 0, true),
+            ],
+            "Python reverse exits pass the inner suppressed outcome to the outer manager; a finalizer return replaces the exception before exits"
+        );
         let unsupported_contexts:i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM {0}.context_executions execution JOIN {0}.entity_refs e ON e.id=execution.owner JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations name ON name.occurrence=d.name WHERE name.spelling IN ('with_unknown_body','with_async','with_missing_target_constructor')",id.schema())))
             .fetch_one(db.owner.pool()).await.unwrap();
-        assert_eq!(unsupported_contexts,0,"missing body/constructor evidence and async cleanup never acquire exact context completion");
+        assert_eq!(
+            unsupported_contexts, 0,
+            "missing body/constructor evidence and async cleanup never acquire exact context completion"
+        );
     }
     if fixture == "exact_exception_shapes" && profile == Profile::Behavioral && enriched {
         let rows: Vec<(String, i16, Option<i16>, Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -658,21 +684,56 @@ async fn run_fixture(
             .fetch_all(db.owner.pool()).await.unwrap();
         eprintln!("B4_BODY {rows:?}");
         let expected = [
-            ("normal_plain", 1, None), ("bare_class", 2, Some(1)), ("broad_first", 1, None), ("tuple_match", 1, None), ("unmatched", 2, Some(1)),
-            ("final_return", 1, None), ("final_raise", 2, Some(2)), ("reraised", 2, Some(1)),
-            ("named_disposal", 1, None), ("normal_else", 2, Some(2)), ("no_else_after_handler", 0, None),
-            ("argument_failure", 2, Some(1)), ("argument_order", 2, Some(1)), ("explicit_cause", 2, Some(1)), ("invalid_cause", 2, Some(0)),
+            ("normal_plain", 1, None),
+            ("bare_class", 2, Some(1)),
+            ("broad_first", 1, None),
+            ("tuple_match", 1, None),
+            ("unmatched", 2, Some(1)),
+            ("final_return", 1, None),
+            ("final_raise", 2, Some(2)),
+            ("reraised", 2, Some(1)),
+            ("named_disposal", 1, None),
+            ("normal_else", 2, Some(2)),
+            ("no_else_after_handler", 0, None),
+            ("argument_failure", 2, Some(1)),
+            ("argument_order", 2, Some(1)),
+            ("explicit_cause", 2, Some(1)),
+            ("invalid_cause", 2, Some(0)),
         ];
         for (name, kind, exception) in expected {
-            assert!(rows.iter().any(|row| (row.0.as_str(), row.1, row.2) == (name, kind, exception)), "missing Python expected body {name}: {rows:?}");
+            assert!(
+                rows.iter()
+                    .any(|row| (row.0.as_str(), row.1, row.2) == (name, kind, exception)),
+                "missing Python expected body {name}: {rows:?}"
+            );
         }
         let source = std::fs::read_to_string(root.join(file)).unwrap();
-        for (name, returned) in [("broad_first", "return 1"), ("tuple_match", "return 3"), ("final_return", "return 5")] {
+        for (name, returned) in [
+            ("broad_first", "return 1"),
+            ("tuple_match", "return 3"),
+            ("final_return", "return 5"),
+        ] {
             let expected = source.find(returned).unwrap() as i64;
-            assert!(rows.iter().any(|row| row.0 == name && row.3 == Some(expected)), "wrong Python-selected handler/finalizer for {name}: {rows:?}");
+            assert!(
+                rows.iter()
+                    .any(|row| row.0 == name && row.3 == Some(expected)),
+                "wrong Python-selected handler/finalizer for {name}: {rows:?}"
+            );
         }
-        for name in ["dynamic_constructor", "argument_opaque", "shadowed_constructor", "unsupported_group", "invalid_handler", "named_retained", "starred_constructor", "handler_lookup_failure"] {
-            assert!(!rows.iter().any(|row| row.0 == name), "unsupported body {name} incorrectly admitted");
+        for name in [
+            "dynamic_constructor",
+            "argument_opaque",
+            "shadowed_constructor",
+            "unsupported_group",
+            "invalid_handler",
+            "named_retained",
+            "starred_constructor",
+            "handler_lookup_failure",
+        ] {
+            assert!(
+                !rows.iter().any(|row| row.0 == name),
+                "unsupported body {name} incorrectly admitted"
+            );
         }
         // A call in an except test has conditional ty reaching evidence. This source-call
         // contract requires unconditional evidence and retains the located approximation.
@@ -774,5 +835,13 @@ async fn catalog_field_read_screen_is_not_requested() {
 
 #[tokio::test]
 async fn exact_exception_handlers_preserve_order_and_runtime_completion() {
-    run_fixture(Profile::Behavioral, true, true, true, "exact_exception_shapes", "cases.py").await;
+    run_fixture(
+        Profile::Behavioral,
+        true,
+        true,
+        true,
+        "exact_exception_shapes",
+        "cases.py",
+    )
+    .await;
 }

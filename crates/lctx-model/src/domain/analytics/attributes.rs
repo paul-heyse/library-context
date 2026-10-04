@@ -210,13 +210,21 @@ pub fn type_layer(
             .filter(|p| p.function == declaration)
         {
             let Some(correspondence) = normalized::parameter_correspondence::source_parameter(
-                &d.native, p, parent.context, b,
-            )? else { continue; };
+                &d.native,
+                p,
+                parent.context,
+                b,
+            )?
+            else {
+                continue;
+            };
             if receiver(d, *entity, &correspondence, parent.context) {
                 continue;
             }
             for observation in d.native.type_observations.iter().filter(|o| {
-                o.subject == correspondence.formal && o.role == types::TypeRole::Parameter && o.declared
+                o.subject == correspondence.formal
+                    && o.role == types::TypeRole::Parameter
+                    && o.declared
             }) {
                 if !context(d, observation.qualification, parent.context)? {
                     continue;
@@ -320,9 +328,10 @@ pub fn mention_layer(
             continue;
         };
         if !d.uses.iter().any(|u| {
-            (u.input == parent.input || d.corpus_libraries.iter().any(|link| {
-                link.corpus == u.input && link.library == parent.input
-            }))
+            (u.input == parent.input
+                || d.corpus_libraries
+                    .iter()
+                    .any(|link| link.corpus == u.input && link.library == parent.input))
                 && u.artifact == artifact
                 && u.role == input::SourceRole::Document
         }) {
@@ -408,7 +417,14 @@ fn facts(
     out: &Output,
     b: &ResourceBudget,
     policy: policy::AttributePolicy,
-) -> Result<(charged::ChargedVec<Fact>, charged::ChargedVec<super::native_attributes::Selection>, charged::StateCharge), ModelError> {
+) -> Result<
+    (
+        charged::ChargedVec<Fact>,
+        charged::ChargedVec<super::native_attributes::Selection>,
+        charged::StateCharge,
+    ),
+    ModelError,
+> {
     let mut facts = charged::ChargedVec::default();
     let mut selections = charged::ChargedVec::default();
     let mut charge = charged::StateCharge::new(b, "analytic-concept-incidence");
@@ -423,10 +439,14 @@ fn facts(
             .iter()
             .filter(|p| p.function == declaration && policy.signature_roles.source())
         {
-            let Some(correspondence) = normalized::parameter_correspondence::source_parameter(
-                &d.native, p, ctx, b,
-            )? else { continue; };
-            if policy.receiver == policy::ReceiverPolicy::ExcludeSourceBoundPreserveNative && receiver(d, *entity, &correspondence, ctx) {
+            let Some(correspondence) =
+                normalized::parameter_correspondence::source_parameter(&d.native, p, ctx, b)?
+            else {
+                continue;
+            };
+            if policy.receiver == policy::ReceiverPolicy::ExcludeSourceBoundPreserveNative
+                && receiver(d, *entity, &correspondence, ctx)
+            {
                 continue;
             }
             let shapes = d
@@ -453,7 +473,9 @@ fn facts(
                 }
             }
             for o in d.native.type_observations.iter().filter(|o| {
-                o.subject == correspondence.formal && o.role == types::TypeRole::Parameter && o.declared
+                o.subject == correspondence.formal
+                    && o.role == types::TypeRole::Parameter
+                    && o.declared
             }) {
                 if context(d, o.qualification, ctx)? && classes(d, o.term, ctx, b)?.is_some() {
                     facts.push(
@@ -466,7 +488,17 @@ fn facts(
                             },
                         },
                     )?;
-                    super::native_attributes::metadata(d, *entity, o, TypePortRole::Parameter, ctx, b, &mut facts, &mut selections, &mut charge)?;
+                    super::native_attributes::metadata(
+                        d,
+                        *entity,
+                        o,
+                        TypePortRole::Parameter,
+                        ctx,
+                        b,
+                        &mut facts,
+                        &mut selections,
+                        &mut charge,
+                    )?;
                 }
             }
         }
@@ -474,7 +506,8 @@ fn facts(
             if !context(d, o.qualification, ctx)? {
                 continue;
             }
-            let attribute = if policy.signature_roles.source() && o.subject == declaration
+            let attribute = if policy.signature_roles.source()
+                && o.subject == declaration
                 && o.role == types::TypeRole::Return
                 && o.declared
                 && classes(d, o.term, ctx, b)?.is_some()
@@ -512,7 +545,17 @@ fn facts(
                     },
                 )?;
                 if returns {
-                    super::native_attributes::metadata(d, *entity, o, TypePortRole::Return, ctx, b, &mut facts, &mut selections, &mut charge)?;
+                    super::native_attributes::metadata(
+                        d,
+                        *entity,
+                        o,
+                        TypePortRole::Return,
+                        ctx,
+                        b,
+                        &mut facts,
+                        &mut selections,
+                        &mut charge,
+                    )?;
                 }
             }
         }
@@ -525,7 +568,15 @@ fn facts(
             if !context(d, dec.qualification, ctx)? {
                 continue;
             }
-            super::native_attributes::decorator(d, *entity, dec, ctx, &mut facts, &mut selections, &mut charge)?;
+            super::native_attributes::decorator(
+                d,
+                *entity,
+                dec,
+                ctx,
+                &mut facts,
+                &mut selections,
+                &mut charge,
+            )?;
         }
     }
     if rca {

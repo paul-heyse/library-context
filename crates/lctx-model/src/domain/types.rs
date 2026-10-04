@@ -11,9 +11,9 @@ use super::{
     *,
 };
 use crate::{Assertion, Domain, DomainCode, DomainSum};
+mod generics;
 pub mod locations;
 mod signatures;
-mod generics;
 pub use generics::*;
 pub use signatures::*;
 
@@ -1056,7 +1056,11 @@ impl TypeIndex {
                 | TypeTerm::Unpack { target }
                 | TypeTerm::TypeGuard { target, .. }
                 | TypeTerm::TypeAlias { target, .. } => children.push(*target),
-                TypeTerm::Overloaded { alternatives: members } | TypeTerm::Union { members } | TypeTerm::Intersection { members } => {
+                TypeTerm::Overloaded {
+                    alternatives: members,
+                }
+                | TypeTerm::Union { members }
+                | TypeTerm::Intersection { members } => {
                     children.extend(self.sequence(*members)?.iter().map(|m| m.child))
                 }
                 TypeTerm::Tuple { elements } => {
@@ -1264,7 +1268,11 @@ impl InvariantCheck for TypeIndex {
                     }
                 }
                 TypeTerm::Overloaded { alternatives } => {
-                    if roles(alternatives, TypeChildRole::Member)?.is_empty() {return Err(invalid("overloaded values retain nonempty ordered type alternatives"));}
+                    if roles(alternatives, TypeChildRole::Member)?.is_empty() {
+                        return Err(invalid(
+                            "overloaded values retain nonempty ordered type alternatives",
+                        ));
+                    }
                 }
                 TypeTerm::BoundMethod { function, .. } => {
                     if !matches!(
@@ -1664,4 +1672,4 @@ type RecordFieldIndex =
     ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>), Vec<(i64, RecordKind)>>;
 
 pub mod queries;
-pub use queries::{TypeQueryObservation, TypeQuerySupport, TypeQueryStatus};
+pub use queries::{TypeQueryObservation, TypeQueryStatus, TypeQuerySupport};

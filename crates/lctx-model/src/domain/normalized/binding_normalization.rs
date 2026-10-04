@@ -121,7 +121,11 @@ impl<'a> Index<'a> {
             supports: Default::default(),
             _charge: StateCharge::new(budget, "binding-index"),
         };
-        for v in data.callable_variants.iter().filter(|v| v.role.runtime_source()) {
+        for v in data
+            .callable_variants
+            .iter()
+            .filter(|v| v.role.runtime_source())
+        {
             let raw = need(&data.signatures, v.signature)?;
             s.raw_variants
                 .update(&mut s._charge, raw.symbol, |vs| vs.push(v))?;
@@ -582,15 +586,29 @@ pub struct SourceBindingShape {
     bindings: ContentHash,
 }
 impl SourceBindingShape {
-    pub fn context(&self) -> Id<AnalysisContext> { self.context }
-    pub fn input(&self) -> Id<input::InputRevision> { self.input }
-    pub fn owner_entity(&self) -> Id<EntityRef> { self.owner_entity }
-    pub fn owner_declaration(&self) -> Id<Occurrence> { self.owner_declaration }
-    pub fn target(&self) -> Id<CallTarget> { self.target }
-    pub fn phase(&self) -> CallPhase { self.phase }
+    pub fn context(&self) -> Id<AnalysisContext> {
+        self.context
+    }
+    pub fn input(&self) -> Id<input::InputRevision> {
+        self.input
+    }
+    pub fn owner_entity(&self) -> Id<EntityRef> {
+        self.owner_entity
+    }
+    pub fn owner_declaration(&self) -> Id<Occurrence> {
+        self.owner_declaration
+    }
+    pub fn target(&self) -> Id<CallTarget> {
+        self.target
+    }
+    pub fn phase(&self) -> CallPhase {
+        self.phase
+    }
     pub fn admits(&self, bound: &ValidatedBoundCall) -> bool {
-        self.attempt == bound.attempt && self.event == bound.event
-            && self.context == bound.context && self.target == bound.bound.target()
+        self.attempt == bound.attempt
+            && self.event == bound.event
+            && self.context == bound.context
+            && self.target == bound.bound.target()
             && self.bindings == bound.bindings
     }
 }
@@ -928,12 +946,21 @@ pub fn verify(
         if owner.occurrence != event.site {
             return Err(invalid("source shape owner differs from event site"));
         }
-        result.source_shape.insert(&mut result._charge, row.id(), SourceBindingShape {
-            attempt: row.id(), event: row.event, context: event.context,
-            input: application.input(), owner_entity: owner.entity,
-            owner_declaration: owner.owner, target: target.id(), phase: target.phase,
-            bindings: row.bindings,
-        })?;
+        result.source_shape.insert(
+            &mut result._charge,
+            row.id(),
+            SourceBindingShape {
+                attempt: row.id(),
+                event: row.event,
+                context: event.context,
+                input: application.input(),
+                owner_entity: owner.entity,
+                owner_declaration: owner.owner,
+                target: target.id(),
+                phase: target.phase,
+                bindings: row.bindings,
+            },
+        )?;
         if let Some(complete) = events.get(row.event) {
             for member in stored.members.iter().filter(|m| m.attempt == row.id()) {
                 let selected = need(&stored.variants, member.variant)?;
@@ -1159,7 +1186,10 @@ fn checked_enumeration<'a>(
             .ok_or_else(|| invalid("bound shape signature absent"))?,
     )?;
     let mut headers = data.signature_enumerations.iter().filter(|e| {
-        e.symbol == signature.symbol && e.qualification == signature.qualification && e.role == signature.role && e.complete
+        e.symbol == signature.symbol
+            && e.qualification == signature.qualification
+            && e.role == signature.role
+            && e.complete
     });
     let Some(header) = headers.next() else {
         return Ok(None);

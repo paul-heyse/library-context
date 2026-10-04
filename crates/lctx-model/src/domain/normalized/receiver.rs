@@ -728,7 +728,7 @@ mod tests {
         };
         let scope = CoverageScope::Input { input: input.id() };
         let qualification = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: conditions::Diagram::always().id(),
@@ -765,8 +765,16 @@ mod tests {
                 required: true,
             },
         ];
-        let (signature, parameters) =
-            Signature::new(&qualification, crate::domain::calls::SignatureRole::Source, None, symbol.id(), 0, SignatureForm::List, &shapes).unwrap();
+        let (signature, parameters) = Signature::new(
+            &qualification,
+            crate::domain::calls::SignatureRole::Source,
+            None,
+            symbol.id(),
+            0,
+            SignatureForm::List,
+            &shapes,
+        )
+        .unwrap();
         let (call, arguments) = CallSyntax::new(
             qualification.id(),
             site.id(),
@@ -851,7 +859,9 @@ mod tests {
                 asynchronous: Some(false),
                 generator: Some(false),
             };
-            let variant = SignatureVariant { role: crate::domain::calls::SignatureRole::Source, native: None,
+            let variant = SignatureVariant {
+                role: crate::domain::calls::SignatureRole::Source,
+                native: None,
                 signature: signature.id(),
                 context: context.id(),
                 resolution: resolution.id(),

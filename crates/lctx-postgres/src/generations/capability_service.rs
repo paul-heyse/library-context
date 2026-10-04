@@ -80,30 +80,100 @@ impl GenerationService {
 }
 impl super::packet_reads::PacketLease<'_> {
     /// Citation hydration only: lower Model owns question-specific admission.
-    async fn terminal_pair<S: assertion::Support>(&mut self, assertion: Id<S::Assertion>, support: Id<S>, input: Id<input::InputRevision>, context: Id<attribution::AnalysisContext>) -> Result<Vec<ProofReference>, Error> {
-        need(&self.read_ids::<S::Assertion>(&[assertion]).await?, assertion)?;
+    async fn terminal_pair<S: assertion::Support>(
+        &mut self,
+        assertion: Id<S::Assertion>,
+        support: Id<S>,
+        input: Id<input::InputRevision>,
+        context: Id<attribution::AnalysisContext>,
+    ) -> Result<Vec<ProofReference>, Error> {
+        need(
+            &self.read_ids::<S::Assertion>(&[assertion]).await?,
+            assertion,
+        )?;
         let support = need(&self.read_ids::<S>(&[support]).await?, support)?;
-        if support.assertion() != assertion { return Err(Error::Contract); }
+        if support.assertion() != assertion {
+            return Err(Error::Contract);
+        }
         let a = support.attribution().ok_or(Error::Contract)?;
-        let run = need(&self.read_ids::<attribution::ProviderRun>(&[a.run]).await?, a.run)?;
-        if (run.input,run.context)!=(input,context) { return Err(Error::Contract); }
-        need(&self.read_ids::<assertion::ProviderSurface>(&[a.surface]).await?, a.surface)?;
-        need(&self.read_ids::<assertion::Evidence>(&[a.evidence]).await?, a.evidence)?;
-        Ok(vec![derivation::RowRef::of(assertion),derivation::RowRef::of(support.id()),derivation::RowRef::of(a.run),derivation::RowRef::of(a.surface),derivation::RowRef::of(a.evidence)].into_iter().map(ProofReference::from_canonical).collect())
+        let run = need(
+            &self.read_ids::<attribution::ProviderRun>(&[a.run]).await?,
+            a.run,
+        )?;
+        if (run.input, run.context) != (input, context) {
+            return Err(Error::Contract);
+        }
+        need(
+            &self
+                .read_ids::<assertion::ProviderSurface>(&[a.surface])
+                .await?,
+            a.surface,
+        )?;
+        need(
+            &self.read_ids::<assertion::Evidence>(&[a.evidence]).await?,
+            a.evidence,
+        )?;
+        Ok(vec![
+            derivation::RowRef::of(assertion),
+            derivation::RowRef::of(support.id()),
+            derivation::RowRef::of(a.run),
+            derivation::RowRef::of(a.surface),
+            derivation::RowRef::of(a.evidence),
+        ]
+        .into_iter()
+        .map(ProofReference::from_canonical)
+        .collect())
     }
-    async fn terminal_question(&mut self, id: Id<execution::summary_terminal::SummaryTerminalWitness>, q: &assertion::AssertionQualification) -> Result<TerminalQuestionPacket, Error> {
-        use synthesis::{terminal, summary};
-        use execution::{protocol_interpretation::{ConditionalTerminalFrontier, NormalContinuationRestriction},closed_targets::ClosedTargetAssessment,summary_consequences::SummaryClaim,summary_terminal::SummaryTerminalWitness};
+    async fn terminal_question(
+        &mut self,
+        id: Id<execution::summary_terminal::SummaryTerminalWitness>,
+        q: &assertion::AssertionQualification,
+    ) -> Result<TerminalQuestionPacket, Error> {
+        use execution::{
+            closed_targets::ClosedTargetAssessment,
+            protocol_interpretation::{ConditionalTerminalFrontier, NormalContinuationRestriction},
+            summary_consequences::SummaryClaim,
+            summary_terminal::SummaryTerminalWitness,
+        };
+        use synthesis::{summary, terminal};
         let budget = self.lease.budget.clone();
         let mut data = terminal::Data::new(&budget);
         let mut summary = summary::Data::new(&budget);
         let witness = need(&self.read_ids::<SummaryTerminalWitness>(&[id]).await?, id)?;
-        let frontier = need(&self.read_ids::<ConditionalTerminalFrontier>(&[witness.frontier]).await?, witness.frontier)?;
-        let edge = need(&self.read_ids::<NormalContinuationRestriction>(&[witness.restriction]).await?, witness.restriction)?;
-        let target = need(&self.read_ids::<ClosedTargetAssessment>(&[frontier.target]).await?, frontier.target)?;
-        let model = need(&self.read_ids::<analysis::model::AnalysisInvocation>(&[frontier.invocation]).await?, frontier.invocation)?;
-        let invocation = need(&self.read_ids::<analysis::summary::AnalysisInvocation>(&[witness.invocation]).await?, witness.invocation)?;
-        let claim = need(&self.read_ids::<SummaryClaim>(&[witness.claim]).await?, witness.claim)?;
+        let frontier = need(
+            &self
+                .read_ids::<ConditionalTerminalFrontier>(&[witness.frontier])
+                .await?,
+            witness.frontier,
+        )?;
+        let edge = need(
+            &self
+                .read_ids::<NormalContinuationRestriction>(&[witness.restriction])
+                .await?,
+            witness.restriction,
+        )?;
+        let target = need(
+            &self
+                .read_ids::<ClosedTargetAssessment>(&[frontier.target])
+                .await?,
+            frontier.target,
+        )?;
+        let model = need(
+            &self
+                .read_ids::<analysis::model::AnalysisInvocation>(&[frontier.invocation])
+                .await?,
+            frontier.invocation,
+        )?;
+        let invocation = need(
+            &self
+                .read_ids::<analysis::summary::AnalysisInvocation>(&[witness.invocation])
+                .await?,
+            witness.invocation,
+        )?;
+        let claim = need(
+            &self.read_ids::<SummaryClaim>(&[witness.claim]).await?,
+            witness.claim,
+        )?;
         data.witnesses.insert(witness.clone())?;
         data.frontiers.insert(frontier.clone())?;
         data.restrictions.insert(edge.clone())?;
@@ -114,20 +184,28 @@ impl super::packet_reads::PacketLease<'_> {
         let scopes = self.read_ids::<source::CoverageScope>(&[q.scope]).await?;
         let scope = need(&scopes, q.scope)?;
         data.visit(source::CoverageScope::NAME, scopes.arrow())?;
-        let corpus = self.read_for::<input::CorpusLibrary,input::InputRevision>("corpus", &[model.input]).await?;
+        let corpus = self
+            .read_for::<input::CorpusLibrary, input::InputRevision>("corpus", &[model.input])
+            .await?;
         data.visit(input::CorpusLibrary::NAME, corpus.arrow())?;
-        let inputs = std::iter::once(model.input).chain(corpus.rows().iter().map(|row|row.library)).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
-        let distributions = self.read_for::<input::InputDistribution,input::InputRevision>("input", &inputs).await?;
+        let inputs = std::iter::once(model.input)
+            .chain(corpus.rows().iter().map(|row| row.library))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let distributions = self
+            .read_for::<input::InputDistribution, input::InputRevision>("input", &inputs)
+            .await?;
         data.visit(input::InputDistribution::NAME, distributions.arrow())?;
         let artifact = match scope {
-            source::CoverageScope::Artifact {artifact} => Some(artifact),
-            source::CoverageScope::Module {module} => {
+            source::CoverageScope::Artifact { artifact } => Some(artifact),
+            source::CoverageScope::Module { module } => {
                 let modules = self.read_ids::<source::Module>(&[module]).await?;
                 let artifact = need(&modules, module)?.source;
                 data.visit(source::Module::NAME, modules.arrow())?;
                 Some(artifact)
-            },
-            source::CoverageScope::Input {..} | source::CoverageScope::Release {..} => None,
+            }
+            source::CoverageScope::Input { .. } | source::CoverageScope::Release { .. } => None,
         };
         if let Some(artifact) = artifact {
             let artifacts = self.read_ids::<source::SourceArtifact>(&[artifact]).await?;
@@ -136,52 +214,188 @@ impl super::packet_reads::PacketLease<'_> {
         }
         summary.claims.insert(claim)?;
         let source = analysis::summary::SupportSource::TerminalFrontier { witness: id };
-        summary.sources.insert(need(&self.read_ids::<analysis::summary::SupportSource>(&[source.id()]).await?, source.id())?)?;
-        let subject = analysis::summary::ObligationSubject::SummaryClaim { transfer: witness.claim };
-        summary.subjects.insert(need(&self.read_ids::<analysis::summary::ObligationSubject>(&[subject.id()]).await?, subject.id())?)?;
+        summary.sources.insert(need(
+            &self
+                .read_ids::<analysis::summary::SupportSource>(&[source.id()])
+                .await?,
+            source.id(),
+        )?)?;
+        let subject = analysis::summary::ObligationSubject::SummaryClaim {
+            transfer: witness.claim,
+        };
+        summary.subjects.insert(need(
+            &self
+                .read_ids::<analysis::summary::ObligationSubject>(&[subject.id()])
+                .await?,
+            subject.id(),
+        )?)?;
         let propositions = self.read_for::<analysis::summary::AnalysisProposition,analysis::summary::ObligationSubject>("subject", &[subject.id()]).await?;
-        let ids = propositions.rows().iter().map(Record::id).collect::<Vec<_>>();
+        let ids = propositions
+            .rows()
+            .iter()
+            .map(Record::id)
+            .collect::<Vec<_>>();
         let derived = self.read_for::<analysis::summary::AnalysisDerivation,analysis::summary::AnalysisProposition>("proposition", &ids).await?;
         let ids = derived.rows().iter().map(Record::id).collect::<Vec<_>>();
         let premises = self.read_for::<analysis::summary::AnalysisDerivationPremise,analysis::summary::AnalysisDerivation>("derivation", &ids).await?;
-        for row in propositions.rows() { summary.propositions.insert(row.clone())?; }
-        for row in derived.rows() { summary.derivations.insert(row.clone())?; }
-        for row in premises.rows() { summary.premises.insert(row.clone())?; }
-        data.sets.insert(need(&self.read_ids::<assumptions::AssumptionSet>(&[q.assumptions]).await?, q.assumptions)?)?;
-        let members = self.read_for::<assumptions::AssumptionSetMember, assumptions::AssumptionSet>("set", &[q.assumptions]).await?;
-        let ids = members.rows().iter().map(|r|r.assumption).collect::<Vec<_>>();
+        for row in propositions.rows() {
+            summary.propositions.insert(row.clone())?;
+        }
+        for row in derived.rows() {
+            summary.derivations.insert(row.clone())?;
+        }
+        for row in premises.rows() {
+            summary.premises.insert(row.clone())?;
+        }
+        data.sets.insert(need(
+            &self
+                .read_ids::<assumptions::AssumptionSet>(&[q.assumptions])
+                .await?,
+            q.assumptions,
+        )?)?;
+        let members = self
+            .read_for::<assumptions::AssumptionSetMember, assumptions::AssumptionSet>(
+                "set",
+                &[q.assumptions],
+            )
+            .await?;
+        let ids = members
+            .rows()
+            .iter()
+            .map(|r| r.assumption)
+            .collect::<Vec<_>>();
         let definitions = self.read_ids::<assumptions::Assumption>(&ids).await?;
-        for row in members.rows(){data.members.insert(row.clone())?;}
-        for row in definitions.rows(){data.assumptions.insert(row.clone())?;}
-        let ids = [Some(frontier.native),Some(edge.statement_native),Some(edge.following_native),target.target_native,target.final_native,target.member_native].into_iter().flatten().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
-        let native = self.read_ids::<analysis::native::NativeAssertionPremise>(&ids).await?;
+        for row in members.rows() {
+            data.members.insert(row.clone())?;
+        }
+        for row in definitions.rows() {
+            data.assumptions.insert(row.clone())?;
+        }
+        let ids = [
+            Some(frontier.native),
+            Some(edge.statement_native),
+            Some(edge.following_native),
+            target.target_native,
+            target.final_native,
+            target.member_native,
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+        let native = self
+            .read_ids::<analysis::native::NativeAssertionPremise>(&ids)
+            .await?;
         let mut citations = Vec::new();
         for row in native.rows() {
             use analysis::native::NativeAssertionPremise as N;
             let proof = match row {
-                N::NativeTerminal {assertion,support} => self.terminal_pair::<protocols::NativeTerminalSupport>(*assertion,*support,model.input,model.context).await?,
-                N::SyntaxPlacement {assertion,support} => self.terminal_pair::<syntax::SyntaxPlacementSupport>(*assertion,*support,model.input,model.context).await?,
-                N::CallTarget {assertion,support} => self.terminal_pair::<calls::CallTargetSupport>(*assertion,*support,model.input,model.context).await?,
-                N::ClassMetadataObservation {assertion,support} => self.terminal_pair::<class_metadata::ClassMetadataSupport>(*assertion,*support,model.input,model.context).await?,
-                N::ClassMemberObservation {assertion,support} => self.terminal_pair::<class_metadata::ClassMemberSupport>(*assertion,*support,model.input,model.context).await?,
+                N::NativeTerminal { assertion, support } => {
+                    self.terminal_pair::<protocols::NativeTerminalSupport>(
+                        *assertion,
+                        *support,
+                        model.input,
+                        model.context,
+                    )
+                    .await?
+                }
+                N::SyntaxPlacement { assertion, support } => {
+                    self.terminal_pair::<syntax::SyntaxPlacementSupport>(
+                        *assertion,
+                        *support,
+                        model.input,
+                        model.context,
+                    )
+                    .await?
+                }
+                N::CallTarget { assertion, support } => {
+                    self.terminal_pair::<calls::CallTargetSupport>(
+                        *assertion,
+                        *support,
+                        model.input,
+                        model.context,
+                    )
+                    .await?
+                }
+                N::ClassMetadataObservation { assertion, support } => {
+                    self.terminal_pair::<class_metadata::ClassMetadataSupport>(
+                        *assertion,
+                        *support,
+                        model.input,
+                        model.context,
+                    )
+                    .await?
+                }
+                N::ClassMemberObservation { assertion, support } => {
+                    self.terminal_pair::<class_metadata::ClassMemberSupport>(
+                        *assertion,
+                        *support,
+                        model.input,
+                        model.context,
+                    )
+                    .await?
+                }
                 _ => return Err(Error::Contract),
             };
             citations.extend(proof);
             data.native.insert(row.clone())?;
         }
-        if let Some(ancestry) = target.ancestry { need(&self.read_ids::<symbols::ClassAncestryObservation>(&[ancestry]).await?, ancestry)?; }
-        for qid in [target.original_qualification,target.receiver_qualification].into_iter().flatten() {
-            if need(&self.read_ids::<assertion::AssertionQualification>(&[qid]).await?, qid)?.context != model.context { return Err(Error::Contract); }
+        if let Some(ancestry) = target.ancestry {
+            need(
+                &self
+                    .read_ids::<symbols::ClassAncestryObservation>(&[ancestry])
+                    .await?,
+                ancestry,
+            )?;
+        }
+        for qid in [target.original_qualification, target.receiver_qualification]
+            .into_iter()
+            .flatten()
+        {
+            if need(
+                &self
+                    .read_ids::<assertion::AssertionQualification>(&[qid])
+                    .await?,
+                qid,
+            )?
+            .context
+                != model.context
+            {
+                return Err(Error::Contract);
+            }
         }
         // Read the actual located declaration and source placements; they are citations, not execution evidence.
-        need(&self.read_ids::<types::TypeObservation>(&[frontier.declared_return]).await?, frontier.declared_return)?;
-        need(&self.read_ids::<syntax::SyntaxPlacement>(&[edge.statement]).await?, edge.statement)?;
-        need(&self.read_ids::<syntax::SyntaxPlacement>(&[edge.following]).await?, edge.following)?;
-        for occurrence in [frontier.call,frontier.statement,edge.to] { need(&self.read_ids::<source::Occurrence>(&[occurrence]).await?, occurrence)?; }
+        need(
+            &self
+                .read_ids::<types::TypeObservation>(&[frontier.declared_return])
+                .await?,
+            frontier.declared_return,
+        )?;
+        need(
+            &self
+                .read_ids::<syntax::SyntaxPlacement>(&[edge.statement])
+                .await?,
+            edge.statement,
+        )?;
+        need(
+            &self
+                .read_ids::<syntax::SyntaxPlacement>(&[edge.following])
+                .await?,
+            edge.following,
+        )?;
+        for occurrence in [frontier.call, frontier.statement, edge.to] {
+            need(
+                &self.read_ids::<source::Occurrence>(&[occurrence]).await?,
+                occurrence,
+            )?;
+        }
         let checked = terminal::checked(&data, &summary, id, q, model.input, model.context)?;
         let mut packet = TerminalQuestionPacket::from_canonical(&checked);
         packet.proof.extend(citations);
-        packet.proof.sort_by(|a,b|(&a.relation,a.row).cmp(&(&b.relation,b.row)));
+        packet
+            .proof
+            .sort_by(|a, b| (&a.relation, a.row).cmp(&(&b.relation, b.row)));
         packet.proof.dedup();
         Ok(packet)
     }
@@ -352,12 +566,19 @@ impl super::packet_reads::PacketLease<'_> {
                     }
                     AssertionSource::TerminalSummary { witness } => {
                         if terminal_question.is_some()
-                            || value.template != (synthesis::assertions::AssertionTemplate::TerminalSummary { witness }).id()
+                            || value.template
+                                != (synthesis::assertions::AssertionTemplate::TerminalSummary {
+                                    witness,
+                                })
+                                .id()
                             || value.kind() != analysis::policy::AssertionKind::ApplicableCase
-                            || value.status() != analysis::policy::EvidenceStatus::StructurallyObserved {
+                            || value.status()
+                                != analysis::policy::EvidenceStatus::StructurallyObserved
+                        {
                             return Err(Error::Contract);
                         }
-                        terminal_question = Some(self.terminal_question(witness, &qualification).await?);
+                        terminal_question =
+                            Some(self.terminal_question(witness, &qualification).await?);
                         derivation::RowRef::of(witness)
                     }
                 };
@@ -367,7 +588,14 @@ impl super::packet_reads::PacketLease<'_> {
                     ProofReference::from_canonical(target),
                 ];
                 if matches!(source, AssertionSource::TerminalSummary { .. }) {
-                    proof.extend(terminal_question.as_ref().ok_or(Error::Contract)?.proof.iter().cloned());
+                    proof.extend(
+                        terminal_question
+                            .as_ref()
+                            .ok_or(Error::Contract)?
+                            .proof
+                            .iter()
+                            .cloned(),
+                    );
                 }
                 claim_supports.push(AssertionSupportPacket {
                     support: support.id(),

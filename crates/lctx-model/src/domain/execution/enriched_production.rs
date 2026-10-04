@@ -1,6 +1,6 @@
 //! One finite enriched owner, with independently replayed SourceCall predecessors.
 use super::{
-    capture_bridge::{CapturedEntryBinding,CapturedValueSource,CheckedCapturedEntry},
+    capture_bridge::{CapturedEntryBinding, CapturedValueSource, CheckedCapturedEntry},
     context_binding::{BindingMember, BindingSource, CheckedContextBinding, ContextEntryBinding},
     context_execution::*,
     definition::*,
@@ -432,11 +432,18 @@ pub fn enrich_all(
                     if frame.has_call(header_row.event) {
                         continue;
                     }
-                    let mut captures=Vec::new();
-                    let _capture_allowance=budget.reserve("captured-active-frame",header.captures().len()*size_of::<CheckedCapturedEntry>()*2)?;
+                    let mut captures = Vec::new();
+                    let _capture_allowance = budget.reserve(
+                        "captured-active-frame",
+                        header.captures().len() * size_of::<CheckedCapturedEntry>() * 2,
+                    )?;
                     for origin in header.captures() {
-                        let proof=CheckedCapturedEntry::activate(origin,header,header_row,invocation,facts)?;
-                        if output.captured_entries.get(proof.row.id()).is_none() {frame.push_capture(&proof)?;}
+                        let proof = CheckedCapturedEntry::activate(
+                            origin, header, header_row, invocation, facts,
+                        )?;
+                        if output.captured_entries.get(proof.row.id()).is_none() {
+                            frame.push_capture(&proof)?;
+                        }
                         captures.push(proof);
                     }
                     let mut proofs = Vec::new();
@@ -475,11 +482,20 @@ pub fn enrich_all(
                         budget,
                     )?;
                     let Ok(body) = body else { continue };
-                    let call = super::source_invocation::CheckedSourceInvocation::derive_with_captures(
-                        facts,header,&body,&data.source.completed,&captures,budget,
-                    )?;
+                    let call =
+                        super::source_invocation::CheckedSourceInvocation::derive_with_captures(
+                            facts,
+                            header,
+                            &body,
+                            &data.source.completed,
+                            &captures,
+                            budget,
+                        )?;
                     let Ok(call) = call else { continue };
-                    for capture in captures {output.captured_values.insert(capture.source)?;output.captured_entries.insert(capture.row)?;}
+                    for capture in captures {
+                        output.captured_values.insert(capture.source)?;
+                        output.captured_entries.insert(capture.row)?;
+                    }
                     for proof in &proofs {
                         insert_statement(
                             &mut output,

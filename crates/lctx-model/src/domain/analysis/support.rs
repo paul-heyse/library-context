@@ -54,7 +54,14 @@ pub fn qualify_with_basis<S: Record>(
         "qualified_analysis_diagram",
         first.condition.allocation_allowance(),
     )?;
-    let _basis_lookup = if basis.is_some() { Some(budget.reserve("qualified_assumption_lookup", assumptions::MAX_ASSUMPTIONS * size_of::<assumptions::AssumptionSetMember>())?) } else { None };
+    let _basis_lookup = if basis.is_some() {
+        Some(budget.reserve(
+            "qualified_assumption_lookup",
+            assumptions::MAX_ASSUMPTIONS * size_of::<assumptions::AssumptionSetMember>(),
+        )?)
+    } else {
+        None
+    };
     let mut condition = first.condition.clone();
     let mut assumption_ids = std::collections::BTreeSet::new();
     let mut modality = Modality::Definite;
@@ -71,9 +78,19 @@ pub fn qualify_with_basis<S: Record>(
         assumption_ids.insert(q.assumptions);
         if operation == QualificationOperation::AlternativeUnion
             && (q.assumptions, q.modality, q.approximation)
-                != (first.qualification.assumptions, first.qualification.modality, first.qualification.approximation)
-        { return Err(invalid("alternative union needs identical governing qualifications")); }
-        if let Some(index) = basis { index.resolve(q.assumptions)?.check(q.assumptions)?; }
+                != (
+                    first.qualification.assumptions,
+                    first.qualification.modality,
+                    first.qualification.approximation,
+                )
+        {
+            return Err(invalid(
+                "alternative union needs identical governing qualifications",
+            ));
+        }
+        if let Some(index) = basis {
+            index.resolve(q.assumptions)?.check(q.assumptions)?;
+        }
         modality = modality.weakest(q.modality);
         approximation = approximation.join(q.approximation);
         if index != 0 {
@@ -98,15 +115,35 @@ pub fn qualify_with_basis<S: Record>(
     }
     let mut assumption_reservation = None;
     let assumptions = if assumption_ids.len() > 1 {
-        let index = basis.ok_or_else(|| invalid("distinct assumption bases need resolved membership"))?;
-        assumption_reservation = Some(budget.reserve("qualified_assumption_union", assumptions::MAX_ASSUMPTIONS.checked_mul(assumption_ids.len()).and_then(|n|n.checked_mul(size_of::<assumptions::AssumptionSetMember>())).ok_or_else(||invalid("assumption union allowance overflow"))?)?);
-        let sets = assumption_ids.into_iter().map(|id| { let set=index.resolve(id)?;set.check(id)?;Ok(set) }).collect::<Result<Vec<_>, ModelError>>()?;
+        let index =
+            basis.ok_or_else(|| invalid("distinct assumption bases need resolved membership"))?;
+        assumption_reservation = Some(
+            budget.reserve(
+                "qualified_assumption_union",
+                assumptions::MAX_ASSUMPTIONS
+                    .checked_mul(assumption_ids.len())
+                    .and_then(|n| n.checked_mul(size_of::<assumptions::AssumptionSetMember>()))
+                    .ok_or_else(|| invalid("assumption union allowance overflow"))?,
+            )?,
+        );
+        let sets = assumption_ids
+            .into_iter()
+            .map(|id| {
+                let set = index.resolve(id)?;
+                set.check(id)?;
+                Ok(set)
+            })
+            .collect::<Result<Vec<_>, ModelError>>()?;
         Some(assumptions::ResolvedAssumptions::union(&sets)?)
-    } else { None };
-    let assumption_id = assumptions.as_ref().map_or(first.qualification.assumptions, |s| s.set.id());
+    } else {
+        None
+    };
+    let assumption_id = assumptions
+        .as_ref()
+        .map_or(first.qualification.assumptions, |s| s.set.id());
     Ok(QualifiedResult {
         qualification: AssertionQualification {
-        assumptions: assumption_id,
+            assumptions: assumption_id,
             context: first.qualification.context,
             scope: first.qualification.scope,
             condition: condition.id(),
@@ -172,6 +209,10 @@ pub trait DerivedEvidence: Record + sealed::DerivedEvidence {
 /// Complete governing qualifications of an alternative, excluding only its Boolean condition.
 pub fn alternative_basis(q: &AssertionQualification) -> ContentHash {
     let mut sink = KeySink::new("qualified-alternative-basis");
-    q.context.encode(&mut sink); q.scope.encode(&mut sink); q.assumptions.encode(&mut sink);
-    q.modality.encode(&mut sink); q.approximation.encode(&mut sink); sink.finish()
+    q.context.encode(&mut sink);
+    q.scope.encode(&mut sink);
+    q.assumptions.encode(&mut sink);
+    q.modality.encode(&mut sink);
+    q.approximation.encode(&mut sink);
+    sink.finish()
 }

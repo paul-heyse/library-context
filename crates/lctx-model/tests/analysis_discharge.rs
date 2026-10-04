@@ -46,7 +46,7 @@ impl Fixture {
         let scope = CoverageScope::Input { input: local.input };
         let condition = Diagram::always();
         let qualification = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             scope: scope.id(),
             context: local.context,
             condition: condition.id(),

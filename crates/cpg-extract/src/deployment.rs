@@ -60,7 +60,13 @@ impl Declared for Deployment {
             ),
             outputs: outputs!(uses),
             contributes: assembly::vocabulary(),
-            coverage: vec![FactFamily::Deployment].into_iter().map(|family| lctx_model::domain::stages::FamilyCoverage {family,provider:provider.id()}).collect(),
+            coverage: vec![FactFamily::Deployment]
+                .into_iter()
+                .map(|family| lctx_model::domain::stages::FamilyCoverage {
+                    family,
+                    provider: provider.id(),
+                })
+                .collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Extraction,
             code: provider.build_digest,
@@ -315,7 +321,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for Deployment {
             };
             let (condition, nodes) = Diagram::always().records();
             let q = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+                assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
                 context: analysis.id(),
                 scope: scope.id(),
                 condition: condition.id(),

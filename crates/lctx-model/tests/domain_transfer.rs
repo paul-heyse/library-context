@@ -108,7 +108,7 @@ impl Fixture {
         };
         let diagram = Diagram::from_atom(atom.id());
         let qualification = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: diagram.id(),

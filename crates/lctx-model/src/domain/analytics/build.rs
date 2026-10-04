@@ -53,9 +53,19 @@ pub fn definition(
     definition_with_policy(settings, method, policy::RETAINED)
 }
 /// Select only the attribute projection; graph mechanics and weights retain their existing policy.
-pub fn definition_with_attribute_policy(settings: &AnalyticsConfiguration, method: analysis::AnalysisMethod,
-    attributes: policy::AttributePolicy) -> Result<(analysis::MethodParameters, analysis::AnalysisDefinition), ModelError> {
-    definition_with_policy(settings, method, policy::RetainedPolicy { attributes, ..policy::RETAINED })
+pub fn definition_with_attribute_policy(
+    settings: &AnalyticsConfiguration,
+    method: analysis::AnalysisMethod,
+    attributes: policy::AttributePolicy,
+) -> Result<(analysis::MethodParameters, analysis::AnalysisDefinition), ModelError> {
+    definition_with_policy(
+        settings,
+        method,
+        policy::RetainedPolicy {
+            attributes,
+            ..policy::RETAINED
+        },
+    )
 }
 pub fn definition_with_policy(
     settings: &AnalyticsConfiguration,
@@ -262,8 +272,14 @@ pub fn produce(
     produce_with_policy(d, f, invocations, graph, b, policy::RETAINED.attributes)
 }
 /// Actual optional attribute projection over the same source callable universe and graph frame.
-pub fn produce_with_policy(d: &Data, f: &AnalyticFrame, invocations: &Rows<owner::Invocation>, graph: &MaterializedGraph,
-    b: &ResourceBudget, attributes: policy::AttributePolicy) -> Result<Output, ModelError> {
+pub fn produce_with_policy(
+    d: &Data,
+    f: &AnalyticFrame,
+    invocations: &Rows<owner::Invocation>,
+    graph: &MaterializedGraph,
+    b: &ResourceBudget,
+    attributes: policy::AttributePolicy,
+) -> Result<Output, ModelError> {
     let s = d.configuration()?;
     let sf = need(&d.structural.frames, f.structural)?;
     let parent = need(&d.structural_invocations, sf.invocation)?;

@@ -6,8 +6,17 @@
 mod fixture;
 use fixture::Fixture;
 use lctx_model::domain::{
-    artifact::ArtifactChunk, assertion::*, attribution::*, calls::*, conditions::*, input::*,
-    source::*, stages::Profile, symbols::*, syntax::{ImportAliasObservation, ImportAliasSupport}, *,
+    artifact::ArtifactChunk,
+    assertion::*,
+    attribution::*,
+    calls::*,
+    conditions::*,
+    input::*,
+    source::*,
+    stages::Profile,
+    symbols::*,
+    syntax::{ImportAliasObservation, ImportAliasSupport},
+    *,
 };
 use lctx_postgres::generations::{Error, GenerationStore};
 use lctx_postgres::testing::{DisposableDatabase, Harness, fixtures::budget};

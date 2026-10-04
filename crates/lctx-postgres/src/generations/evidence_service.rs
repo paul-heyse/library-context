@@ -317,9 +317,17 @@ impl GenerationService {
                 })
             })
             .await?;
-        let granted=original.clone();let maximum=if request.page.expanded {64}else{16};
-        let source_characterization=execution.query(move |lease|Box::pin(async move {let mut packet=super::packet_reads::PacketLease::new::<EvidencePacket>(lease);packet.source_characterization(&granted,maximum).await})).await?;
-        retain(execution,&source_characterization)?;
+        let granted = original.clone();
+        let maximum = if request.page.expanded { 64 } else { 16 };
+        let source_characterization = execution
+            .query(move |lease| {
+                Box::pin(async move {
+                    let mut packet = super::packet_reads::PacketLease::new::<EvidencePacket>(lease);
+                    packet.source_characterization(&granted, maximum).await
+                })
+            })
+            .await?;
+        retain(execution, &source_characterization)?;
         let continuation = if page_end < original.end {
             Optional::supplied(
                 Cursor {
@@ -391,7 +399,14 @@ impl GenerationService {
                         return Err(Error::Contract);
                     };
                     if value.evidence.source_characterization.items.pop().is_some() {
-                        let section=&mut value.evidence.source_characterization;section.omitted=section.omitted.checked_add(1).ok_or(Error::Contract)?;section.truncated=true;section.availability=Availability::Partial{reason:Name::new("source characterization byte bound reached").map_err(wire)?};continue;
+                        let section = &mut value.evidence.source_characterization;
+                        section.omitted = section.omitted.checked_add(1).ok_or(Error::Contract)?;
+                        section.truncated = true;
+                        section.availability = Availability::Partial {
+                            reason: Name::new("source characterization byte bound reached")
+                                .map_err(wire)?,
+                        };
+                        continue;
                     }
                     let explanation = &mut value.evidence.derivation;
                     if explanation.items.pop().is_none() {

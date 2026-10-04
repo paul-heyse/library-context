@@ -128,7 +128,15 @@ def test_unsupported_facets_are_refused_by_native_request_admission():
         "library": "control",
         "selection": {
             "requirements": [
-                {"predicate": {"FacetMembership": {"facet": 6, "value": {"ParameterName": {"name": "timeout"}}}}, "quantifier": 0}
+                {
+                    "predicate": {
+                        "FacetMembership": {
+                            "facet": 6,
+                            "value": {"ParameterName": {"name": "timeout"}},
+                        }
+                    },
+                    "quantifier": 0,
+                }
             ],
             "mode": 0,
             "joint": 1,
@@ -151,4 +159,6 @@ def test_native_response_requires_resolved_claim_assumption_basis():
     for arm in arms:
         assert "support" in arm["required"]
     universe = definitions["AssumptionUniversePacket"]
-    assert {"model_definition", "source", "support", "catalog", "model"}.issubset(universe["required"])
+    assert {"model_definition", "source", "support", "catalog", "model"}.issubset(
+        universe["required"]
+    )

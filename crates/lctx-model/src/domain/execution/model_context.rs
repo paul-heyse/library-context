@@ -24,7 +24,9 @@ fn one<'a, T: 'a>(mut rows: impl Iterator<Item = &'a T>) -> Result<&'a T, Obliga
 /// Borrowed native class evidence used by both model application and source completion.
 pub(crate) struct ClassEvidence<'a> {
     input: Option<Id<input::InputRevision>>,
-    native_index: Option<&'a charged::ChargedMap<derivation::RowRef, Vec<Id<analysis::native::NativeQualification>>>>,
+    native_index: Option<
+        &'a charged::ChargedMap<derivation::RowRef, Vec<Id<analysis::native::NativeQualification>>>,
+    >,
     symbol_supports: Option<&'a Rows<symbols::SymbolSupport>>,
     symbols: &'a Rows<ProviderSymbol>,
     ancestry: &'a Rows<ClassAncestryObservation>,
@@ -38,18 +40,47 @@ pub(crate) struct ClassEvidence<'a> {
     premises: &'a Rows<analysis::native::NativeAssertionPremise>,
 }
 impl<'a> ClassEvidence<'a> {
-    pub(crate) fn evaluation(data: &'a super::evaluation::EvaluationData, input: Id<input::InputRevision>, native_index: &'a charged::ChargedMap<derivation::RowRef, Vec<Id<analysis::native::NativeQualification>>>) -> Self {
-        Self { input: Some(input), native_index: Some(native_index), symbol_supports: Some(&data.symbol_supports), symbols: &data.symbols, ancestry: &data.ancestry, ancestry_supports: &data.ancestry_supports,
-            qualifications: &data.qualifications, runs: &data.runs, sequences: &data.sequences,
-            sequence_members: &data.sequence_members, symbol_observations: &data.symbol_observations,
-            native: &data.native, premises: &data.premises }
+    pub(crate) fn evaluation(
+        data: &'a super::evaluation::EvaluationData,
+        input: Id<input::InputRevision>,
+        native_index: &'a charged::ChargedMap<
+            derivation::RowRef,
+            Vec<Id<analysis::native::NativeQualification>>,
+        >,
+    ) -> Self {
+        Self {
+            input: Some(input),
+            native_index: Some(native_index),
+            symbol_supports: Some(&data.symbol_supports),
+            symbols: &data.symbols,
+            ancestry: &data.ancestry,
+            ancestry_supports: &data.ancestry_supports,
+            qualifications: &data.qualifications,
+            runs: &data.runs,
+            sequences: &data.sequences,
+            sequence_members: &data.sequence_members,
+            symbol_observations: &data.symbol_observations,
+            native: &data.native,
+            premises: &data.premises,
+        }
     }
     fn application(data: &'a ModelApplicationData) -> Self {
         let b = &data.bindings;
-        Self { input: None, native_index: None, symbol_supports: None, symbols: &b.symbols, ancestry: &b.ancestry, ancestry_supports: &b.ancestry_supports,
-            qualifications: &b.qualifications, runs: &b.runs, sequences: &b.sequences,
-            sequence_members: &b.sequence_members, symbol_observations: &b.symbol_observations,
-            native: &data.native, premises: &data.premises }
+        Self {
+            input: None,
+            native_index: None,
+            symbol_supports: None,
+            symbols: &b.symbols,
+            ancestry: &b.ancestry,
+            ancestry_supports: &b.ancestry_supports,
+            qualifications: &b.qualifications,
+            runs: &b.runs,
+            sequences: &b.sequences,
+            sequence_members: &b.sequence_members,
+            symbol_observations: &b.symbol_observations,
+            native: &data.native,
+            premises: &data.premises,
+        }
     }
 }
 /// Complete native ancestry admits both a positive subclass match and an exact negative.
@@ -75,7 +106,9 @@ impl<'a> CheckedExactClass<'a> {
     pub fn ancestry(&self) -> Id<ClassAncestryObservation> {
         self.mro.id()
     }
-    pub(crate) fn contains(&self, class: Id<ProviderSymbol>) -> bool { self.symbol.id() == class || self.ancestors.contains(&class) }
+    pub(crate) fn contains(&self, class: Id<ProviderSymbol>) -> bool {
+        self.symbol.id() == class || self.ancestors.contains(&class)
+    }
     pub fn matches(&self, handler: &Self) -> Result<bool, ObligationKind> {
         if (self.symbol.provider, self.symbol.context)
             != (handler.symbol.provider, handler.symbol.context)
@@ -96,7 +129,10 @@ impl<'a> CheckedExactClass<'a> {
         Self::derive_evidence(ClassEvidence::application(data), symbol, context, budget)
     }
     pub(crate) fn derive_evidence(
-        data: ClassEvidence<'a>, symbol: Id<ProviderSymbol>, context: Id<AnalysisContext>, budget: &ResourceBudget,
+        data: ClassEvidence<'a>,
+        symbol: Id<ProviderSymbol>,
+        context: Id<AnalysisContext>,
+        budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         let mut charge = charged::StateCharge::new(budget, "model-exact-class");
         charge.grow(size_of::<Self>())?;
@@ -111,12 +147,19 @@ impl<'a> CheckedExactClass<'a> {
                 .ancestry
                 .iter()
                 .filter(|a| a.class == symbol.id() && a.relation == AncestryRelation::Mro))?;
-            super::model_application::exact_qualification(b.qualifications, mro.qualification, context)?;
+            super::model_application::exact_qualification(
+                b.qualifications,
+                mro.qualification,
+                context,
+            )?;
             if mro.linearization != Some(Linearization::Complete) {
                 return Err(ObligationKind::IncompleteCoverage);
             }
             if !b.ancestry_supports.iter().any(|s| {
-                s.assertion == mro.id() && b.runs.get(s.run).is_some_and(|r| r.context == context && b.input.is_none_or(|input| input == r.input))
+                s.assertion == mro.id()
+                    && b.runs.get(s.run).is_some_and(|r| {
+                        r.context == context && b.input.is_none_or(|input| input == r.input)
+                    })
             }) {
                 return Err(ObligationKind::MissingEvidence);
             }
@@ -186,7 +229,10 @@ impl<'a> CheckedExactClass<'a> {
                 let mut status = analysis::policy::EvidenceStatus::StructurallyObserved;
                 let evidence = (|| -> Result<(), RuntimeEvidenceError> {
                     super::model_application::append_native_evidence_rows(
-                        data.qualifications, data.native, data.premises, data.native_index,
+                        data.qualifications,
+                        data.native,
+                        data.premises,
+                        data.native_index,
                         derivation::RowRef::of(mro.id()),
                         mro.qualification,
                         context,
@@ -194,16 +240,18 @@ impl<'a> CheckedExactClass<'a> {
                         &mut status,
                     )?;
                     for id in std::iter::once(symbol.id()).chain(ancestors.iter().copied()) {
-                        let observation =
-                            one(data.symbol_observations.iter().filter(|o| {
-                                o.symbol == id
-                                    && data
-                                        .qualifications
-                                        .get(o.qualification)
-                                        .is_some_and(|q| q.context == context)
-                            }))?;
+                        let observation = one(data.symbol_observations.iter().filter(|o| {
+                            o.symbol == id
+                                && data
+                                    .qualifications
+                                    .get(o.qualification)
+                                    .is_some_and(|q| q.context == context)
+                        }))?;
                         super::model_application::append_native_evidence_rows(
-                            data.qualifications, data.native, data.premises, data.native_index,
+                            data.qualifications,
+                            data.native,
+                            data.premises,
+                            data.native_index,
                             derivation::RowRef::of(observation.id()),
                             observation.qualification,
                             context,
@@ -224,18 +272,23 @@ impl<'a> CheckedExactClass<'a> {
                                     analysis::native::NativeAssertionPremise::SymbolObservation { support, .. } => data.symbol_supports.and_then(|supports| supports.get(*support)).map(|support| support.run),
                                     _ => None,
                                 };
-                                if run.and_then(|run| data.runs.get(run)).is_none_or(|run| (run.input, run.context) != (input, context)) { return Ok(Err(ObligationKind::IncompatibleContexts)); }
+                                if run
+                                    .and_then(|run| data.runs.get(run))
+                                    .is_none_or(|run| (run.input, run.context) != (input, context))
+                                {
+                                    return Ok(Err(ObligationKind::IncompatibleContexts));
+                                }
                             }
                         }
                         Ok(Ok(Self {
-                        symbol,
-                        mro,
-                        ancestors,
-                        premises,
-                        status,
-                        _charge: charge,
-                    }))
-                    },
+                            symbol,
+                            mro,
+                            ancestors,
+                            premises,
+                            status,
+                            _charge: charge,
+                        }))
+                    }
                 }
             }
         }

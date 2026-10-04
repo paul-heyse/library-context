@@ -51,9 +51,11 @@ pub enum SummaryOrigin {
         #[model(premise)]
         support: Id<transfer::model::TransferSupport>,
     },
-    #[model(code=2)]
-    Captured { #[model(premise)] witness:Id<super::summary_capture::SummaryCaptureWitness> },
-
+    #[model(code = 2)]
+    Captured {
+        #[model(premise)]
+        witness: Id<super::summary_capture::SummaryCaptureWitness>,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="summary_runs",invariants=super::summary_replay::invariants,publication_checks=super::summary_replay::profile_checks)]
@@ -344,7 +346,11 @@ impl Vocabulary {
     }
     fn catalog(&self) -> CompositionCatalog<'_> {
         CompositionCatalog {
-            assumptions: assumptions::AssumptionCatalog { sets: &self.assumption_sets, members: &self.assumption_members, definitions: &self.assumptions },
+            assumptions: assumptions::AssumptionCatalog {
+                sets: &self.assumption_sets,
+                members: &self.assumption_members,
+                definitions: &self.assumptions,
+            },
             guards: self.guards(),
             paths: &self.paths,
             segments: place_composition::PathCatalog {
@@ -376,7 +382,17 @@ impl Vocabulary {
     fn composition(&mut self, rows: &CompositionRecords) -> Result<(), ModelError> {
         macro_rules! rows{($($f:ident),*)=>{$(for row in &rows.$f{self.$f.insert(&mut self.charge,row.id(),row.clone())?;})*};}
         rows!(
-            roots, places, paths, segments, literals, predicates, atoms, conditions, nodes, assumption_sets, assumption_members
+            roots,
+            places,
+            paths,
+            segments,
+            literals,
+            predicates,
+            atoms,
+            conditions,
+            nodes,
+            assumption_sets,
+            assumption_members
         );
         if let Some(q) = &rows.qualification {
             self.qualifications
@@ -455,7 +471,9 @@ impl SummaryData {
             SummaryPremise::Witness { witness } => {
                 TransferEvidence::witness(need(&out.witnesses, *witness)?, budget)
             }
-            SummaryPremise::Captured {witness}=>TransferEvidence::captured(need(&out.capture_witnesses,*witness)?,budget),
+            SummaryPremise::Captured { witness } => {
+                TransferEvidence::captured(need(&out.capture_witnesses, *witness)?, budget)
+            }
             SummaryPremise::Path { witness } => {
                 TransferEvidence::path(need(&out.path_witnesses, *witness)?, budget)
             }
@@ -469,7 +487,11 @@ impl SummaryData {
     ) -> Result<(Vec<WorkBranch>, Box<dyn Reservation>), ModelError> {
         let charge = budget.reserve(
             "summary-raw-seeds",
-            self.local_contributions.len().saturating_mul(self.atom_restrictions.len().saturating_add(1)).saturating_add(self.model_supports.len()).saturating_add(self.captured_entries.len())
+            self.local_contributions
+                .len()
+                .saturating_mul(self.atom_restrictions.len().saturating_add(1))
+                .saturating_add(self.model_supports.len())
+                .saturating_add(self.captured_entries.len())
                 .saturating_mul(size_of::<WorkBranch>() + 512),
         )?;
         let mut seeds = Vec::new();
@@ -490,36 +512,47 @@ impl SummaryData {
             }
             // Local atom restrictions are separate supported typing-world alternatives.
             // Their original contribution remains a seed in the unconditional runtime world.
-            for selected in self.local_alternatives.iter().filter(|a| a.id()==alternative.id() || self.atom_restrictions.iter().any(|r|r.original==alternative.id() && r.qualification==a.qualification && a.transfer==key.id())) {
-            let q=self.vocabulary.qualifications.get(&selected.qualification).ok_or_else(||invalid("restricted Local seed qualification absent"))?;
-            let origin = SummaryOrigin::Local {
-                contribution: contribution.id(),
-            };
-            out.origins.insert(origin.clone())?;
-            let premise = SummaryPremise::Local {
-                alternative: selected.id(),
-            };
-            let evidence = self.evidence(out, &premise, budget)?;
-            let facts = SourceFacts {
-                qualification: q.id(),
-                status: analysis::support::inferred_status(
-                    analysis::Interpretation::Structural,
-                    evidence.facts.iter().map(|f| f.status),
-                ),
-                heuristic: evidence.facts.iter().any(|f| f.heuristic),
-            };
-            seeds.push(WorkBranch {
-                branch: TransferBranch::new(
-                    TransferKey::from_descriptor(key.descriptor()),
-                    q.clone(),
-                    self.vocabulary.diagram(q.condition, budget)?,
-                    budget,
-                )?,
-                premise,
-                origin: origin.id(),
-                facts,
-                cost: ProofCost::SOURCE,
-            });
+            for selected in self.local_alternatives.iter().filter(|a| {
+                a.id() == alternative.id()
+                    || self.atom_restrictions.iter().any(|r| {
+                        r.original == alternative.id()
+                            && r.qualification == a.qualification
+                            && a.transfer == key.id()
+                    })
+            }) {
+                let q = self
+                    .vocabulary
+                    .qualifications
+                    .get(&selected.qualification)
+                    .ok_or_else(|| invalid("restricted Local seed qualification absent"))?;
+                let origin = SummaryOrigin::Local {
+                    contribution: contribution.id(),
+                };
+                out.origins.insert(origin.clone())?;
+                let premise = SummaryPremise::Local {
+                    alternative: selected.id(),
+                };
+                let evidence = self.evidence(out, &premise, budget)?;
+                let facts = SourceFacts {
+                    qualification: q.id(),
+                    status: analysis::support::inferred_status(
+                        analysis::Interpretation::Structural,
+                        evidence.facts.iter().map(|f| f.status),
+                    ),
+                    heuristic: evidence.facts.iter().any(|f| f.heuristic),
+                };
+                seeds.push(WorkBranch {
+                    branch: TransferBranch::new(
+                        TransferKey::from_descriptor(key.descriptor()),
+                        q.clone(),
+                        self.vocabulary.diagram(q.condition, budget)?,
+                        budget,
+                    )?,
+                    premise,
+                    origin: origin.id(),
+                    facts,
+                    cost: ProofCost::SOURCE,
+                });
             }
         }
         for support in self.model_supports.iter() {
@@ -565,17 +598,40 @@ impl SummaryData {
                 cost: ProofCost::SOURCE,
             });
         }
-        let (captures,_captures)=super::summary_capture::seeds(self,invocation,budget)?;
+        let (captures, _captures) = super::summary_capture::seeds(self, invocation, budget)?;
         for seed in captures {
-            for root in seed.roots {out.vocabulary.roots.insert(&mut out.vocabulary.charge,root.id(),root)?;}
-            for place in seed.places {out.vocabulary.places.insert(&mut out.vocabulary.charge,place.id(),place)?;}
-            let path=AccessPath::empty();out.vocabulary.paths.insert(&mut out.vocabulary.charge,path.id(),path)?;
-            let origin=SummaryOrigin::Captured {witness:seed.witness.id()};
+            for root in seed.roots {
+                out.vocabulary
+                    .roots
+                    .insert(&mut out.vocabulary.charge, root.id(), root)?;
+            }
+            for place in seed.places {
+                out.vocabulary
+                    .places
+                    .insert(&mut out.vocabulary.charge, place.id(), place)?;
+            }
+            let path = AccessPath::empty();
+            out.vocabulary
+                .paths
+                .insert(&mut out.vocabulary.charge, path.id(), path)?;
+            let origin = SummaryOrigin::Captured {
+                witness: seed.witness.id(),
+            };
             out.origins.insert(origin.clone())?;
-            let premise=SummaryPremise::Captured {witness:seed.witness.id()};
-            out.keys.insert(seed.branch.key().clone())?;out.premises.insert(premise.clone())?;
-            let facts=seed.witness.source_facts();out.capture_witnesses.insert(seed.witness)?;
-            seeds.push(WorkBranch {branch:seed.branch,premise,origin:origin.id(),facts,cost:ProofCost::SOURCE});
+            let premise = SummaryPremise::Captured {
+                witness: seed.witness.id(),
+            };
+            out.keys.insert(seed.branch.key().clone())?;
+            out.premises.insert(premise.clone())?;
+            let facts = seed.witness.source_facts();
+            out.capture_witnesses.insert(seed.witness)?;
+            seeds.push(WorkBranch {
+                branch: seed.branch,
+                premise,
+                origin: origin.id(),
+                facts,
+                cost: ProofCost::SOURCE,
+            });
         }
         seeds.sort_by_key(WorkBranch::id);
         Ok((seeds, charge))
@@ -1289,19 +1345,27 @@ fn publish(
     component_id: ContentHash,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let mut members = charged::ChargedMap::<(Id<TransferKey>, ContentHash), BTreeSet<ProofId>>::default();
+    let mut members =
+        charged::ChargedMap::<(Id<TransferKey>, ContentHash), BTreeSet<ProofId>>::default();
     let mut charge = StateCharge::new(budget, "summary-publication-members");
     for branch in progress.branches.values().filter(|b| {
         component.binary_search(&b.descriptor().owner).is_ok()
             && matches!(
                 b.premise,
-                SummaryPremise::Witness { .. } | SummaryPremise::Path { .. } | SummaryPremise::Captured {..}
+                SummaryPremise::Witness { .. }
+                    | SummaryPremise::Path { .. }
+                    | SummaryPremise::Captured { .. }
             )
     }) {
         charge.grow(size_of::<ProofId>() + 64)?;
-        members.update(&mut charge, (branch.branch.key().id(), analysis::support::alternative_basis(branch.qualification())), |rows| {
-            rows.insert(branch.id())
-        })?;
+        members.update(
+            &mut charge,
+            (
+                branch.branch.key().id(),
+                analysis::support::alternative_basis(branch.qualification()),
+            ),
+            |rows| rows.insert(branch.id()),
+        )?;
     }
     for ids in members.values() {
         match transfer::merge(
@@ -1359,7 +1423,9 @@ fn publish_members(
                 owner::SupportSource::TransferWitness { witness }
             }
             SummaryPremise::Path { witness } => owner::SupportSource::PathWitness { witness },
-            SummaryPremise::Captured {witness}=>owner::SupportSource::CaptureWitness {witness},
+            SummaryPremise::Captured { witness } => {
+                owner::SupportSource::CaptureWitness { witness }
+            }
             _ => unreachable!(),
         };
         proof_sources.insert(source)?;
@@ -1378,7 +1444,10 @@ fn publish_members(
                     owner::SupportSource::PathWitness { witness: a },
                     SummaryPremise::Path { witness: b },
                 ) => a == b,
-                (owner::SupportSource::CaptureWitness {witness:a},SummaryPremise::Captured {witness:b})=>a==b,
+                (
+                    owner::SupportSource::CaptureWitness { witness: a },
+                    SummaryPremise::Captured { witness: b },
+                ) => a == b,
                 _ => false,
             })
             .ok_or_else(|| invalid("aggregate witness branch absent"))?;
@@ -1395,7 +1464,12 @@ fn publish_members(
                 branch.qualification(),
                 branch.condition(),
             )?,
-            SummaryPremise::Captured {witness}=>owner::support::EvidencePremise::derived(source,need(&out.capture_witnesses,witness)?,branch.qualification(),branch.condition())?,
+            SummaryPremise::Captured { witness } => owner::support::EvidencePremise::derived(
+                source,
+                need(&out.capture_witnesses, witness)?,
+                branch.qualification(),
+                branch.condition(),
+            )?,
             _ => unreachable!(),
         });
     }
@@ -1450,7 +1524,14 @@ fn publish_members(
                     witness,
                 })?;
             }
-            SummaryPremise::Captured {witness}=>{out.capture_contributions.insert(super::summary_capture::SummaryCaptureContribution {alternative:alternative.id(),witness})?;}
+            SummaryPremise::Captured { witness } => {
+                out.capture_contributions.insert(
+                    super::summary_capture::SummaryCaptureContribution {
+                        alternative: alternative.id(),
+                        witness,
+                    },
+                )?;
+            }
             _ => unreachable!(),
         }
     }
@@ -1518,7 +1599,8 @@ pub fn produce(
         out.consequences(data, invocation, definition, profile, budget)?;
         return Ok(out);
     }
-    run.work += super::summary_exceptions::derive(data, invocation, &mut out, limits.work, budget)? as i64;
+    run.work +=
+        super::summary_exceptions::derive(data, invocation, &mut out, limits.work, budget)? as i64;
     let verified =
         normalized::binding_normalization::verify(&data.bindings, &data.binding_output, budget)?;
     let schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
@@ -1526,9 +1608,21 @@ pub fn produce(
     let (seeds, _seeds) = data.seeds(invocation, &mut out, budget)?;
     let (guards, _guards) = data.guards(budget)?;
     let mut vocabulary = data.vocabulary.copy(budget)?;
-    for root in out.vocabulary.roots.values() {vocabulary.roots.insert(&mut vocabulary.charge,root.id(),root.clone())?;}
-    for place in out.vocabulary.places.values() {vocabulary.places.insert(&mut vocabulary.charge,place.id(),place.clone())?;}
-    for path in out.vocabulary.paths.values() {vocabulary.paths.insert(&mut vocabulary.charge,path.id(),path.clone())?;}
+    for root in out.vocabulary.roots.values() {
+        vocabulary
+            .roots
+            .insert(&mut vocabulary.charge, root.id(), root.clone())?;
+    }
+    for place in out.vocabulary.places.values() {
+        vocabulary
+            .places
+            .insert(&mut vocabulary.charge, place.id(), place.clone())?;
+    }
+    for path in out.vocabulary.paths.values() {
+        vocabulary
+            .paths
+            .insert(&mut vocabulary.charge, path.id(), path.clone())?;
+    }
     let mut progress = Progress::new(limits, budget);
     // Projection omissions remain explicit even when no component can own a seed.
     for seed in &seeds {
@@ -1878,12 +1972,22 @@ pub fn produce(
                         _ => unreachable!(),
                     };
                     let result = match result {
-                        Ok(mut emission) => match super::summary_exceptions::filter_raise(data, &out.exception_outcomes, source.descriptor().owner, &emission, invocation.input, budget)? {
+                        Ok(mut emission) => match super::summary_exceptions::filter_raise(
+                            data,
+                            &out.exception_outcomes,
+                            source.descriptor().owner,
+                            &emission,
+                            invocation.input,
+                            budget,
+                        )? {
                             Err(reason) => Err(reason),
                             Ok(None) => Ok(emission),
                             Ok(Some(outcome)) => {
                                 out.path_routes.insert(emission.route.clone())?;
-                                emission.route = summary_path::SummaryPathRoute::EscapingRaise { route: emission.route.id(), outcome };
+                                emission.route = summary_path::SummaryPathRoute::EscapingRaise {
+                                    route: emission.route.id(),
+                                    outcome,
+                                };
                                 emission.witness.route = emission.route.id();
                                 Ok(emission)
                             }
@@ -2030,7 +2134,8 @@ pub fn produce(
         out.components.insert(row)?;
     }
     run.components = out.components.len() as i64;
-    run.proofs = (out.witnesses.len() + out.path_witnesses.len()+out.capture_witnesses.len()) as i64;
+    run.proofs =
+        (out.witnesses.len() + out.path_witnesses.len() + out.capture_witnesses.len()) as i64;
     run.residuals = out.residuals.len() as i64;
     out.runs.insert(run)?;
     if inherited_partial(data, invocation)?
@@ -2042,7 +2147,7 @@ pub fn produce(
         out.outcome.reason = Some(obligation::ObligationKind::IncompleteCoverage);
     }
     super::summary_symbolic::produce(data, invocation, &mut out, budget)?;
-    super::summary_terminal::produce(data,invocation,definition,&mut out,budget)?;
+    super::summary_terminal::produce(data, invocation, definition, &mut out, budget)?;
     out.consequences(data, invocation, definition, profile, budget)?;
     Ok(out)
 }
@@ -2084,30 +2189,103 @@ fn inherited_partial(
 #[cfg(test)]
 mod assumption_controls {
     use super::*;
-    fn id<R>(n:u8)->Id<R> { serde_json::from_value(serde_json::json!(vec![n;16])).unwrap() }
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
     #[test]
     fn actual_summary_publication_preserves_separate_conditional_and_unconditional_alternatives() {
-        let budget=ResourceBudget::fixed(32 << 20).unwrap();
-        let (_,definition)=super::super::configuration::summaries(id(1),Default::default()).unwrap();
-        let (invocation,_)=owner::AnalysisInvocation::new(id(2),id(3),definition.id(),None,[]);
-        let mut out=SummaryRecords::new(invocation.id(),&budget);
-        let mut progress=Progress::new(Default::default(),&budget);
-        let condition=Diagram::always();
-        let a=assumptions::Assumption::TypeConformance{observation:id(4),support:id(5)};
-        let basis=assumptions::AssumptionSet::new([a.id()]).unwrap();
-        let q=AssertionQualification{assumptions:assumptions::AssumptionSet::empty_id(),context:invocation.context,scope:id(6),condition:condition.id(),modality:attribution::Modality::Definite,approximation:Approximation::Exact};
-        let key=TransferKey::from_descriptor(TransferDescriptor{owner:id(7),input:id(8),output:id(9),context:q.context,scope:q.scope,modality:q.modality,approximation:q.approximation,kind:TransferKind::Derived,call_site:None,provenance:ProvenanceClass::Composed});
-        for q in [q.clone(),AssertionQualification{assumptions:basis.set.id(),..q}] {
-            let witness=SummaryWitness{invocation:invocation.id(),transfer:key.id(),qualification:q.id(),caller:id(10),callee:id(11),target:id(12),signature:id(13),callee_declaration:id(14),attempt:id(15),bindings:ContentHash::of(b"bindings"),status:analysis::policy::EvidenceStatus::StructurallyObserved,heuristic:false};
-            let premise=SummaryPremise::Witness{witness:witness.id()};
-            let branch=WorkBranch{branch:TransferBranch::new(key.clone(),q,condition.clone(),&budget).unwrap(),premise,origin:id(16),facts:witness.source_facts(),cost:ProofCost::SOURCE};
-            out.witnesses.insert(witness).unwrap();progress.admit(&branch).unwrap();
+        let budget = ResourceBudget::fixed(32 << 20).unwrap();
+        let (_, definition) =
+            super::super::configuration::summaries(id(1), Default::default()).unwrap();
+        let (invocation, _) =
+            owner::AnalysisInvocation::new(id(2), id(3), definition.id(), None, []);
+        let mut out = SummaryRecords::new(invocation.id(), &budget);
+        let mut progress = Progress::new(Default::default(), &budget);
+        let condition = Diagram::always();
+        let a = assumptions::Assumption::TypeConformance {
+            observation: id(4),
+            support: id(5),
+        };
+        let basis = assumptions::AssumptionSet::new([a.id()]).unwrap();
+        let q = AssertionQualification {
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            context: invocation.context,
+            scope: id(6),
+            condition: condition.id(),
+            modality: attribution::Modality::Definite,
+            approximation: Approximation::Exact,
+        };
+        let key = TransferKey::from_descriptor(TransferDescriptor {
+            owner: id(7),
+            input: id(8),
+            output: id(9),
+            context: q.context,
+            scope: q.scope,
+            modality: q.modality,
+            approximation: q.approximation,
+            kind: TransferKind::Derived,
+            call_site: None,
+            provenance: ProvenanceClass::Composed,
+        });
+        for q in [
+            q.clone(),
+            AssertionQualification {
+                assumptions: basis.set.id(),
+                ..q
+            },
+        ] {
+            let witness = SummaryWitness {
+                invocation: invocation.id(),
+                transfer: key.id(),
+                qualification: q.id(),
+                caller: id(10),
+                callee: id(11),
+                target: id(12),
+                signature: id(13),
+                callee_declaration: id(14),
+                attempt: id(15),
+                bindings: ContentHash::of(b"bindings"),
+                status: analysis::policy::EvidenceStatus::StructurallyObserved,
+                heuristic: false,
+            };
+            let premise = SummaryPremise::Witness {
+                witness: witness.id(),
+            };
+            let branch = WorkBranch {
+                branch: TransferBranch::new(key.clone(), q, condition.clone(), &budget).unwrap(),
+                premise,
+                origin: id(16),
+                facts: witness.source_facts(),
+                cost: ProofCost::SOURCE,
+            };
+            out.witnesses.insert(witness).unwrap();
+            progress.admit(&branch).unwrap();
         }
         // Both enter and leave the actual finite Summary publication, including derivations and contributions.
-        publish(&mut out,&invocation,&definition,&progress,&[key.owner],ContentHash::of(b"component"),&budget).unwrap();
-        assert_eq!(out.alternatives.len(),2);assert_eq!(out.derivations.len(),2);assert_eq!(out.contributions.len(),2);
-        let bases=out.vocabulary.qualifications.values().map(|q|q.assumptions).collect::<BTreeSet<_>>();
-        assert_eq!(bases,BTreeSet::from([assumptions::AssumptionSet::empty_id(),basis.set.id()]));
-        assert_eq!(out.keys.len(),1);assert_eq!(progress.branches.len(),2);
+        publish(
+            &mut out,
+            &invocation,
+            &definition,
+            &progress,
+            &[key.owner],
+            ContentHash::of(b"component"),
+            &budget,
+        )
+        .unwrap();
+        assert_eq!(out.alternatives.len(), 2);
+        assert_eq!(out.derivations.len(), 2);
+        assert_eq!(out.contributions.len(), 2);
+        let bases = out
+            .vocabulary
+            .qualifications
+            .values()
+            .map(|q| q.assumptions)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            bases,
+            BTreeSet::from([assumptions::AssumptionSet::empty_id(), basis.set.id()])
+        );
+        assert_eq!(out.keys.len(), 1);
+        assert_eq!(progress.branches.len(), 2);
     }
 }

@@ -352,7 +352,7 @@ mod tests {
         .0;
         let frame = frames::frame(&parent, inv.id());
         let q = assertion::AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: inv.context,
             scope: (source::CoverageScope::Input { input: inv.input }).id(),
             condition: Diagram::always().id(),

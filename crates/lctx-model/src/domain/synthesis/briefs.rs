@@ -278,7 +278,15 @@ pub fn build_with_summary(
             text.push_str("\nBehavioral question coverage:\n");
             for facet in selected_facets.iter() {
                 facet.id().encode(&mut assertion_hash);
-                text.push_str(&super::summary::text(summary, facet, facet.qualification.map(|q|need(&d.qualifications,q)).transpose()?, b)?);
+                text.push_str(&super::summary::text(
+                    summary,
+                    facet,
+                    facet
+                        .qualification
+                        .map(|q| need(&d.qualifications, q))
+                        .transpose()?,
+                    b,
+                )?);
                 text.push('\n');
             }
         }
@@ -440,7 +448,17 @@ impl InvariantCheck for Check {
         let a = self.assertions.visit(n, b)?;
         let s = self.seeds.visit(n, b)?;
         let o = self.output.visit(n, b)?;
-        if !d && !doc && !a && !s && !o && !observations && !summary && !terminal && !patterns && !controls {
+        if !d
+            && !doc
+            && !a
+            && !s
+            && !o
+            && !observations
+            && !summary
+            && !terminal
+            && !patterns
+            && !controls
+        {
             return Err(invalid("undeclared brief replay input"));
         }
         Ok(())

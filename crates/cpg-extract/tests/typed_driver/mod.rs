@@ -150,7 +150,10 @@ pub fn capture_with_ruff(
     .unwrap();
     Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(captured, label)],
-        cpg_extract::native_context::NativeContextConfig::committed(profile, &budget()).unwrap().with_ruff(settings).unwrap(),
+        cpg_extract::native_context::NativeContextConfig::committed(profile, &budget())
+            .unwrap()
+            .with_ruff(settings)
+            .unwrap(),
     ))
 }
 

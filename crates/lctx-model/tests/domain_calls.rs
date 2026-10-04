@@ -60,7 +60,7 @@ impl Fixture {
         .unwrap();
         let scope = CoverageScope::Input { input: input.id() };
         let qualification = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: Diagram::always().id(),
@@ -180,7 +180,9 @@ impl Fixture {
         BTreeMap<Id<ParameterShape>, ParameterShape>,
     ) {
         let (signature, members) = Signature::new(
-            &self.qualification, lctx_model::domain::calls::SignatureRole::Source, None,
+            &self.qualification,
+            lctx_model::domain::calls::SignatureRole::Source,
+            None,
             self.symbol.id(),
             0,
             SignatureForm::List,
@@ -1738,7 +1740,9 @@ fn native_positional_kind_order_is_preserved_and_keyword_groups_cannot_go_backwa
     ];
     assert!(
         Signature::new(
-            &f.qualification, lctx_model::domain::calls::SignatureRole::Source, None,
+            &f.qualification,
+            lctx_model::domain::calls::SignatureRole::Source,
+            None,
             f.symbol.id(),
             0,
             SignatureForm::List,
@@ -1757,7 +1761,9 @@ fn unavailable_native_slots_roundtrip_and_refuse_binding() {
     ];
     assert!(
         Signature::new(
-            &f.qualification, lctx_model::domain::calls::SignatureRole::Source, None,
+            &f.qualification,
+            lctx_model::domain::calls::SignatureRole::Source,
+            None,
             f.symbol.id(),
             0,
             SignatureForm::List,
@@ -1766,7 +1772,9 @@ fn unavailable_native_slots_roundtrip_and_refuse_binding() {
         .is_err()
     );
     let (signature, parameters) = Signature::new(
-        &f.qualification, lctx_model::domain::calls::SignatureRole::Source, None,
+        &f.qualification,
+        lctx_model::domain::calls::SignatureRole::Source,
+        None,
         f.symbol.id(),
         0,
         SignatureForm::NativeUnavailable,
@@ -1806,143 +1814,165 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
         Rows, callables::*, entities::*, signature_applicability::*,
     };
     for original_overrides in [false, true] {
-    for mutation in 0..5 {
-        let f = Fixture::new();
-        let budget = budget();
-        let mut scopes = Rows::new(&budget);
-        let artifacts = Rows::new(&budget);
-        let modules = Rows::new(&budget);
-        scopes
-            .insert(CoverageScope::Input {
-                input: InputRevision::from_entries(vec![]).unwrap().id(),
-            })
-            .unwrap();
-        let provider = Provider {
-            tool: "second-provider".into(),
-            revision: "1".into(),
-            build_digest: ContentHash::of(b"second"),
-        };
-        let symbol = ProviderSymbol {
-            provider: provider.id(),
-            ..f.symbol.clone()
-        };
-        let callable = CallableEntity::Source {
-            declaration: occurrence(40).id(),
-            kind: CallableKind::Function,
-        };
-        let entity = EntityRef::Callable {
-            callable: callable.id(),
-        };
-        let resolution = SymbolEntityResolution {
-            symbol: f.symbol.id(),
-            context: f.qualification.context,
-            policy: lctx_model::domain::normalized::policy_revision(),
-            status: ResolutionStatus::Resolved,
-            entity: Some(entity.id()),
-            reason: EntityReason::DeclarationAgreement,
-        };
-        let mut signature_resolution = SymbolEntityResolution {
-            symbol: symbol.id(),
-            ..resolution.clone()
-        };
-        let mut q = f.qualification.clone();
-        if mutation == 1 {
-            signature_resolution.entity = Some(
-                EntityRef::Callable {
-                    callable: CallableEntity::Source {
-                        declaration: occurrence(41).id(),
-                        kind: CallableKind::Function,
+        for mutation in 0..5 {
+            let f = Fixture::new();
+            let budget = budget();
+            let mut scopes = Rows::new(&budget);
+            let artifacts = Rows::new(&budget);
+            let modules = Rows::new(&budget);
+            scopes
+                .insert(CoverageScope::Input {
+                    input: InputRevision::from_entries(vec![]).unwrap().id(),
+                })
+                .unwrap();
+            let provider = Provider {
+                tool: "second-provider".into(),
+                revision: "1".into(),
+                build_digest: ContentHash::of(b"second"),
+            };
+            let symbol = ProviderSymbol {
+                provider: provider.id(),
+                ..f.symbol.clone()
+            };
+            let callable = CallableEntity::Source {
+                declaration: occurrence(40).id(),
+                kind: CallableKind::Function,
+            };
+            let entity = EntityRef::Callable {
+                callable: callable.id(),
+            };
+            let resolution = SymbolEntityResolution {
+                symbol: f.symbol.id(),
+                context: f.qualification.context,
+                policy: lctx_model::domain::normalized::policy_revision(),
+                status: ResolutionStatus::Resolved,
+                entity: Some(entity.id()),
+                reason: EntityReason::DeclarationAgreement,
+            };
+            let mut signature_resolution = SymbolEntityResolution {
+                symbol: symbol.id(),
+                ..resolution.clone()
+            };
+            let mut q = f.qualification.clone();
+            if mutation == 1 {
+                signature_resolution.entity = Some(
+                    EntityRef::Callable {
+                        callable: CallableEntity::Source {
+                            declaration: occurrence(41).id(),
+                            kind: CallableKind::Function,
+                        }
+                        .id(),
                     }
                     .id(),
-                }
-                .id(),
-            );
-        }
-        if mutation == 2 {
-            q.context = AnalysisContext {
-                python_version: "3.14".into(),
-                python_platform: "foreign".into(),
-                search_path: vec![],
-                site_package_path: vec![],
-                config_digest: ContentHash::of(b"foreign"),
-                environment_digest: ContentHash::of(b"foreign"),
-                lock_digest: None,
+                );
             }
-            .id();
-            signature_resolution.context = q.context;
-        }
-        if mutation == 3 {
-            let scope = CoverageScope::Input {
-                input: InputRevision::from_entries(vec![ManifestEntry {
-                    path: "foreign.py".into(),
-                    content: ContentHash::of(b"x"),
-                    byte_len: 1,
-                }])
-                .unwrap()
-                .id(),
-            };
-            q.scope = scopes.insert(scope).unwrap();
-        }
-        if mutation == 4 {
-            signature_resolution.reason = EntityReason::ProviderExternal;
-        }
-        let (signature, parameters) =
-            Signature::new(&q, lctx_model::domain::calls::SignatureRole::Source, None, symbol.id(), 0, SignatureForm::List, &[]).unwrap();
-        let variant = SignatureVariant { role: lctx_model::domain::calls::SignatureRole::Source, native: None,
-            signature: signature.id(),
-            context: q.context,
-            resolution: signature_resolution.id(),
-            callable: Some(callable.id()),
-            assessment: None,
-            adjustment: SignatureAdjustment::Unknown,
-        };
-        let (call, arguments) = f.call(&[]);
-        let original_destination = if original_overrides {
-            CallDestination::Overrides { symbol: f.symbol.id() }
-        } else {
-            f.destination.clone()
-        };
-        let target = CallTarget { destination: original_destination.id(), ..f.target.clone() };
-        let application = establish(Application {
-            target: &target,
-            qualification: &f.qualification,
-            destination: &original_destination,
-            channel: &f.channel,
-            receiver: &f.receiver,
-            receiver_proof: None,
-            dispatch_proof: None,
-            signature: &signature,
-            signature_qualification: &q,
-            call: &call,
-            call_qualification: &f.qualification,
-            target_resolution: &resolution,
-            signature_resolution: &signature_resolution,
-            entity: &entity,
-            callable: &callable,
-            variant: &variant,
-            effective: None,
-            scopes: ScopeCatalog {
-                scopes: &scopes,
-                artifacts: &artifacts,
-                modules: &modules,
-            },
-        });
-        assert_eq!(application.is_ok(), mutation == 0, "mutation {mutation}");
-        if let Ok(application) = application {
-            assert_eq!(application.authority(), BindingAuthority::SourceInspection);
-            assert_eq!(application.reason(), if original_overrides { AuthorityReason::DispatchOpen } else { AuthorityReason::EffectiveUnknown });
-            let bound = bind(BindingInput {
-                application: &application,
-                parameters: &parameters,
-                shapes: &BTreeMap::new(),
-                arguments: &arguments,
-            })
+            if mutation == 2 {
+                q.context = AnalysisContext {
+                    python_version: "3.14".into(),
+                    python_platform: "foreign".into(),
+                    search_path: vec![],
+                    site_package_path: vec![],
+                    config_digest: ContentHash::of(b"foreign"),
+                    environment_digest: ContentHash::of(b"foreign"),
+                    lock_digest: None,
+                }
+                .id();
+                signature_resolution.context = q.context;
+            }
+            if mutation == 3 {
+                let scope = CoverageScope::Input {
+                    input: InputRevision::from_entries(vec![ManifestEntry {
+                        path: "foreign.py".into(),
+                        content: ContentHash::of(b"x"),
+                        byte_len: 1,
+                    }])
+                    .unwrap()
+                    .id(),
+                };
+                q.scope = scopes.insert(scope).unwrap();
+            }
+            if mutation == 4 {
+                signature_resolution.reason = EntityReason::ProviderExternal;
+            }
+            let (signature, parameters) = Signature::new(
+                &q,
+                lctx_model::domain::calls::SignatureRole::Source,
+                None,
+                symbol.id(),
+                0,
+                SignatureForm::List,
+                &[],
+            )
             .unwrap();
-            assert_eq!(bound.target(), target.id());
-            assert_eq!(bound.signature(), signature.id());
-            assert_ne!(f.symbol.id(), signature.symbol);
+            let variant = SignatureVariant {
+                role: lctx_model::domain::calls::SignatureRole::Source,
+                native: None,
+                signature: signature.id(),
+                context: q.context,
+                resolution: signature_resolution.id(),
+                callable: Some(callable.id()),
+                assessment: None,
+                adjustment: SignatureAdjustment::Unknown,
+            };
+            let (call, arguments) = f.call(&[]);
+            let original_destination = if original_overrides {
+                CallDestination::Overrides {
+                    symbol: f.symbol.id(),
+                }
+            } else {
+                f.destination.clone()
+            };
+            let target = CallTarget {
+                destination: original_destination.id(),
+                ..f.target.clone()
+            };
+            let application = establish(Application {
+                target: &target,
+                qualification: &f.qualification,
+                destination: &original_destination,
+                channel: &f.channel,
+                receiver: &f.receiver,
+                receiver_proof: None,
+                dispatch_proof: None,
+                signature: &signature,
+                signature_qualification: &q,
+                call: &call,
+                call_qualification: &f.qualification,
+                target_resolution: &resolution,
+                signature_resolution: &signature_resolution,
+                entity: &entity,
+                callable: &callable,
+                variant: &variant,
+                effective: None,
+                scopes: ScopeCatalog {
+                    scopes: &scopes,
+                    artifacts: &artifacts,
+                    modules: &modules,
+                },
+            });
+            assert_eq!(application.is_ok(), mutation == 0, "mutation {mutation}");
+            if let Ok(application) = application {
+                assert_eq!(application.authority(), BindingAuthority::SourceInspection);
+                assert_eq!(
+                    application.reason(),
+                    if original_overrides {
+                        AuthorityReason::DispatchOpen
+                    } else {
+                        AuthorityReason::EffectiveUnknown
+                    }
+                );
+                let bound = bind(BindingInput {
+                    application: &application,
+                    parameters: &parameters,
+                    shapes: &BTreeMap::new(),
+                    arguments: &arguments,
+                })
+                .unwrap();
+                assert_eq!(bound.target(), target.id());
+                assert_eq!(bound.signature(), signature.id());
+                assert_ne!(f.symbol.id(), signature.symbol);
+            }
         }
-    }
     }
 }
 

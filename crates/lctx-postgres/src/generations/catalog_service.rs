@@ -414,8 +414,18 @@ impl CatalogService {
                         } => positive.len().saturating_add(negative.len()),
                     };
                     let runtime_values = match witness {
-                        RequirementWitness::Positive { evidence, .. } | RequirementWitness::Negative { evidence, .. } => evidence.iter().filter(|w| matches!(w, selection::Witness::SummaryException { .. })).count(),
-                        RequirementWitness::Conflict { positive, negative, .. } => positive.iter().chain(negative.iter()).filter(|w| matches!(w, selection::Witness::SummaryException { .. })).count(),
+                        RequirementWitness::Positive { evidence, .. }
+                        | RequirementWitness::Negative { evidence, .. } => evidence
+                            .iter()
+                            .filter(|w| matches!(w, selection::Witness::SummaryException { .. }))
+                            .count(),
+                        RequirementWitness::Conflict {
+                            positive, negative, ..
+                        } => positive
+                            .iter()
+                            .chain(negative.iter())
+                            .filter(|w| matches!(w, selection::Witness::SummaryException { .. }))
+                            .count(),
                     };
                     estimated = estimated.saturating_add(runtime_values.saturating_mul(4096));
                     estimated = estimated
@@ -499,9 +509,23 @@ impl CatalogService {
                 let mut behavioral_exceptions = Vec::new();
                 for witness in p.iter().chain(n.iter()) {
                     if let selection::Witness::SummaryException { outcome } = witness {
-                        let result = self.prepared().data().facts.exception_outcomes.get(*outcome).ok_or(Error::Contract)?;
-                        let q = self.prepared().data().source.core.qualifications.get(result.qualification).ok_or(Error::Contract)?;
-                        behavioral_exceptions.push(BehavioralExceptionPacket::from_canonical(result, q)?);
+                        let result = self
+                            .prepared()
+                            .data()
+                            .facts
+                            .exception_outcomes
+                            .get(*outcome)
+                            .ok_or(Error::Contract)?;
+                        let q = self
+                            .prepared()
+                            .data()
+                            .source
+                            .core
+                            .qualifications
+                            .get(result.qualification)
+                            .ok_or(Error::Contract)?;
+                        behavioral_exceptions
+                            .push(BehavioralExceptionPacket::from_canonical(result, q)?);
                     }
                 }
                 claims.push(RequirementWitnessPacket {

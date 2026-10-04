@@ -726,7 +726,12 @@ fn details(node: AnyNodeRef<'_>) -> Vec<(SyntaxDetail, Option<Literal>)> {
             None,
         )],
         AnyNodeRef::StmtTry(s) => vec![(SyntaxDetail::TryMode { is_star: s.is_star }, None)],
-        AnyNodeRef::ExceptHandlerExceptHandler(h) => vec![(SyntaxDetail::HandlerName { name: h.name.as_ref().map(|name| name.to_string()) }, None)],
+        AnyNodeRef::ExceptHandlerExceptHandler(h) => vec![(
+            SyntaxDetail::HandlerName {
+                name: h.name.as_ref().map(|name| name.to_string()),
+            },
+            None,
+        )],
         AnyNodeRef::StmtAugAssign(s) => vec![op(operator(s.op))],
         AnyNodeRef::ExprBoolOp(e) => vec![op(match e.op {
             BoolOp::And => OperatorKind::And,

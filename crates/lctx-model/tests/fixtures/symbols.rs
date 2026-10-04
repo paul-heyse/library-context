@@ -9,8 +9,17 @@
 //! variants.
 use arrow_array::RecordBatch;
 use lctx_model::domain::{
-    artifact::*, assertion::*, attribution::*, calls::*, conditions::*, input::*,
-    memory::MemoryGeneration, source::*, symbols::*, syntax::{ImportAliasObservation, ImportAliasSupport}, *,
+    artifact::*,
+    assertion::*,
+    attribution::*,
+    calls::*,
+    conditions::*,
+    input::*,
+    memory::MemoryGeneration,
+    source::*,
+    symbols::*,
+    syntax::{ImportAliasObservation, ImportAliasSupport},
+    *,
 };
 use std::collections::BTreeMap;
 
@@ -196,7 +205,7 @@ impl Fixture {
         let scope = CoverageScope::Input { input: input.id() };
         let (condition, nodes) = Diagram::always().records();
         let qualification = AssertionQualification {
-        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
             context: context.id(),
             scope: scope.id(),
             condition: condition.id(),
@@ -348,7 +357,9 @@ impl Fixture {
             },
         ];
         let (signature, members) = Signature::new(
-            &qualification, lctx_model::domain::calls::SignatureRole::Source, None,
+            &qualification,
+            lctx_model::domain::calls::SignatureRole::Source,
+            None,
             sym["Base.run"].id(),
             0,
             SignatureForm::List,
@@ -616,25 +627,35 @@ impl Fixture {
         let start = at("from typing import");
         let end = text()[start as usize..].find('\n').unwrap() as i64 + start;
         let statement = Occurrence {
-            source: self.module.source, start, end,
-            syntax_kind: SyntaxKind::StmtImportFrom, role: OccurrenceRole::Syntax,
+            source: self.module.source,
+            start,
+            end,
+            syntax_kind: SyntaxKind::StmtImportFrom,
+            role: OccurrenceRole::Syntax,
             structural_path: vec![90, 0],
         };
         let alias = Occurrence {
-            start: at("Generic"), end: at("Generic") + 7,
+            start: at("Generic"),
+            end: at("Generic") + 7,
             syntax_kind: SyntaxKind::Alias,
-            structural_path: vec![90, 0, 0], ..statement.clone()
+            structural_path: vec![90, 0, 0],
+            ..statement.clone()
         };
         self.occ.insert("import_statement", statement.clone());
         self.occ.insert("import_alias", alias.clone());
         self.put(self.occ.values().cloned().collect());
         self.imports.push(ImportAliasObservation {
-            qualification: self.qualification.id(), statement: statement.id(), alias: alias.id(),
-            level: 0, resolved_module: Some("typing".into()),
+            qualification: self.qualification.id(),
+            statement: statement.id(),
+            alias: alias.id(),
+            level: 0,
+            resolved_module: Some("typing".into()),
         });
         self.module_resolutions.push(ModuleResolutionObservation {
-            qualification: self.qualification.id(), module: self.modules["typing"].id(),
-            alias: Some(alias.id()), location: Some("stdlib/typing.pyi".into()),
+            qualification: self.qualification.id(),
+            module: self.modules["typing"].id(),
+            alias: Some(alias.id()),
+            location: Some("stdlib/typing.pyi".into()),
         });
         self.sync();
         self
@@ -671,7 +692,9 @@ impl Fixture {
             self.description.clone(),
             Evidence::Invocation { run: self.run.id() },
         ];
-        evidence.extend(self.imports.iter().map(|i| Evidence::Occurrence { occurrence: i.alias }));
+        evidence.extend(self.imports.iter().map(|i| Evidence::Occurrence {
+            occurrence: i.alias,
+        }));
         evidence.sort_by_key(Record::id);
         evidence.dedup();
         self.put(evidence);
@@ -763,7 +786,10 @@ impl Fixture {
             ImportAliasSupport,
             FactFamily::Exports,
             Fidelity::NativeStructural,
-            |row: &ImportAliasObservation| Evidence::Occurrence { occurrence: row.alias }.id()
+            |row: &ImportAliasObservation| Evidence::Occurrence {
+                occurrence: row.alias
+            }
+            .id()
         );
         with_support!(
             self.module_resolutions,

@@ -62,13 +62,20 @@ def duplicates(lockfile: Path) -> dict[str, list[str]]:
     packages = tomllib.loads(lockfile.read_text())["package"]
     identities: dict[str, set[tuple[str, str | None]]] = defaultdict(set)
     for pkg in packages:
-        if FAMILY.match(pkg["name"]) and _extra(pkg["name"], pkg["version"], pkg.get("source")) is None:
+        if (
+            FAMILY.match(pkg["name"])
+            and _extra(pkg["name"], pkg["version"], pkg.get("source")) is None
+        ):
             identities[pkg["name"]].add((pkg["version"], pkg.get("source")))
     result = {}
     for name, values in identities.items():
         if len(values) > 1:
             versions = {v for v, _ in values}
-            result[name] = sorted(versions) if len(versions) == len(values) else sorted(f"{v} ({source or 'workspace'})" for v, source in values)
+            result[name] = (
+                sorted(versions)
+                if len(versions) == len(values)
+                else sorted(f"{v} ({source or 'workspace'})" for v, source in values)
+            )
     return result
 
 
@@ -77,7 +84,13 @@ def _dependency(dep: str, packages: list[dict]) -> list[dict]:
     name = parts[0]
     version = parts[1] if len(parts) > 1 else None
     source = parts[2].removeprefix("(").removesuffix(")") if len(parts) > 2 else None
-    return [p for p in packages if p["name"] == name and (version is None or p["version"] == version) and (source is None or p.get("source") == source)]
+    return [
+        p
+        for p in packages
+        if p["name"] == name
+        and (version is None or p["version"] == version)
+        and (source is None or p.get("source") == source)
+    ]
 
 
 def extra_scope(lockfile: Path) -> list[str]:
@@ -87,25 +100,38 @@ def extra_scope(lockfile: Path) -> list[str]:
     have = defaultdict(set)
     for pkg in packages:
         have[pkg["name"]].add(pkg["version"])
-        if re.match(r"^(ruff_.+|ty_.+)$", pkg["name"]) and _extra(pkg["name"], pkg["version"], pkg.get("source")) is None:
-            problems.append(f"{pkg['name']} {pkg['version']} has undeclared analyzer source {pkg.get('source')!r}")
+        if (
+            re.match(r"^(ruff_.+|ty_.+)$", pkg["name"])
+            and _extra(pkg["name"], pkg["version"], pkg.get("source")) is None
+        ):
+            problems.append(
+                f"{pkg['name']} {pkg['version']} has undeclared analyzer source {pkg.get('source')!r}"
+            )
     for name, version in EXTRA_FAMILIES[0]["pinned"].items():
         if name in have and have[name] != {version}:
-            problems.append(f"{name} resolves to {', '.join(sorted(have[name]))}; latest independent Ruff/ty needs exactly {version}")
+            problems.append(
+                f"{name} resolves to {', '.join(sorted(have[name]))}; latest independent Ruff/ty needs exactly {version}"
+            )
     for pkg in packages:
         parent = _extra(pkg["name"], pkg["version"], pkg.get("source"))
         for dep in pkg.get("dependencies", []):
             candidates = _dependency(dep, packages)
             if len(candidates) != 1:
-                problems.append(f"{pkg['name']} {pkg['version']} has {'ambiguous' if candidates else 'unresolved'} dependency {dep}")
+                problems.append(
+                    f"{pkg['name']} {pkg['version']} has {'ambiguous' if candidates else 'unresolved'} dependency {dep}"
+                )
                 continue
             child = candidates[0]
             family = _extra(child["name"], child["version"], child.get("source"))
             if family is None:
                 continue
-            pyrefly = family["name"] == "Pyrefly embedded Ruff" and re.fullmatch(r"pyrefly(_.+)?", pkg["name"])
+            pyrefly = family["name"] == "Pyrefly embedded Ruff" and re.fullmatch(
+                r"pyrefly(_.+)?", pkg["name"]
+            )
             if parent is not family and pkg["name"] not in family["dependents"] and not pyrefly:
-                problems.append(f"{pkg['name']} {pkg['version']} depends on {dep}, outside {family['name']}")
+                problems.append(
+                    f"{pkg['name']} {pkg['version']} depends on {dep}, outside {family['name']}"
+                )
     return problems
 
 

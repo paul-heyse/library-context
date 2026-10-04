@@ -776,12 +776,22 @@ pub(crate) fn support<S: Support>(
             // Partial inventories cannot prove absence. A completed, explicitly located native
             // type query can still interpret its own term when an unrelated query is missing.
             // Parse/source/resource losses and partial queries retain the old refusal.
-            let wanted=crate::domain::derivation::RowRef::of(s.assertion());
-            let mut queries=data.type_queries.iter().filter(|query| query.qualification==q.id() && query.status==types::TypeQueryStatus::Available && query.observation.is_some_and(|id|crate::domain::derivation::RowRef::of(id)==wanted));
-            let selected=queries.next();
-            let located=data.type_observations.iter().find(|observation|crate::domain::derivation::RowRef::of(observation.id())==wanted);
+            let wanted = crate::domain::derivation::RowRef::of(s.assertion());
+            let mut queries = data.type_queries.iter().filter(|query| {
+                query.qualification == q.id()
+                    && query.status == types::TypeQueryStatus::Available
+                    && query
+                        .observation
+                        .is_some_and(|id| crate::domain::derivation::RowRef::of(id) == wanted)
+            });
+            let selected = queries.next();
+            let located = data.type_observations.iter().find(|observation| {
+                crate::domain::derivation::RowRef::of(observation.id()) == wanted
+            });
             let local=family==FactFamily::Types && coverage.status==CoverageStatus::Partial && coverage.reason==Some(obligation::ObligationKind::MissingEvidence) && queries.next().is_none() && selected.is_some_and(|query|located.is_some_and(|observation|(query.subject,query.role,query.declared)==(observation.subject,observation.role,observation.declared)) && data.type_query_supports.iter().any(|support|support.assertion==query.id() && support.run==a.run && support.surface==a.surface && support.origin==Origin::AnalyzerAssertion && support.mode==ExtractionMode::NativeTraversal && support.fidelity==Fidelity::NativeStructural && matches!(data.entry.evidence.get(support.evidence),Some(Evidence::Occurrence {occurrence}) if *occurrence==query.subject)));
-            if !local {return Err(TheoryReason::IncompleteCoverage);}
+            if !local {
+                return Err(TheoryReason::IncompleteCoverage);
+            }
         }
         covered = true;
     }
