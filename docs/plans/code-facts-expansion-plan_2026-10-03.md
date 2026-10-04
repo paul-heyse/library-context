@@ -923,3 +923,39 @@ provider-grant and premise contract links. Named rerun **failed** only on stale 
 (`assembled-docs-check-02.log`). The requested scoped exception to `just fmt`,
 `just adr index` and `just build-features` is still pending operator input; these commands
 have not been run manually. The end-of-turn hook otherwise owns those refreshes.
+
+Final Clippy repair checkpoint `92f45e92`, 2026-10-03: **passed**, full workspace/all-target
+`just clippy` (`assembled-clippy-06.log`, exit0). Earlier attempts1–5 **failed** and their
+logs remain; acceptance is composite. Attempt3 exposed only extractor test borrows/cloned
+slices, attempt4 two serving-test expressions, attempt5 the diagnostic tuple alias. Final
+repairs preserve all fixture oracles. No formatter/generator was run manually. This full
+Clippy receipt does not imply full hygiene, functional acceptance or final artifact freshness.
+
+Extractor repair `a4088837` plus `a2a68bac`/`ddb8e1ab` (private final `84d3193f`) preserves
+canonical/native attribution and receiver classification. Named all-target release compile
+**passed**, 24.64s; scoped library Clippy **passed**, 44.70s; scoped library/tests Clippy
+**composite passed**, 4.16s on retry after the three fixture borrows. Focused release Nextest
+**passed**, eight controls across Ruff context, native lexical, generic receiver specialization,
+diagnostics and finite polarity; four outside-filter controls excluded. Exact commands/logs:
+`hygiene-extractor-{check,clippy,test-clippy,test-clippy-retry,tests}.log`.
+
+Terminal wire control repair integrated `7f71058e` (private `bdc2743e`): the original run
+**failed**, four of five passed (`terminal-wire-controls-1.log`). The nullability definition
+is a local schema reference, so checking inline property text was a faulty control. Whole
+AssertionPacket schema and Serde validation now independently require null/object positives,
+missing-slot/wrong-primitive/missing-question-member/invalid-code negatives. Bounded rerun
+**passed**, five distinct controls, 91.89s (`terminal-wire-controls-2.log`); final repaired
+schema control **passed**, 1.57s after removing only diagnostic output (`terminal-wire-controls-3.log`).
+`terminal-wire-receipt.json` retains the failure, actual reference graph, exact commands and
+excluded runtime/full-gate boundaries. There is no production relaxation or nullable default.
+
+**Next prerequisite:** the scoped formatter/index/feature-generator exception request remains
+pending. AGENTS.md assigns these to the end-of-turn hook; absent an exception, allow that hook
+to refresh the tree before the next final build. `just docs-check` remains **failed** only
+because the generated ADR index is stale; owner links are repaired. Build the final matching
+CLI and native adapter, then execute assembled actual fixtures/Q0 and `just test-all` plus
+`just hygiene` against the prepared disposable PG18 store. All three boundaries remain
+**not_run**; source capture identities make final artifact freshness consequential. Do not
+claim the series complete or select/reset the stopped operator staging. Two newly completed
+clean worker worktrees were removed after owned-file equality checks; frozen revisions and
+external receipts remain in Git/scratch. Other historical worktrees/stashes were preserved.

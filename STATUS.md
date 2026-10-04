@@ -102,8 +102,8 @@ M2 metadata/B1 PG passed; P3 diagnostics/pytest/usage integrated (`9996f81f`/`a8
 P4 conditional/generated PG await the final matching CLI; Capture actual PG/wire passed and is integrated.
 B3 producer integrated, 18 scoped controls passed; Terminal/I-F03 Artifact-scope correction integrated, runtime open. B2 scoped composite passed eight controls.
 Raised-type coverage correction check/two units passed; actual PG remains open. Coordinator §7/§5 own receipts/disposition.
-All functional packages are integrated. Independent review accepts at static strength; Clippy repair is in progress.
-Full test-all/hygiene and assembled Q0 remain not_run; coordinator §7 owns the current checkpoint.
+All functional packages are integrated; [independent review](docs/design_review/reviews/design_review_code-facts-expansion-implementation_2026-10-03.md) accepts statically.
+Full `just clippy` passed at `92f45e92`; final Q0/test-all/hygiene remain not_run, awaiting hook/scoped refresh and matching artifacts.
 Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
 establish traceability. No current full-series acceptance, retrieval-quality or performance claim.
 Prior stdio qualification runner is integrated; source-default repair and source-only scalar bridge are in P4.
@@ -117,4 +117,4 @@ Transport seams exercise grants/response bytes within recorded limits; borrowed 
 
 Earlier Phase 5/foundation/Phase 4 receipts retain their boundaries; gold/heldout/benchmarks are untouched.
 Cargo retains release/shared intermediates/jobs16/frontend1; Nextest8 limits processes, builds may overlap.
-The end-of-turn hook owns formatting/generated indexes; no cache cleanup is needed.
+The pending scoped refresh request covers fmt/ADR index/features; otherwise the end-of-turn hook owns them.
