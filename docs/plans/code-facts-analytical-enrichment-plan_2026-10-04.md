@@ -493,3 +493,20 @@ actual describe refresh and Clippy are running; Q1 remains open. `UV_NO_SYNC=1 j
 dependency receipt is `lctx-enrichment-deps-final.log`. The four completed task worktrees were
 removed after confirming integration, no active processes and external receipt preservation;
 shared build intermediates and unrelated worktrees remain intact.
+
+Final formatted-source schema migration review **passed**, 2026-10-04, on the actual
+`lctx model describe` output at `9dbe7239`. The model is
+`a00210d0595770adc2d77c4250f24123cb9f32f46cbfab3d8d799c56431f30a8`: 878 relations,
+96 additions and two removed old dependency-module relations. Existing field-code meanings
+and relative order are unchanged; native premise tag 37 is retired and replacement tag 75
+is appended. Existing sum arms add required inventory references only in named handoff/setup
+variants. Original imports now target ModuleResolution; additional exception/default/theory/type
+codes preserve their prior assignments. The actual snapshot diff was reviewed before
+`cargo insta accept --snapshot model_describe__model_describe.snap` **passed**; acceptance is
+committed as schema migration `b7e8629b`. Review receipt:
+`/home/paul/.cache/lctx-enrichment-model-describe-final-review.json`. The initial deliberate
+`INSTA_UPDATE=new cargo test --release -p lctx --test model_describe -- --nocapture` **failed**
+only the old snapshot assertion and generated that new output in 14m31s; its assertion rerun
+and the full gate remain pending. The isolated empty store reset **passed** for this model,
+dropping zero generations; no operator-store reset occurred. Final formatted `just clippy`
+**passed** (`lctx-enrichment-clippy-formatted-final.log`).
