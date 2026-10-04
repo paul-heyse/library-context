@@ -129,6 +129,9 @@ async fn actual_read_inventory_and_complete_negative_are_replayed() {
             .iter()
             .any(|d| d.kind == execution::read_dynamic::DynamicKind::Dictionary)
     );
+    if !records.reads.dynamic.iter().any(|d| text(&f, d.site) == "getattr(fixed, name)" && d.declared_class == Some(choice)) {
+        read_diagnostics::dump_global_initializer(&f, &data, &records.reads);
+    }
     assert!(records.reads.dynamic.iter().any(|d|text(&f,d.site)=="getattr(fixed, name)"&&d.declared_class==Some(choice)));
     // Source initializer inspection requires independently paired native binding and syntax
     // authority. Retained recognizer bindings cannot replace a missing native premise.
