@@ -91,7 +91,7 @@ async fn run(profile: Profile) {
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
     ]);
-    stages.push(analysis::preparation::native_stage(profile));
+    stages.push(analysis::preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap());
     let (parameters, definition) = lctx_model::domain::local_semantics::definition();
     let (base_parameters, base_definition) = execution::configuration::base_evaluation();
     let mut definitions = vec![
@@ -120,25 +120,25 @@ async fn run(profile: Profile) {
         analysis::preparation::Configuration::new(captured.config().catalog(), definitions, budget)
             .unwrap();
     stages.push(configuration.declaration());
-    stages.push(local_semantics::stage(profile, &definition, &model));
-    stages.push(execution::production::stage(profile, &base_definition, &model).unwrap());
+    stages.push(local_semantics::stage(profile, &definition, &model, &alignment_publication_order()).unwrap());
+    stages.push(execution::production::stage(profile, &base_definition, &model, &alignment_publication_order()).unwrap());
     if completion {
         stages.push(
-            execution::completion_production::stage(profile, &completion_definition, &model)
+            execution::completion_production::stage(profile, &completion_definition, &model, &alignment_publication_order())
                 .unwrap(),
         );
     }
     if source_calls {
-        stages.push(execution::source_call::stage(profile, &source_definition, &model).unwrap());
+        stages.push(execution::source_call::stage(profile, &source_definition, &model, &alignment_publication_order()).unwrap());
     }
 
     if enriched {
         stages.push(
-            execution::enriched_production::stage(profile, &enriched_definition, &model).unwrap(),
+            execution::enriched_production::stage(profile, &enriched_definition, &model, &alignment_publication_order()).unwrap(),
         );
     }
 
-    stages.push(execution::model_production::stage(profile, &model_definition, &model).unwrap());
+    stages.push(execution::model_production::stage(profile, &model_definition, &model, &alignment_publication_order()).unwrap());
     let facts_members = stages
         .iter()
         .filter(|s| {
@@ -524,4 +524,17 @@ async fn behavioral_models_consume_actual_enriched_calls() {
 #[tokio::test]
 async fn catalog_models_are_explicitly_not_requested() {
     run(Profile::Catalog).await;
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

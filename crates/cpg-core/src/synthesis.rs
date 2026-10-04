@@ -217,7 +217,9 @@ pub async fn produce(
         Default::default(),
     )?;
     synthesis_preparation::publish_documentary(&mut output, &docs).await?;
-    macro_rules! write{($($ty:ty=>$rows:expr),*)=>{$(output.declare::<$ty>()?;for row in $rows.iter(){output.push(row.clone()).await?;})*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<analysis::synthesis::$record>())*} $(output.declare::<analysis::synthesis::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
+    macro_rules! write{($($ty:ty=>$rows:expr),*)=>{$(if !common_type(std::any::TypeId::of::<$ty>()) {output.declare::<$ty>()?;}for row in $rows.iter(){output.push(row.clone()).await?;})*};}
     write!(synthesis::summary::SummaryFacet=>facets,synthesis::frames::Frame=>frames,InvocationSource=>sources,AnalysisInput=>inputs,SourceReceipt=>receipts,
     synthesis::seeds::SeedPlan=>seeds.plans,synthesis::automatic::Decision=>seeds.automatic,synthesis::seeds::ConfiguredSeedDecision=>seeds.decisions,synthesis::seeds::ConfiguredSeedCandidate=>seeds.candidates,synthesis::seeds::SelectedSeedSource=>seeds.sources,synthesis::seeds::SelectedSeed=>seeds.selected,
     synthesis::assertions::ProgrammaticAssertion=>assertions.assertions,synthesis::assertions::AssertionTemplate=>assertions.templates,synthesis::assertions::AssertionSource=>assertions.sources,synthesis::assertions::ProgrammaticAssertionSupport=>assertions.supports,
@@ -226,17 +228,7 @@ pub async fn produce(
     lctx_model::synthesis_pattern_outputs!(patterns_write);
     macro_rules! observation_write{($($f:ident:$t:ty,)*)=>{$(if ![assertion::AssertionQualification::NAME].contains(&<$t>::NAME){output.declare::<$t>()?;}for row in observations.$f.iter(){output.push(row.clone()).await?;})*};}
     lctx_model::synthesis_observation_outputs!(observation_write);
-    macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    declare!(
-        Invocation,
-        ProjectionInput,
-        AnalysisOutcome,
-        AnalysisCoverage,
-        CoverageSource,
-        AnalysisCoveragePremise,
-        CoverageRequirement,
-        CoverageRequiredSource
-    );
+
     for invocation in invocations.iter() {
         let admitted = coverage::admit(
             invocation,

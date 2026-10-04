@@ -30,20 +30,20 @@ pub fn definitions() -> Vec<(analysis::MethodParameters, analysis::AnalysisDefin
 }
 pub fn stages(profile: Profile, model: &ValidatedModel) -> Vec<Stage> {
     vec![
-        local_semantics::stage(profile, &local_semantics::definition().1, model),
+        local_semantics::stage(profile, &local_semantics::definition().1, model, &alignment_publication_order()).unwrap(),
         execution::production::stage(
             profile,
             &execution::configuration::base_evaluation().1,
             model,
-        )
+         &alignment_publication_order())
         .unwrap(),
         execution::completion_production::stage(
             profile,
             &execution::configuration::base_completion().1,
             model,
-        )
+         &alignment_publication_order())
         .unwrap(),
-        execution::source_call::stage(profile, &execution::configuration::source_calls().1, model)
+        execution::source_call::stage(profile, &execution::configuration::source_calls().1, model, &alignment_publication_order())
             .unwrap(),
     ]
 }
@@ -102,4 +102,17 @@ pub async fn run(
         }
         _ => Err(ModelError::Invalid("not a catalog runtime parent".into())),
     }
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

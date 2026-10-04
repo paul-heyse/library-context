@@ -149,16 +149,16 @@ async fn run(
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
         configuration.declaration(),
-        analysis::preparation::native_stage(profile),
+        analysis::preparation::native_stage(profile, &model, &fixture_publication_order()).unwrap(),
         normalized::callable_aspects::stage(profile),
-        build::stage(profile),
+        build::stage(profile, &model, &fixture_publication_order()).unwrap(),
     ]);
     declarations.extend([
-        local_semantics::stage(profile, &local, &model),
-        structural::build::stage(profile, &settings, &model).unwrap(),
-        embedding::text::stage(profile, &text_definition).unwrap(),
+        local_semantics::stage(profile, &local, &model, &fixture_publication_order()).unwrap(),
+        structural::build::stage(profile, &settings, &model, &fixture_publication_order()).unwrap(),
+        embedding::text::stage(profile, &text_definition, &model, &fixture_publication_order()).unwrap(),
         embedding::configuration::stage(service.as_ref()),
-        embedding::analytic::stage(profile, vectors_requested),
+        embedding::analytic::stage(profile, vectors_requested, &model, &fixture_publication_order()).unwrap(),
         analytics::build::stage(profile, &settings, &model, &fixture_publication_order()).unwrap(),
     ]);
     let facts_members = declarations

@@ -44,17 +44,17 @@ fn summary_dependencies_use_only_published_nominal_evidence_routes() {
             projection::normalization::stage(profile),
             normalized::coverage::stage(profile),
             configuration.declaration(),
-            analysis::preparation::native_stage(profile),
+            analysis::preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap(),
         ];
         stages.extend([
-            local_semantics::stage(profile, &pairs[0].1, &model),
-            execution::production::stage(profile, &pairs[1].1, &model).unwrap(),
-            execution::completion_production::stage(profile, &pairs[2].1, &model).unwrap(),
-            execution::source_call::stage(profile, &pairs[3].1, &model).unwrap(),
-            execution::enriched_production::stage(profile, &pairs[4].1, &model).unwrap(),
-            execution::model_production::stage(profile, &pairs[5].1, &model).unwrap(),
+            local_semantics::stage(profile, &pairs[0].1, &model, &alignment_publication_order()).unwrap(),
+            execution::production::stage(profile, &pairs[1].1, &model, &alignment_publication_order()).unwrap(),
+            execution::completion_production::stage(profile, &pairs[2].1, &model, &alignment_publication_order()).unwrap(),
+            execution::source_call::stage(profile, &pairs[3].1, &model, &alignment_publication_order()).unwrap(),
+            execution::enriched_production::stage(profile, &pairs[4].1, &model, &alignment_publication_order()).unwrap(),
+            execution::model_production::stage(profile, &pairs[5].1, &model, &alignment_publication_order()).unwrap(),
         ]);
-        let summary = execution::summary_replay::stage(profile, &pairs[6].1, &model).unwrap();
+        let summary = execution::summary_replay::stage(profile, &pairs[6].1, &model, &alignment_publication_order()).unwrap();
         for name in [
             analysis::base_completion::AnalysisDerivation::NAME,
             analysis::base_evaluation::AnalysisDerivation::NAME,
@@ -65,6 +65,13 @@ fn summary_dependencies_use_only_published_nominal_evidence_routes() {
                 !summary.inputs.iter().any(|i| i.name() == name),
                 "invocation membership cannot invent a generic proof producer: {name}"
             );
+        }
+        // Exact consumed views retain both checkpoints; sufficient grants acknowledge Model.
+        let views = execution::summary_production::SummaryData::consumed_inputs(profile);
+        for name in [conditions::Condition::NAME, conditions::ConditionNode::NAME, assertion::AssertionQualification::NAME].into_iter().filter(|_| profile == Profile::Behavioral) {
+            assert!(views.iter().any(|input| input.name() == name && input.prefix() == Some(PublicationBoundary::Facts)));
+            assert!(views.iter().any(|input| input.name() == name && input.prefix() == Some(PublicationBoundary::Model)));
+            assert_eq!(summary.inputs.iter().find(|input| input.name() == name).unwrap().prefix(), Some(PublicationBoundary::Model));
         }
         stages.push(summary);
         let schedule = Schedule::build_with_publications(
@@ -229,4 +236,17 @@ fn summary_model_assumptions_hydrate_both_evidence_indexes_without_mixing_facts(
     );
     drop(data);
     assert_eq!(budget.reserved(), 0);
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

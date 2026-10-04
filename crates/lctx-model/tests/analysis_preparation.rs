@@ -57,7 +57,8 @@ fn configuration_has_nominal_catalog_closure_and_refuses_foreign_selection() {
 }
 #[test]
 fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory() {
-    let stage = native_stage(Profile::Behavioral);
+    let model = lctx_model::domain::model().unwrap();
+    let stage = native_stage(Profile::Behavioral, &model, &alignment_publication_order()).unwrap();
     let facts_relations = facts_relations();
     let facts = facts_relations
         .iter()
@@ -117,7 +118,7 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
         stage.writes::<native::NativeAssertionPremise>()
             && stage.writes::<native::NativeQualification>()
     );
-    let catalog = native_stage(Profile::Catalog);
+    let catalog = native_stage(Profile::Catalog, &model, &alignment_publication_order()).unwrap();
     macro_rules! profile_pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
         let requested = <$assertion as assertion::Assertion>::FAMILY != attribution::FactFamily::Flow;
         assert_eq!(catalog.reads::<$assertion>(), requested);
@@ -128,4 +129,17 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
         !catalog.reads::<flow::FlowUseObservation>()
             && !catalog.reads::<flow::FlowAttributeLoadObservation>()
     );
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

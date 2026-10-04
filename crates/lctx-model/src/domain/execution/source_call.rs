@@ -692,6 +692,7 @@ pub fn stage(
     profile: stages::Profile,
     definition: &analysis::AnalysisDefinition,
     model: &ValidatedModel,
+    order: &stages::PublicationOrder,
 ) -> Result<stages::Stage, ModelError> {
-    super::source_call_records::stage(profile, definition, model)
+    super::source_call_records::stage(profile, definition, model, order)
 }

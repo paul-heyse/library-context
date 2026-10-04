@@ -103,11 +103,11 @@ async fn run(mode: Mode) {
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
         configuration.declaration(),
-        analysis::preparation::native_stage(profile),
+        analysis::preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap(),
         normalized::callable_aspects::stage(profile),
-        text::stage(profile, &text_definition).unwrap(),
+        text::stage(profile, &text_definition, &model, &alignment_publication_order()).unwrap(),
         configuration::stage(selection.as_ref()),
-        analytic::stage(profile, requested),
+        analytic::stage(profile, requested, &model, &alignment_publication_order()).unwrap(),
     ]);
     let facts_members = declarations
         .iter()
@@ -405,4 +405,17 @@ async fn native_unrequested_analytic_use_has_no_service_effect() {
 async fn native_optional_failures_preserve_explicit_per_window_availability() {
     run(Mode::Unavailable).await;
     run(Mode::TokenLimit).await;
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

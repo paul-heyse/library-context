@@ -192,32 +192,22 @@ pub fn stage(
     profile: Profile,
     definition: &analysis::AnalysisDefinition,
     model: &ValidatedModel,
+    order: &PublicationOrder,
 ) -> Result<Stage, ModelError> {
     if definition.method != analysis::AnalysisMethod::Summaries {
         return Err(invalid("Summary stage requires its nominal method"));
     }
     let mut outputs = output_relations();
-    outputs.extend(owner::coverage::relations());
+    outputs.extend(owner::publication_relations());
     outputs.extend(owner::support::relations());
     macro_rules! output{($($t:ty),*)=>{$(outputs.push(Relation::of::<$t>());)*};}
     output!(
-        owner::AnalysisInvocation,
-        owner::AnalysisInput,
-        owner::SourceReceipt,
-        owner::ProjectionInput,
-        owner::InvocationSource,
-        owner::AnalysisOutcome,
         owner::ObligationSource
     );
     macro_rules! vocabulary{($($f:ident:$t:ty,)*)=>{$(outputs.push(Relation::of::<$t>());)*};}
     crate::summary_vocabulary!(vocabulary);
     outputs.sort_by_key(Relation::name);
     outputs.dedup_by_key(|r| r.name());
-    let own = outputs
-        .iter()
-        .filter(|r| !is_vocabulary(r.name()))
-        .map(Relation::name)
-        .collect::<std::collections::BTreeSet<_>>();
     let mut requested = production_inputs(profile);
     requested.extend(analysis::expected::inputs(
         analysis::AnalysisMethod::Summaries,
@@ -225,70 +215,14 @@ pub fn stage(
     requested.push(ValidationInput::of::<analysis::ProjectionDefinition>(&[
         "id",
     ]));
-    let relation = |name| {
-        model
-            .relations()
-            .iter()
-            .find(|r| r.name() == name)
-            .ok_or_else(|| invalid(format!("Summary relation missing: {name}")))
-    };
-    let mut inputs = std::collections::BTreeMap::new();
-    let mut pending = Vec::new();
-    for input in requested {
-        if own.contains(input.name()) {
-            continue;
-        }
-        if inputs.contains_key(input.name()) {
-            continue;
-        }
-        inputs.insert(
-            input.name(),
-            RelationUse::of_relation(relation(input.name())?).completed_store(),
-        );
-        pending.push(input.name());
-    }
-    let facts = facts_relations()
-        .iter()
-        .map(Relation::name)
-        .collect::<std::collections::BTreeSet<_>>();
-    while let Some(name) = pending.pop() {
-        let row = relation(name)?;
-        for required in row
-            .fields()
-            .iter()
-            .filter_map(|f| f.target().map(|(_, n)| n))
-            .chain(
-                row.invariants()
-                    .iter()
-                    .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
-            )
-        {
-            if own.contains(required) {
-                return Err(invalid(format!(
-                    "Summary predecessor {name} reads unfinished {required}"
-                )));
-            }
-            if !facts.contains(required) && !inputs.contains_key(required) {
-                inputs.insert(
-                    required,
-                    RelationUse::of_relation(relation(required)?).completed_store(),
-                );
-                pending.push(required);
-            }
-        }
-    }
+    let owned = outputs.iter().map(RelationUse::of_relation).collect::<Vec<_>>();
+    requested.retain(|input| is_vocabulary(input.name()) || !owned.iter().any(|row| row.name() == input.name()));
+    let inputs = dependency_closure::DependencyClosure::stage_grants(
+        model, requested, &owned, PublicationBoundary::Model,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+    )?;
     let mut configuration = KeySink::new("summary-stage");
     definition.id().encode(&mut configuration);
-    let inputs = inputs
-        .into_values()
-        .map(|r| {
-            if is_vocabulary(r.name()) {
-                r.at_epoch(PublicationBoundary::Model)
-            } else {
-                r
-            }
-        })
-        .collect();
     Ok(Stage {
         name: "analyze_summaries",
         inputs,

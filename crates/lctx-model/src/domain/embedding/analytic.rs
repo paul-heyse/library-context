@@ -380,15 +380,13 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
     };
     (parameters, definition)
 }
-pub fn stage(profile: stages::Profile, requested: bool) -> stages::Stage {
-    use analysis::analytic_embedding::*;
+pub fn stage(profile: stages::Profile, requested: bool, model: &ValidatedModel, order: &stages::PublicationOrder) -> Result<stages::Stage, ModelError> {
     use stages::*;
     let text_definition = super::text::TextDefinition {
         requested,
         ..super::text::TextDefinition::builtin()
     };
-    let mut inputs = super::text::stage(profile, &text_definition)
-        .expect("built-in text definition")
+    let mut inputs = super::text::stage(profile, &text_definition, model, order)?
         .inputs;
     inputs.extend(ConsumptionData::stage_inputs());
     inputs.extend(
@@ -417,21 +415,8 @@ pub fn stage(profile: stages::Profile, requested: bool) -> stages::Stage {
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     let mut outputs = vec![RelationUse::of::<AnalysisEmbeddingUse>()];
-    macro_rules! output {($($ty:ty),*)=>{$(outputs.push(RelationUse::of::<$ty>());)*};}
-    output!(
-        Invocation,
-        InvocationSource,
-        AnalysisInput,
-        ProjectionInput,
-        SourceReceipt,
-        AnalysisOutcome,
-        AnalysisCoverage,
-        CoverageSource,
-        AnalysisCoveragePremise,
-        CoverageRequirement,
-        CoverageRequiredSource
-    );
-    Stage {
+    outputs.extend(analysis::analytic_embedding::publication_relations().iter().map(RelationUse::of_relation));
+    Ok(Stage {
         name: "analytic_embedding",
         inputs,
         outputs,
@@ -445,5 +430,5 @@ pub fn stage(profile: stages::Profile, requested: bool) -> stages::Stage {
         },
         code: ContentHash::of(include_bytes!("analytic.rs")),
         configuration: ContentHash::of(if requested { b"requested" } else { b"disabled" }),
-    }
+    })
 }

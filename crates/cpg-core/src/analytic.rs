@@ -145,9 +145,11 @@ pub async fn produce(
         runtime.budget().clone(),
         Default::default(),
     )?;
+    macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare::<owner::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
     macro_rules! write {
         ($t:ty,$rows:expr) => {{
-            output.declare::<$t>()?;
+            if !common_type(std::any::TypeId::of::<$t>()) {output.declare::<$t>()?;}
             for row in $rows.iter() {
                 output.push(row.clone()).await?;
             }
@@ -170,15 +172,7 @@ pub async fn produce(
     write!(owner::AnalysisInput, context.inputs);
     write!(owner::SourceReceipt, receipts);
     write!(owner::ProjectionInput, projections);
-    macro_rules! declare{($($t:ty),*)=>{$(output.declare::<$t>()?;)*};}
-    declare!(
-        owner::AnalysisOutcome,
-        owner::AnalysisCoverage,
-        owner::CoverageSource,
-        owner::AnalysisCoveragePremise,
-        owner::CoverageRequirement,
-        owner::CoverageRequiredSource
-    );
+
     for result in results.results.iter() {
         let invocation = context.invocations.get(result.invocation).unwrap();
         let definition = data.definitions.get(invocation.definition).unwrap();

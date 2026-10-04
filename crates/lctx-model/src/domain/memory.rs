@@ -160,10 +160,7 @@ impl MemoryGeneration {
             .map_err(|_| ModelError::Invalid("memory generation poisoned".into()))?;
         let mut charge = StateCharge::new(budget, "memory-admission-input");
         for input in check.inputs() {
-            let relation = model
-                .relations()
-                .iter()
-                .find(|r| r.name() == input.name())
+            let relation = model.relation(input.name())
                 .expect("admission model input");
             let parts = stored
                 .relations
@@ -229,10 +226,7 @@ impl MemoryGeneration {
         for invariant in model.invariants() {
             let mut check = (invariant.create)(budget);
             for input in &invariant.inputs {
-                let relation = model
-                    .relations()
-                    .iter()
-                    .find(|r| r.name() == input.name())
+                let relation = model.relation(input.name())
                     .expect("validated invariant member");
                 let source = if let Some(prefix) = input.prefix() {
                     stored

@@ -822,37 +822,9 @@ pub fn stage(
         .iter()
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
-    use analysis::selection::*;
-    macro_rules! add {($($ty:ty),*)=>{$(outputs.push(RelationUse::of::<$ty>());)*};}
-    add!(
-        Invocation,
-        InvocationSource,
-        AnalysisInput,
-        ProjectionInput,
-        SourceReceipt,
-        AnalysisOutcome,
-        AnalysisCoverage,
-        CoverageSource,
-        AnalysisCoveragePremise,
-        CoverageRequirement,
-        CoverageRequiredSource
-    );
-    let roots = inputs
-        .iter()
-        .map(|r| {
-            let relation = model
-                .relations()
-                .iter()
-                .find(|row| row.name() == r.name())
-                .ok_or_else(|| invalid("closure root absent"))?;
-            let mut input = ValidationInput::of_relation(relation, &["id"]);
-            if let Some(epoch) = r.prefix() {
-                input = input.at_epoch(epoch);
-            }
-            Ok(input)
-        })
-        .collect::<Result<Vec<_>, ModelError>>()?;
-    let inputs = dependency_closure::DependencyClosure::build(
+    outputs.extend(analysis::selection::publication_relations().iter().map(stages::RelationUse::of_relation));
+    let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &inputs)?;
+    let inputs = dependency_closure::DependencyClosure::grants(
         model,
         roots,
         inputs,
@@ -860,8 +832,7 @@ pub fn stage(
         PublicationBoundary::Local,
         dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
         order,
-    )?
-    .grants;
+    )?;
     Ok(Stage {
         name: "catalog_selection",
         inputs,

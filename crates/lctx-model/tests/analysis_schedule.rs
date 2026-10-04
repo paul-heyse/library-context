@@ -89,25 +89,25 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
                 projection::normalization::stage(profile),
                 normalized::coverage::stage(profile),
                 config.declaration(),
-                analysis::preparation::native_stage(profile),
-                local_semantics::stage(profile, &pairs[0].1, &model),
-                execution::production::stage(profile, &pairs[1].1, &model).unwrap(),
-                execution::completion_production::stage(profile, &pairs[2].1, &model).unwrap(),
-                execution::source_call::stage(profile, &pairs[3].1, &model).unwrap(),
-                execution::enriched_production::stage(profile, &pairs[4].1, &model).unwrap(),
-                execution::model_production::stage(profile, &pairs[5].1, &model).unwrap(),
-                execution::summary_replay::stage(profile, &pairs[6].1, &model).unwrap(),
-                catalog::build::stage(profile),
+                analysis::preparation::native_stage(profile, &model, &fixture_publication_order()).unwrap(),
+                local_semantics::stage(profile, &pairs[0].1, &model, &fixture_publication_order()).unwrap(),
+                execution::production::stage(profile, &pairs[1].1, &model, &fixture_publication_order()).unwrap(),
+                execution::completion_production::stage(profile, &pairs[2].1, &model, &fixture_publication_order()).unwrap(),
+                execution::source_call::stage(profile, &pairs[3].1, &model, &fixture_publication_order()).unwrap(),
+                execution::enriched_production::stage(profile, &pairs[4].1, &model, &fixture_publication_order()).unwrap(),
+                execution::model_production::stage(profile, &pairs[5].1, &model, &fixture_publication_order()).unwrap(),
+                execution::summary_replay::stage(profile, &pairs[6].1, &model, &fixture_publication_order()).unwrap(),
+                catalog::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
                 catalog::evidence::build::stage(profile, &model, &fixture_publication_order())
                     .unwrap(),
                 embedding::configuration::stage(None),
-                embedding::text::stage(profile, &embedding::text::TextDefinition::builtin())
+                embedding::text::stage(profile, &embedding::text::TextDefinition::builtin(), &model, &fixture_publication_order())
                     .unwrap(),
-                embedding::analytic::stage(profile, false),
-                structural::build::stage(profile, &settings, &model).unwrap(),
+                embedding::analytic::stage(profile, false, &model, &fixture_publication_order()).unwrap(),
+                structural::build::stage(profile, &settings, &model, &fixture_publication_order()).unwrap(),
                 analytics::build::stage(profile, &settings, &model, &fixture_publication_order())
                     .unwrap(),
-                analysis::frontier::stage(profile, analysis::frontier::Target::Analysis, &model)
+                analysis::frontier::stage(profile, analysis::frontier::Target::Analysis, &model, &fixture_publication_order())
                     .unwrap(),
             ];
             let mut groups = vec![
@@ -132,9 +132,9 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
                         profile,
                         config.retrieval().iter().next().unwrap(),
                         &model,
-                    )
+                     &fixture_publication_order())
                     .unwrap(),
-                    analysis::frontier::stage(profile, target, &model).unwrap(),
+                    analysis::frontier::stage(profile, target, &model, &fixture_publication_order()).unwrap(),
                 ]);
                 groups.push(PublicationGroup::new(
                     PublicationBoundary::Synthesis,

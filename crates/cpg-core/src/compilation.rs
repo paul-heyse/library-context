@@ -282,50 +282,50 @@ impl PreparedCompilation {
     ) -> Result<Stage, ModelError> {
         Ok(match binding {
             UpperStage::Configuration => self.configuration.declaration(),
-            UpperStage::Native => analysis::preparation::native_stage(profile),
+            UpperStage::Native => analysis::preparation::native_stage(profile, model, order)?,
             UpperStage::EmbeddingConfiguration => {
                 embedding::configuration::stage(self.embedding.as_ref())
             }
-            UpperStage::Text => embedding::text::stage(profile, &self.text)?,
-            UpperStage::Embedding => embedding::analytic::stage(profile, self.text.requested),
-            UpperStage::CatalogCore => catalog::build::stage(profile),
+            UpperStage::Text => embedding::text::stage(profile, &self.text, model, order)?,
+            UpperStage::Embedding => embedding::analytic::stage(profile, self.text.requested, model, order)?,
+            UpperStage::CatalogCore => catalog::build::stage(profile, model, order)?,
             UpperStage::CatalogEvidence => catalog::evidence::build::stage(profile, model, order)?,
             UpperStage::Local => local_semantics::stage(
                 profile,
                 self.definition(AnalysisMethod::LocalTransfers)?,
                 model,
-            ),
+             order)?,
             UpperStage::Base => execution::production::stage(
                 profile,
                 self.definition(AnalysisMethod::Execution)?,
                 model,
-            )?,
+             order)?,
             UpperStage::Completion => execution::completion_production::stage(
                 profile,
                 self.definition(AnalysisMethod::Completion)?,
                 model,
-            )?,
+             order)?,
             UpperStage::SourceCalls => execution::source_call::stage(
                 profile,
                 self.definition(AnalysisMethod::SourceCalls)?,
                 model,
-            )?,
+             order)?,
             UpperStage::Enriched => execution::enriched_production::stage(
                 profile,
                 self.definition(AnalysisMethod::EnrichedExecution)?,
                 model,
-            )?,
+             order)?,
             UpperStage::Models => execution::model_production::stage(
                 profile,
                 self.definition(AnalysisMethod::Models)?,
                 model,
-            )?,
+             order)?,
             UpperStage::Summary => execution::summary_replay::stage(
                 profile,
                 self.definition(AnalysisMethod::Summaries)?,
                 model,
-            )?,
-            UpperStage::Structural => structural::build::stage(profile, self.settings(), model)?,
+             order)?,
+            UpperStage::Structural => structural::build::stage(profile, self.settings(), model, order)?,
             UpperStage::Analytic => {
                 analytics::build::stage(profile, self.settings(), model, order)?
             }
@@ -341,12 +341,12 @@ impl PreparedCompilation {
                     .next()
                     .expect("catalog retrieval definition"),
                 model,
-            )?,
+             order)?,
             UpperStage::AnalysisFrontier => {
-                analysis::frontier::stage(profile, analysis::frontier::Target::Analysis, model)?
+                analysis::frontier::stage(profile, analysis::frontier::Target::Analysis, model, order)?
             }
             UpperStage::CatalogFrontier => {
-                analysis::frontier::stage(profile, analysis::frontier::Target::Catalog, model)?
+                analysis::frontier::stage(profile, analysis::frontier::Target::Catalog, model, order)?
             }
         })
     }

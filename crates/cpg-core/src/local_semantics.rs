@@ -71,22 +71,13 @@ pub async fn run(
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! declare_publication {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<publication::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
     declare_publication!(
-        publication::AnalysisInvocation,
-        publication::AnalysisInput,
-        publication::SourceReceipt,
-        publication::ProjectionInput,
-        publication::AnalysisOutcome,
         publication::AnalysisDiagnostic,
-        publication::InvocationSource,
         publication::ObligationSource,
         publication::AnalysisObligation,
-        publication::DischargeEvidence,
-        publication::AnalysisCoverage,
-        publication::CoverageRequirement,
-        publication::CoverageRequiredSource,
-        publication::AnalysisCoveragePremise,
-        publication::CoverageSource
+        publication::DischargeEvidence
     );
     macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
     lctx_model::local_semantic_outputs!(declare);

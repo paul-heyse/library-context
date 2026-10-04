@@ -106,20 +106,9 @@ pub async fn produce(
     macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;for row in rows.$field.iter() {output.push(row.clone()).await?;})*};}
     lctx_model::catalog_outputs!(write);
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    declare!(
-        Invocation,
-        InvocationSource,
-        AnalysisInput,
-        ProjectionInput,
-        SourceReceipt,
-        AnalysisOutcome,
-        AnalysisCoverage,
-        CoverageSource,
-        AnalysisCoveragePremise,
-        CoverageRequirement,
-        CoverageRequiredSource,
-        catalog::CatalogMemberInvocation
-    );
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::catalog_core::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
+    declare!(catalog::CatalogMemberInvocation);
     let mut frames = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(runtime.budget(), "catalog-computation-frames");
     for run in runs.iter() {

@@ -719,22 +719,8 @@ pub fn stage(
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
     macro_rules! output{($($t:ty),*)=>{$(outputs.push(RelationUse::of::<$t>());)*};}
-    output!(
-        assertion::AssertionQualification,
-        conditions::Condition,
-        conditions::ConditionNode,
-        owner::Invocation,
-        owner::InvocationSource,
-        owner::AnalysisInput,
-        owner::ProjectionInput,
-        owner::SourceReceipt,
-        owner::AnalysisOutcome,
-        owner::AnalysisCoverage,
-        owner::CoverageSource,
-        owner::AnalysisCoveragePremise,
-        owner::CoverageRequirement,
-        owner::CoverageRequiredSource
-    );
+    outputs.extend(owner::publication_relations().iter().map(RelationUse::of_relation));
+    output!(assertion::AssertionQualification,conditions::Condition,conditions::ConditionNode);
     let own = outputs
         .iter()
         .filter(|r| !is_vocabulary(r.name()))
@@ -758,10 +744,7 @@ pub fn stage(
         "id",
     ]));
     let relation = |name| {
-        model
-            .relations()
-            .iter()
-            .find(|r| r.name() == name)
+        model.relation(name)
             .ok_or_else(|| invalid(format!("analytic relation absent: {name}")))
     };
     let mut inputs = vec![];
@@ -775,17 +758,8 @@ pub fn stage(
         }
         inputs.push(use_);
     }
-    let roots = inputs
-        .iter()
-        .map(|r| {
-            let mut i = ValidationInput::of_relation(relation(r.name())?, &["id"]);
-            if let Some(epoch) = r.prefix() {
-                i = i.at_epoch(epoch);
-            }
-            Ok(i)
-        })
-        .collect::<Result<Vec<_>, ModelError>>()?;
-    let inputs = dependency_closure::DependencyClosure::build(
+    let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &inputs)?;
+    let inputs = dependency_closure::DependencyClosure::grants(
         model,
         roots,
         inputs,
@@ -793,8 +767,7 @@ pub fn stage(
         PublicationBoundary::Structural,
         dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
         order,
-    )?
-    .grants;
+    )?;
     let mut key = KeySink::new("analytic-stage");
     settings.id().encode(&mut key);
     for method in METHODS {

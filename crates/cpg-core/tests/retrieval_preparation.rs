@@ -145,9 +145,9 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
         configuration.declaration(),
-        analysis::preparation::native_stage(profile),
+        analysis::preparation::native_stage(profile, &model, &fixture_publication_order()).unwrap(),
         normalized::callable_aspects::stage(profile),
-        build::stage(profile),
+        build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         catalog::evidence::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         Stage {
             name: "retrieval_mandatory_control",

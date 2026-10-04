@@ -903,7 +903,7 @@ fn completed_stage_inventory_requires_core_and_original_receipts_without_flow_or
             .any(|r| r.contains("brief") || r.contains("embedding"))
     );
     assert!(
-        !catalog::build::stage(stages::Profile::Catalog)
+        !catalog::build::stage(stages::Profile::Catalog, &model, &alignment_publication_order()).unwrap()
             .outputs
             .iter()
             .any(|r| r.name() == CatalogScenario::NAME)
@@ -1665,4 +1665,17 @@ fn normalized_constructor_candidate_keeps_own_public_slot_and_never_claims_state
             .unwrap();
         assert!(build(&d, &b).unwrap().constructor_candidates.is_empty());
     }
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

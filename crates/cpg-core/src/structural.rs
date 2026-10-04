@@ -110,7 +110,7 @@ pub async fn produce_with_sink<S: StageSink>(
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
     let settings = context.configuration()?.clone();
-    let declaration = build::stage(access.profile(), &settings, model)?;
+    let declaration = build::stage(access.profile(), &settings, model, access.publication_order())?;
     if declaration.configuration != access.stage().configuration
         || declaration.code != access.stage().code
         || declaration.name != access.stage().name
@@ -218,9 +218,11 @@ pub async fn produce_with_sink<S: StageSink>(
         runtime.budget().clone(),
         Default::default(),
     )?;
+    macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare::<owner::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
     macro_rules! write {
         ($ty:ty,$rows:expr) => {{
-            output.declare::<$ty>()?;
+            if !common_type(std::any::TypeId::of::<$ty>()) {output.declare::<$ty>()?;}
             for row in $rows.iter() {
                 output.push(row.clone()).await?;
             }
@@ -244,15 +246,7 @@ pub async fn produce_with_sink<S: StageSink>(
     write!(owner::AnalysisInput, context.inputs);
     write!(owner::SourceReceipt, receipts);
     write!(owner::ProjectionInput, projections);
-    macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    declare!(
-        owner::AnalysisOutcome,
-        owner::AnalysisCoverage,
-        owner::CoverageSource,
-        owner::AnalysisCoveragePremise,
-        owner::CoverageRequirement,
-        owner::CoverageRequiredSource
-    );
+
     let outcomes = semantic::outcomes::derive(&context, &results, runtime.budget())?;
     for outcome in outcomes.iter() {
         let invocation = context.invocations.get(outcome.invocation).unwrap();

@@ -151,58 +151,23 @@ pub fn configuration_relations() -> Vec<Relation> {
 }
 /// Native attribution validation and its nominal reference closure are facts-owned. Bind every
 /// vocabulary read to the facts prefix even when later consumers add further vocabulary.
-pub fn native_stage(profile: Profile) -> Stage {
-    let mut inputs = NativeInventory::stage_inputs(profile)
-        .into_iter()
-        .map(|input| (input.name(), input))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let facts = facts_relations()
-        .into_iter()
-        .map(|relation| (relation.name(), relation))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let mut pending = inputs.keys().copied().collect::<Vec<_>>();
-    while let Some(name) = pending.pop() {
-        let relation = &facts[name];
-        let references = relation
-            .fields()
-            .iter()
-            .filter_map(|field| field.target().map(|(_, name)| name));
-        let invariants = relation
-            .invariants()
-            .iter()
-            .flat_map(|invariant| invariant.inputs.iter().map(ValidationInput::name));
-        for required in references.chain(invariants) {
-            if !inputs.contains_key(required) {
-                inputs.insert(
-                    required,
-                    RelationUse::of_relation(&facts[required]).completed_store(),
-                );
-                pending.push(required);
-            }
-        }
-    }
-    let inputs = inputs
-        .into_values()
-        .map(|input| {
-            if is_vocabulary(input.name()) {
-                input.at_epoch(PublicationBoundary::Facts)
-            } else {
-                input
-            }
-        })
-        .collect();
-    Stage {
+pub fn native_stage(profile: Profile, model: &ValidatedModel, order: &PublicationOrder) -> Result<Stage, ModelError> {
+    let outputs = super::native::relations().iter().map(RelationUse::of_relation).collect::<Vec<_>>();
+    let direct = NativeInventory::stage_inputs(profile);
+    let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &direct)?;
+    let inputs = dependency_closure::DependencyClosure::grants(
+        model, roots, direct, &outputs, PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts, order,
+    )?;
+    Ok(Stage {
         name: "analysis_native_inventory",
         inputs,
-        outputs: super::native::relations()
-            .iter()
-            .map(RelationUse::of_relation)
-            .collect(),
+        outputs,
         contributes: vec![],
         coverage: vec![],
         profiles: vec![profile],
         effect: Effect::Pure,
         code: ContentHash::of(include_bytes!("native.rs")),
         configuration: ContentHash::of(b"native-inventory-v1"),
-    }
+    })
 }

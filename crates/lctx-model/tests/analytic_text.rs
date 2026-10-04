@@ -330,7 +330,7 @@ fn analytic_text_declaration_has_only_completed_earlier_inputs_and_frozen_vocabu
         ..TextDefinition::builtin()
     };
     for profile in stages::Profile::ALL {
-        let declared = stage(profile, &definition).unwrap();
+        let declared = stage(profile, &definition, &lctx_model::domain::model().unwrap(), &lctx_model::domain::stages::PublicationOrder::planning(&[lctx_model::domain::stages::PublicationGroup::new(lctx_model::domain::stages::PublicationBoundary::Facts, vec!["facts"])]).unwrap()).unwrap();
         assert_eq!(declared.effect, stages::Effect::Pure);
         let earlier = normalized_relations()
             .into_iter()

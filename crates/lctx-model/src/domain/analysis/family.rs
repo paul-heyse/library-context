@@ -1,5 +1,25 @@
 //! One canonical record/validator template, instantiated for finite publication owners.
 //! The predecessor list is static schema, never a producer-selected publication tag.
+/// Expand the shared publication schema. Producers still declare and publish every record.
+#[macro_export]
+macro_rules! analysis_publication {
+    ($($apply:ident)::+) => { $($apply)::+! {
+        AnalysisInvocation,
+        AnalysisInput,
+        SourceReceipt,
+        ProjectionInput,
+        AnalysisOutcome,
+        InvocationSource,
+        AnalysisCoverage,
+        CoverageRequirement,
+        CoverageRequiredSource,
+        AnalysisCoveragePremise,
+        CoverageSource,
+    } };
+}
+#[doc(hidden)]
+#[macro_export]
+macro_rules! analysis_publication_relations {($($record:ident,)*)=>{vec![$(crate::domain::Relation::of::<$record>(),)*]};}
 macro_rules! analysis_family {
     ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?],[$($transfer:ty)? $(;$transfer_variant:ident:$transfer_code:literal=>$transfer_type:ty)*],[$($normalized:ty)?],[$($proof_variant:ident:$proof_code:literal=>$proof_type:ty),* $(,)?]) => { analysis_family!(@impl $owner,$prefix,[$($variant:$code=>$predecessor),*],[$($transfer)? $(;$transfer_variant:$transfer_code=>$transfer_type)*],[$($normalized)?],[$($proof_variant:$proof_code=>$proof_type),*],[$($variant:$code=>$predecessor),*],[$($variant:$code=>$predecessor),*]); };
     ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?],[$($transfer:ty)? $(;$transfer_variant:ident:$transfer_code:literal=>$transfer_type:ty)*],[$($normalized:ty)?],[$($proof_variant:ident:$proof_code:literal=>$proof_type:ty),* $(,)?],support[$($support_variant:ident:$support_code:literal=>$support_predecessor:ident),* $(,)?],obligations[$($obligation_variant:ident:$obligation_code:literal=>$obligation_predecessor:ident),* $(,)?]) => { analysis_family!(@impl $owner,$prefix,[$($variant:$code=>$predecessor),*],[$($transfer)? $(;$transfer_variant:$transfer_code=>$transfer_type)*],[$($normalized)?],[$($proof_variant:$proof_code=>$proof_type),*],[$($support_variant:$support_code=>$support_predecessor),*],[$($obligation_variant:$obligation_code=>$obligation_predecessor),*]); };
@@ -129,8 +149,10 @@ macro_rules! analysis_family {
             pub type Derivation=AnalysisDerivation;
             pub type Obligation=AnalysisObligation;
             /// The invocation and coverage publication shared by every actual analysis owner.
-            pub fn publication_relations()->Vec<Relation> {let mut rows=vec![Relation::of::<AnalysisInvocation>(),Relation::of::<AnalysisInput>(),Relation::of::<SourceReceipt>(),Relation::of::<ProjectionInput>(),Relation::of::<AnalysisOutcome>(),Relation::of::<InvocationSource>()];rows.extend(coverage::relations());rows}
-            pub fn relations()->Vec<Relation> {let mut rows=vec![Relation::of::<AnalysisInvocation>(),Relation::of::<AnalysisInput>(),Relation::of::<SourceReceipt>(),Relation::of::<ProjectionInput>(),Relation::of::<AnalysisOutcome>(),Relation::of::<AnalysisDiagnostic>(),Relation::of::<InvocationSource>(),Relation::of::<ObligationSubject>(),Relation::of::<ObligationSource>()];rows.extend(coverage::relations());rows.extend(support::relations());rows.extend(obligations::relations());rows}
+            pub fn publication_relations()->Vec<Relation> {
+                crate::analysis_publication!(crate::analysis_publication_relations)
+            }
+            pub fn relations()->Vec<Relation> {let mut rows=publication_relations();rows.extend([Relation::of::<AnalysisDiagnostic>(),Relation::of::<ObligationSubject>(),Relation::of::<ObligationSource>()]);rows.extend(support::relations());rows.extend(obligations::relations());rows}
         }
     };
 }

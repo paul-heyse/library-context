@@ -100,9 +100,9 @@ async fn run(profile: Profile) {
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
         configuration.declaration(),
-        analysis::preparation::native_stage(profile),
+        analysis::preparation::native_stage(profile, &model, &fixture_publication_order()).unwrap(),
         normalized::callable_aspects::stage(profile),
-        build::stage(profile),
+        build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         catalog::evidence::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
     ]);
     declarations.extend(catalog_runtime::stages(profile, &model));

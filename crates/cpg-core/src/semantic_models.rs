@@ -133,18 +133,9 @@ pub async fn apply(
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
     declare!(
-        owner::AnalysisInvocation,
-        owner::AnalysisInput,
-        owner::SourceReceipt,
-        owner::ProjectionInput,
-        owner::InvocationSource,
-        owner::AnalysisOutcome,
-        owner::AnalysisCoverage,
-        owner::CoverageRequirement,
-        owner::CoverageRequiredSource,
-        owner::AnalysisCoveragePremise,
-        owner::CoverageSource,
         execution::closed_targets::ClosedTargetAssessment,
         execution::protocol_interpretation::ProtocolActionAssessment,
         execution::protocol_interpretation::TerminalFrontierAssessment,

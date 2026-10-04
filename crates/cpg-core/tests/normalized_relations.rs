@@ -111,7 +111,7 @@ async fn run(profile: Profile) {
         requested: true,
         ..embedding::text::TextDefinition::builtin()
     };
-    declarations.push(embedding::text::stage(profile, &text_definition).unwrap());
+    declarations.push(embedding::text::stage(profile, &text_definition, &model, &alignment_publication_order()).unwrap());
     let mut probe_inputs = event_normalization::stage(profile).inputs;
     macro_rules! probe_input { ($($field:ident: $ty:ty,)*) => { $(probe_inputs.push(RelationUse::stored::<$ty>());)* }; }
     lctx_model::normalized_event_outputs!(probe_input);
@@ -478,4 +478,17 @@ async fn catalog_normalizes_completed_facts_with_explicitly_unrequested_flow() {
 #[tokio::test]
 async fn behavioral_normalizes_completed_facts_including_exact_test_operands() {
     run(Profile::Behavioral).await;
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

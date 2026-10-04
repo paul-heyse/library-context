@@ -74,7 +74,7 @@ async fn run(forged: bool) {
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
     ]);
-    stages.push(analysis::preparation::native_stage(profile));
+    stages.push(analysis::preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap());
     let mut inputs = entity_normalization::stage().inputs;
     macro_rules! entity {($($field:ident:$ty:ty,)*)=>{$(inputs.push(RelationUse::stored::<$ty>());)*};}
     lctx_model::normalized_entity_outputs!(entity);
@@ -292,4 +292,17 @@ async fn local_entry_and_stability_publish_from_native_completed_sources() {
 #[tokio::test]
 async fn local_publication_refuses_forged_existing_native_entry_premise() {
     run(true).await;
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

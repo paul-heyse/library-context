@@ -130,17 +130,17 @@ async fn run(profile: Profile) {
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
         configuration.declaration(),
-        analysis::preparation::native_stage(profile),
+        analysis::preparation::native_stage(profile, &model, &fixture_publication_order()).unwrap(),
         normalized::callable_aspects::stage(profile),
-        build::stage(profile),
+        build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         catalog::evidence::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         selection::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
     ]);
     declarations.extend(catalog_runtime::stages(profile, &model));
     declarations.extend([
-        execution::enriched_production::stage(profile, &enriched_definition, &model).unwrap(),
-        execution::model_production::stage(profile, &model_definition, &model).unwrap(),
-        execution::summary_replay::stage(profile, &summary_definition, &model).unwrap(),
+        execution::enriched_production::stage(profile, &enriched_definition, &model, &fixture_publication_order()).unwrap(),
+        execution::model_production::stage(profile, &model_definition, &model, &fixture_publication_order()).unwrap(),
+        execution::summary_replay::stage(profile, &summary_definition, &model, &fixture_publication_order()).unwrap(),
     ]);
     let schedule = catalog_schedule::schedule(&model, declarations, profile);
     assert!(

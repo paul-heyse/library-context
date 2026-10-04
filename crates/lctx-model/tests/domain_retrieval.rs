@@ -534,7 +534,7 @@ fn final_stage_has_completed_named_owners_and_exact_immutable_effect() {
     for profile in stages::Profile::ALL {
         for requested in [false, true] {
             let definition = Definition::builtin(requested);
-            let stage = retrieval::build::stage(profile, &definition, &model).unwrap();
+            let stage = retrieval::build::stage(profile, &definition, &model, &alignment_publication_order()).unwrap();
             assert_eq!(
                 stage.effect,
                 if requested {
@@ -564,4 +564,17 @@ fn final_stage_has_completed_named_owners_and_exact_immutable_effect() {
             );
         }
     }
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

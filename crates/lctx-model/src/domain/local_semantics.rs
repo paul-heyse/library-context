@@ -826,32 +826,14 @@ pub fn stage(
     profile: stages::Profile,
     definition: &analysis::AnalysisDefinition,
     model: &ValidatedModel,
-) -> stages::Stage {
+    order: &stages::PublicationOrder,
+) -> Result<stages::Stage, ModelError> {
     use stages::*;
-    let mut inputs = if profile == Profile::Behavioral {
-        LocalData::validation_inputs()
-            .into_iter()
-            .map(|input| {
-                let relation = model
-                    .relations()
-                    .iter()
-                    .find(|r| r.name() == input.name())
-                    .expect("declared Local input");
-                let use_ = RelationUse::of_relation(relation).completed_store();
-                if let Some(prefix) = input.prefix() {
-                    use_.at_epoch(prefix)
-                } else {
-                    use_
-                }
-            })
-            .collect::<Vec<_>>()
-    } else {
-        vec![
-            RelationUse::stored::<ProviderRun>(),
-            RelationUse::stored::<Provider>(),
-            RelationUse::stored::<NativeQualification>(),
-        ]
-    };
+    let roots = if profile == Profile::Behavioral { LocalData::validation_inputs() } else { vec![] };
+    let mut inputs = if profile == Profile::Behavioral { vec![] } else { vec![
+        RelationUse::stored::<ProviderRun>(), RelationUse::stored::<Provider>(),
+        RelationUse::stored::<NativeQualification>(),
+    ] };
     inputs.extend([
         RelationUse::stored::<crate::domain::input::InputRevision>(),
         RelationUse::stored::<crate::domain::input::ArtifactUse>(),
@@ -874,49 +856,11 @@ pub fn stage(
     crate::local_field_outputs!(outputs);
     outputs.sort_by_key(|r| r.name());
     outputs.dedup_by_key(|r| r.name());
-    let own = outputs
-        .iter()
-        .filter(|r| !is_vocabulary(r.name()))
-        .map(|r| r.name())
-        .collect::<std::collections::BTreeSet<_>>();
-    let facts = crate::domain::facts_relations()
-        .iter()
-        .map(Relation::name)
-        .collect::<std::collections::BTreeSet<_>>();
-    // Nominal references and shared replay inventories are independently admitted predecessors.
-    // Facts-only prerequisites are supplied by the confirmed checkpoint; no later owner is read.
-    let mut pending = inputs.iter().map(|r| r.name()).collect::<Vec<_>>();
-    while let Some(name) = pending.pop() {
-        let relation = model
-            .relations()
-            .iter()
-            .find(|r| r.name() == name)
-            .expect("Local predecessor declared");
-        let references = relation
-            .fields()
-            .iter()
-            .filter_map(|field| field.target().map(|(_, name)| name));
-        let checks = relation
-            .invariants()
-            .iter()
-            .flat_map(|check| check.inputs.iter().map(ValidationInput::name));
-        for required in references.chain(checks) {
-            if own.contains(required) {
-                panic!("Local predecessor depends on its own output: {required}");
-            }
-            if !facts.contains(required) && !inputs.iter().any(|r| r.name() == required) {
-                let relation = model
-                    .relations()
-                    .iter()
-                    .find(|r| r.name() == required)
-                    .expect("Local predecessor target declared");
-                inputs.push(RelationUse::of_relation(relation).completed_store());
-                pending.push(required);
-            }
-        }
-    }
-    let inputs = crate::domain::normalized::facts_stage_inputs(inputs);
-    Stage {
+    let inputs = dependency_closure::DependencyClosure::grants(
+        model, roots, inputs, &outputs, PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+    )?;
+    Ok(Stage {
         name: "analyze_local",
         inputs,
         outputs,
@@ -930,7 +874,7 @@ pub fn stage(
             definition.id().encode(&mut sink);
             sink.finish()
         },
-    }
+    })
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "local_guard_contributions", rule = "local_entry_guard")]

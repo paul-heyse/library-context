@@ -191,10 +191,7 @@ impl Stage {
             .iter()
             .filter(|i| i.transport == InputTransport::CompletedStore)
         {
-            let relation = model
-                .relations()
-                .iter()
-                .find(|r| r.name() == input.name)
+            let relation = model.relation(input.name)
                 .ok_or_else(|| ModelError::Invalid("undeclared stored input".into()))?;
             names.extend(relation.invariants().iter().map(|i| i.name));
             names.extend(input.validators.iter().copied());

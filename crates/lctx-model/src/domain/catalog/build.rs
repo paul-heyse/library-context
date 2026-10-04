@@ -732,7 +732,7 @@ impl InvariantCheck for Check {
         self.output.matches(&build(&self.data, &self.budget)?)
     }
 }
-pub fn stage(profile: stages::Profile) -> stages::Stage {
+pub fn stage(profile: stages::Profile, model: &ValidatedModel, order: &stages::PublicationOrder) -> Result<stages::Stage, ModelError> {
     let mut inputs = crate::domain::normalized::coverage::stage(profile).inputs;
     inputs.extend(crate::domain::normalized::callable_aspects::stage(profile).inputs);
     inputs.extend(
@@ -747,19 +747,23 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     );
     inputs.extend(CatalogData::stage_inputs());
     inputs.extend(metadata_inputs());
-    inputs.sort_by_key(|r| r.name());
-    inputs.dedup_by_key(|r| r.name());
-    stages::Stage {
+    let outputs = stage_outputs();
+    let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &inputs)?;
+    let inputs = dependency_closure::DependencyClosure::grants(
+        model, roots, inputs, &outputs, stages::PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+    )?;
+    Ok(stages::Stage {
         name: "catalog_core",
         inputs,
-        outputs: stage_outputs(),
+        outputs,
         contributes: vec![],
         coverage: vec![],
         profiles: vec![profile],
         effect: stages::Effect::Pure,
         code: ContentHash::of(include_bytes!("build.rs")),
         configuration: ContentHash::of(b"mandatory-catalog/v1"),
-    }
+    })
 }
 /// Complete this definition once in the compilation's early authored configuration stage.
 pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition) {
@@ -803,25 +807,11 @@ pub fn metadata_inputs() -> Vec<stages::RelationUse> {
     ]
 }
 fn stage_outputs() -> Vec<stages::RelationUse> {
-    use analysis::catalog_core::*;
     let mut outputs = super::core_relations()
         .iter()
         .map(stages::RelationUse::of_relation)
         .collect::<Vec<_>>();
-    macro_rules! add {($($ty:ty),*)=>{$(outputs.push(stages::RelationUse::of::<$ty>());)*};}
-    add!(
-        Invocation,
-        InvocationSource,
-        AnalysisInput,
-        ProjectionInput,
-        SourceReceipt,
-        AnalysisOutcome,
-        AnalysisCoverage,
-        CoverageSource,
-        AnalysisCoveragePremise,
-        CoverageRequirement,
-        CoverageRequiredSource
-    );
+    outputs.extend(analysis::catalog_core::publication_relations().iter().map(stages::RelationUse::of_relation));
     outputs
 }
 /// Map every retained slot/context to its own admitted computation, even without signatures.

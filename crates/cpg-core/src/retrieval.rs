@@ -241,20 +241,9 @@ pub async fn produce(
     )?;
     retrieval_preparation::publish_mandatory(&mut output, &data.output).await?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    declare!(
-        Invocation,
-        InvocationSource,
-        AnalysisInput,
-        ProjectionInput,
-        SourceReceipt,
-        AnalysisOutcome,
-        AnalysisCoverage,
-        CoverageSource,
-        AnalysisCoveragePremise,
-        CoverageRequirement,
-        CoverageRequiredSource,
-        RetrievalEmbeddingUse
-    );
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::retrieval::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
+    declare!(RetrievalEmbeddingUse);
     for row in data.sources.iter() {
         output.push(row.clone()).await?;
     }

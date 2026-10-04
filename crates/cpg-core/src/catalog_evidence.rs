@@ -105,20 +105,9 @@ pub async fn produce(
     macro_rules! write {($($f:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;for row in rows.$f.iter() {output.push(row.clone()).await?;})*};}
     lctx_model::catalog_evidence_outputs!(write);
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    declare!(
-        Invocation,
-        InvocationSource,
-        AnalysisInput,
-        ProjectionInput,
-        SourceReceipt,
-        AnalysisOutcome,
-        AnalysisCoverage,
-        CoverageSource,
-        AnalysisCoveragePremise,
-        CoverageRequirement,
-        CoverageRequiredSource,
-        evidence::EvidenceInvocation
-    );
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::catalog_evidence::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
+    declare!(evidence::EvidenceInvocation);
     let mut invocations = Rows::new(runtime.budget());
     let expected_parents = evidence::frames::parents(
         &data.facts.runs,

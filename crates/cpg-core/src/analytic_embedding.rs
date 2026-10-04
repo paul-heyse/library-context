@@ -213,20 +213,9 @@ pub async fn produce(
         Default::default(),
     )?;
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    declare!(
-        Invocation,
-        InvocationSource,
-        AnalysisInput,
-        ProjectionInput,
-        SourceReceipt,
-        AnalysisOutcome,
-        AnalysisCoverage,
-        CoverageSource,
-        AnalysisCoveragePremise,
-        CoverageRequirement,
-        CoverageRequiredSource,
-        AnalysisEmbeddingUse
-    );
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::analytic_embedding::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
+    declare!(AnalysisEmbeddingUse);
     for receipt in receipts.iter() {
         output.push(receipt.clone()).await?;
     }

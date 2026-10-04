@@ -398,77 +398,18 @@ pub fn stage(
     profile: Profile,
     target: Target,
     model: &ValidatedModel,
+    order: &stages::PublicationOrder,
 ) -> Result<stages::Stage, ModelError> {
     let outputs = match target {
         Target::Analysis => analysis_relations(),
         Target::Catalog => catalog_relations(),
     };
-    let mut inputs = Vec::new();
-    for i in FrontierData::inputs(target) {
-        let relation = model
-            .relations()
-            .iter()
-            .find(|r| r.name() == i.name())
-            .ok_or_else(|| invalid("final frontier input relation absent"))?;
-        inputs.push(stages::RelationUse::of_relation(relation).completed_store());
-    }
-    let own = outputs
-        .iter()
-        .map(Relation::name)
-        .collect::<std::collections::BTreeSet<_>>();
-    let facts = facts_relations()
-        .iter()
-        .map(Relation::name)
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut pending = inputs.iter().map(|i| i.name()).collect::<Vec<_>>();
-    while let Some(name) = pending.pop() {
-        let relation = model
-            .relations()
-            .iter()
-            .find(|r| r.name() == name)
-            .ok_or_else(|| invalid("final frontier closure input absent"))?;
-        for required in relation
-            .fields()
-            .iter()
-            .filter_map(|f| f.target().map(|(_, n)| n))
-            .chain(
-                relation
-                    .invariants()
-                    .iter()
-                    .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
-            )
-        {
-            if own.contains(required) && !facts.contains(required) {
-                return Err(invalid(
-                    "final frontier predecessor reads unfinished assessment",
-                ));
-            }
-            if !facts.contains(required) && !inputs.iter().any(|i| i.name() == required) {
-                let relation = model
-                    .relations()
-                    .iter()
-                    .find(|r| r.name() == required)
-                    .ok_or_else(|| invalid("final frontier predecessor relation absent"))?;
-                inputs.push(stages::RelationUse::of_relation(relation).completed_store());
-                pending.push(required);
-            }
-        }
-    }
-    inputs = inputs
-        .into_iter()
-        .map(|i| {
-            if stages::is_vocabulary(i.name()) {
-                i.at_epoch(match target {
-                    Target::Analysis => stages::PublicationBoundary::Analytic,
-                    Target::Catalog => stages::PublicationBoundary::Synthesis,
-                })
-            } else {
-                i
-            }
-        })
-        .collect();
-    inputs.sort_by_key(|i| i.name());
-    inputs.dedup_by_key(|i| i.name());
+    let owned = outputs.iter().map(stages::RelationUse::of_relation).collect::<Vec<_>>();
+    let inputs = dependency_closure::DependencyClosure::stage_grants(
+        model, FrontierData::inputs(target), &owned,
+        match target {Target::Analysis=>stages::PublicationBoundary::Analytic, Target::Catalog=>stages::PublicationBoundary::Synthesis},
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+    )?;
     let mut code = KeySink::new("final-frontier-shared-kernel");
     for bytes in [
         include_bytes!("frontier.rs").as_slice(),

@@ -177,53 +177,26 @@ pub fn relations() -> Vec<Relation> {
 pub fn stage(
     profile: stages::Profile,
     definition: &TextDefinition,
+    model: &ValidatedModel,
+    order: &stages::PublicationOrder,
 ) -> Result<stages::Stage, ModelError> {
     use stages::*;
     definition.validate()?;
-    let earlier = normalized_relations()
-        .into_iter()
-        .map(|relation| (relation.name(), relation))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let mut names = TextData::inputs()
-        .into_iter()
-        .map(|input| input.name())
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut pending = names.iter().copied().collect::<Vec<_>>();
-    while let Some(name) = pending.pop() {
-        let relation = earlier
-            .get(name)
-            .ok_or_else(|| invalid("analytic text premise is not facts or normalized authority"))?;
-        let references = relation
-            .fields()
-            .iter()
-            .filter_map(|field| field.target().map(|(_, name)| name));
-        let invariants = relation
-            .invariants()
-            .iter()
-            .flat_map(|invariant| invariant.inputs.iter().map(ValidationInput::name));
-        for required in references.chain(invariants) {
-            if names.insert(required) {
-                pending.push(required);
-            }
-        }
+    let earlier = normalized_relations().iter().map(Relation::name).collect::<std::collections::BTreeSet<_>>();
+    let outputs = relations().iter().map(RelationUse::of_relation).collect::<Vec<_>>();
+    let inputs = dependency_closure::DependencyClosure::stage_grants(
+        model, TextData::inputs(), &outputs, PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts, order,
+    )?;
+    if inputs.iter().any(|input| !earlier.contains(input.name())) {
+        return Err(invalid("analytic text premise is not facts or normalized authority"));
     }
-    let inputs = names
-        .into_iter()
-        .map(|name| {
-            let input = RelationUse::of_relation(&earlier[name]).completed_store();
-            if is_vocabulary(name) {
-                input.at_epoch(PublicationBoundary::Facts)
-            } else {
-                input
-            }
-        })
-        .collect();
     let mut key = KeySink::new("analytic-source-text-v2");
     definition.id().encode(&mut key);
     Ok(Stage {
         name: "analytic_text",
         inputs,
-        outputs: relations().iter().map(RelationUse::of_relation).collect(),
+        outputs,
         contributes: vec![],
         coverage: vec![],
         profiles: vec![profile],

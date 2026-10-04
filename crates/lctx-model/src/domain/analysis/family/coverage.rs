@@ -209,16 +209,6 @@ pub fn assess(
         .collect();
     Ok((row, members))
 }
-pub fn relations() -> Vec<Relation> {
-    vec![
-        Relation::of::<AnalysisCoverage>(),
-        Relation::of::<CoverageRequirement>(),
-        Relation::of::<CoverageRequiredSource>(),
-        Relation::of::<CoverageSource>(),
-        Relation::of::<AnalysisCoveragePremise>(),
-    ]
-}
-
 /// Canonical expected domain, populated from admitted source contracts. Stored validation
 /// compares outcomes against this record, never reconstructs the domain from output rows.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]

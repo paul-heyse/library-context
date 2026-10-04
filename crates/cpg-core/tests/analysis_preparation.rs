@@ -124,7 +124,7 @@ async fn both_profiles_store_selected_catalog_and_exact_native_inventory() {
             .collect::<Vec<_>>();
         declarations.extend([
             configuration.declaration(),
-            preparation::native_stage(profile),
+            preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap(),
         ]);
         let schedule = Schedule::build(&model, declarations, &[], profile).unwrap();
         let mut execution = schedule.execute();
@@ -203,4 +203,17 @@ async fn both_profiles_store_selected_catalog_and_exact_native_inventory() {
         drop(captured);
         assert_eq!(budget.reserved(), 0);
     }
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

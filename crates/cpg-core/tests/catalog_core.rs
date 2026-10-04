@@ -79,9 +79,9 @@ async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipt
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
         configuration.declaration(),
-        analysis::preparation::native_stage(profile),
+        analysis::preparation::native_stage(profile, &model, &alignment_publication_order()).unwrap(),
         normalized::callable_aspects::stage(profile),
-        build::stage(profile),
+        build::stage(profile, &model, &alignment_publication_order()).unwrap(),
     ]);
     let schedule = Schedule::build(&model, declarations, &[], profile).unwrap();
     assert!(
@@ -310,4 +310,17 @@ async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipt
     drop(configuration);
     drop(captured);
     assert_eq!(budget.reserved(), 0);
+}
+
+fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder {
+    use lctx_model::domain::stages::*;
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+        PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
+        PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
+        PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
+    ]).unwrap()
 }

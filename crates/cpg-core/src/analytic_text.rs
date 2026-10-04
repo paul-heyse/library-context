@@ -32,7 +32,7 @@ pub async fn publish(
     model: &Arc<ValidatedModel>,
     definition: TextDefinition,
 ) -> Result<(), ModelError> {
-    let declared = text::stage(access.profile(), &definition)?;
+    let declared = text::stage(access.profile(), &definition, model, access.publication_order())?;
     if access.stage().name != declared.name
         || access.stage().configuration != declared.configuration
         || access.stage().code != declared.code

@@ -100,18 +100,9 @@ pub async fn evaluate_base(
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<publication::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
     declare!(
-        publication::AnalysisInvocation,
-        publication::AnalysisInput,
-        publication::SourceReceipt,
-        publication::ProjectionInput,
-        publication::AnalysisOutcome,
-        publication::InvocationSource,
-        publication::AnalysisCoverage,
-        publication::CoverageRequirement,
-        publication::CoverageRequiredSource,
-        publication::AnalysisCoveragePremise,
-        publication::CoverageSource,
         EvaluationRun,
         EvaluationBoundary,
         ExpressionEvaluation,
@@ -366,18 +357,9 @@ pub async fn complete_base(
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<completion_publication::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
     declare!(
-        completion_publication::AnalysisInvocation,
-        completion_publication::AnalysisInput,
-        completion_publication::SourceReceipt,
-        completion_publication::ProjectionInput,
-        completion_publication::AnalysisOutcome,
-        completion_publication::InvocationSource,
-        completion_publication::AnalysisCoverage,
-        completion_publication::CoverageRequirement,
-        completion_publication::CoverageRequiredSource,
-        completion_publication::AnalysisCoveragePremise,
-        completion_publication::CoverageSource,
         CompletionRun,
         CompletionBoundary,
         StatementCompletion,
@@ -592,18 +574,9 @@ pub async fn prepare_source_calls(
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
     declare!(
-        owner::AnalysisInvocation,
-        owner::AnalysisInput,
-        owner::SourceReceipt,
-        owner::ProjectionInput,
-        owner::InvocationSource,
-        owner::AnalysisOutcome,
-        owner::AnalysisCoverage,
-        owner::CoverageRequirement,
-        owner::CoverageRequiredSource,
-        owner::AnalysisCoveragePremise,
-        owner::CoverageSource,
         SourceCallRun,
         SourceCallHeader,
         HeaderMember,
@@ -878,18 +851,9 @@ pub async fn enrich(
     reader.close().await.map_err(ModelError::codec)?;
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
     declare!(
-        owner::AnalysisInvocation,
-        owner::AnalysisInput,
-        owner::SourceReceipt,
-        owner::ProjectionInput,
-        owner::InvocationSource,
-        owner::AnalysisOutcome,
-        owner::AnalysisCoverage,
-        owner::CoverageRequirement,
-        owner::CoverageRequiredSource,
-        owner::AnalysisCoveragePremise,
-        owner::CoverageSource,
         ExecutionRun,
         ExecutionBoundary,
         BodyBoundary,

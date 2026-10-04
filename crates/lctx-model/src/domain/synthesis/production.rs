@@ -98,20 +98,8 @@ pub fn stage(
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
     macro_rules! outputs{($($ty:ty),*)=>{$(outputs.push(RelationUse::of::<$ty>());)*};}
-    outputs!(
-        owner::Invocation,
-        owner::InvocationSource,
-        owner::AnalysisInput,
-        owner::ProjectionInput,
-        owner::SourceReceipt,
-        owner::AnalysisOutcome,
-        owner::AnalysisCoverage,
-        owner::CoverageSource,
-        owner::AnalysisCoveragePremise,
-        owner::CoverageRequirement,
-        owner::CoverageRequiredSource,
-        assertion::AssertionQualification
-    );
+    outputs.extend(owner::publication_relations().iter().map(RelationUse::of_relation));
+    outputs!(assertion::AssertionQualification);
     macro_rules! observation_outputs{($($f:ident:$t:ty,)*)=>{$(outputs.push(RelationUse::of::<$t>());)*};}
     crate::synthesis_observation_outputs!(observation_outputs);
     outputs.sort_by_key(|r| r.name());
@@ -122,10 +110,7 @@ pub fn stage(
         analysis::AnalysisMethod::Synthesis,
     ));
     let relation = |name| {
-        model
-            .relations()
-            .iter()
-            .find(|r| r.name() == name)
+        model.relation(name)
             .ok_or_else(|| ModelError::Invalid(format!("S0 relation absent: {name}")))
     };
     let mut inputs = vec![];
@@ -138,17 +123,8 @@ pub fn stage(
             inputs.push(use_);
         }
     }
-    let roots = inputs
-        .iter()
-        .map(|r| {
-            let mut i = ValidationInput::of_relation(relation(r.name())?, &["id"]);
-            if let Some(epoch) = r.prefix() {
-                i = i.at_epoch(epoch);
-            }
-            Ok(i)
-        })
-        .collect::<Result<Vec<_>, ModelError>>()?;
-    let inputs = dependency_closure::DependencyClosure::build(
+    let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &inputs)?;
+    let inputs = dependency_closure::DependencyClosure::grants(
         model,
         roots,
         inputs,
@@ -156,8 +132,7 @@ pub fn stage(
         PublicationBoundary::Analytic,
         dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
         order,
-    )?
-    .grants;
+    )?;
     Ok(Stage {
         name: "synthesis",
         inputs,

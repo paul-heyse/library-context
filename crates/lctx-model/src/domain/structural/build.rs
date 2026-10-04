@@ -528,6 +528,7 @@ pub fn stage(
     profile: stages::Profile,
     settings: &AnalyticsConfiguration,
     model: &ValidatedModel,
+    order: &stages::PublicationOrder,
 ) -> Result<stages::Stage, ModelError> {
     use stages::*;
     settings.validate()?;
@@ -536,24 +537,8 @@ pub fn stage(
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
     macro_rules! output {($($ty:ty),*)=>{$(outputs.push(RelationUse::of::<$ty>());)*};}
-    output!(
-        assertion::AssertionQualification,
-        conditions::Condition,
-        conditions::ConditionNode,
-        assumptions::AssumptionSet,
-        assumptions::AssumptionSetMember,
-        publication::Invocation,
-        publication::InvocationSource,
-        publication::AnalysisInput,
-        publication::ProjectionInput,
-        publication::SourceReceipt,
-        publication::AnalysisOutcome,
-        publication::AnalysisCoverage,
-        publication::CoverageSource,
-        publication::AnalysisCoveragePremise,
-        publication::CoverageRequirement,
-        publication::CoverageRequiredSource
-    );
+    outputs.extend(publication::publication_relations().iter().map(RelationUse::of_relation));
+    output!(assertion::AssertionQualification,conditions::Condition,conditions::ConditionNode,assumptions::AssumptionSet,assumptions::AssumptionSetMember);
     let own = outputs
         .iter()
         .filter(|r| !is_vocabulary(r.name()))
@@ -587,51 +572,11 @@ pub fn stage(
     requested.push(ValidationInput::of::<analysis::ProjectionDefinition>(&[
         "id",
     ]));
-    let relation = |name| {
-        model
-            .relations()
-            .iter()
-            .find(|r| r.name() == name)
-            .ok_or_else(|| invalid(format!("structural relation absent: {name}")))
-    };
-    let mut inputs = Vec::new();
-    for input in requested {
-        if own.contains(input.name()) {
-            continue;
-        }
-        let mut use_ = RelationUse::of_relation(relation(input.name())?).completed_store();
-        if let Some(epoch) = input.prefix() {
-            use_ = use_.at_epoch(epoch);
-        }
-        inputs.push(use_);
-    }
-    let facts = facts_relations()
-        .iter()
-        .map(Relation::name)
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut pending = inputs.iter().map(|r| r.name()).collect::<Vec<_>>();
-    while let Some(name) = pending.pop() {
-        let row = relation(name)?;
-        let refs = row
-            .fields()
-            .iter()
-            .filter_map(|f| f.target().map(|(_, name)| name));
-        let checks = row
-            .invariants()
-            .iter()
-            .flat_map(|i| i.inputs.iter().map(ValidationInput::name));
-        for required in refs.chain(checks) {
-            if own.contains(required) {
-                return Err(invalid(format!(
-                    "structural predecessor reads own output: {required}"
-                )));
-            }
-            if !facts.contains(required) && !inputs.iter().any(|r| r.name() == required) {
-                inputs.push(RelationUse::of_relation(relation(required)?).completed_store());
-                pending.push(required);
-            }
-        }
-    }
+    requested.retain(|input| !own.contains(input.name()));
+    let inputs = dependency_closure::DependencyClosure::stage_grants(
+        model, requested, &outputs, PublicationBoundary::Local,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+    )?;
     let mut key = KeySink::new("structural-stage");
     settings.id().encode(&mut key);
     for method in methods() {
@@ -639,16 +584,7 @@ pub fn stage(
     }
     Ok(Stage {
         name: "analyze_structural",
-        inputs: {
-            for input in &mut inputs {
-                if is_vocabulary(input.name()) {
-                    *input = (*input).at_epoch(PublicationBoundary::Local);
-                }
-            }
-            inputs.sort_by_key(|i| i.name());
-            inputs.dedup_by_key(|i| i.name());
-            inputs
-        },
+        inputs,
         outputs,
         contributes: vec![],
         coverage: vec![],

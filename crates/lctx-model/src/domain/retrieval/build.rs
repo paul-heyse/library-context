@@ -915,83 +915,25 @@ pub fn stage(
     profile: Profile,
     selected: &Definition,
     model: &ValidatedModel,
+    order: &stages::PublicationOrder,
 ) -> Result<Stage, ModelError> {
-    use analysis::retrieval::*;
     use std::collections::BTreeSet;
     selected.validate()?;
     let mut outputs = super::relations()
         .iter()
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
-    macro_rules! output {($($ty:ty),*)=>{$(outputs.push(RelationUse::of::<$ty>());)*};}
-    output!(
-        Invocation,
-        InvocationSource,
-        AnalysisInput,
-        ProjectionInput,
-        SourceReceipt,
-        AnalysisOutcome,
-        AnalysisCoverage,
-        CoverageSource,
-        AnalysisCoveragePremise,
-        CoverageRequirement,
-        CoverageRequiredSource
-    );
+    outputs.extend(analysis::retrieval::publication_relations().iter().map(RelationUse::of_relation));
     let own = outputs.iter().map(|r| r.name()).collect::<BTreeSet<_>>();
     let mut requested = super::consumption::ConsumptionData::inputs();
     requested.extend(analysis::expected::inputs(
         analysis::AnalysisMethod::Retrieval,
     ));
-    let relation = |name| {
-        model
-            .relations()
-            .iter()
-            .find(|r| r.name() == name)
-            .ok_or_else(|| invalid(format!("retrieval relation absent: {name}")))
-    };
-    let mut inputs = vec![];
-    for input in requested {
-        if !own.contains(input.name()) {
-            inputs.push(RelationUse::of_relation(relation(input.name())?).completed_store());
-        }
-    }
-    let facts = facts_relations()
-        .iter()
-        .map(Relation::name)
-        .collect::<BTreeSet<_>>();
-    let mut pending = inputs.iter().map(|r| r.name()).collect::<Vec<_>>();
-    while let Some(name) = pending.pop() {
-        let row = relation(name)?;
-        for required in row
-            .fields()
-            .iter()
-            .filter_map(|f| f.target().map(|(_, name)| name))
-            .chain(
-                row.invariants()
-                    .iter()
-                    .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
-            )
-        {
-            if own.contains(required) {
-                return Err(invalid(format!(
-                    "retrieval predecessor requires own output: {required}"
-                )));
-            }
-            if (!facts.contains(required) || is_vocabulary(required))
-                && !inputs.iter().any(|r| r.name() == required)
-            {
-                inputs.push(RelationUse::of_relation(relation(required)?).completed_store());
-                pending.push(required);
-            }
-        }
-    }
-    for input in &mut inputs {
-        if is_vocabulary(input.name()) {
-            *input = (*input).at_epoch(PublicationBoundary::Synthesis);
-        }
-    }
-    inputs.sort_by_key(|r| r.name());
-    inputs.dedup_by_key(|r| r.name());
+    requested.retain(|input| !own.contains(input.name()));
+    let inputs = dependency_closure::DependencyClosure::stage_grants(
+        model, requested, &outputs, PublicationBoundary::Synthesis,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+    )?;
     Ok(Stage {
         name: "retrieval",
         inputs,

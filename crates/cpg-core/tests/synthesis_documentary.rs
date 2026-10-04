@@ -93,9 +93,9 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
         projection::normalization::stage(profile),
         normalized::coverage::stage(profile),
         configuration.declaration(),
-        analysis::preparation::native_stage(profile),
+        analysis::preparation::native_stage(profile, &model, &fixture_publication_order()).unwrap(),
         normalized::callable_aspects::stage(profile),
-        build::stage(profile),
+        build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         catalog::evidence::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
         Stage {
             name: "documentary_preparation_control",

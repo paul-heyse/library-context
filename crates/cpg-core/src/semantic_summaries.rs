@@ -124,20 +124,9 @@ pub async fn produce(
         ));
     }
     let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
-    macro_rules! declare{($($t:ty),*)=>{$(output.declare::<$t>()?;)*};}
-    declare!(
-        owner::AnalysisInvocation,
-        owner::AnalysisInput,
-        owner::SourceReceipt,
-        owner::ProjectionInput,
-        owner::InvocationSource,
-        owner::AnalysisOutcome,
-        owner::AnalysisCoverage,
-        owner::CoverageRequirement,
-        owner::CoverageRequiredSource,
-        owner::AnalysisCoveragePremise,
-        owner::CoverageSource
-    );
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
+
     macro_rules! declarations{($($f:ident:$t:ty,)*)=>{$(output.declare::<$t>()?;)*};}
     lctx_model::summary_outputs!(declarations);
     lctx_model::summary_vocabulary!(declarations);

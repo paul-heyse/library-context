@@ -486,6 +486,7 @@ pub fn stage(
     profile: stages::Profile,
     definition: &analysis::AnalysisDefinition,
     model: &ValidatedModel,
+    order: &stages::PublicationOrder,
 ) -> Result<stages::Stage, ModelError> {
     use stages::*;
     if *definition != super::configuration::base_evaluation().1 {
@@ -493,28 +494,11 @@ pub fn stage(
             "base evaluation stage definition is unbound".into(),
         ));
     }
-    let mut outputs = vec![
-        Relation::of::<publication::AnalysisInvocation>(),
-        Relation::of::<publication::AnalysisInput>(),
-        Relation::of::<publication::SourceReceipt>(),
-        Relation::of::<publication::ProjectionInput>(),
-        Relation::of::<publication::InvocationSource>(),
-        Relation::of::<publication::AnalysisOutcome>(),
-    ];
-    outputs.extend(publication::coverage::relations());
+    let mut outputs = publication::publication_relations();
     outputs.extend(super::records::relations());
     outputs.extend(relations());
     outputs.sort_by_key(Relation::name);
     outputs.dedup_by_key(|r| r.name());
-    let own = outputs
-        .iter()
-        .map(Relation::name)
-        .collect::<std::collections::BTreeSet<_>>();
-    let facts = crate::domain::facts_relations()
-        .iter()
-        .map(Relation::name)
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut inputs = std::collections::BTreeMap::new();
     let mut initial = if profile == Profile::Behavioral {
         run_inputs()
     } else {
@@ -528,66 +512,13 @@ pub fn stage(
             initial.extend(check.inputs.iter().cloned());
         }
     }
-    let mut pending = Vec::new();
-    for input in initial {
-        if own.contains(input.name()) || inputs.contains_key(input.name()) {
-            continue;
-        }
-        let relation = model
-            .relations()
-            .iter()
-            .find(|r| r.name() == input.name())
-            .ok_or_else(|| {
-                ModelError::Invalid(format!("base execution input missing {}", input.name()))
-            })?;
-        inputs.insert(
-            input.name(),
-            RelationUse::of_relation(relation).completed_store(),
-        );
-        pending.push(input.name());
-    }
-    while let Some(name) = pending.pop() {
-        let relation = model
-            .relations()
-            .iter()
-            .find(|r| r.name() == name)
-            .ok_or_else(|| {
-                ModelError::Invalid(format!("base evaluation closure missing {name}"))
-            })?;
-        let references = relation
-            .fields()
-            .iter()
-            .filter_map(|f| f.target().map(|(_, n)| n));
-        let checks = relation
-            .invariants()
-            .iter()
-            .flat_map(|i| i.inputs.iter())
-            .map(ValidationInput::name);
-        for required in references.chain(checks) {
-            if own.contains(required) {
-                return Err(ModelError::Invalid(format!(
-                    "base evaluation predecessor {name} depends on unfinished output {required}"
-                )));
-            }
-            if !facts.contains(required) && !inputs.contains_key(required) {
-                let relation = model
-                    .relations()
-                    .iter()
-                    .find(|r| r.name() == required)
-                    .ok_or_else(|| {
-                        ModelError::Invalid(format!(
-                            "base evaluation predecessor missing {required}"
-                        ))
-                    })?;
-                inputs.insert(
-                    required,
-                    RelationUse::of_relation(relation).completed_store(),
-                );
-                pending.push(required);
-            }
-        }
-    }
-    let inputs = normalized::facts_stage_inputs(inputs.into_values().collect());
+    let owned = outputs.iter().map(RelationUse::of_relation).collect::<Vec<_>>();
+    // A publication check can name the records being written; only its predecessors are roots.
+    initial.retain(|input| is_vocabulary(input.name()) || !owned.iter().any(|row| row.name() == input.name()));
+    let inputs = dependency_closure::DependencyClosure::stage_grants(
+        model, initial, &owned, PublicationBoundary::Facts,
+        dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts, order,
+    )?;
     let mut key = KeySink::new("base-evaluation-definition");
     definition.id().encode(&mut key);
     Ok(Stage {
