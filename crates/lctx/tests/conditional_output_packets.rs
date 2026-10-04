@@ -40,8 +40,39 @@ def dynamic(error):
                 },
             },
         )
-        .await
-        .unwrap();
+        .await;
+    if response.is_err() {
+        use lctx_model::domain::{analysis, assertion, conditions, execution, Record};
+        let diagnostic = fixture.service.execution().await.unwrap();
+        diagnostic
+            .query(|lease| {
+                Box::pin(async move {
+                    macro_rules! inspect {
+                        ($ty:ty) => {
+                            let rows = lease.read::<$ty>().await?;
+                            eprintln!("CONDITIONAL_DIAGNOSTIC {} {:?}", <$ty>::NAME, rows.rows());
+                        };
+                    }
+                    inspect!(execution::summary_consequences::ClaimConclusion);
+                    inspect!(execution::summary_consequences::ClaimProof);
+                    inspect!(execution::summary_consequences::SummaryClaim);
+                    inspect!(execution::summary_production::SummaryPremise);
+                    inspect!(lctx_model::domain::transfer::summary::TransferAlternative);
+                    inspect!(lctx_model::domain::assumptions::AssumptionSet);
+                    inspect!(lctx_model::domain::assumptions::AssumptionSetMember);
+                    inspect!(lctx_model::domain::assumptions::Assumption);
+                    inspect!(analysis::summary::AnalysisInvocation);
+                    inspect!(analysis::AnalysisDefinition);
+                    inspect!(analysis::MethodParameters);
+                    inspect!(assertion::AssertionQualification);
+                    inspect!(conditions::Condition);
+                    Ok(())
+                })
+            })
+            .await
+            .unwrap();
+    }
+    let response = response.unwrap();
     let OperationResolution::Unique { packet } = response.operation else {
         panic!("source operation missing")
     };
