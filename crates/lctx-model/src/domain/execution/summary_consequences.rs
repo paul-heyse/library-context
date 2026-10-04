@@ -394,35 +394,41 @@ fn facts(
         if data.local_alternatives.get(alternative.id()) != Some(&alternative) {
             return Err(invalid("Summary Local finite alternative absent"));
         }
-        let _supports = b.reserve(
-            "summary-consequence-local-supports",
-            data.local_supports.len().saturating_mul(256),
-        )?;
-        let supports = data
-            .local_supports
-            .iter()
-            .filter(|s| s.assertion == alternative.id())
-            .cloned()
-            .collect::<Vec<_>>();
-        let evidence = transfer::summary::TransferEvidence::local(
+        for selected in crate::domain::atom_decision::selected_local_alternatives(
             &alternative,
-            &supports,
-            &data.local_evidence,
-            b,
-        )?;
-        let status = analysis::support::inferred_status(
-            analysis::Interpretation::Structural,
-            evidence.facts.iter().map(|f| f.status),
-        );
-        add(
-            key.descriptor(),
-            q.id(),
-            SummaryPremise::Local {
-                alternative: alternative.id(),
-            },
-            status,
-            evidence.facts.iter().any(|f| f.heuristic),
-        )?;
+            &data.local_alternatives,
+            &data.atom_restrictions,
+        ) {
+            let _supports = b.reserve(
+                "summary-consequence-local-supports",
+                data.local_supports.len().saturating_mul(256),
+            )?;
+            let supports = data
+                .local_supports
+                .iter()
+                .filter(|s| s.assertion == selected.id())
+                .cloned()
+                .collect::<Vec<_>>();
+            let evidence = transfer::summary::TransferEvidence::local(
+                selected,
+                &supports,
+                &data.local_evidence,
+                b,
+            )?;
+            let status = analysis::support::inferred_status(
+                analysis::Interpretation::Structural,
+                evidence.facts.iter().map(|f| f.status),
+            );
+            add(
+                key.descriptor(),
+                selected.qualification,
+                SummaryPremise::Local {
+                    alternative: selected.id(),
+                },
+                status,
+                evidence.facts.iter().any(|f| f.heuristic),
+            )?;
+        }
     }
     for row in data.model_supports.iter() {
         let (source, facts) = data.model_evidence.get(row.source)?;

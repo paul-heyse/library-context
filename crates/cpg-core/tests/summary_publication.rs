@@ -844,6 +844,28 @@ async fn assert_conditional_atom_summary(
         zero.iter().any(|(_, basis, _)| *basis == 0),
         "the unconditional runtime alternative survives: {zero:?}"
     );
+    // Local alternatives need their own finite consequences even when no composed Summary
+    // witness is emitted. Distinguish the provider typing world from the original runtime seed.
+    let consequences: Vec<(i64, i64, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT o.start,b.count,c.verdict FROM {schema}.summary_behavioral_conclusions c JOIN {schema}.summary_claim_proofs proof ON proof.id=c.proof AND proof.kind=0 JOIN {schema}.summary_transfer_premises premise ON premise.id=proof.finite_source AND premise.kind=0 JOIN {schema}.local_transfer_alternatives a ON a.id=premise.local_alternative JOIN {schema}.local_transfer_keys k ON k.id=a.transfer JOIN {schema}.entity_refs e ON e.id=k.owner JOIN {schema}.callable_entities callable ON callable.id=e.callable_callable JOIN {schema}.occurrences o ON o.id=callable.source_declaration JOIN {schema}.assertion_qualifications q ON q.id=c.qualification JOIN {schema}.assumption_sets b ON b.id=q.assumptions"
+    )))
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let zero_consequences = consequences
+        .iter()
+        .filter(|(at, _, _)| *at >= start && *at < end)
+        .collect::<Vec<_>>();
+    assert!(
+        zero_consequences.iter().any(|(_, basis, verdict)| {
+            *basis == 1 && *verdict == lctx_model::domain::obligation::Verdict::Conditional as i16
+        }),
+        "the restricted Local alternative retains its conditional consequence: {zero_consequences:?}"
+    );
+    assert!(
+        zero_consequences.iter().any(|(_, basis, _)| *basis == 0),
+        "the original runtime Local consequence survives: {zero_consequences:?}"
+    );
     let start = text.find("def effectful_repeated(").unwrap() as i64;
     let end = text.find("def nonconforming_runtime(").unwrap() as i64;
     assert!(
@@ -851,6 +873,12 @@ async fn assert_conditional_atom_summary(
             .iter()
             .any(|(at, basis, _)| *at >= start && *at < end && *basis > 0),
         "effectful predicate calls cannot inherit a parameter truth premise"
+    );
+    assert!(
+        !consequences
+            .iter()
+            .any(|(at, basis, _)| *at >= start && *at < end && *basis > 0),
+        "effectful predicate calls cannot acquire a typing-qualified Local consequence"
     );
 }
 

@@ -522,16 +522,11 @@ impl SummaryData {
             if self.local_alternatives.get(alternative.id()) != Some(&alternative) {
                 return Err(invalid("Local summary seed alternative absent"));
             }
-            // Local atom restrictions are separate supported typing-world alternatives.
-            // Their original contribution remains a seed in the unconditional runtime world.
-            for selected in self.local_alternatives.iter().filter(|a| {
-                a.id() == alternative.id()
-                    || self.atom_restrictions.iter().any(|r| {
-                        r.original == alternative.id()
-                            && r.qualification == a.qualification
-                            && a.transfer == key.id()
-                    })
-            }) {
+            for selected in crate::domain::atom_decision::selected_local_alternatives(
+                &alternative,
+                &self.local_alternatives,
+                &self.atom_restrictions,
+            ) {
                 let q = self
                     .vocabulary
                     .qualifications

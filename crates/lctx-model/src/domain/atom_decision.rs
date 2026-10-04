@@ -61,6 +61,25 @@ pub struct AtomRestriction {
     pub qualification: Id<AssertionQualification>,
     pub status: analysis::policy::EvidenceStatus,
 }
+/// Select the original runtime alternative and its exact, separately supported typing-world
+/// restrictions. Consumers still replay each selected alternative's evidence and qualification.
+/// This scan retains no collection or proof state outside its caller's charged inventory.
+pub(crate) fn selected_local_alternatives<'a>(
+    original: &TransferAlternative,
+    alternatives: &'a Rows<TransferAlternative>,
+    restrictions: &'a Rows<AtomRestriction>,
+) -> impl Iterator<Item = &'a TransferAlternative> + 'a {
+    let transfer = original.transfer;
+    let original = original.id();
+    alternatives.iter().filter(move |alternative| {
+        alternative.id() == original
+            || restrictions.iter().any(|restriction| {
+                restriction.original == original
+                    && restriction.qualification == alternative.qualification
+                    && alternative.transfer == transfer
+            })
+    })
+}
 impl analysis::support::sealed::DerivedEvidence for AtomRestriction {}
 impl DerivedEvidence for AtomRestriction {
     fn source_facts(&self) -> SourceFacts {
