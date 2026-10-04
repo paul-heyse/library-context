@@ -13,6 +13,11 @@ macro_rules! normalized_callable_inputs {
             traits: $crate::domain::symbols::FunctionTraitObservation,
             bodies: $crate::domain::types::FunctionBodyObservation,
             native_signatures: $crate::domain::types::NativeSignatureObservation,
+            overload_traces: $crate::domain::types::NativeOverloadObservation,
+            overload_supports: $crate::domain::types::NativeOverloadSupport,
+            native_signature_supports: $crate::domain::types::NativeSignatureSupport,
+            overload_candidates: $crate::domain::types::NativeOverloadCandidate,
+            type_terms: $crate::domain::types::TypeTerm,
             signature_types: $crate::domain::types::SignatureTypeObservation,
             signature_type_subjects: $crate::domain::types::SignatureTypeSubject,
             signatures: $crate::domain::calls::Signature,
@@ -37,6 +42,8 @@ macro_rules! normalized_callable_outputs {
     ($apply:ident) => {
         $apply! {
             assessments: $crate::domain::normalized::callables::EffectiveCallableAssessment,
+            overload_assessments: $crate::domain::normalized::overload_association::OverloadVariantAssessment,
+            overload_variant_candidates: $crate::domain::normalized::overload_association::OverloadVariantCandidate,
             decorators: $crate::domain::normalized::callables::EffectiveDecoratorMember,
             premises: $crate::domain::normalized::callables::EffectiveCallablePremise,
             evidence: $crate::domain::normalized::callables::EffectiveCallableEvidence,

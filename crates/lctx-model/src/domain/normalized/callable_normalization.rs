@@ -785,6 +785,7 @@ pub fn normalize(
             }
         }
     }
+    super::overload_association::associate(data, &mut output, budget)?;
     Ok(output)
 }
 pub fn invariants() -> Vec<Invariant> {

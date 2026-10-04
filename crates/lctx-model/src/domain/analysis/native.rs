@@ -166,6 +166,8 @@ macro_rules! native_analysis_pairs {
         69: NativeParameterDefinitionObservation => $crate::domain::diagnostics::NativeParameterDefinitionObservation, $crate::domain::diagnostics::NativeParameterDefinitionSupport;
         71: RuffDefinitionObservation => $crate::domain::ruff::RuffDefinitionObservation, $crate::domain::ruff::RuffDefinitionSupport;
         72: FlowUseInventory => $crate::domain::flow_inventory::FlowUseInventoryObservation, $crate::domain::flow_inventory::FlowUseInventorySupport;
+        73: NativeOverload => $crate::domain::types::NativeOverloadObservation, $crate::domain::types::NativeOverloadSupport;
+        74: NativeOverloadCandidate => $crate::domain::types::NativeOverloadCandidate, $crate::domain::types::NativeOverloadCandidateSupport;
     } };
 }
 crate::native_analysis_pairs!(native_pairs);

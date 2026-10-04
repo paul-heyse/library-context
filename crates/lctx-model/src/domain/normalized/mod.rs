@@ -5,6 +5,7 @@ pub mod bindings;
 pub mod callable_aspects;
 mod callable_inventory;
 pub mod callable_normalization;
+pub mod overload_association;
 pub mod callables;
 pub mod coverage;
 pub mod decorator_identity;
@@ -51,6 +52,7 @@ pub fn policy_revision() -> ContentHash {
         &[
             b"lctx-normalization/phase4/dispatch-class-of/v3".as_slice(),
             include_bytes!("native_lexical.rs").as_slice(),
+            include_bytes!("overload_association.rs").as_slice(),
         ]
         .concat(),
     )
