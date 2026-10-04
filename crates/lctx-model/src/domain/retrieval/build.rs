@@ -210,7 +210,7 @@ fn api(
                 let slot = need(&d.source.core.slots, *slot)?;
                 let p = need(&d.facts.signature_parameters, slot.parameter)?;
                 let shape = need(&d.facts.shapes, p.shape)?;
-                format!("effective parameter {:?} ({:?})", shape.name, shape.kind)
+                format!("effective parameter {} ({})", shape.name.as_deref().unwrap_or("unnamed"), shape.kind.label())
             }
             catalog::CatalogOptionSubject::Field { field } => format!(
                 "configuration field {}",

@@ -45,7 +45,7 @@ impl GetCapabilityResponse {
         }))?);
         text.push_str("\n```\n\n## Assertion evidence\n");
         for assertion in &self.capability.assertions {
-            let metadata = serde_json::json!({"assertion":assertion.assertion,"status":assertion.status,"status_name":format!("{:?}",assertion.status),"kind":assertion.kind,"qualification":assertion.qualification,"claim_basis":assertion.claim_basis,"terminal_question":assertion.terminal_question,"text":assertion.text,"supports":assertion.supports});
+            let metadata = serde_json::json!({"assertion":assertion.assertion,"status":assertion.status,"status_name":assertion.status.label(),"kind":assertion.kind,"qualification":assertion.qualification,"claim_basis":assertion.claim_basis,"terminal_question":assertion.terminal_question,"text":assertion.text,"supports":assertion.supports});
             text.push_str("\n```json\n");
             text.push_str(&serde_json::to_string(&metadata)?);
             text.push_str("\n```\n");

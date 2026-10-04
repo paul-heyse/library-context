@@ -1200,6 +1200,24 @@ async fn large_optional_brief_keeps_the_complete_core_and_resumes_with_expanded_
         assert!(resource.contains(&format!("\"status_name\":\"{:?}\"", claim.status)));
         assert!(resource.contains(&serde_json::to_string(&claim.assertion).unwrap()));
     }
+    let spec = fixture.dir.path().join("resource-provenance-stdio.json");
+    use sha2::{Digest, Sha256};
+    let authored_sha256 = format!("{:x}", Sha256::digest(capability.rendered.as_str().as_bytes()));
+    write(&spec, serde_json::to_vec(&serde_json::json!({
+        "config": fixture.dir.path().join("postgres-serving.json"), "generation": fixture.generation.hex(),
+        "native": standalone, "authored_sha256": authored_sha256
+    })).unwrap());
+    let python_root = std::env::var_os("LCTX_T0_PYTHON_ROOT").map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
+    let python_paths = std::env::join_paths([
+        python_root.join("python/lctx_mcp/src"), python_root.join("python/lctx_storage/python"), python_root.join("python/lctx_semantics/python")
+    ]).unwrap();
+    let output = std::process::Command::new("uv").current_dir(&python_root)
+        .args(["run", "--no-sync", "python", "python/lctx_mcp/tests/resource_provenance_stdio.py"])
+        .arg(spec).env("PYTHONPATH", python_paths).output().unwrap();
+    assert!(output.status.success(), "actual resource provenance stdio: {}\n{}",
+        String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    println!("{}", String::from_utf8_lossy(&output.stdout));
     drop(execution);
     fixture.finish().await;
 }
