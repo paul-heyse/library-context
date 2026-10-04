@@ -26,11 +26,13 @@ pub struct OverloadVariantCandidate {
     #[model(key)] pub trace_support:Id<NativeOverloadSupport>,
 }
 fn invalid(s:&str)->ModelError {ModelError::Invalid(s.into())}
+type DeclarationKey=(Id<calls::ProviderSymbol>,Id<AnalysisContext>);
+type NativeDeclaration<'a>=(&'a SignatureVariant,&'a NativeSignatureObservation);
 /// Candidate association has no selected-call or applicability authority. Selection is a separate
 /// attributed fact. Missing receiver/solver basis can coexist with a retained original source ID.
 pub fn associate(data:&CallableData, output:&mut CallableOutput, budget:&ResourceBudget)->Result<(),ModelError> {
     let mut charge=StateCharge::new(budget,"native-overload-association");
-    let mut declarations:ChargedMap<(Id<calls::ProviderSymbol>,Id<AnalysisContext>),Vec<(&SignatureVariant,&NativeSignatureObservation)>>=Default::default();
+    let mut declarations:ChargedMap<DeclarationKey,Vec<NativeDeclaration<'_>>>=Default::default();
     for variant in output.variants.iter() {
         if variant.role!=SignatureRole::EffectiveTyped {continue;}
         let Some(native)=variant.native.and_then(|id|data.native_signatures.get(id)) else {continue;};

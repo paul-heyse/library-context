@@ -239,10 +239,10 @@ def source_functions(
     def visit(nodes: list[ast.stmt], prefix: list[str]) -> None:
         for node in nodes:
             if isinstance(node, ast.ClassDef):
-                visit(node.body, prefix + [node.name])
+                visit(node.body, [*prefix, node.name])
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 # Later implementation replaces preceding overload declarations.
-                name = ".".join(prefix + [node.name])
+                name = ".".join([*prefix, node.name])
                 functions[name] = node
                 if declarations is not None:
                     declarations.setdefault(name, []).append(node)
@@ -285,7 +285,7 @@ def check_signature(
         and [p["name"] for p in s["parameters"]] == [e[0].arg for e in expected]
     ]
     require(signatures, f"no whole source signature for {node.name}")
-    literals = {tuple(l["literal"]): l["value"] for l in core["literal_values"]}
+    literals = {tuple(literal["literal"]): literal["value"] for literal in core["literal_values"]}
     signatures = [
         s
         for s in signatures
@@ -567,7 +567,8 @@ def qualify(
                 client, {"kind": "occurrence", "occurrence": default["expression"]}
             )
             expected_source = ast.get_source_segment(source.decode(), expected)
-            require(expected_source is not None, "independent default source span missing")
+            if expected_source is None:
+                raise AssertionError("independent default source span missing")
             check_original(body, expected_source.encode())
             require(
                 source[original["start"] : original["end"]] == body,

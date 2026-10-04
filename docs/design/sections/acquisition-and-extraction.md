@@ -207,7 +207,7 @@ grants. Canonical Ruff syntax and Pyrefly typing retain their own provider/run c
 within the joint captured-input session; another provider’s matching family is not admitted.
 [§15.11](semantic-model.md#section-15-11) owns stage admission.
 
-> Decision: ADR-0117, ADR-0119
+> Decision: ADR-0117, ADR-0119, ADR-0121
 
 **Accepted target, 2026-10-03:** latest independent Ruff owns canonical syntax/contextual
 semantics, Pyrefly supplies native typing/callable/member/public evidence, and ty supplies requested

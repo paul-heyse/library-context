@@ -55,7 +55,7 @@ grants. Analytic consumption resolves those source receipts through separate ses
 graphs remain borrowed and checked for each consumer. CPU placement and independent RSS sampling
 are operational; they do not change analytic content or establish a speed benefit.
 
-> Decision: ADR-0044, ADR-0045, ADR-0071, ADR-0086, ADR-0106, ADR-0116
+> Decision: ADR-0044, ADR-0045, ADR-0071, ADR-0086, ADR-0106, ADR-0116, ADR-0121
 
 <a id="section-9-1"></a>
 

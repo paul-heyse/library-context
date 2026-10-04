@@ -10,7 +10,10 @@ def test_exact_source_and_digest_are_required() -> None:
     patch = b"observational patch"
     digest = hashlib.sha256(patch).hexdigest()
     lock = f'source = "{fork.FORK}?rev={revision}#{revision}"\n'
-    driver = f'pub const RUFF_REVISION: &str = "{revision}";\npub const RUFF_PATCH_SHA256: &str = "{digest}";'
+    driver = (
+        f'pub const RUFF_REVISION: &str = "{revision}";\n'
+        f'pub const RUFF_PATCH_SHA256: &str = "{digest}";'
+    )
     pins = revision + digest
     assert fork.one_revision(lock, driver, pins, patch) == (revision, [])
     assert fork.one_revision(lock, driver, pins, patch + b"changed")[1]

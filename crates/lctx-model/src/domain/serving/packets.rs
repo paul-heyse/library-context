@@ -518,7 +518,7 @@ packet!(NativeSourceSupportPacket {support:ProofReference,run:Id<attribution::Pr
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SourceCharacterizationPayload {
     Usage {
-        usage: SourceUsagePacket,
+        usage: Box<SourceUsagePacket>,
     },
     RuffDiagnostic {
         observation: Id<diagnostics::RuffDiagnosticObservation>,

@@ -22,6 +22,8 @@ unused_dependencies = "allow"
 [dependencies]
 ahash = { version = "0.8.12", features = ["serde"] }
 aho-corasick = { version = "1.1.5" }
+anstyle = { version = "1.0.14" }
+anyhow = { version = "1.0.104" }
 arc-swap = { version = "1.9.2", default-features = false, features = ["weak"] }
 arrayvec = { version = "0.7.8" }
 arrow-array = { version = "59.3.0", default-features = false, features = ["chrono-tz"] }
@@ -29,9 +31,13 @@ arrow-schema = { version = "59.3.0", default-features = false, features = ["cano
 base64-2b5c6dc72f624058 = { package = "base64", version = "0.23.1" }
 base64-3c51e837cfc5589a = { package = "base64", version = "0.22.1" }
 bigdecimal = { version = "0.4.10" }
+bit-set = { version = "0.8.0" }
 bitvec = { version = "1.0.1" }
 blake3 = { version = "1.8.6", features = ["mmap", "rayon", "traits-preview"] }
+bstr = { version = "1.13.1" }
 byteorder = { version = "1.5.0" }
+camino = { version = "1.2.6", default-features = false, features = ["serde1"] }
+char_str = { version = "0.0.4", features = ["get-size", "serde"] }
 chrono = { version = "0.4.45" }
 compact_str = { version = "0.10.0", features = ["serde"] }
 crossbeam-epoch = { version = "0.9.21" }
@@ -48,13 +54,16 @@ futures-channel = { version = "0.3.34", features = ["sink"] }
 futures-core = { version = "0.3.34" }
 futures-sink = { version = "0.3.34" }
 futures-util = { version = "0.3.34", features = ["channel", "io", "sink"] }
-get-size2 = { version = "0.11.0", features = ["compact-str", "derive", "hashbrown", "indexmap", "ordermap", "smallvec", "thin-vec"] }
+get-size2 = { version = "0.11.0", features = ["compact-str", "derive", "hashbrown", "indexmap", "ordermap", "parking_lot", "smallvec", "thin-vec"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3.4", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2.17", default-features = false, features = ["std"] }
+globset = { version = "0.4.20" }
 half = { version = "2.7.1", default-features = false, features = ["bytemuck", "num-traits"] }
 hashbrown = { version = "0.17.1" }
 hex = { version = "0.4.3" }
-indexmap = { version = "2.14.2" }
+indexmap = { version = "2.14.2", features = ["serde"] }
+itertools = { version = "0.15.0" }
+lock_api = { version = "0.4.14", features = ["arc_lock"] }
 log = { version = "0.4.34", default-features = false, features = ["std"] }
 md-5 = { version = "0.11.0" }
 memchr = { version = "2.8.3" }
@@ -64,30 +73,41 @@ num-bigint-d8f496e17d97b5cb = { package = "num-bigint", version = "0.5.1", featu
 num-rational = { version = "0.4.2", features = ["num-bigint-std"] }
 num-traits = { version = "0.2.19", features = ["i128", "libm"] }
 once_cell = { version = "1.21.4", features = ["critical-section"] }
-ordermap = { version = "1.2.2" }
-portable-atomic = { version = "1.15.0" }
+ordermap = { version = "1.2.2", features = ["serde"] }
+parking_lot = { version = "0.12.5", features = ["arc_lock", "send_guard"] }
+peg-runtime = { version = "0.8.6", default-features = false, features = ["std"] }
 postgres-types = { version = "0.2.14", default-features = false, features = ["with-chrono-0_4", "with-geo-types-0_7", "with-serde_json-1", "with-uuid-1"] }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10.3" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.8" }
+regex = { version = "1.13.1" }
 regex-automata = { version = "0.4.18", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
 regex-syntax = { version = "0.8.11" }
+ruff_db = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["cache", "junit", "serde"] }
+ruff_diagnostics = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["serde"] }
+ruff_python_ast = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["cache", "get-size", "salsa", "serde"] }
+ruff_ranged_value = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["get-size"] }
+ruff_source_file = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["get-size", "serde"] }
+ruff_text_size = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["get-size", "serde"] }
 rust_decimal = { version = "1.43.0", features = ["db-postgres"] }
+rustc-hash = { version = "2.1.3" }
 rustls = { version = "0.23.45", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 sea-query = { version = "1.0.2", features = ["postgres-array", "with-bigdecimal", "with-chrono", "with-rust_decimal", "with-time"] }
+seahash = { version = "4.1.0" }
 serde = { version = "1.0.229", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1.0.229", features = ["alloc", "rc"] }
 serde_json = { version = "1.0.151", features = ["alloc", "float_roundtrip", "preserve_order", "raw_value", "unbounded_depth"] }
 serde_spanned = { version = "1.1.1" }
-serde_with = { version = "3.23.0", features = ["hex", "json"] }
+serde_with = { version = "3.24.0", features = ["hex", "json"] }
 sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10.9" }
 sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11.0" }
+similar = { version = "3.2.0", features = ["bytes", "inline", "unicode"] }
 slab = { version = "0.4.12" }
 smallvec = { version = "1.16.1", default-features = false, features = ["const_new", "serde", "union"] }
 sqlx-core = { version = "0.9.0", features = ["_rt-tokio", "_tls-rustls-ring-native-roots", "json", "migrate", "offline"] }
 strum = { version = "0.28.0", features = ["derive"] }
 sync_wrapper = { version = "1.0.2", default-features = false, features = ["futures"] }
 thin-vec = { version = "0.2.20", features = ["serde"] }
-thiserror = { version = "2.0.20" }
+thiserror = { version = "2.0.21" }
 time = { version = "0.3.55", features = ["macros", "serde-well-known"] }
 tokio = { version = "1.53.1", features = ["fs", "io-util", "macros", "net", "parking_lot", "process", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1.19", features = ["fs", "net", "sync"] }
@@ -98,18 +118,25 @@ toml_parser = { version = "1.1.3" }
 toml_writer = { version = "1.1.2" }
 tracing = { version = "0.1.44", features = ["log", "valuable"] }
 tracing-core = { version = "0.1.36", features = ["valuable"] }
+ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["serde"] }
+ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["zstd"] }
 typenum = { version = "1.20.1", default-features = false, features = ["const-generics"] }
+unicode-normalization = { version = "0.1.25" }
+unicode-width = { version = "0.2.2" }
+unicode_names2 = { version = "1.3.0" }
 url = { version = "2.5.8", features = ["serde"] }
 uuid = { version = "1.26.1", features = ["js", "rng-getrandom", "v4"] }
 whoami = { version = "2.1.3" }
 winnow = { version = "1.0.4" }
 zerocopy = { version = "0.8.57", default-features = false, features = ["derive", "simd"] }
-zstd = { version = "0.13.3" }
-zstd-safe = { version = "7.3.0", default-features = false, features = ["arrays", "legacy", "std", "zdict_builder"] }
+zip = { version = "8.6.0", default-features = false, features = ["zstd"] }
+zstd = { version = "0.14.0" }
+zstd-safe = { version = "8.0.0", default-features = false, features = ["arrays", "legacy", "std", "zdict_builder"] }
 zstd-sys = { version = "2.1.0", default-features = false, features = ["legacy", "std", "zdict_builder"] }
 
 [build-dependencies]
 aho-corasick = { version = "1.1.5", default-features = false, features = ["perf-literal", "std"] }
+anyhow = { version = "1.0.104" }
 base64-3c51e837cfc5589a = { package = "base64", version = "0.22.1", default-features = false, features = ["alloc"] }
 blake3 = { version = "1.8.6" }
 byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
@@ -126,15 +153,20 @@ futures-util = { version = "0.3.34", default-features = false, features = ["io",
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2.17", default-features = false, features = ["std"] }
 hex = { version = "0.4.3" }
 indexmap = { version = "2.14.2" }
+itertools = { version = "0.15.0", default-features = false, features = ["use_std"] }
+lock_api = { version = "0.4.14" }
 memchr = { version = "2.8.3" }
 num-traits = { version = "0.2.19", default-features = false, features = ["std"] }
 once_cell = { version = "1.21.4" }
+parking_lot = { version = "0.12.5" }
 phf_shared = { version = "0.11.3" }
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10.3", default-features = false, features = ["thread_rng"] }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.8", features = ["small_rng"] }
+regex = { version = "1.13.1" }
 regex-automata = { version = "0.4.18" }
 regex-syntax = { version = "0.8.11" }
+rustc-hash = { version = "2.1.3", default-features = false, features = ["std"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1.0.229", default-features = false, features = ["alloc", "rc", "result", "std"] }
@@ -145,40 +177,50 @@ smallvec = { version = "1.16.1", default-features = false, features = ["const_ge
 sqlx-core = { version = "0.9.0", features = ["_rt-tokio", "_tls-rustls-ring-native-roots", "any", "json", "migrate", "offline"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3.0.6", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2.0.119", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
-thiserror = { version = "2.0.20", default-features = false, features = ["std"] }
+thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 time-macros = { version = "0.2.32", default-features = false, features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1.53.1", features = ["fs", "io-util", "net", "rt", "sync", "time"] }
 tokio-stream = { version = "0.1.19", features = ["fs"] }
 tracing = { version = "0.1.44", features = ["log"] }
 tracing-core = { version = "0.1.36", default-features = false, features = ["std"] }
 typenum = { version = "1.20.1", default-features = false, features = ["const-generics"] }
+unicode-normalization = { version = "0.1.25" }
+unicode-width = { version = "0.2.2" }
 url = { version = "2.5.8" }
 zerocopy = { version = "0.8.57", default-features = false, features = ["simd"] }
-zstd = { version = "0.13.3", features = ["experimental", "zstdmt"] }
-zstd-safe = { version = "7.3.0", default-features = false, features = ["arrays", "experimental", "legacy", "std", "zdict_builder", "zstdmt"] }
+zip = { version = "8.6.0", default-features = false, features = ["zstd"] }
+zstd = { version = "0.14.0", features = ["experimental", "zstdmt"] }
+zstd-safe = { version = "8.0.0", default-features = false, features = ["arrays", "experimental", "legacy", "std", "zdict_builder", "zstdmt"] }
 zstd-sys = { version = "2.1.0", default-features = false, features = ["experimental", "legacy", "std", "zdict_builder", "zstdmt"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2.13.2", default-features = false, features = ["std"] }
 bytes = { version = "1.12.1", features = ["serde"] }
 futures = { version = "0.3.34", features = ["compat"] }
+futures-task = { version = "0.3.34", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["compat"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.3", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1.11.1", features = ["client", "http1", "http2", "server"] }
+hyper-rustls = { version = "0.27.10", default-features = false, features = ["aws-lc-rs", "http1", "tls12"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 ipnet = { version = "2.12.2", features = ["serde"] }
 libc = { version = "0.2.189" }
 mio = { version = "1.2.3", features = ["net", "os-ext"] }
 rustix = { version = "1.1.5", features = ["fs", "termios"] }
+rustls = { version = "0.23.45", default-features = false, features = ["aws-lc-rs", "aws_lc_rs"] }
+rustls-webpki = { version = "0.103.15", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 tokio = { version = "1.53.1", default-features = false, features = ["full", "test-util"] }
+tokio-rustls = { version = "0.26.5", default-features = false, features = ["aws-lc-rs", "tls12"] }
 tower = { version = "0.5.3", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2.13.2", default-features = false, features = ["std"] }
 bytes = { version = "1.12.1" }
+futures-task = { version = "0.3.34", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.3", default-features = false, features = ["std", "sys_rng"] }
 libc = { version = "0.2.189" }
 mio = { version = "1.2.3", default-features = false, features = ["net", "os-ext"] }
 rustix = { version = "1.1.5", default-features = false, features = ["fs", "std"] }
+rustls-webpki = { version = "0.103.15", default-features = false, features = ["ring", "std"] }
 
 ### END HAKARI SECTION

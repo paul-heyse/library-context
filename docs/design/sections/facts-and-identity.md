@@ -110,7 +110,7 @@ membership. Completeness requires its own evidence. One supported alternative do
 an unresolved sibling, and an empty observed set is not a negative. Normalized policy and call-shape
 binding are owned by [§15.5](semantic-model.md#section-15-5); consumers do not infer a second policy.
 
-> Decision: ADR-0117
+> Decision: ADR-0117, ADR-0121
 
 ### §3.7 Coverage and boundaries
 

@@ -297,7 +297,9 @@ impl PacketLease<'_> {
                         .source_support(support, &q, FactFamily::Calls, "pyrefly")
                         .await?;
                     let usage = self.source_usage(&row, &raw, grant, &mut charge).await?;
-                    (SourceCharacterizationPayload::Usage { usage }, basis)
+                    // The per-characterization precharge covers this fixed payload;
+                    // the usage operation separately charges its retained collections.
+                    (SourceCharacterizationPayload::Usage { usage: Box::new(usage) }, basis)
                 }
                 NativeAssertionPremise::RuffDiagnosticObservation { assertion, support } => {
                     let raw = required(

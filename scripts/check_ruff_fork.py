@@ -70,7 +70,8 @@ def main(argv: list[str]) -> int:
         print(f"ruff-fork: {problem}")
     if not problems:
         print(
-            f"ruff-fork: passed ({revision[:8]} locked, driver/pins/digest agree, upstream plus exact patch)"
+            f"ruff-fork: passed ({revision[:8]} locked, driver/pins/digest agree, "
+            "upstream plus exact patch)"
         )
     return int(bool(problems))
 
