@@ -4,7 +4,7 @@
 //! A same-name load screens every class; unresolved dynamic receivers screen all classes.
 use super::{
     evaluation::EvaluationData,
-    read_channels::{ReadAssessment, ReadRecords, Work, input_scope, native, selected},
+    read_channels::{ReadAssessment, ReadRecords, Work, declared_class_inspection, input_scope, native, selected, source_class_hierarchy},
 };
 use crate::domain::{
     analysis::{
@@ -186,8 +186,8 @@ fn class_of_scope(
     data.classes.get(id)?;
     Some((id, function))
 }
-/// Exact complete native MRO plus canonical sequence membership. Missing native class shape
-/// cannot justify excluding a known dynamic class from another class's read screen.
+/// Exact complete source MRO plus canonical sequence membership, retaining report provenance.
+/// Missing class shape cannot exclude a dynamic class from another class's source read screen.
 type ChargedHierarchy = (
     Id<calls::ProviderSymbol>,
     charged::ChargedSet<Id<calls::ProviderSymbol>>,
@@ -215,7 +215,7 @@ fn hierarchy(
     if symbols.next().is_some() {
         return Ok(None);
     };
-    if native(
+    if declared_class_inspection(
         super::read_channels::NativeContext {
             data,
             entry,
@@ -241,7 +241,7 @@ fn hierarchy(
     };
     if rows.next().is_some()
         || mro.linearization != Some(Linearization::Complete)
-        || native(
+        || source_class_hierarchy(
             super::read_channels::NativeContext {
                 data,
                 entry,
@@ -342,7 +342,7 @@ fn receiver_sources(
         return Ok(None);
     };
     for premise in [
-        native(
+        declared_class_inspection(
             super::read_channels::NativeContext {
                 data,
                 entry,
@@ -354,7 +354,7 @@ fn receiver_sources(
             function,
             work,
         )?,
-        native(
+        declared_class_inspection(
             super::read_channels::NativeContext {
                 data,
                 entry,
@@ -366,7 +366,7 @@ fn receiver_sources(
             function,
             work,
         )?,
-        native(
+        declared_class_inspection(
             super::read_channels::NativeContext {
                 data,
                 entry,

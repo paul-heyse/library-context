@@ -410,6 +410,7 @@ pub(super) struct NativeContext<'a> {
 enum NativeQuestion {
     ExecutableRead,
     DeclaredClassInspection,
+    SourceClassHierarchy,
 }
 fn native_authority(
     attribution: &SupportAttribution,
@@ -418,6 +419,11 @@ fn native_authority(
     question: NativeQuestion,
 ) -> bool {
     use NativeAssertionPremise as P;
+    if question == NativeQuestion::SourceClassHierarchy
+        && !matches!(premise, P::ClassAncestryObservation { .. })
+    {
+        return false;
+    }
     // These are source-syntax questions, including CallSyntax used by read_dynamic.
     // Parameter declarations and function traits remain analyzer questions even though
     // their families can also contain canonical parameter syntax.
@@ -430,13 +436,13 @@ fn native_authority(
             | P::SyntaxDetailObservation { .. }
             | P::ParameterSyntaxObservation { .. }
     );
-    let report_inspection = question == NativeQuestion::DeclaredClassInspection
-        && matches!(
-            premise,
-            P::FunctionTraitObservation { .. }
-                | P::SymbolDeclaration { .. }
-                | P::ParameterDeclaration { .. }
-        )
+    let report_inspection = match question {
+        NativeQuestion::DeclaredClassInspection => matches!(premise,
+            P::FunctionTraitObservation { .. } | P::SymbolDeclaration { .. }
+                | P::ParameterDeclaration { .. }),
+        NativeQuestion::SourceClassHierarchy => matches!(premise, P::ClassAncestryObservation { .. }),
+        NativeQuestion::ExecutableRead => false,
+    }
         && attribution.origin == Origin::AnalyzerAssertion
         && attribution.fidelity == Fidelity::ReportProjection;
     attribution.mode == ExtractionMode::NativeTraversal
@@ -490,6 +496,18 @@ pub(super) fn declared_class_inspection<S: Support>(
         NativeQuestion::DeclaredClassInspection,
     )
 }
+/// Source-model ancestry inspection retains its report projection. The caller must
+/// replay the complete MRO sequence; this grants no runtime class or read authority.
+pub(super) fn source_class_hierarchy(
+    native_context: NativeContext<'_>,
+    supports: &Rows<symbols::ClassAncestrySupport>,
+    assertion: Id<symbols::ClassAncestryObservation>,
+    q: Id<AssertionQualification>,
+    site: Id<Occurrence>,
+    work: &mut Work,
+) -> Result<Option<NativeSupport>, ModelError> {
+    native_for(native_context, supports, assertion, q, site, work, NativeQuestion::SourceClassHierarchy)
+}
 fn native_for<S: Support>(
     native_context: NativeContext<'_>,
     supports: &Rows<S>,
@@ -524,6 +542,10 @@ fn native_for<S: Support>(
             continue;
         };
         if qualification.context != invocation.context
+            || (question == NativeQuestion::SourceClassHierarchy
+                && (qualification.modality != Modality::Definite
+                    || qualification.approximation != Approximation::Exact
+                    || qualification.condition != conditions::Diagram::always().id()))
             || !input_scope(
                 entry,
                 qualification.scope,
@@ -1232,6 +1254,29 @@ mod native_authority_tests {
             &n,
             NativeQuestion::DeclaredClassInspection
         ));
+    }
+    #[test]
+    fn projected_mro_has_only_bounded_source_hierarchy_authority() {
+        let a = SupportAttribution { run:id(1),surface:id(2),evidence:id(3),
+            origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,
+            fidelity:Fidelity::ReportProjection };
+        let pair = NativeAssertionPremise::ClassAncestryObservation { assertion:id(4),support:id(5) };
+        let n = analysis::native::NativeQualification { premise:pair.id(),qualification:id(6),
+            family:FactFamily::Signatures,fidelity:Fidelity::ReportProjection,
+            status:EvidenceStatus::StructurallyObserved };
+        assert!(native_authority(&a,&pair,&n,NativeQuestion::SourceClassHierarchy));
+        assert!(!native_authority(&a,&pair,&n,NativeQuestion::ExecutableRead));
+        assert!(!native_authority(&a,&pair,&n,NativeQuestion::DeclaredClassInspection));
+        for changed in [SupportAttribution {origin:Origin::DerivedAnalysis,..a},
+            SupportAttribution {mode:ExtractionMode::Recognizer,..a},
+            SupportAttribution {fidelity:Fidelity::NativeStructural,..a}] {
+            assert!(!native_authority(&changed,&pair,&n,NativeQuestion::SourceClassHierarchy));
+        }
+        let use_ = NativeAssertionPremise::Use {assertion:id(4),support:id(5)};
+        assert!(!native_authority(&a,&use_,&n,NativeQuestion::SourceClassHierarchy));
+        let structural = SupportAttribution {fidelity:Fidelity::NativeStructural,..a};
+        let structural_n = analysis::native::NativeQualification {fidelity:Fidelity::NativeStructural,..n};
+        assert!(!native_authority(&structural,&use_,&structural_n,NativeQuestion::SourceClassHierarchy));
     }
     #[test]
     fn declared_inspection_run_selection_does_not_promote_a_recognizer_duplicate() {

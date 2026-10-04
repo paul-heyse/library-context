@@ -486,7 +486,10 @@ async fn native_store_boundary_has_the_actual_rhs_premise() {
     let support = d
         .symbolic_resolution_supports
         .iter()
-        .find(|s| s.assertion == resolution.id())
+        .find(|s| s.assertion == resolution.id()
+            && s.origin == attribution::Origin::DerivedAnalysis
+            && s.mode == attribution::ExtractionMode::Recognizer
+            && s.fidelity == attribution::Fidelity::NormalizedStructural)
         .unwrap();
     assert_eq!(
         support.fidelity,
@@ -494,6 +497,12 @@ async fn native_store_boundary_has_the_actual_rhs_premise() {
     );
     assert_eq!(support.mode, attribution::ExtractionMode::Recognizer);
     assert_eq!(support.origin, attribution::Origin::DerivedAnalysis);
+    assert!(d.symbolic_resolution_supports.iter().any(|s|
+        s.assertion == resolution.id()
+            && s.origin == attribution::Origin::AnalyzerAssertion
+            && s.mode == attribution::ExtractionMode::NativeTraversal
+            && s.fidelity == attribution::Fidelity::NativeStructural),
+        "the separate native Ruff resolution support remains attributed");
     assert_eq!(
         definitions.len(),
         1,
