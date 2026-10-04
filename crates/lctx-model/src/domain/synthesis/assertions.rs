@@ -66,6 +66,8 @@ pub enum AssertionTemplate {
     AuthoredComponent {
         conclusion: Id<DocumentaryConclusion>,
     },
+    #[model(code = 6)]
+    TerminalSummary { witness: Id<execution::summary_terminal::SummaryTerminalWitness> },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "programmatic_assertion_sources")]
@@ -90,6 +92,8 @@ pub enum AssertionSource {
     AuthoredCode {
         conclusion: Id<super::patterns::AuthoredCodeConclusion>,
     },
+    #[model(code = 5)]
+    TerminalSummary { witness: Id<execution::summary_terminal::SummaryTerminalWitness> },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="programmatic_assertions",invariants=invariants,semantic_source=include_bytes!("assertions.rs"))]
@@ -499,6 +503,7 @@ pub fn build_all(
     o: &super::observations::Data,
     controls: &ControlData,
     summary: &super::summary::Data,
+    terminal: &super::terminal::Data,
     patterns: &super::patterns::Data,
     public: &Rows<structural::PublicCandidate>,
     frames: &Rows<super::frames::Frame>,
@@ -508,9 +513,22 @@ pub fn build_all(
     let mut out = build(d, docs, o, controls, public, frames, invocations, b)?;
     let (facets, _) = super::summary::build(summary, d, frames, invocations, b)?;
     extend_summary(summary, o, &facets, frames, invocations, &mut out, b)?;
+    extend_terminal(terminal, summary, o, d, frames, invocations, &mut out, b)?;
     let code = super::patterns::build(patterns, d, frames, invocations, b)?;
     extend_patterns(patterns, d, &code, frames, invocations, &mut out, b)?;
     Ok(out)
+}
+#[allow(clippy::too_many_arguments, reason = "Terminal lowering retains separate nominal owners and qualified evidence.")]
+fn extend_terminal(d:&super::terminal::Data, summary:&super::summary::Data, observations:&super::observations::Data, docs:&documentary::Data, frames:&Rows<super::frames::Frame>, invocations:&Rows<owner::Invocation>, out:&mut Output, b:&ResourceBudget)->Result<(),ModelError>{
+ for frame in frames.iter(){let inv=need(invocations,frame.invocation)?;
+  for checked in super::terminal::selected(d,summary,&observations.qualifications,frame,inv)?{
+   for member in super::terminal::linked(docs,checked.frontier.owner,inv)?{
+    let template=AssertionTemplate::TerminalSummary{witness:checked.witness.id()};let source=AssertionSource::TerminalSummary{witness:checked.witness.id()};
+    let (assertion,support)=emit(inv.id(),member,&template,AssertionContent{kind:AssertionKind::ApplicableCase,source:&source,facts:checked.facts(),text:"Given entry to this invocation and the retained typing assumptions, the direct following statement has no normal continuation. Invocation entry was not established; effects, exceptions and cleanup remain unknown.".into()},b)?;
+    out.templates.insert(template)?;out.sources.insert(source)?;out.assertions.insert(assertion)?;out.supports.insert(support)?;
+   }
+  }
+ }Ok(())
 }
 pub fn extend_patterns(
     d: &super::patterns::Data,
@@ -866,6 +884,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.extend(super::observations::Data::inputs());
     inputs.extend(ControlData::inputs());
     inputs.extend(super::summary::Data::inputs());
+    inputs.extend(super::terminal::Data::inputs());
     inputs.extend(super::patterns::Data::inputs(stages::Profile::Behavioral));
     inputs.extend([
         ValidationInput::of::<super::frames::Frame>(&["id"]),
@@ -883,6 +902,7 @@ pub fn invariants() -> Vec<Invariant> {
                 observations: super::observations::Data::new(b),
                 controls: ControlData::new(b),
                 summary: super::summary::Data::new(b),
+                terminal: super::terminal::Data::new(b),
                 patterns: super::patterns::Data::new(b),
                 frames: Rows::new(b),
                 public: Rows::new(b),
@@ -899,6 +919,7 @@ struct Check {
     observations: super::observations::Data,
     controls: ControlData,
     summary: super::summary::Data,
+    terminal: super::terminal::Data,
     patterns: super::patterns::Data,
     frames: Rows<super::frames::Frame>,
     public: Rows<structural::PublicCandidate>,
@@ -924,11 +945,12 @@ impl InvariantCheck for Check {
         let observations = self.observations.visit(n, b)?;
         let controls = self.controls.visit(n, b)?;
         let summary = self.summary.visit(n, b)?;
+        let terminal = self.terminal.visit(n, b)?;
         let patterns = self.patterns.visit(n, b)?;
         let a = self.data.visit(n, b)?;
         let c = self.conclusions.visit(n, b)?;
         let o = self.output.visit(n, b)?;
-        if !a && !c && !o && !observations && !summary && !patterns && !controls {
+        if !a && !c && !o && !observations && !summary && !terminal && !patterns && !controls {
             return Err(invalid("undeclared assertion replay input"));
         }
         Ok(())
@@ -942,6 +964,7 @@ impl InvariantCheck for Check {
             &self.observations,
             &self.controls,
             &self.summary,
+            &self.terminal,
             &self.patterns,
             &self.public,
             &self.frames,

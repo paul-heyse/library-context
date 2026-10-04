@@ -368,6 +368,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.extend(super::observations::Data::inputs());
     inputs.extend(assertions::ControlData::inputs());
     inputs.extend(super::summary::Data::inputs());
+    inputs.extend(super::terminal::Data::inputs());
     inputs.extend(super::patterns::Data::inputs(stages::Profile::Behavioral));
     inputs.extend([
         ValidationInput::of::<super::frames::Frame>(&["id"]),
@@ -386,6 +387,7 @@ pub fn invariants() -> Vec<Invariant> {
                 observations: super::observations::Data::new(b),
                 controls: assertions::ControlData::new(b),
                 summary: super::summary::Data::new(b),
+                terminal: super::terminal::Data::new(b),
                 patterns: super::patterns::Data::new(b),
                 frames: Rows::new(b),
                 public: Rows::new(b),
@@ -404,6 +406,7 @@ struct Check {
     observations: super::observations::Data,
     controls: assertions::ControlData,
     summary: super::summary::Data,
+    terminal: super::terminal::Data,
     patterns: super::patterns::Data,
     frames: Rows<super::frames::Frame>,
     public: Rows<structural::PublicCandidate>,
@@ -430,13 +433,14 @@ impl InvariantCheck for Check {
         let observations = self.observations.visit(n, b)?;
         let controls = self.controls.visit(n, b)?;
         let summary = self.summary.visit(n, b)?;
+        let terminal = self.terminal.visit(n, b)?;
         let patterns = self.patterns.visit(n, b)?;
         let d = self.data.visit(n, b)?;
         let doc = self.docs.visit(n, b)?;
         let a = self.assertions.visit(n, b)?;
         let s = self.seeds.visit(n, b)?;
         let o = self.output.visit(n, b)?;
-        if !d && !doc && !a && !s && !o && !observations && !summary && !patterns && !controls {
+        if !d && !doc && !a && !s && !o && !observations && !summary && !terminal && !patterns && !controls {
             return Err(invalid("undeclared brief replay input"));
         }
         Ok(())
@@ -450,6 +454,7 @@ impl InvariantCheck for Check {
             &self.observations,
             &self.controls,
             &self.summary,
+            &self.terminal,
             &self.patterns,
             &self.public,
             &self.frames,

@@ -21,6 +21,7 @@ pub fn definition() -> (MethodParameters, AnalysisDefinition) {
         include_bytes!("production.rs").as_slice(),
         include_bytes!("observations.rs").as_slice(),
         include_bytes!("summary.rs").as_slice(),
+        include_bytes!("terminal.rs").as_slice(),
         include_bytes!("patterns.rs").as_slice(),
         include_bytes!("documentary.rs").as_slice(),
         include_bytes!("documentary_templates.rs").as_slice(),

@@ -14,6 +14,7 @@ pub struct Data {
     pub observations: super::observations::Data,
     pub controls: super::assertions::ControlData,
     pub summary: super::summary::Data,
+    pub terminal: super::terminal::Data,
     pub patterns: super::patterns::Data,
     pub public: Rows<structural::PublicCandidate>,
 }
@@ -26,6 +27,7 @@ impl Data {
             observations: super::observations::Data::new(b),
             controls: super::assertions::ControlData::new(b),
             summary: super::summary::Data::new(b),
+            terminal: super::terminal::Data::new(b),
             patterns: super::patterns::Data::new(b),
             public: Rows::new(b),
         }
@@ -43,8 +45,9 @@ impl Data {
         let o = self.observations.visit(n, b)?;
         let controls = self.controls.visit(n, b)?;
         let summary = self.summary.visit(n, b)?;
+        let terminal = self.terminal.visit(n, b)?;
         let patterns = self.patterns.visit(n, b)?;
-        Ok(f || d || a || p || o || summary || patterns || controls)
+        Ok(f || d || a || p || o || summary || terminal || patterns || controls)
     }
     pub fn consumed_inputs(profile: Profile) -> Vec<ValidationInput> {
         let mut inputs = Self::inputs(profile);
@@ -72,6 +75,7 @@ impl Data {
                 }),
         );
         rows.extend(super::summary::Data::inputs());
+        rows.extend(super::terminal::Data::inputs());
         rows.extend(super::patterns::Data::inputs(profile));
         rows.push(ValidationInput::of::<structural::PublicCandidate>(&["id"]));
         rows.sort_by_key(|r| (r.name(), r.prefix(), r.order().to_vec()));

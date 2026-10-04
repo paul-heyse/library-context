@@ -38,6 +38,8 @@ code_schema!(
     attribution::Origin,
     attribution::ExtractionMode,
     execution::ExactRuntimeException,
+    execution::protocol_interpretation::InvocationQuestion,
+    execution::closed_targets::TargetBasis,
     types::TypeRole,
     selection::EvidenceBasis,
     selection::Mode,

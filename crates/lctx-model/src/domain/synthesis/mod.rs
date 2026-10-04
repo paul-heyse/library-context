@@ -5,6 +5,7 @@ pub mod observations;
 pub mod patterns;
 pub mod production;
 pub mod summary;
+pub mod terminal;
 
 pub mod assertions;
 pub mod automatic;

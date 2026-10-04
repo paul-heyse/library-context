@@ -700,10 +700,14 @@ fn evidence_body_pages_omit_terminal_continuation_and_reject_null() {
 
 #[test]
 fn capability_assertion_status_is_structured_and_visible_without_rewriting_authored_bytes() {
-    let claim = json!({"assertion":vec![1u8;16],"kind":0,"section":0,"status":1,"qualification":vec![2u8;16],"claim_basis":{"set":lctx_model::domain::assumptions::AssumptionSet::empty_id(),"members_digest":lctx_model::domain::assumptions::AssumptionSet::empty().members,"definitions":[]},"text":"Authored result.","supports":[{"support":vec![3u8;16],"role":0,"source":vec![4u8;16],"proof":[{"relation":"programmatic_assertion_sources","row":vec![4u8;16]}]}]});
+    let claim = json!({"assertion":vec![1u8;16],"kind":0,"section":0,"status":1,"qualification":vec![2u8;16],"claim_basis":{"set":lctx_model::domain::assumptions::AssumptionSet::empty_id(),"members_digest":lctx_model::domain::assumptions::AssumptionSet::empty().members,"definitions":[]},"terminal_question":null,"text":"Authored result.","supports":[{"support":vec![3u8;16],"role":0,"source":vec![4u8;16],"proof":[{"relation":"programmatic_assertion_sources","row":vec![4u8;16]}]}]});
     let schema = schema_for::<AssertionPacket>(true);
     let validator = jsonschema::validator_for(&schema).unwrap();
     assert!(validator.is_valid(&claim));
+    let mut missing = claim.clone();
+    missing.as_object_mut().unwrap().remove("terminal_question");
+    assert!(!validator.is_valid(&missing));
+    assert!(serde_json::from_value::<AssertionPacket>(missing).is_err());
     let mut invalid = claim.clone();
     invalid["status"] = json!(99);
     assert!(!validator.is_valid(&invalid));

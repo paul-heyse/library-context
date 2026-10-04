@@ -171,6 +171,7 @@ pub async fn produce(
         &data.observations,
         &data.controls,
         &data.summary,
+        &data.terminal,
         &data.patterns,
         &data.public,
         &frames,
