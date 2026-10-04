@@ -608,7 +608,11 @@ parallel DNF computation exists.
   - A refutation under partial coverage is unknown (`IncompleteCoverage`).
   - Priority names the most specific cause first.
 
-> Decision: ADR-0085
+**Implemented, 2026-10-03.** Conditional conclusions preserve the canonical premise
+set through composition and rendering (§15.3); missing or incompatible premise evidence
+refuses the operation rather than supplying an empty unconditional basis.
+
+> Decision: ADR-0085, ADR-0120
 
 <a id="section-15-9"></a>
 

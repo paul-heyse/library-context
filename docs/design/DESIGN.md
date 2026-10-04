@@ -433,7 +433,11 @@ inputs; unsafe ambient variables are refused and provider panics abort the attem
 Pyrefly types are encoded during the live transaction. The matching Pyrefly CLI is a parity
 oracle only. Exact current pins and dated verification belong to [pins](../pins.md).
 
-> Decision: ADR-0117
+**Implemented, 2026-10-03.** Finite stage grants name each family’s actual provider
+(§15.11). Native typing conclusions retain explicit model-owned premises (§3.9), so
+linked observation does not become unconditional runtime evidence.
+
+> Decision: ADR-0117, ADR-0119, ADR-0120
 
 <a id="section-b9"></a>
 
