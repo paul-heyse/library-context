@@ -328,10 +328,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def unpinned(manifest: Path, pins: Path) -> list[str]:
-    """Workspace dependencies without an exact pin (`=x.y.z` or a git `rev`) or a pins.md row.
+    """Exact workspace pins (`=x.y.z` or a git `rev`) without a docs/pins.md row.
 
-    A range pin lets `cargo update` move a dependency without a reviewed diff (H1 review F8). A row
-    names the crate anywhere in `pins.md`, or matches a first-column glob such as `arrow-*`.
+    Dependencies float: a caret or range requirement needs nothing, and `Cargo.lock` holds the
+    version. An exact pin is a deliberate exception and needs its recorded reason. A row names the
+    crate anywhere in `pins.md`, or matches a first-column glob such as `arrow-*`.
     """
     deps = tomllib.loads(manifest.read_text())["workspace"]["dependencies"]
     text = pins.read_text()
@@ -346,10 +347,8 @@ def unpinned(manifest: Path, pins: Path) -> list[str]:
     for name, spec in sorted(deps.items()):
         version = spec if isinstance(spec, str) else spec.get("version")
         exact = (version or "").startswith("=") or (isinstance(spec, dict) and "rev" in spec)
-        if not exact:
-            problems.append(f"{name}: not pinned exactly ({version!r})")
-        if name not in text and not any(name.startswith(g) for g in globs):
-            problems.append(f"{name}: no docs/pins.md row")
+        if exact and name not in text and not any(name.startswith(g) for g in globs):
+            problems.append(f"{name}: exact pin without a docs/pins.md row")
     return problems
 
 
