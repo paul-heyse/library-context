@@ -176,6 +176,14 @@ closure and cite those witnesses. Witnesses do not cite final aggregates. The sh
 DAG validator remains active. Transfer aggregation ORs admitted conditions and retains witness
 membership; evidence enumeration and response witness limits do not erase an established result.
 
+**Implemented / Interface-checked, 2026-10-04 (ADR-0123):** a composed witness retains the exact
+selected Source signature enumeration and native support when that scoped domain admits its body.
+Global-coverage admission retains no selected-domain pair. Shared replay reconstructs admission and
+compares the pair; declared enumeration-member premises expose every retained ordinal/signature
+through generic explanation within its existing limits. The nullable keyed premise additions change
+witness identity and schema; current snapshot/adapters and actual explanation qualification remain
+open in the analytical-enrichment coordinator. No effective-invocation status is promoted.
+
 `summary_consequences` distinguishes finite value alternatives from complete call-member closure.
 Every applicable target/variant/origin remains Proved, Open or Excluded with its own cause. One
 successful path does not close another origin or an unknown target. `domain::obligation` owns

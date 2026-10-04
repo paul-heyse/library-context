@@ -435,7 +435,7 @@ do not establish runtime invocation authority. The public verifier replays N1–
 binder before issuing `ValidatedBoundCall` and `CompositionAdmission`; arbitrary stored lower
 assessments or member rows cannot mint these tokens. P4 still owns the composition engine cutover.
 
-**Accepted target / Interface-checked, 2026-10-04:** source-body composition may use an exact,
+**Implemented / Interface-checked, 2026-10-04:** source-body composition may use an exact,
 complete published Source-role signature enumeration for the selected callable when unrelated
 artifact signatures are unavailable. Shared replay checks every selected member, digest and support
 and the unique binding rules; a private closure token retains that evidence. Independently Known

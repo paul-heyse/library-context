@@ -656,3 +656,29 @@ static inspection found and repaired standalone declaration/member evidence hydr
 found generic Summary explanation visibility missing the scoped enumeration/member domain despite
 correct replay; explicit typed premise links and actual explanation qualification remain in progress.
 No current full gate, hygiene, adapter or schema acceptance is claimed.
+
+
+Fresh focused receipts, **2026-10-04** (before the subsequent Summary schema migration):
+
+- Serving/Structural **failed**: 15 controls, 12 passed, two selection controls failed and one
+  Behavioral Structural journey timed out at final validation (`lctx-enrichment-serving-current-model.log`).
+  Conditional packets, capture packets, all three source-characterization controls, documentary
+  synthesis, Catalog Structural and all five corruption controls passed. The selection fixture
+  was validating its partial executed assembly as the entire model; its canonical executed-owner
+  dependency closure is repaired, with production embedding-text requirements unchanged.
+- Source calls/bindings **failed**: 17 controls, 16 passed; all original source-call and 11 binding
+  controls passed (`lctx-enrichment-selected-source-closure.log`). The new refusal control reached
+  its final foreign-invocation mutation, which assumed an absent fixture row. It now hydrates a
+  different actual provider run's invocation evidence; no control is skipped.
+- Reads **failed**: nine controls, seven passed; both original field-negative assertions passed
+  after shared native builtin-target admission (`lctx-enrichment-read-initializer-diagnostic.log`).
+  The new Partial Flow control lacked its required structured reason; that fixture is repaired.
+  The remaining ChoiceA positive requires exact cross-scope native FinalReference inspection,
+  without granting scope-exact closure-capture or runtime class authority.
+
+ADR-0123's selected enumeration/support Summary premise pair and generic member traversal are
+integrated (`79a2b874`, `a6bafbea`). Independent static review is **clean within this identified scope**,
+2026-10-04; no new cycle or global authority promotion found. All witness IDs change through new
+nullable keyed fields. Actual native PostgreSQL explanation/JSON wire parity, replay corruption
+controls, reviewed schema/adapters and the full gate/hygiene remain required. No MCP explanation
+interface is added: the new explanation control uses the existing native ProofReference service.
