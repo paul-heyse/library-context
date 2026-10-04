@@ -743,23 +743,46 @@ impl WitnessFixture {
                     put(&tables, c.places.segments.values().cloned());
                 }
                 Mutation::MissingSelectedEnumeration => {
-                    assert!(composed.witness.selected_signature_enumeration.take().is_some());
+                    assert!(
+                        composed
+                            .witness
+                            .selected_signature_enumeration
+                            .take()
+                            .is_some()
+                    );
                 }
                 Mutation::MissingSelectedEnumerationSupport => {
-                    assert!(composed.witness.selected_signature_enumeration_support.take().is_some());
+                    assert!(
+                        composed
+                            .witness
+                            .selected_signature_enumeration_support
+                            .take()
+                            .is_some()
+                    );
                 }
                 Mutation::ForeignSelectedEnumeration => {
                     composed.witness.selected_signature_enumeration = Some(
-                        f.data.signature_enumerations.iter()
-                            .find(|row| Some(row.id()) != composed.witness.selected_signature_enumeration)
-                            .expect("another actual native enumeration").id(),
+                        f.data
+                            .signature_enumerations
+                            .iter()
+                            .find(|row| {
+                                Some(row.id()) != composed.witness.selected_signature_enumeration
+                            })
+                            .expect("another actual native enumeration")
+                            .id(),
                     );
                 }
                 Mutation::ForeignSelectedEnumerationSupport => {
                     composed.witness.selected_signature_enumeration_support = Some(
-                        f.data.signature_enumeration_supports.iter()
-                            .find(|row| Some(row.id()) != composed.witness.selected_signature_enumeration_support)
-                            .expect("another actual native enumeration support").id(),
+                        f.data
+                            .signature_enumeration_supports
+                            .iter()
+                            .find(|row| {
+                                Some(row.id())
+                                    != composed.witness.selected_signature_enumeration_support
+                            })
+                            .expect("another actual native enumeration support")
+                            .id(),
                     );
                 }
                 Mutation::ForgedStatus => {}

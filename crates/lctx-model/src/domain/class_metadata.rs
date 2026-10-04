@@ -353,11 +353,17 @@ mod tests {
             };
             member.validate().unwrap();
             member.origin = MemberOrigin::Inherited;
-            assert!(member.validate().is_err(), "inherited origin needs a distinct defining class");
+            assert!(
+                member.validate().is_err(),
+                "inherited origin needs a distinct defining class"
+            );
             member.defining_class = id(4);
             member.validate().unwrap();
             member.origin = MemberOrigin::Source;
-            assert!(member.validate().is_err(), "source origin needs its own defining class");
+            assert!(
+                member.validate().is_err(),
+                "source origin needs its own defining class"
+            );
         }
     }
 }

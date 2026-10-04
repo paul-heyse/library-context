@@ -574,15 +574,21 @@ async fn documentary_failure_diagnostics(pool: &sqlx::PgPool, schema: &str) {
     for (label, query) in [
         (
             "component boundary reasons",
-            format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT reason,count(*) FROM {schema}.synthesis_documentary_component_boundaries GROUP BY reason ORDER BY reason) r"),
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT reason,count(*) FROM {schema}.synthesis_documentary_component_boundaries GROUP BY reason ORDER BY reason) r"
+            ),
         ),
         (
             "Docs native premise qualification groups",
-            format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT p.kind,q.family,q.fidelity,q.status,count(*) FROM {schema}.native_analysis_premises p LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id WHERE p.kind BETWEEN 16 AND 22 GROUP BY p.kind,q.family,q.fidelity,q.status ORDER BY p.kind,q.family,q.fidelity,q.status) r"),
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT p.kind,q.family,q.fidelity,q.status,count(*) FROM {schema}.native_analysis_premises p LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id WHERE p.kind BETWEEN 16 AND 22 GROUP BY p.kind,q.family,q.fidelity,q.status ORDER BY p.kind,q.family,q.fidelity,q.status) r"
+            ),
         ),
         (
             "component native proof samples",
-            format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT c.id AS component,to_jsonb(p) AS premise,to_jsonb(q) AS native_qualification,to_jsonb(a) AS assertion_qualification FROM {schema}.document_component_observations c LEFT JOIN {schema}.native_analysis_premises p ON p.documentcomponentobservation_assertion=c.id LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id LEFT JOIN {schema}.assertion_qualifications a ON a.id=c.qualification ORDER BY c.id,p.id LIMIT 16) r"),
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT c.id AS component,to_jsonb(p) AS premise,to_jsonb(q) AS native_qualification,to_jsonb(a) AS assertion_qualification FROM {schema}.document_component_observations c LEFT JOIN {schema}.native_analysis_premises p ON p.documentcomponentobservation_assertion=c.id LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id LEFT JOIN {schema}.assertion_qualifications a ON a.id=c.qualification ORDER BY c.id,p.id LIMIT 16) r"
+            ),
         ),
     ] {
         let sample = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(query))

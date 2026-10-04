@@ -358,7 +358,9 @@ impl Inspect<'_> {
         let mut selected = None;
         self.work.scan(self.data.lexical_resolutions.len())?;
         for row in self.data.lexical_resolutions.iter() {
-            if row.read != site || !self.always(row.qualification) { continue }
+            if row.read != site || !self.always(row.qualification) {
+                continue;
+            }
             if !self.observe(
                 &self.data.lexical_resolution_supports,
                 row.id(),
@@ -367,7 +369,9 @@ impl Inspect<'_> {
             )? {
                 continue;
             }
-            if selected.is_some() { return Ok(None) }
+            if selected.is_some() {
+                return Ok(None);
+            }
             selected = Some(row.target);
         }
         Ok(selected)
@@ -393,14 +397,30 @@ impl Inspect<'_> {
             return Ok(false);
         };
         let Some((binding, proof)) = super::read_channels::native_binding(
-            self.data, self.entry, self.invocation, event.id(), self.work,
-        )? else { return Ok(false) };
-        let Some(scope) = binding.scope else { return Ok(false) };
+            self.data,
+            self.entry,
+            self.invocation,
+            event.id(),
+            self.work,
+        )?
+        else {
+            return Ok(false);
+        };
+        let Some(scope) = binding.scope else {
+            return Ok(false);
+        };
         if !self.always(binding.qualification)
             || binding.kind != ruff::RuffBindingKind::Assignment
-            || binding.typing || binding.lazy || binding.deleted
-            || binding.external || binding.global || binding.nonlocal
-            || self.entry.lexical_scopes.get(scope)
+            || binding.typing
+            || binding.lazy
+            || binding.deleted
+            || binding.external
+            || binding.global
+            || binding.nonlocal
+            || self
+                .entry
+                .lexical_scopes
+                .get(scope)
                 .is_none_or(|s| s.kind != LexicalScopeKind::Function)
         {
             return Ok(false);
@@ -409,47 +429,104 @@ impl Inspect<'_> {
         // assignment; it never supplies the positive binding or lambda-value proof.
         self.work.scan(self.data.bindings.len())?;
         if self.data.bindings.iter().any(|b| {
-            b.event == event.id() && b.static_branch.is_some()
-                && self.entry.qualifications.get(b.qualification)
+            b.event == event.id()
+                && b.static_branch.is_some()
+                && self
+                    .entry
+                    .qualifications
+                    .get(b.qualification)
                     .is_some_and(|q| q.context == self.invocation.context)
-        }) { return Ok(false) }
+        }) {
+            return Ok(false);
+        }
         self.work.scan(self.data.ruff_bindings.len())?;
-        if self.data.ruff_bindings.iter().filter(|b| {
-            b.scope == Some(scope) && b.native_name == binding.native_name
-                && self.entry.qualifications.get(b.qualification)
-                    .is_some_and(|q| q.context == self.invocation.context)
-        }).count() != 1 {
+        if self
+            .data
+            .ruff_bindings
+            .iter()
+            .filter(|b| {
+                b.scope == Some(scope)
+                    && b.native_name == binding.native_name
+                    && self
+                        .entry
+                        .qualifications
+                        .get(b.qualification)
+                        .is_some_and(|q| q.context == self.invocation.context)
+            })
+            .count()
+            != 1
+        {
             return Ok(false);
         }
         // The native binding supplies identity; the original native syntax supplies its
         // lambda value. A recognizer's BindingObservation.value is not this proof.
         self.work.scan(self.data.placements.len())?;
-        let mut targets = self.data.placements.iter().filter(|p| {
-            p.occurrence == event.site && self.always(p.qualification)
-        });
-        let Some(target) = targets.next() else { return Ok(false) };
-        if targets.next().is_some() || !self.observe(
-            &self.entry.placement_supports, target.id(), target.qualification, event.site,
-        )? { return Ok(false) }
-        let Some(parent) = target.parent else { return Ok(false) };
-        if self.entry.occurrences.get(parent).is_none_or(|o| o.syntax_kind != SyntaxKind::StmtAssign) {
+        let mut targets = self
+            .data
+            .placements
+            .iter()
+            .filter(|p| p.occurrence == event.site && self.always(p.qualification));
+        let Some(target) = targets.next() else {
+            return Ok(false);
+        };
+        if targets.next().is_some()
+            || !self.observe(
+                &self.entry.placement_supports,
+                target.id(),
+                target.qualification,
+                event.site,
+            )?
+        {
             return Ok(false);
         }
-        self.work.scan(self.data.placements.len() + self.data.callables.len())?;
+        let Some(parent) = target.parent else {
+            return Ok(false);
+        };
+        if self
+            .entry
+            .occurrences
+            .get(parent)
+            .is_none_or(|o| o.syntax_kind != SyntaxKind::StmtAssign)
+        {
+            return Ok(false);
+        }
+        self.work
+            .scan(self.data.placements.len() + self.data.callables.len())?;
         let mut values = self.data.placements.iter().filter(|p| {
-            p.parent == Some(parent) && p.field == SyntaxField::Value
+            p.parent == Some(parent)
+                && p.field == SyntaxField::Value
                 && self.always(p.qualification)
         });
-        let Some(value) = values.next() else { return Ok(false) };
+        let Some(value) = values.next() else {
+            return Ok(false);
+        };
         if values.next().is_some()
-            || self.entry.occurrences.get(value.occurrence).is_none_or(|o| o.syntax_kind != SyntaxKind::ExprLambda)
-            || !self.data.callables.iter().any(|c| matches!(c, CallableEntity::Source {
+            || self
+                .entry
+                .occurrences
+                .get(value.occurrence)
+                .is_none_or(|o| o.syntax_kind != SyntaxKind::ExprLambda)
+            || !self.data.callables.iter().any(|c| {
+                matches!(c, CallableEntity::Source {
                 declaration, kind: CallableKind::Lambda
-            } if *declaration == value.occurrence))
-            || !self.observe(&self.entry.placement_supports, value.id(), value.qualification, value.occurrence)?
-        { return Ok(false) }
-        self.premises.insert(self.data.premises.get(proof.0)
-            .ok_or_else(|| ModelError::Invalid("lambda native binding premise missing".into()))?.clone())?;
+            } if *declaration == value.occurrence)
+            })
+            || !self.observe(
+                &self.entry.placement_supports,
+                value.id(),
+                value.qualification,
+                value.occurrence,
+            )?
+        {
+            return Ok(false);
+        }
+        self.premises.insert(
+            self.data
+                .premises
+                .get(proof.0)
+                .ok_or_else(|| ModelError::Invalid("lambda native binding premise missing".into()))?
+                .clone(),
+        )?;
         Ok(true)
     }
 
@@ -457,82 +534,199 @@ impl Inspect<'_> {
     /// recognizer rows can refuse conditional source shapes, but never supply this proof.
     fn global_value(&mut self, event: &BindingEvent) -> Result<Option<Id<Occurrence>>, ModelError> {
         let Some((binding, proof)) = super::read_channels::native_binding(
-            self.data, self.entry, self.invocation, event.id(), self.work,
-        )? else { return Ok(None) };
-        let Some(scope) = binding.scope else { return Ok(None) };
+            self.data,
+            self.entry,
+            self.invocation,
+            event.id(),
+            self.work,
+        )?
+        else {
+            return Ok(None);
+        };
+        let Some(scope) = binding.scope else {
+            return Ok(None);
+        };
         if !self.always(binding.qualification)
             || binding.kind != ruff::RuffBindingKind::Assignment
-            || binding.typing || binding.lazy || binding.deleted
-            || binding.external || binding.global || binding.nonlocal
-            || self.entry.lexical_scopes.get(scope)
+            || binding.typing
+            || binding.lazy
+            || binding.deleted
+            || binding.external
+            || binding.global
+            || binding.nonlocal
+            || self
+                .entry
+                .lexical_scopes
+                .get(scope)
                 .is_none_or(|s| s.kind != LexicalScopeKind::Module)
-        { return Ok(None) }
-        self.work.scan(self.data.bindings.len() + self.data.ruff_bindings.len())?;
+        {
+            return Ok(None);
+        }
+        self.work
+            .scan(self.data.bindings.len() + self.data.ruff_bindings.len())?;
         if self.data.bindings.iter().any(|b| {
-            b.event == event.id() && b.static_branch.is_some()
-                && self.entry.qualifications.get(b.qualification)
+            b.event == event.id()
+                && b.static_branch.is_some()
+                && self
+                    .entry
+                    .qualifications
+                    .get(b.qualification)
                     .is_some_and(|q| q.context == self.invocation.context)
-        }) || self.data.ruff_bindings.iter().filter(|b| {
-            b.scope == Some(scope) && b.native_name == binding.native_name
-                && self.entry.qualifications.get(b.qualification)
-                    .is_some_and(|q| q.context == self.invocation.context)
-        }).count() != 1 { return Ok(None) }
+        }) || self
+            .data
+            .ruff_bindings
+            .iter()
+            .filter(|b| {
+                b.scope == Some(scope)
+                    && b.native_name == binding.native_name
+                    && self
+                        .entry
+                        .qualifications
+                        .get(b.qualification)
+                        .is_some_and(|q| q.context == self.invocation.context)
+            })
+            .count()
+            != 1
+        {
+            return Ok(None);
+        }
         self.work.scan(self.data.placements.len())?;
-        let mut targets = self.data.placements.iter().filter(|p| {
-            p.occurrence == event.site && self.always(p.qualification)
-        });
-        let Some(target) = targets.next() else { return Ok(None) };
-        if targets.next().is_some() || !self.observe(
-            &self.entry.placement_supports, target.id(), target.qualification, event.site,
-        )? { return Ok(None) }
-        let Some(parent) = target.parent else { return Ok(None) };
-        if self.entry.occurrences.get(parent).is_none_or(|o| o.syntax_kind != SyntaxKind::StmtAssign) {
+        let mut targets = self
+            .data
+            .placements
+            .iter()
+            .filter(|p| p.occurrence == event.site && self.always(p.qualification));
+        let Some(target) = targets.next() else {
+            return Ok(None);
+        };
+        if targets.next().is_some()
+            || !self.observe(
+                &self.entry.placement_supports,
+                target.id(),
+                target.qualification,
+                event.site,
+            )?
+        {
+            return Ok(None);
+        }
+        let Some(parent) = target.parent else {
+            return Ok(None);
+        };
+        if self
+            .entry
+            .occurrences
+            .get(parent)
+            .is_none_or(|o| o.syntax_kind != SyntaxKind::StmtAssign)
+        {
             return Ok(None);
         }
         self.work.scan(self.data.placements.len())?;
         let mut values = self.data.placements.iter().filter(|p| {
-            p.parent == Some(parent) && p.field == SyntaxField::Value && self.always(p.qualification)
+            p.parent == Some(parent)
+                && p.field == SyntaxField::Value
+                && self.always(p.qualification)
         });
-        let Some(value) = values.next() else { return Ok(None) };
-        if values.next().is_some() || !self.observe(
-            &self.entry.placement_supports, value.id(), value.qualification, value.occurrence,
-        )? { return Ok(None) }
-        self.premises.insert(self.data.premises.get(proof.0)
-            .ok_or_else(|| ModelError::Invalid("global native binding premise missing".into()))?.clone())?;
+        let Some(value) = values.next() else {
+            return Ok(None);
+        };
+        if values.next().is_some()
+            || !self.observe(
+                &self.entry.placement_supports,
+                value.id(),
+                value.qualification,
+                value.occurrence,
+            )?
+        {
+            return Ok(None);
+        }
+        self.premises.insert(
+            self.data
+                .premises
+                .get(proof.0)
+                .ok_or_else(|| ModelError::Invalid("global native binding premise missing".into()))?
+                .clone(),
+        )?;
         Ok(Some(value.occurrence))
     }
     /// A located finalized native reference can identify a declared module binding across
     /// lexical scopes. This source inspection supplies no closure capture or runtime value.
-    fn module_reference(&mut self, site: Id<Occurrence>) -> Result<Option<Id<BindingEvent>>, ModelError> {
-        let Some(source) = self.entry.occurrences.get(site).map(|o| o.source) else { return Ok(None) };
+    fn module_reference(
+        &mut self,
+        site: Id<Occurrence>,
+    ) -> Result<Option<Id<BindingEvent>>, ModelError> {
+        let Some(source) = self.entry.occurrences.get(site).map(|o| o.source) else {
+            return Ok(None);
+        };
         self.work.scan(self.data.ruff_contexts.len())?;
         let mut selected = None;
         for row in self.data.ruff_contexts.iter().filter(|r| r.subject == site) {
             if row.phase != ruff::ContextPhase::FinalReference
                 || row.reference_load != Some(true)
-                || row.typing != Some(false) || row.typing_only_annotation != Some(false)
-                || row.runtime_annotation != Some(false) || row.string_annotation != Some(false)
+                || row.typing != Some(false)
+                || row.typing_only_annotation != Some(false)
+                || row.runtime_annotation != Some(false)
+                || row.string_annotation != Some(false)
                 || row.type_checking != Some(false)
                 || row.final_binding_location != Some(ruff::AttachmentStatus::Located)
                 || !self.always(row.qualification)
-            { continue }
-            let Some(event) = row.final_binding else { continue };
+            {
+                continue;
+            }
+            let Some(event) = row.final_binding else {
+                continue;
+            };
             let Some(reference) = declared_class_inspection(
                 super::read_channels::NativeContext {
-                    data: self.data, entry: self.entry, invocation: self.invocation,
+                    data: self.data,
+                    entry: self.entry,
+                    invocation: self.invocation,
                 },
-                &self.data.ruff_context_supports, row.id(), row.qualification, site, self.work,
-            )? else { continue };
+                &self.data.ruff_context_supports,
+                row.id(),
+                row.qualification,
+                site,
+                self.work,
+            )?
+            else {
+                continue;
+            };
             let Some((binding, proof)) = super::read_channels::native_binding(
-                self.data, self.entry, self.invocation, event, self.work,
-            )? else { continue };
-            if reference.1 != proof.1 || binding.scope.and_then(|s| self.entry.lexical_scopes.get(s))
-                .is_none_or(|scope| scope.kind != LexicalScopeKind::Module
-                    || self.entry.occurrences.get(scope.owner).is_none_or(|o| o.source != source))
-            { continue }
-            if selected.is_some() { return Ok(None) }
-            self.premises.insert(self.data.premises.get(reference.0)
-                .ok_or_else(|| ModelError::Invalid("module reference native premise missing".into()))?.clone())?;
+                self.data,
+                self.entry,
+                self.invocation,
+                event,
+                self.work,
+            )?
+            else {
+                continue;
+            };
+            if reference.1 != proof.1
+                || binding
+                    .scope
+                    .and_then(|s| self.entry.lexical_scopes.get(s))
+                    .is_none_or(|scope| {
+                        scope.kind != LexicalScopeKind::Module
+                            || self
+                                .entry
+                                .occurrences
+                                .get(scope.owner)
+                                .is_none_or(|o| o.source != source)
+                    })
+            {
+                continue;
+            }
+            if selected.is_some() {
+                return Ok(None);
+            }
+            self.premises.insert(
+                self.data
+                    .premises
+                    .get(reference.0)
+                    .ok_or_else(|| {
+                        ModelError::Invalid("module reference native premise missing".into())
+                    })?
+                    .clone(),
+            )?;
             selected = Some(event);
         }
         Ok(selected)
@@ -542,8 +736,12 @@ impl Inspect<'_> {
         event: Id<BindingEvent>,
         depth: usize,
     ) -> Result<Option<(Id<ClassEntity>, DeclaredClassOrigin)>, ModelError> {
-        let Some(event) = self.data.binding_events.get(event) else { return Ok(None) };
-        let Some(value) = self.global_value(event)? else { return Ok(None) };
+        let Some(event) = self.data.binding_events.get(event) else {
+            return Ok(None);
+        };
+        let Some(value) = self.global_value(event)? else {
+            return Ok(None);
+        };
         self.constructed_class(value, depth)
     }
     fn constructed_class(
@@ -582,22 +780,55 @@ impl Inspect<'_> {
             return Ok(None);
         };
         let Some((binding, proof)) = super::read_channels::native_binding(
-            self.data, self.entry, self.invocation, event.id(), self.work,
-        )? else { return Ok(None) };
-        let Some(scope) = binding.scope else { return Ok(None) };
+            self.data,
+            self.entry,
+            self.invocation,
+            event.id(),
+            self.work,
+        )?
+        else {
+            return Ok(None);
+        };
+        let Some(scope) = binding.scope else {
+            return Ok(None);
+        };
         if binding.kind != ruff::RuffBindingKind::ClassDefinition
             || !self.always(binding.qualification)
-            || binding.typing || binding.lazy || binding.deleted || binding.external
-            || binding.global || binding.nonlocal
-        { return Ok(None) }
+            || binding.typing
+            || binding.lazy
+            || binding.deleted
+            || binding.external
+            || binding.global
+            || binding.nonlocal
+        {
+            return Ok(None);
+        }
         self.work.scan(self.data.ruff_bindings.len())?;
-        if self.data.ruff_bindings.iter().filter(|b| {
-            b.scope == Some(scope) && b.native_name == binding.native_name
-                && self.entry.qualifications.get(b.qualification)
-                    .is_some_and(|q| q.context == self.invocation.context)
-        }).count() != 1 { return Ok(None) }
-        self.premises.insert(self.data.premises.get(proof.0)
-            .ok_or_else(|| ModelError::Invalid("class native binding premise missing".into()))?.clone())?;
+        if self
+            .data
+            .ruff_bindings
+            .iter()
+            .filter(|b| {
+                b.scope == Some(scope)
+                    && b.native_name == binding.native_name
+                    && self
+                        .entry
+                        .qualifications
+                        .get(b.qualification)
+                        .is_some_and(|q| q.context == self.invocation.context)
+            })
+            .count()
+            != 1
+        {
+            return Ok(None);
+        }
+        self.premises.insert(
+            self.data
+                .premises
+                .get(proof.0)
+                .ok_or_else(|| ModelError::Invalid("class native binding premise missing".into()))?
+                .clone(),
+        )?;
         let class = ClassEntity::Source {
             declaration: event.site,
         };
@@ -1126,7 +1357,9 @@ pub(super) fn global_candidate(
         budget,
         premises: Rows::new(budget),
     };
-    let Some(value) = inspect.global_value(event)? else { return Ok(None) };
+    let Some(value) = inspect.global_value(event)? else {
+        return Ok(None);
+    };
     let Some((class, _)) = inspect.constructed_class(value, 0)? else {
         return Ok(None);
     };

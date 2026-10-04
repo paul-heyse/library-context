@@ -35,10 +35,18 @@ use std::sync::Arc;
 fn selection_fixture_model_preserves_completed_owner_dependencies() {
     let model = catalog_selection_controls::fixture_model();
     model.require::<selection::SelectionDomain>().unwrap();
-    model.require::<execution::summary_exceptions::SummaryExceptionOutcome>().unwrap();
-    model.require::<execution::summary_capture::SummaryCaptureWitness>().unwrap();
+    model
+        .require::<execution::summary_exceptions::SummaryExceptionOutcome>()
+        .unwrap();
+    model
+        .require::<execution::summary_capture::SummaryCaptureWitness>()
+        .unwrap();
     assert!(model.require::<embedding::text::TextDefinition>().is_err());
-    assert!(model.require::<embedding::analytic::AnalysisEmbeddingUse>().is_err());
+    assert!(
+        model
+            .require::<embedding::analytic::AnalysisEmbeddingUse>()
+            .is_err()
+    );
 }
 
 #[tokio::test]

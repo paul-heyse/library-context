@@ -861,7 +861,9 @@ fn generated_initializer_parameters(
                         && s.run == n.run
                         && d.symbolic_surfaces.get(s.surface).is_some_and(|surface| {
                             surface.family == FactFamily::Signatures
-                                && d.symbolic_runs.get(s.run).is_some_and(|run| surface.provider == run.provider)
+                                && d.symbolic_runs
+                                    .get(s.run)
+                                    .is_some_and(|run| surface.provider == run.provider)
                         })
                         && s.origin == Origin::AnalyzerAssertion
                         && s.mode == ExtractionMode::NativeTraversal

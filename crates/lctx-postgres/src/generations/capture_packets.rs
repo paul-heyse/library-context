@@ -381,7 +381,10 @@ pub(super) async fn captures(
     // Local and declared-model seeds have no composed transfer alternative. Their
     // finite proof remains valid, but it has no direct captured-entry contribution.
     let premise = row(lease, *source).await?;
-    if matches!(premise, SummaryPremise::Local { .. } | SummaryPremise::Model { .. }) {
+    if matches!(
+        premise,
+        SummaryPremise::Local { .. } | SummaryPremise::Model { .. }
+    ) {
         return Ok((Vec::new(), charge));
     }
     let alternatives = lease

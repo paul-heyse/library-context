@@ -368,15 +368,25 @@ pub(super) fn native_binding<'a>(
     event: Id<lexical::BindingEvent>,
     work: &mut Work,
 ) -> Result<Option<(&'a ruff::RuffBindingObservation, NativeSupport)>, ModelError> {
-    let Some(event) = data.binding_events.get(event) else { return Ok(None) };
-    let Some(site) = entry.occurrences.get(event.site) else { return Ok(None) };
+    let Some(event) = data.binding_events.get(event) else {
+        return Ok(None);
+    };
+    let Some(site) = entry.occurrences.get(event.site) else {
+        return Ok(None);
+    };
     let mut found = None;
     work.scan(data.ruff_bindings.len())?;
     for binding in data.ruff_bindings.iter().filter(|b| b.event == event.id()) {
         work.tick()?;
-        let Some(scope) = binding.scope.and_then(|s| entry.lexical_scopes.get(s)) else { continue };
-        let Some(owner) = entry.occurrences.get(scope.owner) else { continue };
-        let Some(q) = entry.qualifications.get(binding.qualification) else { continue };
+        let Some(scope) = binding.scope.and_then(|s| entry.lexical_scopes.get(s)) else {
+            continue;
+        };
+        let Some(owner) = entry.occurrences.get(scope.owner) else {
+            continue;
+        };
+        let Some(q) = entry.qualifications.get(binding.qualification) else {
+            continue;
+        };
         if binding.scope_location != ruff::AttachmentStatus::Located
             || binding.native_name != event.name
             || q.context != invocation.context
@@ -388,14 +398,23 @@ pub(super) fn native_binding<'a>(
             continue;
         }
         let Some(proof) = native(
-            NativeContext { data, entry, invocation },
+            NativeContext {
+                data,
+                entry,
+                invocation,
+            },
             &data.ruff_binding_supports,
             binding.id(),
             binding.qualification,
             event.site,
             work,
-        )? else { continue };
-        if found.is_some() { return Ok(None) }
+        )?
+        else {
+            continue;
+        };
+        if found.is_some() {
+            return Ok(None);
+        }
         found = Some((binding, proof));
     }
     Ok(found)
@@ -479,13 +498,17 @@ fn native_authority(
             | P::ClassFieldSyntaxObservation { .. }
     );
     let report_inspection = match question {
-        NativeQuestion::DeclaredClassInspection => matches!(premise,
-            P::FunctionTraitObservation { .. } | P::SymbolDeclaration { .. }
-                | P::ParameterDeclaration { .. }),
-        NativeQuestion::SourceClassHierarchy => matches!(premise, P::ClassAncestryObservation { .. }),
+        NativeQuestion::DeclaredClassInspection => matches!(
+            premise,
+            P::FunctionTraitObservation { .. }
+                | P::SymbolDeclaration { .. }
+                | P::ParameterDeclaration { .. }
+        ),
+        NativeQuestion::SourceClassHierarchy => {
+            matches!(premise, P::ClassAncestryObservation { .. })
+        }
         NativeQuestion::ExecutableRead => false,
-    }
-        && attribution.origin == Origin::AnalyzerAssertion
+    } && attribution.origin == Origin::AnalyzerAssertion
         && attribution.fidelity == Fidelity::ReportProjection;
     attribution.mode == ExtractionMode::NativeTraversal
         && attribution.fidelity == qualification.fidelity
@@ -548,7 +571,15 @@ pub(super) fn source_class_hierarchy(
     site: Id<Occurrence>,
     work: &mut Work,
 ) -> Result<Option<NativeSupport>, ModelError> {
-    native_for(native_context, supports, assertion, q, site, work, NativeQuestion::SourceClassHierarchy)
+    native_for(
+        native_context,
+        supports,
+        assertion,
+        q,
+        site,
+        work,
+        NativeQuestion::SourceClassHierarchy,
+    )
 }
 fn native_for<S: Support>(
     native_context: NativeContext<'_>,
@@ -706,21 +737,28 @@ pub fn produce(
                 continue;
             };
             if let Some(premise) = native(
-                NativeContext { data, entry, invocation },
+                NativeContext {
+                    data,
+                    entry,
+                    invocation,
+                },
                 &data.lexical_resolution_supports,
                 resolution.id(),
                 resolution.qualification,
                 use_.occurrence,
                 &mut work,
-            )?
-                && let Some((binding, proof)) = native_binding(data, entry, invocation, *event, &mut work)?
-                && binding.scope.and_then(|s| entry.lexical_scopes.get(s)).is_some_and(|s| s.kind == lexical::LexicalScopeKind::Module)
+            )? && let Some((binding, proof)) =
+                native_binding(data, entry, invocation, *event, &mut work)?
+                && binding
+                    .scope
+                    .and_then(|s| entry.lexical_scopes.get(s))
+                    .is_some_and(|s| s.kind == lexical::LexicalScopeKind::Module)
             {
-                    if global.is_some() {
-                        global_ambiguous = true;
-                    }
-                    global = Some(premise.0);
-                    global_binding = Some(proof.0);
+                if global.is_some() {
+                    global_ambiguous = true;
+                }
+                global = Some(premise.0);
+                global_binding = Some(proof.0);
             }
         }
         let read = ReadObservation {
@@ -1194,20 +1232,36 @@ mod native_authority_tests {
     #[test]
     fn class_field_source_support_is_native_syntax_not_an_analyzer_or_recognizer() {
         let pair = NativeAssertionPremise::ClassFieldSyntaxObservation {
-            assertion: id(4), support: id(5),
+            assertion: id(4),
+            support: id(5),
         };
         for fidelity in [Fidelity::Raw, Fidelity::NativeStructural] {
             let n = analysis::native::NativeQualification {
-                premise: pair.id(), qualification: id(6), family: FactFamily::Syntax,
-                fidelity, status: EvidenceStatus::StructurallyObserved,
+                premise: pair.id(),
+                qualification: id(6),
+                family: FactFamily::Syntax,
+                fidelity,
+                status: EvidenceStatus::StructurallyObserved,
             };
-            for origin in [Origin::SourceObservation, Origin::AnalyzerAssertion, Origin::DerivedAnalysis] {
+            for origin in [
+                Origin::SourceObservation,
+                Origin::AnalyzerAssertion,
+                Origin::DerivedAnalysis,
+            ] {
                 for mode in [ExtractionMode::NativeTraversal, ExtractionMode::Recognizer] {
                     let a = SupportAttribution {
-                        run: id(1), surface: id(2), evidence: id(3), origin, mode, fidelity,
+                        run: id(1),
+                        surface: id(2),
+                        evidence: id(3),
+                        origin,
+                        mode,
+                        fidelity,
                     };
-                    assert_eq!(native_authority(&a, &pair, &n, NativeQuestion::ExecutableRead),
-                        origin == Origin::SourceObservation && mode == ExtractionMode::NativeTraversal);
+                    assert_eq!(
+                        native_authority(&a, &pair, &n, NativeQuestion::ExecutableRead),
+                        origin == Origin::SourceObservation
+                            && mode == ExtractionMode::NativeTraversal
+                    );
                 }
             }
         }
@@ -1285,26 +1339,88 @@ mod native_authority_tests {
     }
     #[test]
     fn projected_mro_has_only_bounded_source_hierarchy_authority() {
-        let a = SupportAttribution { run:id(1),surface:id(2),evidence:id(3),
-            origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,
-            fidelity:Fidelity::ReportProjection };
-        let pair = NativeAssertionPremise::ClassAncestryObservation { assertion:id(4),support:id(5) };
-        let n = analysis::native::NativeQualification { premise:pair.id(),qualification:id(6),
-            family:FactFamily::Signatures,fidelity:Fidelity::ReportProjection,
-            status:EvidenceStatus::StructurallyObserved };
-        assert!(native_authority(&a,&pair,&n,NativeQuestion::SourceClassHierarchy));
-        assert!(!native_authority(&a,&pair,&n,NativeQuestion::ExecutableRead));
-        assert!(!native_authority(&a,&pair,&n,NativeQuestion::DeclaredClassInspection));
-        for changed in [SupportAttribution {origin:Origin::DerivedAnalysis,..a},
-            SupportAttribution {mode:ExtractionMode::Recognizer,..a},
-            SupportAttribution {fidelity:Fidelity::NativeStructural,..a}] {
-            assert!(!native_authority(&changed,&pair,&n,NativeQuestion::SourceClassHierarchy));
+        let a = SupportAttribution {
+            run: id(1),
+            surface: id(2),
+            evidence: id(3),
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::ReportProjection,
+        };
+        let pair = NativeAssertionPremise::ClassAncestryObservation {
+            assertion: id(4),
+            support: id(5),
+        };
+        let n = analysis::native::NativeQualification {
+            premise: pair.id(),
+            qualification: id(6),
+            family: FactFamily::Signatures,
+            fidelity: Fidelity::ReportProjection,
+            status: EvidenceStatus::StructurallyObserved,
+        };
+        assert!(native_authority(
+            &a,
+            &pair,
+            &n,
+            NativeQuestion::SourceClassHierarchy
+        ));
+        assert!(!native_authority(
+            &a,
+            &pair,
+            &n,
+            NativeQuestion::ExecutableRead
+        ));
+        assert!(!native_authority(
+            &a,
+            &pair,
+            &n,
+            NativeQuestion::DeclaredClassInspection
+        ));
+        for changed in [
+            SupportAttribution {
+                origin: Origin::DerivedAnalysis,
+                ..a
+            },
+            SupportAttribution {
+                mode: ExtractionMode::Recognizer,
+                ..a
+            },
+            SupportAttribution {
+                fidelity: Fidelity::NativeStructural,
+                ..a
+            },
+        ] {
+            assert!(!native_authority(
+                &changed,
+                &pair,
+                &n,
+                NativeQuestion::SourceClassHierarchy
+            ));
         }
-        let use_ = NativeAssertionPremise::Use {assertion:id(4),support:id(5)};
-        assert!(!native_authority(&a,&use_,&n,NativeQuestion::SourceClassHierarchy));
-        let structural = SupportAttribution {fidelity:Fidelity::NativeStructural,..a};
-        let structural_n = analysis::native::NativeQualification {fidelity:Fidelity::NativeStructural,..n};
-        assert!(!native_authority(&structural,&use_,&structural_n,NativeQuestion::SourceClassHierarchy));
+        let use_ = NativeAssertionPremise::Use {
+            assertion: id(4),
+            support: id(5),
+        };
+        assert!(!native_authority(
+            &a,
+            &use_,
+            &n,
+            NativeQuestion::SourceClassHierarchy
+        ));
+        let structural = SupportAttribution {
+            fidelity: Fidelity::NativeStructural,
+            ..a
+        };
+        let structural_n = analysis::native::NativeQualification {
+            fidelity: Fidelity::NativeStructural,
+            ..n
+        };
+        assert!(!native_authority(
+            &structural,
+            &use_,
+            &structural_n,
+            NativeQuestion::SourceClassHierarchy
+        ));
     }
     #[test]
     fn declared_inspection_run_selection_does_not_promote_a_recognizer_duplicate() {

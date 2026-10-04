@@ -210,20 +210,40 @@ async fn native_closed_expressions_skip_unentered_operands_and_preserve_limits()
         );
     }
     let entered = request(&data, "True and effect()");
-    let effect = data.references.iter().find(|r| {
-        r.name == "effect"
-            && data.occurrences.get(r.read).is_some_and(|o| o.start > data.occurrences.get(entered.expression).unwrap().start
-                && o.end < data.occurrences.get(entered.expression).unwrap().end)
-    }).unwrap();
-    assert!(data.lexical_resolutions.iter().any(|r| r.read == effect.read
-        && matches!(data.lexical_targets.get(r.target), Some(lexical::LexicalTarget::Binding { .. }))),
-        "entered source-function name is a binding, never a builtin token");
+    let effect = data
+        .references
+        .iter()
+        .find(|r| {
+            r.name == "effect"
+                && data.occurrences.get(r.read).is_some_and(|o| {
+                    o.start > data.occurrences.get(entered.expression).unwrap().start
+                        && o.end < data.occurrences.get(entered.expression).unwrap().end
+                })
+        })
+        .unwrap();
+    assert!(
+        data.lexical_resolutions
+            .iter()
+            .any(|r| r.read == effect.read
+                && matches!(
+                    data.lexical_targets.get(r.target),
+                    Some(lexical::LexicalTarget::Binding { .. })
+                )),
+        "entered source-function name is a binding, never a builtin token"
+    );
     for (text, reason) in [
         ("True and effect()", ObligationKind::EntryValueUnknown),
-        ("999999999999999999999999999999999999999 + 1", ObligationKind::UnsupportedControlFlow),
+        (
+            "999999999999999999999999999999999999999 + 1",
+            ObligationKind::UnsupportedControlFlow,
+        ),
     ] {
         let result = evaluate(&data, request(&data, text), &budget).unwrap();
-        assert!(matches!(&result, Err(actual) if *actual == reason), "{text}: expected {reason:?}, got {:?}", result.as_ref().err());
+        assert!(
+            matches!(&result, Err(actual) if *actual == reason),
+            "{text}: expected {reason:?}, got {:?}",
+            result.as_ref().err()
+        );
     }
     let tiny = ResourceBudget::fixed(1).unwrap();
     assert!(matches!(

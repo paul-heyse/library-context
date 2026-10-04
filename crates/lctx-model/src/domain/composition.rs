@@ -411,7 +411,9 @@ impl ComposedTransfer {
             callee_declaration: self.witness.callee_declaration,
             attempt: self.witness.attempt,
             selected_signature_enumeration: self.witness.selected_signature_enumeration,
-            selected_signature_enumeration_support: self.witness.selected_signature_enumeration_support,
+            selected_signature_enumeration_support: self
+                .witness
+                .selected_signature_enumeration_support,
             bindings: self.witness.bindings,
         };
         let contribution = SummaryContribution {

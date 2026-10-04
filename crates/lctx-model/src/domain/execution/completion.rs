@@ -809,7 +809,14 @@ pub(crate) fn complete_with_contexts(
     budget: &ResourceBudget,
 ) -> std::result::Result<std::result::Result<CheckedCompletion, ObligationKind>, ModelError> {
     let prepared = PreparedExecution::new(data, request.input, request.context, budget)?;
-    complete_prepared_with_contexts(&prepared, request, evaluations, headers, definitions, contexts)
+    complete_prepared_with_contexts(
+        &prepared,
+        request,
+        evaluations,
+        headers,
+        definitions,
+        contexts,
+    )
 }
 pub(crate) fn complete_prepared_with_contexts(
     prepared: &PreparedExecution<'_>,
@@ -905,30 +912,47 @@ mod prepared_completion_tests {
             })
             .unwrap();
         let loaded = budget.reserved();
-        let prepared = PreparedExecution::new(&data, request.input, request.context, &budget).unwrap();
+        let prepared =
+            PreparedExecution::new(&data, request.input, request.context, &budget).unwrap();
         let retained = budget.reserved();
         assert!(retained > loaded);
         for _ in 0..3 {
-            let one_off = complete(&data, request, &[], &budget).unwrap().err().unwrap();
+            let one_off = complete(&data, request, &[], &budget)
+                .unwrap()
+                .err()
+                .unwrap();
             let reused = complete_prepared_with_contexts(&prepared, request, &[], &[], &[], &[])
-                .unwrap().err().unwrap();
+                .unwrap()
+                .err()
+                .unwrap();
             assert_eq!(one_off, ObligationKind::MissingEvidence);
             assert_eq!(reused, one_off);
             assert_eq!(budget.reserved(), retained);
         }
-        let outside_owner = CompletionRequest { owner: id(6), ..request };
+        let outside_owner = CompletionRequest {
+            owner: id(6),
+            ..request
+        };
         assert_eq!(
             complete_prepared_with_contexts(&prepared, outside_owner, &[], &[], &[], &[])
-                .unwrap().err(),
+                .unwrap()
+                .err(),
             complete(&data, outside_owner, &[], &budget).unwrap().err(),
         );
         for foreign in [
-            CompletionRequest { input: id(7), ..request },
-            CompletionRequest { context: id(8), ..request },
+            CompletionRequest {
+                input: id(7),
+                ..request
+            },
+            CompletionRequest {
+                context: id(8),
+                ..request
+            },
         ] {
             assert_eq!(
                 complete_prepared_with_contexts(&prepared, foreign, &[], &[], &[], &[])
-                    .unwrap().err(),
+                    .unwrap()
+                    .err(),
                 Some(ObligationKind::IncompatibleContexts),
             );
         }

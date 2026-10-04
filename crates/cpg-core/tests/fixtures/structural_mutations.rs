@@ -354,14 +354,19 @@ impl StageSink for MutatingSink<'_, '_> {
         })()?;
         let forwarded = changed.as_ref().unwrap_or(batch);
         {
-            let mut state = self.state.lock()
+            let mut state = self
+                .state
+                .lock()
                 .map_err(|_| ModelError::Invalid("mutation observer poisoned".into()))?;
             macro_rules! record_forwarded {
                 ($ty:ty) => {
                     if R::NAME == <$ty>::NAME {
                         for row in <$ty>::decode(forwarded.arrow())? {
                             if row.stop.is_some() {
-                                state.forwarded_stops.entry(R::NAME).or_default()
+                                state
+                                    .forwarded_stops
+                                    .entry(R::NAME)
+                                    .or_default()
                                     .insert(row.id().bytes().to_vec());
                             }
                         }

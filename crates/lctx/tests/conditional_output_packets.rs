@@ -44,14 +44,16 @@ def dynamic(error):
     let needs_diagnostic = match &response {
         Err(_) => true,
         Ok(response) => match &response.operation {
-            OperationResolution::Unique { packet } => !packet.behavior.items.iter().any(|answer| {
-                answer.claim_basis.set != AssumptionSet::empty_id()
-            }),
+            OperationResolution::Unique { packet } => !packet
+                .behavior
+                .items
+                .iter()
+                .any(|answer| answer.claim_basis.set != AssumptionSet::empty_id()),
             _ => true,
         },
     };
     if needs_diagnostic {
-        use lctx_model::domain::{analysis, assertion, conditions, execution, Record};
+        use lctx_model::domain::{Record, analysis, assertion, conditions, execution};
         let diagnostic = fixture.service.execution().await.unwrap();
         diagnostic
             .query(|lease| {
@@ -88,7 +90,11 @@ def dynamic(error):
         panic!("source operation missing")
     };
     assert!(
-        packet.behavior.items.iter().all(|answer| answer.captures.is_empty()),
+        packet
+            .behavior
+            .items
+            .iter()
+            .all(|answer| answer.captures.is_empty()),
         "local finite proofs do not invent a direct captured-entry contribution"
     );
     let empty = AssumptionSet::empty_id();

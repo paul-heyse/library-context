@@ -85,17 +85,31 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
             .fields()
             .iter()
             .filter_map(|field| field.target().map(|(_, name)| name))
-            .chain(relation.invariants().iter().flat_map(|check| {
-                check.inputs.iter().map(ValidationInput::name)
-            }))
+            .chain(
+                relation
+                    .invariants()
+                    .iter()
+                    .flat_map(|check| check.inputs.iter().map(ValidationInput::name)),
+            )
         {
             if expected.insert(dependency) {
                 pending.push(dependency);
             }
         }
     }
-    assert_eq!(stage.inputs.len(), expected.len(), "exact native registry and declared dependency closure without duplicate reads");
-    assert_eq!(stage.inputs.iter().map(|i| i.name()).collect::<std::collections::BTreeSet<_>>(), expected);
+    assert_eq!(
+        stage.inputs.len(),
+        expected.len(),
+        "exact native registry and declared dependency closure without duplicate reads"
+    );
+    assert_eq!(
+        stage
+            .inputs
+            .iter()
+            .map(|i| i.name())
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected
+    );
     assert!(stage.reads::<calls::SignatureEnumerationObservation>());
     assert!(stage.reads::<calls::SignatureEnumerationSupport>());
     assert_eq!(stage.outputs.len(), 2);

@@ -617,7 +617,9 @@ async fn actual_native_inventory_retains_competitors_and_loop_limits() {
 
 #[tokio::test]
 async fn collapsed_annotation_capture_scopes_keep_an_attributed_boundary_and_ordinary_uses() {
-    use lctx_model::domain::{flow_capture::*, obligation::ObligationKind, syntax::SubjectBoundary};
+    use lctx_model::domain::{
+        flow_capture::*, obligation::ObligationKind, syntax::SubjectBoundary,
+    };
     let tables = Tables::default();
     typed_driver::run_behavioral(
         &typed_driver::files("normalized_relations"),
@@ -632,21 +634,34 @@ async fn collapsed_annotation_capture_scopes_keep_an_attributed_boundary_and_ord
             b.family == FactFamily::Flow
                 && b.reason == ObligationKind::ScopeBoundary
                 && b.detail.as_deref()
-                    == Some("native annotation snapshot scopes collapse to one canonical lexical scope")
+                    == Some(
+                        "native annotation snapshot scopes collapse to one canonical lexical scope",
+                    )
         })
         .collect();
-    assert!(!collapsed.is_empty(), "actual PEP 695 annotation scope collision");
+    assert!(
+        !collapsed.is_empty(),
+        "actual PEP 695 annotation scope collision"
+    );
     let uses = rows::<FlowUse>(&tables);
-    let inventories = rows::<lctx_model::domain::flow_inventory::FlowUseInventoryObservation>(&tables);
+    let inventories =
+        rows::<lctx_model::domain::flow_inventory::FlowUseInventoryObservation>(&tables);
     for boundary in collapsed {
         let occurrence = boundary.subject.expect("exact annotation read boundary");
         let use_ = uses.iter().find(|u| u.occurrence == occurrence).unwrap();
-        assert!(inventories.iter().any(|i| i.use_ == use_.id()), "snapshot scope loss does not erase ordinary per-use enumeration");
+        assert!(
+            inventories.iter().any(|i| i.use_ == use_.id()),
+            "snapshot scope loss does not erase ordinary per-use enumeration"
+        );
     }
-    assert!(rows::<FlowCaptureTimingObservation>(&tables)
-        .iter()
-        .all(|s| s.nested_scope != s.enclosing_scope));
-    assert!(rows::<ProviderCoverage>(&tables).iter().any(|c| {
-        c.family == FactFamily::Flow && c.status == CoverageStatus::Partial
-    }));
+    assert!(
+        rows::<FlowCaptureTimingObservation>(&tables)
+            .iter()
+            .all(|s| s.nested_scope != s.enclosing_scope)
+    );
+    assert!(
+        rows::<ProviderCoverage>(&tables)
+            .iter()
+            .any(|c| { c.family == FactFamily::Flow && c.status == CoverageStatus::Partial })
+    );
 }

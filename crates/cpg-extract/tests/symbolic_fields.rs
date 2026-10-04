@@ -58,35 +58,102 @@ fn admitted(f: &fixture::NativeFixture, out: &AspectOutput, name: &str) {
 fn diagnose_record_premises(f: &fixture::NativeFixture, out: &AspectOutput, c: &SourceFieldClass) {
     let d = data(f);
     let symbol = d.symbolic_class_traits.get(c.traits).unwrap().symbol;
-    eprintln!("RECORD_GATE class={:?} symbol={symbol:?} qualification={:?}", c.class, d.qualifications.get(c.qualification));
-    for field in d.symbolic_record_fields.iter().filter(|r| r.class == symbol).take(16) {
-        eprintln!("RECORD_FIELD {field:?} qualification={:?}", d.qualifications.get(field.qualification));
-        for support in d.symbolic_record_supports.iter().filter(|s| s.assertion == field.id()).take(4) {
+    eprintln!(
+        "RECORD_GATE class={:?} symbol={symbol:?} qualification={:?}",
+        c.class,
+        d.qualifications.get(c.qualification)
+    );
+    for field in d
+        .symbolic_record_fields
+        .iter()
+        .filter(|r| r.class == symbol)
+        .take(16)
+    {
+        eprintln!(
+            "RECORD_FIELD {field:?} qualification={:?}",
+            d.qualifications.get(field.qualification)
+        );
+        for support in d
+            .symbolic_record_supports
+            .iter()
+            .filter(|s| s.assertion == field.id())
+            .take(4)
+        {
             eprintln!("RECORD_FIELD_SUPPORT {support:?}");
         }
     }
-    for syntax in d.field_syntax.iter().filter(|s| s.class == c.class).take(16) {
+    for syntax in d
+        .field_syntax
+        .iter()
+        .filter(|s| s.class == c.class)
+        .take(16)
+    {
         eprintln!("RECORD_SYNTAX {syntax:?}");
-        for placement in d.placements.iter().filter(|p| p.occurrence == syntax.target).take(4) {
+        for placement in d
+            .placements
+            .iter()
+            .filter(|p| p.occurrence == syntax.target)
+            .take(4)
+        {
             eprintln!("RECORD_TARGET_PLACEMENT {placement:?}");
         }
-        for link in d.fields.iter().filter(|l| l.declaration == syntax.id()).take(4) {
+        for link in d
+            .fields
+            .iter()
+            .filter(|l| l.declaration == syntax.id())
+            .take(4)
+        {
             let assessment = out.fields.iter().find(|a| a.declaration == link.id());
-            eprintln!("RECORD_DEFAULT_LINK {link:?} assessment={assessment:?} default={:?}", assessment.and_then(|a| out.defaults.get(a.default)));
+            eprintln!(
+                "RECORD_DEFAULT_LINK {link:?} assessment={assessment:?} default={:?}",
+                assessment.and_then(|a| out.defaults.get(a.default))
+            );
         }
     }
-    for init in d.traits.iter().filter(|t| t.defining_class == Some(symbol)
-        && d.symbols.get(t.symbol).is_some_and(|s| s.name == "__init__")).take(4) {
+    for init in d
+        .traits
+        .iter()
+        .filter(|t| {
+            t.defining_class == Some(symbol)
+                && d.symbols
+                    .get(t.symbol)
+                    .is_some_and(|s| s.name == "__init__")
+        })
+        .take(4)
+    {
         eprintln!("RECORD_INITIALIZER {init:?}");
-        for signature in d.symbolic_signatures.iter().filter(|s| s.symbol == init.symbol).take(8) {
+        for signature in d
+            .symbolic_signatures
+            .iter()
+            .filter(|s| s.symbol == init.symbol)
+            .take(8)
+        {
             eprintln!("RECORD_SIGNATURE {signature:?}");
-            for parameter in d.symbolic_parameters.iter().filter(|p| p.signature == signature.id()).take(16) {
-                eprintln!("RECORD_PARAMETER {parameter:?} shape={:?}", d.symbolic_parameter_shapes.get(parameter.shape));
+            for parameter in d
+                .symbolic_parameters
+                .iter()
+                .filter(|p| p.signature == signature.id())
+                .take(16)
+            {
+                eprintln!(
+                    "RECORD_PARAMETER {parameter:?} shape={:?}",
+                    d.symbolic_parameter_shapes.get(parameter.shape)
+                );
             }
         }
-        for enumeration in d.symbolic_signature_enumerations.iter().filter(|e| e.symbol == init.symbol).take(4) {
+        for enumeration in d
+            .symbolic_signature_enumerations
+            .iter()
+            .filter(|e| e.symbol == init.symbol)
+            .take(4)
+        {
             eprintln!("RECORD_ENUMERATION {enumeration:?}");
-            for member in d.symbolic_signature_members.iter().filter(|m| m.enumeration == enumeration.id()).take(8) {
+            for member in d
+                .symbolic_signature_members
+                .iter()
+                .filter(|m| m.enumeration == enumeration.id())
+                .take(8)
+            {
                 eprintln!("RECORD_ENUMERATION_MEMBER {member:?}");
             }
         }
@@ -269,16 +336,36 @@ async fn native_premise_removal_and_coupled_membership_corruption_refuse() {
         .iter()
         .find(|r| r.class == class_symbol && r.name == "left")
         .unwrap();
-    let initializer = original.traits.iter().find(|t| {
-        t.defining_class == Some(class_symbol)
-            && original.symbols.get(t.symbol).is_some_and(|s| s.name == "__init__")
-    }).unwrap().symbol;
-    let signature = original.symbolic_signatures.iter().find(|s| {
-        s.symbol == initializer && s.role == calls::SignatureRole::Synthesized
-    }).unwrap().clone();
-    assert!(!original.symbolic_signature_enumerations.iter().any(|e| e.symbol == initializer));
-    let native = original.symbolic_native_signatures.iter()
-        .find(|n| n.signature == signature.id()).unwrap().clone();
+    let initializer = original
+        .traits
+        .iter()
+        .find(|t| {
+            t.defining_class == Some(class_symbol)
+                && original
+                    .symbols
+                    .get(t.symbol)
+                    .is_some_and(|s| s.name == "__init__")
+        })
+        .unwrap()
+        .symbol;
+    let signature = original
+        .symbolic_signatures
+        .iter()
+        .find(|s| s.symbol == initializer && s.role == calls::SignatureRole::Synthesized)
+        .unwrap()
+        .clone();
+    assert!(
+        !original
+            .symbolic_signature_enumerations
+            .iter()
+            .any(|e| e.symbol == initializer)
+    );
+    let native = original
+        .symbolic_native_signatures
+        .iter()
+        .find(|n| n.signature == signature.id())
+        .unwrap()
+        .clone();
     assert!(native.complete);
     for mutation in 0..22 {
         let mut d = data(&f);
@@ -383,33 +470,64 @@ async fn native_premise_removal_and_coupled_membership_corruption_refuse() {
                 let mut changed = native.clone();
                 match mutation {
                     12 => changed.complete = false,
-                    15 => changed.term = d.symbolic_native_signatures.iter()
-                        .find(|n| n.term != native.term).unwrap().term,
-                    16 => changed.scope = d.symbolic_scopes.iter()
-                        .find(|s| s.id() != native.scope).unwrap().id(),
-                    18 => changed.qualification = d.qualifications.iter()
-                        .find(|q| q.id() != native.qualification).unwrap().id(),
+                    15 => {
+                        changed.term = d
+                            .symbolic_native_signatures
+                            .iter()
+                            .find(|n| n.term != native.term)
+                            .unwrap()
+                            .term
+                    }
+                    16 => {
+                        changed.scope = d
+                            .symbolic_scopes
+                            .iter()
+                            .find(|s| s.id() != native.scope)
+                            .unwrap()
+                            .id()
+                    }
+                    18 => {
+                        changed.qualification = d
+                            .qualifications
+                            .iter()
+                            .find(|q| q.id() != native.qualification)
+                            .unwrap()
+                            .id()
+                    }
                     _ => unreachable!(),
                 }
-                retain(&mut d.symbolic_native_signatures, &f.budget, |n| n.id() != native.id());
+                retain(&mut d.symbolic_native_signatures, &f.budget, |n| {
+                    n.id() != native.id()
+                });
                 d.symbolic_native_signatures.insert(changed).unwrap();
             }
             13 | 14 | 19 | 20 => {
-                let supports = d.symbolic_native_signature_supports.iter()
-                    .cloned().collect::<Vec<_>>();
+                let supports = d
+                    .symbolic_native_signature_supports
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
                 d.symbolic_native_signature_supports = Rows::new(&f.budget);
                 for mut support in supports {
                     if support.assertion == native.id() {
                         match mutation {
                             13 => support.fidelity = attribution::Fidelity::ReportProjection,
                             14 => support.mode = attribution::ExtractionMode::Recognizer,
-                            19 => support.run = d.symbolic_runs.iter()
-                                .find(|r| r.id() != support.run).unwrap().id(),
+                            19 => {
+                                support.run = d
+                                    .symbolic_runs
+                                    .iter()
+                                    .find(|r| r.id() != support.run)
+                                    .unwrap()
+                                    .id()
+                            }
                             20 => support.origin = attribution::Origin::SourceObservation,
                             _ => unreachable!(),
                         }
                     }
-                    d.symbolic_native_signature_supports.insert(support).unwrap();
+                    d.symbolic_native_signature_supports
+                        .insert(support)
+                        .unwrap();
                 }
             }
             17 => {
@@ -582,10 +700,12 @@ async fn native_store_boundary_has_the_actual_rhs_premise() {
     let support = d
         .symbolic_resolution_supports
         .iter()
-        .find(|s| s.assertion == resolution.id()
-            && s.origin == attribution::Origin::DerivedAnalysis
-            && s.mode == attribution::ExtractionMode::Recognizer
-            && s.fidelity == attribution::Fidelity::NormalizedStructural)
+        .find(|s| {
+            s.assertion == resolution.id()
+                && s.origin == attribution::Origin::DerivedAnalysis
+                && s.mode == attribution::ExtractionMode::Recognizer
+                && s.fidelity == attribution::Fidelity::NormalizedStructural
+        })
         .unwrap();
     assert_eq!(
         support.fidelity,
@@ -593,12 +713,15 @@ async fn native_store_boundary_has_the_actual_rhs_premise() {
     );
     assert_eq!(support.mode, attribution::ExtractionMode::Recognizer);
     assert_eq!(support.origin, attribution::Origin::DerivedAnalysis);
-    assert!(d.symbolic_resolution_supports.iter().any(|s|
-        s.assertion == resolution.id()
-            && s.origin == attribution::Origin::AnalyzerAssertion
-            && s.mode == attribution::ExtractionMode::NativeTraversal
-            && s.fidelity == attribution::Fidelity::NativeStructural),
-        "the separate native Ruff resolution support remains attributed");
+    assert!(
+        d.symbolic_resolution_supports
+            .iter()
+            .any(|s| s.assertion == resolution.id()
+                && s.origin == attribution::Origin::AnalyzerAssertion
+                && s.mode == attribution::ExtractionMode::NativeTraversal
+                && s.fidelity == attribution::Fidelity::NativeStructural),
+        "the separate native Ruff resolution support remains attributed"
+    );
     assert_eq!(
         definitions.len(),
         1,

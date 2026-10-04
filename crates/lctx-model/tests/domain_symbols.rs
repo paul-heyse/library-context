@@ -620,5 +620,9 @@ fn module_resolution_belongs_to_the_exact_source_alias_and_qualification() {
 fn symbol_native_qualifications_require_the_explicit_empty_assumption_basis() {
     let mut f = Fixture::new();
     f.put::<assumptions::AssumptionSet>(vec![]);
-    refused(&f, "native qualification without its declared empty basis", "assertion_qualifications.assumptions references an absent or wrong-subtype assumption_sets");
+    refused(
+        &f,
+        "native qualification without its declared empty basis",
+        "assertion_qualifications.assumptions references an absent or wrong-subtype assumption_sets",
+    );
 }

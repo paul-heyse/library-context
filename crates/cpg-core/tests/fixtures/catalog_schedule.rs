@@ -4,8 +4,10 @@ pub fn schedule(model: &ValidatedModel, stages: Vec<Stage>, profile: Profile) ->
     let facts = stages
         .iter()
         .filter(|s| {
-            !matches!(s.name, "analyze_local" | "apply_models" | "analyze_summaries")
-                && s.outputs.iter().any(|r| is_vocabulary(r.name()))
+            !matches!(
+                s.name,
+                "analyze_local" | "apply_models" | "analyze_summaries"
+            ) && s.outputs.iter().any(|r| is_vocabulary(r.name()))
         })
         .map(|s| s.name)
         .collect();
@@ -21,12 +23,5 @@ pub fn schedule(model: &ValidatedModel, stages: Vec<Stage>, profile: Profile) ->
             publications.push(PublicationGroup::new(boundary, vec![name]));
         }
     }
-    Schedule::build_with_publications(
-        model,
-        stages,
-        &[],
-        profile,
-        publications,
-    )
-    .unwrap()
+    Schedule::build_with_publications(model, stages, &[], profile, publications).unwrap()
 }

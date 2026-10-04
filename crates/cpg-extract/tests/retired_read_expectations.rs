@@ -1,10 +1,10 @@
 //! Independent dormant P4 answers over actual pinned native providers and the typed Base owner.
 #[path = "fixtures/transfer_composition.rs"]
 mod fixture;
-#[path = "fixtures/source_data.rs"]
-mod source_fixture;
 #[path = "fixtures/read_diagnostics.rs"]
 mod read_diagnostics;
+#[path = "fixtures/source_data.rs"]
+mod source_fixture;
 use lctx_model::domain::{
     analysis,
     execution::{self, read_channels::*},
@@ -213,7 +213,11 @@ async fn lambda_shadowing_keeps_real_nested_builtin_and_uncertain_parameter_or_r
     assert!(output.dynamic.iter().any(
         |r| owner(r).starts_with("def reassigned(") && text(&f, r.site) == "getattr(obj, name)"
     ));
-    if output.dynamic.iter().any(|r| owner(r).starts_with("def nested(") && text(&f, r.site) == "getattr(obj, name)") {
+    if output
+        .dynamic
+        .iter()
+        .any(|r| owner(r).starts_with("def nested(") && text(&f, r.site) == "getattr(obj, name)")
+    {
         read_diagnostics::dump(&f, &source_fixture::data(&f), &output);
     }
     assert!(
@@ -249,12 +253,15 @@ async fn lambda_shadow_screen_requires_actual_binding_and_lexical_support() {
             .evaluation
             .lexical_resolutions
             .iter()
-            .find(|r| r.read == call.callee && data.evaluation.lexical_resolution_supports.iter().any(|s| {
-                s.assertion == r.id()
-                    && s.origin == attribution::Origin::AnalyzerAssertion
-                    && s.mode == attribution::ExtractionMode::NativeTraversal
-                    && s.fidelity == attribution::Fidelity::NativeStructural
-            }))
+            .find(|r| {
+                r.read == call.callee
+                    && data.evaluation.lexical_resolution_supports.iter().any(|s| {
+                        s.assertion == r.id()
+                            && s.origin == attribution::Origin::AnalyzerAssertion
+                            && s.mode == attribution::ExtractionMode::NativeTraversal
+                            && s.fidelity == attribution::Fidelity::NativeStructural
+                    })
+            })
             .unwrap();
         let resolution_id = resolution.id();
         let lexical::LexicalTarget::Binding { event } = data
@@ -322,7 +329,10 @@ async fn lambda_shadow_screen_requires_actual_binding_and_lexical_support() {
                 .collect::<Vec<_>>();
             data.evaluation.ruff_binding_supports = normalized::Rows::new(&f.budget);
             for support in retained {
-                data.evaluation.ruff_binding_supports.insert(support).unwrap();
+                data.evaluation
+                    .ruff_binding_supports
+                    .insert(support)
+                    .unwrap();
             }
         }
         let output = read_from(&f, &data);
@@ -354,39 +364,83 @@ async fn lambda_shadow_screen_requires_actual_binding_and_lexical_support() {
 async fn literal_builtin_field_closure_requires_supported_unmixed_native_target() {
     let f = fixture::native_from("retired_attribute_expectations").await;
     let baseline = source_fixture::data(&f);
-    let call = baseline.evaluation.call_syntax.iter()
-        .find(|c| text(&f, c.site) == "getattr(self, \"bare_only\")").unwrap().clone();
-    let target = baseline.evaluation.call_targets.iter()
+    let call = baseline
+        .evaluation
+        .call_syntax
+        .iter()
+        .find(|c| text(&f, c.site) == "getattr(self, \"bare_only\")")
+        .unwrap()
+        .clone();
+    let target = baseline
+        .evaluation
+        .call_targets
+        .iter()
         .find(|t| t.site == call.site && t.phase == calls::CallPhase::Call)
-        .unwrap().clone();
-    assert!(baseline.evaluation.call_target_supports.iter().any(|s|
-        s.assertion == target.id() && s.origin == attribution::Origin::AnalyzerAssertion
-            && s.mode == attribution::ExtractionMode::NativeTraversal
-            && s.fidelity == attribution::Fidelity::NativeStructural));
+        .unwrap()
+        .clone();
+    assert!(
+        baseline
+            .evaluation
+            .call_target_supports
+            .iter()
+            .any(|s| s.assertion == target.id()
+                && s.origin == attribution::Origin::AnalyzerAssertion
+                && s.mode == attribution::ExtractionMode::NativeTraversal
+                && s.fidelity == attribution::Fidelity::NativeStructural)
+    );
     let assessment = |records: &ReadRecords| {
-        records.fields.assessments.iter().find(|r| r.name == "unread_only").unwrap().clone()
+        records
+            .fields
+            .assessments
+            .iter()
+            .find(|r| r.name == "unread_only")
+            .unwrap()
+            .clone()
     };
-    assert_eq!(assessment(&read_from(&f, &baseline)).status,
-        ReadAssessment::CompleteNoReadUnderModel);
-    for mutation in ["missing target support", "foreign target support", "mixed target", "partial flow"] {
+    assert_eq!(
+        assessment(&read_from(&f, &baseline)).status,
+        ReadAssessment::CompleteNoReadUnderModel
+    );
+    for mutation in [
+        "missing target support",
+        "foreign target support",
+        "mixed target",
+        "partial flow",
+    ] {
         let mut data = source_fixture::data(&f);
         if mutation == "missing target support" || mutation == "foreign target support" {
-            let retained = data.evaluation.call_target_supports.iter().cloned().collect::<Vec<_>>();
+            let retained = data
+                .evaluation
+                .call_target_supports
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>();
             data.evaluation.call_target_supports = normalized::Rows::new(&f.budget);
             for mut support in retained {
-                let at_site = data.evaluation.call_targets.get(support.assertion)
+                let at_site = data
+                    .evaluation
+                    .call_targets
+                    .get(support.assertion)
                     .is_some_and(|t| t.site == call.site);
                 if at_site {
-                    if mutation == "missing target support" { continue; }
+                    if mutation == "missing target support" {
+                        continue;
+                    }
                     let mut run = data.flow.runs.get(support.run).unwrap().clone();
-                    let mut context = f.rows::<attribution::AnalysisContext>().into_iter()
-                        .find(|c| c.id() == run.context).unwrap();
+                    let mut context = f
+                        .rows::<attribution::AnalysisContext>()
+                        .into_iter()
+                        .find(|c| c.id() == run.context)
+                        .unwrap();
                     context.config_digest = ContentHash::of(b"foreign literal builtin context");
                     run.context = context.id();
                     support.run = run.id();
                     data.flow.runs.insert(run).unwrap();
                 }
-                data.evaluation.call_target_supports.insert(support).unwrap();
+                data.evaluation
+                    .call_target_supports
+                    .insert(support)
+                    .unwrap();
             }
         } else if mutation == "mixed target" {
             let destination = calls::CallDestination::Unresolved {
@@ -395,7 +449,10 @@ async fn literal_builtin_field_closure_requires_supported_unmixed_native_target(
             };
             let mut competing = target.clone();
             competing.destination = destination.id();
-            data.evaluation.call_destinations.insert(destination).unwrap();
+            data.evaluation
+                .call_destinations
+                .insert(destination)
+                .unwrap();
             data.evaluation.call_targets.insert(competing).unwrap();
         } else {
             let retained = data.flow.coverage.iter().cloned().collect::<Vec<_>>();
@@ -404,14 +461,18 @@ async fn literal_builtin_field_closure_requires_supported_unmixed_native_target(
                 if coverage.family == attribution::FactFamily::Flow {
                     coverage.status = attribution::CoverageStatus::Partial;
                     coverage.reason = Some(obligation::ObligationKind::IncompleteCoverage);
-                    coverage.diagnostic = Some("field closure refusal control: incomplete global flow".into());
+                    coverage.diagnostic =
+                        Some("field closure refusal control: incomplete global flow".into());
                 }
                 data.flow.coverage.insert(coverage).unwrap();
             }
         }
         let row = assessment(&read_from(&f, &data));
         assert_eq!(row.status, ReadAssessment::Unknown, "{mutation}: {row:?}");
-        assert_eq!(row.reason, Some(obligation::ObligationKind::IncompleteCoverage),
-            "{mutation}: {row:?}");
+        assert_eq!(
+            row.reason,
+            Some(obligation::ObligationKind::IncompleteCoverage),
+            "{mutation}: {row:?}"
+        );
     }
 }

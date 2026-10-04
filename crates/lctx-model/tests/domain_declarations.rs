@@ -110,5 +110,8 @@ fn call_syntax_fixes_complete_ordered_arguments_inside_the_call() {
 fn declaration_native_qualifications_require_the_explicit_empty_assumption_basis() {
     let mut f = Fixture::new();
     f.put::<assumptions::AssumptionSet>(vec![]);
-    refused(&f, "assertion_qualifications.assumptions references an absent or wrong-subtype assumption_sets");
+    refused(
+        &f,
+        "assertion_qualifications.assumptions references an absent or wrong-subtype assumption_sets",
+    );
 }

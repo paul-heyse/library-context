@@ -32,29 +32,46 @@ pub fn fixture_model() -> ValidatedModel {
     relations.extend(analysis::catalog_evidence::publication_relations());
     relations.extend(analysis::selection::publication_relations());
     relations.extend(selection::relations());
-    let registry = catalog_frontier_relations().into_iter()
+    let registry = catalog_frontier_relations()
+        .into_iter()
         .map(|relation| (relation.name(), relation))
         .collect::<std::collections::BTreeMap<_, _>>();
-    let mut selected = relations.iter().map(Relation::name)
+    let mut selected = relations
+        .iter()
+        .map(Relation::name)
         .collect::<std::collections::BTreeSet<_>>();
     let mut pending = selected.iter().copied().collect::<Vec<_>>();
     while let Some(name) = pending.pop() {
-        let relation = registry.get(name)
+        let relation = registry
+            .get(name)
             .unwrap_or_else(|| panic!("fixture relation has no canonical owner: {name}"));
-        let references = relation.fields().iter()
+        let references = relation
+            .fields()
+            .iter()
             .filter_map(|field| field.target().map(|(_, name)| name));
-        let invariants = relation.invariants().iter()
+        let invariants = relation
+            .invariants()
+            .iter()
             .flat_map(|invariant| invariant.inputs.iter().map(ValidationInput::name));
-        let publications = relation.publication_checks().iter()
+        let publications = relation
+            .publication_checks()
+            .iter()
             .flat_map(|check| check.inputs.iter().map(ValidationInput::name));
         for required in references.chain(invariants).chain(publications) {
-            if selected.insert(required) { pending.push(required); }
+            if selected.insert(required) {
+                pending.push(required);
+            }
         }
     }
     assert!(!selected.contains(embedding::text::TextDefinition::NAME));
     assert!(!selected.contains(embedding::analytic::AnalysisEmbeddingUse::NAME));
-    ValidatedModel::validate(selected.into_iter().map(|name| registry[&name].clone()).collect())
-        .unwrap()
+    ValidatedModel::validate(
+        selected
+            .into_iter()
+            .map(|name| registry[&name].clone())
+            .collect(),
+    )
+    .unwrap()
 }
 
 /// Fault-inject only the captured in-memory view. The store remains immutable and is sealed

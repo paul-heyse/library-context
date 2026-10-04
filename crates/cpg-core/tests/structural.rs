@@ -188,32 +188,24 @@ async fn run(profile: Profile, case: Case) {
                 declaration,
                 async |access| match which {
                     0 => {
-                        cpg_core::normalize::entities(
-                            access, &attempt, &config, &runtime, &model,
-                        )
-                        .await
+                        cpg_core::normalize::entities(access, &attempt, &config, &runtime, &model)
+                            .await
                     }
                     1 => {
-                        cpg_core::normalize::relations(
-                            access, &attempt, &config, &runtime, &model,
-                        )
-                        .await
+                        cpg_core::normalize::relations(access, &attempt, &config, &runtime, &model)
+                            .await
                     }
                     2 => {
-                        cpg_core::normalize::callables(
-                            access, &attempt, &config, &runtime, &model,
-                        )
-                        .await
+                        cpg_core::normalize::callables(access, &attempt, &config, &runtime, &model)
+                            .await
                     }
                     3 => {
                         cpg_core::normalize::events(access, &attempt, &config, &runtime, &model)
                             .await
                     }
                     4 => {
-                        cpg_core::normalize::bindings(
-                            access, &attempt, &config, &runtime, &model,
-                        )
-                        .await
+                        cpg_core::normalize::bindings(access, &attempt, &config, &runtime, &model)
+                            .await
                     }
                     5 => {
                         cpg_core::normalize::projections(
@@ -222,16 +214,12 @@ async fn run(profile: Profile, case: Case) {
                         .await
                     }
                     7 => {
-                        cpg_core::normalize::receivers(
-                            access, &attempt, &config, &runtime, &model,
-                        )
-                        .await
+                        cpg_core::normalize::receivers(access, &attempt, &config, &runtime, &model)
+                            .await
                     }
                     _ => {
-                        cpg_core::normalize::coverage(
-                            access, &attempt, &config, &runtime, &model,
-                        )
-                        .await
+                        cpg_core::normalize::coverage(access, &attempt, &config, &runtime, &model)
+                            .await
                     }
                 },
                 &mut |_| {},
@@ -329,10 +317,8 @@ async fn run(profile: Profile, case: Case) {
                         .await
                     }
                     "synthesis" => {
-                        cpg_core::synthesis::produce(
-                            access, &attempt, &config, &runtime, &model,
-                        )
-                        .await
+                        cpg_core::synthesis::produce(access, &attempt, &config, &runtime, &model)
+                            .await
                     }
                     "retrieval" => {
                         cpg_core::retrieval::produce(
@@ -498,9 +484,7 @@ async fn run(profile: Profile, case: Case) {
                         .await?;
                         let definitions = structural::build::methods()
                             .into_iter()
-                            .map(|m| {
-                                structural::build::definition(&settings, m).map(|(_, d)| d)
-                            })
+                            .map(|m| structural::build::definition(&settings, m).map(|(_, d)| d))
                             .collect::<Result<Vec<_>, _>>()?;
                         let sink = MutatingSink {
                             sink: &attempt,
@@ -527,7 +511,9 @@ async fn run(profile: Profile, case: Case) {
                     result.expect_err("adversarial Structural output cannot close publication");
                 let detail = error.to_string();
                 let expected = match case {
-                    Case::Strengthen => "Structural outcomes differ from retained semantic inventory",
+                    Case::Strengthen => {
+                        "Structural outcomes differ from retained semantic inventory"
+                    }
                     Case::Missing => "coverage computation outcome absent",
                     Case::Extra => "structural exact invocation/parent membership differs",
                     Case::Paired => "structural invocation domain incomplete",
@@ -547,24 +533,34 @@ async fn run(profile: Profile, case: Case) {
                 assert!(parents > 0, "independent C0 parent survives {case:?}");
                 let (changed, changed_coverage, stops, forwarded_stops) = {
                     let state = mutation_state.lock().unwrap();
-                    (state.changed, state.changed_coverage, state.stops.clone(), state.forwarded_stops.clone())
+                    (
+                        state.changed,
+                        state.changed_coverage,
+                        state.stops.clone(),
+                        state.forwarded_stops.clone(),
+                    )
                 };
                 assert!(changed > 0, "{case:?} performed its mutation");
                 if case == Case::Strengthen {
                     assert!(changed_coverage > 0);
                     assert!(!stops.is_empty());
-                    assert_eq!(stops, forwarded_stops, "exact stop inventory survives at the actual PG sink");
+                    assert_eq!(
+                        stops, forwarded_stops,
+                        "exact stop inventory survives at the actual PG sink"
+                    );
                     for relation in stops.keys() {
-                        let actual =
-                            sqlx::query_scalar::<_, Vec<u8>>(sqlx::AssertSqlSafe(format!(
-                                "SELECT id FROM {schema}.{relation} WHERE stop IS NOT NULL"
-                            )))
-                            .fetch_all(db.owner.pool())
-                            .await
-                            .unwrap()
-                            .into_iter()
-                            .collect::<std::collections::BTreeSet<_>>();
-                        assert!(actual.is_empty(), "failed Structural publication rolls back its staged stop rows");
+                        let actual = sqlx::query_scalar::<_, Vec<u8>>(sqlx::AssertSqlSafe(
+                            format!("SELECT id FROM {schema}.{relation} WHERE stop IS NOT NULL"),
+                        ))
+                        .fetch_all(db.owner.pool())
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .collect::<std::collections::BTreeSet<_>>();
+                        assert!(
+                            actual.is_empty(),
+                            "failed Structural publication rolls back its staged stop rows"
+                        );
                     }
                 }
                 eprintln!("profile={profile:?} case={case:?} refused: {detail}");
@@ -588,10 +584,8 @@ async fn run(profile: Profile, case: Case) {
                 &mut execution,
                 declaration,
                 async |access| {
-                    cpg_core::catalog_evidence::produce(
-                        access, &attempt, &config, &runtime, &model,
-                    )
-                    .await
+                    cpg_core::catalog_evidence::produce(access, &attempt, &config, &runtime, &model)
+                        .await
                 },
                 &mut |_| {},
             )
@@ -815,16 +809,58 @@ async fn run(profile: Profile, case: Case) {
 async fn named_handoff_diagnostics(pool: &sqlx::PgPool, schema: &str) {
     let name_kind = source::SyntaxKind::ExprName.code();
     for (label, query) in [
-        ("assessment and binder roles", format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT a.reason,b.authority,b.authority_reason,b.outcome,sig.role,count(*) FROM {schema}.structural_handoff_assessments a JOIN {schema}.call_bindings cb ON cb.id=a.binding JOIN {schema}.call_binding_attempts b ON b.id=cb.attempt LEFT JOIN {schema}.signature_observations sig ON sig.id=b.signature GROUP BY a.reason,b.authority,b.authority_reason,b.outcome,sig.role ORDER BY a.reason,b.authority,b.authority_reason,b.outcome,sig.role) r")),
-        ("named use inventory and reaching", format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT art.path,to_jsonb(arg) AS argument,to_jsonb(a) AS assessment,to_jsonb(u) AS use,to_jsonb(o) AS observation,to_jsonb(q) AS use_qualification,to_jsonb(i) AS inventory,to_jsonb(reach) AS reaching,to_jsonb(rq) AS reach_qualification,to_jsonb(t) AS target FROM {schema}.structural_handoff_assessments a JOIN {schema}.occurrences arg ON arg.id=a.argument JOIN {schema}.source_artifacts art ON art.id=arg.source LEFT JOIN {schema}.flow_uses u ON u.occurrence=arg.id LEFT JOIN {schema}.flow_use_observations o ON o.use_=u.id LEFT JOIN {schema}.assertion_qualifications q ON q.id=o.qualification LEFT JOIN {schema}.flow_use_inventory_observations i ON i.use_=u.id LEFT JOIN {schema}.flow_reaching_observations reach ON reach.use_=u.id LEFT JOIN {schema}.assertion_qualifications rq ON rq.id=reach.qualification LEFT JOIN {schema}.reaching_definitions t ON t.id=reach.target WHERE arg.syntax_kind={name_kind} ORDER BY art.path,arg.start,reach.id LIMIT 24) r")),
-        ("named candidate mapping", format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT to_jsonb(i) AS inventory,to_jsonb(c) AS candidate,to_jsonb(m) AS member FROM {schema}.structural_handoff_assessments a JOIN {schema}.flow_uses u ON u.occurrence=a.argument JOIN {schema}.flow_use_inventory_observations i ON i.use_=u.id LEFT JOIN {schema}.flow_use_candidates c ON c.inventory=i.id LEFT JOIN {schema}.flow_use_inventory_members m ON m.inventory=i.id ORDER BY i.id,c.ordinal,m.ordinal LIMIT 24) r")),
-        ("named support receipts", format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT a.argument,to_jsonb(us) AS use_support,to_jsonb(rs) AS reaching_support,to_jsonb(ins) AS inventory_support,to_jsonb(p) AS native_premise,to_jsonb(q) AS native_qualification FROM {schema}.structural_handoff_assessments a JOIN {schema}.flow_uses u ON u.occurrence=a.argument JOIN {schema}.flow_use_observations o ON o.use_=u.id LEFT JOIN {schema}.flow_use_supports us ON us.assertion=o.id LEFT JOIN {schema}.flow_reaching_observations reach ON reach.use_=u.id LEFT JOIN {schema}.flow_reaching_supports rs ON rs.assertion=reach.id LEFT JOIN {schema}.flow_use_inventory_observations i ON i.use_=u.id LEFT JOIN {schema}.flow_use_inventory_supports ins ON ins.assertion=i.id LEFT JOIN {schema}.native_analysis_premises p ON p.use_assertion=o.id OR p.reaching_assertion=reach.id OR p.flowuseinventory_assertion=i.id LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id ORDER BY a.argument,p.kind LIMIT 24) r")),
-        ("definition value geometry", format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT art.path,to_jsonb(d) AS definition,to_jsonb(o) AS observation,to_jsonb(q) AS qualification,to_jsonb(v) AS value,to_jsonb(s) AS support FROM {schema}.flow_definitions d JOIN {schema}.occurrences target ON target.id=d.occurrence JOIN {schema}.source_artifacts art ON art.id=target.source JOIN {schema}.flow_definition_observations o ON o.definition=d.id LEFT JOIN {schema}.assertion_qualifications q ON q.id=o.qualification LEFT JOIN {schema}.occurrences v ON v.id=o.value LEFT JOIN {schema}.flow_definition_supports s ON s.assertion=o.id WHERE art.path<>'api.py' ORDER BY art.path,target.start LIMIT 24) r")),
-        ("native origin premise coverage", format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT p.kind,q.family,q.fidelity,q.status,count(*) FROM {schema}.native_analysis_premises p LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id WHERE p.kind IN (0,1,2,59,72) GROUP BY p.kind,q.family,q.fidelity,q.status ORDER BY p.kind,q.family,q.fidelity,q.status) r")),
-        ("view and flow coverage", format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT to_jsonb(v) AS view,to_jsonb(s) AS support,to_jsonb(a) AS artifact,to_jsonb(c) AS coverage FROM {schema}.flow_source_view_observations v JOIN {schema}.source_artifacts a ON a.id=v.source LEFT JOIN {schema}.flow_source_view_supports s ON s.assertion=v.id LEFT JOIN {schema}.provider_coverage c ON c.run=s.run AND c.family=13 ORDER BY a.path LIMIT 24) r")),
-        ("flow boundaries", format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT * FROM {schema}.subject_boundaries WHERE family=13 ORDER BY id LIMIT 24) r")),
+        (
+            "assessment and binder roles",
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT a.reason,b.authority,b.authority_reason,b.outcome,sig.role,count(*) FROM {schema}.structural_handoff_assessments a JOIN {schema}.call_bindings cb ON cb.id=a.binding JOIN {schema}.call_binding_attempts b ON b.id=cb.attempt LEFT JOIN {schema}.signature_observations sig ON sig.id=b.signature GROUP BY a.reason,b.authority,b.authority_reason,b.outcome,sig.role ORDER BY a.reason,b.authority,b.authority_reason,b.outcome,sig.role) r"
+            ),
+        ),
+        (
+            "named use inventory and reaching",
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT art.path,to_jsonb(arg) AS argument,to_jsonb(a) AS assessment,to_jsonb(u) AS use,to_jsonb(o) AS observation,to_jsonb(q) AS use_qualification,to_jsonb(i) AS inventory,to_jsonb(reach) AS reaching,to_jsonb(rq) AS reach_qualification,to_jsonb(t) AS target FROM {schema}.structural_handoff_assessments a JOIN {schema}.occurrences arg ON arg.id=a.argument JOIN {schema}.source_artifacts art ON art.id=arg.source LEFT JOIN {schema}.flow_uses u ON u.occurrence=arg.id LEFT JOIN {schema}.flow_use_observations o ON o.use_=u.id LEFT JOIN {schema}.assertion_qualifications q ON q.id=o.qualification LEFT JOIN {schema}.flow_use_inventory_observations i ON i.use_=u.id LEFT JOIN {schema}.flow_reaching_observations reach ON reach.use_=u.id LEFT JOIN {schema}.assertion_qualifications rq ON rq.id=reach.qualification LEFT JOIN {schema}.reaching_definitions t ON t.id=reach.target WHERE arg.syntax_kind={name_kind} ORDER BY art.path,arg.start,reach.id LIMIT 24) r"
+            ),
+        ),
+        (
+            "named candidate mapping",
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT to_jsonb(i) AS inventory,to_jsonb(c) AS candidate,to_jsonb(m) AS member FROM {schema}.structural_handoff_assessments a JOIN {schema}.flow_uses u ON u.occurrence=a.argument JOIN {schema}.flow_use_inventory_observations i ON i.use_=u.id LEFT JOIN {schema}.flow_use_candidates c ON c.inventory=i.id LEFT JOIN {schema}.flow_use_inventory_members m ON m.inventory=i.id ORDER BY i.id,c.ordinal,m.ordinal LIMIT 24) r"
+            ),
+        ),
+        (
+            "named support receipts",
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT a.argument,to_jsonb(us) AS use_support,to_jsonb(rs) AS reaching_support,to_jsonb(ins) AS inventory_support,to_jsonb(p) AS native_premise,to_jsonb(q) AS native_qualification FROM {schema}.structural_handoff_assessments a JOIN {schema}.flow_uses u ON u.occurrence=a.argument JOIN {schema}.flow_use_observations o ON o.use_=u.id LEFT JOIN {schema}.flow_use_supports us ON us.assertion=o.id LEFT JOIN {schema}.flow_reaching_observations reach ON reach.use_=u.id LEFT JOIN {schema}.flow_reaching_supports rs ON rs.assertion=reach.id LEFT JOIN {schema}.flow_use_inventory_observations i ON i.use_=u.id LEFT JOIN {schema}.flow_use_inventory_supports ins ON ins.assertion=i.id LEFT JOIN {schema}.native_analysis_premises p ON p.use_assertion=o.id OR p.reaching_assertion=reach.id OR p.flowuseinventory_assertion=i.id LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id ORDER BY a.argument,p.kind LIMIT 24) r"
+            ),
+        ),
+        (
+            "definition value geometry",
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT art.path,to_jsonb(d) AS definition,to_jsonb(o) AS observation,to_jsonb(q) AS qualification,to_jsonb(v) AS value,to_jsonb(s) AS support FROM {schema}.flow_definitions d JOIN {schema}.occurrences target ON target.id=d.occurrence JOIN {schema}.source_artifacts art ON art.id=target.source JOIN {schema}.flow_definition_observations o ON o.definition=d.id LEFT JOIN {schema}.assertion_qualifications q ON q.id=o.qualification LEFT JOIN {schema}.occurrences v ON v.id=o.value LEFT JOIN {schema}.flow_definition_supports s ON s.assertion=o.id WHERE art.path<>'api.py' ORDER BY art.path,target.start LIMIT 24) r"
+            ),
+        ),
+        (
+            "native origin premise coverage",
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT p.kind,q.family,q.fidelity,q.status,count(*) FROM {schema}.native_analysis_premises p LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id WHERE p.kind IN (0,1,2,59,72) GROUP BY p.kind,q.family,q.fidelity,q.status ORDER BY p.kind,q.family,q.fidelity,q.status) r"
+            ),
+        ),
+        (
+            "view and flow coverage",
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT to_jsonb(v) AS view,to_jsonb(s) AS support,to_jsonb(a) AS artifact,to_jsonb(c) AS coverage FROM {schema}.flow_source_view_observations v JOIN {schema}.source_artifacts a ON a.id=v.source LEFT JOIN {schema}.flow_source_view_supports s ON s.assertion=v.id LEFT JOIN {schema}.provider_coverage c ON c.run=s.run AND c.family=13 ORDER BY a.path LIMIT 24) r"
+            ),
+        ),
+        (
+            "flow boundaries",
+            format!(
+                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT * FROM {schema}.subject_boundaries WHERE family=13 ORDER BY id LIMIT 24) r"
+            ),
+        ),
     ] {
-        let sample = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(query)).fetch_one(pool).await;
+        let sample = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(query))
+            .fetch_one(pool)
+            .await;
         eprintln!("named handoff failure {label}: {sample:?}");
     }
 }

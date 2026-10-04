@@ -162,14 +162,21 @@ fn option(
                     return Err(invalid("documentary effective option changes signature"));
                 }
                 if variant.role != signature.role {
-                    return Err(invalid("documentary option changes its published signature role"));
+                    return Err(invalid(
+                        "documentary option changes its published signature role",
+                    ));
                 }
-                if !matches!(variant.role, calls::SignatureRole::EffectiveTyped | calls::SignatureRole::Synthesized) {
+                if !matches!(
+                    variant.role,
+                    calls::SignatureRole::EffectiveTyped | calls::SignatureRole::Synthesized
+                ) {
                     continue;
                 }
                 // A source slot is a distinct option namespace. Effective slots require
                 // the retained native receipt selected by their published variant.
-                let Some(receipt) = variant.native else { continue };
+                let Some(receipt) = variant.native else {
+                    continue;
+                };
                 if !d.native.iter().any(|premise| {
                     matches!(premise, NativeAssertionPremise::NativeSignatureObservation { assertion, .. } if *assertion == receipt)
                         && d.native_qualifications.iter().any(|n| {
@@ -705,13 +712,25 @@ mod tests {
         row
     }
     fn add_option(d: &mut Data, name: &str, effective: bool, ordinal: i64) -> Id<CatalogOption> {
-        add_role_option(d, name, effective, ordinal, if effective {
-            crate::domain::calls::SignatureRole::EffectiveTyped
-        } else {
-            crate::domain::calls::SignatureRole::Source
-        })
+        add_role_option(
+            d,
+            name,
+            effective,
+            ordinal,
+            if effective {
+                crate::domain::calls::SignatureRole::EffectiveTyped
+            } else {
+                crate::domain::calls::SignatureRole::Source
+            },
+        )
     }
-    fn add_role_option(d: &mut Data, name: &str, effective: bool, ordinal: i64, role: calls::SignatureRole) -> Id<CatalogOption> {
+    fn add_role_option(
+        d: &mut Data,
+        name: &str,
+        effective: bool,
+        ordinal: i64,
+        role: calls::SignatureRole,
+    ) -> Id<CatalogOption> {
         let core = d.core_invocations.iter().next().unwrap().clone();
         let q = d
             .qualifications
@@ -749,10 +768,14 @@ mod tests {
         let subject = if effective {
             let native = (!role.runtime_source()).then(|| id(201 + ordinal as u8));
             if let Some(assertion) = native {
-                documentary::tests::pair(d, NativeAssertionPremise::NativeSignatureObservation {
-                    assertion,
-                    support: id(211 + ordinal as u8),
-                }, &q);
+                documentary::tests::pair(
+                    d,
+                    NativeAssertionPremise::NativeSignatureObservation {
+                        assertion,
+                        support: id(211 + ordinal as u8),
+                    },
+                    &q,
+                );
             }
             let variant = d
                 .option_variants
@@ -817,9 +840,21 @@ mod tests {
         add_role_option(&mut d, "timeout", true, 2, calls::SignatureRole::Source);
         let member = d.member_frames.iter().next().unwrap().member;
         let context = d.core_invocations.iter().next().unwrap().context;
-        assert_eq!(option(&d, member, "timeout", context).unwrap().unwrap(), (Some(effective), Some(original)));
-        add_role_option(&mut d, "timeout", true, 3, calls::SignatureRole::Synthesized);
-        assert_eq!(option(&d, member, "timeout", context).unwrap(), Err(BoundaryReason::AmbiguousField));
+        assert_eq!(
+            option(&d, member, "timeout", context).unwrap().unwrap(),
+            (Some(effective), Some(original))
+        );
+        add_role_option(
+            &mut d,
+            "timeout",
+            true,
+            3,
+            calls::SignatureRole::Synthesized,
+        );
+        assert_eq!(
+            option(&d, member, "timeout", context).unwrap(),
+            Err(BoundaryReason::AmbiguousField)
+        );
     }
     #[test]
     fn effective_option_requires_native_receipt_and_original_requires_source_role() {
@@ -828,12 +863,31 @@ mod tests {
         add_option(&mut d, "timeout", true, 0);
         let member = d.member_frames.iter().next().unwrap().member;
         let context = d.core_invocations.iter().next().unwrap().context;
-        let retained = d.native_qualifications.iter().filter(|n| n.family != attribution::FactFamily::Types).cloned().collect::<Vec<_>>();
+        let retained = d
+            .native_qualifications
+            .iter()
+            .filter(|n| n.family != attribution::FactFamily::Types)
+            .cloned()
+            .collect::<Vec<_>>();
         d.native_qualifications = Rows::new(&b);
-        for row in retained { d.native_qualifications.insert(row).unwrap(); }
-        assert_eq!(option(&d, member, "timeout", context).unwrap(), Err(BoundaryReason::UnknownField));
-        add_role_option(&mut d, "timeout", false, 1, calls::SignatureRole::EffectiveTyped);
-        assert_eq!(option(&d, member, "timeout", context).unwrap(), Err(BoundaryReason::UnknownField));
+        for row in retained {
+            d.native_qualifications.insert(row).unwrap();
+        }
+        assert_eq!(
+            option(&d, member, "timeout", context).unwrap(),
+            Err(BoundaryReason::UnknownField)
+        );
+        add_role_option(
+            &mut d,
+            "timeout",
+            false,
+            1,
+            calls::SignatureRole::EffectiveTyped,
+        );
+        assert_eq!(
+            option(&d, member, "timeout", context).unwrap(),
+            Err(BoundaryReason::UnknownField)
+        );
     }
     #[test]
     fn warning_and_parameter_replay_keep_nearest_field_and_distinct_signature_options() {

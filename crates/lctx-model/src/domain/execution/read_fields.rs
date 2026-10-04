@@ -4,7 +4,10 @@
 //! A same-name load screens every class; unresolved dynamic receivers screen all classes.
 use super::{
     evaluation::EvaluationData,
-    read_channels::{ReadAssessment, ReadRecords, Work, declared_class_inspection, input_scope, native, selected, source_class_hierarchy},
+    read_channels::{
+        ReadAssessment, ReadRecords, Work, declared_class_inspection, input_scope, native,
+        selected, source_class_hierarchy,
+    },
 };
 use crate::domain::{
     analysis::{
@@ -465,28 +468,40 @@ pub(super) fn produce(
         let mut builtin = None;
         let mut hinted = false;
         let mut conflicting = false;
-        for resolution in data.lexical_resolutions.iter().filter(|r| {
-            r.read == call.callee && same_context(entry, r.qualification, inv.context)
-        }) {
+        for resolution in data
+            .lexical_resolutions
+            .iter()
+            .filter(|r| r.read == call.callee && same_context(entry, r.qualification, inv.context))
+        {
             work.tick()?;
             let name = match data.lexical_targets.get(resolution.target) {
-                Some(LexicalTarget::Builtin { name, variable: false })
-                    if name == "getattr" || name == "hasattr" => Some(name.as_str()),
+                Some(LexicalTarget::Builtin {
+                    name,
+                    variable: false,
+                }) if name == "getattr" || name == "hasattr" => Some(name.as_str()),
                 _ => None,
             };
             hinted |= name.is_some();
             if native(
-                super::read_channels::NativeContext { data, entry, invocation: inv },
+                super::read_channels::NativeContext {
+                    data,
+                    entry,
+                    invocation: inv,
+                },
                 &data.lexical_resolution_supports,
                 resolution.id(),
                 resolution.qualification,
                 call.callee,
                 work,
-            )?.is_none() {
+            )?
+            .is_none()
+            {
                 continue;
             }
             if let Some(name) = name {
-                if builtin.is_some_and(|prior| prior != name) { conflicting = true; }
+                if builtin.is_some_and(|prior| prior != name) {
+                    conflicting = true;
+                }
                 builtin = Some(name);
             } else {
                 conflicting = true;

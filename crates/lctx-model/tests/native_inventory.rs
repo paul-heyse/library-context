@@ -248,7 +248,13 @@ fn inventory_inputs_have_only_native_authority_and_require_native_support_valida
     )*};}
     lctx_model::native_analysis_pairs!(pairs);
     assert_eq!(inputs.len(), expected.len());
-    assert_eq!(inputs.iter().map(|i| i.name()).collect::<std::collections::BTreeSet<_>>(), expected);
+    assert_eq!(
+        inputs
+            .iter()
+            .map(|i| i.name())
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected
+    );
     assert!(
         inputs
             .iter()

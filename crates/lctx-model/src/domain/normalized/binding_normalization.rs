@@ -793,7 +793,9 @@ impl HeapSize for EffectiveInvocationAdmission {
 /// closure does not upgrade the artifact's signature family or effective invocation token.
 #[derive(Debug, Clone, Copy)]
 pub enum SourceBodySignatureClosure {
-    GlobalCoverage { members: ContentHash },
+    GlobalCoverage {
+        members: ContentHash,
+    },
     DeclaredEnumeration {
         enumeration: Id<SignatureEnumerationObservation>,
         members: ContentHash,
@@ -1103,14 +1105,21 @@ pub fn verify(
             continue;
         }
         let selected = if let Some(set) = global_set {
-            Some((set.id(), SourceBodySignatureClosure::GlobalCoverage { members: set.members }))
+            Some((
+                set.id(),
+                SourceBodySignatureClosure::GlobalCoverage {
+                    members: set.members,
+                },
+            ))
         } else if let Some(shape) = result.shape.get(&row.id()) {
             selected_source_body_closure(data, stored, row, shape, effective, application.input())?
                 .map(|closure| (shape.set(), closure))
         } else {
             None
         };
-        let Some((set, signature_closure)) = selected else { continue };
+        let Some((set, signature_closure)) = selected else {
+            continue;
+        };
         let summary = data
             .event_policy_assessments
             .iter()
@@ -1163,9 +1172,15 @@ fn selected_source_body_closure(
     {
         return Ok(None);
     }
-    let Some(id) = shape.enumeration() else { return Ok(None) };
+    let Some(id) = shape.enumeration() else {
+        return Ok(None);
+    };
     let header = need(&data.signature_enumerations, id)?;
-    let signature = need(&data.signatures, row.signature.ok_or_else(|| invalid("body shape signature absent"))?)?;
+    let signature = need(
+        &data.signatures,
+        row.signature
+            .ok_or_else(|| invalid("body shape signature absent"))?,
+    )?;
     let q = need(&data.qualifications, header.qualification)?;
     if signature.role != SignatureRole::Source
         || header.role != SignatureRole::Source
@@ -1184,23 +1199,42 @@ fn selected_source_body_closure(
     {
         return Ok(None);
     }
-    let CallableEntity::Source { declaration, kind: CallableKind::Function } = need(&data.callables, effective.callable)? else {
+    let CallableEntity::Source {
+        declaration,
+        kind: CallableKind::Function,
+    } = need(&data.callables, effective.callable)?
+    else {
         return Ok(None);
     };
     let symbol = need(&data.symbols, header.symbol)?;
-    let mut declarations = data.entity_declarations.iter().filter(|d| d.symbol == header.symbol);
-    let Some(declared) = declarations.next() else { return Ok(None) };
-    if declarations.next().is_some() || declared.declaration != *declaration
+    let mut declarations = data
+        .entity_declarations
+        .iter()
+        .filter(|d| d.symbol == header.symbol);
+    let Some(declared) = declarations.next() else {
+        return Ok(None);
+    };
+    if declarations.next().is_some()
+        || declared.declaration != *declaration
         || declared.qualification != header.qualification
     {
         return Ok(None);
     }
-    let valid = |run: Id<ProviderRun>, surface: Id<crate::domain::assertion::ProviderSurface>, origin, mode, fidelity| {
+    let valid = |run: Id<ProviderRun>,
+                 surface: Id<crate::domain::assertion::ProviderSurface>,
+                 origin,
+                 mode,
+                 fidelity| {
         origin == Origin::AnalyzerAssertion
             && mode == ExtractionMode::NativeTraversal
-            && matches!(fidelity, Fidelity::ReportProjection | Fidelity::NativeStructural)
+            && matches!(
+                fidelity,
+                Fidelity::ReportProjection | Fidelity::NativeStructural
+            )
             && data.runs.get(run).is_some_and(|r| {
-                r.context == q.context && r.input == input && r.provider == symbol.provider
+                r.context == q.context
+                    && r.input == input
+                    && r.provider == symbol.provider
                     && data.surfaces.get(surface).is_some_and(|s| {
                         s.provider == r.provider && s.family == FactFamily::Signatures
                     })
@@ -1210,7 +1244,9 @@ fn selected_source_body_closure(
         s.assertion == id && valid(s.run, s.surface, s.origin, s.mode, s.fidelity)
             && matches!(data.native_evidence.get(s.evidence), Some(crate::domain::assertion::Evidence::Invocation { run }) if *run == s.run)
     });
-    let Some(support) = supports.next() else { return Ok(None) };
+    let Some(support) = supports.next() else {
+        return Ok(None);
+    };
     if supports.next().is_some() || !data.declaration_supports.iter().any(|s| {
         s.assertion == declared.id() && s.run == support.run
             && valid(s.run, s.surface, s.origin, s.mode, s.fidelity)
@@ -1220,18 +1256,29 @@ fn selected_source_body_closure(
     }
     let mut covered = false;
     for coverage in data.coverage.iter().filter(|c| {
-        c.scope == header.scope && c.context == q.context
-            && c.provider == Some(symbol.provider) && c.run == Some(support.run)
+        c.scope == header.scope
+            && c.context == q.context
+            && c.provider == Some(symbol.provider)
+            && c.run == Some(support.run)
             && c.family == FactFamily::Signatures
     }) {
-        if !matches!(coverage.status, CoverageStatus::CompleteUnderStatedModel | CoverageStatus::Partial) {
+        if !matches!(
+            coverage.status,
+            CoverageStatus::CompleteUnderStatedModel | CoverageStatus::Partial
+        ) {
             return Ok(None);
         }
         covered = true;
     }
-    if !covered { return Ok(None) }
+    if !covered {
+        return Ok(None);
+    }
     let mut selected = false;
-    for member in data.signature_enumeration_members.iter().filter(|m| m.enumeration == id) {
+    for member in data
+        .signature_enumeration_members
+        .iter()
+        .filter(|m| m.enumeration == id)
+    {
         let member_signature = need(&data.signatures, member.signature)?;
         if member_signature.role != SignatureRole::Source
             || member_signature.form != SignatureForm::List
@@ -1245,11 +1292,21 @@ fn selected_source_body_closure(
         {
             return Ok(None);
         }
-        let Some(variant) = data.callable_variants.iter().find(|v| v.signature == member.signature) else { return Ok(None) };
+        let Some(variant) = data
+            .callable_variants
+            .iter()
+            .find(|v| v.signature == member.signature)
+        else {
+            return Ok(None);
+        };
         let mut attempts = stored.attempts.iter().filter(|a| {
-            a.event == row.event && a.alternative == row.alternative && a.variant == Some(variant.id())
+            a.event == row.event
+                && a.alternative == row.alternative
+                && a.variant == Some(variant.id())
         });
-        let Some(first) = attempts.next() else { return Ok(None) };
+        let Some(first) = attempts.next() else {
+            return Ok(None);
+        };
         let wanted = if member.signature == signature.id() {
             BindingOutcome::Bound
         } else {
@@ -1260,7 +1317,9 @@ fn selected_source_body_closure(
         }
         selected |= member.signature == signature.id();
     }
-    if !selected { return Ok(None) }
+    if !selected {
+        return Ok(None);
+    }
     Ok(Some(SourceBodySignatureClosure::DeclaredEnumeration {
         enumeration: id,
         members: header.members,

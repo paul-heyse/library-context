@@ -557,7 +557,9 @@ fn normalize_exposures(
         reports.update(&mut index_charge, report.symbol, |rows| rows.push(report))?;
     }
     for support in input.symbol_supports.iter() {
-        report_supports.update(&mut index_charge, support.assertion, |rows| rows.push(support))?;
+        report_supports.update(&mut index_charge, support.assertion, |rows| {
+            rows.push(support)
+        })?;
     }
     for symbol in input.symbols.iter() {
         // Callable type metadata names original overload members which Pysa deliberately
@@ -703,7 +705,8 @@ fn normalize_exposures(
                                         s.run == support.run
                                             && s.fidelity == attribution::Fidelity::ReportProjection
                                             && s.origin == attribution::Origin::AnalyzerAssertion
-                                            && s.mode == attribution::ExtractionMode::NativeTraversal
+                                            && s.mode
+                                                == attribution::ExtractionMode::NativeTraversal
                                     });
                                 reported |= admitted;
                                 exact_report |= admitted && exact_public_qualification(qualified);

@@ -304,52 +304,141 @@ class Settings:
     let mut count = 0;
     for relationship in &packet.relationships.items {
         let RelationshipPacket::SourceField {
-            association, reader_link, reader, access, parameter, parameter_option,
-            field_option, source_association, runtime_value, proof, ..
-        } = relationship else { continue };
+            association,
+            reader_link,
+            reader,
+            access,
+            parameter,
+            parameter_option,
+            field_option,
+            source_association,
+            runtime_value,
+            proof,
+            ..
+        } = relationship
+        else {
+            continue;
+        };
         count += 1;
         assert_eq!(*source_association, normalized::callables::Knowledge::Known);
         assert_eq!(*runtime_value, normalized::callables::Knowledge::Unknown);
         assert!(!proof.is_empty());
-        let association_row = associations.rows().iter().find(|r| r.id() == *association).unwrap();
+        let association_row = associations
+            .rows()
+            .iter()
+            .find(|r| r.id() == *association)
+            .unwrap();
         assert_eq!(association_row.parameter, *parameter);
-        let link = reader_links.rows().iter().find(|r| r.id() == *reader_link).unwrap();
+        let link = reader_links
+            .rows()
+            .iter()
+            .find(|r| r.id() == *reader_link)
+            .unwrap();
         assert_eq!((link.association, link.reader), (*association, *reader));
         let reader_row = readers.rows().iter().find(|r| r.id() == *reader).unwrap();
         assert_eq!(reader_row.access, *access);
-        let field = fields.rows().iter().find(|r| r.id() == association_row.field).unwrap();
+        let field = fields
+            .rows()
+            .iter()
+            .find(|r| r.id() == association_row.field)
+            .unwrap();
         assert_eq!(reader_row.name, field.name.as_str());
         names.insert(reader_row.name.clone());
-        let parameter_option_row = options.rows().iter().find(|r| r.id() == *parameter_option).unwrap();
-        let catalog::CatalogOptionSubject::Parameter { slot } = subjects.rows().iter()
-            .find(|r| r.id() == parameter_option_row.subject).unwrap()
-        else { panic!("generated initializer must retain its native parameter slot") };
-        assert_eq!(option_evidence.rows().iter().find(|r| r.id() == parameter_option_row.evidence).unwrap(),
-            &catalog::CatalogOptionEvidence::NativeParameter { slot: *slot });
+        let parameter_option_row = options
+            .rows()
+            .iter()
+            .find(|r| r.id() == *parameter_option)
+            .unwrap();
+        let catalog::CatalogOptionSubject::Parameter { slot } = subjects
+            .rows()
+            .iter()
+            .find(|r| r.id() == parameter_option_row.subject)
+            .unwrap()
+        else {
+            panic!("generated initializer must retain its native parameter slot")
+        };
+        assert_eq!(
+            option_evidence
+                .rows()
+                .iter()
+                .find(|r| r.id() == parameter_option_row.evidence)
+                .unwrap(),
+            &catalog::CatalogOptionEvidence::NativeParameter { slot: *slot }
+        );
         let slot = slots.rows().iter().find(|r| r.id() == *slot).unwrap();
         assert_eq!(slot.parameter, *parameter);
-        let parameter_row = parameters.rows().iter().find(|r| r.id() == *parameter).unwrap();
-        let signature = signatures.rows().iter().find(|r| r.id() == parameter_row.signature).unwrap();
+        let parameter_row = parameters
+            .rows()
+            .iter()
+            .find(|r| r.id() == *parameter)
+            .unwrap();
+        let signature = signatures
+            .rows()
+            .iter()
+            .find(|r| r.id() == parameter_row.signature)
+            .unwrap();
         assert_eq!(signature.role, calls::SignatureRole::Synthesized);
         assert!(signature.native.is_some());
-        let field_option_row = options.rows().iter().find(|r| r.id() == *field_option).unwrap();
+        let field_option_row = options
+            .rows()
+            .iter()
+            .find(|r| r.id() == *field_option)
+            .unwrap();
         assert_eq!(field_option_row.member, parameter_option_row.member);
-        let catalog::CatalogOptionSubject::Field { field: field_entity } = subjects.rows().iter()
-            .find(|r| r.id() == field_option_row.subject).unwrap()
-        else { panic!("source association must address the exact field") };
-        let default = defaults.rows().iter().find(|r| r.id() == field_option_row.default).unwrap();
-        let purpose = match option_evidence.rows().iter().find(|r| r.id() == field_option_row.evidence).unwrap() {
-            catalog::CatalogOptionEvidence::DeclaredField { declaration, assessment } => {
-                let declaration_row = declarations.rows().iter().find(|r| r.id() == *declaration).unwrap();
+        let catalog::CatalogOptionSubject::Field {
+            field: field_entity,
+        } = subjects
+            .rows()
+            .iter()
+            .find(|r| r.id() == field_option_row.subject)
+            .unwrap()
+        else {
+            panic!("source association must address the exact field")
+        };
+        let default = defaults
+            .rows()
+            .iter()
+            .find(|r| r.id() == field_option_row.default)
+            .unwrap();
+        let purpose = match option_evidence
+            .rows()
+            .iter()
+            .find(|r| r.id() == field_option_row.evidence)
+            .unwrap()
+        {
+            catalog::CatalogOptionEvidence::DeclaredField {
+                declaration,
+                assessment,
+            } => {
+                let declaration_row = declarations
+                    .rows()
+                    .iter()
+                    .find(|r| r.id() == *declaration)
+                    .unwrap();
                 assert_eq!(declaration_row.field, *field_entity);
-                let assessment_row = default_assessments.rows().iter().find(|r| r.id() == *assessment).unwrap();
+                let assessment_row = default_assessments
+                    .rows()
+                    .iter()
+                    .find(|r| r.id() == *assessment)
+                    .unwrap();
                 assert_eq!(assessment_row.declaration, *declaration);
-                let catalog::CatalogDefault::Literal { literal } = default
-                else { panic!("declared field retains its actual original default") };
+                let catalog::CatalogDefault::Literal { literal } = default else {
+                    panic!("declared field retains its actual original default")
+                };
                 let literal = literals.rows().iter().find(|r| r.id() == *literal).unwrap();
                 match reader_row.name.as_str() {
-                    "timeout" => assert_eq!(literal, &value::Literal::Integer { decimal: "3".into() }),
-                    "title" => assert_eq!(literal, &value::Literal::String { value: "title".into() }),
+                    "timeout" => assert_eq!(
+                        literal,
+                        &value::Literal::Integer {
+                            decimal: "3".into()
+                        }
+                    ),
+                    "title" => assert_eq!(
+                        literal,
+                        &value::Literal::String {
+                            value: "title".into()
+                        }
+                    ),
                     _ => panic!("unexpected generated field reader"),
                 }
                 0
@@ -357,23 +446,64 @@ class Settings:
             catalog::CatalogOptionEvidence::NativeField { link, observation } => {
                 assert_eq!(*observation, association_row.field);
                 let link_row = field_links.rows().iter().find(|r| r.id() == *link).unwrap();
-                assert_eq!((link_row.field, link_row.observation), (*field_entity, *observation));
+                assert_eq!(
+                    (link_row.field, link_row.observation),
+                    (*field_entity, *observation)
+                );
                 assert_eq!(default, &catalog::CatalogDefault::Unknown {});
                 1
             }
             _ => panic!("source field requires declared or native field evidence"),
         };
-        let pair = pairs.entry((*association, *reader_link))
-            .or_insert_with(|| (*parameter, *parameter_option, *field_entity, std::collections::BTreeSet::new()));
-        assert_eq!((pair.0, pair.1, pair.2), (*parameter, *parameter_option, *field_entity));
-        assert!(pair.3.insert(purpose), "same field evidence purpose must not be repeated");
+        let pair = pairs
+            .entry((*association, *reader_link))
+            .or_insert_with(|| {
+                (
+                    *parameter,
+                    *parameter_option,
+                    *field_entity,
+                    std::collections::BTreeSet::new(),
+                )
+            });
+        assert_eq!(
+            (pair.0, pair.1, pair.2),
+            (*parameter, *parameter_option, *field_entity)
+        );
+        assert!(
+            pair.3.insert(purpose),
+            "same field evidence purpose must not be repeated"
+        );
     }
-    assert_eq!(names, std::collections::BTreeSet::from(["timeout".to_owned(), "title".to_owned()]));
+    assert_eq!(
+        names,
+        std::collections::BTreeSet::from(["timeout".to_owned(), "title".to_owned()])
+    );
     assert_eq!(pairs.len(), 2, "two exact parameter-to-reader associations");
-    assert_eq!(count, 4, "each pair preserves declared and native field evidence");
-    assert!(pairs.values().all(|pair| pair.3 == std::collections::BTreeSet::from([0, 1])));
-    assert_eq!(pairs.values().map(|pair| pair.0).collect::<std::collections::BTreeSet<_>>().len(), 2);
-    assert_eq!(pairs.values().map(|pair| pair.2).collect::<std::collections::BTreeSet<_>>().len(), 2);
+    assert_eq!(
+        count, 4,
+        "each pair preserves declared and native field evidence"
+    );
+    assert!(
+        pairs
+            .values()
+            .all(|pair| pair.3 == std::collections::BTreeSet::from([0, 1]))
+    );
+    assert_eq!(
+        pairs
+            .values()
+            .map(|pair| pair.0)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        2
+    );
+    assert_eq!(
+        pairs
+            .values()
+            .map(|pair| pair.2)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        2
+    );
     let empty = request("demo.Settings", vec![OperationSection::IncomingReferences]);
     let response = fixture.catalog.operation(&execution, &empty).await.unwrap();
     let OperationResolution::Unique { packet } = &response.operation else {
@@ -1687,8 +1817,10 @@ def conditional(value: int, flag: bool) -> int:
 #[tokio::test]
 async fn composed_summary_explanation_retains_exact_selected_signature_domain() {
     use lctx_model::domain::{
-        calls::{Signature, SignatureEnumerationMember, SignatureEnumerationObservation,
-            SignatureEnumerationSupport, SignatureRole},
+        calls::{
+            Signature, SignatureEnumerationMember, SignatureEnumerationObservation,
+            SignatureEnumerationSupport, SignatureRole,
+        },
         derivation::RowRef,
         transfer::summary::SummaryWitness,
     };
@@ -1701,73 +1833,125 @@ def relay(value):
 def unavailable():
     return 1
 "#;
-    let fixture = ServingFixture::start_with_seeds(
-        source, "behavioral", &["demo.relay"], 4,
-    ).await;
+    let fixture = ServingFixture::start_with_seeds(source, "behavioral", &["demo.relay"], 4).await;
     let execution = fixture.service.execution().await.unwrap();
     let witnesses = execution.read::<SummaryWitness>().await.unwrap();
-    let witness = witnesses.rows().iter()
+    let witness = witnesses
+        .rows()
+        .iter()
         .find(|row| row.selected_signature_enumeration.is_some())
         .expect("actual composed source witness with selected domain");
     let enumeration = witness.selected_signature_enumeration.unwrap();
-    let native_support = witness.selected_signature_enumeration_support
+    let native_support = witness
+        .selected_signature_enumeration_support
         .expect("selected domain retains its exact native support");
-    let (header, support, members) = execution.query(move |lease| {
-        Box::pin(async move {
-            let headers = lease.read_ids::<SignatureEnumerationObservation>(&[enumeration]).await?;
-            let supports = lease.read_ids::<SignatureEnumerationSupport>(&[native_support]).await?;
-            let members = lease.read_for::<SignatureEnumerationMember, SignatureEnumerationObservation>(
-                "enumeration", &[enumeration],
-            ).await?;
-            Ok((headers.rows()[0].clone(), supports.rows()[0].clone(), members.rows().to_vec()))
+    let (header, support, members) = execution
+        .query(move |lease| {
+            Box::pin(async move {
+                let headers = lease
+                    .read_ids::<SignatureEnumerationObservation>(&[enumeration])
+                    .await?;
+                let supports = lease
+                    .read_ids::<SignatureEnumerationSupport>(&[native_support])
+                    .await?;
+                let members = lease
+                    .read_for::<SignatureEnumerationMember, SignatureEnumerationObservation>(
+                        "enumeration",
+                        &[enumeration],
+                    )
+                    .await?;
+                Ok((
+                    headers.rows()[0].clone(),
+                    supports.rows()[0].clone(),
+                    members.rows().to_vec(),
+                ))
+            })
         })
-    }).await.unwrap();
+        .await
+        .unwrap();
     assert!(header.complete);
     assert_eq!(header.role, SignatureRole::Source);
     assert_eq!(support.assertion, enumeration);
     assert!(!members.is_empty());
     let root = ProofReference::from_canonical(RowRef::of(witness.id()));
-    let proof = fixture.service.explanation(&execution, root.clone()).await.unwrap();
-    let step = proof.items.iter()
+    let proof = fixture
+        .service
+        .explanation(&execution, root.clone())
+        .await
+        .unwrap();
+    let step = proof
+        .items
+        .iter()
         .find(|step| step.source == root && step.rule.as_str() == "compose_through_call")
         .expect("canonical composed witness explanation");
     for (role, reference) in [
-        ("selected_signature_enumeration", ProofReference::from_canonical(RowRef::of(enumeration))),
-        ("selected_signature_enumeration_support", ProofReference::from_canonical(RowRef::of(native_support))),
+        (
+            "selected_signature_enumeration",
+            ProofReference::from_canonical(RowRef::of(enumeration)),
+        ),
+        (
+            "selected_signature_enumeration_support",
+            ProofReference::from_canonical(RowRef::of(native_support)),
+        ),
     ] {
-        assert!(step.premises.iter().any(|premise|
-            premise.role.as_str() == role && premise.premise == reference));
+        assert!(
+            step.premises
+                .iter()
+                .any(|premise| premise.role.as_str() == role && premise.premise == reference)
+        );
     }
     let mut members = members;
     members.sort_by_key(|member| member.ordinal);
     let enumeration_ref = ProofReference::from_canonical(RowRef::of(enumeration));
-    let membership_steps = proof.items.iter()
-        .filter(|step| step.rule.as_str() == "signature_enumeration_member"
-            && step.conclusion == enumeration_ref)
+    let membership_steps = proof
+        .items
+        .iter()
+        .filter(|step| {
+            step.rule.as_str() == "signature_enumeration_member"
+                && step.conclusion == enumeration_ref
+        })
         .collect::<Vec<_>>();
     assert_eq!(membership_steps.len(), members.len());
     for (ordinal, member) in members.iter().enumerate() {
         assert_eq!(member.ordinal, ordinal as i64);
         let reference = ProofReference::from_canonical(RowRef::of(member.id()));
-        let step = membership_steps.iter().find(|step| step.source == reference)
+        let step = membership_steps
+            .iter()
+            .find(|step| step.source == reference)
             .expect("every exact selected enumeration member is visible");
-        assert_eq!(step.premises, vec![PremisePacket {
-            role: Name::new("signature").unwrap(),
-            premise: ProofReference::from_canonical(RowRef::of(member.signature)),
-        }]);
+        assert_eq!(
+            step.premises,
+            vec![PremisePacket {
+                role: Name::new("signature").unwrap(),
+                premise: ProofReference::from_canonical(RowRef::of(member.signature)),
+            }]
+        );
     }
     let member_count = members.len();
-    let signatures = execution.query(move |lease| {
-        Box::pin(async move {
-            lease.read_ids::<Signature>(
-                &members.iter().map(|member| member.signature).collect::<Vec<_>>(),
-            ).await
+    let signatures = execution
+        .query(move |lease| {
+            Box::pin(async move {
+                lease
+                    .read_ids::<Signature>(
+                        &members
+                            .iter()
+                            .map(|member| member.signature)
+                            .collect::<Vec<_>>(),
+                    )
+                    .await
+            })
         })
-    }).await.unwrap();
+        .await
+        .unwrap();
     assert_eq!(signatures.rows().len(), member_count);
-    assert!(signatures.rows().iter().all(|signature|
-        signature.role == header.role && signature.symbol == header.symbol
-            && signature.qualification == header.qualification));
+    assert!(
+        signatures
+            .rows()
+            .iter()
+            .all(|signature| signature.role == header.role
+                && signature.symbol == header.symbol
+                && signature.qualification == header.qualification)
+    );
     let serialized = serde_json::to_value(&proof).unwrap();
     let restored: SectionPage<DerivationStep> = serde_json::from_value(serialized).unwrap();
     assert_eq!(restored, proof);

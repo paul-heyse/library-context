@@ -1435,7 +1435,8 @@ mod prepared_completion_tests {
             owner: id(3),
             expression: id(4),
         };
-        let prepared = PreparedExecution::new(&data, request.input, request.context, &budget).unwrap();
+        let prepared =
+            PreparedExecution::new(&data, request.input, request.context, &budget).unwrap();
         let exhaust = |syntax: &mut Evaluator<'_>| {
             syntax
                 .tick(super::super::completion::COMPLETION_WORK_LIMIT + 1)
@@ -1460,7 +1461,10 @@ mod prepared_completion_tests {
             Ok(()),
         );
         let pressure = budget
-            .reserve("completion-test-pressure", budget.limit() - budget.reserved())
+            .reserve(
+                "completion-test-pressure",
+                budget.limit() - budget.reserved(),
+            )
             .unwrap();
         let allocate = |syntax: &mut Evaluator<'_>| {
             syntax.charge.grow(1)?;

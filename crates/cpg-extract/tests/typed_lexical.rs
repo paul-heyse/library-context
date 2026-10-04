@@ -377,20 +377,31 @@ async fn each_scoping_rule_resolves_as_python_defines_it() {
                 && s.mode == ExtractionMode::Recognizer
                 && s.fidelity == Fidelity::NormalizedStructural
         });
-        !recognized || f.scopes.iter().find(|s| s.id() == o.scope).unwrap().owner != annotation_lambda.id()
+        !recognized
+            || f.scopes.iter().find(|s| s.id() == o.scope).unwrap().owner != annotation_lambda.id()
     }));
     // Every scope has its parent where its position evaluates; only modules have none.
     assert!(f.scope_observations.iter().all(|o| o.parent.is_none()
         == (f.scopes.iter().find(|s| s.id() == o.scope).unwrap().kind
             == LexicalScopeKind::Module)));
-    let recognizer_coverage = f.coverage.iter().filter(|c| {
-        c.family == FactFamily::Lexical && f.providers.iter().any(|p| {
-            Some(p.id()) == c.provider && p.tool == "pyrefly"
+    let recognizer_coverage = f
+        .coverage
+        .iter()
+        .filter(|c| {
+            c.family == FactFamily::Lexical
+                && f.providers
+                    .iter()
+                    .any(|p| Some(p.id()) == c.provider && p.tool == "pyrefly")
         })
-    }).collect::<Vec<_>>();
-    assert!(!recognizer_coverage.is_empty(), "recognizer coverage must be retained");
+        .collect::<Vec<_>>();
     assert!(
-        recognizer_coverage.iter().all(|c| c.status == CoverageStatus::CompleteUnderStatedModel),
+        !recognizer_coverage.is_empty(),
+        "recognizer coverage must be retained"
+    );
+    assert!(
+        recognizer_coverage
+            .iter()
+            .all(|c| c.status == CoverageStatus::CompleteUnderStatedModel),
         "{:?}",
         f.coverage
     );

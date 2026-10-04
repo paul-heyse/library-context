@@ -299,11 +299,14 @@ fn support_frame(
 // Native calls and canonical syntax have independent providers. Compose their exact
 // receipts only within one input, analysis context and extraction configuration.
 fn same_source_frame(data: &ReceiverData, left: Id<ProviderRun>, right: Id<ProviderRun>) -> bool {
-    data.runs.get(left).zip(data.runs.get(right)).is_some_and(|(left, right)| {
-        left.input == right.input
-            && left.context == right.context
-            && left.configuration == right.configuration
-    })
+    data.runs
+        .get(left)
+        .zip(data.runs.get(right))
+        .is_some_and(|(left, right)| {
+            left.input == right.input
+                && left.context == right.context
+                && left.configuration == right.configuration
+        })
 }
 fn derive(
     data: &ReceiverData,

@@ -89,31 +89,72 @@ fn rebuild_callables(data: &mut BindingData, budget: &ResourceBudget) {
 // Failure-only bounded support frames for the retained native ClassOf operation.
 fn diagnose_receiver(data: &BindingData, target: &CallTarget) {
     eprintln!("RECEIVER_TARGET {target:?}");
-    for assessment in data.receiver_assessments.iter().filter(|a| a.target() == target.id()).take(4) {
+    for assessment in data
+        .receiver_assessments
+        .iter()
+        .filter(|a| a.target() == target.id())
+        .take(4)
+    {
         eprintln!("RECEIVER_ASSESSMENT {assessment:?}");
     }
-    for support in data.target_supports.iter().filter(|s| s.assertion == target.id()).take(4) {
-        eprintln!("RECEIVER_TARGET_SUPPORT {support:?} run={:?}", data.runs.get(support.run));
+    for support in data
+        .target_supports
+        .iter()
+        .filter(|s| s.assertion == target.id())
+        .take(4)
+    {
+        eprintln!(
+            "RECEIVER_TARGET_SUPPORT {support:?} run={:?}",
+            data.runs.get(support.run)
+        );
     }
     for syntax in data.syntax.iter().filter(|s| s.site == target.site).take(4) {
         eprintln!("RECEIVER_SYNTAX {syntax:?}");
-        for support in data.syntax_supports.iter().filter(|s| s.assertion == syntax.id()).take(4) {
-            eprintln!("RECEIVER_SYNTAX_SUPPORT {support:?} run={:?}", data.runs.get(support.run));
+        for support in data
+            .syntax_supports
+            .iter()
+            .filter(|s| s.assertion == syntax.id())
+            .take(4)
+        {
+            eprintln!(
+                "RECEIVER_SYNTAX_SUPPORT {support:?} run={:?}",
+                data.runs.get(support.run)
+            );
         }
-        for placement in data.placements.iter().filter(|p| {
-            p.parent == Some(syntax.callee) && p.field == lexical::SyntaxField::Value
-        }).take(4) {
+        for placement in data
+            .placements
+            .iter()
+            .filter(|p| p.parent == Some(syntax.callee) && p.field == lexical::SyntaxField::Value)
+            .take(4)
+        {
             eprintln!("RECEIVER_VALUE {placement:?}");
-            for support in data.placement_supports.iter().filter(|s| s.assertion == placement.id()).take(4) {
-                eprintln!("RECEIVER_VALUE_SUPPORT {support:?} run={:?}", data.runs.get(support.run));
+            for support in data
+                .placement_supports
+                .iter()
+                .filter(|s| s.assertion == placement.id())
+                .take(4)
+            {
+                eprintln!(
+                    "RECEIVER_VALUE_SUPPORT {support:?} run={:?}",
+                    data.runs.get(support.run)
+                );
             }
         }
     }
     let qualification = data.qualifications.get(target.qualification).unwrap();
-    for coverage in data.coverage.iter().filter(|c| {
-        c.context == qualification.context && c.scope == qualification.scope
-            && matches!(c.family, attribution::FactFamily::Calls | attribution::FactFamily::Syntax)
-    }).take(12) {
+    for coverage in data
+        .coverage
+        .iter()
+        .filter(|c| {
+            c.context == qualification.context
+                && c.scope == qualification.scope
+                && matches!(
+                    c.family,
+                    attribution::FactFamily::Calls | attribution::FactFamily::Syntax
+                )
+        })
+        .take(12)
+    {
         eprintln!("RECEIVER_COVERAGE {coverage:?}");
     }
 }
@@ -889,8 +930,11 @@ async fn class_of_replay_refuses_missing_ambiguous_foreign_and_contradictory_pre
                 }
             }
             8 => {
-                let support = data.placement_supports.iter()
-                    .find(|s| s.assertion == *placement).unwrap();
+                let support = data
+                    .placement_supports
+                    .iter()
+                    .find(|s| s.assertion == *placement)
+                    .unwrap();
                 let original_run = support.run;
                 let mut run = data.runs.get(original_run).unwrap().clone();
                 run.configuration = ContentHash::of(b"foreign-extraction-configuration");
@@ -899,13 +943,17 @@ async fn class_of_replay_refuses_missing_ambiguous_foreign_and_contradictory_pre
                 inputs.syntax_supports = Rows::new(&budget);
                 for s in data.syntax_supports.iter() {
                     let mut s = s.clone();
-                    if s.run == original_run { s.run = foreign; }
+                    if s.run == original_run {
+                        s.run = foreign;
+                    }
                     inputs.syntax_supports.insert(s).unwrap();
                 }
                 inputs.placement_supports = Rows::new(&budget);
                 for s in data.placement_supports.iter() {
                     let mut s = s.clone();
-                    if s.run == original_run { s.run = foreign; }
+                    if s.run == original_run {
+                        s.run = foreign;
+                    }
                     inputs.placement_supports.insert(s).unwrap();
                 }
                 for c in data.coverage.iter().filter(|c| c.run == Some(original_run)) {

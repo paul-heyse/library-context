@@ -1,8 +1,8 @@
 //! The facts frontier (plan D1; review focus #2): absent, unknown, unrequested and empty stay
 //! distinct from producer schedule through coverage to admission.
 use lctx_model::domain::{
-    admission::*, attribution::*, calls::*, deployment::*, documents::*, flow::*,
-    input::*, resources::ResourceBudget, source::*, stages::*, transfer::local::TransferKey, *,
+    admission::*, attribution::*, calls::*, deployment::*, documents::*, flow::*, input::*,
+    resources::ResourceBudget, source::*, stages::*, transfer::local::TransferKey, *,
 };
 use std::{
     collections::BTreeMap,
@@ -126,8 +126,15 @@ fn write_acquire(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
 // This conformance fixture assigns every native assertion pair to its covered family owner.
 // The registry owns the changing pair inventory; empty writes here exercise admission only.
 fn pyrefly_family(family: FactFamily) -> bool {
-    matches!(family, FactFamily::Syntax | FactFamily::Lexical | FactFamily::Signatures
-        | FactFamily::Calls | FactFamily::Types | FactFamily::Exports)
+    matches!(
+        family,
+        FactFamily::Syntax
+            | FactFamily::Lexical
+            | FactFamily::Signatures
+            | FactFamily::Calls
+            | FactFamily::Types
+            | FactFamily::Exports
+    )
 }
 fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
     ready(access.write::<Occurrence, _>(async |_| Ok(())))?;
@@ -142,7 +149,10 @@ fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
     Ok(())
 }
 fn pyrefly_outputs() -> Vec<RelationUse> {
-    let mut outputs = vec![RelationUse::of::<Occurrence>(), RelationUse::of::<SignatureEnumerationMember>()];
+    let mut outputs = vec![
+        RelationUse::of::<Occurrence>(),
+        RelationUse::of::<SignatureEnumerationMember>(),
+    ];
     macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
         if pyrefly_family(<$assertion as lctx_model::domain::assertion::Assertion>::FAMILY) {
             outputs.extend([RelationUse::of::<$assertion>(), RelationUse::of::<$support>()]);

@@ -1,9 +1,9 @@
 #[path = "fixtures/transfer_composition.rs"]
 mod fixture;
-#[path = "fixtures/source_data.rs"]
-mod source_fixture;
 #[path = "fixtures/read_diagnostics.rs"]
 mod read_diagnostics;
+#[path = "fixtures/source_data.rs"]
+mod source_fixture;
 use lctx_model::domain::{
     analysis,
     execution::{self, read_channels::*},
@@ -93,7 +93,12 @@ async fn actual_read_inventory_and_complete_negative_are_replayed() {
     );
     let value=records.reads.formals.iter().find(|row|matches!(data.flow.formals.get(row.formal),Some(normalized::entities::ParameterEntity::Source{declaration})if text(&f,*declaration)=="value")&&owner_text(row.owner).starts_with("def unused(")).unwrap();
     assert_eq!(value.status, ReadAssessment::ObservedRead);
-    if !records.reads.reads.iter().any(|r| r.location == ReadLocation::DeclaredGlobal) {
+    if !records
+        .reads
+        .reads
+        .iter()
+        .any(|r| r.location == ReadLocation::DeclaredGlobal)
+    {
         read_diagnostics::dump(&f, &data, &records.reads);
     }
     assert!(
@@ -129,75 +134,195 @@ async fn actual_read_inventory_and_complete_negative_are_replayed() {
             .iter()
             .any(|d| d.kind == execution::read_dynamic::DynamicKind::Dictionary)
     );
-    if !records.reads.dynamic.iter().any(|d| text(&f, d.site) == "getattr(fixed, name)" && d.declared_class == Some(choice)) {
+    if !records
+        .reads
+        .dynamic
+        .iter()
+        .any(|d| text(&f, d.site) == "getattr(fixed, name)" && d.declared_class == Some(choice))
+    {
         read_diagnostics::dump_global_initializer(&f, &data, &records.reads);
     }
     assert!(records.reads.dynamic.iter().any(|d|text(&f,d.site)=="getattr(fixed, name)"&&d.declared_class==Some(choice)));
     // Source initializer inspection requires independently paired native binding and syntax
     // authority. Retained recognizer bindings cannot replace a missing native premise.
-    for mutation in ["initializer binding", "class binding", "initializer syntax", "module reference support", "foreign module reference"] {
+    for mutation in [
+        "initializer binding",
+        "class binding",
+        "initializer syntax",
+        "module reference support",
+        "foreign module reference",
+    ] {
         let mut missing = source_fixture::data(&f);
         if mutation == "module reference support" || mutation == "foreign module reference" {
-            let call = missing.evaluation.call_syntax.iter().find(|c| text(&f, c.site) == "getattr(fixed, name)").unwrap();
-            let read = missing.evaluation.call_arguments.iter().find(|a| a.call == call.id() && a.ordinal == 0).unwrap().value;
-            let reference = missing.evaluation.ruff_contexts.iter().find(|r| r.subject == read
-                && r.phase == ruff::ContextPhase::FinalReference && r.final_binding.is_some()).unwrap();
+            let call = missing
+                .evaluation
+                .call_syntax
+                .iter()
+                .find(|c| text(&f, c.site) == "getattr(fixed, name)")
+                .unwrap();
+            let read = missing
+                .evaluation
+                .call_arguments
+                .iter()
+                .find(|a| a.call == call.id() && a.ordinal == 0)
+                .unwrap()
+                .value;
+            let reference = missing
+                .evaluation
+                .ruff_contexts
+                .iter()
+                .find(|r| {
+                    r.subject == read
+                        && r.phase == ruff::ContextPhase::FinalReference
+                        && r.final_binding.is_some()
+                })
+                .unwrap();
             let reference_id = reference.id();
-            let original = missing.evaluation.ruff_context_supports.iter()
-                .find(|s| s.assertion == reference_id).unwrap().clone();
-            let retained = missing.evaluation.ruff_context_supports.iter()
-                .filter(|s| s.assertion != reference_id).cloned().collect::<Vec<_>>();
+            let original = missing
+                .evaluation
+                .ruff_context_supports
+                .iter()
+                .find(|s| s.assertion == reference_id)
+                .unwrap()
+                .clone();
+            let retained = missing
+                .evaluation
+                .ruff_context_supports
+                .iter()
+                .filter(|s| s.assertion != reference_id)
+                .cloned()
+                .collect::<Vec<_>>();
             missing.evaluation.ruff_context_supports = Rows::new(&f.budget);
-            for support in retained { missing.evaluation.ruff_context_supports.insert(support).unwrap(); }
+            for support in retained {
+                missing
+                    .evaluation
+                    .ruff_context_supports
+                    .insert(support)
+                    .unwrap();
+            }
             if mutation == "foreign module reference" {
                 let mut foreign = original;
-                foreign.run = missing.flow.runs.iter().find(|r| r.input == invocation.input
-                    && r.context == invocation.context && r.id() != foreign.run).unwrap().id();
+                foreign.run = missing
+                    .flow
+                    .runs
+                    .iter()
+                    .find(|r| {
+                        r.input == invocation.input
+                            && r.context == invocation.context
+                            && r.id() != foreign.run
+                    })
+                    .unwrap()
+                    .id();
                 let pair = analysis::native::NativeAssertionPremise::RuffContextObservation {
-                    assertion: reference_id, support: foreign.id(),
+                    assertion: reference_id,
+                    support: foreign.id(),
                 };
                 // Re-pair the forged receipt so refusal tests same-run native correspondence,
                 // rather than failing merely because the altered support lacks hydration.
                 let qualification = analysis::native::NativeQualification {
-                    premise: pair.id(), qualification: reference.qualification,
-                    family: attribution::FactFamily::Lexical, fidelity: attribution::Fidelity::NativeStructural,
+                    premise: pair.id(),
+                    qualification: reference.qualification,
+                    family: attribution::FactFamily::Lexical,
+                    fidelity: attribution::Fidelity::NativeStructural,
                     status: analysis::policy::EvidenceStatus::StructurallyObserved,
                 };
-                missing.evaluation.ruff_context_supports.insert(foreign).unwrap();
+                missing
+                    .evaluation
+                    .ruff_context_supports
+                    .insert(foreign)
+                    .unwrap();
                 missing.evaluation.premises.insert(pair).unwrap();
                 missing.evaluation.native.insert(qualification).unwrap();
             }
         } else if mutation == "initializer syntax" {
-            let value = missing.evaluation.placements.iter().find(|p| {
-                p.field == lexical::SyntaxField::Value && text(&f, p.occurrence) == "ChoiceA()"
-                    && p.parent.is_some_and(|parent| text(&f, parent) == "fixed = ChoiceA()")
-            }).unwrap().id();
-            let retained = missing.flow.placement_supports.iter()
-                .filter(|support| support.assertion != value).cloned().collect::<Vec<_>>();
-            missing.flow.placement_supports = Rows::new(&f.budget);
-            for support in retained { missing.flow.placement_supports.insert(support).unwrap(); }
-        } else {
-            let binding = missing.evaluation.ruff_bindings.iter().find(|b| {
-                missing.evaluation.binding_events.get(b.event).is_some_and(|event| {
-                    if mutation == "initializer binding" {
-                        event.name == "fixed" && text(&f, event.site) == "fixed"
-                    } else {
-                        text(&f, event.site).starts_with("class ChoiceA:")
-                    }
+            let value = missing
+                .evaluation
+                .placements
+                .iter()
+                .find(|p| {
+                    p.field == lexical::SyntaxField::Value
+                        && text(&f, p.occurrence) == "ChoiceA()"
+                        && p.parent
+                            .is_some_and(|parent| text(&f, parent) == "fixed = ChoiceA()")
                 })
-            }).unwrap().id();
-            let retained = missing.evaluation.ruff_binding_supports.iter()
-                .filter(|support| support.assertion != binding).cloned().collect::<Vec<_>>();
+                .unwrap()
+                .id();
+            let retained = missing
+                .flow
+                .placement_supports
+                .iter()
+                .filter(|support| support.assertion != value)
+                .cloned()
+                .collect::<Vec<_>>();
+            missing.flow.placement_supports = Rows::new(&f.budget);
+            for support in retained {
+                missing.flow.placement_supports.insert(support).unwrap();
+            }
+        } else {
+            let binding = missing
+                .evaluation
+                .ruff_bindings
+                .iter()
+                .find(|b| {
+                    missing
+                        .evaluation
+                        .binding_events
+                        .get(b.event)
+                        .is_some_and(|event| {
+                            if mutation == "initializer binding" {
+                                event.name == "fixed" && text(&f, event.site) == "fixed"
+                            } else {
+                                text(&f, event.site).starts_with("class ChoiceA:")
+                            }
+                        })
+                })
+                .unwrap()
+                .id();
+            let retained = missing
+                .evaluation
+                .ruff_binding_supports
+                .iter()
+                .filter(|support| support.assertion != binding)
+                .cloned()
+                .collect::<Vec<_>>();
             missing.evaluation.ruff_binding_supports = Rows::new(&f.budget);
-            for support in retained { missing.evaluation.ruff_binding_supports.insert(support).unwrap(); }
+            for support in retained {
+                missing
+                    .evaluation
+                    .ruff_binding_supports
+                    .insert(support)
+                    .unwrap();
+            }
         }
-        let roots = missing.flow.artifacts.iter().filter(|a| a.input == invocation.input)
-            .map(Record::id).collect();
-        let refused = produce(&missing.evaluation, &missing.flow, &invocation, &roots, &f.budget).unwrap();
-        let fixed = refused.dynamic.iter().find(|d| text(&f, d.site) == "getattr(fixed, name)").unwrap();
+        let roots = missing
+            .flow
+            .artifacts
+            .iter()
+            .filter(|a| a.input == invocation.input)
+            .map(Record::id)
+            .collect();
+        let refused = produce(
+            &missing.evaluation,
+            &missing.flow,
+            &invocation,
+            &roots,
+            &f.budget,
+        )
+        .unwrap();
+        let fixed = refused
+            .dynamic
+            .iter()
+            .find(|d| text(&f, d.site) == "getattr(fixed, name)")
+            .unwrap();
         assert_eq!(fixed.declared_class, None, "{mutation}: {fixed:?}");
-        assert_eq!(fixed.inspection, execution::read_dynamic::ClassInspection::Unknown);
-        assert_eq!(fixed.reason, Some(obligation::ObligationKind::DynamicAccess));
+        assert_eq!(
+            fixed.inspection,
+            execution::read_dynamic::ClassInspection::Unknown
+        );
+        assert_eq!(
+            fixed.reason,
+            Some(obligation::ObligationKind::DynamicAccess)
+        );
     }
     assert_eq!(
         records

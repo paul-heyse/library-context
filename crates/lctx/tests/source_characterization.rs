@@ -634,7 +634,10 @@ def example():
         .iter()
         .find(|route| route.stop == RouteStop::Declaration)
         .unwrap_or_else(|| {
-            panic!("reported implementation route: {:#?}", packet.access_routes.items)
+            panic!(
+                "reported implementation route: {:#?}",
+                packet.access_routes.items
+            )
         });
     let names = parse_route
         .hops

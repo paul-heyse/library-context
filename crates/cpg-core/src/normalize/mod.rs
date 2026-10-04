@@ -94,7 +94,8 @@ pub async fn relations(
     let session = runtime.session(&access);
     let mut data = RelationData::new(runtime.budget());
     let mut registered = charged::ChargedSet::default();
-    let mut registration = charged::StateCharge::new(runtime.budget(), "relation-input-registration");
+    let mut registration =
+        charged::StateCharge::new(runtime.budget(), "relation-input-registration");
     macro_rules! read_facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
         let permit = access.read::<$ty>()?;
         if registered.insert(&mut registration, <$ty>::NAME)? {
