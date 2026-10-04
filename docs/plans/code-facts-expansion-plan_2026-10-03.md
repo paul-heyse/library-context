@@ -235,14 +235,14 @@ assembled runtime acceptance.
 
 | Current boundary | Implemented state and remaining acceptance |
 |---|---|
-| M0–M3, N0–N5 | Migration and selected normalization are integrated, with scoped native/model/store receipts below. Genuine native ClassTrait support for B3 passed its six-class/provenance and disagreement controls in the executor tree; integration and unchanged PG acceptance remain open. No report support is relabelled. Current-pin assembled qualification remains open. |
+| M0–M3, N0–N5 | Migration and selected normalization are integrated, with scoped native/model/store receipts below. Genuine native ClassTrait support is integrated at `603d1a63`; its six-class/provenance and disagreement controls and unchanged three-frontier PG acceptance passed within the scoped composite below. No report support is relabelled. Current-pin assembled qualification remains open. |
 | B0/B1/B2/B4 | Required bases, conditional atom restrictions, bounded direct captures and exact finite exceptions are integrated. Their scoped producer controls passed; the completed packet cascade still requires assembled acceptance. |
-| B3 | Native/recognizer read eligibility and narrow Candidate source-target routing controls passed. Genuine native ClassTrait provenance controls passed; the actual PG fixture now reaches the exact three expected conditional frontiers, retaining contradictory-MRO/open-source/placeholder exclusions. Its later provenance count was scoped to frontier targets and the affected rerun is active. Producer integration and terminal serving remain open. |
+| B3 | Producer integrated at `603d1a63`: bounded dispatch/protocol/terminal questions reach Summary, with 18 distinct scoped controls passed. Original Candidate/open runtime alternatives remain unchanged. Purpose-specific declaration inspection preserves report fidelity; executable reads remain native structural. Current-pin assembled qualification and P4 terminal serving remain open. |
 | P0/P1/P2 | Parameter analytics, native characterization/roles, typed facets and stored witnesses are integrated. Scoped analytic/native/model/service controls passed; generated-role control and same-tree assembled journeys remain open. |
 | Raised-type review correction | Independent assembled review found that retained nonmatching raises could incorrectly close an unavailable native raise trace. P2 now requires existing complete Types coverage at the same source/context for a negative, with append-only witness27; matching positives remain valid under partial coverage. Targeted model/service checks and two units plus the classification inventory control passed; actual mixed/complete native service controls and final independent review remain open. |
 | Corpus mention review correction | The selected-analytics Q0 fixture exposed an Installed/Corpus input mismatch that silently discarded valid official co-mentions. P1 now consumes existing `CorpusLibrary` and follows only exact declared corpus→library links, retaining context, Document role, resolved universe and deduplication. Targeted check passed; actual split-input and unlinked-corpus controls remain open. |
 | P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics and repaired usage both passed as a two-control composite; the repair retains opaque module/local assignment negatives alongside direct import/re-export positives. Current-tree assembled qualification remains open. |
-| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Same-tree assembled check remains open. Terminal output is pending B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
+| P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Same-tree assembled check remains open. Terminal output is active against integrated B3. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
 | Q0 | **not_run**: all functional packages, independent assembled review, current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` are prerequisites. The both-profile stdio fixture is being extended to explicitly select fixed communities/PageRank/FCA/RCA/type/mention policies; kNN/embeddings remain off. Old operator staging and real-library/activation remain excluded. |
 
 | Package / command, 2026-10-03 | Outcome and boundary |
@@ -812,3 +812,33 @@ the actual PG4 and matching CLI/check receipts above. Exact executor receipt:
 `91ad5d44deec1bd3f28fa8834d135305ccd1535ab14aadb6d58c2f12015e52ab`.
 P3 Evidence fields and source-formal documentation are preserved. Assembled compile, snapshots,
 current adapter, Q0 and full gates remain pending; this is an additive hard wire/schema migration.
+
+
+B3 producer integrated at `603d1a63` (executor `fae167bc`), 2026-10-03. Summary conflict
+resolution retains both CaptureWitness12 and TerminalFrontier13, all capture/terminal inputs
+and outputs. The scoped composite contains **18 distinct controls passed**; earlier failures
+remain in `/home/paul/.cache/lctx-code-facts/b3-receipt.json` and its named logs. Actual
+`cargo test --release -p cpg-core --test behavioral_frontiers -- --nocapture` **passed**
+(`b3-pg-6.log`, 963.38s total): exactly declared_use/final_use/final_method_use, with
+GivenInvocationEntered, full bases, real authored-universe support and unknown effects,
+exceptions and cleanup. Original source inspection/open dispatch and contradictory-C3
+prefix exclusions survive. Native exit characterization supplies no runtime completion.
+
+`cargo test --release -p lctx-model --test terminal_model_membership` **passed**; native
+MRO and protocol/exception identity, context composition and exact handler controls also
+**passed**, with exact commands in that receipt. The later actual read regression initially
+**failed** because declaration inspection legitimately uses report-projected FunctionTrait,
+SymbolDeclaration and ParameterDeclaration. The narrow DeclaredClassInspection purpose accepts
+only those three exact native question/support pairs with original fidelity; ordinary
+ExecutableRead eligibility remains NativeStructural. Four selector controls **passed**
+(`b3-inspection-selectors.log`), then the actual native read inventory **passed** with nine
+dynamic observations and two declared-class inspections (`b3-read-regression-2.log`). No
+runtime class/allocation/state/member-universe authority follows from inspection.
+
+The receipt is composite: frontier PG6 preceded that inspection-only repair; affected selector
+and actual read controls were rerun. Its private Ruff revision `8f01d800` differs from main's
+current canonical fork. Current-main terminal, assembled Q0 and full gates must re-exercise
+these contracts on the final union. `cargo check -p lctx-model -p cpg-core --tests` **passed**
+(`b3-check-9.log`, 55.46s, dev profile); main assembled release check is pending. The additive
+Model/Summary relations and append-only claim3/support13 are a schema migration; terminal
+packets, snapshots, adapter and full gate acceptance remain open.

@@ -248,3 +248,28 @@ The active plan records implementation and qualification; future product needs c
 bounded extension without reintroducing legacy tables or a parallel policy owner.
 
 > Decision: ADR-0058, ADR-0106, ADR-0108
+
+
+## Qualified target and terminal questions
+
+**Implemented, 2026-10-03.** Model distinguishes exact runtime closure, typing-conditional
+closure and open dispatch. Source inspection and a Candidate Overrides route do not close
+runtime targets. A separate typing question requires definite receiver evidence, a unique
+checked native member, complete MRO, final metadata and explicit receiver-conformance and
+no-extra-overrides premises with their actual authored model.
+
+Protocol origins retain their exact phase. Native NoReturn and exit types characterize typing;
+they do not establish divergence, runtime suppression or completed execution. A terminal
+frontier concerns the exact following statement of a direct sequential call **given invocation
+entered**. Effects, exceptions and cleanup remain unknown. SummaryTerminalWitness retains
+that question, frontier, restriction and qualification as StructurallyObserved, without a
+finite ClaimConclusion or body execution proof. Scoped composite controls are **Tested** in
+the code-facts coordinator §7; terminal serving and final assembled qualification remain open.
+
+DeclaredClassInspection may use genuine report-projected function, symbol and parameter
+declarations with exact native question/support identity. This describes a reachable source
+class, without runtime class, allocation, state or complete member-universe authority.
+Executable reads continue to require native structural support; a recognizer or mismatched
+fidelity cannot supply it.
+
+> Decision: ADR-0120

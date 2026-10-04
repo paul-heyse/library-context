@@ -447,6 +447,13 @@ M2 owns adoption; a bespoke port of Ruff's semantic model remains deferred.
 > Decision: ADR-0117, ADR-0118
 
 
+**Implemented, 2026-10-03:** native ClassTrait provenance comes from the exact pinned
+Bindings class index and solved ClassMetadata. It is added only when the full native payload
+uniquely matches the existing assertion; report support remains independently attributed.
+Missing, ambiguous or disagreeing correspondence remains Partial with a boundary. Six native
+class forms and payload disagreement refusal are scoped **Tested** in the code-facts
+coordinator §7; final assembled qualification remains open.
+
 ### §4.3 Fact construction and persistence
 
 **Implemented, 2026-10-02.** `lctx-model::domain` owns typed records, schema/codebooks,

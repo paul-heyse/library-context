@@ -100,7 +100,7 @@ P1 integrated (`1a7ad33d`, real-PG RCA handoff passed); narrow M2 Lexical fix pa
 P2 supported facets/stored witness closure (`d288a6b1`): compile, 17 model and three native controls passed.
 M2 metadata/B1 PG passed; P3 diagnostics/pytest/usage integrated (`9996f81f`/`a862fc29`); native10 and diagnostic/usage PG composite passed.
 P4 conditional/generated PG await the final matching CLI; Capture actual PG/wire passed and is integrated.
-B3 frontier PG passed; producer integration/terminal output remain active. B2 scoped composite passed eight controls.
+B3 producer integrated (`603d1a63`), 18 scoped controls passed; terminal packets remain active. B2 scoped composite passed eight controls.
 Raised-type coverage correction check/two units passed; actual PG remains open. Coordinator §7/§5 own receipts/disposition.
 Full test-all/hygiene and assembled Q0 are not_run until all functional packages are integrated.
 Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
