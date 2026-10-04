@@ -1,4 +1,6 @@
 //! Typed fact producers over pinned Pyrefly, Ruff, ty and captured evidence.
+//! Independent Ruff over original bytes owns canonical syntax. Pyrefly's embedded AST stays
+//! native to its adapter; ty uses a declared runtime source view with exact original-role joins.
 
 pub mod acquisition;
 pub mod assembly;

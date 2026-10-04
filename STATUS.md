@@ -2,16 +2,18 @@
 
 _Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**The analytical enrichment implementation plans are authored; production execution is not started.**
-The [new coordinator](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md) and four supporting
-plans translate the [principal review](docs/design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md)
-into bounded remedies and selected richer answers. Coordinator §7 now owns that review's F01/F02/O01–O08
-dispositions; the earlier code-facts coordinator retains its own findings. The target is Proposed,
-grounded in Interface-checked source/pinned APIs at committed baseline `dbabbe6904a3`, 2026-10-04.
-Guarded proofs and argument Expected expansion have native usefulness decisions before implementation;
-ty reference search and odis are development oracles, with existing production authorities retained.
-The source review's decision remains Revise; static planning does not certify release qualification.
-No production remediation, runtime probes, product gates or operator-state changes occurred here.
+**Analytical enrichment implementation is in progress; assembled acceptance is pending.**
+The [coordinator §7](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
+owns F01/F02/O01–O08 and current receipts. Model-owned Structural outcome replay and qualified
+singleton flow composition are integrated, with focused model controls passed. C1/C3/C6/R1 and
+argument Expected extraction are integrated within focused controls; PostgreSQL qualification and
+C7 location closure are pending. G1 native inventory is integrated; its loop adapter control has
+failed and is being repaired. C2's observation-only Pyrefly fork is published and pinned;
+canonical origin association/serving, C4/C5 and development oracles remain in progress.
+G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
+inventory supplies exclusion conditions. C7 is enabled: useful retained argument Expected also
+occurs in failed calls, so it carries uncertainty. Ty references and odis remain development-only.
+No current Q1, full test/hygiene, adapter-readiness or operator-activation pass is claimed.
 
 **The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
 The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
@@ -79,10 +81,9 @@ The later catalog compile was interrupted with SIGINT/exit130. Staging
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Next implementation action: coordinator A0/A1/A2 (Structural outcome replay, provider guidance and
-Local qualification preservation), alongside G0 native evidence and independent existing-fact consumers.
-The plans supply contracts, hydration, dependencies, alternatives and closure evidence. Final Q1
-incorporates surviving Q0 fixture journeys; real-library activation remains separately authorized.
+Next: integrate C2/C4/C5/G1 consumers and oracle controls, repair focused fixture failures, then
+complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`just hygiene`.
+Surviving Q0 fixture journeys are included; real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release
 intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
-The end-of-turn hook owns formatting/generated refreshes; no scoped refresh exception was used here.
+The end-of-turn hook owns formatting/generated refreshes; generators have not been run manually.

@@ -293,7 +293,22 @@ have these concrete routes; they are not a demand to extract the full survey:
 | Other class/framework/ordering flags, directive fixes, notebook/PEP723/editor APIs | **Deferred**; trigger a named operation/example journey whose answer changes, then establish source/role/resource contract. No current selected consumer establishes benefit |
 | General recursive relations, new graph ranking or universal flow graph | **Deferred**; trigger a concrete repeated recursive/path question not answered by current finite operations; no current requirement |
 
-All packages are currently **not_run**. Plan authoring is complete only when document contracts,
+Production execution is **in progress**, 2026-10-04. A0/A2 model ownership and qualification
+composition are implemented in the working tree; focused Structural tests passed (4 controls),
+with expanded stop/frontier and qualification controls pending. A1 owner guidance is corrected,
+with final documentation validation pending. K1 dev-only dependencies are pinned at `80e994da`;
+G1 and API consumers are being implemented on isolated branches. Q1/full gates remain **not_run**.
+
+**G0 passed**, 2026-10-04: `cargo test --release -p cpg-flow --test flow_shapes
+native_guarded_origin_search -- --nocapture` on the flow branch. The actual fixture
+`fixtures/python/guarded_origin_inventory/cases.py` retained ten identity-return reads, six with two
+alternatives, plus an incomplete loop join and native branch-local/early-return singletons. No
+multi-candidate native Value/region condition excluded every competitor. **G2/G3 Deferred**:
+reopen on an actual multi-candidate case with an attributed native Value condition Q whose
+conjunction excludes every competing candidate, under complete per-use inventory. G1 and A2
+remain required; this decision does not claim guarded proof implementation.
+
+Plan authoring is complete only when document contracts,
 links and dispositions agree and the focused documentation check passes; this does not execute the
 production scope. Next implementation action: A0/A1/A2, alongside G0 evidence and independent C1/C3
 existing-fact work. Authoring verification is recorded below, separately from eventual Q1 receipts.
@@ -307,3 +322,20 @@ and accurate FCA cap/resource semantics. This is documentation/source assessment
 acceptance. Production compile/tests, `just test-all`, `just hygiene`, new runtime probes and
 real-library/operator actions are **not_run** in this documentation-only authoring task. The
 concurrent advisory `docs/library-utilization.jsonl` refresh is preserved outside this scoped change.
+
+Execution receipt update, 2026-10-04 (**Implemented / focused Tested**, not Q1):
+`cargo test --release -p lctx-model --test structural` **passed** (five controls), and
+`cargo test --release -p lctx-model --lib singleton_conditional_basis_is_not_promoted_or_erased`
+**passed**. The first `cargo test --release -p cpg-core --test structural` **failed** at fixture
+model registration: the hand-built relation set omitted a referenced SummaryExceptionOutcome.
+The fixture now uses the canonical model inventory; its rerun is pending. This failure has not
+exercised actual publication. C1/C3/C6/R1 initial consumer slice is integrated at `393f904a`;
+its three focused model controls passed on the worker baseline, service qualification pending.
+C7 is **enabled**: the actual retained Expected probe supplies useful `list[int]` context for
+`consume([])` and a retained `str` hint for a failed overloaded call. The initial absence assumption
+failed and is retained in `/home/paul/.cache/lctx-api-expected-trace.log`; corrected qualification
+and exact argument-location replay remain pending. Expected is not successful applicability.
+C2 published observation fork `63cda076956013cd0bd1d0d05c785f747fe6adc0` preserves the upstream
+parent and embedded Ruff premise. Its isolated supplier compile **passed** with the existing
+allocative patch; repository canonical observations/association/packets are still in progress.
+Full functional/hygiene, same-tree adapter readiness and Q1 remain **not_run**.

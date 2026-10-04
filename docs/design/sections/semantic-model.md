@@ -200,8 +200,11 @@ types, external symbols and synthetic callables.
 - attribute accesses and subscripts;
 - decorator applications, imports and annotations.
 
-**Who owns occurrence identity.** The Pyrefly/Ruff parse owns occurrence identity. ty observations
-attach by source artifact, span, syntax kind and structural role through one indexed join, checked
+**Who owns occurrence identity (Implemented, 2026-10-04 source inspection).** Independent latest
+Ruff over original captured bytes owns canonical occurrence identity. Pyrefly retains its embedded
+Ruff parse for native answers; those nominal AST families never cross the adapter boundary. ty
+observations come from the declared transformed runtime view and attach to original occurrences by
+source artifact, mapped span, syntax kind and structural role through one indexed join, checked
 against a scalar oracle for names, attributes and subscripts. Only an exact match attaches; any
 other outcome records a subject boundary with its candidates and Partial coverage. Ambiguity stays
 unresolved.
