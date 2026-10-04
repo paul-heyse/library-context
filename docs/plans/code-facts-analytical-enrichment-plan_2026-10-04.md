@@ -720,3 +720,13 @@ CLI describe reports model `ece1e6a8242aa3b7bafa039ed0aa07b7c5f6cd601db55626ef37
 The direct unchanged describe assertion **failed** as expected before deliberate migration
 acceptance (`lctx-enrichment-selected-domain-describe-snapshot.log`); snapshot refresh remains
 pending final source stability. Full hygiene/functional acceptance is still open.
+
+
+The selection/witness fixture rerun **passed**, 2026-10-04:
+`cargo nextest run --release -p cpg-extract --test transfer_composition -p cpg-core --test catalog_selection --failure-output immediate`,
+16 controls, zero skips (`lctx-enrichment-selection-witness-fixture-rerun.log`). Both actual
+PostgreSQL selection journeys and the canonical executed-owner dependency-closure control passed;
+all 13 composition controls passed, including selected enumeration/support corruption and exact
+global-versus-declared witness lineage. Production embedding contracts and Flow authority are
+unchanged. The fresh Behavioral Structural direct journey and association-purpose diagnostic
+remain in progress; this bounded pass does not establish the full functional or hygiene gate.
