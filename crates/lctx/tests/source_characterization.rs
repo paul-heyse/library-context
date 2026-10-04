@@ -630,7 +630,9 @@ def example():
             .access_routes
             .items
             .iter()
-            .any(|route| route.stop == RouteStop::Declaration)
+            .any(|route| route.stop == RouteStop::Declaration),
+        "native access route termination: {:#?}",
+        packet.access_routes.items
     );
     assert!(
         packet

@@ -397,7 +397,7 @@ fn operation_response(parameters: usize) -> Value {
             "access":{"module":id,"path":["FastMCP","run"],"exposures":[id],"candidates":[id],"basis":null},
             "invocations":[],"signatures":[{"signature":id,"role":0,"native":null,"variant":id,"analysis":id,"form":0,"adjustment":0,"parameters":vec![parameter.clone();parameters],"effective_parameters":vec![parameter;parameters],"return_types":[],"return_evidence":[],"typing":[],"complete":true}],
             "signature_knowledge":0,"options":[],"literal_values":[],"type_presentations":[],"limits":{"maximum_page_rows":100,"maximum_response_bytes":32768,"signature_indivisible":true}},
-        "callable_comparison":absent,"contextual_typing":absent,"incoming_references":absent,"scenarios":absent,"deployment":absent,"relationships":absent,"conflicts":absent,"briefs":absent,"behavior":absent
+        "callable_comparison":absent,"contextual_typing":absent,"incoming_references":absent,"access_routes":absent,"scenarios":absent,"deployment":absent,"relationships":absent,"conflicts":absent,"briefs":absent,"behavior":absent
     }}})
 }
 #[test]
