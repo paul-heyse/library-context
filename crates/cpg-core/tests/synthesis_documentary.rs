@@ -507,6 +507,9 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
     .fetch_one(db.owner.pool())
     .await
     .unwrap();
+    if components < 4 {
+        documentary_failure_diagnostics(db.owner.pool(), &s).await;
+    }
     assert!(
         components >= 4,
         "actual native Warning and ParamField conclusions are published"
@@ -533,6 +536,60 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
     drop(configuration);
     drop(captured);
     assert_eq!(budget.reserved(), 0);
+}
+
+// Failure-only samples preserve the qualification assertion while locating a missing upstream
+// native premise, C1 association, or parameter option. Each sample is bounded to fixture rows.
+async fn documentary_failure_diagnostics(pool: &sqlx::PgPool, schema: &str) {
+    let relations = [
+        documents::DocumentComponentObservation::NAME,
+        documents::DocumentComponentSupport::NAME,
+        documents::DocumentAttributeObservation::NAME,
+        documents::DocumentAttributeValue::NAME,
+        documents::DocumentAttributeSupport::NAME,
+        documents::DocumentMentionObservation::NAME,
+        documents::DocumentMentionSupport::NAME,
+        documents::PassageObservation::NAME,
+        catalog::evidence::DocumentAssociation::NAME,
+        catalog::CatalogMember::NAME,
+        catalog::CatalogExposure::NAME,
+        catalog::CatalogMemberInvocation::NAME,
+        catalog::CatalogOption::NAME,
+        catalog::CatalogOptionSubject::NAME,
+        calls::SignatureParameter::NAME,
+        calls::ParameterShape::NAME,
+        synthesis::documentary::DocumentarySource::NAME,
+        synthesis::documentary_templates::ComponentBoundary::NAME,
+    ];
+    for name in relations {
+        let sample = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(format!(
+            "SELECT jsonb_build_object('count',(SELECT count(*) FROM {schema}.{name}),\
+             'sample',coalesce((SELECT jsonb_agg(to_jsonb(r)) FROM\
+             (SELECT * FROM {schema}.{name} ORDER BY id LIMIT 16) r),'[]'::jsonb))::text"
+        )))
+        .fetch_one(pool)
+        .await;
+        eprintln!("documentary failure {name}: {sample:?}");
+    }
+    for (label, query) in [
+        (
+            "component boundary reasons",
+            format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT reason,count(*) FROM {schema}.synthesis_documentary_component_boundaries GROUP BY reason ORDER BY reason) r"),
+        ),
+        (
+            "Docs native premise qualification groups",
+            format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT p.kind,q.family,q.fidelity,q.status,count(*) FROM {schema}.native_analysis_premises p LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id WHERE p.kind BETWEEN 16 AND 22 GROUP BY p.kind,q.family,q.fidelity,q.status ORDER BY p.kind,q.family,q.fidelity,q.status) r"),
+        ),
+        (
+            "component native proof samples",
+            format!("SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT c.id AS component,to_jsonb(p) AS premise,to_jsonb(q) AS native_qualification,to_jsonb(a) AS assertion_qualification FROM {schema}.document_component_observations c LEFT JOIN {schema}.native_analysis_premises p ON p.documentcomponentobservation_assertion=c.id LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id LEFT JOIN {schema}.assertion_qualifications a ON a.id=c.qualification ORDER BY c.id,p.id LIMIT 16) r"),
+        ),
+    ] {
+        let sample = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(query))
+            .fetch_one(pool)
+            .await;
+        eprintln!("documentary failure {label}: {sample:?}");
+    }
 }
 
 fn documentary_inputs(profile: Profile, model: &ValidatedModel) -> Vec<RelationUse> {
