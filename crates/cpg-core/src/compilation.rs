@@ -255,6 +255,10 @@ impl PreparedCompilation {
             text,
         })
     }
+    /// The admitted configuration also supplies fixtures with the exact production declarations.
+    pub fn configuration(&self) -> &Configuration {
+        &self.configuration
+    }
     fn definition(&self, method: AnalysisMethod) -> Result<&AnalysisDefinition, ModelError> {
         self.configuration
             .definitions()

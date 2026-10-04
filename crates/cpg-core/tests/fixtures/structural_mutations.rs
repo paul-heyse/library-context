@@ -5,15 +5,16 @@ use lctx_model::domain::{analysis::{self,structural as owner,expected::CoverageA
 use lctx_postgres::{generations::GenerationAttempt,roles::RoleConfig};
 use std::{collections::{BTreeMap,BTreeSet},sync::{Arc,Mutex}};
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub enum Case { Truthful,Strengthen,Missing,Extra,Paired }
-impl Case { pub const ALL:[Self;5]=[Self::Truthful,Self::Strengthen,Self::Missing,Self::Extra,Self::Paired]; }
+pub enum Case { Truthful,Strengthen,Missing,Extra,Paired,EraseCondition }
+impl Case { pub const ALL:[Self;6]=[Self::Truthful,Self::Strengthen,Self::Missing,Self::Extra,Self::Paired,Self::EraseCondition]; }
 #[derive(Default)]
 pub struct State {
     invocations:BTreeMap<Id<owner::Invocation>,owner::Invocation>,
     forged:BTreeSet<Id<owner::Invocation>>,
+    erased:BTreeMap<Id<assertion::AssertionQualification>,Id<assertion::AssertionQualification>>,
     first:Option<Id<owner::Invocation>>,
     extra:Option<Id<owner::Invocation>>,
-    subject:Option<Id<entity::EntityRef>>,
+    subject:Option<Id<normalized::entities::EntityRef>>,
     coverage:BTreeMap<Id<owner::AnalysisCoverage>,Id<owner::AnalysisCoverage>>,
     requirements:BTreeMap<Id<owner::CoverageRequirement>,Id<owner::CoverageRequirement>>,
     pub changed:usize,
@@ -52,6 +53,12 @@ impl StageSink for MutatingSink<'_, '_> {
             remember_stop!(Traversal);remember_stop!(controls::ControlTraversal);
             if self.case==Case::Paired && R::NAME.starts_with("structural_") {state.changed+=batch.rows().len();return Ok(Some(Batch::new(self.model,Vec::<R>::new(),self.budget)?));}
             macro_rules! change {($ty:ty,$rows:ident,$body:block)=>{if R::NAME==<$ty>::NAME {let mut $rows=<$ty>::decode(batch.arrow())?;$body let encoded=<$ty>::encode(&$rows)?;return Ok(Some(Batch::new(self.model,R::decode(&encoded)?,self.budget)?));}};}
+            change!(assertion::AssertionQualification,rows,{
+                if self.case==Case::EraseCondition {let added=rows.iter().filter(|q|q.condition!=conditions::Diagram::always().id()).cloned().map(|mut q|{let original=q.id();q.condition=conditions::Diagram::always().id();state.erased.insert(original,q.id());q}).collect::<Vec<_>>();rows.extend(added);rows.sort_by_key(Record::id);rows.dedup();}
+            });
+            change!(controls::ArgumentFlow,rows,{
+                if self.case==Case::EraseCondition {for row in &mut rows {if row.conditional {row.qualification = *state.erased.get(&row.qualification).expect("derived qualification vocabulary precedes its structural rows");row.conditional=false;state.changed+=1;}}}
+            });
             if R::NAME==PublicCandidate::NAME && state.subject.is_none(){state.subject=PublicCandidate::decode(batch.arrow())?.first().map(|r|r.entity);}
             change!(owner::Invocation,rows,{
                 for row in &rows {state.invocations.insert(row.id(),row.clone());}
@@ -71,13 +78,13 @@ impl StageSink for MutatingSink<'_, '_> {
                     let capability=outcomes::capability(definition.method)?;let domain=owner::coverage::admit(invocation,definition,capability,self.admission,self.budget)?;let scope=domain.scopes().iter().find(|s|s.expectation().scope==row.scope).expect("admitted native scope");
                     let (forged,_)=owner::coverage::assess(scope.expectation(),scope.observations(),analysis::AnalysisStatus::Completed,None,self.budget)?;assert_eq!(forged.id(),row.id());*row=forged;state.changed_coverage+=1;
                 }}}
-                if self.case==Case::Extra {let added=rows.iter().filter(|r|Some(r.invocation)==state.first).cloned().map(|mut r|{let old=r.id();r.invocation=state.extra.unwrap();state.coverage.insert(old,r.id());r}).collect::<Vec<_>>();rows.extend(added);}
+                if self.case==Case::Extra {let first=state.first;let extra=state.extra.unwrap();let added=rows.iter().filter(|r|Some(r.invocation)==first).cloned().map(|mut r|{let old=r.id();r.invocation=extra;state.coverage.insert(old,r.id());r}).collect::<Vec<_>>();rows.extend(added);}
             });
             macro_rules! extra_links {($ty:ty,$field:ident)=>{change!($ty,rows,{if self.case==Case::Extra {let added=rows.iter().filter(|r|Some(r.$field)==state.first).cloned().map(|mut r|{r.$field=state.extra.unwrap();r}).collect::<Vec<_>>();rows.extend(added);}});};}
             extra_links!(owner::AnalysisInput,invocation);extra_links!(owner::SourceReceipt,invocation);extra_links!(owner::ProjectionInput,invocation);
-            change!(owner::CoverageRequirement,rows,{if self.case==Case::Extra {let added=rows.iter().filter(|r|Some(r.invocation)==state.first).cloned().map(|mut r|{let old=r.id();r.invocation=state.extra.unwrap();state.requirements.insert(old,r.id());r}).collect::<Vec<_>>();rows.extend(added);}});
-            change!(owner::CoverageRequiredSource,rows,{if self.case==Case::Extra {let added=rows.iter().filter_map(|r|state.requirements.get(&r.requirement).map(|id|{let mut r=r.clone();r.requirement=*id;r})).collect::<Vec<_>>();rows.extend(added);}});
-            change!(owner::AnalysisCoveragePremise,rows,{if self.case==Case::Extra {let added=rows.iter().filter_map(|r|state.coverage.get(&r.coverage).map(|id|{let mut r=r.clone();r.coverage=*id;r})).collect::<Vec<_>>();rows.extend(added);}});
+            change!(owner::CoverageRequirement,rows,{if self.case==Case::Extra {let first=state.first;let extra=state.extra.unwrap();let added=rows.iter().filter(|r|Some(r.invocation)==first).cloned().map(|mut r|{let old=r.id();r.invocation=extra;state.requirements.insert(old,r.id());r}).collect::<Vec<_>>();rows.extend(added);}});
+            change!(owner::CoverageRequiredSource,rows,{if self.case==Case::Extra {let added=rows.iter().filter_map(|r|state.requirements.get(&r.requirement).map(|id|{let mut r=r.clone();r.requirement = *id;r})).collect::<Vec<_>>();rows.extend(added);}});
+            change!(owner::AnalysisCoveragePremise,rows,{if self.case==Case::Extra {let added=rows.iter().filter_map(|r|state.coverage.get(&r.coverage).map(|id|{let mut r=r.clone();r.coverage = *id;r})).collect::<Vec<_>>();rows.extend(added);}});
             Ok(None)
         })()?;
         if let Some(batch)=changed {self.sink.copy(permit,&batch).await} else {self.sink.copy(permit,batch).await}

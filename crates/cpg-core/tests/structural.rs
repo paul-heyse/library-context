@@ -1,5 +1,6 @@
 //! Actual structural publication over native C0/Local and borrowed normalized graphs.
 #[path = "fixtures/catalog_runtime.rs"]
+#[allow(dead_code, reason = "The shared fixture also exposes relation declarations used by other tests")]
 mod catalog_runtime;
 #[path="fixtures/structural_mutations.rs"]
 mod structural_mutations;
@@ -11,12 +12,7 @@ use cpg_extract::{
     capture::CapturedInput,
 };
 use lctx_model::domain::{
-    admission::FrontierContract,
-    catalog::build,
-    normalized::{
-        binding_normalization, callable_normalization, entity_normalization, event_normalization,
-        relation_normalization,
-    },
+    admission::{Frontier,FrontierContract},
     stages::*,
     *,
 };
@@ -85,73 +81,14 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             mention_layer: false,
             knn_layer: false,
         };
-        let configuration = analysis::preparation::Configuration::new(
-            captured.config().catalog(),
-            catalog_runtime::definitions().into_iter().chain([
-                build::definition(),
-                catalog::evidence::build::definition(),
-                selection::build::definition(),
-                structural::build::definition(&settings, analysis::AnalysisMethod::Delegation)
-                    .unwrap(),
-                structural::build::definition(&settings, analysis::AnalysisMethod::DirectUsage)
-                    .unwrap(),
-                structural::build::definition(&settings, analysis::AnalysisMethod::Handoffs)
-                    .unwrap(),
-                structural::build::definition(&settings, analysis::AnalysisMethod::Controls)
-                    .unwrap(),
-            ]),
-            budget,
-        )
-        .unwrap()
-        .with_analytics(settings.clone())
-        .unwrap();
-        let mut providers = cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
-        let mut declarations: Vec<_> = providers.iter().map(|p| p.declaration(profile)).collect();
-        declarations.extend([
-            entity_normalization::stage(),
-            relation_normalization::stage(profile),
-            callable_normalization::stage(profile),
-            normalized::receiver::stage(profile),
-            event_normalization::stage(profile),
-            binding_normalization::stage(profile),
-            projection::normalization::stage(profile),
-            normalized::coverage::stage(profile),
-            configuration.declaration(),
-            analysis::preparation::native_stage(profile),
-            normalized::callable_aspects::stage(profile),
-            build::stage(profile),
-            catalog::evidence::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
-            selection::build::stage(profile, &model, &fixture_publication_order()).unwrap(),
-        ]);
-        declarations.extend(catalog_runtime::stages(profile, &model));
-        declarations.push(structural::build::stage(profile, &settings, &model).unwrap());
-        let facts_members = declarations
-            .iter()
-            .filter(|s| {
-                s.name != "analyze_local"
-                    && s.name != "analyze_structural"
-                    && s.outputs.iter().any(|r| is_vocabulary(r.name()))
-            })
-            .map(|s| s.name)
-            .collect();
-        let schedule = Schedule::build_with_publications(
-            &model,
-            declarations,
-            &[],
-            profile,
-            vec![
-                PublicationGroup::new(PublicationBoundary::Facts, facts_members),
-                PublicationGroup::new(PublicationBoundary::Local, vec!["analyze_local"]),
-                PublicationGroup::new(PublicationBoundary::Structural, vec!["analyze_structural"]),
-            ],
-        )
-        .unwrap();
-        assert!(
-            !schedule
-                .stages()
-                .iter()
-                .any(|s| s.name.contains("synth") || s.name.contains("embed"))
-        );
+        let prepared=cpg_core::compilation::PreparedCompilation::new(Frontier::Catalog,settings.clone(),captured.config().catalog(),None,budget).unwrap();
+        let configuration=prepared.configuration();
+        let definition=|method|configuration.definitions().iter().find(|d|d.method==method).unwrap().clone();
+        let enriched_definition=definition(analysis::AnalysisMethod::EnrichedExecution);
+        let model_definition=definition(analysis::AnalysisMethod::Models);
+        let summary_definition=definition(analysis::AnalysisMethod::Summaries);
+        let mut providers=cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
+        let schedule=prepared.schedule(&model,&providers,profile).unwrap();
         let mutation_state=Arc::new(std::sync::Mutex::new(State::default()));
         let mut refused=false;
         let mut execution = schedule.execute();
@@ -275,6 +212,23 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                 )
                 .await
                 .unwrap();
+            } else if matches!(declaration.name,"embedding_configuration"|"analytic_text"|"analytic_embedding"|"analyze_analytic"|"synthesis"|"retrieval"|"assess_analysis_frontier"|"assess_catalog_frontier") {
+                cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access| {
+                    match declaration.name {
+                        "embedding_configuration"=>cpg_core::analysis_prepare::embedding_configuration(access,&attempt,&model,&runtime,None).await,
+                        "analytic_text"=>cpg_core::analytic_text::publish(access,&attempt,&config,&runtime,&model,embedding::text::TextDefinition {requested:false,..embedding::text::TextDefinition::builtin()}).await,
+                        "analytic_embedding"=>cpg_core::analytic_embedding::produce(access,&attempt,&config,&runtime,&model,None,None).await,
+                        "analyze_analytic"=>{
+                            let graphs=cpg_core::analysis_graphs::PreparedGraphs::load(&access,&attempt,&config,&runtime,&model,&[projection::ProjectionName::CallableInvocation].into_iter().collect()).await?;
+                            cpg_core::analytic::produce(access,&attempt,&config,&runtime,&model,&graphs).await
+                        },
+                        "synthesis"=>cpg_core::synthesis::produce(access,&attempt,&config,&runtime,&model).await,
+                        "retrieval"=>cpg_core::retrieval::produce(access,&attempt,&config,&runtime,&model,None,None).await,
+                        "assess_analysis_frontier"=>cpg_core::final_coverage::produce(access,&attempt,&config,&runtime,&model,analysis::frontier::Target::Analysis).await,
+                        "assess_catalog_frontier"=>cpg_core::final_coverage::produce(access,&attempt,&config,&runtime,&model,analysis::frontier::Target::Catalog).await,
+                        _=>unreachable!()
+                    }
+                },&mut |_| {}).await.unwrap_or_else(|e|panic!("stage {} failed: {e}",declaration.name));
             } else if matches!(
                 declaration.name,
                 "analyze_local" | "evaluate_base" | "complete_base" | "prepare_source_calls"
@@ -297,6 +251,19 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                 )
                 .await
                 .unwrap();
+            } else if declaration.name == "enrich_execution" {
+                cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access| {
+                    cpg_core::semantic_execution::enrich(access,&attempt,&config,&runtime,&model,&enriched_definition).await
+                },&mut |_| {}).await.unwrap();
+            } else if declaration.name == "apply_models" {
+                cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access| {
+                    cpg_core::semantic_models::apply(access,&attempt,&config,&runtime,&model,&model_definition).await
+                },&mut |_| {}).await.unwrap();
+            } else if declaration.name == "analyze_summaries" {
+                cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access| {
+                    let graphs=cpg_core::analysis_graphs::PreparedGraphs::load(&access,&attempt,&config,&runtime,&model,&[projection::ProjectionName::CallableInvocation].into_iter().collect()).await?;
+                    cpg_core::semantic_summaries::produce(access,&attempt,&config,&runtime,&model,&summary_definition,&graphs).await
+                },&mut |_| {}).await.unwrap();
             } else if declaration.name == "analyze_structural" {
                 let result=cpg_core::stage_runtime::run_declared_stage(
                     &mut execution,
@@ -333,7 +300,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                 if case==Case::Truthful { result.unwrap(); } else {
                     let error=result.expect_err("adversarial Structural output cannot close publication");
                     let detail=error.to_string();
-                    let expected=match case {Case::Strengthen|Case::Missing=>"Structural outcomes differ from retained semantic inventory",Case::Extra=>"structural exact invocation/parent membership differs",Case::Paired=>"structural invocation domain incomplete",Case::Truthful=>unreachable!()};
+                    let expected=match case {Case::Strengthen|Case::Missing=>"Structural outcomes differ from retained semantic inventory",Case::Extra=>"structural exact invocation/parent membership differs",Case::Paired=>"structural invocation domain incomplete",Case::EraseCondition=>"structural inventory differs: structural_argument_flows",Case::Truthful=>unreachable!()};
                     assert!(detail.contains(expected),"{case:?}: {detail}");
                     let schema=id.schema();
                     let parents:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {schema}.catalog_core_analysis_invocations"))).fetch_one(db.owner.pool()).await.unwrap();assert!(parents>0,"independent C0 parent survives {case:?}");
@@ -401,7 +368,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
         }
         if refused {
             attempt.fail(&ModelError::Invalid(format!("intentional {case:?} control"))).await.unwrap();
-            store.abort(id).await.unwrap();drop(configuration);drop(captured);assert_eq!(budget.reserved(),0);continue;
+            store.abort(id).await.unwrap();drop(prepared);drop(captured);assert_eq!(budget.reserved(),0);continue;
         }
         let validated = attempt
             .seal(execution.finish().unwrap())
@@ -466,6 +433,8 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             assert!(controls.1 > 0, "one native identity alias");
             assert!(controls.2 > 0, "qualified local conditional raise");
             assert!(controls.3 > 0, "computed/rebound argument boundaries");
+            let qualified:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_argument_flows f JOIN {s}.structural_public_candidates p ON p.entity=f.caller AND p.frame=f.frame JOIN {s}.local_flow_contributions l ON l.id=f.contribution JOIN {s}.assertion_qualifications q ON q.id=f.qualification JOIN {s}.assertion_qualifications lq ON lq.id=l.qualification JOIN {s}.flow_value_observations v ON v.id=l.value JOIN {s}.flow_use_inventory_observations i ON i.use_=v.use_ WHERE p.path='api.tested' AND i.complete AND i.native_count=1 AND i.mapped_count=1 AND f.conditional AND q.condition<>$1 AND q.condition=lq.condition AND q.modality>=lq.modality AND q.approximation=lq.approximation"))).bind(conditions::Diagram::always().id().bytes().to_vec()).fetch_one(db.owner.pool()).await.unwrap();
+            assert!(qualified>0,"actual native singleton Local qualification remains conditional in persisted Structural flow");
             let caught:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_conditional_raises r JOIN {s}.structural_control_paths p ON p.id=r.path JOIN {s}.structural_control_traversals t ON t.id=p.traversal JOIN {s}.structural_public_candidates c ON c.entity=t.seed AND c.frame=t.frame WHERE c.path IN ('api.caught','api.swallowed','api.tested')"))).fetch_one(db.owner.pool()).await.unwrap();
             assert_eq!(
                 caught, 0,
@@ -532,7 +501,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                             "Partial"
                         })
         );
-        assert!(!report.outcomes.iter().any(|r| r.owner == "analytic"));
+        assert!(report.outcomes.iter().any(|r|r.owner=="analytic"));
         assert!(
             !serde_json::to_string(&report)
                 .unwrap()
@@ -540,30 +509,8 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
         );
         drop(report);
         store.retire(id).await.unwrap();
-        drop(configuration);
+        drop(prepared);
         drop(captured);
         assert_eq!(budget.reserved(), 0);
     }
-}
-
-fn fixture_publication_order() -> lctx_model::domain::stages::PublicationOrder {
-    lctx_model::domain::stages::PublicationOrder::registered(
-        lctx_model::domain::ContentHash::of(b"fixture publication order"),
-        &[
-            (0, lctx_model::domain::stages::PublicationBoundary::Facts),
-            (1, lctx_model::domain::stages::PublicationBoundary::Local),
-            (2, lctx_model::domain::stages::PublicationBoundary::Model),
-            (3, lctx_model::domain::stages::PublicationBoundary::Summary),
-            (
-                4,
-                lctx_model::domain::stages::PublicationBoundary::Structural,
-            ),
-            (5, lctx_model::domain::stages::PublicationBoundary::Analytic),
-            (
-                6,
-                lctx_model::domain::stages::PublicationBoundary::Synthesis,
-            ),
-        ],
-    )
-    .unwrap()
 }
