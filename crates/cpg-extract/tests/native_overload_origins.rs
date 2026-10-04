@@ -38,9 +38,12 @@ fn native_overload_origins_preserve_original_vectors_and_selection_limits() {
         assert_eq!(diagnoses(&plain),diagnoses(&transaction),"observing origin membership changed diagnoses");
         assert!(!diagnoses(&transaction).is_empty(),"failed-overload diagnostic control is real");
         use pyrefly::alt::answers::NativeOverloadSelection as S;
-        let trace=|needle:&str| {
+        let ranges=|needle:&str| {
             let call=text.rfind(needle).unwrap();let start=call+needle.rfind('(').unwrap();
-            let range=TextRange::new(TextSize::new(start as u32),TextSize::new((call+needle.len()) as u32));
+            (TextRange::new(TextSize::new(call as u32),TextSize::new((call+needle.len()) as u32)),TextRange::new(TextSize::new(start as u32),TextSize::new((call+needle.len()) as u32)))
+        };
+        let trace=|needle:&str| {
+            let (_,range)=ranges(needle);
             answers.get_native_overload_trace(range).unwrap_or_else(||panic!("missing retained original trace: {needle} {range:?}"))
         };
         let selected=trace("choose(1)");
@@ -57,10 +60,18 @@ fn native_overload_origins_preserve_original_vectors_and_selection_limits() {
         assert_ne!(equal.candidates[0].origin,equal.candidates[1].origin,"equal structural terms retain distinct original source identity");
         let recovered=trace("recover(1.5)");
         assert!(matches!(recovered.selection,S::Recovered|S::ClosestOnly),"{recovered:?}");
-        for (name,t) in [("selected",selected),("failed",failed),("expanded",expanded),("equal",equal),("recovered",recovered),("generic",trace("identity(1)")),("bound",trace("Reader().read(1)"))] {
+        for (name,t) in [("selected",selected),("failed",failed),("expanded",expanded),("equal",equal),("recovered",recovered)] {
             assert!(t.closest_ordinal<t.candidates.len());
             assert!(t.candidates.iter().enumerate().all(|(i,c)|c.ordinal==i));
             println!("{name}: selection={:?}; representative={}; candidates={:?}",t.selection,t.closest_ordinal,t.candidates);
+        }
+        // These actual calls retain inference, but the supplier does not populate its
+        // overload map for them. Missing specialization/receiver basis stays unavailable.
+        for needle in ["identity(1)","Reader().read(1)"] {
+            let (call,arguments)=ranges(needle);
+            assert!(answers.get_type_trace(call).is_some());
+            assert!(answers.get_all_overload_trace(arguments).is_none());
+            assert!(answers.get_native_overload_trace(arguments).is_none(),"{needle}: missing native member basis cannot be invented");
         }
     }).unwrap().join().unwrap();
 }
