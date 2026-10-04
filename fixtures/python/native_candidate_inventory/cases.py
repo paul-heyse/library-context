@@ -19,8 +19,9 @@ def deleted():
 
 def nested(value):
     def inner():
-        return value
-    return inner
+        nonlocal value
+        value = 1
+    return value
 
 def pruned(flag):
     value = 1
