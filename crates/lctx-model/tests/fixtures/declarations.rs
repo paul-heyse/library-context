@@ -278,6 +278,7 @@ impl Fixture {
             signature,
             call
         );
+        fixture.put(vec![lctx_model::domain::assumptions::AssumptionSet::empty()]);
         fixture.put(families);
         fixture.put(nodes);
         fixture.put(vec![surface, syntax_surface.clone()]);
@@ -507,6 +508,7 @@ impl Fixture {
             Condition,
             ConditionNode,
             AssertionQualification,
+            lctx_model::domain::assumptions::AssumptionSet,
             SourceArtifact,
             ArtifactChunk,
             Occurrence,

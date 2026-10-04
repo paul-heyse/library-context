@@ -47,6 +47,7 @@ macro_rules! symbol_relations {
             Condition,
             ConditionNode,
             AssertionQualification,
+            lctx_model::domain::assumptions::AssumptionSet,
             SourceArtifact,
             ArtifactChunk,
             Occurrence,
@@ -588,6 +589,7 @@ impl Fixture {
             qualification,
             signature
         );
+        fixture.put(vec![lctx_model::domain::assumptions::AssumptionSet::empty()]);
         fixture.put(vec![module, other]);
         fixture.put(vec![provider, alien]);
         fixture.put(vec![run.clone(), alien_run]);
