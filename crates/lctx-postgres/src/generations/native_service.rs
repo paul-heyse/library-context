@@ -152,10 +152,11 @@ impl GenerationService {
                 claim_bases.insert(q.id(), basis);
             }
         }
-        let actual = inputs.actual_rows();
         drop(locked);
-        let semantics = guard.prepare_cpu(move |budget| {
-            Ok(native_requests::PreparedNativeSemantics::prepare(inputs, selection.prepared().data(), budget)?)
+        let (semantics, actual, charge) = guard.prepare_cpu(move |budget| {
+            let actual = inputs.actual_rows();
+            let semantics = native_requests::PreparedNativeSemantics::prepare(inputs, selection.prepared().data(), budget)?;
+            Ok((semantics, actual, charge))
         }).await?;
         guard.check().await?;
         Ok(PreparedNative {

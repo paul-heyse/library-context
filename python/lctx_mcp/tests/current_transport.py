@@ -19,7 +19,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from lctx_semantics import wire_resources, wire_tool, wire_tools
-from lctx_storage import StorageError
+from lctx_storage import StorageError, open_service
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
@@ -307,6 +307,61 @@ async def wait_events(events):
             await asyncio.sleep(0.005)
 
     await asyncio.wait_for(wait(), 10)
+
+
+async def test_startup_numerical_failure_releases_preparation_and_allows_retry(current_fixture):
+    service = await open_service(str(current_fixture["config"]), generation=current_fixture["generation"], vectors=False)
+    try:
+        def failed(_raw):
+            raise RuntimeError("startup callback control")
+
+        with pytest.raises(StorageError) as refusal:
+            await service.initialize_numerical(failed)
+        assert refusal.value.kind == "unavailable"
+        from lctx_mcp.retrieval import NumericalScorer
+
+        numerical = NumericalScorer()
+        await service.initialize_numerical(numerical.initialize)
+        grant = await service.admit()
+        grant.release()
+    finally:
+        await service.shutdown()
+
+
+async def test_cancelled_startup_numerical_worker_is_drained_before_shutdown(current_fixture):
+    service = await open_service(str(current_fixture["config"]), generation=current_fixture["generation"], vectors=False)
+    entered, finished, release = threading.Event(), threading.Event(), threading.Event()
+
+    def callback(_raw):
+        entered.set()
+        try:
+            if not release.wait(15):
+                raise RuntimeError("startup drain control timed out")
+        finally:
+            finished.set()
+
+    pending = asyncio.ensure_future(service.initialize_numerical(callback))
+    shutdown = None
+    try:
+        await wait_events([entered])
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        shutdown = asyncio.ensure_future(service.shutdown())
+        await asyncio.sleep(0.03)
+        assert not shutdown.done() and not finished.is_set()
+        release.set()
+        await asyncio.wait_for(shutdown, 10)
+        assert finished.is_set()
+        with pytest.raises(StorageError):
+            await service.admit()
+    finally:
+        release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        if shutdown is not None:
+            await asyncio.gather(shutdown, return_exceptions=True)
+        else:
+            await service.shutdown()
 
 
 @pytest.mark.parametrize("codec", [False, True], ids=["numerical", "envelope"])

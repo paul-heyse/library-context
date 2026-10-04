@@ -62,9 +62,9 @@ async def open_generation(
                 and Spec.from_json(raw_spec).canonical != embedder.spec.canonical
             ):
                 raise GenerationError("query embedding spec differs from the selected artifact")
-            await service.initialize_numerical(grant, numerical.initialize)
         finally:
             grant.release()
+        await service.initialize_numerical(numerical.initialize)
         return Generation(service, numerical, embedder)
     except BaseException:
         await service.shutdown()

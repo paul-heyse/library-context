@@ -609,12 +609,9 @@ impl Service {
     fn initialize_numerical<'py>(
         &self,
         py: Python<'py>,
-        grant: &RequestGrant,
         callback: Py<PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let execution = grant.execution(&self.state)?;
         let state = self.state.clone();
-        let retained = execution.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let reservation = state
                 .service
@@ -622,13 +619,13 @@ impl Service {
                 .reserve_numerical()
                 .await
                 .map_err(error)?;
-            execution
-                .cpu(move |budget| {
+            let retrieval = state.service.retrieval().clone();
+            retrieval
+                .prepare_numerical(move |corpus, budget| {
                     let mut numerical = state.numerical.lock().map_err(|_| Error::State)?;
                     if numerical.is_some() {
                         return Ok(Err(invalid("numerical corpus already initialized")));
                     }
-                    let corpus = state.service.retrieval().numerical_corpus(&retained)?;
                     let bytes = corpus
                         .documents
                         .iter()

@@ -242,6 +242,27 @@ impl RetrievalService {
             documents: documents.to_vec(),
         })
     }
+    /// Startup handoff uses the original preparation budget rather than a request deadline.
+    /// The caller retains this allowance through conversion and numerical initialization.
+    pub async fn prepare_numerical<T: Send + 'static>(&self, work: impl FnOnce(NumericalCorpus, &resources::ResourceBudget) -> Result<T, Error> + Send + 'static) -> Result<T, Error> {
+        let this = self.clone();
+        self.state.catalog.service().guard().prepare_cpu(move |budget| {
+            let (corpus, _handoff) = this.preparation_corpus(budget)?;
+            work(corpus, budget)
+        }).await
+    }
+    fn preparation_corpus(&self, budget: &resources::ResourceBudget) -> Result<(NumericalCorpus, Box<dyn resources::Reservation>), Error> {
+        let documents = self.state.unit_corpus.documents();
+        let bytes = documents.iter().try_fold(4096usize, |bytes, document| {
+            let tokens = document.tokens.iter().try_fold(0usize, |bytes, token| {
+                bytes.checked_add(token.len()).and_then(|n| n.checked_add(64)).ok_or(Error::Contract)
+            })?;
+            bytes.checked_add(document.text.len().checked_mul(2).ok_or(Error::Contract)?)
+                .and_then(|n| n.checked_add(tokens)).and_then(|n| n.checked_add(256)).ok_or(Error::Contract)
+        })?;
+        let charge = budget.reserve("numerical preparation handoff", bytes)?;
+        Ok((NumericalCorpus { policy: RankingPolicy::default(), documents: documents.to_vec() }, charge))
+    }
     fn belongs(&self, unit: &Unit, library: &Name) -> bool {
         let data = self.state.catalog.prepared().data();
         let subjects = self
