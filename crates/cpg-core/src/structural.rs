@@ -47,6 +47,19 @@ pub async fn produce(
     model: &Arc<ValidatedModel>,
     graphs: &PreparedGraphs,
 ) -> Result<(), ModelError> {
+    produce_with_sink(access,attempt,config,runtime,model,graphs,attempt).await
+}
+/// Run the same native preparation and write it through the scheduled sink. Source reads remain
+/// bound to `attempt`; the sink acknowledges the production stage protocol and owns its effects.
+pub async fn produce_with_sink<S:StageSink>(
+    access:StageAccess<'_, '_>,
+    attempt:&GenerationAttempt,
+    config:&RoleConfig,
+    runtime:&AttemptRuntime,
+    model:&Arc<ValidatedModel>,
+    graphs:&PreparedGraphs,
+    sink:&S,
+)->Result<(),ModelError> {
     let sources = analysis::sources::CapturedSources::capture(&access, runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let reader = AttemptSession::open(
@@ -195,7 +208,7 @@ pub async fn produce(
     }
     let mut output = StageOutput::new(
         access,
-        attempt,
+        sink,
         model,
         runtime.budget().clone(),
         Default::default(),

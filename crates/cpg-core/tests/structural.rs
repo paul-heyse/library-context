@@ -1,6 +1,9 @@
 //! Actual structural publication over native C0/Local and borrowed normalized graphs.
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
+#[path="fixtures/structural_mutations.rs"]
+mod structural_mutations;
+use structural_mutations::{Case,MutatingSink,State};
 use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
 use cpg_extract::{
     acquisition::AcquiredInput,
@@ -25,7 +28,7 @@ use lctx_postgres::{
 use std::sync::Arc;
 #[tokio::test]
 async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
-    for profile in Profile::ALL {
+    for (profile,case) in Profile::ALL.into_iter().map(|p|(p,Case::Truthful)).chain(Case::ALL.into_iter().filter(|c|*c!=Case::Truthful).map(|c|(Profile::Behavioral,c))) {
         let runtime = AttemptRuntime::new(RuntimeOptions {
             memory_bytes: 1 << 30,
             partitions: 2,
@@ -149,6 +152,8 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                 .iter()
                 .any(|s| s.name.contains("synth") || s.name.contains("embed"))
         );
+        let mutation_state=Arc::new(std::sync::Mutex::new(State::default()));
+        let mut refused=false;
         let mut execution = schedule.execute();
         let attempt = store
             .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
@@ -293,7 +298,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                 .await
                 .unwrap();
             } else if declaration.name == "analyze_structural" {
-                cpg_core::stage_runtime::run_declared_stage(
+                let result=cpg_core::stage_runtime::run_declared_stage(
                     &mut execution,
                     declaration,
                     async |access| {
@@ -311,15 +316,31 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                             .collect(),
                         )
                         .await?;
-                        cpg_core::structural::produce(
-                            access, &attempt, &config, &runtime, &model, &graphs,
-                        )
-                        .await
+                        if case==Case::Truthful {
+                            cpg_core::structural::produce(access,&attempt,&config,&runtime,&model,&graphs).await
+                        } else {
+                            let sources=structural_mutations::capture(&access,budget)?;
+                            let mut admission=analysis::expected::CoverageAdmission::new(&sources,budget)?;
+                            structural_mutations::load_admission(&access,&attempt,&config,&runtime,&model,&mut admission).await?;
+                            let definitions=structural::build::methods().into_iter().map(|m|structural::build::definition(&settings,m).map(|(_,d)|d)).collect::<Result<Vec<_>,_>>()?;
+                            let sink=MutatingSink {sink:&attempt,model:&model,budget,admission:&admission,definitions:&definitions,case,state:mutation_state.clone()};
+                            cpg_core::structural::produce_with_sink(access,&attempt,&config,&runtime,&model,&graphs,&sink).await
+                        }
                     },
                     &mut |_| {},
                 )
-                .await
-                .unwrap();
+                .await;
+                if case==Case::Truthful { result.unwrap(); } else {
+                    let error=result.expect_err("adversarial Structural output cannot close publication");
+                    let detail=error.to_string();
+                    let expected=match case {Case::Strengthen|Case::Missing=>"Structural outcomes differ from retained semantic inventory",Case::Extra=>"structural exact invocation/parent membership differs",Case::Paired=>"structural invocation domain incomplete",Case::Truthful=>unreachable!()};
+                    assert!(detail.contains(expected),"{case:?}: {detail}");
+                    let schema=id.schema();
+                    let parents:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {schema}.catalog_core_analysis_invocations"))).fetch_one(db.owner.pool()).await.unwrap();assert!(parents>0,"independent C0 parent survives {case:?}");
+                    let (changed,changed_coverage,stops)={let state=mutation_state.lock().unwrap();(state.changed,state.changed_coverage,state.stops.clone())};assert!(changed>0,"{case:?} performed its mutation");
+                    if case==Case::Strengthen {assert!(changed_coverage>0);assert!(!stops.is_empty());for (relation,expected) in &stops {let actual=sqlx::query_scalar::<_,Vec<u8>>(sqlx::AssertSqlSafe(format!("SELECT id FROM {schema}.{relation} WHERE stop IS NOT NULL"))).fetch_all(db.owner.pool()).await.unwrap().into_iter().collect::<std::collections::BTreeSet<_>>();assert_eq!(&actual,expected,"stop inventory unchanged");}}
+                    eprintln!("profile={profile:?} case={case:?} refused: {detail}");refused=true;break;
+                }
             } else if declaration.name == "catalog_core" {
                 cpg_core::stage_runtime::run_declared_stage(
                     &mut execution,
@@ -377,6 +398,10 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                 .await
                 .unwrap();
             }
+        }
+        if refused {
+            attempt.fail(&ModelError::Invalid(format!("intentional {case:?} control"))).await.unwrap();
+            store.abort(id).await.unwrap();drop(configuration);drop(captured);assert_eq!(budget.reserved(),0);continue;
         }
         let validated = attempt
             .seal(execution.finish().unwrap())
