@@ -177,14 +177,10 @@ pub struct ProjectionDefinition {
 impl ProjectionDefinition {
     pub fn builtin(name: projection::ProjectionName) -> Self {
         let spec = projection::ProjectionSpec::builtin(name);
-        let mut sink = KeySink::new("analysis-projection-definition");
+        let mut sink = KeySink::new("analysis-projection-definition/v2");
         name.encode(&mut sink);
         projection::ProjectionSpec::VERSION.encode(&mut sink);
-        format!("{:?}", spec.universe()).encode(&mut sink);
-        format!("{:?}", spec.multiplicity()).encode(&mut sink);
-        format!("{:?}", spec.availability()).encode(&mut sink);
-        format!("{:?}", spec.roles()).encode(&mut sink);
-        format!("{:?}", spec.call_policy()).encode(&mut sink);
+        spec.encode_contract(&mut sink);
         Self {
             name,
             version: projection::ProjectionSpec::VERSION,

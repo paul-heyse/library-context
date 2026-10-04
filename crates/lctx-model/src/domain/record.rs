@@ -44,6 +44,23 @@ pub struct Field {
     target: Option<(TypeId, &'static str)>,
 }
 impl Field {
+    /// Versioned declaration bytes, independent of Arrow metadata and Rust Debug formatting.
+    pub(crate) fn encode_contract(&self, sink: &mut super::KeySink) {
+        sink.part(b"field", self.name.as_bytes());
+        sink.part(b"scalar", match self.scalar {
+            Scalar::Text => b"text", Scalar::Bool => b"bool", Scalar::Int16 => b"i16",
+            Scalar::Int32 => b"i32", Scalar::Int64 => b"i64", Scalar::Id => b"id",
+            Scalar::Digest => b"digest", Scalar::Binary => b"binary", Scalar::FiniteF64 => b"finite-f64",
+        });
+        sink.part(b"roles", &[u8::from(self.key), u8::from(self.provenance), u8::from(self.nullable), u8::from(self.list)]);
+        sink.part(b"target", self.target.map_or(b"".as_slice(), |(_, name)| name.as_bytes()));
+        self.subtype.encode(sink);
+        sink.part(b"code-count", &(self.codes.len() as u64).to_le_bytes());
+        for (code, label) in self.codes {
+            sink.part(b"code", &code.to_le_bytes());
+            sink.part(b"label", label.as_bytes());
+        }
+    }
     pub fn of<T: FieldValue>(name: &'static str, key: bool, provenance: bool) -> Self {
         Self {
             name,
@@ -265,6 +282,85 @@ pub struct Arm {
 pub struct Sum {
     pub tag: &'static str,
     pub arms: Vec<Arm>,
+}
+impl Sum {
+    pub(crate) fn encode_contract(&self, sink: &mut super::KeySink) {
+        sink.part(b"sum-tag", self.tag.as_bytes());
+        let mut arms = self.arms.iter().collect::<Vec<_>>();
+        arms.sort_by_key(|arm| arm.code);
+        sink.part(b"arm-count", &(arms.len() as u64).to_le_bytes());
+        for arm in arms {
+            sink.part(b"arm-code", &arm.code.to_le_bytes());
+            sink.part(b"arm-field-count", &(arm.fields.len() as u64).to_le_bytes());
+            for field in &arm.fields {
+                sink.part(b"arm-field", field.name.as_bytes());
+                sink.part(b"arm-required", &[u8::from(field.required)]);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod contract_encoding_tests {
+    use super::*;
+    use crate::domain::KeySink;
+
+    fn independently_framed(parts: &[(&[u8], &[u8])]) -> ContentHash {
+        let mut hash = blake3::Hasher::new();
+        for (tag, value) in parts {
+            hash.update(&(tag.len() as u64).to_le_bytes());
+            hash.update(tag);
+            hash.update(&(value.len() as u64).to_le_bytes());
+            hash.update(value);
+        }
+        ContentHash(*hash.finalize().as_bytes())
+    }
+    #[test]
+    fn declaration_bytes_have_independent_scalar_role_and_reference_vectors() {
+        let field = Field::of::<Option<Vec<i16>>>("samples", true, false);
+        let mut sink = KeySink::new("declaration-vector/v2");
+        field.encode_contract(&mut sink);
+        let expected = independently_framed(&[
+            (b"domain", b"lctx-semantic/v3"), (b"type", b"declaration-vector/v2"),
+            (b"field", b"samples"), (b"scalar", b"i16"), (b"roles", &[1,0,1,1]),
+            (b"target", b""), (b"option", &[0]), (b"code-count", &0u64.to_le_bytes()),
+        ]);
+        assert_eq!(sink.finish(), expected);
+        let reference = Field::of::<crate::domain::ArmId<crate::domain::value::Literal, 0>>("value", false, true);
+        let mut sink = KeySink::new("declaration-vector/v2");
+        reference.encode_contract(&mut sink);
+        assert_eq!(sink.finish(), independently_framed(&[
+            (b"domain", b"lctx-semantic/v3"), (b"type", b"declaration-vector/v2"),
+            (b"field", b"value"), (b"scalar", b"id"), (b"roles", &[0,1,0,0]),
+            (b"target", b"literal_values"), (b"option", &[1]), (b"i16", &0i16.to_le_bytes()),
+            (b"code-count", &0u64.to_le_bytes()),
+        ]));
+        for change in [Field::of::<Vec<i16>>("samples", true, false), Field::of::<Option<Vec<i32>>>("samples", true, false), Field::of::<Option<Vec<i16>>>("samples", false, false)] {
+            let mut sink = KeySink::new("declaration-vector/v2");
+            change.encode_contract(&mut sink);
+            assert_ne!(sink.finish(), expected);
+        }
+    }
+    #[test]
+    fn sum_codes_are_canonical_and_required_payload_changes_invalidate() {
+        let mut sum = Sum { tag: "kind", arms: vec![
+            Arm { code: 7, fields: vec![ArmField { name: "payload", required: true }] },
+            Arm { code: 2, fields: vec![] },
+        ] };
+        let digest = |sum: &Sum| { let mut sink = KeySink::new("sum-vector/v2"); sum.encode_contract(&mut sink); sink.finish() };
+        let expected = independently_framed(&[
+            (b"domain", b"lctx-semantic/v3"), (b"type", b"sum-vector/v2"),
+            (b"sum-tag", b"kind"), (b"arm-count", &2u64.to_le_bytes()),
+            (b"arm-code", &2i16.to_le_bytes()), (b"arm-field-count", &0u64.to_le_bytes()),
+            (b"arm-code", &7i16.to_le_bytes()), (b"arm-field-count", &1u64.to_le_bytes()),
+            (b"arm-field", b"payload"), (b"arm-required", &[1]),
+        ]);
+        assert_eq!(digest(&sum), expected);
+        sum.arms.reverse();
+        assert_eq!(digest(&sum), expected);
+        sum.arms[1].fields[0].required = false;
+        assert_ne!(digest(&sum), expected);
+    }
 }
 
 pub trait SumRecord: Record {

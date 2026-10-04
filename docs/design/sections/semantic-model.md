@@ -191,6 +191,17 @@ condition; the owned merge joins conditions and retains all support.
 Generation IDs identify attempts. Model, physical schema, producer and content digests have separate
 meanings. Content equality excludes runtime timestamps and measurement data.
 
+**Accepted alignment contract, 2026-10-04; assembled qualification pending.** Declaration and
+mapping/preparation compatibility use explicit framed scalar/role/reference/code/sum encodings,
+with versioned namespaces. Fields retain declaration order and sum arms numeric-code order.
+Incidental Arrow presentation metadata does not define a semantic contract. The conservative
+artifact fingerprint still includes raw Rust sources, manifests and lockfile; formatting and
+revision changes can invalidate it. Existing ordered whitespace-free embedding-specification JSON
+remains its byte identity contract. Native candidate kind/formulas survive attachment failure;
+no Bound/unattached evidence becomes Unbound or an Entry witness.
+
+> Decision: ADR-0124
+
 > Decision: ADR-0085, ADR-0086, ADR-0088, ADR-0089
 
 <a id="section-15-4"></a>

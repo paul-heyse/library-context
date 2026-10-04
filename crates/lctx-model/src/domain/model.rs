@@ -141,7 +141,7 @@ impl ValidatedModel {
                 )));
             }
         }
-        let mut digest = KeySink::new("model");
+        let mut digest = KeySink::new("model/v2");
         digest.part(
             b"owned-semantics",
             &ContentHash::of(include_bytes!(concat!(
@@ -218,27 +218,9 @@ impl ValidatedModel {
                                 "reference to missing sum subtype".into(),
                             ));
                         }
-                        digest.part(b"subtype", &code.to_le_bytes());
                     }
-                    digest.part(b"reference", name.as_bytes());
                 }
-                for (code, label) in field.codes() {
-                    digest.part(b"code", &code.to_le_bytes());
-                    digest.part(b"label", label.as_bytes());
-                }
-                digest.part(b"field", field.name().as_bytes());
-                digest.part(
-                    b"type",
-                    format!("{:?}", field.arrow().data_type()).as_bytes(),
-                );
-                digest.part(
-                    b"roles",
-                    &[
-                        u8::from(field.is_key()),
-                        u8::from(field.is_provenance()),
-                        u8::from(field.nullable()),
-                    ],
-                );
+                field.encode_contract(&mut digest);
             }
             if let Some(proof) = relation.derivation() {
                 if !identifier(proof.rule) || proof.premises.is_empty() {
@@ -308,7 +290,7 @@ impl ValidatedModel {
                         }
                     }
                 }
-                digest.part(b"sum", format!("{sum:?}").as_bytes());
+                sum.encode_contract(&mut digest);
             }
             if !has_key {
                 return Err(ModelError::Invalid(format!("{} has no key", relation.name)));

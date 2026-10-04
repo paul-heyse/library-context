@@ -9,6 +9,9 @@ pub enum Capability {
     Briefs,
     Native,
 }
+impl Capability {
+    fn name(self) -> &'static str { match self { Self::Catalog => "catalog", Self::Briefs => "briefs", Self::Native => "native" } }
+}
 #[derive(Debug, Clone)]
 pub struct Mapping {
     pub name: &'static str,
@@ -108,7 +111,7 @@ pub fn inventory() -> Vec<Mapping> {
     rows
 }
 pub fn identity() -> MappingIdentity {
-    let mut sink = KeySink::new("serving-mappings/v1");
+    let mut sink = KeySink::new("serving-mappings/v2");
     identity_for(&inventory()).0.encode(&mut sink);
     for kind in PacketKind::ALL {
         let binding = kind.binding();
@@ -116,7 +119,7 @@ pub fn identity() -> MappingIdentity {
             sink.part(b"child", child.binding().mapping.name.as_bytes());
         }
         for prepared in binding.prepared {
-            sink.part(b"prepared", format!("{prepared:?}").as_bytes());
+            sink.part(b"prepared", prepared.name().as_bytes());
         }
         let mapping = binding.lowered();
         sink.part(b"transformation", mapping.name.as_bytes());
@@ -124,50 +127,30 @@ pub fn identity() -> MappingIdentity {
         sink.part(b"revision", &mapping.revision.to_le_bytes());
         sink.part(b"frontier", mapping.minimum_frontier.name().as_bytes());
         for capability in mapping.required_capabilities {
-            sink.part(b"capability", format!("{capability:?}").as_bytes());
+            sink.part(b"capability", capability.name().as_bytes());
         }
         for relation in mapping.sources {
             sink.part(b"source", relation.name().as_bytes());
-            for field in relation.schema().fields() {
-                sink.part(b"field", format!("{field:?}").as_bytes());
-            }
+            for field in relation.fields() { field.encode_contract(&mut sink); }
+            if let Some(sum) = relation.sum() { sum.encode_contract(&mut sink); }
         }
     }
     MappingIdentity(sink.finish())
 }
 pub fn identity_for(mappings: &[Mapping]) -> MappingIdentity {
-    let mut sink = KeySink::new("serving-mapping/v1");
-    for m in mappings {
+    let mut sink = KeySink::new("serving-mapping/v2");
+    let mut canonical = mappings.iter().collect::<Vec<_>>();
+    canonical.sort_by_key(|mapping| mapping.name);
+    for m in canonical {
         m.name.to_owned().encode(&mut sink);
         m.source.name().to_owned().encode(&mut sink);
         sink.part(b"revision", &m.revision.to_le_bytes());
         sink.part(b"frontier", m.minimum_frontier.name().as_bytes());
         for c in m.required_capabilities {
-            sink.part(b"capability", format!("{c:?}").as_bytes());
+            sink.part(b"capability", c.name().as_bytes());
         }
-        for field in m.source.schema().fields() {
-            sink.part(b"field", format!("{field:?}").as_bytes());
-        }
-        // Sum arms, nominal targets and codebooks are not all represented by the Arrow datatype.
-        for f in m.fields() {
-            sink.part(
-                b"field-key",
-                &[u8::from(f.is_key()), u8::from(f.is_provenance())],
-            );
-            if let Some((_, name)) = f.target() {
-                sink.part(b"target", name.as_bytes());
-            }
-            if let Some(code) = f.subtype() {
-                sink.part(b"subtype", &code.to_le_bytes());
-            }
-            for (code, name) in f.codes() {
-                sink.part(b"code", &code.to_le_bytes());
-                sink.part(b"name", name.as_bytes());
-            }
-        }
-        if let Some(sum) = m.source.sum() {
-            sink.part(b"sum", format!("{sum:?}").as_bytes());
-        }
+        for field in m.fields() { field.encode_contract(&mut sink); }
+        if let Some(sum) = m.source.sum() { sum.encode_contract(&mut sink); }
         for dep in &m.dependencies {
             sink.part(b"dependency", dep.as_bytes());
         }
@@ -198,6 +181,11 @@ pub enum PreparedDependency {
     Retrieval,
     Native,
     CanonicalProof,
+}
+impl PreparedDependency {
+    fn name(self) -> &'static str { match self {
+        Self::Selection => "selection", Self::CatalogIdentity => "catalog-identity", Self::Retrieval => "retrieval", Self::Native => "native", Self::CanonicalProof => "canonical-proof",
+    } }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PacketKind {
@@ -943,3 +931,31 @@ binding!(
     &[],
     &[PreparedDependency::Selection]
 );
+
+#[cfg(test)]
+mod encoding_controls {
+    use super::*;
+    #[test]
+    fn mapping_bytes_match_an_independently_framed_simple_contract() {
+        let mapping = Mapping::of::<domain::input::Package>("package_control", &[Capability::Catalog]);
+        let mut raw = blake3::Hasher::new();
+        let mut frame = |tag: &[u8], value: &[u8]| {
+            raw.update(&(tag.len() as u64).to_le_bytes()); raw.update(tag);
+            raw.update(&(value.len() as u64).to_le_bytes()); raw.update(value);
+        };
+        frame(b"domain", b"lctx-semantic/v3");
+        frame(b"type", b"serving-mapping/v2");
+        frame(b"text", b"package_control"); frame(b"text", b"packages");
+        frame(b"revision", &1u32.to_le_bytes()); frame(b"frontier", b"catalog");
+        frame(b"capability", b"catalog");
+        frame(b"field", b"name"); frame(b"scalar", b"text");
+        frame(b"roles", &[1, 0, 0, 0]); frame(b"target", b"");
+        frame(b"option", &[0]); frame(b"code-count", &0u64.to_le_bytes());
+        frame(b"output", b"packages");
+        assert_eq!(identity_for(&[mapping.clone()]).0.0, *raw.finalize().as_bytes());
+        let mut revision = mapping.clone(); revision.revision = 2;
+        assert_ne!(identity_for(&[mapping.clone()]), identity_for(&[revision]));
+        let mut other = mapping.clone(); other.name = "other";
+        assert_eq!(identity_for(&[mapping.clone(), other.clone()]), identity_for(&[other, mapping]));
+    }
+}
