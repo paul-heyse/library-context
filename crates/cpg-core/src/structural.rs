@@ -206,6 +206,11 @@ pub async fn produce_with_sink<S:StageSink>(
         )?)?;
         tokio::task::yield_now().await;
     }
+    let (condition, nodes) = conditions::Diagram::always().records();
+    results.flow_conditions.insert(condition)?;
+    for node in nodes {
+        results.flow_condition_nodes.insert(node)?;
+    }
     let mut output = StageOutput::new(
         access,
         sink,
@@ -222,7 +227,6 @@ pub async fn produce_with_sink<S:StageSink>(
         }};
     }
     macro_rules! result {($($f:ident:$ty:ty,)*)=>{$(write!($ty,results.$f);)*};}
-    lctx_model::structural_outputs!(result);
     write!(
         assertion::AssertionQualification,
         results.conclusion_qualifications
@@ -231,13 +235,7 @@ pub async fn produce_with_sink<S:StageSink>(
     write!(conditions::ConditionNode, results.flow_condition_nodes);
     write!(assumptions::AssumptionSet, results.flow_assumption_sets);
     write!(assumptions::AssumptionSetMember, results.flow_assumption_members);
-    output.declare::<conditions::Condition>()?;
-    output.declare::<conditions::ConditionNode>()?;
-    let (condition, nodes) = conditions::Diagram::always().records();
-    output.push(condition).await?;
-    for node in nodes {
-        output.push(node).await?;
-    }
+    lctx_model::structural_outputs!(result);
     write!(owner::Invocation, context.invocations);
     write!(owner::InvocationSource, context.sources);
     write!(owner::AnalysisInput, context.inputs);
