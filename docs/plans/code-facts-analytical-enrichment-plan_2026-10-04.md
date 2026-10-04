@@ -510,3 +510,15 @@ only the old snapshot assertion and generated that new output in 14m31s; its ass
 and the full gate remain pending. The isolated empty store reset **passed** for this model,
 dropping zero generations; no operator-store reset occurred. Final formatted `just clippy`
 **passed** (`lctx-enrichment-clippy-formatted-final.log`).
+
+Reviewed snapshot assertion rerun **passed**, 2026-10-04:
+`INSTA_UPDATE=no cargo test --release -p lctx --test model_describe -- --nocapture`, one
+control in 0.05 seconds (`lctx-enrichment-model-describe-accepted-final.log`). Scoped final
+`LCTX_DATABASE_CONFIG=/home/paul/.cache/lctx-enrichment-store-qualification/postgres.json
+just store-check` **passed**, zero generations and zero findings
+(`lctx-enrichment-store-check-formatted-final.log`), after reset of only the owned empty
+qualification database to model `a00210d0595770adc2d77c4250f24123cb9f32f46cbfab3d8d799c56431f30a8`.
+Read-only preservation check confirms the operator's `d3a3fa026a1237a1c4e175b9b1019eeb`
+still has 204 receipts, is staging and is unselected (`lctx-enrichment-preserved-staging-final.txt`).
+The full gate's shipped CLI build **passed**; its semantics adapter rebuilt and storage adapter
+is rebuilding. Functional/PG/MCP qualification remains pending.
