@@ -18,6 +18,7 @@ struct State {
     service: GenerationService,
     selection: AdmittedSelection,
     distributions: Rows<input::InputDistribution>,
+    domains: PreparedLibraryDomains,
     ownership: Rows<input::ArtifactOwnership>,
     verifications: Rows<input::DistributionVerification>,
     policy: PolicyIdentity,
@@ -85,15 +86,15 @@ impl CatalogService {
         {
             return Err(Error::Contract);
         }
-        let mut distributions = Rows::new(&lease.budget);
-        lease
-            .visit_verified::<input::InputDistribution>(|batch| {
-                for row in batch.rows() {
-                    distributions.insert(row.clone())?;
-                }
+        let mut admission = LibraryAdmissionData::new(&lease.budget);
+        macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(
+            if !binding.permits::<$ty>() {return Err(Error::Contract);}
+            lease.visit_verified::<$ty>(|batch| {
+                for row in batch.rows() {admission.$field.insert(row.clone())?;}
                 Ok(())
-            })
-            .await?;
+            }).await?;
+        )*};}
+        lctx_model::serving_library_inputs!(load);
         let mut ownership = Rows::new(&lease.budget);
         lease
             .visit_verified::<input::ArtifactOwnership>(|batch| {
@@ -116,12 +117,16 @@ impl CatalogService {
             .budget
             .reserve("serving-catalog-owner", size_of::<State>() + 64)?;
         let policy = policy_identity(&(
-            "catalog-complete/v1",
+            "catalog-complete/admitted-captures/v2",
             "public-path-member-analysis-order",
             "source-declaration-ownership",
         ))?;
         let wire = wire_identity();
         drop(held);
+        let (domains, distributions) = guard.prepare_cpu(move |budget| {
+            let domains = PreparedLibraryDomains::prepare(&admission, budget)?;
+            Ok((domains, admission.distributions))
+        }).await?;
         guard.check().await?;
         let selection = service.selection();
         for row in ownership.iter() {
@@ -146,6 +151,7 @@ impl CatalogService {
                 service,
                 selection,
                 distributions,
+                domains,
                 ownership,
                 verifications,
                 policy,
@@ -157,8 +163,8 @@ impl CatalogService {
     pub fn service(&self) -> &GenerationService {
         &self.state.service
     }
-    pub(super) fn distributions(&self) -> &Rows<input::InputDistribution> {
-        &self.state.distributions
+    pub(super) fn resolve_library(&self, name: Option<&Name>) -> Result<ResolvedLibraryDomain<'_>, Error> {
+        Ok(self.state.domains.resolve(name)?)
     }
     pub(super) fn prepared(&self) -> &selection::evaluate::Prepared {
         self.state.selection.prepared()
@@ -268,22 +274,18 @@ impl CatalogService {
         }
         Ok(bytes)
     }
-    pub(super) fn belongs(&self, m: &catalog::CatalogMember, library: &Name) -> bool {
-        let d = self.prepared().data();
-        self.member_releases(m).is_ok_and(|releases| {
-            releases.iter().any(|release| {
-                self.state.distributions.iter().any(|r| {
-                    r.input == m.input
-                        && r.release == *release
-                        && r.role == input::DistributionRole::FirstParty
-                }) && d
-                    .facts
-                    .releases
-                    .get(*release)
-                    .and_then(|r| d.facts.packages.get(r.package))
-                    .is_some_and(|p| p.name == library.as_str())
+    pub(super) fn belongs(&self, m: &catalog::CatalogMember, domain: &ResolvedLibraryDomain<'_>) -> bool {
+        let Some(module) = self.prepared().data().source.core.modules.get(m.access) else {return false;};
+        let owned = self.state.ownership.iter().any(|r| r.artifact == module.source);
+        if owned {
+            self.state.ownership.iter().filter(|r| r.artifact == module.source).any(|r| {
+                self.state.verifications.get(r.distribution).is_some_and(|v| domain.contains_capture(m.input, v.release))
             })
-        })
+        } else {
+            self.state.distributions.iter().any(|r| r.input == m.input
+                && r.role == input::DistributionRole::FirstParty
+                && domain.contains_capture(r.input, r.release))
+        }
     }
     pub(super) fn path(&self, m: &CatalogMember) -> Result<Vec<String>, Error> {
         let module = self
@@ -326,7 +328,7 @@ impl CatalogService {
     pub(super) fn candidates(
         &self,
         selection: &selection::Selection,
-        library: &Name,
+        domain: &ResolvedLibraryDomain<'_>,
         b: &domain::resources::ResourceBudget,
     ) -> Result<
         Vec<(
@@ -373,7 +375,7 @@ impl CatalogService {
                     )
                     .saturating_mul(128),
             )?;
-            if !self.belongs(member, library) {
+            if !self.belongs(member, domain) {
                 continue;
             }
             // Account Vec growth, duplicated witness IDs and temporary BTree sets before cloning.
@@ -434,6 +436,7 @@ impl CatalogService {
                         .saturating_add(count.saturating_mul(192));
                 }
             }
+            estimated = estimated.saturating_add(self.release_allowance(member)?);
             estimated = estimated.saturating_add(
                 self.prepared()
                     .data()
@@ -446,7 +449,7 @@ impl CatalogService {
                     .saturating_mul(2 * size_of::<Knowledge>()),
             );
             charge.try_resize(bytes.saturating_add(estimated))?;
-            let candidate = self.candidate(c)?;
+            let candidate = self.candidate(c, domain)?;
             let actual = serialized_len(&candidate)?
                 .saturating_mul(2)
                 .saturating_add(
@@ -469,7 +472,7 @@ impl CatalogService {
         });
         Ok(rows)
     }
-    fn candidate(&self, c: &CandidateSelection) -> Result<OperationCandidate, Error> {
+    fn candidate(&self, c: &CandidateSelection, domain: &ResolvedLibraryDomain<'_>) -> Result<OperationCandidate, Error> {
         let d = self.prepared().data();
         let member = d
             .source
@@ -477,6 +480,14 @@ impl CatalogService {
             .members
             .get(c.member)
             .ok_or(Error::Contract)?;
+        let releases = self.member_releases(member)?.into_iter()
+            .filter(|release| domain.contains_capture(member.input, *release))
+            .map(|release| {
+                let row = d.facts.releases.get(release).ok_or(Error::Contract)?;
+                let package = d.facts.packages.get(row.package).ok_or(Error::Contract)?;
+                Ok(ReleaseIdentity {input: member.input, release,
+                    distribution: name(package.name.clone())?, version: name(row.version.clone())?})
+            }).collect::<Result<Vec<_>, Error>>()?;
         let mut requirements = Vec::new();
         for r in &c.requirements {
             let mut contexts = BTreeSet::new();
@@ -580,6 +591,7 @@ impl CatalogService {
             Knowledge::Unknown
         };
         Ok(OperationCandidate {
+            releases,
             member: c.member,
             analysis: c.analysis,
             name: name(self.path(member)?.join("."))?,
@@ -654,7 +666,9 @@ impl CatalogService {
         let r = r.clone();
         let retained = e.clone();
         e.cpu(move |b| {
-            let rows = this.candidates(&r.selection.0, &r.library, b)?;
+            let domain = this.resolve_library(Some(&r.library))?;
+            let metadata = domain.metadata(b)?;
+            let rows = this.candidates(&r.selection.0, &domain, b)?;
             let total = rows.len() as u64;
             let mut supported = Vec::new();
             let mut unresolved = Vec::new();
@@ -700,6 +714,7 @@ impl CatalogService {
                 conflicting,
             )?;
             let response = FindOperationsResponse {
+                domains: metadata.domains,
                 generation: this.generation(),
                 supported,
                 unresolved,
@@ -721,10 +736,12 @@ impl CatalogService {
         let r = r.clone();
         let retained = e.clone();
         e.cpu(move |b| {
+            let domain = this.resolve_library(Some(&r.library))?;
+            let metadata = domain.metadata(b)?;
             if r.operations.is_empty() || r.operations.len() > 5 {
                 return Err(Error::ResourceRefused("comparison members"));
             }
-            let rows = this.candidates(&r.selection.0, &r.library, b)?;
+            let rows = this.candidates(&r.selection.0, &domain, b)?;
             let mut operations = Vec::new();
             for requested in r.operations {
                 let mut candidates = Vec::new();
@@ -754,6 +771,7 @@ impl CatalogService {
                 });
             }
             let response = CompareOperationsResponse {
+                domains: metadata.domains,
                 generation: this.generation(),
                 operations,
             };
@@ -904,6 +922,8 @@ impl CatalogService {
         let r = r.clone();
         let retained = e.clone();
         e.cpu(move |b| {
+            let domain = this.resolve_library(Some(&r.library))?;
+            let metadata = domain.metadata(b)?;
             let d = this.prepared().data();
             match r.scope {
                 BrowseScope::Module { module } => {
@@ -913,7 +933,7 @@ impl CatalogService {
                 }
                 BrowseScope::Class { member } => {
                     let m = d.source.catalog.members.get(member).ok_or(Error::Absent)?;
-                    if !this.belongs(m, &r.library) {
+                    if !this.belongs(m, &domain) {
                         return Err(Error::Absent);
                     }
                     if !d.source.catalog.classes.iter().any(|c| c.member == member) {
@@ -925,7 +945,7 @@ impl CatalogService {
                 _ => {}
             }
             let eligible = this
-                .candidates(&r.selection.0, &r.library, b)?
+                .candidates(&r.selection.0, &domain, b)?
                 .into_iter()
                 .filter(|(_, o, _)| {
                     *o == selection::Outcome::Supported
@@ -1153,6 +1173,7 @@ impl CatalogService {
                 entries,
             )?;
             let response = BrowseLibraryResponse {
+                domains: metadata.domains,
                 generation: this.generation(),
                 scope: r.scope,
                 view: r.view,

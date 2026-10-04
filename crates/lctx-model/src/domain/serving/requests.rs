@@ -80,7 +80,9 @@ macro_rules! request {($name:ident {$($(#[$attr:meta])* $field:ident:$ty:ty),*$(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SearchOperationsRequest {
-    pub library: Name,
+    #[serde(default, skip_serializing_if = "Optional::is_absent")]
+    /// Omit to search the finite union of admitted generation captures.
+    pub library: Optional<Name>,
     /// Lexical or vector query text; retrieval rank is navigation evidence rather than a behavioral proof.
     pub query: QueryText,
     #[serde(default)]
@@ -148,7 +150,7 @@ impl Default for SelectionInput {
 request!(GetEvidenceRequest {
     source: OriginalReference
 });
-request!(SearchEvidenceRequest {library:Name,#[doc = "Lexical or vector query text; retrieval rank is navigation evidence rather than a behavioral proof."] query:QueryText,#[doc = "Restrict evidence retrieval to these declared families; an empty list uses the route default."] families:Vec<retrieval::Family>});
+request!(SearchEvidenceRequest {#[serde(default, skip_serializing_if = "Optional::is_absent")] #[doc = "Omit to search the finite union of admitted generation captures."] library:Optional<Name>,#[doc = "Lexical or vector query text; retrieval rank is navigation evidence rather than a behavioral proof."] query:QueryText,#[doc = "Restrict evidence retrieval to these declared families; an empty list uses the route default."] families:Vec<retrieval::Family>});
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CompareOperationsRequest {
@@ -161,7 +163,9 @@ pub struct CompareOperationsRequest {
     pub page: PageRequest,
 }
 request!(SearchCapabilitiesRequest {
-    library: Name,
+    #[serde(default, skip_serializing_if = "Optional::is_absent")]
+    #[doc = "Omit to search the finite union of admitted generation captures."]
+    library: Optional<Name>,
     #[doc = "Lexical or vector query text; retrieval rank is navigation evidence rather than a behavioral proof."]
     query: QueryText
 });

@@ -902,3 +902,64 @@ async def test_failure_envelope_refusal_falls_back_once_without_replacing_grant(
             await client.call_tool("find_operations", {"library": current_fixture["library"]})
         assert "SECRET" not in str(failure.value)
     assert observed == [{"refused": True}], "one error envelope attempt, no recursion"
+
+
+async def test_library_admission_native_and_schema_backed_mcp(current_fixture):
+    requests = {
+        "find_operations": {},
+        "get_operation": {"operation": {"kind": "public_path", "path": ["absent"]}},
+        "browse_library": {},
+        "compare_operations": {"operations": [{"kind": "public_path", "path": ["absent"]}]},
+        "search_operations": {"query": "deployment"},
+        "search_evidence": {"query": "deployment", "families": []},
+        "search_capabilities": {"query": "deployment"},
+    }
+    served = await open_generation(
+        current_fixture["config"], None, generation=current_fixture["generation"]
+    )
+    grant = await served.service.admit()
+    try:
+        def no_ranking(*args):
+            pytest.fail("unknown library reached the numerical ranking callback")
+
+        for tool, arguments in requests.items():
+            callbacks = {"numerical_callback": no_ranking} if tool.startswith("search_") else {}
+            with pytest.raises(StorageError) as refusal:
+                await served.service.dispatch(
+                    grant, tool, json.dumps({"library": "unknown", **arguments}), **callbacks
+                )
+            assert refusal.value.kind == "unknown_library", tool
+    finally:
+        grant.release()
+        await served.service.shutdown()
+    async with Client(server(current_fixture)) as client:
+        tools = {tool.name: tool for tool in await client.list_tools()}
+        for tool, arguments in requests.items():
+            result = await client.call_tool_mcp(tool, {"library": "unknown", **arguments})
+            envelope = result.model_dump(by_alias=True, mode="json", exclude_none=True)
+            assert envelope["isError"] is True, tool
+            assert envelope["_meta"]["lctx_failure"]["kind"] == "unknown_library", tool
+            assert "structuredContent" not in envelope, tool
+            assert "provider_coverage" in json.dumps(tools[tool].output_schema)
+        found = await client.call_tool("find_operations", {"library": current_fixture["library"]})
+        dto = found.structured_content
+        assert dto is not None and dto["generation"] == generation_bytes(current_fixture)
+        assert dto["domains"][0]["name"] == current_fixture["library"]
+        empty_fixture = os.environ.get("LCTX_SERVING_ADMISSION_EMPTY") == "1"
+        captures = dto["domains"][0]["captures"]
+        assert captures[0]["coverage"]
+        if empty_fixture:
+            assert dto["supported"]["items"] == [] and dto["unresolved"]["items"] == []
+            assert dto["extent"] == {"extent": "complete_domain", "total": 0}
+            assert captures[0]["corpora"]
+        for tool in ["search_operations", "search_evidence", "search_capabilities"]:
+            args = requests[tool]
+            result = await client.call_tool(tool, args)
+            assert result.structured_content is not None
+            assert result.structured_content["generation"] == generation_bytes(current_fixture)
+            assert result.structured_content["domains"] == dto["domains"]
+            if empty_fixture:
+                if tool == "search_evidence":
+                    assert result.structured_content["results"]["items"]
+                else:
+                    assert result.structured_content["results"]["items"] == []

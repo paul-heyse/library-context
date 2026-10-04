@@ -7,8 +7,12 @@ macro_rules! response {($name:ident {$($(#[$attr:meta])* $field:ident:$ty:ty),*$
     #[derive(Debug,Clone,PartialEq,Serialize,Deserialize,JsonSchema)]
     #[serde(deny_unknown_fields)] pub struct $name {pub generation:GenerationKey,$($(#[$attr])* pub $field:$ty,)*}
 };}
-response!(SearchOperationsResponse {results:SectionPage<OperationCandidate>,extent:SelectionExtent,channels:ChannelState,ranking:Vec<ranking::RankedHit>});
-response!(FindOperationsResponse {supported:SectionPage<OperationCandidate>,unresolved:SectionPage<OperationCandidate>,conflicting:SectionPage<OperationCandidate>,extent:SelectionExtent});
+response!(SearchOperationsResponse {
+    #[doc = "Admitted finite captures and provider collection coverage; canonical enumeration does not prove universal API absence."]
+    domains:Vec<LibraryDomainPacket>,results:SectionPage<OperationCandidate>,extent:SelectionExtent,channels:ChannelState,ranking:Vec<ranking::RankedHit>});
+response!(FindOperationsResponse {
+    #[doc = "Admitted finite captures and provider collection coverage; canonical enumeration does not prove universal API absence."]
+    domains:Vec<LibraryDomainPacket>,supported:SectionPage<OperationCandidate>,unresolved:SectionPage<OperationCandidate>,conflicting:SectionPage<OperationCandidate>,extent:SelectionExtent});
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "resolution", rename_all = "snake_case", deny_unknown_fields)]
 #[allow(
@@ -21,15 +25,25 @@ pub enum OperationResolution {
     Missing { coverage: Availability },
 }
 response!(GetOperationResponse {
+    #[doc = "Admitted finite captures and provider collection coverage; canonical enumeration does not prove universal API absence."]
+    domains:Vec<LibraryDomainPacket>,
     operation: OperationResolution
 });
-response!(BrowseLibraryResponse {scope:BrowseScope,view:BrowseView,entries:SectionPage<BrowseEntry>,extent:SelectionExtent,unknown_ownership:u64});
+response!(BrowseLibraryResponse {
+    #[doc = "Admitted finite captures and provider collection coverage; canonical enumeration does not prove universal API absence."]
+    domains:Vec<LibraryDomainPacket>,scope:BrowseScope,view:BrowseView,entries:SectionPage<BrowseEntry>,extent:SelectionExtent,unknown_ownership:u64});
 response!(GetEvidenceResponse {
     evidence: EvidencePacket
 });
-response!(SearchEvidenceResponse {results:SectionPage<EvidenceHit>,channels:ChannelState,extent:SelectionExtent,ranking:Vec<ranking::RankedHit>});
-response!(CompareOperationsResponse {operations:Vec<ComparisonEntry>});
-response!(SearchCapabilitiesResponse {results:SectionPage<CapabilityPacket>,channels:ChannelState,extent:SelectionExtent,ranking:Vec<ranking::RankedHit>});
+response!(SearchEvidenceResponse {
+    #[doc = "Admitted finite captures and provider collection coverage; canonical enumeration does not prove universal API absence."]
+    domains:Vec<LibraryDomainPacket>,results:SectionPage<EvidenceHit>,channels:ChannelState,extent:SelectionExtent,ranking:Vec<ranking::RankedHit>});
+response!(CompareOperationsResponse {
+    #[doc = "Admitted finite captures and provider collection coverage; canonical enumeration does not prove universal API absence."]
+    domains:Vec<LibraryDomainPacket>,operations:Vec<ComparisonEntry>});
+response!(SearchCapabilitiesResponse {
+    #[doc = "Admitted finite captures and provider collection coverage; canonical enumeration does not prove universal API absence."]
+    domains:Vec<LibraryDomainPacket>,results:SectionPage<CapabilityPacket>,channels:ChannelState,extent:SelectionExtent,ranking:Vec<ranking::RankedHit>});
 response!(GetCapabilityResponse {
     capability: CapabilityPacket
 });

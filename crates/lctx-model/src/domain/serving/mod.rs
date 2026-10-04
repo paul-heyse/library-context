@@ -37,3 +37,6 @@ pub mod ranking;
 
 pub mod failure;
 pub use failure::{FailureKind, PublicFailure};
+
+pub mod library_domains;
+pub use library_domains::*;

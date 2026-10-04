@@ -68,6 +68,8 @@ pub use verify::{CheckReport, Finding, FindingKind};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(transparent)]
+    LibraryAdmission(#[from] lctx_model::domain::serving::LibraryAdmissionError),
     #[error("{0}")]
     Model(#[from] ModelError),
     #[error("PostgreSQL operation failed")]
@@ -142,6 +144,7 @@ impl Error {
                 Infrastructure::Unconfirmed
             }
             Self::ResourceRefused(_) => Infrastructure::Contention,
+            Self::LibraryAdmission(_) => Infrastructure::Refused,
             Self::State
             | Self::Absent
             | Self::NotInstalled

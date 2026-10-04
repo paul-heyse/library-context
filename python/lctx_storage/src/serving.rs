@@ -18,6 +18,9 @@ use std::{
 };
 pyo3::create_exception!(lctx_storage, StorageError, PyRuntimeError);
 fn error(error: Error) -> PyErr {
+    if matches!(error, Error::LibraryAdmission(_)) {
+        return refused("unknown_library", "requested library is not admitted to this generation");
+    }
     let kind = match FailureClass::of(&error) {
         FailureClass::Resource | FailureClass::Limit | FailureClass::Contention => {
             "resource_refused"

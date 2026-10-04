@@ -18,7 +18,7 @@ async fn canonical_search_filters_before_ranking_and_retains_original_contexts()
     let corpus = retrieval.numerical_corpus(&execution).unwrap();
     assert!(!corpus.documents.is_empty());
     let request = Request::SearchOperations(SearchOperationsRequest {
-        library: Name::new("demo").unwrap(),
+        library: Optional(Some(Name::new("demo").unwrap())),
         query: QueryText::new("consume").unwrap(),
         selection: SelectionInput(selection::Selection {
             requirements: vec![selection::Requirement {
@@ -90,7 +90,7 @@ async fn canonical_search_filters_before_ranking_and_retains_original_contexts()
     }
     // A real ranked evidence winner remains addressable through its original byte owner.
     let request = Request::SearchEvidence(SearchEvidenceRequest {
-        library: Name::new("demo").unwrap(),
+        library: Optional(Some(Name::new("demo").unwrap())),
         query: QueryText::new("consume").unwrap(),
         families: vec![retrieval::Family::ApiOptions],
         page: PageRequest::default(),
@@ -169,11 +169,17 @@ async fn canonical_search_filters_before_ranking_and_retains_original_contexts()
         assert!(!body.bytes.is_empty());
     }
     let request = Request::SearchEvidence(SearchEvidenceRequest {
-        library: Name::new("other").unwrap(),
+        library: Optional(Some(Name::new("other").unwrap())),
         query: QueryText::new("consume").unwrap(),
         families: vec![retrieval::Family::ApiOptions],
         page: PageRequest::default(),
     });
+    assert!(matches!(retrieval.request(&execution, &request, None, None).await,
+        Err(lctx_postgres::generations::Error::LibraryAdmission(_))));
+    // Omitted filter nominates the admitted generation union.
+    let Request::SearchEvidence(mut request) = request else {panic!("typed route")};
+    request.library = Optional::default();
+    let request = Request::SearchEvidence(request);
     let prepared = retrieval
         .request(&execution, &request, None, None)
         .await
@@ -197,8 +203,10 @@ async fn canonical_search_filters_before_ranking_and_retains_original_contexts()
     else {
         panic!("typed route")
     };
-    assert!(response.results.items.is_empty());
-    assert!(response.ranking.is_empty());
+    assert!(!response.results.items.is_empty());
+    assert!(!response.ranking.is_empty());
+    assert_eq!(response.domains.len(), 1);
+    assert_eq!(response.domains[0].name.as_str(), "demo");
     assert!(matches!(
         response.channels.vector,
         VectorChannel::Disabled {}

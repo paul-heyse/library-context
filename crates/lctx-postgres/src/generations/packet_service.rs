@@ -35,10 +35,11 @@ impl CatalogService {
         let this = self.clone();
         let request = r.clone();
         let retained = e.clone();
-        let resolved = e
+        let (resolved, metadata) = e
             .cpu(move |b| {
-                let rows =
-                    this.candidates(&selection::Selection::default(), &request.library, b)?;
+                let domain = this.resolve_library(Some(&request.library))?;
+                let metadata = domain.metadata(b)?;
+                let rows = this.candidates(&selection::Selection::default(), &domain, b)?;
                 let _matching = b.reserve(
                     "operation-matching-candidates",
                     rows.len()
@@ -59,7 +60,7 @@ impl CatalogService {
                     }
                 }
                 retain(&retained, &matches)?;
-                Ok(matches)
+                Ok((matches, metadata))
             })
             .await?;
         let _resolved_ids = e.budget().reserve(
@@ -76,7 +77,7 @@ impl CatalogService {
             OperationResolution::Missing {
                 coverage: Availability::Available {},
             }
-        } else if members.len() > 1 {
+        } else if members.len() > 1 || resolved.iter().any(|c| c.releases.len() > 1) {
             OperationResolution::Ambiguous {
                 candidates: resolved,
             }
@@ -93,6 +94,7 @@ impl CatalogService {
                 e,
                 r,
                 GetOperationResponse {
+                    domains: metadata.domains,
                     generation: self.generation(),
                     operation,
                 },

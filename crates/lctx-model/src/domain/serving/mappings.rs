@@ -322,6 +322,7 @@ fn dependency_sources(dependencies: &[PreparedDependency]) -> Vec<Relation> {
                 inputs.extend(domain::selection::admission::AdmissionData::inputs());
             }
             PreparedDependency::CatalogIdentity => {
+                inputs.extend(domain::serving::LibraryAdmissionData::inputs());
                 inputs.extend([
                     domain::ValidationInput::of::<domain::input::InputDistribution>(&["id"]),
                     domain::ValidationInput::of::<domain::input::ArtifactOwnership>(&["id"]),

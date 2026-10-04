@@ -54,6 +54,7 @@ pub struct NumericalQuery {
 }
 /// A prepared request owns exact eligibility and channel identities through numerical work.
 pub struct RankingRequest {
+    domain_metadata: AdmittedDomainMetadata,
     ranking: PreparedRanking,
     candidates: Vec<OperationCandidate>,
     channels: ChannelState,
@@ -267,52 +268,19 @@ impl RetrievalService {
         let charge = budget.reserve("numerical preparation handoff", bytes)?;
         Ok((NumericalCorpus { policy: RankingPolicy::default(), documents: documents.to_vec() }, charge))
     }
-    fn belongs(&self, unit: &Unit, library: &Name) -> bool {
+    fn belongs(&self, unit: &Unit, domain: &ResolvedLibraryDomain<'_>) -> bool {
         let data = self.state.catalog.prepared().data();
-        let subjects = self
-            .state
-            .data
-            .unit_subjects
-            .iter()
-            .filter(|s| s.unit == unit.id())
-            .filter_map(|s| self.state.data.subjects.get(s.subject))
-            .collect::<Vec<_>>();
-        let explicit = subjects.iter().any(|subject| match subject {
-            Subject::Member { member } => data
-                .source
-                .catalog
-                .members
-                .get(*member)
-                .is_some_and(|m| self.state.catalog.belongs(m, library)),
-            Subject::Release { release } => data
-                .facts
-                .releases
-                .get(*release)
-                .and_then(|r| data.facts.packages.get(r.package))
-                .is_some_and(|p| p.name == library.as_str()),
-        });
-        if !subjects.is_empty() {
-            return explicit;
-        }
-        // Unassociated captured corpus evidence belongs to its declared acquisition library;
-        // a shared installed environment cannot silently confer first-party ownership.
-        self.state
-            .data
-            .parents
-            .iter()
-            .filter(|p| p.corpus == unit.input)
-            .any(|parent| {
-                self.state.catalog.distributions().iter().any(|r| {
-                    r.input == parent.library
-                        && r.role == input::DistributionRole::FirstParty
-                        && data
-                            .facts
-                            .releases
-                            .get(r.release)
-                            .and_then(|r| data.facts.packages.get(r.package))
-                            .is_some_and(|p| p.name == library.as_str())
-                })
-            })
+        let mut associated = false;
+        let explicit = self.state.data.unit_subjects.iter().filter(|s| s.unit == unit.id())
+            .filter_map(|s| self.state.data.subjects.get(s.subject)).any(|subject| {
+                associated = true;
+                match subject {
+                    Subject::Member { member } => data.source.catalog.members.get(*member)
+                        .is_some_and(|m| self.state.catalog.belongs(m, domain)),
+                    Subject::Release { release } => domain.contains_release(*release),
+                }
+            });
+        if associated {explicit} else {domain.contains_corpus(unit.input)}
     }
     pub async fn request(
         &self,
@@ -338,7 +306,7 @@ impl RetrievalService {
                     r.library.clone(),
                     r.query.clone(),
                     selection::Selection::default(),
-                    r.families.clone(),
+                    if r.families.is_empty() { FAMILIES.to_vec() } else { r.families.clone() },
                     false,
                     false,
                 ),
@@ -352,10 +320,12 @@ impl RetrievalService {
                 ),
                 _ => return Err(Error::Contract),
             };
+            let domain = this.state.catalog.resolve_library(library.0.as_ref())?;
+            let domain_metadata = domain.metadata(budget)?;
             let candidates = if member {
                 this.state
                     .catalog
-                    .candidates(&selection, &library, budget)?
+                    .candidates(&selection, &domain, budget)?
                     .into_iter()
                     .filter(|(_, outcome, _)| {
                         *outcome == selection::Outcome::Supported
@@ -389,7 +359,7 @@ impl RetrievalService {
                         .units
                         .get(occurrence.unit)
                         .ok_or(Error::Contract)?;
-                    if this.belongs(unit, &library)
+                    if this.belongs(unit, &domain)
                         && families.contains(&unit.family)
                         && (!briefs
                             || matches!(
@@ -479,6 +449,7 @@ impl RetrievalService {
                 budget,
             )?;
             Ok(RankingRequest {
+                domain_metadata,
                 ranking,
                 candidates,
                 channels: ChannelState {
@@ -691,6 +662,7 @@ impl RetrievalService {
             return Err(Error::Contract);
         }
         let channels = prepared.channels.clone();
+        let domains = prepared.domain_metadata.domains;
         let generation = self.state.catalog.generation();
         let mut ranking = ranked.rows().to_vec();
         let response = match &request {
@@ -718,6 +690,7 @@ impl RetrievalService {
                     |r| matches!(r.target,Target::Member{member}if selected.contains(&member)),
                 );
                 Response::SearchOperations(SearchOperationsResponse {
+                    domains,
                     generation,
                     extent: SelectionExtent::Ranked {
                         returned: results.items.len() as u64,
@@ -783,6 +756,7 @@ impl RetrievalService {
                     truncated: targets.truncated,
                 };
                 Response::SearchEvidence(SearchEvidenceResponse {
+                    domains,
                     generation,
                     extent: SelectionExtent::Ranked {
                         returned: results.items.len() as u64,
@@ -832,6 +806,7 @@ impl RetrievalService {
                     truncated: targets.truncated,
                 };
                 Response::SearchCapabilities(SearchCapabilitiesResponse {
+                    domains,
                     generation,
                     extent: SelectionExtent::Ranked {
                         returned: results.items.len() as u64,

@@ -8,13 +8,15 @@ pub enum FailureKind {
     Incompatible,
     Corrupt,
     Unavailable,
+    UnknownLibrary,
 }
 impl FailureKind {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::ResourceRefused,
         Self::Incompatible,
         Self::Corrupt,
         Self::Unavailable,
+        Self::UnknownLibrary,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -22,6 +24,7 @@ impl FailureKind {
             Self::Incompatible => "incompatible",
             Self::Corrupt => "corrupt",
             Self::Unavailable => "unavailable",
+            Self::UnknownLibrary => "unknown_library",
         }
     }
     pub fn from_name(name: &str) -> Option<Self> {
@@ -35,6 +38,7 @@ impl FailureKind {
             }
             Self::Corrupt => "Canonical serving evidence failed validation.",
             Self::Unavailable => "Canonical serving is unavailable.",
+            Self::UnknownLibrary => "The requested library is not admitted to this generation.",
         }
     }
 }
