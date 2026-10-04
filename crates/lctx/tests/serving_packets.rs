@@ -104,7 +104,7 @@ class Settings:
     let placements=execution.read::<lctx_model::domain::syntax::SyntaxPlacement>().await.unwrap();
     let reference=lexical.rows().iter().find(|r|r.id()==decorator.reference).unwrap();
     let parent=syntax.rows().iter().find(|o|o.id()==reference.parent).unwrap();
-    assert_eq!(parent.kind,lctx_model::domain::source::SyntaxKind::Decorator);
+    assert_eq!(parent.syntax_kind,lctx_model::domain::source::SyntaxKind::Decorator);
     assert_eq!(decorator.field,reference.field);
     assert_eq!(decorator.field,SyntaxField::Child);
     assert!(placements.rows().iter().any(|p|p.occurrence==reference.parent && p.parent.is_some() && p.field==SyntaxField::Decorator));
