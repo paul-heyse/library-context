@@ -45,11 +45,52 @@ fn class<'a>(
 }
 fn admitted(f: &fixture::NativeFixture, out: &AspectOutput, name: &str) {
     let c = class(f, out, name);
+    if !c.supported_record {
+        diagnose_record_premises(f, out, c);
+    }
     assert!(c.supported_record, "{name}: {c:?}");
     assert!(
         out.symbolic_associations.iter().any(|a| a.class == c.id()),
         "{name} has no associations"
     );
+}
+// Bounded failure-only diagnostics: report existing premises, never recreate a validator.
+fn diagnose_record_premises(f: &fixture::NativeFixture, out: &AspectOutput, c: &SourceFieldClass) {
+    let d = data(f);
+    let symbol = d.symbolic_class_traits.get(c.traits).unwrap().symbol;
+    eprintln!("RECORD_GATE class={:?} symbol={symbol:?} qualification={:?}", c.class, d.qualifications.get(c.qualification));
+    for field in d.symbolic_record_fields.iter().filter(|r| r.class == symbol).take(16) {
+        eprintln!("RECORD_FIELD {field:?} qualification={:?}", d.qualifications.get(field.qualification));
+        for support in d.symbolic_record_supports.iter().filter(|s| s.assertion == field.id()).take(4) {
+            eprintln!("RECORD_FIELD_SUPPORT {support:?}");
+        }
+    }
+    for syntax in d.field_syntax.iter().filter(|s| s.class == c.class).take(16) {
+        eprintln!("RECORD_SYNTAX {syntax:?}");
+        for placement in d.placements.iter().filter(|p| p.occurrence == syntax.target).take(4) {
+            eprintln!("RECORD_TARGET_PLACEMENT {placement:?}");
+        }
+        for link in d.fields.iter().filter(|l| l.declaration == syntax.id()).take(4) {
+            let assessment = out.fields.iter().find(|a| a.declaration == link.id());
+            eprintln!("RECORD_DEFAULT_LINK {link:?} assessment={assessment:?} default={:?}", assessment.and_then(|a| out.defaults.get(a.default)));
+        }
+    }
+    for init in d.traits.iter().filter(|t| t.defining_class == Some(symbol)
+        && d.symbols.get(t.symbol).is_some_and(|s| s.name == "__init__")).take(4) {
+        eprintln!("RECORD_INITIALIZER {init:?}");
+        for signature in d.symbolic_signatures.iter().filter(|s| s.symbol == init.symbol).take(8) {
+            eprintln!("RECORD_SIGNATURE {signature:?}");
+            for parameter in d.symbolic_parameters.iter().filter(|p| p.signature == signature.id()).take(16) {
+                eprintln!("RECORD_PARAMETER {parameter:?} shape={:?}", d.symbolic_parameter_shapes.get(parameter.shape));
+            }
+        }
+        for enumeration in d.symbolic_signature_enumerations.iter().filter(|e| e.symbol == init.symbol).take(4) {
+            eprintln!("RECORD_ENUMERATION {enumeration:?}");
+            for member in d.symbolic_signature_members.iter().filter(|m| m.enumeration == enumeration.id()).take(8) {
+                eprintln!("RECORD_ENUMERATION_MEMBER {member:?}");
+            }
+        }
+    }
 }
 fn refused(f: &fixture::NativeFixture, out: &AspectOutput, name: &str) {
     let c = class(f, out, name);
