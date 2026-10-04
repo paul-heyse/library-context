@@ -18,8 +18,10 @@ lctx-storage = { workspace = true }
 [dependency-groups]
 dev = [
     "pytest>=8",
-    "ruff==0.16.10",
+    "ruff>=0.16.10",
+    # Exact: the CLI is the parity oracle for the linked native Pyrefly (docs/pins.md, Analyzers).
     "pyrefly==1.4.0.dev3",
+    # Exact: the version the python-oracles library skill indexes (docs/pins.md, Serving).
     "hypothesis==6.168.1",
 ]
 

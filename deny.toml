@@ -1,5 +1,5 @@
-# cargo-deny policy: allowed sources (crates.io plus only the pinned git forks)
-# and licenses.
+# cargo-deny policy (`just deps` checks bans and sources; licences are never a rejection reason,
+# so the license list below is informational).
 #
 # The pinned-family single-version rule (DESIGN §7) is NOT here: it lives in
 # scripts/check_family.py, which reads Cargo.lock directly. cargo-deny could do
@@ -20,7 +20,9 @@ wildcards = "allow"
 
 [sources]
 unknown-registry = "deny"
-unknown-git = "deny"
+# A git dependency is an exact pin: its reason is a docs/pins.md row (ADR-0125). The forks below
+# stay listed as documentation.
+unknown-git = "allow"
 allow-git = [
     # Owned DF55 provider and bounded pool patch (ADR-0068).
     "https://github.com/paul-heyse/datafusion-table-providers",

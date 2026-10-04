@@ -89,16 +89,33 @@ oracles:
 # `structured-eval`, `score` and `ranking-check` read served generations; they return with serving
 # (cutover phase 5).
 
-# Pinned nominal families and exact observational forks (ADR-0117/0118).
+# Licences are never a rejection reason, so cargo-deny checks bans and sources only.
+# Pinned nominal families and observational forks (ADR-0117/0118); a pins row per exact pin (ADR-0125)
 deps:
     uv run python scripts/check_family.py Cargo.lock
-    cargo deny --log-level error check bans sources licenses
+    cargo deny --log-level error check bans sources
     uv run python scripts/check_pyrefly_fork.py
     uv run python scripts/check_ruff_fork.py
     # A dependency no crate uses pins nothing (H1 O2).
     cargo shear --exclude lctx-workspace-hack
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
+
+# Upgrade-specific checks join this recipe when a need emerges. `just upgrade` moves the root
+# workspace (uv.lock and Cargo.lock); `just upgrade <dir> …` moves those sub-projects' locks. The
+# analyzed libraries (`libraries/<name>`, moved only through `lctx library` / `--upgrade-package`,
+# libraries/README.md) and `services/vllm` (custom wheel, torch/CUDA overrides) must not move
+# through this recipe routinely.
+# Move lockfiles to the latest versions the manifests allow, at the agent's discretion; then run the tests the move affects (ADR-0125)
+upgrade *projects:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "{{ projects }}" ]; then
+        uv lock --upgrade
+        cargo update
+    else
+        for p in {{ projects }}; do uv lock --upgrade --project "$p"; done
+    fi
 
 # Regenerate the executable's dependency feature union after dependency changes (ADR-0079).
 build-features:

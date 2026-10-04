@@ -5,7 +5,7 @@ description = "Rust-owned asynchronous PostgreSQL serving services."
 requires-python = ">=3.14,<3.15"
 
 [build-system]
-requires = ["maturin==1.15.0"]
+requires = ["maturin>=1.15.0"]
 build-backend = "maturin"
 
 [tool.maturin]

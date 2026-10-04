@@ -612,14 +612,14 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bm25s", specifier = "==0.3.11" },
+    { name = "bm25s", specifier = ">=0.3.11" },
     { name = "fastmcp", specifier = "==4.0.5" },
-    { name = "httpx2", specifier = "==2.13.1" },
+    { name = "httpx2", specifier = ">=2.13.1" },
     { name = "lctx-semantics", editable = "python/lctx_semantics" },
     { name = "lctx-storage", editable = "python/lctx_storage" },
     { name = "mcp-types", specifier = "==2.2.0" },
-    { name = "numpy", specifier = "==2.4.6" },
-    { name = "pydantic", specifier = "==2.13.5" },
+    { name = "numpy", specifier = ">=2.4.6" },
+    { name = "pydantic", specifier = ">=2.13.5" },
 ]
 
 [[package]]
@@ -662,7 +662,7 @@ dev = [
     { name = "hypothesis", specifier = "==6.168.1" },
     { name = "pyrefly", specifier = "==1.4.0.dev3" },
     { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = "==0.16.10" },
+    { name = "ruff", specifier = ">=0.16.10" },
 ]
 
 [[package]]

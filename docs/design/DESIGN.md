@@ -18,8 +18,8 @@ snapshot-tested; they are not repeated here.
 
 **Labels.** Every claim carries a principles §D label (`Proposed`, `Interface-checked`,
 `Implemented`, `Tested`, `Measured`, `Formally established`). A section's label applies unless a
-line says otherwise. `Interface-checked` means the named library surface was read at the pinned
-version (skill brief, probe or pinned source), not that our code uses it yet.
+line says otherwise. `Interface-checked` means the named library surface was read at the locked
+version (skill brief, probe or source at that version), not that our code uses it yet.
 
 ---
 
@@ -629,10 +629,11 @@ workspace (§B9). The owned PostgreSQL table-provider fork is pinned by revision
 with version and nominal Cargo source scopes. The accepted analyzer target uses one latest
 Ruff/ty fork revision in extraction/flow and a separate registry Ruff family only inside the
 Pyrefly adapter; salsa's three crates are pinned exactly for the ty graph. M1 owns adoption.
-[`docs/pins.md`](../pins.md) is authoritative for every pin and its dated verification, and the
-`pin-check` skill governs changes.
+[`docs/pins.md`](../pins.md) is authoritative for every deliberate pin, its reason and its dated
+verification, and the `pin-check` skill governs changes. Other dependencies float: manifests carry
+carets or `>=` floors and the committed lockfiles own resolved versions (ADR-0125).
 
-> Decision: ADR-0118
+> Decision: ADR-0118, ADR-0125
 
 ---
 
