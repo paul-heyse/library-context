@@ -2,6 +2,8 @@
 mod fixture;
 #[path = "fixtures/source_data.rs"]
 mod source_fixture;
+#[path = "fixtures/read_diagnostics.rs"]
+mod read_diagnostics;
 use lctx_model::domain::{
     analysis,
     execution::{self, read_channels::*},
@@ -91,6 +93,9 @@ async fn actual_read_inventory_and_complete_negative_are_replayed() {
     );
     let value=records.reads.formals.iter().find(|row|matches!(data.flow.formals.get(row.formal),Some(normalized::entities::ParameterEntity::Source{declaration})if text(&f,*declaration)=="value")&&owner_text(row.owner).starts_with("def unused(")).unwrap();
     assert_eq!(value.status, ReadAssessment::ObservedRead);
+    if !records.reads.reads.iter().any(|r| r.location == ReadLocation::DeclaredGlobal) {
+        read_diagnostics::dump(&f, &data, &records.reads);
+    }
     assert!(
         records
             .reads
@@ -462,6 +467,9 @@ async fn complete_field_screen_retains_positive_hierarchy_and_global_boundaries(
             .find(|r| r.class == c && r.name == name)
             .unwrap()
     };
+    if assessment(class("Cold:"), "unread").status != ReadAssessment::CompleteNoReadUnderModel {
+        read_diagnostics::dump(&f, &data, &output);
+    }
     assert_eq!(
         assessment(class("Cold:"), "unread").status,
         ReadAssessment::CompleteNoReadUnderModel,

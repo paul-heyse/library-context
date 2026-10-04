@@ -3,6 +3,8 @@
 mod fixture;
 #[path = "fixtures/source_data.rs"]
 mod source_fixture;
+#[path = "fixtures/read_diagnostics.rs"]
+mod read_diagnostics;
 use lctx_model::domain::{
     analysis,
     execution::{self, read_channels::*},
@@ -153,6 +155,9 @@ async fn resolved_builtin_twins_shadowing_and_computed_names_preserve_read_sound
         .iter()
         .find(|r| r.class == settings && r.name == "unread_only")
         .unwrap();
+    if unread.status != ReadAssessment::CompleteNoReadUnderModel {
+        read_diagnostics::dump(&f, &data, &output);
+    }
     assert_eq!(
         unread.status,
         ReadAssessment::CompleteNoReadUnderModel,
@@ -208,6 +213,9 @@ async fn lambda_shadowing_keeps_real_nested_builtin_and_uncertain_parameter_or_r
     assert!(output.dynamic.iter().any(
         |r| owner(r).starts_with("def reassigned(") && text(&f, r.site) == "getattr(obj, name)"
     ));
+    if output.dynamic.iter().any(|r| owner(r).starts_with("def nested(") && text(&f, r.site) == "getattr(obj, name)") {
+        read_diagnostics::dump(&f, &source_fixture::data(&f), &output);
+    }
     assert!(
         !output.dynamic.iter().any(
             |r| owner(r).starts_with("def nested(") && text(&f, r.site) == "getattr(obj, name)"
@@ -327,6 +335,9 @@ async fn lambda_shadow_screen_requires_actual_binding_and_lexical_support() {
             .find(|r| r.name == "unread_only")
             .unwrap();
         assert_eq!(unread.status, ReadAssessment::Unknown);
+        if unread.reason != Some(obligation::ObligationKind::DynamicAccess) {
+            read_diagnostics::dump(&f, &data, &output);
+        }
         assert_eq!(
             unread.reason,
             Some(obligation::ObligationKind::DynamicAccess)
