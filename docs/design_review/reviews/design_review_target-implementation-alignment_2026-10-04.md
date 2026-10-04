@@ -159,7 +159,7 @@ The DP-04 identity contract also needs revision as discussed below. Its represen
 
 ## 7. Findings and reassessed recommendations
 
-New findings use this review’s `F01`–`F03`. Earlier findings are always source-qualified as **LL-Fnn** and retain their disposition owner in the library-leverage review until transferred to a plan.
+New findings use this review’s `F01`–`F03`. Earlier findings are always source-qualified as **LL-Fnn** with current disposition now transferred to the [coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations).
 
 ### New finding index
 
@@ -188,7 +188,7 @@ The provider’s assertion is “a bound candidate exists, but this adapter has 
 
 **Closure evidence.** Independent controls for a Bound candidate without attachment, a real Undefined/Deleted candidate and a valid attached Bound candidate; validate through model inventory and actual PostgreSQL raw-origin hydration. Existing Entry refusal remains unchanged. This is a meaningful regression test, not a generated expectation copied from production.
 
-**Disposition.** Deferred here until transfer. Reopen on the next flow mapping/inventory correction or raw-origin qualification; transfer to the current code-facts owner rather than a separate register.
+**Disposition.** Transferred to coordinator §7, analyzer A1, 2026-10-04. The correction and raw-origin qualification use that owner; the assessment above remains historical source evidence.
 
 <a id="F02"></a>
 ### F02 — Requested-library domain admission is implicit in empty lookup results
@@ -205,7 +205,7 @@ These can be read narrowly as “the catalog service is available and this filte
 
 **Closure evidence.** Unknown library, admitted empty library, admitted nonempty library and incomplete admitted scope produce distinguishable model and wire outcomes. Clarify the meaning of `CompleteDomain`, `Available` and `Missing` at the owning contract.
 
-**Disposition.** Deferred here until transfer. Trigger: next empty-result/coverage correction or serving packet qualification. No false behavioral/nonexistence result is asserted by this finding.
+**Disposition.** Transferred to coordinator §7, serving S1, 2026-10-04. No false behavioral/nonexistence result is asserted by this finding.
 
 <a id="F03"></a>
 ### F03 — Capability resource text loses its snapshot identity
@@ -220,7 +220,7 @@ A copied or retained resource cannot independently identify the snapshot against
 
 **Closure evidence.** Tool and resource forms name the same generation; a standalone resource retains sufficient snapshot identity to resolve its references. Exercise the actual native/Python resource path and final-byte envelope controls.
 
-**Disposition.** Deferred here until transfer. Trigger: next resource-rendering change or Phase 5 resource qualification.
+**Disposition.** Transferred to coordinator §7, serving S2, 2026-10-04. Phase 5 activation remains separately stopped.
 
 ### Independent reassessment of LL-F01–LL-F10
 
@@ -275,7 +275,7 @@ The directions below remain Proposed and do not change the principal judgment.
 | DataFusion instrumentation | The earlier dependency evidence refutes OpenTelemetry as the runtime rejection reason for the inspected tracing release. Defer on lack of a named diagnostic consumer, not that stale dependency claim; retain receipts and admission-versus-RSS distinctions |
 | SQL construction and migration lifecycle | Keep sea-query/SQLx/pgpq and the single PostgreSQL effect owner. More typed expression construction needs a concrete query consumer. Preserve the migration-error connection-lifecycle lead separately from schema derivation and request retry policy |
 
-These leads share the original review's disposition route. No additional mutable register,
+These leads now share the coordinator's disposition route (§11). No additional mutable register,
 library upgrade, shared-skill edit or automatic adoption is introduced by this reconciliation.
 
 Pinned capability skills were read for DataFusion/Arrow, Python analyzers, SQLx/PostgreSQL and FastMCP. They supplied qualified leads; current repository/source contracts govern wiring. No whole-catalog refresh or unpinned API transfer was required.
@@ -344,16 +344,20 @@ Unexamined breadth includes every individual analytic/template, every provider e
 
 ## 11. Authority changes and disposition
 
-This review owns dated evidence and the three new unscheduled findings. It does not create a second execution ledger for previous findings.
+This review owns dated evidence. **Disposition transferred, 2026-10-04:** the
+[target-alignment coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations)
+is the single current owner for new F01–F03 and the reassessed library-leverage obligations.
+The rows below identify remediation routes and preserved closure requirements, not another
+mutable execution ledger. The original static assessment remains unchanged.
 
 | Obligation | Route and disposition owner | Closure or trigger |
 |---|---|---|
-| New F01: preserve unattached native Bound meaning | **Deferred in this review** until transferred to the current code-facts plan | Next mapping/inventory correction or raw-origin qualification; independent native/model/PG controls |
-| New F02: requested-domain resolution | **Deferred in this review** until transferred to serving/selection scope | Next empty-result/coverage or packet qualification; known-empty versus unknown-domain controls |
-| New F03: resource snapshot identity | **Deferred in this review** until transferred to Phase 5/resource scope | Next resource rendering or resource qualification; actual tool/resource generation parity |
-| LL-F01–LL-F05, LL-F07–LL-F09 | Existing [library-leverage §11](design_review_library-leverage_2026-10-04.md#11-authority-changes-and-dispositions), with reassessed directions here | Transfer source-qualified findings to one approved plan; no automatic closure from this review |
-| LL-F06 compute ownership/prose | Current DESIGN §B3/§15 owner; ADR route only for a changed architectural choice | Narrow implemented claims, retain model-owned membership lowering and record justified CI-07 scope |
-| LL-F10 stale current-owner/skill guidance | Respective current documentation and shared-skill owners | Correct current wiring and triggers. Accepted ADR substantive changes require a new/superseding decision |
+| New F01: preserve unattached native Bound meaning | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations), analyzer A1 | Next mapping/inventory correction or raw-origin qualification; independent native/model/PG controls |
+| New F02: requested-domain resolution | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations), serving S1 | Next empty-result/coverage or packet qualification; known-empty versus unknown-domain controls |
+| New F03: resource snapshot identity | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations), serving S2 | Next resource rendering or resource qualification; actual tool/resource generation parity |
+| LL-F01–LL-F05, LL-F07–LL-F09 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations), with reassessed directions here | Source-qualified transfer recorded; package controls at the coordinator, no automatic closure from this review |
+| LL-F06 compute ownership/prose | Current DESIGN §B3/§15 owner; coordinator T0; ADR route only for a changed architectural choice | Narrow implemented claims, retain model-owned membership lowering and record justified CI-07 scope |
+| LL-F10 stale current-owner/skill guidance | Respective current documentation and shared-skill owners, coordinator T0 | Correct current wiring and triggers. Accepted ADR substantive changes require a new/superseding decision |
 | Existing alignment/enrichment/Phase 5 acceptance | Existing coordinator and detailed-plan tables | Retain current schema/artifact/full-gate and stopped activation obligations |
 | Proposed retrieval/evaluation work | API/evidence owner §14.12 and forward product sequence | Activate only under authorized product scope; frozen identities, comparable population and sealed confirmation |
 

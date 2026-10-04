@@ -6,7 +6,7 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 | Task | Start here |
 |---|---|
 | Understand the system | [Architecture map](design/README.md) → relevant owner |
-| Resume work | [STATUS](../STATUS.md) → [forward plan](plans/behavioral-model-forward-plan_2026-09-24.md) (queue, open findings, qualification boundary) |
+| Resume work | [STATUS](../STATUS.md) → [target-alignment coordinator](plans/target-implementation-alignment-plan_2026-10-04.md) (current proposed corrections and combined acceptance) → [forward plan](plans/behavioral-model-forward-plan_2026-09-24.md) (product/research queue) |
 | Change conditions, models or summaries | [Semantic owner §15.6–§15.9](design/sections/semantic-model.md#section-15-6) → affected model producer/consumer → [cutover findings §8](plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition) |
 | Change schemas or identity | [Facts and identity](design/sections/facts-and-identity.md) → [model owner](../crates/lctx-model/src/lib.rs) → governing ADR |
 | Change serving, retrieval or embeddings | [Synthesis and serving](design/sections/synthesis-and-serving.md) → [storage and publication §6.4](design/sections/storage-and-publication.md) |

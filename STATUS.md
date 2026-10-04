@@ -2,14 +2,17 @@
 
 _Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Analytical enrichment is integrated; the target-implementation design review is complete.**
-The [target-alignment review](docs/design_review/reviews/design_review_target-implementation-alignment_2026-10-04.md)
-assesses the current implementation and documented API/evidence target under core 3.2 and CI 1.3.
-Its static decision is **Revise**, through incremental corrections; remedies remain Proposed.
-It independently reassesses the library-leverage recommendations and owns its new unscheduled
-findings until transfer to an implementation plan. No production remediation or qualification ran.
-The [coordinator §7](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
-owns F01/F02/O01–O08, implementation status, failures and qualification receipts.
+**Target-alignment plans are authored; production corrections remain Proposed.**
+The [coordinator](docs/plans/target-implementation-alignment-plan_2026-10-04.md) and three supporting
+plans capture new F01–F03, reassessed library-leverage F01–F10/O1–O4 and all retained investigation
+leads. It owns their current disposition and Q0 combined fixture/schema/artifact/full-gate acceptance.
+A1 preserves native Bound/unattached formulas without fabricated Unbound rows; S1 resolves admitted
+library captures; S2 retains resource generation; F1/F2 consolidate owned publication/grant mechanics.
+Conditional alternatives have bounded adopt/retain/defer routes; activation and confirmation stay stopped.
+Current compute guidance and historical migration context are corrected. No production remediation ran.
+The [target review](docs/design_review/reviews/design_review_target-implementation-alignment_2026-10-04.md)
+retains its static Revise judgment. The [enrichment coordinator §7](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
+retains original F01/F02/O01–O08 dispositions and historical receipts; remaining shared gates link to Q0.
 A0/A1/A2, C1–C7 (C7 enabled), G1, R1/R2 and K1/K2 are integrated on `main`.
 Native overload identity/replay and exact eight-case old/new checker parity passed; the joined ty
 reference oracle passed, including alias-policy, typing-only and unreachable-use controls.
@@ -37,7 +40,7 @@ the local recovery archive. All fifteen were removed; `git worktree list` now co
 | `INSTA_UPDATE=no cargo test --release -p lctx-model --test domain_handoffs` | **passed**, 2026-10-04: seven native inventory/region and retained-domain resource controls |
 | `INSTA_UPDATE=no cargo test --release -p lctx-model --lib domain::structural::` | **passed**, 2026-10-04: three conditional-alias/resource-lifetime/exhaustion controls |
 | Filtered release Nextest `cpg-core --test structural` positives/condition-erasure refusal | **passed**, 2026-10-04: three selected actual PostgreSQL controls, 234.841s; Catalog/Behavioral positives and paired refusal. Four unrelated controls filtered out; release compile passed |
-| `UV_NO_SYNC=1 just docs-check` | **passed**, 2026-10-04: 293 canonical pages, zero offline link errors; target-alignment review and handoff documentation only |
+| `UV_NO_SYNC=1 just docs-check` | **passed**, 2026-10-04: 297 canonical pages, zero offline link errors; four-plan series, owner/disposition updates and handoff only |
 | Current-source Named schema snapshot, matching CLI/native adapters and scoped store check | **not_run / pending**, 2026-10-04; four nullable fields across two existing Named enum relations require deliberate migration after source formatting |
 | Current-source full Clippy, `just hygiene`, `just test-all` and remaining Q1 journeys | **not_run / pending**, 2026-10-04, under the operator's targeted-only checkpoint request |
 | Previous model `8f8ec7c…` CLI/native adapters/schema snapshot | **passed**, 2026-10-04; 878 relations and reviewed Summary witness migration, before the latest read-region/resource changes |
@@ -45,7 +48,7 @@ the local recovery archive. All fifteen were removed; `git worktree list` now co
 | Previous scoped hygiene plus named repairs | **composite passed with parallel-review docs failure excluded by operator**, 2026-10-04; not an initially clean `just hygiene` exit |
 | Superseded diagnostic `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all` | Interrupted with scoped SIGINT/exit130 before tests launched; Rust/Python/oracles/doctests **not_run** |
 | Expansion targeted native/model/core/real-PG/wire controls | **passed** within recorded package scopes, 2026-10-03; expansion coordinator §7 retains failures and composite receipts |
-| [Library-leverage review](docs/design_review/reviews/design_review_library-leverage_2026-10-04.md) `just docs-check` | **passed**, 2026-10-04, 292 pages. Static decision **Revise**; F01–F10 routed or Deferred in its §11, with no plan owner yet. Isolated probes only; product runs **not_run** |
+| [Library-leverage review](docs/design_review/reviews/design_review_library-leverage_2026-10-04.md) `just docs-check` | **passed**, 2026-10-04, 292 pages. Static decision **Revise**; original F01–F10/O1–O4 dispositions are now transferred to target-alignment coordinator §7. Isolated probes only; product runs **not_run** |
 | Prior alignment `NEXTEST_TEST_THREADS=8 just test-all` | **passed**, 2026-10-03: 944 Rust, 230 Python/oracle, 32 doctests; two optional measurements skipped |
 | Prior alignment `just hygiene` plus named repairs | **composite passed**, 2026-10-03, including full workspace/all-target Clippy for that earlier tree |
 | Real-library reconstruction/activation, live vectors, R4 and measurements | **not_run** after operator review pivot; staging remains unselected; quality, speed and total RSS unmeasured |
@@ -96,10 +99,10 @@ retains 204 receipts, no readers/writer, and is unselected. Default store/regist
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Next: translate the target-alignment review's accepted recommendations into an implementation plan.
-After review disposition, resume deliberate schema/artifact refresh
-and outstanding same-tree Q1/full gates only under the resulting authorized scope. Real-library
-activation remains separately stopped. Gold/heldout/benchmarks are untouched.
+Next: execution planning/authorization for the new series; begin analyzer A1, with S1/S2 and
+foundation contracts independently ready. Resume schema/artifact and same-tree Q0/Q1/full gates
+only under production scope; Phase 5 real-library activation remains separately stopped.
+Gold/heldout/benchmarks are untouched.
 Recovery assets live under `/home/paul/.local/share/library-context/worktree-recovery/2026-10-04/`;
 its README/manifest/disposition describe preserved refs, Git bundle, patches, dirty files and raw receipts.
 Cargo retains shared release intermediates/jobs16/frontend1; Nextest8 limits concurrent test processes.

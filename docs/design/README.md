@@ -4,8 +4,10 @@
 [DESIGN](DESIGN.md) holds scope, the binding decisions §B1–§B14 and durable deferrals; the
 focused owners below hold each responsibility's contracts, accepted targets and known limits.
 Evidence labels distinguish accepted targets from implemented behavior. [STATUS](../../STATUS.md)
-and the [forward plan](../plans/behavioral-model-forward-plan_2026-09-24.md) own completion claims
-and the disposition of known defects.
+locates current completion claims. The
+[target-alignment coordinator](../plans/target-implementation-alignment-plan_2026-10-04.md)
+owns the new review corrections and combined acceptance; the
+[forward plan](../plans/behavioral-model-forward-plan_2026-09-24.md) retains product/research dispositions.
 
 | Responsibility | Owner | Source entry / adjacent consumer |
 |---|---|---|
@@ -26,7 +28,7 @@ and the disposition of known defects.
 Dependency direction runs from orchestration (`lctx`) through capability owners to the schema and
 semantic contracts in `lctx-model`. Effects (acquisition, persistence, serving) are explicit
 boundaries around transformations. This table describes intended ownership; known coupling and
-incomplete capabilities are items in the forward plan's §6. It is not a certificate of current
+incomplete capabilities follow the target coordinator or forward plan §6, as their source disposition specifies. It is not a certificate of current
 architectural conformance.
 
 ## Reading and extending

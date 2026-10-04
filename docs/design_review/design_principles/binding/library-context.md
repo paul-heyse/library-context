@@ -74,7 +74,7 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a d
 |---|---|---|
 | §B1 | Independent latest Ruff owns canonical syntax/lexical facts; Pyrefly owns typing within its embedded Ruff family, and ty owns the declared runtime flow view. Provider-local parsing and exact source/role attachment preserve nominal boundaries (ADR-0117) | DP-01, DP-08, DP-14, DP-16, CI-02 · G1, G7 |
 | §B2 | `lctx-model` typed domain declarations own facts and derive Arrow/PostgreSQL contracts; codebooks are append-only (ADR-0085–0088); the Phase 5 legacy schema/IPC consumers are retired | DP-01, DP-02, DP-03, DP-16, DP-24 · G1, G2 |
-| §B3 | Shared model invariant validators serve tests and publication; DataFusion is in-process compute; normalized derivations return in P3 | DP-03, DP-08, DP-18, DP-23 · G3 |
+| §B3 | Shared model invariant validators serve tests and publication; pure finite model kernels and selected model-owned relational lowerings implement compute; DataFusion owns in-process SQL/provider execution | DP-03, DP-08, DP-18, DP-23 · G3 |
 | §B4 | Graph algorithms have named owners and named consumers | DP-07, DP-11, DP-13, DP-21, CI-05, CI-07, CI-09 · G6, G8 |
 | §B5 | Python semantics are custom Rust passes with stated abstractions | DP-05, DP-08, DP-11, DP-22, CI-06 · G2, G7, CI-G1 |
 | §B6 | Facts are first-class assertions with run, origin, fidelity and model; disagreement is retained; analysis results carry provenance in-row | DP-01, DP-02, DP-05, DP-21, CI-01 · G1, G2, CI-G1 |

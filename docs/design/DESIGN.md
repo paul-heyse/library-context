@@ -281,15 +281,17 @@ Phase 5 has retired the `cpg-schema` wire owner and re-homed independent control
 
 <a id="section-b3"></a>
 
-### §B3 DataFusion constructs and validates relations
+### §B3 Model validators and selected relational compute
 
-**Implemented; Phase 4 qualification in progress, 2026-10-01.** DataFusion supplies in-process
-relational compute over model-declared inputs. Joins, projections and unions construct suitable
-normalized and analysis relations; native kernels handle owned graph/semantic operations.
-`cpg-core` registers generation-bound providers and runs the declared stage adapters, without
-becoming another semantic authority.
+**Implemented / source-inspected, 2026-10-04; current full qualification pending.** Pure model
+operations and charged typed Rows implement most current normalization/analysis and semantic
+validation. DataFusion supplies generation-bound SQL/provider compute and model-owned logical
+views; PostgreSQL installs the model-owned validated-membership join in production. Suitable
+in-memory relational lowerings remain available, without becoming another semantic authority.
+`cpg-core` registers providers and orchestrates declared adapters; it does not currently run all
+semantic derivations or validators as DataFusion queries.
 
-Cross-relation invariants use shared model validators and suitable DataFusion queries
+Cross-relation invariants use shared model validators and, where selected, suitable relational queries
 ([§8](sections/validation-and-evaluation.md#section-8)). Tests and stored publication invoke the
 same validation contract. Complete read grants and invariant/reference closure are required;
 missing required input cannot be interpreted as a valid empty relation.

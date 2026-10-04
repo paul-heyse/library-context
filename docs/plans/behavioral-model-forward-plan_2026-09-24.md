@@ -751,8 +751,9 @@ reason to add a concept registry before bounded evidence/requirement tools work.
 PostgreSQL does not change the semantic authorities below. The
 [PostgreSQL workstream](#postgresql-workstream) adds immutable relational serving/retrieval and
 qualified read views to the deployed cache/operations. Stage 4 registry TOML, Rust definition AST,
-condition kernels and DataFusion materialization remain authoritative; PostgreSQL indexes their
-published output through generation-qualified projections. Stage 5 model/lifecycle computation
+condition kernels and model-owned materialization define the proposed Stage 4 semantics;
+PostgreSQL indexes published output through generation-qualified projections. Relational versus
+charged finite lowering is selected for the named operation, not prescribed by engine availability. Stage 5 model/lifecycle computation
 remains Rust-owned. Neither stage depends on optional ADBC, SQL-wire endpoints, ORM or pgrx.
 
 PG11–PG13 provide the projection/query path; any reactivated stage introducing a new semantic family
@@ -762,12 +763,13 @@ do not omit supported facts to meet a storage milestone.
 
 ### Stage 4: the capability registry
 
-1. **Registry** in `cpg-schema` (TOML with `deny_unknown_fields`, compiled to Arrow): append-only
+1. **Registry** in the current `lctx-model` declaration owner (proposed TOML with `deny_unknown_fields`, mechanically lowered): append-only
    concept ids, labels with their sources, `broader`/`related`, scope notes, facets. Definitions
    are a Rust enum AST compiled to DataFusion SQL and digested; definitions over conditions use
    the kernel's compatibility and implication.
-2. **Integrity:** `broader` is acyclic (DataFusion `WITH RECURSIVE` with `UNION`); `related` is
-   disjoint from the `broader` closure. No per-language label rule.
+2. **Integrity:** `broader` is acyclic; `related` is disjoint from the `broader` closure.
+   Select a bounded model-owned graph or relational lowering when this deferred consumer is
+   activated; qualify cycle refusal/ordering before choosing recursive SQL. No per-language label rule.
 3. **Vocabulary** seeded by a one-off script whose output the operator reviews: Stack Overflow tag
    synonyms (candidates only; they merge opposites), Wikidata and EDAM `closeMatch`, method
    stereotypes. Author 20–40 concepts.
@@ -776,16 +778,18 @@ do not omit supported facts to meet a storage milestone.
    membership.
 5. **`lookup_concepts`** lists every concept while the catalog is small. Project authored registry
    revisions/labels/facets and derived memberships into the pinned PG generation through PG11–PG13;
-   preserve definition digest, condition, verdict and witness. Ranked lookup (bm25s, PyStemmer,
-   standard 1024 vectors, explicit retrieval profile/RRF) waits until the catalog outgrows one page;
+   preserve definition digest, condition, verdict and witness. Ranked lookup (Rust-owned tokens,
+   current qualified lexical/vector policy and explicit retrieval profile/RRF) needs a named
+   discovery gap under the frozen development comparison, not merely growth beyond one page;
    it nominates candidates and never writes membership.
 6. **`explain`** returns the stored witness chain: rule id, premises and spans; each derived row
    stores its rule id and proof height.
 7. **FCA over behavioral attributes** per structural scope, as candidate facets. RCA only if the
    structured evaluation shows value, and only after W10 gives attributes typed meaning.
-8. **Query schema authority** (schemars → JSON Schema → pydantic) only if Rust needs the request types.
-   Reuse the PG13 typed repository boundary for concept lookup/explanation instead of adding a
-   Python SQL catalog or a second completeness/evidence interpreter.
+8. **Query schema authority:** current Rust-owned requests already derive schemars schemas
+   for the thin schema-backed transport. A new concept request reuses that boundary; generated
+   Pydantic domain models need an actual Python manipulation consumer. Reuse the PG13 repository
+   instead of adding a Python SQL catalog or second completeness/evidence interpreter.
 9. **Selected manual review workflow** (PostgreSQL F1): append decisions against exact subject
    revisions and freeze an explicitly selected event revision into compiler inputs. Keep provenance,
    conflicts/idempotency and unreviewed state explicit; never edit published membership or brief
@@ -860,7 +864,7 @@ the validation lane asks whether the analysis admits what really executes.
 | fcars 0.2.2 | **Dev-only oracle** | Add a sparse context above 64 attributes if bitset coverage grows; concept-set agreement does not test attribute fidelity (W10) |
 | rustworkx-core | **Keep bespoke** keyed ordering (W13) | A consumer for centralities beyond the current ones |
 | Pysa, CrossHair, Hypothesis + `sys.monitoring` | **Oracles** (order 8) | Pysa's call graph is Pyrefly's, so only its TITO result is independent |
-| PyStemmer, DataFusion `WITH RECURSIVE` (compile time), schemars | Stage 4 adopt | schemars only if Rust needs request types |
+| Rust stemming/text search; recursive relational lowering; current schemars | **Conditional**, not automatic Stage 4 adoption; schemars is already implemented for Rust wire contracts | [Alignment IS1](serving-provenance-presentation-plan_2026-10-04.md#6-product-and-operational-investigations) needs a frozen task gap; choose graph/relational integrity at its owner, preserve bounded refusal |
 | Graph-FCA | Stage 5 offline spike | Never in the pipeline |
 | PostgreSQL serving/pgvector/pgpq/qualified federation and Rust async boundary | **Implemented, Tested and Measured; local exact route accepted** | Exact pins/features in [pins](../pins.md); 1024 is selected, current exact serving follows §3.4; ANN machinery is removed |
 
@@ -1125,6 +1129,13 @@ Current reconstruction and operator replacement are qualified under PR5 and ADR-
 schema/runtime backups and their completed execution records have no current recovery obligation.
 
 ## 7. Deferred, each with a trigger
+
+**Alignment route, 2026-10-04:** the [new coordinator](target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations)
+owns the reassessed library-leverage/target-review findings and their IF/IA/IS investigations.
+The triggers below remain applicable product/research boundaries; they are not a second execution
+ledger. Review opportunities do not restart stopped Phase 5 or PR6. Current capture, identity and
+renderer preparation precede any frozen-development comparison; sealed confirmation stays separate.
+
 
 Product PR0–PR6 takes precedence over the historical semantic triggers below. A retained semantic
 trigger activates work only for a selected product task or an exposed-claim defect; it does not

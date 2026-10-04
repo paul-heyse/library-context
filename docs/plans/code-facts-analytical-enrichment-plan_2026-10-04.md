@@ -312,11 +312,16 @@ reopen on an actual multi-candidate case with an attributed native Value conditi
 conjunction excludes every competing candidate, under complete per-use inventory. G1 and A2
 remain required; this decision does not claim guarded proof implementation.
 
-Next: await the operator's instructions for structuring the implementation review. Do not begin another review or resume comprehensive
-qualification as part of this closeout. After review disposition, remaining acceptance work is the
-new Named schema snapshot, source-matching CLI/native adapters and scoped store checks, required
-PostgreSQL/MCP journeys and same-tree full functional/hygiene gates. Real-library activation remains
-separately stopped. The authoring receipt below retains its original documentation-only boundary.
+**Current route, 2026-10-04:** the target review is complete and its new findings and
+reassessed library-leverage opportunities are scheduled by the
+[target-alignment coordinator](target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations).
+This plan retains its original finding dispositions and historical qualification receipts.
+The new coordinator's [Q0](target-implementation-alignment-plan_2026-10-04.md#5-migration-and-verification)
+coordinates the remaining Named schema migration (four nullable fields across two existing enum
+relations), source-matching CLI/native adapters, scoped store checks, required PG/MCP journeys and
+same-tree full functional/hygiene gates with its new corrections. These remain pending, not closed
+by plan publication. Do not run a second parallel acceptance campaign. Real-library activation
+remains separately stopped; the authoring receipt below retains its original boundary.
 
 ### Authoring receipt
 

@@ -44,6 +44,16 @@ and qualification are owned by the [enrichment coordinator](../../plans/code-fac
 
 > Decision: ADR-0121
 
+**Proposed alignment target, 2026-10-04:** [serving alignment](../../plans/serving-provenance-presentation-plan_2026-10-04.md)
+resolves requested names over admitted first-party release/corpus captures before filtering;
+unknown input refuses distinctly from admitted-empty results. Canonical enumeration and analyzer
+coverage remain separate. Capability resources preserve authored bytes while carrying the process
+GenerationKey and capability identity; their URIs remain process-relative. Owned display/source/
+expression modes preserve exact values and unknown/factory states. The
+[target coordinator](../../plans/target-implementation-alignment-plan_2026-10-04.md)
+owns these proposed corrections; current wire behavior and qualification remain as recorded above.
+This target neither activates Phase 5 nor executes §14.12 confirmation.
+
 ## §14.1 What must be different from Context7
 
 Version-aware documentation, source links, search and examples are comparison baselines, not

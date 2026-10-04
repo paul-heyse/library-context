@@ -3,16 +3,23 @@
 **Proposed, 2026-10-03.** Companion to the [code-facts coordinator](code-facts-expansion-plan_2026-10-03.md),
 which owns execution status, findings and acceptance. C1/C7/C8/C9/C12 and the producer portions of
 C2–C6 depend on this work. Source contracts were Interface-checked at the review's exact revisions;
-no new seam has compiled. Use `python-analyzers`' migration and source index, then
+these are the authoring-time claims, not the current execution status. Use `python-analyzers`' migration and source index, then
 [supply contracts](../design_review/evidence/2026-10-03_code-facts-expanded-target/supply-contracts.md).
 
 ## 1. Baseline and target supply
 
-Current Pyrefly 1.3.1 is a minimally patched fork with Ruff 0.0.11. `cpg-flow` links ty/Ruff
-0.0.14 and salsa 0.28.2. Canonical syntax comes from Pyrefly's borrowed AST. Dependency policy
-assumes one extraction Ruff family and a separate flow-only family. The target changes those
-responsibilities deliberately; updating dependency versions alone would neither populate Ruff's
-semantic model nor make its AST compatible with Pyrefly's AST.
+**Historical migration baseline, 2026-10-03:** Pyrefly 1.3.1 was a minimally patched fork with
+Ruff 0.0.11; `cpg-flow` linked ty/Ruff 0.0.14 and salsa 0.28.2. Canonical syntax came from
+Pyrefly's borrowed AST, with one extraction and a separate flow-only family. The original design
+below changes those responsibilities, not just version numbers.
+
+**Current implementation, source-inspected 2026-10-04:** the target families below are integrated;
+[pins](../pins.md) owns exact current fork revisions and scoped receipts. Later enrichment added
+native overload observations and development-only ty reference oracles. Remaining fidelity and
+observation changes belong to the [analyzer-alignment plan](analyzer-fidelity-alignment-plan_2026-10-04.md);
+assembled acceptance follows [target-alignment Q0](target-implementation-alignment-plan_2026-10-04.md#5-migration-and-verification).
+This plan preserves original migration design and historical evidence; it is not a request to
+restart the old version migration or a current full qualification claim.
 
 | Role | Exact target | Source and integration boundary |
 |---|---|---|

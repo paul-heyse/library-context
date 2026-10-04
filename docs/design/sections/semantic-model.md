@@ -46,6 +46,13 @@ source/effective defaults, signature variants, predicate-specific selection clos
 evidence remain typed. Symbolic source associations retain Unknown/no-proof reader outcomes;
 known field location never establishes allocation, alias, mutation or temporal value identity.
 
+**Proposed incremental target, 2026-10-04:** the [target-alignment series](../../plans/target-implementation-alignment-plan_2026-10-04.md)
+schedules faithful native Bound/unattached candidate formulas, finite publication/closure expansion,
+one physical-layout owner and explicit identity encodings. Candidate attachment failure must not
+become Unbound; retained formulas do not authorize Entry proof. Exact validation epochs and sufficient
+grants remain distinct. Existing declared schema/identity changes and their qualification remain
+pending; plan publication does not qualify the model. The coordinator owns the transferred findings.
+
 One model-owned embedding specification/value/text/admission/consumption contract serves analytics
 and retrieval. PostgreSQL retains immutable cache winners; attempts publish exact consumed values
 and consumer receipts. Replay is service-free. Fake effects qualify only that seam and cache behavior.
@@ -80,8 +87,8 @@ only native evidence, completed predecessors and their own finite proof occurren
 | Layer | Holds | Producer |
 |---|---|---|
 | **L0 observations** | Source artifacts and occurrences; attributed provider assertions, provider conditions and coverage: syntax, declarations, Pysa call facts, ty flow facts, types, documents, package metadata and invocation context | `cpg-extract`, `cpg-flow` |
-| **L1 normalized relations** | Normalized entities and occurrence ownership, places, call sites/targets/resolutions and call-policy views, effective callables, signatures, call bindings | Normalization stages (DataFusion, one Rust binder) |
-| **L2 derived semantic relations** | Transfers, control influences, derived conditions over the shared atom vocabulary, obligations, analysis coverage, the derivation index, analysis invocations and findings | Analysis stages (`lctx-analytics` operators, DataFusion) |
+| **L1 normalized relations** | Normalized entities and occurrence ownership, places, call sites/targets/resolutions and call-policy views, effective callables, signatures, call bindings | Pure model normalization/one binder; model-owned relational membership views |
+| **L2 derived semantic relations** | Transfers, control influences, derived conditions over the shared atom vocabulary, obligations, analysis coverage, the derivation index, analysis invocations and findings | Pure model and `lctx-analytics` kernels; selected model-owned relational compute |
 | **L3 product relations** | Catalog contracts, requirements, associations, scenarios, deployment evidence, selection domains, retrieval units | Catalog and retrieval stages |
 | **L4 serving** | Generated views, grants and indexes over one pinned generation; derived artifact caches | Generated from declarations |
 
@@ -100,7 +107,7 @@ only native evidence, completed predecessors and their own finite proof occurren
 - **`lctx-postgres`** owns all PostgreSQL effects: the generation lifecycle, COPY, constraints, roles,
   and reader leases. `cpg-core` owns DataFusion provider registration so the Python storage wheel
   does not link the compute engine.
-- **`cpg-core`** orchestrates stages and runs DataFusion derivations and semantic validators.
+- **`cpg-core`** orchestrates stages, adapts charged inputs/outputs and registers DataFusion providers/logical views. Pure model operations own current semantic derivations and validators; suitable relational lowerings remain model-owned alternatives.
 - **`lctx-analytics`** keeps pure native concept, ranking, neighbour and SCC kernels; model-owned contracts govern their inputs and results.
 - **Python** is a thin validated transport and numerical library adapter. `lctx-model::domain::serving` owns wire mappings, cursors and ranking; `native_requests` owns finite exact-input semantics. `lctx-postgres::generations` owns their generation-bound effects.
 
@@ -755,9 +762,24 @@ A facts generation lowers only the facts relations, and readers verify its diges
 before any scan. `store check` compares the live catalog with a rolled-back shadow lowering; `store
 reset` removes one generation per transaction and is resumable.
 
-**Compute.** DataFusion computes derivations and semantic validators over in-memory Arrow batches
-within an attempt. It reads published relations through the owned PostgreSQL table-provider fork,
-with pushdown. `lctx query` runs DataFusion SQL over a pinned generation.
+**Compute — Implemented / source-inspected, 2026-10-04; current full gates pending.** Most
+current derivations and semantic validators invoke pure model kernels over admitted charged typed
+Rows. Model-owned validated-membership SQL is installed in PostgreSQL; DataFusion logical-view
+registration has bounded inspected test consumers. DataFusion reads published relations through
+the owned PostgreSQL table-provider fork with admitted pushdown; `lctx query` runs SQL over a
+pinned generation. Model-owned in-memory Arrow/DataFusion plans remain suitable for selected
+bulk operations when order, multiplicity, nulls, decoding, caps and refusals are qualified.
+
+**Scoped CI-07 SHOULD rationale, source assessment 2026-10-04.** For existing finite nominal
+semantic operations, pure charged kernels preserve typed refusals, deterministic work bounds and
+store-free testing with less integration burden than a query-engine rewrite. Alternative:
+model-owned in-memory relational lowering, eligible where it simplifies an actual operation.
+Consequence: bespoke kernels remain, with shared model validators and independent finite/native
+controls as compensating checks. Accountable owner: the model operation/compute owner. Reopen on
+a named bulk-operation gap or measured attempt-budget/maintenance cost. This rationale waives no
+MUST and is neither a blanket DataFusion exclusion nor an exemption for generic duplicates.
+The [foundation plan](../../plans/model-contract-execution-alignment-plan_2026-10-04.md)
+coordinates the remaining contract consolidations and bounded mechanism comparisons.
 
 **Artifacts.** Arrow IPC artifacts are only derived, content-addressed caches for bulk consumers, such
 as native executor inputs, with their manifests in PostgreSQL. They are never canonical.

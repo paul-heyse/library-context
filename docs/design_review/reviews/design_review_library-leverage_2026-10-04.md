@@ -538,24 +538,33 @@ Unexamined breadth, not defects: most `normalized/*`, `structural/*` and `native
 
 ## 11. Authority changes and dispositions
 
-No active plan owns these findings. Under binding §4, each has either a recommended route or a Deferred row below. On transfer to a plan, the plan's findings table becomes the single disposition owner.
+**Disposition transferred, 2026-10-04:** the
+[target-alignment coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations)
+owns all current F01–F10/O1–O4 dispositions, §8 opportunities and retained deferrals.
+The [follow-up review](design_review_target-implementation-alignment_2026-10-04.md#7-findings-and-reassessed-recommendations)
+reassesses remedies, including Summary epochs, compute ownership, specified embedding JSON,
+provider-view differences and immutable ADR policy. The table below preserves original
+recommendations as historical evidence; use the coordinator's selected packages and decisions
+rather than treating these suggestions as implementation requirements. No finding closes solely
+from transfer or plan publication.
 
 | Required change | Decision route and responsible component | Source findings | Disposition location | Closure evidence or trigger |
 |---|---|---|---|---|
-| Port-set derive; publication set as one type; `DomainCode` labels, `ALL` and schema | create-plan package; implementation inside ADR-0085 ("typed operation ports"); `lctx-model-macros`, `lctx-model` stages, `cpg-core` adapters, `cpg-extract` providers | F01, F05 (labels), F09/M2-07 | New plan (to be created) | S2 trace: one edit, compile-time propagation, hand lists deleted |
-| Grant-only closure operation; name index on `ValidatedModel` | Implementation; `lctx-model::dependency_closure` | F02 | Same plan or a standalone change | 12 copies deleted; typed refusal control |
-| `physical_columns` owner; one quoting helper | Implementation; `lctx-postgres::generations::ddl` | F03, F09 | Same plan | All consumers call the owner |
-| Explicit identity encoding; known-answer vectors | Implementation (identity migration, rebuild); `lctx-model` `model.rs`, `serving/mappings.rs`, `identity.rs` tests | F04 | Same plan | Vectors independent of `Debug` |
-| Owned value renderings; `RENDER_VERSION` bump | create-plan package, sequenced with §14.12; `lctx-model` retrieval and synthesis | F05 | Same plan | Retrieval and synthesis consume one renderer; no `{:?}` in corpus text |
-| DataFusion's role restated | **ADR** superseding the DataFusion-compute clauses of ADR-0085 and ADR-0073, plus amendments to DESIGN §B3, §15.1, the §15 layer table, §15 Compute and the binding §1 §B3 row; root/design owner | F06 | ADR | ADR accepted and sections amended. Revisit when an admitted stage input exceeds the attempt budget on a real library. |
-| `Rows` helpers | Implementation; `lctx-model::normalized::rows` | F07 | Same plan | `need` copies deleted |
-| Ruff `Export`/`Branch` lowering or removal; version/platform cross-check; `custom_builtins`; type-parameter scope ranges | [Code-facts coordinator §7](../../plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action) (analyzer migration owner) or create-plan; `cpg-extract`, `cpg-flow`, Ruff patch | F08 | Coordinator §5/§7 on transfer | Attributed observations; disagreement rows; explicit type-parameter coverage |
-| F09 items | Implementation; the components named in F09 | F09 | Same plan | Deletions and uses landed |
-| ADR-0044 amendment; forward plan §5/§7 rows; pins odis row; migration plan §1 | Owner edits (ADR lifecycle amendment; plan owners) | F10 | Those owners | Text matches §8 and L1–L3 evidence |
-| `python-analyzers` skill project layer | `library-research` worker under the skill's maintenance guide (operator exception, 2026-10-02) | F10 | Shared skill store | `show project`/`migration`/`unused` restamped |
-| Enable `pydantic` and `vllm` skills | Config change in `.config/library-skills.toml`; vLLM with a pin-check note | §8 | Operator / root | Skills linked |
+| Port-set derive; publication set as one type; `DomainCode` labels, `ALL` and schema | create-plan package; implementation inside ADR-0085 ("typed operation ports"); `lctx-model-macros`, `lctx-model` stages, `cpg-core` adapters, `cpg-extract` providers | F01, F05 (labels), F09/M2-07 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | S2 trace: one edit, compile-time propagation, hand lists deleted |
+| Grant-only closure operation; name index on `ValidatedModel` | Implementation; `lctx-model::dependency_closure` | F02 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | 12 copies deleted; typed refusal control |
+| `physical_columns` owner; one quoting helper | Implementation; `lctx-postgres::generations::ddl` | F03, F09 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | All consumers call the owner |
+| Explicit identity encoding; known-answer vectors | Implementation (identity migration, rebuild); `lctx-model` `model.rs`, `serving/mappings.rs`, `identity.rs` tests | F04 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | Vectors independent of `Debug` |
+| Owned value renderings; `RENDER_VERSION` bump | create-plan package, sequenced with §14.12; `lctx-model` retrieval and synthesis | F05 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | Retrieval and synthesis consume one renderer; no `{:?}` in corpus text |
+| DataFusion's role restated | **ADR** superseding the DataFusion-compute clauses of ADR-0085 and ADR-0073, plus amendments to DESIGN §B3, §15.1, the §15 layer table, §15 Compute and the binding §1 §B3 row; root/design owner | F06 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | ADR accepted and sections amended. Revisit when an admitted stage input exceeds the attempt budget on a real library. |
+| `Rows` helpers | Implementation; `lctx-model::normalized::rows` | F07 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | `need` copies deleted |
+| Ruff `Export`/`Branch` lowering or removal; version/platform cross-check; `custom_builtins`; type-parameter scope ranges | [Code-facts coordinator §7](../../plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action) (analyzer migration owner) or create-plan; `cpg-extract`, `cpg-flow`, Ruff patch | F08 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | Attributed observations; disagreement rows; explicit type-parameter coverage |
+| F09 items | Implementation; the components named in F09 | F09 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | Deletions and uses landed |
+| ADR-0044 amendment; forward plan §5/§7 rows; pins odis row; migration plan §1 | Owner edits (ADR lifecycle amendment; plan owners) | F10 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | Text matches §8 and L1–L3 evidence |
+| `python-analyzers` skill project layer | `library-research` worker under the skill's maintenance guide (operator exception, 2026-10-02) | F10 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | `show project`/`migration`/`unused` restamped |
+| Enable `pydantic` and `vllm` skills | Config change in `.config/library-skills.toml`; vLLM with a pin-check note | §8 | [Coordinator §7](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations) | Skills linked |
 
-**Deferred rows** (owned here until a plan or trigger takes them):
+
+**Original deferral triggers** (current disposition belongs to the coordinator; these retain historical scope):
 
 | Deferred item | Scope consequence | Trigger that reopens it |
 |---|---|---|

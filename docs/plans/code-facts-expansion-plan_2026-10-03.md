@@ -949,15 +949,18 @@ schema control **passed**, 1.57s after removing only diagnostic output (`termina
 `terminal-wire-receipt.json` retains the failure, actual reference graph, exact commands and
 excluded runtime/full-gate boundaries. There is no production relaxation or nullable default.
 
-**Current prerequisite, 2026-10-04:** the operator authorized the scoped ADR-index/feature
-refreshes and one final pre-qualification formatting run. These **passed**; current docs and
-full workspace/all-target Clippy also **passed**. The active analytical-enrichment
-[coordinator §7](code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
-owns the matching final-source adapter, full-gate and scoped disposable-store receipts. The
-reviewed schema migration is committed at `b7e8629b`, model
-`a00210d0595770adc2d77c4250f24123cb9f32f46cbfab3d8d799c56431f30a8`.
-Surviving conditional/generated, Terminal and raised-type actual PG Q0 journeys remain required
-and are included by the running full workspace gate. Their pending status is not closed by
-schema acceptance or Clippy. Do not select/reset the stopped operator staging. Completed
-enrichment worktrees were removed after integration and external receipt preservation; other
-historical worktrees/stashes and shared build intermediates remain preserved.
+**Historical prerequisite receipt, 2026-10-04:** scoped ADR-index/feature refreshes,
+formatting, docs and full workspace/all-target Clippy passed for the predecessor described by the
+[enrichment coordinator §7](code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint).
+The schema migration at `b7e8629b` qualified model
+`a00210d0595770adc2d77c4250f24123cb9f32f46cbfab3d8d799c56431f30a8`;
+subsequent Named/read-region changes require another deliberate snapshot and matching artifacts.
+This receipt is not a current full pass and no full workspace gate is running.
+
+**Current route, 2026-10-04:** surviving conditional/generated, Terminal and raised-type actual
+PG journeys join [target-alignment Q0](target-implementation-alignment-plan_2026-10-04.md#5-migration-and-verification)
+alongside enrichment's remaining journeys. This plan retains its original source finding IDs and
+historical evidence; new review corrections have their own single coordinator disposition.
+Full gates/Clippy and artifacts remain pending. Do not select/reset stopped operator staging.
+All older worktrees were assessed and removed with recovery content preserved; shared build
+intermediates remain intact. Plan authoring resumes neither runtime qualification nor activation.

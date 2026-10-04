@@ -506,6 +506,16 @@ explicitly not_run until activated. They are not invented completion gates for t
 
 ## 10. Finding routes, limits and current state
 
+**Target-alignment dependency update, 2026-10-04 — Proposed.** The
+[serving-alignment plan](serving-provenance-presentation-plan_2026-10-04.md) owns S1 requested-library
+admission, S2 generation-bearing resource rendering, S3 value presentation and IS2 startup
+preparation controls. [Target-alignment Q0](target-implementation-alignment-plan_2026-10-04.md#5-migration-and-verification)
+coordinates current fixture/schema/artifact/full-gate acceptance; its coordinator owns the new
+review findings. Existing receipts here retain their dated scope. These dependencies neither
+restart the stopped library reconstruction nor authorize selection, registration, live vectors
+or PR6. Qualification/activation here remains separate and stopped until operator authorization.
+
+
 The parent §8 remains the sole current owner for F05 served condition identity, F10 competing serving
 authority, F12 repeated preparation/round trips, F13 served policy identity and the C13 lookup/grant
 remainder. This plan supplies D0/N0/M0, C0/E0 and R0/T0/X0 closure routes respectively; writing or
