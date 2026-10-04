@@ -941,7 +941,7 @@ async fn site_composition_preserves_alternatives_and_refuses_pair_work_before_ex
 async fn selected_source_signature_witness_replay_refuses_missing_and_foreign_domain() {
     use normalized::binding_normalization::SourceBodySignatureClosure;
     let f = fixture::native_from("source_body_shapes").await;
-    let text = "inner(17)";
+    let text = "inner(value)";
     let witness = fixture::WitnessFixture::mutated_at(&f, text, None);
     let admission = f.verified.composition(witness.emission.witness.attempt).unwrap();
     let SourceBodySignatureClosure::DeclaredEnumeration { enumeration, support, .. } =
