@@ -2,15 +2,16 @@
 
 _Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**The comprehensive analytical architecture review is complete at static Interface-checked strength.**
-The [principal review](docs/design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md)
-assesses the expanded Python fact base, governing operations, intermediate analyses and target outputs.
-Its decision is **Revise** through bounded corrections; the single-model/PostgreSQL architecture is retained.
-The review owns its new unscheduled findings with explicit Deferred triggers and identifies
-Proposed opportunities; the existing code-facts coordinator still owns previously scheduled findings.
-Review baseline: `efe0c24a` plus the 231 tracked dirty paths captured on 2026-10-03;
-production changes were preserved. The generated advisory library catalog changed during the review.
-No production remediation, new runtime probes, product gates or operator-state changes were performed.
+**The analytical enrichment implementation plans are authored; production execution is not started.**
+The [new coordinator](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md) and four supporting
+plans translate the [principal review](docs/design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md)
+into bounded remedies and selected richer answers. Coordinator §7 now owns that review's F01/F02/O01–O08
+dispositions; the earlier code-facts coordinator retains its own findings. The target is Proposed,
+grounded in Interface-checked source/pinned APIs at committed baseline `dbabbe6904a3`, 2026-10-04.
+Guarded proofs and argument Expected expansion have native usefulness decisions before implementation;
+ty reference search and odis are development oracles, with existing production authorities retained.
+The source review's decision remains Revise; static planning does not certify release qualification.
+No production remediation, runtime probes, product gates or operator-state changes occurred here.
 
 **The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
 The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
@@ -26,6 +27,7 @@ supply current wiring/status where its project notes lag. No shared skill was ch
 
 | Command / boundary | Outcome and date |
 |---|---|
+| Plan authoring `just docs-check` | **passed**, 2026-10-04: 288 canonical pages, zero offline link errors; five plans, disposition transfer and handoff only |
 | Review `just docs-check` | **passed**, 2026-10-04: 283 canonical pages, zero offline link errors; review/evidence/handoff publication only |
 | Full workspace/all-target `just clippy` | **passed**, 2026-10-03 at `92f45e92`; earlier failures/repairs retained in coordinator §7; not a current-tree hygiene pass |
 | Expansion targeted native/model/core/real-PG/wire controls | **passed** within recorded package scopes, 2026-10-03; coordinator §7 retains failures and composite receipts |
@@ -77,9 +79,10 @@ The later catalog compile was interrupted with SIGINT/exit130. Staging
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Next design action: select the new review's bounded remedies and useful enrichment routes for
-incremental implementation planning; the principal review supplies their contracts, dependencies,
-alternatives and closure evidence. Q0/full gates and separately authorized real-library activation
-remain distinct follow-up work. Gold/heldout/benchmarks are untouched. Cargo retains shared release
+Next implementation action: coordinator A0/A1/A2 (Structural outcome replay, provider guidance and
+Local qualification preservation), alongside G0 native evidence and independent existing-fact consumers.
+The plans supply contracts, hydration, dependencies, alternatives and closure evidence. Final Q1
+incorporates surviving Q0 fixture journeys; real-library activation remains separately authorized.
+Gold/heldout/benchmarks are untouched. Cargo retains shared release
 intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
 The end-of-turn hook owns formatting/generated refreshes; no scoped refresh exception was used here.
