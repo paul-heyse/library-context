@@ -476,6 +476,7 @@ fn native_authority(
             | P::DeclarationObservation { .. }
             | P::SyntaxDetailObservation { .. }
             | P::ParameterSyntaxObservation { .. }
+            | P::ClassFieldSyntaxObservation { .. }
     );
     let report_inspection = match question {
         NativeQuestion::DeclaredClassInspection => matches!(premise,
@@ -1188,6 +1189,27 @@ mod native_authority_tests {
                 .unwrap(),
                 Some((pair.id(), run.id(), EvidenceStatus::StructurallyObserved))
             );
+        }
+    }
+    #[test]
+    fn class_field_source_support_is_native_syntax_not_an_analyzer_or_recognizer() {
+        let pair = NativeAssertionPremise::ClassFieldSyntaxObservation {
+            assertion: id(4), support: id(5),
+        };
+        for fidelity in [Fidelity::Raw, Fidelity::NativeStructural] {
+            let n = analysis::native::NativeQualification {
+                premise: pair.id(), qualification: id(6), family: FactFamily::Syntax,
+                fidelity, status: EvidenceStatus::StructurallyObserved,
+            };
+            for origin in [Origin::SourceObservation, Origin::AnalyzerAssertion, Origin::DerivedAnalysis] {
+                for mode in [ExtractionMode::NativeTraversal, ExtractionMode::Recognizer] {
+                    let a = SupportAttribution {
+                        run: id(1), surface: id(2), evidence: id(3), origin, mode, fidelity,
+                    };
+                    assert_eq!(native_authority(&a, &pair, &n, NativeQuestion::ExecutableRead),
+                        origin == Origin::SourceObservation && mode == ExtractionMode::NativeTraversal);
+                }
+            }
         }
     }
     #[test]
