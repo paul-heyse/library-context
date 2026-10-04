@@ -2,7 +2,7 @@
 
 _Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Analytical enrichment is integrated; assembled acceptance is in progress.**
+**Analytical enrichment is integrated; full-gate failures are being repaired.**
 The [coordinator §7](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
 owns F01/F02/O01–O08 and current receipts. Model-owned Structural outcome replay, qualified
 singleton composition, C1–C7, R1 and G1 consumers are integrated. Native overload identity/replay
@@ -28,8 +28,11 @@ formatted source (`9dbe7239`), 2026-10-04. The operator authorized one final `ju
 passed before rebuilding. Schema review retired reused native premise code 37 and appended
 ModuleResolution at 75. Reviewed describe migration and assertion rerun passed for model
 `a00210d0595770adc2d77c4250f24123cb9f32f46cbfab3d8d799c56431f30a8`; matching native
-adapters rebuilt in the full gate. The gate is compiling workspace test binaries. Initial
-failures and named hygiene repairs remain in coordinator §7. Default store-check refused the
+adapters rebuilt in the full gate. `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all`
+**failed**: 997 Rust controls passed, 95 failed, four timed out and three were skipped; Python/oracles
+and doctests were not_run after the Rust failure. Scope/TypedDict/Summary authority and shared native
+fixture repairs are integrated; focused reruns are compiling. Earlier schema/hygiene receipts bound
+`9dbe7239`, before these repairs. Initial failures and named repairs remain in coordinator §7. Default store-check refused the
 preserved old-model staging; the isolated final-model store check passed, zero generations/
 findings. Read-only check confirms staging still has 204 receipts and is unselected.
 
@@ -101,7 +104,8 @@ preserves that stop state. Reconstruction from pinned inputs remains an activati
 
 Next: finish focused native/model/PostgreSQL controls and repair their findings, then
 complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`just hygiene`.
-Surviving Q0 fixture journeys are included; real-library activation remains separately authorized.
+Generated-wrapper and both raised-type PostgreSQL journeys passed in the failed full gate;
+conditional and Terminal journeys still require repair. Real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release
 intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
 The end-of-turn hook normally owns formatting. ADR index/dependency features and the one final

@@ -535,3 +535,24 @@ agent/ADR/fixture/gold/rule receipts remain applicable. Store-check uses the own
 database and final model; the preserved old operator-store failure remains outside this
 qualification boundary. This closes F02 guidance/publication only, not runtime Q1. Both native
 adapters rebuilt successfully inside the full gate; workspace test compilation remains active.
+
+
+The assembled `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all` **failed**,
+2026-10-04 (`/home/paul/.cache/lctx-enrichment-test-all-formatted-final.log`): 1,096 Rust
+controls ran, 997 passed, 95 failed, four timed out and three were skipped. Shipped CLI and
+both installed native adapters rebuilt successfully. Python/oracles and doctests are **not_run**
+because the Rust step failed. All five surviving Q0 journeys executed: generated-wrapper packets
+and both complete/incomplete raised-type controls **passed**; conditional packets **failed**
+(Contract), and Terminal packets **failed** (300-second timeout). These are scoped outcomes,
+not Q1 acceptance. The original 99 failure/timeout cases are retained in
+`/home/paul/.cache/lctx-enrichment-initial-gate-failures.json`.
+
+Integrated repairs preserve strict authority: collapsed native type-parameter capture scopes
+produce attributed ScopeBoundary instead of an invalid equal-scope snapshot; native TypedDict
+keys retain arbitrary raw spellings with origin validation; Summary hydrates evidence from the
+Model vocabulary view; source-class declarations/MRO use bounded inspection authority rather
+than executable-read authority. Shared PostgreSQL fixtures now derive their native writers
+from the existing canonical assertion/support registry, and current fixture directories, packet
+JSON and selection-model declarations are registered. Focused native diagnostics and compile
+reruns are in progress; these repairs are **Implemented**, not yet Tested. The prior schema,
+Clippy and scoped-store receipts remain dated to the pre-repair model, not the repaired tree.
