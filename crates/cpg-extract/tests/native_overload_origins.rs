@@ -84,22 +84,30 @@ async fn native_origin_vectors_survive_canonical_attachment_and_replay() {
         let invariant=&NativeOverloadObservation::invariants()[0];
         let mut check=(invariant.create)(&budget);
         let source=tables.lock().unwrap();
+        let mut traces=observations.clone();
+        let original=traces[0].id();
+        if mutation=="arguments" {
+            traces[0].arguments=observations.iter().find(|t|t.arguments!=traces[0].arguments).expect("multiple native call sites").arguments;
+        }
+        let changed=traces[0].id();
         for input in &invariant.inputs {
             if input.name()==NativeOverloadCandidate::NAME {
                 let mut rows=candidates.clone();
+                if mutation=="arguments" {for row in &mut rows {if row.trace==original {row.trace=changed;}}}
                 if mutation=="drop-member" {rows.remove(0);}
                 if mutation=="origin" {rows[0].origin=if rows[0].origin.is_some() {None} else {candidates.iter().find_map(|c|c.origin)};}
                 if mutation=="qualification" {rows[0].qualification=observations.iter().find(|r|r.qualification!=rows[0].qualification).map(|r|r.qualification).unwrap_or_else(||assertion::AssertionQualification {context:serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([99u8;16].into_iter())).unwrap(),scope:rows[0].scope,condition:conditions::Diagram::always().id(),modality:attribution::Modality::Definite,approximation:assertion::Approximation::Exact,assumptions:assumptions::AssumptionSet::empty_id()}.id());}
                 if mutation=="drop-vector" {rows.clear();}
                 let batch=Batch::new(&model,rows,&budget).unwrap();check.visit(input.name(),batch.arrow()).unwrap();
-            } else if input.name()==NativeOverloadObservation::NAME && mutation=="drop-vector" {
-                check.visit(input.name(),Batch::<NativeOverloadObservation>::new(&model,vec![],&budget).unwrap().arrow()).unwrap();
+            } else if input.name()==NativeOverloadObservation::NAME {
+                if mutation=="drop-vector" {traces.clear();}
+                check.visit(input.name(),Batch::<NativeOverloadObservation>::new(&model,traces.clone(),&budget).unwrap().arrow()).unwrap();
             } else if let Some(batch)=source.get(input.name()) {check.visit(input.name(),batch).unwrap();}
         }
         check.finish()
     };
     verify("none").unwrap();
-    for mutation in ["drop-member","origin","qualification","drop-vector"] {assert!(verify(mutation).is_err(),"{mutation} escaped original native vector closure");}
+    for mutation in ["drop-member","origin","qualification","arguments","drop-vector"] {assert!(verify(mutation).is_err(),"{mutation} escaped original native vector closure");}
 }
 
 #[tokio::test]
