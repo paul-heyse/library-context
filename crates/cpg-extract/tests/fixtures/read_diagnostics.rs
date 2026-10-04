@@ -45,6 +45,7 @@ pub fn dump(
 }
 
 /// Exact initializer path diagnostics, including source geometry and per-use conditions.
+#[allow(dead_code, reason = "Shared diagnostic module is compiled by read targets without this initializer fixture")]
 pub fn dump_global_initializer(
     f: &NativeFixture,
     data: &execution::source_call_records::SourceCallData,
