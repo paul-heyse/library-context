@@ -909,3 +909,17 @@ independently expected JSON/schema/strict-validation/layout controls (181.82s in
 Receipt/logs: `packet-layout-receipt.json`, `packet-layout-check-1.log`,
 `packet-layout-tests-1.log` under `/home/paul/.cache/lctx-code-facts/`. Full current-tree
 Clippy rerun is active; this is not a hygiene pass.
+
+Scope-end Clippy attempt2 **failed**, exit101 (`assembled-clippy-02.log`), after the
+model repairs: one test clone, source-usage helper arity and 15 extractor diagnostics
+remained. Root repair `911f4279` preserves the original usage-grant/provider/fidelity
+admission and replaces only a cloned one-element test slice.
+`cargo check --release -p lctx-model --test parameter_correspondence -p lctx-postgres --all-targets`
+**passed**, 48.13s (`clippy-usage-root-check.log`). Extractor repairs and full rerun remain open.
+
+`just docs-check` **failed** (`assembled-docs-check-01.log`): missing ADR-0119/0120 owner
+links plus stale generated ADR index. Owner correction `0f49b118` adds the actual finite
+provider-grant and premise contract links. Named rerun **failed** only on stale index
+(`assembled-docs-check-02.log`). The requested scoped exception to `just fmt`,
+`just adr index` and `just build-features` is still pending operator input; these commands
+have not been run manually. The end-of-turn hook otherwise owns those refreshes.
