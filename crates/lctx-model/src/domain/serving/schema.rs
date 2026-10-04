@@ -41,6 +41,8 @@ code_schema!(
     execution::protocol_interpretation::InvocationQuestion,
     execution::closed_targets::TargetBasis,
     types::TypeRole,
+    types::OverloadSelection,
+    normalized::overload_association::OverloadAssociationReason,
     selection::EvidenceBasis,
     selection::Mode,
     selection::JointPolicy,
