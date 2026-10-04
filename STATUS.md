@@ -13,14 +13,19 @@ Actual upper serving qualification revealed missing Analytic and Synthesis decla
 the complete decoder inventories passed both-profile controls and matching adapters rebuilt.
 A0's genuine full-layer fixture published both profiles, then exposed a named-handoff consumer
 that still requires global family completeness; ADR-0122 selects per-use inventory authority
-for Entry/handoff admission, with correction and refusal controls in progress.
-Affected PostgreSQL journeys and sink adversaries remain pending.
+for Entry/handoff admission. Native Partial-family/complete-use controls passed; a bounded
+independent audit accepted the final exact-source helper guards statically.
+Synthesis's Catalog input mask now excludes the six new Flow inputs without invoking native Flow.
+Actual C2 packets passed; the first API test's decorator-parent expectation is repaired.
+Focused model inventory/stability/native-request controls passed (4/11/18), and the Catalog Flow
+profile control passed. Final PostgreSQL/MCP journeys, sink adversaries and snapshot migration
+remain pending.
 G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
 inventory supplies exclusion conditions. C7 is enabled and carries retained Expected uncertainty.
 Ty references and odis remain development-only. No Q1 or full functional pass is claimed yet.
-Full workspace Clippy and named hygiene repairs passed. The initial full gate stopped at a uv
+Full workspace/all-target Clippy passed on combined `65f631e4`; named hygiene repairs passed. The initial full gate stopped at a uv
 build-cache timeout; both adapters rebuilt at the decoder revision; the queued retry was interrupted before tests
-to await the discovered shared admission repair. Default store-check
+to await the discovered shared admission repair; final stable-source qualification is running. Default store-check
 refused the preserved old-model staging; current-model store qualification passed on an isolated PG18 database at the decoder revision;
 final admission source changes require matching qualification. Operator registrations/staging are untouched and activation remains excluded.
 

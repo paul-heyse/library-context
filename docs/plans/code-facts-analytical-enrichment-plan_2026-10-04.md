@@ -432,3 +432,46 @@ migration and final adapter/gate receipts remain pending; accepted decision is n
 `lctx-enrichment-test-all-final.log` attempt was interrupted with scoped SIGINT before tests
 while the discovered Entry/handoff admission correction changes shared source; it is **not_run**,
 not a functional pass. Final stable-tree acceptance remains pending.
+
+ADR-0122 implementation integrated at `11420bc0`/`0c60d4f7`; the genuine native Entry control
+**passed**, one test in 0.62 seconds, including Partial family/complete per-use admission and
+missing/incomplete/foreign/non-native refusals. The model seed migration `75e549d2` supplies
+explicit finite inventories once; omission/mutation controls do not automatically reseed.
+The actual C2 PostgreSQL packet journey **passed**, 84.47 seconds, at model
+`9767e8813dc7d763d7c9be89e88516da3d117263f432e4a1da189463de30bc4c`
+(`lctx-api-root-packet-tests-decoders-complete.log`). The adjacent API journey **failed** before
+stdio at an incorrect decorator direct-field expectation; `f2a2009e`/`eeb4d835` instead check
+the exact original name span, canonical Decorator parent/outer placement and truthful Child field.
+Its targeted release compile **passed**; final API/MCP runtime remains pending. The native
+MCP helper now checks exact generation/model admission before opening stdio.
+
+A bounded independent audit identified raw-helper source-view/qualification/target gaps protected
+by publication but insufficient for the helper's own contract. `20f2f678` reuses the existing exact
+source-coverage qualification operation, checks original digest/byte length and actual Bound target.
+`65f631e4` adds coherent forged-view, Candidate modality, foreign scope, approximate view and
+Unbound-target controls; their focused runtime remains pending. The audit of that stable source
+accepted the correction statically, **Interface-checked**, 2026-10-04.
+The C4/C5 Catalog journey then **failed** before generation/packet assertions because Synthesis's
+Catalog input mask inherited six new Flow relations without excluding them. `3a7463b0` fixes that
+consumer mask and adds a profile control. Native Flow remains NotRequested in Catalog; no empty
+Flow writer, native provider activation, admission or validator exception was introduced.
+
+Full workspace/all-target `just clippy` **passed**, 2026-10-04, on combined `65f631e4`
+(`lctx-enrichment-clippy-source-view-closure.log`), after one coverage let-chain lint and a
+test-only occurrence-field typo were repaired. Own superseded adapter/snapshot/full-gate
+refreshes were interrupted before qualification while these concrete source repairs changed
+the model identity; they are **not_run**, never passing receipts. Final matching native adapters,
+reviewed model describe snapshot and `just test-all` are running against the stable combined
+source. The five surviving conditional/generated/Terminal/raised-type Q0 packet tests and their
+upstream PG controls are ordinary non-ignored tests included by that full workspace recipe.
+
+Final focused model rerun **passed**, 2026-10-04, `cargo test --release -p lctx-model
+--test domain_flow_inventory --test domain_stability --test native_requests -- --nocapture`: four
+inventory, eleven stability/raw-helper and eighteen native-request controls, at `20f2f678` plus
+`65f631e4`. The earlier two stability failures are retained in
+`/home/paul/.cache/lctx-enrichment-flow-focused-receipts.txt`: a deliberately narrowed positive
+fixture needed an explicit inventory update, and the new forged-view check exercised the earlier
+helper before its final geometry guard. No implicit reseeding was added.
+`cargo test --release -p lctx-model --lib catalog_pattern_inputs_leave_native_flow_unrequested
+-- --nocapture` **passed**, one profile control (`lctx-enrichment-catalog-flow-inputs.log`).
+Checkpoint `UV_NO_SYNC=1 just docs-check` **passed**, 289 canonical pages and zero errors.
