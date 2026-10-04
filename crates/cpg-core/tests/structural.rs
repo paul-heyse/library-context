@@ -186,7 +186,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                     &attempt,
                     &model,
                     &runtime,
-                    &configuration,
+                    configuration,
                 )
                 .await
                 .unwrap();
