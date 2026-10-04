@@ -46,6 +46,12 @@ macro_rules! entry_value_inputs {
             lexical_scopes: $crate::domain::lexical::LexicalScope,
             placements: $crate::domain::syntax::SyntaxPlacement,
             placement_supports: $crate::domain::syntax::SyntaxPlacementSupport,
+            inventories: $crate::domain::flow_inventory::FlowUseInventoryObservation,
+            inventory_supports: $crate::domain::flow_inventory::FlowUseInventorySupport,
+            inventory_candidates: $crate::domain::flow_inventory::FlowUseCandidate,
+            inventory_members: $crate::domain::flow_inventory::FlowUseInventoryMember,
+            source_views: $crate::domain::flow::FlowSourceViewObservation,
+            source_view_supports: $crate::domain::flow::FlowSourceViewSupport,
             uses: $crate::domain::flow::FlowUse,
             use_observations: $crate::domain::flow::FlowUseObservation,
             use_supports: $crate::domain::flow::FlowUseSupport,
@@ -107,6 +113,8 @@ pub struct EntryValueWitness {
     pub owner_support: Id<SymbolDeclarationSupport>,
     pub use_observation: Id<FlowUseObservation>,
     pub use_support: Id<FlowUseSupport>,
+    pub inventory: Id<flow_inventory::FlowUseInventoryObservation>,
+    pub inventory_support: Id<flow_inventory::FlowUseInventorySupport>,
     pub reaching: Id<FlowReachingObservation>,
     pub reaching_support: Id<FlowReachingSupport>,
     pub definition: Id<FlowDefinitionObservation>,
@@ -220,10 +228,14 @@ fn exact(
     }
     Ok(q)
 }
-fn supported<S: Support>(
+#[derive(Clone, Copy)]
+pub(crate) struct SupportFrame {pub access:Id<Occurrence>,pub context:Id<AnalysisContext>,pub run:Id<ProviderRun>}
+impl From<EntryRequest> for SupportFrame {fn from(r:EntryRequest)->Self{Self{access:r.access,context:r.context,run:r.run}}}
+impl From<AccessFrame> for SupportFrame {fn from(r:AccessFrame)->Self{Self{access:r.access,context:r.context,run:r.run}}}
+pub(crate) fn supported<S: Support>(
     data: &EntryData,
     support: &S,
-    request: impl Into<AccessFrame>,
+    request: impl Into<SupportFrame>,
 ) -> Result<bool, ObligationKind> {
     let request = request.into();
     let a = support
@@ -820,15 +832,13 @@ impl EntryValueWitness {
                     _ => false,
                 };
                 if relevant {
-                    if row.status != CoverageStatus::CompleteUnderStatedModel {
-                        return Err(ObligationKind::IncompleteCoverage);
-                    }
-                    coverage = Some(row.id());
+                    if matches!(row.status,CoverageStatus::CompleteUnderStatedModel|CoverageStatus::Partial){coverage = Some(row.id());}
                 }
             }
             let coverage = coverage.ok_or(ObligationKind::IncompleteCoverage)?;
+            let (inventory,inventory_support)=flow_inventory::complete_native_singleton(data,use_observation,need(&data.use_supports,use_support)?,reaching,need(&data.reaching_supports,reaching_support)?,budget).map_err(|error|{resource_error=Some(error);if matches!(resource_error,Some(ModelError::Resource{..})){ObligationKind::ResourceRefused}else{ObligationKind::MissingEvidence}})?.ok_or(ObligationKind::EntryValueUnknown)?;
             use crate::domain::analysis::policy::{self, EvidenceStatus, SupportRole};
-            let mut statuses = [(SupportRole::Support, EvidenceStatus::Unresolved); 8];
+            let mut statuses = [(SupportRole::Support, EvidenceStatus::Unresolved); 9];
             let mut count = 0;
             let mut evidence = |family, fidelity| {
                 statuses[count] = (
@@ -837,6 +847,7 @@ impl EntryValueWitness {
                 );
                 count += 1;
             };
+            evidence(FactFamily::Flow,inventory_support.fidelity);
             evidence(
                 FactFamily::Flow,
                 need(&data.use_supports, use_support)?.fidelity,
@@ -919,6 +930,8 @@ impl EntryValueWitness {
                     owner_support,
                     use_observation: use_observation.id(),
                     use_support,
+                    inventory: inventory.id(),
+                    inventory_support: inventory_support.id(),
                     reaching: reaching.id(),
                     reaching_support,
                     definition: definition.id(),

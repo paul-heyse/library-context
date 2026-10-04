@@ -124,6 +124,8 @@ pub enum SetupSource {
         reference: Id<analysis::native::NativeAssertionPremise>,
         observation: Id<flow::FlowUseObservation>,
         support: Id<flow::FlowUseSupport>,
+        inventory: Id<flow_inventory::FlowUseInventoryObservation>,
+        inventory_support: Id<flow_inventory::FlowUseInventorySupport>,
         reaching: Id<flow::FlowReachingObservation>,
         reaching_support: Id<flow::FlowReachingSupport>,
         definition: Id<flow::FlowDefinitionObservation>,
@@ -163,6 +165,7 @@ macro_rules! synthesis_pattern_inputs{($m:ident)=>{$m!{
 #[macro_export]
 macro_rules! synthesis_pattern_named_inputs{($m:ident)=>{$m!{
  artifacts:$crate::domain::source::SourceArtifact,modules:$crate::domain::source::Module,scopes:$crate::domain::source::CoverageScope,occurrences:$crate::domain::source::Occurrence,qualifications:$crate::domain::assertion::AssertionQualification,conditions:$crate::domain::conditions::Condition,condition_nodes:$crate::domain::conditions::ConditionNode,
+ inventories:$crate::domain::flow_inventory::FlowUseInventoryObservation,inventory_supports:$crate::domain::flow_inventory::FlowUseInventorySupport,inventory_candidates:$crate::domain::flow_inventory::FlowUseCandidate,inventory_members:$crate::domain::flow_inventory::FlowUseInventoryMember,source_views:$crate::domain::flow::FlowSourceViewObservation,source_view_supports:$crate::domain::flow::FlowSourceViewSupport,providers:$crate::domain::attribution::Provider,surfaces:$crate::domain::assertion::ProviderSurface,evidence:$crate::domain::assertion::Evidence,
  uses:$crate::domain::flow::FlowUse,use_observations:$crate::domain::flow::FlowUseObservation,use_supports:$crate::domain::flow::FlowUseSupport,definitions:$crate::domain::flow::FlowDefinition,definition_observations:$crate::domain::flow::FlowDefinitionObservation,definition_supports:$crate::domain::flow::FlowDefinitionSupport,targets:$crate::domain::flow::ReachingDefinition,reaching:$crate::domain::flow::FlowReachingObservation,reaching_supports:$crate::domain::flow::FlowReachingSupport,runs:$crate::domain::attribution::ProviderRun,coverage:$crate::domain::attribution::ProviderCoverage,native:$crate::domain::analysis::native::NativeQualification,
 }};}
 fn named_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
@@ -217,6 +220,8 @@ fn setup_source(d: &source_setup::Dependency) -> Result<SetupSource, ModelError>
             let handoffs::ValueSource::Named {
                 observation,
                 support,
+                inventory,
+                inventory_support,
                 reaching,
                 reaching_support,
                 definition,
@@ -230,6 +235,8 @@ fn setup_source(d: &source_setup::Dependency) -> Result<SetupSource, ModelError>
                 reference: *reference,
                 observation: *observation,
                 support: *support,
+                inventory: *inventory,
+                inventory_support: *inventory_support,
                 reaching: *reaching,
                 reaching_support: *reaching_support,
                 definition: *definition,

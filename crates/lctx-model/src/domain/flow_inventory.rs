@@ -210,8 +210,50 @@ impl UseInventoryExplanation<'_> {
         if use_.id()!=self.inventory.use_ {return Err(invalid("singleton lookup names a different read"))}
         if witnesses.len()>MAX_USE_CANDIDATES {return Err(invalid("stored per-read singleton outcome bound"))}
         let mut charge=StateCharge::new(budget,"flow-inventory-stored-entry-outcomes");charge.grow((witnesses.len()+1)*128)?;
-        let mut selected=witnesses.iter().filter(|w|w.access==use_.occurrence && w.context==context && runs.contains(&w.run)).collect::<Vec<_>>();
+        let mut selected=witnesses.iter().filter(|w|w.access==use_.occurrence && w.context==context && w.inventory==self.inventory.id() && runs.contains(&w.run)).collect::<Vec<_>>();
         selected.sort_by_key(|w|w.id());
         Ok(StoredEntryOutcomes {witnesses:selected,_charge:charge})
     }
+}
+
+fn native_traversal<S:Support>(support:&S)->bool {support.attribution().is_some_and(|a|a.fidelity==Fidelity::NativeStructural && a.origin==Origin::AnalyzerAssertion && a.mode==ExtractionMode::NativeTraversal)}
+/// Closure authority for one already attributed native read. Family coverage is separate evidence.
+/// Full candidate hydration is checked by the same kernel used by original-evidence explanations.
+pub fn complete_native_singleton<'a>(
+    data:&'a conditions::entry::EntryData,
+    observation:&FlowUseObservation,
+    support:&FlowUseSupport,
+    reaching:&FlowReachingObservation,
+    reaching_support:&FlowReachingSupport,
+    budget:&resources::ResourceBudget,
+)->Result<Option<(&'a FlowUseInventoryObservation,&'a FlowUseInventorySupport)>,ModelError> {
+    let Some(use_)=data.uses.get(observation.use_) else {return Ok(None)};
+    let Some(site)=data.occurrences.get(use_.occurrence) else {return Ok(None)};
+    let Some(q)=data.qualifications.get(observation.qualification) else {return Ok(None)};
+    if support.assertion!=observation.id() || !native_traversal(support) || !native_traversal(reaching_support) || reaching.use_!=use_.id() || reaching_support.assertion!=reaching.id() || reaching_support.run!=support.run || reaching_support.surface!=support.surface || reaching.loop_carried {return Ok(None)}
+    let Some(run)=data.runs.get(support.run) else {return Ok(None)};
+    let Some(artifact)=data.artifacts.get(site.source) else {return Ok(None)};
+    let Some(rq)=data.qualifications.get(reaching.qualification) else {return Ok(None)};
+    if run.context!=q.context || run.input!=artifact.input || rq.context!=q.context || rq.scope!=q.scope || rq.approximation!=Approximation::Exact || q.approximation!=Approximation::Exact {return Ok(None)}
+    let frame=conditions::entry::SupportFrame {access:use_.occurrence,context:q.context,run:support.run};
+    if !conditions::entry::supported(data,support,frame).unwrap_or(false) || !conditions::entry::supported(data,reaching_support,frame).unwrap_or(false) {return Ok(None)}
+    let mut inventories=data.inventories.iter().filter(|i|i.use_==use_.id() && i.scope==observation.scope && i.qualification==observation.qualification);
+    let Some(inventory)=inventories.next() else {return Ok(None)};
+    if inventories.next().is_some() || !inventory.complete || inventory.native_count!=1 || inventory.mapped_count!=1 {return Ok(None)}
+    let mut supports=data.inventory_supports.iter().filter(|s|s.assertion==inventory.id());
+    let Some(inventory_support)=supports.next() else {return Ok(None)};
+    if supports.next().is_some() || inventory_support.run!=support.run || inventory_support.surface!=support.surface || !native_traversal(inventory_support) || !conditions::entry::supported(data,inventory_support,frame).unwrap_or(false) {return Ok(None)}
+    let Some(view)=data.source_views.get(inventory.view) else {return Ok(None)};
+    let Some(vq)=data.qualifications.get(view.qualification) else {return Ok(None)};
+    if view.source!=site.source || vq.context!=q.context || vq.scope!=q.scope || !data.source_view_supports.iter().any(|s|s.assertion==view.id() && s.run==support.run && s.surface==support.surface && native_traversal(s) && conditions::entry::supported(data,s,frame).unwrap_or(false)) {return Ok(None)}
+    let candidate_count=data.inventory_candidates.iter().filter(|c|c.inventory==inventory.id()).count();
+    let member_count=data.inventory_members.iter().filter(|m|m.inventory==inventory.id()).count();
+    if candidate_count>MAX_USE_CANDIDATES || member_count>MAX_USE_CANDIDATES {return Err(invalid("singleton native inventory work bound"))}
+    let _hydration=budget.reserve("native-singleton-inventory-hydration",(candidate_count+member_count+1)*512)?;
+    let candidates=data.inventory_candidates.iter().filter(|c|c.inventory==inventory.id()).cloned().collect::<Vec<_>>();
+    let members=data.inventory_members.iter().filter(|m|m.inventory==inventory.id()).cloned().collect::<Vec<_>>();
+    let explanation=explain(use_.id(),inventory,&candidates,&members,budget)?;
+    if explanation.candidates.len()!=1 || explanation.candidates[0].kind!=FlowCandidateKind::Bound || explanation.members.len()!=1 || explanation.members[0].reaching!=reaching.id() || explanation.members[0].support!=reaching_support.id() {return Ok(None)}
+    if data.reaching_supports.iter().any(|s|s.run==support.run && s.surface==support.surface && data.reaching.get(s.assertion).is_some_and(|r|r.use_==use_.id() && r.id()!=reaching.id())) {return Ok(None)}
+    Ok(Some((inventory,inventory_support)))
 }

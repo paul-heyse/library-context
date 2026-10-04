@@ -1497,6 +1497,8 @@ raise ValueError('flag required')
             owner_support: id(81),
             use_observation: id(82),
             use_support: id(83),
+            inventory: id(92),
+            inventory_support: id(93),
             reaching: id(84),
             reaching_support: id(85),
             definition: id(86),

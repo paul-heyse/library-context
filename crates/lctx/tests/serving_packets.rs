@@ -1121,7 +1121,7 @@ class Settings:
 #[tokio::test]
 async fn original_evidence_explains_complete_native_use_inventory() {
     use lctx_model::domain::{flow::*,flow_inventory::*,source::Occurrence};
-    let source=br#"__all__=['choose','echo']
+    let source=br#"__all__=['choose','echo','conditional']
 def choose(flag: bool):
     if flag:
         value = 1
@@ -1130,6 +1130,10 @@ def choose(flag: bool):
     return value
 def echo(value: int) -> int:
     return value
+def conditional(value: int, flag: bool) -> int:
+    if flag:
+        return value
+    return 0
 "#;
     let fixture=ServingFixture::start_profile(source,"behavioral").await;
     let execution=fixture.service.execution().await.unwrap();
@@ -1156,7 +1160,7 @@ def echo(value: int) -> int:
     }
     assert_eq!(response.evidence.flow_inventory.omitted,0);
     assert!(!response.evidence.flow_inventory.truncated);
-    let echo_start=std::str::from_utf8(source).unwrap().rfind("return value").unwrap()+"return ".len();
+    let echo_start=std::str::from_utf8(source).unwrap().find("def echo").unwrap()+"def echo(value: int) -> int:\n    return ".len();
     let echo=execution.query(move |lease|Box::pin(async move {
         let inventories=lease.read::<FlowUseInventoryObservation>().await?;
         let uses=lease.read_ids::<FlowUse>(&inventories.rows().iter().map(|i|i.use_).collect::<Vec<_>>()).await?;
@@ -1166,5 +1170,20 @@ def echo(value: int) -> int:
     let echo=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Occurrence {occurrence:echo},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
     assert!(echo.evidence.flow_inventory.items.iter().any(|i|!i.entry_outcomes.items.is_empty() && i.entry_value_reason.0.is_none()),"admitted singleton parameter outcome survives alongside enumeration");
     assert!(echo.evidence.flow_inventory.items.iter().flat_map(|i|&i.entry_outcomes.items).all(|o|!o.premises.is_empty() && !o.proof.is_empty()));
+    let conditional_start=std::str::from_utf8(source).unwrap().rfind("return value").unwrap()+"return ".len();
+    let conditional=execution.query(move |lease|Box::pin(async move {
+        let inventories=lease.read::<FlowUseInventoryObservation>().await?;
+        let uses=lease.read_ids::<FlowUse>(&inventories.rows().iter().map(|i|i.use_).collect::<Vec<_>>()).await?;
+        let occurrences=lease.read_ids::<Occurrence>(&uses.rows().iter().map(|u|u.occurrence).collect::<Vec<_>>()).await?;
+        let occurrence=occurrences.rows().iter().find(|o|o.start==conditional_start as i64).expect("conditional native return inventory").id();
+        let use_=uses.rows().iter().find(|u|u.occurrence==occurrence).unwrap();
+        assert!(inventories.rows().iter().any(|i|i.use_==use_.id() && i.complete && i.native_count==1 && i.mapped_count==1),"native conditional access has a complete singleton inventory");
+        Ok(occurrence)
+    })).await.unwrap();
+    let conditional=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Occurrence {occurrence:conditional},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
+    let contributions=conditional.evidence.flow_inventory.items.iter().flat_map(|i|&i.entry_outcomes.items).flat_map(|o|&o.contributions).collect::<Vec<_>>();
+    assert!(!contributions.is_empty(),"actual conditional singleton has a stored Local proof");
+    assert!(contributions.iter().all(|c|c.condition!=lctx_model::domain::conditions::Diagram::always().id()),"serving cannot replace a native conditional Local proof by an unconditional claim");
+    assert!(conditional.evidence.flow_inventory.items.iter().flat_map(|i|&i.entry_outcomes.items).all(|o|!o.proof.is_empty() && !o.premises.is_empty()));
     drop(execution);fixture.finish().await;
 }

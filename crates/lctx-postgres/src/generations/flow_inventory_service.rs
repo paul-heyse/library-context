@@ -44,6 +44,8 @@ impl PacketLease<'_> {
             let entry_value_reason=Nullable(singleton.reason());
             let mut outcomes=Vec::new();
             for witness in &singleton.witnesses {
+                let inventory_support=required(&supports,witness.inventory_support)?;
+                if inventory_support.assertion!=inventory.id() || inventory_support.run!=witness.run {return Err(Error::Contract)}
                 let source_rows=self.read_ids::<conditions::entry::EntryAccessSource>(&[witness.access_source]).await?;
                 let mut qualifications=Vec::new();
                 let uses=self.read_ids::<FlowUseObservation>(&[witness.use_observation]).await?;
@@ -67,7 +69,7 @@ impl PacketLease<'_> {
                     if q.context!=grant.context {return Err(Error::Contract)}
                     transferred.push(StoredEntryContribution {contribution:contribution.id(),qualification:q.id(),condition:q.condition,claim_basis:self.claim_basis(q).await?,status:contribution.source_facts().status});
                 }
-                outcomes.push(StoredEntryOutcome {witness:witness.id(),formal:witness.formal,owner:witness.owner,run:witness.run,access_source:witness.access_source,coverage:witness.coverage,premises,contributions:transferred,proof:[derivation::RowRef::of(witness.id()),derivation::RowRef::of(witness.access_source),derivation::RowRef::of(witness.use_support),derivation::RowRef::of(witness.reaching_support),derivation::RowRef::of(witness.definition_support),derivation::RowRef::of(witness.declaration_support),derivation::RowRef::of(witness.owner_support)].into_iter().map(ProofReference::from_canonical).collect()});
+                outcomes.push(StoredEntryOutcome {witness:witness.id(),formal:witness.formal,owner:witness.owner,run:witness.run,access_source:witness.access_source,coverage:witness.coverage,premises,contributions:transferred,proof:[derivation::RowRef::of(witness.id()),derivation::RowRef::of(witness.access_source),derivation::RowRef::of(witness.use_support),derivation::RowRef::of(witness.inventory),derivation::RowRef::of(witness.inventory_support),derivation::RowRef::of(witness.reaching_support),derivation::RowRef::of(witness.definition_support),derivation::RowRef::of(witness.declaration_support),derivation::RowRef::of(witness.owner_support)].into_iter().map(ProofReference::from_canonical).collect()});
             }
             let entry_outcomes=SectionPage {items:outcomes,availability:Availability::Available {},continuation:Optional::default(),omitted:0,truncated:false};
             let view_rows=self.read_ids::<FlowSourceViewObservation>(&[inventory.view]).await?;let view=required(&view_rows,inventory.view)?;

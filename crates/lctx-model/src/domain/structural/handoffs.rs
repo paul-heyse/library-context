@@ -45,6 +45,8 @@ pub enum ValueSource {
     Named {
         observation: Id<FlowUseObservation>,
         support: Id<FlowUseSupport>,
+        inventory: Id<flow_inventory::FlowUseInventoryObservation>,
+        inventory_support: Id<flow_inventory::FlowUseInventorySupport>,
         reaching: Id<FlowReachingObservation>,
         reaching_support: Id<FlowReachingSupport>,
         definition: Id<FlowDefinitionObservation>,
@@ -263,7 +265,7 @@ pub fn named_definition(
         if (run.context, run.input) != (context, source.input) {
             continue;
         }
-        let Some(coverage)=d.entry.coverage.iter().find(|c|c.run==Some(a.run)&&c.provider==Some(run.provider)&&c.context==context&&c.family==FactFamily::Flow&&c.status==attribution::CoverageStatus::CompleteUnderStatedModel&&matches!(d.entry.scopes.get(c.scope),Some(CoverageScope::Artifact{artifact}) if *artifact==source.id()))else{continue};
+        let Some(coverage)=d.entry.coverage.iter().find(|c|c.run==Some(a.run)&&c.provider==Some(run.provider)&&c.context==context&&c.family==FactFamily::Flow&&matches!(c.status,attribution::CoverageStatus::CompleteUnderStatedModel|attribution::CoverageStatus::Partial)&&matches!(d.entry.scopes.get(c.scope),Some(CoverageScope::Artifact{artifact}) if *artifact==source.id()))else{continue};
         if !native(
             d,
             NativeAssertionPremise::Use {
@@ -277,6 +279,8 @@ pub fn named_definition(
         for rs in d.entry.reaching_supports.iter().filter(|s| {
             s.assertion == reaching.id() && s.attribution().is_some_and(|r| r.run == a.run)
         }) {
+            let Some((inventory,inventory_support))=flow_inventory::complete_native_singleton(&d.entry,observation,support,reaching,rs,budget)? else {continue};
+            if !native(d,NativeAssertionPremise::FlowUseInventory {assertion:inventory.id(),support:inventory_support.id()},inventory.qualification) {continue}
             if !native(
                 d,
                 NativeAssertionPremise::Reaching {
@@ -303,6 +307,8 @@ pub fn named_definition(
                         ValueSource::Named {
                             observation: observation.id(),
                             support: support.id(),
+                            inventory: inventory.id(),
+                            inventory_support: inventory_support.id(),
                             reaching: reaching.id(),
                             reaching_support: rs.id(),
                             definition: definition.id(),
