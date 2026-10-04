@@ -54,17 +54,7 @@ async fn run(profile: Profile) {
         statement_timeout_seconds: 60,
         lock_timeout_seconds: 10,
     };
-    let mut relations = normalized_relations();
-    relations.extend(analysis::early_relations());
-    relations.extend(catalog_runtime::relations());
-    relations.extend(analysis::catalog_core::relations());
-    relations.extend(catalog::relations());
-    relations.extend(analysis::catalog_evidence::relations());
-    relations.extend(analysis::selection::relations());
-    relations.extend(selection::relations());
-    relations.sort_by_key(Relation::name);
-    relations.dedup_by_key(|r| r.name());
-    let model = Arc::new(ValidatedModel::validate(relations).unwrap());
+    let model = Arc::new(lctx_model::domain::model().unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
