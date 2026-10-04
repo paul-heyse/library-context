@@ -67,6 +67,7 @@ def dynamic(error):
                     inspect!(execution::summary_consequences::SummaryClaim);
                     inspect!(lctx_model::domain::synthesis::summary::SummaryFacet);
                     inspect!(lctx_model::domain::transfer::summary::SummaryPremise);
+                    inspect!(lctx_model::domain::transfer::summary::TransferKey);
                     inspect!(lctx_model::domain::transfer::summary::TransferAlternative);
                     inspect!(lctx_model::domain::assumptions::AssumptionSet);
                     inspect!(lctx_model::domain::assumptions::AssumptionSetMember);
