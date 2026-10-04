@@ -88,7 +88,8 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 | The real library, end to end | `lctx compile fastmcp --through facts|normalized|analysis|catalog --profile catalog|behavioral`; reports an unselected generation. Run real-library qualification only when authorized. Upper-frontier fixture qualification passed within the Phase 4 receipt; real-library upper pilots are not_run; serving code is implemented, with activation and real-library qualification stopped. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
-| Dependency policy | `just deps`, a `hygiene` check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
+| Dependency policy | `just deps`, a `hygiene` check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, every exact Cargo pin or git rev has a `docs/pins.md` row, cargo-deny bans and sources, and the Pyrefly fork check (tag + patch, classified env reads) |
+| Move dependencies to the latest | `just upgrade` (root `uv.lock` and `Cargo.lock`) at your discretion, then the affected tests; `libraries/*` and `services/vllm` move only deliberately (above, and their pins rows) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; the end-of-turn hook regenerates the index; `just adr-lint` runs within `just hygiene` |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` (publication) runs within `just hygiene`. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
 | After every turn (automatic) | The end-of-turn hook (`scripts/after_turn.py`, ADR-0110, wired in `.claude/settings.json` and `.codex/hooks.json`) runs once the main agent stops: `just skills-sync`, `just adr index`, `just build-features` after dependency changes and `just fmt` (with ruff's safe auto-fixes); then, in the background, missing PostgreSQL images and tools, and `just library-catalog` last. The operator, never the model, sees failed steps; the next prompt never waits. The hook runs no other checks and fixes nothing: clippy, pyrefly type errors, lint, rules, ADR and agent lint, fixtures, gold, `docs-check`, `deps` and `store-check` findings are yours, through `just hygiene` at scope end. Don't run the formatters or generators yourself |
@@ -131,7 +132,26 @@ and any administration: create, alter, drop, inspect, repair.
   Product code and runtime configuration never use the superuser.
 - Never print the password or commit either file.
 
-## Writing code against the pinned libraries
+## Writing code against libraries
+
+### Dependencies
+
+- **Add freely.** Add any library the work warrants without asking: no ADR and no
+  `docs/pins.md` row. Use the tool's default specifier — `uv add` (a `>=` floor), `cargo add`
+  (a caret requirement).
+- **Latest by default.** The resolver picks versions; the committed lockfiles record them and
+  the `--locked` gates keep runs reproducible. Move to the latest at your discretion with
+  `just upgrade`, then run the tests the move affects.
+- **Pin only for a reason.** An exact version, upper cap, git rev or hold-back needs an overt
+  reason specific to that dependency — a named breakage, a type-sharing family that must
+  resolve to one version, a fork or vendored source, golden or byte-stable output, a parity
+  oracle, wheel availability — recorded in `docs/pins.md` with when to revisit it (the
+  `pin-check` skill; `just deps` checks that every exact Cargo pin has a row). Reproducibility,
+  "already in the lock" and a version entering a key or digest are not reasons (ADR-0125).
+  The analyzer forks, families, toolchain and the analysed `libraries/*` keep their pins.
+
+### Library skills
+
 
 Select library skills in `.config/library-skills.toml`; the end-of-turn hook runs `just skills-sync`
 (`just skills-check` inspects). The gitignored `.claude/skills/<name>` links expose one live
@@ -181,8 +201,8 @@ match without checking the installed source for the selected API. No service upg
 
 For a library no selected skill covers (e.g. the Qwen embedding models or LanceDB),
 **Context7 is the first stop**. The Context7 MCP server needs
-a reconnect after its API key changes. Check a skill's pinned version
-against `docs/pins.md` before transferring a claim. An empty search result is not evidence that a
+a reconnect after its API key changes. Check a skill's version
+against the locked version (`uv.lock`/`Cargo.lock`) before transferring a claim. An empty search result is not evidence that a
 capability is absent.
 
 ## Testing rules
