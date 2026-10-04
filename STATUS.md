@@ -23,19 +23,27 @@ migration and its assertion rerun passed.
 G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
 inventory supplies exclusion conditions. C7 is enabled and carries retained Expected uncertainty.
 Ty references and odis remain development-only. No Q1 or full functional pass is claimed yet.
-Full workspace/all-target `just clippy` and Python lint/type checks passed on the final
-formatted source (`9dbe7239`), 2026-10-04. The operator authorized one final `just fmt`; it
-passed before rebuilding. Schema review retired reused native premise code 37 and appended
-ModuleResolution at 75. Reviewed describe migration and assertion rerun passed for model
-`a00210d0595770adc2d77c4250f24123cb9f32f46cbfab3d8d799c56431f30a8`; matching native
-adapters rebuilt in the full gate. `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all`
-**failed**: 997 Rust controls passed, 95 failed, four timed out and three were skipped; Python/oracles
-and doctests were not_run after the Rust failure. Scope/TypedDict/Summary authority and shared native
-fixture repairs are integrated; 11 binding, five generated-field, five Entry, two completion
-and six documentary-role focused controls passed; focused reruns passed 56/57 model/PG/syntax controls; the attributed lexical oracle passed; fresh source/binding rerun passed 16/17, reads 7/9 and serving/Structural 12/15. Earlier schema/hygiene receipts bound
-`9dbe7239`, before these repairs. Initial failures and named repairs remain in coordinator §7. Default store-check refused the
-preserved old-model staging; the isolated final-model store check passed, zero generations/
-findings. Read-only check confirms staging still has 204 receipts and is unselected.
+Current scoped verification, **2026-10-04**: full workspace/all-target `just clippy`
+**passed** after `93278a8a`; fixture/gold/rules, Python lint/types and dependency policy passed.
+ADR-0123's owning decision link and authorized index refresh are repaired; ADR lint and
+`just docs-check` **passed**, 290 canonical pages. Scoped current-model store check passed,
+zero generations/findings; the named recipe's release CLI rebuild is in progress. These are
+composite receipts, before the remaining handoff repair and final formatting.
+`UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all` initially **failed**: 997 Rust
+controls passed, 95 failed, four timed out and three skipped; Python/oracles and doctests were
+not_run after that failure. Native scope/TypedDict/Summary/role/read/source-closure repairs are
+integrated. All 16 selection/composition controls, all six source calls, nine read controls and
+four actual PostgreSQL Summary controls passed. Native selected-domain explanation/JSON parity
+and the strengthened actual PostgreSQL/MCP evidence-purpose packet passed. Direct Behavioral
+Structural completed validation in 242.78s, then failed its required named-handoff positive;
+original-premise diagnostics are in progress. No current full functional pass is claimed.
+Current model is `ece1e6a8242aa3b7bafa039ed0aa07b7c5f6cd601db55626ef3770b76f9321a6`,
+878 relations; static migration review passed for two nullable keyed Summary witness fields
+and explicit validator input additions. Describe snapshot acceptance remains pending final
+source stability. Matching native adapters passed before these test-only diagnostics. The
+operator authorized one additional final formatting/index refresh; the index is refreshed,
+formatting waits for the handoff repair. Default old-model staging retains 204 receipts and
+is unselected; only the separate empty qualification store has been reset.
 
 **The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
 The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
@@ -63,8 +71,8 @@ supply current wiring/status where its project notes lag. No shared skill was ch
 | Prior confirmed `lctx store reset`, then `just store-check` | **passed**, 2026-10-03: empty current model, zero generations/findings before interrupted reconstruction |
 | Real-library reconstruction/activation, live vectors, R4 and measurements | **not_run** after operator review pivot; preserved staging is unselected; quality, speed and total RSS remain unmeasured |
 
-Current remaining Q0 includes conditional/generated, Terminal and raised-type actual PostgreSQL
-journeys with matching artifacts; their focused compile/unit receipts do not close those journeys.
+Surviving Q0 conditional/generated, Terminal and raised-type PostgreSQL journeys have bounded
+passing receipts; the full repaired-tree gate and matching final artifacts remain required.
 The source-default/scalar bridge and real-PG stdio qualification runner are integrated; recorded
 focused receipts establish only their bounded cases. There is no current full-series acceptance.
 
