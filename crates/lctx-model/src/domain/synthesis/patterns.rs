@@ -170,7 +170,7 @@ macro_rules! synthesis_pattern_named_inputs{($m:ident)=>{$m!{
 }};}
 fn named_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
     let mut inputs = vec![];
-    macro_rules! named{($($field:ident:$ty:ty,)*)=>{$(if profile==stages::Profile::Behavioral||![flow::FlowUse::NAME,flow::FlowUseObservation::NAME,flow::FlowUseSupport::NAME,flow::FlowDefinition::NAME,flow::FlowDefinitionObservation::NAME,flow::FlowDefinitionSupport::NAME,flow::ReachingDefinition::NAME,flow::FlowReachingObservation::NAME,flow::FlowReachingSupport::NAME].contains(&<$ty>::NAME){inputs.push(ValidationInput::of::<$ty>(&["id"]));})*};}
+    macro_rules! named{($($field:ident:$ty:ty,)*)=>{$(if profile==stages::Profile::Behavioral||![flow::FlowUse::NAME,flow::FlowUseObservation::NAME,flow::FlowUseSupport::NAME,flow::FlowDefinition::NAME,flow::FlowDefinitionObservation::NAME,flow::FlowDefinitionSupport::NAME,flow::ReachingDefinition::NAME,flow::FlowReachingObservation::NAME,flow::FlowReachingSupport::NAME,flow::FlowSourceViewObservation::NAME,flow::FlowSourceViewSupport::NAME,flow_inventory::FlowUseInventoryObservation::NAME,flow_inventory::FlowUseInventorySupport::NAME,flow_inventory::FlowUseCandidate::NAME,flow_inventory::FlowUseInventoryMember::NAME].contains(&<$ty>::NAME){inputs.push(ValidationInput::of::<$ty>(&["id"]));})*};}
     crate::synthesis_pattern_named_inputs!(named);
     inputs
 }
@@ -1115,6 +1115,33 @@ pub(crate) mod tests {
         let mut invocations = Rows::new(&b);
         invocations.insert(inv).unwrap();
         (b, d, docs, frames, invocations)
+    }
+    #[test]
+    fn catalog_pattern_inputs_leave_native_flow_unrequested() {
+        let catalog = Data::inputs(stages::Profile::Catalog);
+        let behavioral = Data::inputs(stages::Profile::Behavioral);
+        let flow_inputs = [
+            flow::FlowSourceViewObservation::NAME,
+            flow::FlowSourceViewSupport::NAME,
+            flow_inventory::FlowUseInventoryObservation::NAME,
+            flow_inventory::FlowUseInventorySupport::NAME,
+            flow_inventory::FlowUseCandidate::NAME,
+            flow_inventory::FlowUseInventoryMember::NAME,
+        ];
+        for name in flow_inputs {
+            assert!(!catalog.iter().any(|input| input.name() == name), "{name}");
+            assert!(behavioral.iter().any(|input| input.name() == name), "{name}");
+        }
+        let model = crate::domain::model().unwrap();
+        for relation in model.relations() {
+            if relation.family() == Some(attribution::FactFamily::Flow) {
+                assert!(
+                    !catalog.iter().any(|input| input.name() == relation.name()),
+                    "Catalog must not require a native Flow writer: {}",
+                    relation.name()
+                );
+            }
+        }
     }
     #[test]
     fn official_nested_handoff_retains_whole_statement_import_setup_and_original_bytes() {
