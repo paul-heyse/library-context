@@ -184,7 +184,7 @@ async fn source_bound_provider_reads_the_old_literal_prefix_after_later_publicat
         .await
         .unwrap();
     }
-    consumed.finish().unwrap();
+    consumed.finish(both.stage().name).unwrap();
     assert_eq!(
         values.len(),
         2,
@@ -466,7 +466,7 @@ fn consumed_inventory_refuses_unloaded_rows_and_releases_its_reservation() {
         ConsumedInputs::new(vec![ValidationInput::of::<Literal>(&["id"])], &budget).unwrap();
     assert!(budget.reserved() > 0);
     assert!(
-        inputs.finish().is_err(),
+        inputs.finish("test_reader").is_err(),
         "a missing typed loader must refuse instead of silently omitting consumption"
     );
     assert_eq!(budget.reserved(), 0);

@@ -12,6 +12,16 @@ use lctx_model::domain::{
 };
 use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
+// Decoder reachability is separate from the model-owned consumed source inventory.
+macro_rules! decoder_inputs {($apply:ident)=>{
+        lctx_model::normalized_binding_inputs!($apply);
+        lctx_model::structural_outputs!($apply);
+        $apply! {qualifications:assertion::AssertionQualification,conditions:conditions::Condition,nodes:conditions::ConditionNode,sets:assumptions::AssumptionSet,members:assumptions::AssumptionSetMember,}
+        lctx_model::analytic_extra_inputs!($apply);
+        lctx_model::analytic_consumption_inputs!($apply);
+        lctx_model::projection_outputs!($apply);
+        lctx_model::expected_domain_inputs!($apply);
+};}
 pub async fn produce(
     access: StageAccess<'_, '_>,
     attempt: &GenerationAttempt,
@@ -45,22 +55,8 @@ pub async fn produce(
         }).await?;
     })*};}
     macro_rules! inventory{($($f:ident:$t:ty,)*)=>{read!($($t),*);};}
-    lctx_model::normalized_binding_inputs!(inventory);
-    lctx_model::structural_outputs!(inventory);
-    // Structural conclusions consume their vocabulary at the acknowledged Structural epoch.
-    // This dispatch supplies decoders; Data::consumed_inputs remains the selection authority.
-    read!(
-        assertion::AssertionQualification,
-        conditions::Condition,
-        conditions::ConditionNode,
-        assumptions::AssumptionSet,
-        assumptions::AssumptionSetMember
-    );
-    lctx_model::analytic_extra_inputs!(inventory);
-    lctx_model::analytic_consumption_inputs!(inventory);
-    lctx_model::projection_outputs!(inventory);
-    lctx_model::expected_domain_inputs!(inventory);
-    consumed.finish()?;
+    decoder_inputs!(inventory);
+    consumed.finish(access.stage().name)?;
     reader.close().await.map_err(ModelError::codec)?;
     let settings = data.configuration()?.clone();
     let declared = build::stage(
@@ -225,4 +221,18 @@ pub async fn produce(
     drop(admission);
     drop(sources);
     output.finish(ProviderOutcome::Complete).await
+}
+
+#[cfg(test)]
+mod decoder_tests {
+    use super::*;
+    #[test]
+    fn declared_sources_have_decoder_reachability_in_both_profiles() {
+        let mut decoders=std::collections::BTreeSet::new();
+        macro_rules! collect {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
+        decoder_inputs!(collect);
+        for profile in Profile::ALL {
+            crate::consumed_rows::assert_decoder_reachability(build::Data::consumed_inputs(profile),&decoders);
+        }
+    }
 }

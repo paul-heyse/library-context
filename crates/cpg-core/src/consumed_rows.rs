@@ -79,10 +79,10 @@ impl ConsumedInputs {
         }
     }
     /// Refuse a typed dispatch that omitted an owned consumed declaration.
-    pub fn finish(self) -> Result<(), ModelError> {
+    pub fn finish(self, stage: &str) -> Result<(), ModelError> {
         if self.dispatched.len() != self.declarations.len() {
             return Err(ModelError::Invalid(format!(
-                "consumed input has no typed loader: {}",
+                "stage {stage} consumed input has no typed loader: {}",
                 self.declarations
                     .iter()
                     .enumerate()
@@ -94,6 +94,15 @@ impl ConsumedInputs {
         }
         Ok(())
     }
+}
+
+#[cfg(test)]
+pub(crate) fn assert_decoder_reachability(
+    declarations: Vec<ValidationInput>,
+    decoders: &std::collections::BTreeSet<TypeId>,
+) {
+    let missing=declarations.iter().filter(|input|!decoders.contains(&input.type_id())).map(|input|(input.name(),input.prefix())).collect::<Vec<_>>();
+    assert!(missing.is_empty(),"model-owned consumed sources lack decoder reachability: {missing:?}");
 }
 
 /// Register an existing typed source in its stage session and stream to an explicit consumer.
@@ -123,6 +132,13 @@ pub async fn stream<R: Record>(
 mod tests {
     use super::*;
     use lctx_model::domain::{input::Package, memory::MemoryGeneration, value::Literal};
+    #[test]
+    fn missing_decoder_names_the_stage_without_changing_error_class() {
+        let budget=ResourceBudget::fixed(1 << 20).unwrap();
+        let inputs=ConsumedInputs::new(vec![ValidationInput::of::<Literal>(&["id"])],&budget).unwrap();
+        let ModelError::Invalid(message)=inputs.finish("synthesize").unwrap_err() else {panic!("missing decoder changed error class")};
+        assert_eq!(message,"stage synthesize consumed input has no typed loader: literal_values");
+    }
     #[tokio::test]
     async fn two_acknowledged_epochs_remain_distinct_while_same_source_aliases_coalesce() {
         let model =
@@ -192,7 +208,7 @@ mod tests {
             let source = permit.source().unwrap();
             observed.insert(input.prefix().unwrap(), source.receipt().rows);
         }
-        inputs.finish().unwrap();
+        inputs.finish("reader").unwrap();
         assert_eq!(observed.len(), 2);
         assert_eq!(observed[&PublicationBoundary::Facts], 1);
         assert_eq!(observed[&PublicationBoundary::Local], 2);

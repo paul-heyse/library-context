@@ -13,6 +13,22 @@ use lctx_model::domain::{
 };
 use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
+// Decoder reachability is separate from the model-owned consumed source inventory.
+macro_rules! decoder_inputs {($apply:ident)=>{
+        lctx_model::synthesis_frame_inputs!($apply);
+        lctx_model::synthesis_documentary_inputs!($apply);
+        lctx_model::synthesis_automatic_inputs!($apply);
+        lctx_model::synthesis_observation_inputs!($apply);
+        lctx_model::synthesis_summary_inputs!($apply);
+        lctx_model::synthesis_terminal_inputs!($apply);
+        lctx_model::synthesis_pattern_inputs!($apply);
+        lctx_model::synthesis_setup_inputs!($apply);
+        lctx_model::synthesis_pattern_named_inputs!($apply);
+        lctx_model::synthesis_control_text_inputs!($apply);
+        lctx_model::ownership_scope_inputs!($apply);
+        lctx_model::expected_domain_inputs!($apply);
+        $apply! {public:structural::PublicCandidate,}
+};}
 pub async fn produce(
     access: StageAccess<'_, '_>,
     attempt: &GenerationAttempt,
@@ -44,21 +60,8 @@ pub async fn produce(
             Ok(())
         }).await?;
     })*};}
-    lctx_model::synthesis_frame_inputs!(read);
-    lctx_model::synthesis_documentary_inputs!(read);
-    lctx_model::synthesis_automatic_inputs!(read);
-    lctx_model::synthesis_observation_inputs!(read);
-
-    lctx_model::synthesis_summary_inputs!(read);
-    lctx_model::synthesis_terminal_inputs!(read);
-    lctx_model::synthesis_pattern_inputs!(read);
-    lctx_model::synthesis_setup_inputs!(read);
-    macro_rules! named_read{($($f:ident:$ty:ty,)*)=>{$(if access.stage().inputs.iter().any(|r|r.name()==<$ty>::NAME){read!{$f:$ty,}})*};}
-    lctx_model::synthesis_pattern_named_inputs!(named_read);
-    lctx_model::synthesis_control_text_inputs!(named_read);
-    read! {public:structural::PublicCandidate,}
-    lctx_model::expected_domain_inputs!(named_read);
-    consumed.finish()?;
+    decoder_inputs!(read);
+    consumed.finish(access.stage().name)?;
     reader.close().await.map_err(ModelError::codec)?;
     let (_, definition) = synthesis::build::definition();
     let settings = data.frames.configuration()?;
@@ -288,4 +291,18 @@ pub async fn produce(
     drop(admission);
     drop(captured);
     output.finish(ProviderOutcome::Complete).await
+}
+
+#[cfg(test)]
+mod decoder_tests {
+    use super::*;
+    #[test]
+    fn declared_sources_have_decoder_reachability_in_both_profiles() {
+        let mut decoders=std::collections::BTreeSet::new();
+        macro_rules! collect {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
+        decoder_inputs!(collect);
+        for profile in Profile::ALL {
+            crate::consumed_rows::assert_decoder_reachability(Data::consumed_inputs(profile),&decoders);
+        }
+    }
 }

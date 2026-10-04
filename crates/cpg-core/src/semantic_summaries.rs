@@ -12,6 +12,18 @@ use lctx_model::domain::{
 };
 use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
+// Decoder reachability is separate from the model-owned consumed source inventory.
+macro_rules! decoder_inputs {($apply:ident)=>{
+        lctx_model::normalized_binding_inputs!($apply);
+        lctx_model::normalized_binding_outputs!($apply);
+        lctx_model::entry_value_inputs!($apply);
+        lctx_model::summary_path_inputs!($apply);
+        lctx_model::summary_owned_inputs!($apply);
+        lctx_model::summary_vocabulary!($apply);
+        lctx_model::summary_evidence_inputs!($apply);
+        lctx_model::summary_projection_inputs!($apply);
+        lctx_model::expected_domain_inputs!($apply);
+};}
 pub async fn produce(
     access: StageAccess<'_, '_>,
     attempt: &GenerationAttempt,
@@ -46,16 +58,8 @@ pub async fn produce(
             data.visit_input(&input,batch)
         }).await?;
     })*};}
-    lctx_model::normalized_binding_inputs!(inputs);
-    lctx_model::normalized_binding_outputs!(inputs);
-    lctx_model::entry_value_inputs!(inputs);
-    lctx_model::summary_path_inputs!(inputs);
-    lctx_model::summary_owned_inputs!(inputs);
-    lctx_model::summary_vocabulary!(inputs);
-    lctx_model::summary_evidence_inputs!(inputs);
-    lctx_model::summary_projection_inputs!(inputs);
-    lctx_model::expected_domain_inputs!(inputs);
-    consumed.finish()?;
+    decoder_inputs!(inputs);
+    consumed.finish(access.stage().name)?;
     reader.close().await.map_err(ModelError::codec)?;
     let mut records = Vec::new();
     let mut frames = charged::ChargedSet::default();
@@ -189,4 +193,18 @@ pub async fn produce(
     }
     drop(data);
     output.finish(ProviderOutcome::Complete).await
+}
+
+#[cfg(test)]
+mod decoder_tests {
+    use super::*;
+    #[test]
+    fn declared_sources_have_decoder_reachability_in_both_profiles() {
+        let mut decoders=std::collections::BTreeSet::new();
+        macro_rules! collect {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
+        decoder_inputs!(collect);
+        for profile in Profile::ALL {
+            crate::consumed_rows::assert_decoder_reachability(SummaryData::consumed_inputs(profile),&decoders);
+        }
+    }
 }

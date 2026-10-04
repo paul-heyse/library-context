@@ -19,15 +19,20 @@ pub(crate) struct ScopeIndex {
 fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
+#[macro_export]
+macro_rules! ownership_scope_inputs {
+    ($apply:ident) => {$apply! {
+        sources:$crate::domain::source::SourceArtifact,
+        modules:$crate::domain::source::Module,
+        corpus:$crate::domain::input::CorpusLibrary,
+        distributions:$crate::domain::input::InputDistribution,
+        scopes:$crate::domain::source::CoverageScope,
+    }};
+}
 impl ScopeIndex {
     pub fn inputs() -> Vec<ValidationInput> {
-        vec![
-            ValidationInput::of::<SourceArtifact>(&["id"]),
-            ValidationInput::of::<Module>(&["id"]),
-            ValidationInput::of::<CorpusLibrary>(&["id"]),
-            ValidationInput::of::<InputDistribution>(&["id"]),
-            ValidationInput::of::<CoverageScope>(&["id"]),
-        ]
+        macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]};}
+        crate::ownership_scope_inputs!(inputs)
     }
     pub fn new(budget: &super::resources::ResourceBudget, owner: &'static str) -> Self {
         Self {

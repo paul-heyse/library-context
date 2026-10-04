@@ -12,6 +12,15 @@ use lctx_model::domain::{
 };
 use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
+// Decoder reachability is separate from the model-owned consumed source inventory.
+macro_rules! decoder_inputs {($apply:ident)=>{
+        lctx_model::entry_value_inputs!($apply);
+        lctx_model::local_semantic_inputs!($apply);
+        lctx_model::local_theory_inputs!($apply);
+        lctx_model::local_field_inputs!($apply);
+        lctx_model::expected_domain_inputs!($apply);
+        $apply! {definitions:analysis::AnalysisDefinition,}
+};}
 pub async fn run(
     access: StageAccess<'_, '_>,
     attempt: &GenerationAttempt,
@@ -49,13 +58,8 @@ pub async fn run(
             Ok(())
         }).await?;
     })*};}
-    lctx_model::entry_value_inputs!(load);
-    lctx_model::local_semantic_inputs!(load);
-    lctx_model::local_theory_inputs!(load);
-    lctx_model::local_field_inputs!(load);
-    lctx_model::expected_domain_inputs!(load);
-    load! {definitions:analysis::AnalysisDefinition,}
-    consumed.finish()?;
+    decoder_inputs!(load);
+    consumed.finish(access.stage().name)?;
     if definitions.get(definition.id()) != Some(definition) {
         return Err(ModelError::Invalid(
             "Local selected definition is absent from confirmed configuration".into(),
@@ -178,4 +182,18 @@ pub async fn run(
         output.push(outcome).await?;
     }
     output.finish(ProviderOutcome::Complete).await
+}
+
+#[cfg(test)]
+mod decoder_tests {
+    use super::*;
+    #[test]
+    fn declared_sources_have_decoder_reachability_in_both_profiles() {
+        let mut decoders=std::collections::BTreeSet::new();
+        macro_rules! collect {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
+        decoder_inputs!(collect);
+        for profile in Profile::ALL {
+            crate::consumed_rows::assert_decoder_reachability(LocalData::consumed_inputs(profile),&decoders);
+        }
+    }
 }
