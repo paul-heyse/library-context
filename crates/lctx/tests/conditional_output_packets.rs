@@ -41,7 +41,16 @@ def dynamic(error):
             },
         )
         .await;
-    if response.is_err() {
+    let needs_diagnostic = match &response {
+        Err(_) => true,
+        Ok(response) => match &response.operation {
+            OperationResolution::Unique { packet } => !packet.behavior.items.iter().any(|answer| {
+                answer.claim_basis.set != AssumptionSet::empty_id()
+            }),
+            _ => true,
+        },
+    };
+    if needs_diagnostic {
         use lctx_model::domain::{analysis, assertion, conditions, execution, Record};
         let diagnostic = fixture.service.execution().await.unwrap();
         diagnostic
@@ -56,6 +65,7 @@ def dynamic(error):
                     inspect!(execution::summary_consequences::ClaimConclusion);
                     inspect!(execution::summary_consequences::ClaimProof);
                     inspect!(execution::summary_consequences::SummaryClaim);
+                    inspect!(lctx_model::domain::synthesis::summary::SummaryFacet);
                     inspect!(lctx_model::domain::transfer::summary::SummaryPremise);
                     inspect!(lctx_model::domain::transfer::summary::TransferAlternative);
                     inspect!(lctx_model::domain::assumptions::AssumptionSet);
