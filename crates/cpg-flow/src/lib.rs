@@ -168,6 +168,10 @@ pub enum CandidateKind {
 }
 #[derive(Debug, Clone)]
 pub struct UseCandidate {
+    /// Native formulas retained before pruning and loop expansion.
+    pub condition: Condition,
+    pub narrowing: Condition,
+    pub narrowing_precision_lost: bool,
     pub use_ix: u32,
     pub ordinal: u32,
     pub kind: CandidateKind,
@@ -955,6 +959,9 @@ impl<'db> Walk<'_, 'db> {
                 },
             };
             let mut candidate = UseCandidate {
+                condition: condition.clone(),
+                narrowing: narrowing.clone(),
+                narrowing_precision_lost: narrowing_precision_lost || narrowing.approximated(),
                 use_ix: ix,
                 ordinal: ordinal as u32,
                 kind,
@@ -976,7 +983,11 @@ impl<'db> Walk<'_, 'db> {
                 DefinitionState::Defined(d) => {
                     if let DefinitionKind::LoopHeader(h) = d.kind(self.db) {
                         let mut seen = HashSet::new();
-                        for (def_ix, nested) in self.loop_bindings(fid, h, &mut seen) {
+                        for (def_ix, nested, unattached) in self.loop_bindings(fid, h, &mut seen) {
+                            if unattached {
+                                candidate.unattached = true;
+                                continue;
+                            }
                             self.flow.reaching.push(Reach {
                                 use_ix: ix,
                                 def_ix,
@@ -990,6 +1001,10 @@ impl<'db> Walk<'_, 'db> {
                     } else {
                         let def_ix = self.def(scope, d);
                         candidate.unattached = def_ix.is_none() && kind == CandidateKind::Bound;
+                        if candidate.unattached {
+                            self.flow.candidates.push(candidate);
+                            continue;
+                        }
                         self.flow.reaching.push(Reach {
                             use_ix: ix,
                             def_ix,
@@ -1139,7 +1154,7 @@ impl<'db> Walk<'_, 'db> {
         fid: FileScopeId,
         h: &ty_python_core::definition::LoopHeaderDefinitionKind,
         seen: &mut HashSet<Definition<'db>>,
-    ) -> Vec<(Option<u32>, bool)> {
+    ) -> Vec<(Option<u32>, bool, bool)> {
         let scope = self.scope(fid).expect("a loop is in a real scope");
         let mut pending = vec![h.clone()];
         let mut out = Vec::new();
@@ -1156,15 +1171,14 @@ impl<'db> Walk<'_, 'db> {
                         if let DefinitionKind::LoopHeader(inner) = d.kind(self.db) {
                             pending.push(inner.clone());
                         } else {
-                            out.push((
-                                self.def(scope, d),
-                                matches!(d.kind(self.db), DefinitionKind::NestedBindings(_)),
-                            ));
+                            let nested = matches!(d.kind(self.db), DefinitionKind::NestedBindings(_));
+                            let def_ix = self.def(scope, d);
+                            out.push((def_ix, nested, def_ix.is_none() && !nested));
                         }
                     }
                     DefinitionState::Defined(_) => {}
                     DefinitionState::Undefined | DefinitionState::Deleted => {
-                        out.push((None, false))
+                        out.push((None, false, false))
                     }
                 }
             }

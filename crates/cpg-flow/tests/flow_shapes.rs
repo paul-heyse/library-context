@@ -1110,3 +1110,44 @@ fn native_guarded_origin_search_keeps_evaluation_occurrences_and_reports_supply(
         "these cases do not admit guarded authority: repeated tests are distinct evaluation atoms and branch-local reads are already singleton"
     );
 }
+
+#[test]
+fn native_candidate_formulas_survive_pruning_and_missing_pep695_attachment() {
+    use cpg_flow::CandidateKind;
+    let source = include_str!("../../../fixtures/python/native_candidate_inventory/cases.py");
+    let checking = source.find("if TYPE_CHECKING").unwrap() as u32 + 3;
+    let runtime = RuntimeBindings { checking_names: std::collections::BTreeSet::from([Span { start: checking, end: checking + 13 }]), ..Default::default() };
+    let flow = cpg_flow::index(&[Input {
+        path: "cases.py".into(), text: source.into(), runtime,
+    }], &RuntimeContext { python_version: (3, 14, 7), platform: "linux".into() }).pop().unwrap();
+    assert!(flow.error.is_none(), "{:?}", flow.error);
+    let at = |text: &str| source.find(text).unwrap() as u32 + text.len() as u32 - 1;
+    for start in [at("class Box[T](list[T"), at("type Alias[T, U: T") ] {
+        let (ix, use_) = flow.uses.iter().enumerate().find(|(_, u)| u.span.start == start).expect("native PEP 695 read");
+        assert_eq!(use_.place, "T");
+        let candidates = flow.candidates.iter().filter(|c| c.use_ix == ix as u32).collect::<Vec<_>>();
+        assert_eq!(candidates.len(), 1);
+        let c = candidates[0];
+        assert_eq!(c.kind, CandidateKind::Bound);
+        assert!(c.unattached && c.reaching.is_empty() && !c.pruned);
+        assert!(c.condition.is_always() && c.narrowing.is_always());
+        assert!(!c.reachability_lost && !c.narrowing_precision_lost);
+        assert!(!flow.reaching.iter().any(|r| r.use_ix == ix as u32));
+    }
+    for (text, kind) in [("return missing", CandidateKind::Undefined), ("del value\n    return value", CandidateKind::Deleted)] {
+        let start = source.find(text).unwrap() as u32 + text.rfind(' ').unwrap() as u32 + 1;
+        let ix = flow.uses.iter().position(|u| u.span.start == start).expect("actual unbound read") as u32;
+        let c = flow.candidates.iter().find(|c| c.use_ix == ix).unwrap();
+        assert_eq!(c.kind, kind);
+        assert_eq!(c.reaching.len(), 1);
+        assert!(flow.reaching[c.reaching[0]].def_ix.is_none());
+        assert!(!c.unattached);
+    }
+    for kind in [CandidateKind::Nested, CandidateKind::LoopHeader] {
+        assert!(flow.candidates.iter().any(|c| c.kind == kind), "{kind:?}");
+    }
+    assert!(flow.candidates.iter().any(|c| c.pruned && c.condition.is_never() && c.reaching.is_empty()));
+    let function_parameter = source.find("value: T").unwrap() as u32 + "value: ".len() as u32;
+    let ix = flow.uses.iter().position(|u| u.span.start == function_parameter).unwrap() as u32;
+    assert!(flow.candidates.iter().any(|c| c.use_ix == ix && c.kind == CandidateKind::Bound && !c.unattached && c.reaching.len() == 1));
+}
