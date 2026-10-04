@@ -93,5 +93,68 @@ fn ty_reference_oracle_child() {
     assert!(parameters.iter().any(|r| r.0.ends_with("api.py") && &API[r.1..r.2] == "value" && r.1 == API.find("value=1").unwrap()), "keyword label is a native semantic reference, outside the initial lexical-name product");
     let property = API.find("property_value(self)").unwrap();
     assert!(references(&db, "api.py", property, false).unwrap().iter().any(|r| r.1 == API.rfind("property_value").unwrap()));
+    let copy = API.find("copy = value").unwrap();
+    let copy_references = references(&db, "api.py", copy, false).unwrap();
+    assert!(copy_references.iter().any(|r| r.1 == API.find("copy +=").unwrap()), "augmented assignment must retain the native kind, not invented read/write duplicates");
+    compare_normalized_names(&db);
     println!("policy=ResolveAliases; source_view=original; python=3.14; platform=linux; included=api.py,uses.py; dependencies=vendored-typeshed; provider=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301; lexical-overlap=value names; scope-differences=keyword/member references");
+}
+
+
+#[path = "typed_driver/mod.rs"]
+mod typed_driver;
+use lctx_model::domain::{*, normalized::{entity_normalization, relation_normalization, entities::{CallableEntity, EntityRef, ResolutionStatus}, links::ReferenceEntityTarget}};
+inspector!(ReferenceFacts, Occurrence);
+
+/// Compare only nominally admitted original name reads, not ty's broader alias/member search.
+fn compare_normalized_names(db: &ProjectDatabase) {
+    let captured = std::collections::BTreeMap::from([
+        ("api.py".to_owned(), API.as_bytes().to_vec()),
+        ("uses.py".to_owned(), USES.as_bytes().to_vec()),
+    ]);
+    let tables = typed_driver::Tables::default();
+    tokio::runtime::Runtime::new().unwrap().block_on(typed_driver::run(
+        &captured, ReferenceFacts(tables.clone()),
+    )).unwrap();
+    let budget = typed_driver::budget();
+    let mut data = relation_normalization::RelationData::new(&budget);
+    macro_rules! facts { ($($field:ident:$ty:ty => $family:ident,)*) => { $(for row in typed_driver::rows::<$ty>(&tables) {data.facts.$field.insert(row).unwrap();})* }; }
+    lctx_model::normalized_entity_inputs!(facts);
+    data.entities = entity_normalization::normalize(data.facts.inputs(), &budget).unwrap();
+    macro_rules! additional { ($($field:ident:$ty:ty => $family:ident,)*) => { $(for row in typed_driver::rows::<$ty>(&tables) {data.$field.insert(row).unwrap();})* }; }
+    lctx_model::normalized_relation_inputs!(additional);
+    let normalized = relation_normalization::normalize(&data, &budget).unwrap();
+    let artifacts = typed_driver::rows::<source::SourceArtifact>(&tables);
+    let api = artifacts.iter().find(|a| a.path == "api.py").unwrap();
+    assert_eq!(api.content, ContentHash::of(API.as_bytes()), "oracle comparisons require the original source view");
+    for (declaration, sites) in [
+        ("operation(value", vec![API.find("reference = operation").unwrap() + "reference = ".len(), API.find("result = operation").unwrap() + "result = ".len()]),
+        ("decorate(function", vec![API.find("@decorate").unwrap() + 1]),
+    ] {
+        let name = API.find(declaration).unwrap();
+        let declared = data.declaration_syntax.iter().find(|d| {
+            let o = data.facts.occurrences.get(d.name).unwrap();
+            o.source == api.id() && o.start as usize == name
+        }).unwrap();
+        let callable = data.entities.callables.iter().find(|c| matches!(c, CallableEntity::Source {declaration, ..} if *declaration == declared.declaration)).unwrap();
+        let target = EntityRef::Callable {callable: callable.id()}.id();
+        let modeled = normalized.reference_binding_characterizations.iter().filter_map(|c| {
+            if c.status != ResolutionStatus::Resolved || c.support.is_none() || c.context_support.is_none() {return None;}
+            let candidate = normalized.reference_entity_candidates.get(c.candidate?)?;
+            if !matches!(normalized.reference_targets.get(candidate.target)?, ReferenceEntityTarget::Binding {entity, ..} if *entity == target) {return None;}
+            let reference = data.references.get(c.reference)?;
+            let occurrence = data.facts.occurrences.get(reference.read)?;
+            (occurrence.source == api.id()).then_some(occurrence.start as usize)
+        }).collect::<BTreeSet<_>>();
+        let native = references(db, "api.py", name, false).unwrap();
+        for site in sites {
+            assert!(native.iter().any(|r| r.0 == "/captured/api.py" && r.1 == site), "ty did not report common original name read at {site}: {native:?}");
+            assert!(modeled.contains(&site), "normalized identity missed a supported common original name read at {site}: {modeled:?}");
+        }
+        if declaration.starts_with("operation") {
+            let shadowed = API.find("return operation").unwrap() + "return ".len();
+            assert!(!modeled.contains(&shadowed), "same spelling cannot admit a foreign binding");
+            assert!(!native.iter().any(|r| r.0 == "/captured/api.py" && r.1 == shadowed));
+        }
+    }
 }
