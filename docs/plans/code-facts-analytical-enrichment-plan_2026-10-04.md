@@ -623,3 +623,19 @@ Actual conditional serving now hydrates without Contract, but its typing-qualifi
 missing (`lctx-enrichment-local-proof-lexical-rerun2.log`); the positive is retained. Exact finite
 claim/facet/owner diagnostics and shared restricted-Local-seed consequence admission are in
 progress. Matching artifacts, affected hygiene and the full gate remain open.
+
+
+The subsequent native-consumer Cargo/Nextest rerun **failed**, 2026-10-04: 39 controls,
+33 passed, six failed (`lctx-enrichment-native-consumer-repairs-rerun.log`). All three
+normalized recovery controls now passed with exact ReportProjection support; the complete
+field-screen control passed without relaxing Flow completeness. Remaining read failures
+are being rerun after exact builtin-answer selection; the three source-call failures retain
+Bound source shapes with independently Known body identity, but unrelated unavailable
+signatures leave artifact family coverage Partial. ADR-0123 and §15.5 accept exact selected
+Source-role signature closure for composition only. Global binding and effective-invocation
+closure remain unchanged; implementation/refusal controls and runtime reruns are pending.
+The serving/structural rerun (`lctx-enrichment-serving-structural-repairs-rerun.log`) **failed**:
+four passed, ten failed, one timed out. Its compiled model predates the ReportProjection
+repair, so a fresh serving rerun is required; these outcomes are not current repaired-model
+acceptance. Shared restricted-Local consequence selection and exact native Ruff/source read
+repairs are integrated. Fresh focused Summary/read and serving tests are in progress.
