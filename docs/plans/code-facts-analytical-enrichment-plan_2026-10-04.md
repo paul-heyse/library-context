@@ -587,3 +587,18 @@ baselines and do not establish a current full gate:
 
 Earlier `a00210d0…` schema/adapters/hygiene receipts do not qualify these subsequent model
 changes. Full `just test-all`, matching artifacts and affected hygiene checks remain required.
+
+
+The direct generated CPython challenge **passed**, 2026-10-04:
+`cargo test --release -p lctx --test serving_soundness -- --nocapture`, nine grouped programs,
+52 functions, exact_identity=4, refuted_guard=1, refuted_return=1, composed_paths=26;
+1,101 seconds (`lctx-enrichment-soundness-progress-direct.log`). This supports a test-specific
+1,800-second Nextest budget; product limits and all challenge assertions remain unchanged.
+A live CPU sample identified repeated admitted syntax-index construction in completion,
+not a stopped service or compiler termination (`lctx-enrichment-soundness-cpu-stack.txt`).
+Bounded per-frame index reuse is under assessment; no performance improvement is claimed.
+The split structural/documentary rerun **failed**: four passed, four failed, no timeouts
+(`lctx-enrichment-structural-documentary-rerun.log`). Exact earlier coverage refusal, failed-stage
+rollback controls, named-handoff admission and duplicate signature-role option candidates are
+being reconciled with their original strict acceptance obligations. This remains a partial
+qualification receipt, not Q1 closure.
