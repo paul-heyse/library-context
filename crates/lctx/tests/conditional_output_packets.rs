@@ -56,7 +56,7 @@ def dynamic(error):
                     inspect!(execution::summary_consequences::ClaimConclusion);
                     inspect!(execution::summary_consequences::ClaimProof);
                     inspect!(execution::summary_consequences::SummaryClaim);
-                    inspect!(execution::summary_production::SummaryPremise);
+                    inspect!(lctx_model::domain::transfer::summary::SummaryPremise);
                     inspect!(lctx_model::domain::transfer::summary::TransferAlternative);
                     inspect!(lctx_model::domain::assumptions::AssumptionSet);
                     inspect!(lctx_model::domain::assumptions::AssumptionSetMember);
