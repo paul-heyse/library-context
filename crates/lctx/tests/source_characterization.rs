@@ -346,6 +346,16 @@ def example(unknown):
             && matches!(o.variant_availability, Availability::Unavailable { .. })),
         "native trace is not shape-matched to a normalized variant"
     );
+    // Native original candidates are a separate authority from legacy structural traces.
+    // A source-origin association does not confer call selection or applicability.
+    use lctx_model::domain::{types::{NativeOverloadObservation,NativeOverloadCandidate,OverloadSelection},normalized::overload_association::OverloadAssociationReason,normalized::entities::ResolutionStatus};
+    let selected_native=chosen.native_overloads.iter().find(|t|t.selection==OverloadSelection::Selected).expect("successful native overloaded call retains its selection state");
+    assert_eq!(selected_native.candidates.len(),2);
+    assert!(selected_native.candidates.iter().all(|c|c.origin.0.is_some() && c.resolution==ResolutionStatus::Resolved && c.reason==OverloadAssociationReason::IdentityAgreement && c.variant.0.is_some()));
+    assert_ne!(selected_native.candidates[0].origin,selected_native.candidates[1].origin,"original overload declarations are distinct");
+    assert_ne!(selected_native.candidates[0].variant,selected_native.candidates[1].variant,"variant identity follows original declaration, not shape");
+    let native_traces=execution.read::<NativeOverloadObservation>().await.unwrap();
+    let native_candidates=execution.read::<NativeOverloadCandidate>().await.unwrap();
     let (_, failed) = call("aliased(object())");
     assert!(matches!(failed.chosen, Availability::Unavailable { .. }));
     assert!(
@@ -360,6 +370,24 @@ def example(unknown):
             .iter()
             .any(|o| o.role == TypeRole::ChosenOverload)
     );
+    assert!(failed.native_overloads.iter().any(|t|matches!(t.selection,OverloadSelection::ClosestOnly|OverloadSelection::Recovered)),"failed call retains native recovery/closest state without chosen authority");
+    for (_,usage) in &usages {
+        for trace in &usage.native_overloads {
+            let stored=native_traces.rows().iter().find(|row|row.id()==trace.trace).unwrap();
+            assert_eq!(trace.selection,stored.selection);
+            assert_eq!(trace.arguments,stored.arguments);
+            assert_eq!(trace.closest_ordinal,stored.closest_ordinal as u64);
+            assert_eq!(trace.candidates.len(),stored.candidate_count as usize);
+            assert!(!trace.support.is_empty());
+            for candidate in &trace.candidates {
+                let row=native_candidates.rows().iter().find(|row|row.id()==candidate.candidate).unwrap();
+                assert_eq!(row.trace,stored.id());assert_eq!(candidate.origin.0,row.origin);assert_eq!(candidate.term,row.term);assert_eq!(candidate.ordinal,row.ordinal as u64);
+                assert!(!candidate.proof.is_empty() && !candidate.support.is_empty());
+                assert!(candidate.support.iter().all(|support|support.context==packet.evidence.original.context));
+                if let Some(variant)=candidate.variant.0 {assert!(candidate.variants.contains(&variant));}
+            }
+        }
+    }
     let (_, unknown) = call("unknown(5)");
     assert!(matches!(
         unknown.association,
