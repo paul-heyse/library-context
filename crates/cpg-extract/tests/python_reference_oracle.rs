@@ -83,6 +83,11 @@ fn ty_reference_oracle_child() {
     let alias_query=references(&db,"uses.py",USES.find("alias").unwrap(),false).unwrap();
     assert!(alias_query.iter().any(|r|r.0=="/captured/uses.py" && r.1==aliased),"same-spelling alias query must retain its resolved semantic target");
     assert!(!uses.iter().any(|r| r.0.ends_with("omitted.py")));
+    for label in ["typed_reference = ", "unreachable_reference = "] {
+        let start = API.find(label).unwrap() + label.len();
+        assert!(uses.iter().any(|r| r.0 == "/captured/api.py" && r.1 == start),
+            "native source references retain typing-only and unreachable reads without an execution claim: {label}: {uses:?}");
+    }
     assert!(!uses.iter().any(|r| r.1 == API.find("operation):").unwrap()), "shadowed formal is another identity");
     let with_declaration = references(&db, "api.py", operation, true).unwrap();
     assert!(with_declaration.len() > uses.len());
