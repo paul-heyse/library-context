@@ -1,120 +1,85 @@
 # Status
 
-_Updated 2026-10-03 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Incremental alignment is complete within scoped Tested acceptance.** The authorized
-[four-plan alignment series](docs/plans/semantic-model-incremental-alignment-plan_2026-10-02.md)
-owns current execution; coordinator §7 is the sole mutable F01–F08/O1–O6 disposition. All N/E/D
-and T0/T1/T2 packages are integrated, with current complete functional and composite hygiene receipts.
+**The comprehensive analytical architecture review is complete at static Interface-checked strength.**
+The [principal review](docs/design_review/reviews/design_review_code-facts-analytical-architecture_2026-10-03.md)
+assesses the expanded Python fact base, governing operations, intermediate analyses and target outputs.
+Its decision is **Revise** through bounded corrections; the single-model/PostgreSQL architecture is retained.
+The review owns its new unscheduled findings with explicit Deferred triggers and identifies
+Proposed opportunities; the existing code-facts coordinator still owns previously scheduled findings.
+Review baseline: `efe0c24a` plus the 231 tracked dirty paths captured on 2026-10-03;
+production changes were preserved. The generated advisory library catalog changed during the review.
+No production remediation, new runtime probes, product gates or operator-state changes were performed.
 
-**Phase 5 qualification is stopped at the operator’s code-facts review pivot, 2026-10-03.**
-The operator selected both profiles with communities, PageRank, FCA/RCA and type/mention layers;
-kNN and embeddings are off. Live embedding/vector qualification is deliberately deferred pending
-analytical-output review; client registrations remain unchanged. [Phase 5 §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
-retains prior receipts/limits; [parent cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
-owns older findings. PR6 remains paused until serving is qualified. R4 simultaneous multi-variant
-Summary qualification is not_run; retrieval quality, speed and total RSS remain unmeasured.
+**The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
+The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
+is the sole disposition/receipt owner for its source-qualified findings and M/N/B/P packages.
+The [independent implementation review](docs/design_review/reviews/design_review_code-facts-expansion-implementation_2026-10-03.md)
+accepts that bounded implementation statically; the new architectural review is a separate assessment.
+Current pins are Pyrefly 1.4.0-dev.3, independent Ruff 0.16.10/crates 0.0.16, ty 0.0.16/salsa
+0.28.5, with Pyrefly's embedded Ruff 0.0.14 isolated (ADR-0117/0118). Both narrow forks are published
+at immutable revisions. The shared `python-analyzers` skill supplies pinned APIs; repository owners
+supply current wiring/status where its project notes lag. No shared skill was changed by this review.
 
-The model owns semantics and native preparation/formal resolution; PostgreSQL stores relations,
-and DataFusion computes in-process.
-storage retains receipt/membership/guard checks and resource admission. Exact dependency
-requirements, finite upper-stage bindings, one fixed analytic policy and typed packet bindings
-replace duplicate authorities. Catalog Flow stays NotRequested, default stability remains
-Unknown, and finite-association/five-verdict limits survive. Python owns transport effects.
+## Current verification boundaries
 
-Analyzer-skill checkpoint, 2026-10-03: the shared `pyrefly-ruff` and `ty-flow` skills merged into
-`python-analyzers`. It indexes the planned shift targets (pyrefly 1.4.0-dev.3 on ruff 0.0.14; ruff
-0.16.10 / crates 0.0.16; ty 0.0.16, salsa 0.28.5) plus a code-facts model, and its `show migration`
-now also covers `cpg-flow`'s ty move. The five-plan migration is now in progress; current package receipts are in the coordinator. The skill's
-`build/verify.py --repo` (11 checks), 75/75 probes, `just docs-check` and `just lint-agents`
-passed on 2026-10-03. Those receipts are separate from alignment acceptance.
-
-## Current implementation and acceptance
-
-Alignment gate composition, ADR-0115/0116, adapter freshness and transport/deadline corrections
-are recorded in its coordinator §8; latest functional corrections are `50f58ffa`. Concurrent
-role/catalog edits stayed outside that work's commits.
-
-The [independent implementation review](docs/design_review/reviews/design_review_semantic-model-alignment-implementation_2026-10-02.md),
-including Appendix C dated 2026-10-03, accepts the bounded design at **Implemented** strength.
-Actual runtime acceptance and failures are recorded separately in coordinator §8.
-
-| Last verified command / boundary, 2026-10-03 | Outcome |
+| Command / boundary | Outcome and date |
 |---|---|
-| Normalized release model/core/real-store focused Nextest | **passed**, 109, zero skipped; invariant/epoch, visible Catalog, checkpoint and CPU drain controls |
-| Python wire/schema and build-environment controls | **passed**, nine each |
-| Locked uncached native refresh, then `just native-adapter-ready` | **passed**; current CLI/installed storage match all 240 model-source captures |
-| First `NEXTEST_TEST_THREADS=8 just test-all` | **failed**, 942 passed, two failed, two optional measurement controls skipped; control defects repaired |
-| Final `NEXTEST_TEST_THREADS=8 just test-all` | **passed**, exit0; 944 Rust, 230 Python/oracle and 32 doctests (20 compile-fail); two optional measurements skipped |
-| `just hygiene` plus named repair checks | **composite passed**; all constituents including full workspace/all-target `just clippy` passed |
-| `just docs-check` | **passed** after final disposition/handoff publication; 269 canonical pages, zero offline link errors |
-| Confirmed `lctx store reset`, then `just store-check` | **passed**, current empty model, zero generations/findings |
-| Current lexical-only Q0 reconstruction/activation | **interrupted** at operator pivot, exit130; unselected staging preserved; behavioral/journeys/gates/activation not_run |
-| Live embedding/vector qualification, R4 and measurements | **not_run**, deliberately deferred/separate qualification boundaries |
+| Review `just docs-check` | **passed**, 2026-10-04: 283 canonical pages, zero offline link errors; review/evidence/handoff publication only |
+| Full workspace/all-target `just clippy` | **passed**, 2026-10-03 at `92f45e92`; earlier failures/repairs retained in coordinator §7; not a current-tree hygiene pass |
+| Expansion targeted native/model/core/real-PG/wire controls | **passed** within recorded package scopes, 2026-10-03; coordinator §7 retains failures and composite receipts |
+| Expansion Q0, adapter readiness, `just test-all`, full `just hygiene` | **not_run** for the final expanded tree; matching generated adapters/CLI and remaining actual packet journeys are prerequisites |
+| New review probes/builds, CLI parity, product runs and performance | **not_run**; static source/types/interfaces settle this review's diagnoses, not runtime qualification |
+| Prior alignment final `NEXTEST_TEST_THREADS=8 just test-all` | **passed**, 2026-10-03: 944 Rust, 230 Python/oracle, 32 doctests; two optional measurements skipped |
+| Prior alignment `just hygiene` plus named repairs | **composite passed**, 2026-10-03; includes full workspace/all-target Clippy for that earlier tree |
+| Prior alignment `just native-adapter-ready` | **passed**, 2026-10-03; CLI/installed storage matched all 240 model-source captures for that earlier tree |
+| Prior confirmed `lctx store reset`, then `just store-check` | **passed**, 2026-10-03: empty current model, zero generations/findings before interrupted reconstruction |
+| Real-library reconstruction/activation, live vectors, R4 and measurements | **not_run** after operator review pivot; preserved staging is unselected; quality, speed and total RSS remain unmeasured |
 
-Persistent command logs/exit receipts are under
-`/home/paul/.cache/lctx-alignment-execution/receipts-2026-10-03/`.
-The model digest is `12242a5558134418fc3b54fdb526628d1715720e60e6199a8a6079f6066582da`.
-The reviewed model-describe snapshot is a schema migration for digest/S0 input ordering;
-relation fields and existing codes are unchanged. Declared uv inputs and per-member
-content/membership fingerprints prevent stale native adapters; readiness precedes Nextest.
-The first full gate's defects were resource routing metadata and an admission-relative timer
-assertion; repairs alter test controls, preserving production deadline/transport contracts.
+Current remaining Q0 includes conditional/generated, Terminal and raised-type actual PostgreSQL
+journeys with matching artifacts; their focused compile/unit receipts do not close those journeys.
+The source-default/scalar bridge and real-PG stdio qualification runner are integrated; recorded
+focused receipts establish only their bounded cases. There is no current full-series acceptance.
 
-## Retirement, limits and next action
+## Preserved architecture and earlier acceptance
 
-No readers were connected before retiring the old unselected staging generation
-`de1e0c2b09a319134fcef595a9bcbe89`. No serving vectors/artifacts existed. The preserved
-`retirement-controls.json` contains all 14 control tables and 204 stage receipts; SHA-256
-`49dc3c2e4863df869151194544edfe3caf8a457f2e1b4fa3c5ae639ad00d0fa3`.
-Reset installed the current model and named store-check passed. Reconstruction from pinned
-inputs remains an activation prerequisite; no old runtime authority or compatibility reader remains.
+The [four-plan incremental alignment series](docs/plans/semantic-model-incremental-alignment-plan_2026-10-02.md)
+is complete within scoped Tested acceptance. Its coordinator §7 owns F01–F08/O1–O6 and §8 owns
+functional/composite hygiene receipts; latest functional corrections are `50f58ffa`, with ADR-0115/0116.
+Its independent implementation review, including Appendix C dated 2026-10-03, accepts that bounded
+design at Implemented strength. Those receipts do not qualify the expanded current fact pipeline.
+Logs remain under `/home/paul/.cache/lctx-alignment-execution/receipts-2026-10-03/`.
+The earlier model digest `12242a5558134418fc3b54fdb526628d1715720e60e6199a8a6079f6066582da`
+and reviewed describe snapshot bound that schema-migration receipt, not current adapter freshness.
 
-The [expanded analyzer target review](docs/design_review/reviews/design_review_code-facts-expanded-target_2026-10-03.md)
-is complete at **Interface-checked** strength, 2026-10-03: finite coverage is 340 provider facts /
-137 concepts, with twelve fact/first-operation contracts and downstream output implications.
-Inventory consistency and `just docs-check` **passed** (273 pages, zero offline link errors);
-provider seams/remedies remain Proposed; runtime probes and product gates were not_run.
-Decision **Revise** retains the model/store architecture. The
-[five-plan code-facts series](docs/plans/code-facts-expansion-plan_2026-10-03.md) now schedules the
-full C1–C12 cascade and is the sole current disposition owner for source-qualified original/new
-findings. Execution is in progress under the [execute-plan skill](.claude/skills/execute-plan/SKILL.md).
-N0/P0 source-formal/native-slot correspondence and P2a pre-admission facet refusal are committed
-(`107e1933`, `e58575a3`): 32 model controls and two real-PG analytic journeys passed on 2026-10-03.
-The operator-directed independent Ruff policy is accepted by ADR-0117/0118; both narrow forks
-are published at exact immutable revisions. Native seam/parity controls passed in isolation.
-The working tree resolves Pyrefly 1.4.0-dev.3, Ruff 0.16.10/crates 0.0.16 and ty 0.0.16/salsa
-0.28.5, retaining embedded Ruff 0.0.14. Release extraction/flow all-target compile checks and
-19 source-family/fork policy controls and 14 current-tree native runtime controls passed.
-N4a is integrated (`ef7a50ed`, 43 scoped native/PG controls). M2 canonical Ruff and finite
-family/provider grants are committed (`789cd0ac`, 34 controls). B0 required bases are integrated
-(`23c9dd87`, composite model/Summary/PG/wire receipt). N1 callable roles/ports are integrated
-(`cf0731db`, composite native/model/PG controls); N3/N5 metadata/located queries are integrated
-(`bdddd079`/`b3fbdf87`, final two native + one PG controls). M3 narrowing/view identity passed
-134 controls; protocol/capture integration in both profiles passed 29/29. N2 generic specialization
-and native deprecation are integrated (`28e7ba1e`, `92e09afc`) with scoped native/query receipts.
-B1 conditional atom restrictions and M2 per-query availability/source fallback are committed
-(`44f7495d`, `76de5a03`, `f8559226`); initial 82/84 and 41/45 failures/repairs retained in coordinator §7.
-N4b integrated (`f4a77641`, 32 controls passed); B4 integrated (`c115e623`, scoped PG/model passed).
-P1 integrated (`1a7ad33d`, real-PG RCA handoff passed); narrow M2 Lexical fix passed 22/22.
-P2 supported facets/stored witness closure (`d288a6b1`): compile, 17 model and three native controls passed.
-M2 metadata/B1 PG passed; P3 diagnostics/pytest/usage integrated (`9996f81f`/`a862fc29`); native10 and diagnostic/usage PG composite passed.
-P4 conditional/generated PG await the final matching CLI; Capture actual PG/wire passed and is integrated.
-B3 producer integrated, 18 scoped controls passed; Terminal/I-F03 Artifact-scope correction integrated, runtime open. B2 scoped composite passed eight controls.
-Raised-type coverage correction check/two units passed; actual PG remains open. Coordinator §7/§5 own receipts/disposition.
-All functional packages are integrated; [independent review](docs/design_review/reviews/design_review_code-facts-expansion-implementation_2026-10-03.md) accepts statically.
-Full `just clippy` passed at `92f45e92`; final Q0/test-all/hygiene remain not_run, awaiting hook/scoped refresh and matching artifacts.
-Real-library reconstruction/activation remain a separately authorized follow-up. Authoring receipts
-establish traceability. No current full-series acceptance, retrieval-quality or performance claim.
-Prior stdio qualification runner is integrated; source-default repair and source-only scalar bridge are in P4.
-Focused controls passed: real-PG both-profile runner (one), transcript (two), source-default packet
-(one); full gates/hygiene and real-library journeys are not_run for these changes. Phase 5 §10 owns
-receipts and remaining integration. The catalog compile stopped with SIGINT/exit130; staging
-`d3a3fa026a1237a1c4e175b9b1019eeb` has 204 receipts, no readers/writer, and remains unselected.
+The model owns semantic meaning and native preparation/formal resolution; PostgreSQL stores relations;
+DataFusion computes in process. Storage retains receipt/membership/guard checks and admission.
+Typed requirements, finite bindings and one analytic policy retain explicit support limits.
+Catalog Flow remains NotRequested, default stability Unknown, finite associations stay scoped,
+five verdicts remain distinct, and Python owns transport effects. The new review identifies
+remaining corrections to those ownership/claim boundaries rather than certifying all implementations.
+
+## Operator state and next action
+
+**Phase 5 qualification remains stopped at the operator's 2026-10-03 review pivot.**
+Both profiles were selected with communities, PageRank, FCA/RCA and type/mention layers;
+kNN/embeddings are off and client registrations unchanged. PR6 remains paused until serving is qualified.
+[Phase 5 §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
+owns serving receipts/limits; [cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
+owns older findings. R4 simultaneous multi-variant Summary qualification is not_run.
+
+Old unselected staging `de1e0c2b09a319134fcef595a9bcbe89` was retired with no readers or serving
+vectors/artifacts. `retirement-controls.json` preserves 14 control tables/204 receipts, SHA256
+`49dc3c2e4863df869151194544edfe3caf8a457f2e1b4fa3c5ae639ad00d0fa3`; reset/store-check passed.
+The later catalog compile was interrupted with SIGINT/exit130. Staging
+`d3a3fa026a1237a1c4e175b9b1019eeb` retains 204 receipts, no readers/writer, and remains unselected.
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
-preserves the stop state. No alignment implementation remains open; PR6 remains separate.
-Transport seams exercise grants/response bytes within recorded limits; borrowed CPU kernels drain.
+preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Earlier Phase 5/foundation/Phase 4 receipts retain their boundaries; gold/heldout/benchmarks are untouched.
-Cargo retains release/shared intermediates/jobs16/frontend1; Nextest8 limits processes, builds may overlap.
-The pending scoped refresh request covers fmt/ADR index/features; otherwise the end-of-turn hook owns them.
+Next design action: select the new review's bounded remedies and useful enrichment routes for
+incremental implementation planning; the principal review supplies their contracts, dependencies,
+alternatives and closure evidence. Q0/full gates and separately authorized real-library activation
+remain distinct follow-up work. Gold/heldout/benchmarks are untouched. Cargo retains shared release
+intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
+The end-of-turn hook owns formatting/generated refreshes; no scoped refresh exception was used here.
