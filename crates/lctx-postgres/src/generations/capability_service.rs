@@ -110,6 +110,30 @@ impl super::packet_reads::PacketLease<'_> {
         data.targets.insert(target.clone())?;
         data.model_invocations.insert(model.clone())?;
         data.summary_invocations.insert(invocation)?;
+        // Feed the shared ownership policy from this same pinned packet lease; do not rewrite q.scope.
+        let scopes = self.read_ids::<source::CoverageScope>(&[q.scope]).await?;
+        let scope = need(&scopes, q.scope)?;
+        data.visit(source::CoverageScope::NAME, scopes.arrow())?;
+        let corpus = self.read_for::<input::CorpusLibrary,input::InputRevision>("corpus", &[model.input]).await?;
+        data.visit(input::CorpusLibrary::NAME, corpus.arrow())?;
+        let inputs = std::iter::once(model.input).chain(corpus.rows().iter().map(|row|row.library)).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+        let distributions = self.read_for::<input::InputDistribution,input::InputRevision>("input", &inputs).await?;
+        data.visit(input::InputDistribution::NAME, distributions.arrow())?;
+        let artifact = match scope {
+            source::CoverageScope::Artifact {artifact} => Some(artifact),
+            source::CoverageScope::Module {module} => {
+                let modules = self.read_ids::<source::Module>(&[module]).await?;
+                let artifact = need(&modules, module)?.source;
+                data.visit(source::Module::NAME, modules.arrow())?;
+                Some(artifact)
+            },
+            source::CoverageScope::Input {..} | source::CoverageScope::Release {..} => None,
+        };
+        if let Some(artifact) = artifact {
+            let artifacts = self.read_ids::<source::SourceArtifact>(&[artifact]).await?;
+            need(&artifacts, artifact)?;
+            data.visit(source::SourceArtifact::NAME, artifacts.arrow())?;
+        }
         summary.claims.insert(claim)?;
         let source = analysis::summary::SupportSource::TerminalFrontier { witness: id };
         summary.sources.insert(need(&self.read_ids::<analysis::summary::SupportSource>(&[source.id()]).await?, source.id())?)?;

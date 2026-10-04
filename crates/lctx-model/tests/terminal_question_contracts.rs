@@ -1,12 +1,18 @@
 //! Independent scoped-question oracles; completion proof APIs are deliberately absent.
 use lctx_model::domain::{analysis::{self,policy::EvidenceStatus,support::QualificationOperation,summary::support::EvidencePremise},assertion::*,assumptions::*,attribution::*,conditions::Diagram,execution::{closed_targets::*,protocol_interpretation::*,summary_consequences::SummaryClaim,summary_terminal::SummaryTerminalWitness},resources::ResourceBudget,serving::*,synthesis::{summary,terminal},*};
 fn id<R>(n:u8)->Id<R>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
-fn fixture()->(terminal::Data,summary::Data,SummaryTerminalWitness,AssertionQualification){
+fn fixture()->(terminal::Data,summary::Data,SummaryTerminalWitness,AssertionQualification){fixture_scope(false,false)}
+fn fixture_scope(input_scope:bool,foreign:bool)->(terminal::Data,summary::Data,SummaryTerminalWitness,AssertionQualification){
  let budget=ResourceBudget::fixed(8<<20).unwrap();let mut d=terminal::Data::new(&budget);let mut s=summary::Data::new(&budget);
  let input=id(1);let context=id(2);
  let conformance=Assumption::TypeConformance{observation:id(3),support:id(4)};
  let basis=AssumptionSet::new([conformance.id()]).unwrap();d.sets.insert(basis.set.clone()).unwrap();for member in basis.members{d.members.insert(member).unwrap();}d.assumptions.insert(conformance.clone()).unwrap();
- let q=AssertionQualification{context,scope:source::CoverageScope::Input{input}.id(),condition:Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact,assumptions:basis.set.id()};
+ let artifact=source::SourceArtifact::from_bytes(if foreign{id(20)}else{input},"demo.py".into(),b"stop()\nprint('following')\n").unwrap();
+ let scope=if input_scope{source::CoverageScope::Input{input:if foreign{id(20)}else{input}}}else{source::CoverageScope::Artifact{artifact:artifact.id()}};
+ let model=lctx_model::domain::model().unwrap();
+ d.visit(source::SourceArtifact::NAME,Batch::new(&model,vec![artifact],&budget).unwrap().arrow()).unwrap();
+ d.visit(source::CoverageScope::NAME,Batch::new(&model,vec![scope.clone()],&budget).unwrap().arrow()).unwrap();
+ let q=AssertionQualification{context,scope:scope.id(),condition:Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact,assumptions:basis.set.id()};
  let definition=analysis::AnalysisDefinition{method:analysis::AnalysisMethod::Summaries,parameters:id(5),semantic_version:ContentHash::of(b"scoped question test"),interpretation:analysis::Interpretation::Structural};
  let model=analysis::model::AnalysisInvocation{input,context,definition:id(6),subject:None,inputs:ContentHash::of(b"model input"),sources:ContentHash::of(b"model source"),projections:ContentHash::of(b"model projection")};
  let invocation=analysis::summary::AnalysisInvocation{input,context,definition:definition.id(),subject:None,inputs:ContentHash::of(b"summary input"),sources:ContentHash::of(b"summary source"),projections:ContentHash::of(b"summary projection")};
@@ -26,6 +32,7 @@ fn fixture()->(terminal::Data,summary::Data,SummaryTerminalWitness,AssertionQual
 #[test]
 fn checked_terminal_packet_preserves_given_entry_and_refuses_missing_or_changed_basis(){
  let (d,s,w,q)=fixture();let checked=terminal::checked(&d,&s,w.id(),&q,id(1),id(2)).unwrap();let packet=TerminalQuestionPacket::from_canonical(&checked);
+ assert_eq!(packet.scope,q.scope);
  assert_eq!((packet.question,packet.effects_unknown,packet.exceptions_unknown,packet.cleanup_unknown),(InvocationQuestion::GivenInvocationEntered,true,true,true));
  assert_eq!((packet.witness,packet.claim,packet.owner,packet.call,packet.following),(w.id(),w.claim,id(15),id(16),id(19)));
  for relation in ["summary_terminal_witnesses","conditional_terminal_frontiers","normal_continuation_restrictions","summary_analysis_derivations","summary_analysis_derivation_premises","summary_support_sources"]{assert!(packet.proof.iter().any(|p|p.relation.as_str()==relation),"actual scoped source: {relation}");}
@@ -45,4 +52,16 @@ fn terminal_schema_has_required_question_finite_code_and_nullable_assertion_slot
  let schema=schema_for::<TerminalQuestionPacket>(true);let validator=jsonschema::validator_for(&schema).unwrap();let mut value=serde_json::to_value(packet).unwrap();assert!(validator.is_valid(&value));value["question"]=serde_json::json!(1);assert!(!validator.is_valid(&value));assert!(serde_json::from_value::<TerminalQuestionPacket>(value).is_err());
  let assertion=schema_for::<AssertionPacket>(true);assert!(assertion["required"].as_array().unwrap().contains(&serde_json::json!("terminal_question")));assert!(assertion["properties"]["terminal_question"].to_string().contains("null"));
  let binding=<CapabilityPacket as mappings::PacketOutput>::binding();for relation in [execution::summary_terminal::SummaryTerminalWitness::NAME,execution::protocol_interpretation::ConditionalTerminalFrontier::NAME,execution::protocol_interpretation::NormalContinuationRestriction::NAME]{assert!(binding.permits_relation(relation));}
+}
+
+#[test]
+fn terminal_scope_is_owned_artifact_or_input_and_never_rewritten(){
+ for input_scope in [false,true] {
+  let (d,s,w,q)=fixture_scope(input_scope,false);
+  let packet=TerminalQuestionPacket::from_canonical(&terminal::checked(&d,&s,w.id(),&q,id(1),id(2)).unwrap());
+  assert_eq!(packet.scope,q.scope);
+  if !input_scope{assert_ne!(packet.scope,source::CoverageScope::Input{input:id(1)}.id(),"native Artifact scope must survive");}
+  let (d,s,w,q)=fixture_scope(input_scope,true);
+  assert!(terminal::checked(&d,&s,w.id(),&q,id(1),id(2)).is_err(),"same well-formed lower chain cannot cross foreign scope ownership");
+ }
 }
