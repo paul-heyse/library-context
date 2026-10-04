@@ -18,18 +18,20 @@ independent audit accepted the final exact-source helper guards statically.
 Synthesis's Catalog input mask now excludes the six new Flow inputs without invoking native Flow.
 Actual C2 packets passed; the first API test's decorator-parent expectation is repaired.
 Focused model inventory/stability/native-request controls passed (4/11/18), and the Catalog Flow
-profile control passed. Final PostgreSQL/MCP journeys, sink adversaries and snapshot migration
-remain pending.
+profile control passed. Final PostgreSQL/MCP journeys and sink adversaries remain pending; the reviewed schema
+migration and its assertion rerun passed.
 G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
 inventory supplies exclusion conditions. C7 is enabled and carries retained Expected uncertainty.
 Ty references and odis remain development-only. No Q1 or full functional pass is claimed yet.
 Full workspace/all-target `just clippy` and Python lint/type checks passed on the final
 formatted source (`9dbe7239`), 2026-10-04. The operator authorized one final `just fmt`; it
 passed before rebuilding. Schema review retired reused native premise code 37 and appended
-ModuleResolution at 75. The actual final describe migration, matching adapters and functional
-gate are running. Initial gate failures and named hygiene repairs remain in coordinator §7.
-Default store-check refused the preserved old-model staging; an isolated empty PG18 database
-passed at the decoder revision and awaits final-source reset/check. Operator state is untouched.
+ModuleResolution at 75. Reviewed describe migration and assertion rerun passed for model
+`a00210d0595770adc2d77c4250f24123cb9f32f46cbfab3d8d799c56431f30a8`; matching native
+adapters rebuilt in the full gate. The gate is compiling workspace test binaries. Initial
+failures and named hygiene repairs remain in coordinator §7. Default store-check refused the
+preserved old-model staging; the isolated final-model store check passed, zero generations/
+findings. Read-only check confirms staging still has 204 receipts and is unselected.
 
 **The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
 The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
