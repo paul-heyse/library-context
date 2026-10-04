@@ -39,7 +39,7 @@ fn native_overload_origins_preserve_original_vectors_and_selection_limits() {
         assert!(!diagnoses(&transaction).is_empty(),"failed-overload diagnostic control is real");
         use pyrefly::alt::answers::NativeOverloadSelection as S;
         let trace=|needle:&str| {
-            let call=text.find(needle).unwrap();let start=call+needle.rfind('(').unwrap();
+            let call=text.rfind(needle).unwrap();let start=call+needle.rfind('(').unwrap();
             let range=TextRange::new(TextSize::new(start as u32),TextSize::new((call+needle.len()) as u32));
             answers.get_native_overload_trace(range).unwrap_or_else(||panic!("missing retained original trace: {needle} {range:?}"))
         };
