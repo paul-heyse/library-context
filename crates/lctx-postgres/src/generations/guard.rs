@@ -30,7 +30,9 @@ impl GenerationReader {
     ) -> Result<GenerationGuard, Error> {
         // The original session has retained state before the first possibly blocked admission
         // query. Cancellation drops this reservation alongside its close-on-drop connection.
-        let charge = budget.reserve("generation-guard", std::mem::size_of::<State>())?;
+        // Conservative retained allowance for the semaphore/tracker Arc backing objects;
+        // public handle sizes alone omit their heap metadata. This is not an RSS measurement.
+        let charge = budget.reserve("generation-guard", std::mem::size_of::<State>() + 1024)?;
         let mut lease = self.pin(generation, budget).await?;
         lease.serving_shape().await?;
         let guard = GenerationGuard {

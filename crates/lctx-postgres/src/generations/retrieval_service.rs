@@ -210,8 +210,10 @@ impl RetrievalService {
     /// Conservative admitted conversion/index buffers over the exact prepared numerical domain.
     /// This allowance is not a measurement of Python, NumPy or total process RSS.
     pub async fn reserve_numerical(&self) -> Result<super::PreparedReservation, Error> {
+        let this = self.clone();
+        let bytes = self.state.catalog.service().guard().prepare_cpu(move |_| {
         let mut bytes = 4096usize;
-        for document in self.state.unit_corpus.documents() {
+        for document in this.state.unit_corpus.documents() {
             bytes = bytes
                 .checked_add(document.text.len().checked_mul(8).ok_or(Error::Contract)?)
                 .and_then(|n| n.checked_add(512))
@@ -223,6 +225,8 @@ impl RetrievalService {
                     .ok_or(Error::Contract)?;
             }
         }
+        Ok(bytes)
+        }).await?;
         self.state
             .catalog
             .service()
