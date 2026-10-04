@@ -47,6 +47,15 @@ pub async fn produce(
     macro_rules! inventory{($($f:ident:$t:ty,)*)=>{read!($($t),*);};}
     lctx_model::normalized_binding_inputs!(inventory);
     lctx_model::structural_outputs!(inventory);
+    // Structural conclusions consume their vocabulary at the acknowledged Structural epoch.
+    // This dispatch supplies decoders; Data::consumed_inputs remains the selection authority.
+    read!(
+        assertion::AssertionQualification,
+        conditions::Condition,
+        conditions::ConditionNode,
+        assumptions::AssumptionSet,
+        assumptions::AssumptionSetMember
+    );
     lctx_model::analytic_extra_inputs!(inventory);
     lctx_model::analytic_consumption_inputs!(inventory);
     lctx_model::projection_outputs!(inventory);
