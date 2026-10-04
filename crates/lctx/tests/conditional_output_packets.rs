@@ -76,6 +76,10 @@ def dynamic(error):
     let OperationResolution::Unique { packet } = response.operation else {
         panic!("source operation missing")
     };
+    assert!(
+        packet.behavior.items.iter().all(|answer| answer.captures.is_empty()),
+        "local finite proofs do not invent a direct captured-entry contribution"
+    );
     let empty = AssumptionSet::empty_id();
     assert!(
         packet
