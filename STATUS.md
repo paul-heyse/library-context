@@ -59,9 +59,9 @@ supply current wiring/status where its project notes lag. No shared skill was ch
 
 | Command / boundary | Outcome and date |
 |---|---|
-| Enrichment current `just docs-check` | **passed**, 2026-10-04: 289 canonical pages, zero offline link errors; source owners, ADR-0121, pins and coordinator |
+| Enrichment current `just docs-check` | **passed**, 2026-10-04: 290 canonical pages, zero offline link errors after ADR-0123 owner/index repair |
 | Review `just docs-check` | **passed**, 2026-10-04: 283 canonical pages, zero offline link errors; review/evidence/handoff publication only |
-| Full workspace/all-target `just clippy` | **passed**, 2026-10-03 at `92f45e92`; earlier failures/repairs retained in coordinator §7; not a current-tree hygiene pass |
+| Full workspace/all-target `just clippy` | **passed**, 2026-10-04 after `93278a8a`; composite named repair before the remaining handoff diagnostic/final formatting |
 | Expansion targeted native/model/core/real-PG/wire controls | **passed** within recorded package scopes, 2026-10-03; coordinator §7 retains failures and composite receipts |
 | Expansion Q0, adapter readiness, `just test-all`, full `just hygiene` | **not_run** for the final expanded tree; matching generated adapters/CLI and remaining actual packet journeys are prerequisites |
 | New review probes/builds, CLI parity, product runs and performance | **not_run**; static source/types/interfaces settle this review's diagnoses, not runtime qualification |
@@ -115,8 +115,6 @@ Next: finish focused native/model/PostgreSQL controls and repair their findings,
 complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`just hygiene`.
 Generated-wrapper and both raised-type PostgreSQL journeys passed in the failed full gate;
 Terminal also passed in the direct focused run. Fresh native reads/source calls/Summary controls, all 16 selection/composition controls and matching adapters passed. Native selected-domain explanation/JSON parity and the strengthened PostgreSQL/MCP association-purpose control passed. Direct Behavioral Structural failed its named-handoff positive after validation; repair, schema acceptance and full gates remain pending. Real-library activation remains separately authorized.
-Gold/heldout/benchmarks are untouched. Cargo retains shared release
-intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
-The end-of-turn hook normally owns formatting. ADR index/dependency features and the one final
-pre-qualification formatting run used explicit operator exceptions. The four completed task
-worktrees were removed after integration and external receipt preservation checks.
+Gold/heldout/benchmarks are untouched. Cargo retains shared release intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
+The end-of-turn hook owns formatting; scoped formatting/index/feature exceptions are operator-authorized.
+Six completed task/qualification worktrees were removed after integration and receipt preservation checks.
