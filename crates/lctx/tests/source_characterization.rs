@@ -156,7 +156,7 @@ async fn source_fixture(source: &[u8], usage: bool) -> support::ServingFixture {
             ),
             (
                 "demo/reexport.py",
-                b"from .api import parse as public_parse\n__all__ = ['public_parse']\n".as_slice(),
+                b"from .api import parse as public_parse, replacement as public_replacement\n__all__ = ['public_parse', 'public_replacement']\n".as_slice(),
             ),
         ]);
     }
@@ -527,11 +527,12 @@ async fn diagnostic_primary_argument_has_supported_use_and_route_packets_retain_
         evidence::DiagnosticUseStatus,
     };
     let source = br#"from .api import parse as parse
-from .reexport import public_parse as forwarded
-__all__=['parse','forwarded','example']
+from .reexport import public_parse as forwarded, public_replacement as forwarded_replacement
+__all__=['parse','forwarded','forwarded_replacement','example']
 def example():
     parse(1.5)
     forwarded('text')
+    forwarded_replacement(1)
 "#;
     let fixture = source_fixture(source, true).await;
     let execution = fixture.service.execution().await.unwrap();
@@ -593,7 +594,7 @@ def example():
             .any(|link| !link.targets.is_empty()),
         "API relevance cites exact event alternative/scenario association"
     );
-    let request = GetOperationRequest {
+    let mut request = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: OperationSelector::PublicPath {
             path: vec![Name::new("demo").unwrap(), Name::new("forwarded").unwrap()],
@@ -625,22 +626,85 @@ def example():
             == 2),
         "explicit reexport has two ordered supported import-name hops"
     );
+    // The native overloaded export retains unresolved alternatives even when one exact
+    // import-name path reaches its declaration. That path cannot authorize aggregate closure.
+    assert!(packet.access_routes.items.iter().any(|route| {
+        route.stop == RouteStop::CandidateOnly
+            && route.target.is_some()
+            && route.public_resolution == normalized::entities::ResolutionStatus::Unresolved
+    }));
+    assert!(packet.access_routes.items.iter().any(|route| {
+        route.stop == RouteStop::UnresolvedNameCorrespondence && route.target.is_none()
+    }));
     assert!(
         packet
             .access_routes
             .items
             .iter()
-            .any(|route| route.stop == RouteStop::Declaration),
-        "native access route termination: {:#?}",
-        packet.access_routes.items
+            .all(|route| route.stop != RouteStop::Declaration)
     );
-    assert!(
-        packet
-            .access_routes
-            .items
-            .iter()
-            .all(|route| route.captured_modules > 0)
+    assert!(packet.access_routes.items.iter().all(|route| {
+        route.captured_modules > 0
+            && route.external_consumers_unknown
+            && route.installation_requirements_unknown
+    }));
+    request.operation = OperationSelector::PublicPath {
+        path: vec![
+            Name::new("demo").unwrap(),
+            Name::new("forwarded_replacement").unwrap(),
+        ],
+    };
+    let OperationResolution::Unique { packet } = fixture
+        .catalog
+        .operation(&execution, &request)
+        .await
+        .unwrap()
+        .operation
+    else {
+        panic!("ordinary forwarded replacement operation missing")
+    };
+    let route = packet
+        .access_routes
+        .items
+        .iter()
+        .find(|route| route.stop == RouteStop::Declaration)
+        .unwrap_or_else(|| {
+            panic!(
+                "ordinary native access route termination: {:#?}",
+                packet.access_routes.items
+            )
+        });
+    let names = route
+        .hops
+        .iter()
+        .filter_map(|hop| match hop {
+            RouteHop::Import {
+                imported_name,
+                status,
+                reason,
+                ..
+            } => {
+                assert_eq!(*status, normalized::entities::ResolutionStatus::Resolved);
+                assert_eq!(*reason, normalized::links::LinkReason::ExplicitIdentity);
+                Some(imported_name.as_str())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["public_replacement", "replacement"]);
+    assert_eq!(
+        route.publicity,
+        normalized::entities::PublicPathKnowledge::Known
     );
+    assert_eq!(
+        route.public_resolution,
+        normalized::entities::ResolutionStatus::Resolved
+    );
+    assert!(route.target.is_some() && route.declaration_artifact.is_some());
+    assert_eq!(route.stub, Some(false));
+    assert!(route.captured_modules > 0);
+    assert!(route.external_consumers_unknown && route.installation_requirements_unknown);
+    assert_eq!(route.omitted_frontiers, 0);
     drop(execution);
     fixture.finish().await;
 }

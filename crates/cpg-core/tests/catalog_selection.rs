@@ -1,5 +1,6 @@
 //! Actual C0/C1/C2 declaration producer qualification through disposable PG18.
 #[path = "fixtures/catalog_runtime.rs"]
+#[allow(dead_code)] // The shared module also supplies partial-model fixtures with relation inventory.
 mod catalog_runtime;
 #[path = "fixtures/catalog_schedule.rs"]
 mod catalog_schedule;
