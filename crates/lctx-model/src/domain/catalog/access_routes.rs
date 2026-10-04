@@ -125,10 +125,10 @@ pub fn explain(d:&ClassificationData,extra:&RouteData,member:Id<CatalogMember>,m
    if supports.is_empty() || supports.iter().any(|s|!supported(extra,*s,public.context,attribution::FactFamily::Exports,"pyrefly")){return Err(invalid("access route exposure support absent"))}
    root.hops.push(RouteHop::PublicExposure{catalog_candidate:candidate.id(),exposure:public.id(),name:name.id(),support:supports[0].id()});
    if let Some(path)=candidate.path {let path=need(&d.source.catalog.paths,path)?;root.hops.push(RouteHop::MemberPath {path:path.id(),parent:path.parent,declaration:path.declaration,binding:path.binding,entity:path.entity,disposition:path.disposition});if path.disposition!=PublicPathDisposition::Effective{root.public_resolution=ResolutionStatus::Ambiguous;}}
-   if let Some(entity)=entity {if let Some(module)=source_module(d,extra,entity)? {
+   if let Some(entity)=entity && let Some(module)=source_module(d,extra,entity)? {
     let artifact=need(&d.source.core.modules,module)?.source;let artifact_row=need(&d.source.core.artifacts,artifact)?;
     if artifact_row.input==selected.input {root.declaration_artifact=Some(artifact);root.stub=Some(artifact_row.path.ends_with(".pyi"));}
-   }}
+   }
    if let Some(alias)=candidate.alias{
     let alias=need(&d.source.catalog.aliases,alias)?;let reference=need(&d.source.core.reference_candidates,alias.reference)?;let assessment=need(&d.source.core.reference_assessments,reference.assessment)?;
     let ReferenceEntityTarget::Binding{entity:actual,..}=need(&d.source.core.reference_targets,reference.target)? else{return Err(invalid("access route alias has nonbinding target"))};
