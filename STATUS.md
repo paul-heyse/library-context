@@ -23,27 +23,25 @@ migration and its assertion rerun passed.
 G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
 inventory supplies exclusion conditions. C7 is enabled and carries retained Expected uncertainty.
 Ty references and odis remain development-only. No Q1 or full functional pass is claimed yet.
-Current scoped verification, **2026-10-04**: full workspace/all-target `just clippy`
-**passed** after `93278a8a`; fixture/gold/rules, Python lint/types and dependency policy passed.
-ADR-0123's owning decision link and authorized index refresh are repaired; ADR lint and
-`just docs-check` **passed**, 290 canonical pages. Scoped current-model store check passed,
-zero generations/findings; all named hygiene repairs passed. These are
-composite receipts, before the remaining handoff repair and final formatting.
+Current scoped verification, **2026-10-04**: final formatted-source full workspace/all-target
+`UV_LOCK_TIMEOUT=3600 just clippy` **passed**. The authorized final `just fmt` and ADR index
+refresh, matching release CLI/native adapters and reviewed schema snapshot migration all passed.
+Current model is `8f8ec7cdbf9ee0e21d61f84ac6698186320cb9b9d1f2e5c1ac543c33b77a6f86`,
+878 relations. Only the owned empty qualification store was reset; scoped deps/store-check
+passed with zero generations/findings. Default staging retains 204 receipts and is unselected.
+Final scoped `just hygiene` passed agents/ADR/fixtures/gold/rules/Python lint/types, then failed
+only at an unfinished parallel-review documentation link. The operator explicitly excludes that
+concurrent review finding; final deps, Clippy and scoped store-check separately passed.
 `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all` initially **failed**: 997 Rust
 controls passed, 95 failed, four timed out and three skipped; Python/oracles and doctests were
 not_run after that failure. Native scope/TypedDict/Summary/role/read/source-closure repairs are
 integrated. All 16 selection/composition controls, all six source calls, nine read controls and
 four actual PostgreSQL Summary controls passed. Native selected-domain explanation/JSON parity
-and the strengthened actual PostgreSQL/MCP evidence-purpose packet passed. Direct Behavioral
-Structural completed validation in 242.78s, then failed its required named-handoff positive;
-original-premise diagnostics are running against PostgreSQL. No current full functional pass is claimed.
-Current model is `ece1e6a8242aa3b7bafa039ed0aa07b7c5f6cd601db55626ef3770b76f9321a6`,
-878 relations; static migration review passed for two nullable keyed Summary witness fields
-and explicit validator input additions. Describe snapshot acceptance remains pending final
-source stability. Matching native adapters passed before these test-only diagnostics. The
-operator authorized one additional final formatting/index refresh; the index is refreshed,
-formatting waits for the handoff repair. Default old-model staging retains 204 receipts and
-is unselected; only the separate empty qualification store has been reset.
+and the strengthened actual PostgreSQL/MCP evidence-purpose packet passed. Behavioral Structural
+failed its required named-handoff positive; exact source-covering Input/Artifact/Module coverage
+now shares the same scope predicate with admission. Three seeded admission controls passed;
+the final actual PostgreSQL positive failed at condition implication (240.88s). Native region
+evidence is the next concrete investigation; the full gate is running. No Q1 pass is claimed.
 
 **The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
 The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
@@ -59,11 +57,11 @@ supply current wiring/status where its project notes lag. No shared skill was ch
 
 | Command / boundary | Outcome and date |
 |---|---|
-| Enrichment current `just docs-check` | **passed**, 2026-10-04: 290 canonical pages, zero offline link errors after ADR-0123 owner/index repair |
+| Enrichment scoped hygiene | **composite passed with parallel-review docs failure excluded by operator**, 2026-10-04; final source, deps, Clippy and empty current-model store checks passed |
 | Review `just docs-check` | **passed**, 2026-10-04: 283 canonical pages, zero offline link errors; review/evidence/handoff publication only |
-| Full workspace/all-target `just clippy` | **passed**, 2026-10-04 after `93278a8a`; composite named repair before the remaining handoff diagnostic/final formatting |
+| Final workspace/all-target `just clippy` | **passed**, 2026-10-04 after handoff repair and authorized final formatting; warnings denied |
 | Expansion targeted native/model/core/real-PG/wire controls | **passed** within recorded package scopes, 2026-10-03; coordinator §7 retains failures and composite receipts |
-| Expansion Q0, adapter readiness, `just test-all`, full `just hygiene` | **not_run** for the final expanded tree; matching generated adapters/CLI and remaining actual packet journeys are prerequisites |
+| Final CLI/native adapters/schema snapshot | **passed**, 2026-10-04; matching source fingerprint and reviewed schema migration; full functional gate pending |
 | New review probes/builds, CLI parity, product runs and performance | **not_run**; static source/types/interfaces settle this review's diagnoses, not runtime qualification |
 | Prior alignment final `NEXTEST_TEST_THREADS=8 just test-all` | **passed**, 2026-10-03: 944 Rust, 230 Python/oracle, 32 doctests; two optional measurements skipped |
 | Prior alignment `just hygiene` plus named repairs | **composite passed**, 2026-10-03; includes full workspace/all-target Clippy for that earlier tree |
@@ -72,7 +70,7 @@ supply current wiring/status where its project notes lag. No shared skill was ch
 | Real-library reconstruction/activation, live vectors, R4 and measurements | **not_run** after operator review pivot; preserved staging is unselected; quality, speed and total RSS remain unmeasured |
 
 Surviving Q0 conditional/generated, Terminal and raised-type PostgreSQL journeys have bounded
-passing receipts; the full repaired-tree gate and matching final artifacts remain required.
+passing receipts; the full repaired-tree gate remains required; matching final artifacts passed.
 The source-default/scalar bridge and real-PG stdio qualification runner are integrated; recorded
 focused receipts establish only their bounded cases. There is no current full-series acceptance.
 
@@ -111,10 +109,11 @@ The later catalog compile was interrupted with SIGINT/exit130. Staging
 `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`
 preserves that stop state. Reconstruction from pinned inputs remains an activation prerequisite.
 
-Next: finish focused native/model/PostgreSQL controls and repair their findings, then
-complete Q1 with matching native adapters/CLI and same-tree `just test-all`/`just hygiene`.
-Generated-wrapper and both raised-type PostgreSQL journeys passed in the failed full gate;
-Terminal also passed in the direct focused run. Fresh native reads/source calls/Summary controls, all 16 selection/composition controls and matching adapters passed. Native selected-domain explanation/JSON parity and the strengthened PostgreSQL/MCP association-purpose control passed. Direct Behavioral Structural failed its named-handoff positive after validation; repair, schema acceptance and full gates remain pending. Real-library activation remains separately authorized.
+Next: finish the repaired Behavioral Structural PostgreSQL positive, then the final full
+`just test-all`; scoped hygiene is complete with the operator-excluded parallel-review docs finding.
+Generated-wrapper and both raised-type journeys passed in the earlier failed gate; Terminal
+also passed directly. Final source schema/adapters/CLI and focused selection/read/Summary/packet
+controls passed. Q1 waits for the final functional gate. Real-library activation remains separately authorized.
 Gold/heldout/benchmarks are untouched. Cargo retains shared release intermediates/jobs16/frontend1; Nextest8 limits test processes, and independent builds may overlap.
 The end-of-turn hook owns formatting; scoped formatting/index/feature exceptions are operator-authorized.
 Six completed task/qualification worktrees were removed after integration and receipt preservation checks.

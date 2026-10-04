@@ -798,3 +798,38 @@ foreign scopes, missing/pruned inventories and missing/foreign same-run native p
 seeded unit controls, not a live provider qualification. The original actual PostgreSQL named
 handoff positive and all corruption controls remain required. Authorized final `just fmt` is
 in progress before rebuilding matching source-fingerprinted artifacts and final qualification.
+
+
+The additional operator-authorized final `UV_LOCK_TIMEOUT=3600 just fmt` and `just adr index`
+**passed**, 2026-10-04 (`948b2a88`, `439c7d1f`). Matching `just test-cli-build
+native-adapter-ready` **passed** (`lctx-enrichment-formatted-final-artifacts.log`). The reviewed
+schema migration and `INSTA_UPDATE=no` describe assertion **passed** (`b0256115`): current model
+`8f8ec7cdbf9ee0e21d61f84ac6698186320cb9b9d1f2e5c1ac543c33b77a6f86`, 878 relations;
+two nullable keyed selected-enumeration witness fields and fourteen invariant input additions,
+without relation removals, existing-field changes or codebook changes. Review receipts are
+`lctx-enrichment-formatted-final-schema-review.json` and
+`lctx-enrichment-formatted-final-snapshot-reviewed.diff` under `/home/paul/.cache/`.
+Only the owned empty qualification database was reset to this final model. Final scoped
+`just deps store-check` **passed**, zero generations/findings
+(`lctx-enrichment-formatted-repair-final-policy-store.log`).
+
+Final `UV_LOCK_TIMEOUT=3600 just clippy` **passed**, workspace/all targets with warnings denied
+(`lctx-enrichment-formatted-final-clippy.log`). Final scoped `just hygiene` **failed only at an
+unfinished parallel-review documentation link**, after agents, ADRs, fixtures, gold, rules,
+Ruff and Pyrefly passed (`lctx-enrichment-formatted-repair-final-hygiene.log`). The operator
+explicitly excludes findings related to that concurrent review; its untracked evidence and
+advisory catalog changes are preserved. Final deps/Clippy/scoped store-check separately passed.
+This is a **composite scoped hygiene pass with the parallel-review docs failure excluded**,
+not a claim that `just hygiene` exited zero. The actual repaired Behavioral Structural positive
+and same-tree full functional gate remain pending.
+
+
+The final actual Behavioral Structural positive **failed**, 2026-10-04, after 240.88s
+(`lctx-enrichment-structural-source-coverage-final.log`). The source-coverage correction is
+necessary but insufficient: ty's exact reaching predicate includes `IsNonTerminalCall`, while
+FlowUseObservation is deliberately a structural observation qualified by Always. The current
+helper requires use-condition implication of the reaching condition, so it still refuses that
+positive. The predicate remains intact; complete native inventory alone does not prove it true.
+The concrete next investigation is exact same-run native execution-region evidence and its
+explicit proof lineage. The full `UV_LOCK_TIMEOUT=3600 NEXTEST_TEST_THREADS=8 just test-all`
+is also running to expose any independent residual failures. Q1 remains open.
