@@ -13,8 +13,12 @@ fn inventory_replays_complete_and_incomplete_sets_and_refuses_forgery() {
         let mut wrong=f.inventory.clone();wrong.complete=!wrong.complete;let id=wrong.id();
         let altered_candidates=f.candidates.iter().cloned().map(|mut c|{c.inventory=id;c}).collect::<Vec<_>>();let altered_members=f.members.iter().cloned().map(|mut m|{m.inventory=id;m}).collect::<Vec<_>>();
         let original_support=f.flow.base.rows::<FlowUseInventorySupport>()[0].clone();let mut altered_support=original_support.clone();altered_support.assertion=id;
-        f.flow.base.put(vec![wrong]);f.flow.base.put(altered_candidates);f.flow.base.put(altered_members);f.flow.base.put(vec![altered_support]);assert!(f.check().is_err());
-        f.flow.base.put(vec![f.inventory.clone()]);f.flow.base.put(f.candidates.clone());f.flow.base.put(f.members.clone());f.flow.base.put(vec![original_support]);
+        if incomplete {
+            assert!(Batch::new(&f.flow.base.model,vec![wrong],&budget).is_err(),"complete flag with hidden candidate is refused before row admission");
+        } else {
+            f.flow.base.put(vec![wrong]);f.flow.base.put(altered_candidates);f.flow.base.put(altered_members);f.flow.base.put(vec![altered_support]);assert!(f.check().is_err());
+            f.flow.base.put(vec![f.inventory.clone()]);f.flow.base.put(f.candidates.clone());f.flow.base.put(f.members.clone());f.flow.base.put(vec![original_support]);
+        }
         let mut view=f.flow.base.rows::<FlowSourceViewObservation>()[0].clone();view.source=f.flow.base.foreign.source;f.flow.base.put(vec![view]);assert!(f.check().is_err());
     }
 }

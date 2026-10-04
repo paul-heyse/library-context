@@ -36,6 +36,8 @@ async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission
             ProviderCoverage,
             Condition,
             ConditionNode,
+            lctx_model::domain::assumptions::AssumptionSet,
+            lctx_model::domain::assumptions::AssumptionSetMember,
             AssertionQualification,
             SourceArtifact,
             ArtifactChunk,
