@@ -31,6 +31,7 @@ struct Facts {
     resolutions: Vec<LexicalResolution>,
     resolution_supports: Vec<LexicalResolutionSupport>,
     qualifications: Vec<AssertionQualification>,
+    providers: Vec<Provider>,
     coverage: Vec<ProviderCoverage>,
 }
 /// A resolution as the answers state it: the target's binding kind and site line, a builtin, or
@@ -147,6 +148,7 @@ async fn run(case: &str) -> Facts {
         resolutions: typed_driver::rows(&tables),
         resolution_supports: typed_driver::rows(&tables),
         qualifications: typed_driver::rows(&tables),
+        providers: typed_driver::rows(&tables),
         coverage: typed_driver::rows(&tables),
     }
 }
@@ -384,7 +386,9 @@ async fn each_scoping_rule_resolves_as_python_defines_it() {
     assert!(
         f.coverage
             .iter()
-            .filter(|c| c.family == FactFamily::Lexical)
+            .filter(|c| c.family == FactFamily::Lexical && f.providers.iter().any(|p| {
+                Some(p.id()) == c.provider && p.tool == "pyrefly"
+            }))
             .all(|c| c.status == CoverageStatus::CompleteUnderStatedModel),
         "{:?}",
         f.coverage
