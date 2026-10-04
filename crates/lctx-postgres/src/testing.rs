@@ -893,6 +893,7 @@ pub mod fixtures {
                         empty!(access, attempt, model; TaskReportObservation, TaskReportSupport, DeploymentObservation, DeploymentSupport)
                     }
                     "assemble" => {
+                        empty!(access, attempt, model; assumptions::AssumptionSetMember, assumptions::Assumption, assumptions::AssumptionUniverse);
                         rows!(access, attempt, model; assumptions::AssumptionSet => vec![assumptions::AssumptionSet::empty()], ProviderCoverage => coverage.clone(), CoverageScope => vec![scope.clone()],
                         Provider => vec![self.capture.clone(), self.pyrefly.clone(),self.deploy.clone()], AnalysisContext => vec![self.context.clone()],
                         ProviderRun => vec![capture_run.clone(),signature_run.clone(), deploy_run.clone()], RunFamily => capture_families.iter().chain(&signature_families).chain(&deploy_families).cloned().collect())

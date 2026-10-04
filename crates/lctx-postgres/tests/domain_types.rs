@@ -127,6 +127,7 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
             ProviderCoverage,
             Condition,
             ConditionNode,
+            assumptions::AssumptionSet,
             AssertionQualification,
             SourceArtifact,
             ArtifactChunk,

@@ -48,6 +48,7 @@ async fn call_site_caller_ownership_is_checked_in_persisted_content() {
                 ProviderCoverage,
                 Condition,
                 ConditionNode,
+                assumptions::AssumptionSet,
                 AssertionQualification,
                 SourceArtifact,
                 ArtifactChunk,
@@ -351,6 +352,7 @@ async fn call_signature_membership_support_ownership_and_readback() {
         let g = g_h.generation();
         macro_rules! copy { ($($row:expr),+ $(,)?) => { $(g_h.copy(&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
         copy!(
+            assumptions::AssumptionSet::empty(),
             input,
             origin,
             acquisition,
