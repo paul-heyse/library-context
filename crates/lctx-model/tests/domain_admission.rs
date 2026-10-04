@@ -1,9 +1,8 @@
 //! The facts frontier (plan D1; review focus #2): absent, unknown, unrequested and empty stay
 //! distinct from producer schedule through coverage to admission.
 use lctx_model::domain::{
-    admission::*, attribution::*, calls::*, declarations::*, deployment::*, documents::*, flow::*,
-    input::*, lexical::*, resources::ResourceBudget, ruff::*, source::*, stages::*, symbols::*,
-    syntax::*, transfer::local::TransferKey, types::*, *,
+    admission::*, attribution::*, calls::*, deployment::*, documents::*, flow::*,
+    input::*, resources::ResourceBudget, source::*, stages::*, transfer::local::TransferKey, *,
 };
 use std::{
     collections::BTreeMap,
@@ -124,247 +123,53 @@ fn write_acquire(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
     ready(access.write::<InputRevision, _>(async |_| Ok(())))?;
     ready(access.write::<SourceArtifact, _>(async |_| Ok(())))
 }
+// This conformance fixture assigns every native assertion pair to its covered family owner.
+// The registry owns the changing pair inventory; empty writes here exercise admission only.
+fn pyrefly_family(family: FactFamily) -> bool {
+    matches!(family, FactFamily::Syntax | FactFamily::Lexical | FactFamily::Signatures
+        | FactFamily::Calls | FactFamily::Types | FactFamily::Exports)
+}
 fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
-    macro_rules! all { ($($ty:ty),+) => { $( ready(access.write::<$ty, _>(async |_| Ok(())))?; )+ }; }
-    all!(
-        Occurrence,
-        SyntaxObservation,
-        SyntaxSupport,
-        RuffContextObservation,
-        RuffContextSupport,
-        lctx_model::domain::types::NativeSignatureObservation,
-        lctx_model::domain::types::NativeSignatureSupport,
-        lctx_model::domain::types::SignatureTypeObservation,
-        lctx_model::domain::types::SignatureTypeSupport,
-        lctx_model::domain::captures::CaptureObservation,
-        lctx_model::domain::captures::CaptureSupport,
-        lctx_model::domain::class_metadata::ClassMetadataObservation,
-        lctx_model::domain::class_metadata::ClassMetadataSupport,
-        lctx_model::domain::class_metadata::ClassMemberObservation,
-        lctx_model::domain::class_metadata::ClassMemberSupport,
-        lctx_model::domain::protocols::NativeExitObservation,
-        lctx_model::domain::protocols::NativeExitSupport,
-        lctx_model::domain::protocols::NativeTerminalObservation,
-        lctx_model::domain::protocols::NativeTerminalSupport,
-        lctx_model::domain::protocols::NativeExitDiagnostic,
-        lctx_model::domain::protocols::NativeExitDiagnosticSupport,
-        SyntaxPlacement,
-        SyntaxPlacementSupport,
-        SyntaxDetailObservation,
-        SyntaxDetailSupport,
-        DeclarationObservation,
-        DeclarationSupport,
-        DeclarationDecorator,
-        DeclarationDecoratorSupport,
-        ImportAliasObservation,
-        ImportAliasSupport,
-        DunderAllObservation,
-        DunderAllSupport,
-        ParameterSyntaxObservation,
-        ParameterSyntaxSupport,
-        ClassFieldSyntaxObservation,
-        ClassFieldSyntaxSupport,
-        CallSyntax,
-        CallSyntaxSupport,
-        LexicalScopeObservation,
-        LexicalScopeSupport,
-        BindingObservation,
-        BindingSupport,
-        ReferenceObservation,
-        ReferenceSupport,
-        LexicalResolution,
-        LexicalResolutionSupport,
-        Signature,
-        SignatureSupport,
-        SignatureEnumerationObservation,
-        SignatureEnumerationMember,
-        SignatureEnumerationSupport,
-        SymbolDeclaration,
-        SymbolDeclarationSupport,
-        ParameterDeclaration,
-        ParameterDeclarationSupport,
-        CallTarget,
-        CallTargetSupport,
-        CallResolution,
-        CallResolutionSupport,
-        ProviderCallSite,
-        ProviderCallSiteSupport,
-        TypeObservation,
-        TypeSupport,
-        TypePresentation,
-        TypePresentationSupport,
-        TypeVariableRestriction,
-        TypeRestrictionSupport,
-        FunctionBodyObservation,
-        FunctionBodySupport,
-        RecordFieldObservation,
-        RecordFieldSupport,
-        SymbolObservation,
-        SymbolSupport,
-        FunctionTraitObservation,
-        FunctionTraitSupport,
-        ClassTraitObservation,
-        ClassTraitSupport,
-        ClassAncestryObservation,
-        ClassAncestrySupport,
-        ParameterAnnotationObservation,
-        ParameterAnnotationSupport,
-        PublicNameObservation,
-        PublicNameSupport,
-        ParameterDocObservation,
-        ParameterDocSupport,
-        ModuleResolutionObservation,
-        ModuleResolutionSupport
-    );
+    ready(access.write::<Occurrence, _>(async |_| Ok(())))?;
+    ready(access.write::<SignatureEnumerationMember, _>(async |_| Ok(())))?;
+    macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
+        if pyrefly_family(<$assertion as lctx_model::domain::assertion::Assertion>::FAMILY) {
+            ready(access.write::<$assertion, _>(async |_| Ok(())))?;
+            ready(access.write::<$support, _>(async |_| Ok(())))?;
+        }
+    )*};}
+    lctx_model::native_analysis_pairs!(pairs);
     Ok(())
 }
 fn pyrefly_outputs() -> Vec<RelationUse> {
-    macro_rules! all { ($($ty:ty),+) => { vec![$(RelationUse::of::<$ty>()),+] }; }
-    all!(
-        Occurrence,
-        SyntaxObservation,
-        SyntaxSupport,
-        RuffContextObservation,
-        RuffContextSupport,
-        lctx_model::domain::types::NativeSignatureObservation,
-        lctx_model::domain::types::NativeSignatureSupport,
-        lctx_model::domain::types::SignatureTypeObservation,
-        lctx_model::domain::types::SignatureTypeSupport,
-        lctx_model::domain::captures::CaptureObservation,
-        lctx_model::domain::captures::CaptureSupport,
-        lctx_model::domain::class_metadata::ClassMetadataObservation,
-        lctx_model::domain::class_metadata::ClassMetadataSupport,
-        lctx_model::domain::class_metadata::ClassMemberObservation,
-        lctx_model::domain::class_metadata::ClassMemberSupport,
-        lctx_model::domain::protocols::NativeExitObservation,
-        lctx_model::domain::protocols::NativeExitSupport,
-        lctx_model::domain::protocols::NativeTerminalObservation,
-        lctx_model::domain::protocols::NativeTerminalSupport,
-        lctx_model::domain::protocols::NativeExitDiagnostic,
-        lctx_model::domain::protocols::NativeExitDiagnosticSupport,
-        SyntaxPlacement,
-        SyntaxPlacementSupport,
-        SyntaxDetailObservation,
-        SyntaxDetailSupport,
-        DeclarationObservation,
-        DeclarationSupport,
-        DeclarationDecorator,
-        DeclarationDecoratorSupport,
-        ImportAliasObservation,
-        ImportAliasSupport,
-        DunderAllObservation,
-        DunderAllSupport,
-        ParameterSyntaxObservation,
-        ParameterSyntaxSupport,
-        ClassFieldSyntaxObservation,
-        ClassFieldSyntaxSupport,
-        CallSyntax,
-        CallSyntaxSupport,
-        LexicalScopeObservation,
-        LexicalScopeSupport,
-        BindingObservation,
-        BindingSupport,
-        ReferenceObservation,
-        ReferenceSupport,
-        LexicalResolution,
-        LexicalResolutionSupport,
-        Signature,
-        SignatureSupport,
-        SignatureEnumerationObservation,
-        SignatureEnumerationMember,
-        SignatureEnumerationSupport,
-        SymbolDeclaration,
-        SymbolDeclarationSupport,
-        ParameterDeclaration,
-        ParameterDeclarationSupport,
-        CallTarget,
-        CallTargetSupport,
-        CallResolution,
-        CallResolutionSupport,
-        ProviderCallSite,
-        ProviderCallSiteSupport,
-        TypeObservation,
-        TypeSupport,
-        TypePresentation,
-        TypePresentationSupport,
-        TypeVariableRestriction,
-        TypeRestrictionSupport,
-        FunctionBodyObservation,
-        FunctionBodySupport,
-        RecordFieldObservation,
-        RecordFieldSupport,
-        SymbolObservation,
-        SymbolSupport,
-        FunctionTraitObservation,
-        FunctionTraitSupport,
-        ClassTraitObservation,
-        ClassTraitSupport,
-        ClassAncestryObservation,
-        ClassAncestrySupport,
-        ParameterAnnotationObservation,
-        ParameterAnnotationSupport,
-        PublicNameObservation,
-        PublicNameSupport,
-        ParameterDocObservation,
-        ParameterDocSupport,
-        ModuleResolutionObservation,
-        ModuleResolutionSupport
-    )
+    let mut outputs = vec![RelationUse::of::<Occurrence>(), RelationUse::of::<SignatureEnumerationMember>()];
+    macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
+        if pyrefly_family(<$assertion as lctx_model::domain::assertion::Assertion>::FAMILY) {
+            outputs.extend([RelationUse::of::<$assertion>(), RelationUse::of::<$support>()]);
+        }
+    )*};}
+    lctx_model::native_analysis_pairs!(pairs);
+    outputs
 }
 fn write_flow(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
-    macro_rules! all { ($($ty:ty),+) => { $( ready(access.write::<$ty, _>(async |_| Ok(())))?; )+ }; }
-    all!(
-        FlowUseObservation,
-        FlowUseSupport,
-        FlowDefinitionObservation,
-        FlowDefinitionSupport,
-        FlowReachingObservation,
-        FlowReachingSupport,
-        FlowNarrowingObservation,
-        FlowNarrowingSupport,
-        FlowSourceViewObservation,
-        FlowSourceViewSupport,
-        FlowValueObservation,
-        FlowValueSupport,
-        FlowRegionObservation,
-        FlowRegionSupport,
-        FlowTestObservation,
-        FlowTestSupport,
-        FlowTestLeafObservation,
-        FlowTestLeafSupport,
-        FlowAttributeLoadObservation,
-        FlowAttributeLoadSupport,
-        FlowValuePathObservation,
-        FlowValuePathSupport
-    );
+    macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
+        if <$assertion as lctx_model::domain::assertion::Assertion>::FAMILY == FactFamily::Flow {
+            ready(access.write::<$assertion, _>(async |_| Ok(())))?;
+            ready(access.write::<$support, _>(async |_| Ok(())))?;
+        }
+    )*};}
+    lctx_model::native_analysis_pairs!(pairs);
     Ok(())
 }
 fn flow_outputs() -> Vec<RelationUse> {
-    macro_rules! all { ($($ty:ty),+) => { vec![$(RelationUse::of::<$ty>()),+] }; }
-    all!(
-        FlowUseObservation,
-        FlowUseSupport,
-        FlowDefinitionObservation,
-        FlowDefinitionSupport,
-        FlowReachingObservation,
-        FlowReachingSupport,
-        FlowNarrowingObservation,
-        FlowNarrowingSupport,
-        FlowSourceViewObservation,
-        FlowSourceViewSupport,
-        FlowValueObservation,
-        FlowValueSupport,
-        FlowRegionObservation,
-        FlowRegionSupport,
-        FlowTestObservation,
-        FlowTestSupport,
-        FlowTestLeafObservation,
-        FlowTestLeafSupport,
-        FlowAttributeLoadObservation,
-        FlowAttributeLoadSupport,
-        FlowValuePathObservation,
-        FlowValuePathSupport
-    )
+    let mut outputs = Vec::new();
+    macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
+        if <$assertion as lctx_model::domain::assertion::Assertion>::FAMILY == FactFamily::Flow {
+            outputs.extend([RelationUse::of::<$assertion>(), RelationUse::of::<$support>()]);
+        }
+    )*};}
+    lctx_model::native_analysis_pairs!(pairs);
+    outputs
 }
 fn write_documents(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
     macro_rules! all { ($($ty:ty),+) => { $( ready(access.write::<$ty, _>(async |_| Ok(())))?; )+ }; }
