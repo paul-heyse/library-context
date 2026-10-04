@@ -4,7 +4,7 @@ use super::{
     ExactRuntimeException,
     evaluation::{
         CheckedEvaluation, EvaluationData, EvaluationError, Evaluator, ExpressionRequest,
-        ReleaseSafety, boundary, with_completion_syntax,
+        PreparedExecution, ReleaseSafety, boundary,
     },
     outcome::PendingOutcome,
 };
@@ -808,13 +808,29 @@ pub(crate) fn complete_with_contexts(
     contexts: &[super::context_execution::CheckedContextExecution],
     budget: &ResourceBudget,
 ) -> std::result::Result<std::result::Result<CheckedCompletion, ObligationKind>, ModelError> {
+    let prepared = PreparedExecution::new(data, request.input, request.context, budget)?;
+    complete_prepared_with_contexts(&prepared, request, evaluations, headers, definitions, contexts)
+}
+pub(crate) fn complete_prepared_with_contexts(
+    prepared: &PreparedExecution<'_>,
+    request: CompletionRequest,
+    evaluations: &[&CheckedEvaluation],
+    headers: &[(
+        &super::source_call::CheckedSourceBinding,
+        &super::source_call_records::SourceCallHeader,
+    )],
+    definitions: &[super::definition::CheckedDefinition],
+    contexts: &[super::context_execution::CheckedContextExecution],
+) -> std::result::Result<std::result::Result<CheckedCompletion, ObligationKind>, ModelError> {
+    let data = prepared.data();
+    let budget = prepared.budget();
     let expression_request = ExpressionRequest {
         input: request.input,
         context: request.context,
         owner: request.owner,
         expression: request.statement,
     };
-    with_completion_syntax(data, expression_request, budget, |syntax| {
+    prepared.with_completion_syntax(expression_request, |syntax| {
         let mut kernel = Kernel {
             data,
             request,
@@ -861,4 +877,65 @@ pub(crate) fn complete_with_contexts(
             _results_charge: kernel.charge,
         })
     })
+}
+
+#[cfg(test)]
+mod prepared_completion_tests {
+    use super::*;
+
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+
+    #[test]
+    fn prepared_completion_preserves_frame_and_refusal_authority() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut data = EvaluationData::new(&budget);
+        let request = CompletionRequest {
+            input: id(1),
+            context: id(2),
+            owner: id(3),
+            statement: id(4),
+        };
+        data.owners
+            .insert(normalized::entities::OccurrenceOwnership {
+                occurrence: request.statement,
+                owner: id(5),
+                entity: request.owner,
+            })
+            .unwrap();
+        let loaded = budget.reserved();
+        let prepared = PreparedExecution::new(&data, request.input, request.context, &budget).unwrap();
+        let retained = budget.reserved();
+        assert!(retained > loaded);
+        for _ in 0..3 {
+            let one_off = complete(&data, request, &[], &budget).unwrap().err().unwrap();
+            let reused = complete_prepared_with_contexts(&prepared, request, &[], &[], &[], &[])
+                .unwrap().err().unwrap();
+            assert_eq!(one_off, ObligationKind::MissingEvidence);
+            assert_eq!(reused, one_off);
+            assert_eq!(budget.reserved(), retained);
+        }
+        let outside_owner = CompletionRequest { owner: id(6), ..request };
+        assert_eq!(
+            complete_prepared_with_contexts(&prepared, outside_owner, &[], &[], &[], &[])
+                .unwrap().err(),
+            complete(&data, outside_owner, &[], &budget).unwrap().err(),
+        );
+        for foreign in [
+            CompletionRequest { input: id(7), ..request },
+            CompletionRequest { context: id(8), ..request },
+        ] {
+            assert_eq!(
+                complete_prepared_with_contexts(&prepared, foreign, &[], &[], &[], &[])
+                    .unwrap().err(),
+                Some(ObligationKind::IncompatibleContexts),
+            );
+        }
+        assert_eq!(budget.reserved(), retained);
+        drop(prepared);
+        assert_eq!(budget.reserved(), loaded);
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
+    }
 }

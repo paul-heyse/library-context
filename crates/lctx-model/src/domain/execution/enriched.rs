@@ -2,7 +2,7 @@
 //! SourceCall operation retains private header/body/frame evidence through this callback.
 use super::{
     completion::{CheckedCompletion, CompletionRequest},
-    evaluation::{CheckedEvaluation, ExpressionRequest},
+    evaluation::{CheckedEvaluation, ExpressionRequest, PreparedExecution},
     source_call::CheckedSourceBinding,
     source_call_records::{SourceCallData, SourceCallHeader, SourceInvocation},
 };
@@ -27,6 +27,8 @@ pub struct EnrichedFrame<'a> {
     definitions: Vec<super::definition::CheckedDefinition>,
     contexts: Vec<super::context_execution::CheckedContextExecution>,
     budget: &'a ResourceBudget,
+    // Retain one charged syntax index for this independently replayed frame.
+    prepared: PreparedExecution<'a>,
     _charge: charged::StateCharge,
 }
 impl<'a> EnrichedFrame<'a> {
@@ -174,14 +176,13 @@ impl<'a> EnrichedFrame<'a> {
             .filter(|(proof, _)| proof.request().owner == request.owner)
             .map(|(proof, _)| proof)
             .collect::<Vec<_>>();
-        super::completion::complete_with_contexts(
-            &self.data.evaluation,
+        super::completion::complete_prepared_with_contexts(
+            &self.prepared,
             request,
             &proofs,
             &self.headers,
             &self.definitions,
             &self.contexts,
-            self.budget,
         )
     }
     pub(crate) fn evaluation_premises(
@@ -235,6 +236,12 @@ pub fn with_frame<T>(
                 definitions: Vec::new(),
                 contexts: Vec::new(),
                 budget,
+                prepared: PreparedExecution::new(
+                    &data.evaluation,
+                    invocation.input,
+                    invocation.context,
+                    budget,
+                )?,
                 _charge: charged::StateCharge::new(budget, "enriched_private_evidence"),
             };
             let earlier = data.completed.earlier();

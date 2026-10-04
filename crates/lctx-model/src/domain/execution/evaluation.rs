@@ -1034,26 +1034,8 @@ pub(crate) fn with_completion_syntax<T>(
     budget: &ResourceBudget,
     visit: impl FnOnce(&mut Evaluator<'_>) -> Result<T, EvaluationError>,
 ) -> Result<Result<T, ObligationKind>, ModelError> {
-    let index = PreparedSyntax::new(data, request.context, budget)?;
-    let mut syntax = Evaluator {
-        index: &index,
-        data,
-        request,
-        remaining: super::completion::COMPLETION_WORK_LIMIT,
-        native: Vec::new(),
-        operands: Vec::new(),
-        available_entries: &[],
-        entries: Vec::new(),
-        entry_charges: Vec::new(),
-        charge: charged::StateCharge::new(budget, "base-completion-syntax"),
-        work_reason: ObligationKind::CompletionWorkLimit,
-        status: analysis::policy::EvidenceStatus::StructurallyObserved,
-    };
-    match visit(&mut syntax) {
-        Ok(value) => Ok(Ok(value)),
-        Err(EvaluationError::Boundary(reason)) => Ok(Err(reason)),
-        Err(EvaluationError::Model(error)) => Err(error),
-    }
+    let prepared = PreparedExecution::new(data, request.input, request.context, budget)?;
+    prepared.with_completion_syntax(request, visit)
 }
 
 /// Source name reads require the exact shared, privately derived entry proof. Merely naming a
@@ -1081,6 +1063,42 @@ impl<'a> PreparedExecution<'a> {
             index: PreparedSyntax::new(data, context, budget)?,
             budget: budget.clone(),
         })
+    }
+    pub(crate) fn data(&self) -> &EvaluationData {
+        self.data
+    }
+    pub(crate) fn budget(&self) -> &ResourceBudget {
+        &self.budget
+    }
+    /// Only the immutable admitted index is shared. Each completion owns fresh work and
+    /// proof state, charged to this same attempt pool.
+    pub(crate) fn with_completion_syntax<T>(
+        &self,
+        request: ExpressionRequest,
+        visit: impl FnOnce(&mut Evaluator<'_>) -> Result<T, EvaluationError>,
+    ) -> Result<Result<T, ObligationKind>, ModelError> {
+        if (request.input, request.context) != (self.input, self.context) {
+            return Ok(Err(ObligationKind::IncompatibleContexts));
+        }
+        let mut syntax = Evaluator {
+            index: &self.index,
+            data: self.data,
+            request,
+            remaining: super::completion::COMPLETION_WORK_LIMIT,
+            native: Vec::new(),
+            operands: Vec::new(),
+            available_entries: &[],
+            entries: Vec::new(),
+            entry_charges: Vec::new(),
+            charge: charged::StateCharge::new(&self.budget, "base-completion-syntax"),
+            work_reason: ObligationKind::CompletionWorkLimit,
+            status: analysis::policy::EvidenceStatus::StructurallyObserved,
+        };
+        match visit(&mut syntax) {
+            Ok(value) => Ok(Ok(value)),
+            Err(EvaluationError::Boundary(reason)) => Ok(Err(reason)),
+            Err(EvaluationError::Model(error)) => Err(error),
+        }
     }
     pub fn evaluate(
         &self,
@@ -1395,4 +1413,70 @@ pub(crate) fn context_binding_evaluation(
             _charge: charge,
         })
     })
+}
+
+#[cfg(test)]
+mod prepared_completion_tests {
+    use super::*;
+
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+
+    #[test]
+    fn prepared_completion_keeps_request_limits_independent() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let data = EvaluationData::new(&budget);
+        let request = ExpressionRequest {
+            input: id(1),
+            context: id(2),
+            owner: id(3),
+            expression: id(4),
+        };
+        let prepared = PreparedExecution::new(&data, request.input, request.context, &budget).unwrap();
+        let exhaust = |syntax: &mut Evaluator<'_>| {
+            syntax
+                .tick(super::super::completion::COMPLETION_WORK_LIMIT + 1)
+                .map_err(boundary)
+        };
+        assert_eq!(
+            prepared.with_completion_syntax(request, exhaust).unwrap(),
+            with_completion_syntax(&data, request, &budget, exhaust).unwrap(),
+        );
+        assert_eq!(
+            prepared.with_completion_syntax(request, exhaust).unwrap(),
+            Err(ObligationKind::CompletionWorkLimit),
+        );
+        assert_eq!(
+            prepared
+                .with_completion_syntax(request, |syntax| {
+                    syntax
+                        .tick(super::super::completion::COMPLETION_WORK_LIMIT)
+                        .map_err(boundary)
+                })
+                .unwrap(),
+            Ok(()),
+        );
+        let pressure = budget
+            .reserve("completion-test-pressure", budget.limit() - budget.reserved())
+            .unwrap();
+        let allocate = |syntax: &mut Evaluator<'_>| {
+            syntax.charge.grow(1)?;
+            Ok(())
+        };
+        assert!(matches!(
+            prepared.with_completion_syntax(request, allocate),
+            Err(ModelError::Resource { .. }),
+        ));
+        assert!(matches!(
+            with_completion_syntax(&data, request, &budget, allocate),
+            Err(ModelError::Resource { .. }),
+        ));
+        drop(pressure);
+        assert_eq!(
+            prepared.with_completion_syntax(request, allocate).unwrap(),
+            Ok(()),
+        );
+        assert_eq!(budget.reserved(), 0);
+    }
 }
