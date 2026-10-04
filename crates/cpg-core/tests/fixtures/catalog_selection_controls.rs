@@ -7,7 +7,18 @@ use lctx_model::domain::{stages::*, *};
 pub fn fixture_model() -> ValidatedModel {
     let mut relations = normalized_relations();
     relations.extend(analysis::early_relations());
-    relations.extend(super::catalog_runtime::relations());
+    // The shared conformance helper declares additional family diagnostics/support
+    // envelopes. These producers publish only their nominal publication relations.
+    relations.extend(analysis::local::relations());
+    relations.extend(local_semantics::relations());
+    relations.extend(local_theory::relations());
+    relations.extend(local_fields::relations());
+    relations.extend(transfer::local::relations());
+    macro_rules! local_outputs {($($field:ident:$ty:ty,)*)=>{$(relations.push(Relation::of::<$ty>());)*};}
+    lctx_model::local_semantic_outputs!(local_outputs);
+    relations.extend(analysis::base_evaluation::publication_relations());
+    relations.extend(analysis::base_completion::publication_relations());
+    relations.extend(analysis::source_call::publication_relations());
     relations.extend(execution::relations());
     relations.extend(analysis::enriched_execution::publication_relations());
     relations.extend(analysis::model::publication_relations());
@@ -28,7 +39,8 @@ pub fn fixture_model() -> ValidatedModel {
         .collect::<std::collections::BTreeSet<_>>();
     let mut pending = selected.iter().copied().collect::<Vec<_>>();
     while let Some(name) = pending.pop() {
-        let relation = registry.get(name).expect("fixture relation has a canonical owner");
+        let relation = registry.get(name)
+            .unwrap_or_else(|| panic!("fixture relation has no canonical owner: {name}"));
         let references = relation.fields().iter()
             .filter_map(|field| field.target().map(|(_, name)| name));
         let invariants = relation.invariants().iter()
