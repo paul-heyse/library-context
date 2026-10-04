@@ -63,7 +63,7 @@ impl std::io::Write for CountWrite {
         Ok(())
     }
 }
-fn serialized_len(value: &wire::CapabilityPacket) -> Result<usize, Error> {
+fn serialized_len<T: serde::Serialize>(value: &T) -> Result<usize, Error> {
     let mut count = CountWrite(0);
     serde_json::to_writer(&mut count, value).map_err(encoding)?;
     Ok(count.0)
@@ -977,13 +977,12 @@ impl Service {
                     let wire::Response::GetCapability(response) = response else {
                         return Err(Error::Contract);
                     };
-                    let bytes = serialized_len(&response.capability)?
+                    let bytes = serialized_len(&response)?
                         .checked_mul(32)
                         .and_then(|n| n.checked_add(8192))
                         .ok_or(Error::ResourceRefused("capability resource bytes"))?;
                     let _charge = budget.reserve("python-capability-resource-codec", bytes)?;
                     let text = response
-                        .capability
                         .resource_text()
                         .map_err(|_| Error::Contract)?;
                     if text.len() > ResourceLimits::default().expanded_response_bytes as usize {
@@ -995,16 +994,6 @@ impl Service {
                 .await
                 .map_err(error)
         })
-    }
-    fn resources(&self) -> PyResult<String> {
-        serde_json::to_string(&wire::resources()).map_err(invalid)
-    }
-    fn tools(&self) -> PyResult<String> {
-        serde_json::to_string(&wire::tools()).map_err(invalid)
-    }
-    #[pyo3(signature=(tool,output=false))]
-    fn schema(&self, tool: &str, output: bool) -> PyResult<String> {
-        serde_json::to_string(&wire::schema(tool, output).map_err(invalid)?).map_err(invalid)
     }
     fn shutdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let state = self.state.clone();

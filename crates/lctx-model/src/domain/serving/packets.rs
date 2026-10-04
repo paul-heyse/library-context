@@ -541,21 +541,6 @@ impl TypePresentationPacket {
     }
 }
 
-impl CapabilityPacket {
-    /// Keep canonical authored bytes intact; expose the same attributed claims as the packet.
-    pub fn resource_text(&self) -> Result<String, WireError> {
-        let mut text = self.rendered.as_str().to_owned();
-        text.push_str("\n\n## Assertion evidence\n");
-        for assertion in &self.assertions {
-            let metadata = serde_json::json!({"assertion":assertion.assertion,"status":assertion.status,"status_name":format!("{:?}",assertion.status),"kind":assertion.kind,"qualification":assertion.qualification,"claim_basis":assertion.claim_basis,"terminal_question":assertion.terminal_question,"text":assertion.text,"supports":assertion.supports});
-            text.push_str("\n```json\n");
-            text.push_str(&serde_json::to_string(&metadata)?);
-            text.push_str("\n```\n");
-        }
-        Ok(text)
-    }
-}
-
 // A location is available only inside this request's already granted original range.
 packet!(SourceCharacterizationSpan {artifact:Id<source::SourceArtifact>,start:u64,end:u64});
 packet!(SourceAnnotationPacket {annotation:Id<diagnostics::DiagnosticAnnotation>,location:Availability,span:Nullable<SourceCharacterizationSpan>,label:Nullable<Text<0,16384>>});

@@ -167,7 +167,7 @@ pub fn resources() -> Vec<ResourceDeclaration> {
         uri_template: CAPABILITY_RESOURCE_TEMPLATE,
         name: "capability",
         mime_type: "text/markdown",
-        description: "Canonical authored capability body with attributed assertion evidence, bound to the served generation.",
+        description: "Canonical authored capability body with snapshot and attributed assertion evidence. The URI is relative to this process and its pinned generation.",
     }]
 }
 pub fn wire_identity() -> WireIdentity {
@@ -195,7 +195,7 @@ pub fn wire_identity() -> WireIdentity {
     }
     sink.part(
         b"resource-presentation",
-        b"canonical-authored-body/attributed-assertion-evidence/v2",
+        b"canonical-authored-body/snapshot/process-relative/attributed-assertion-evidence/v3",
     );
     sink.part(
         b"resource-inventory",

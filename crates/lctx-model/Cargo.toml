@@ -8,6 +8,7 @@ publish.workspace = true
 
 # Pure: no DataFusion, SQLx or I/O (cutover plan §3.1). Depends on neither cpg-schema nor cpg-core.
 [dependencies]
+hex.workspace = true
 lctx-model-macros = { path = "../lctx-model-macros" }
 serde_arrow.workspace = true
 thiserror.workspace = true

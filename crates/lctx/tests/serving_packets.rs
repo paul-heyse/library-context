@@ -1194,7 +1194,7 @@ async fn large_optional_brief_keeps_the_complete_core_and_resumes_with_expanded_
             assert_eq!(support.proof.len(), 3);
         }
     }
-    let resource = capability.resource_text().unwrap();
+    let resource = standalone.resource_text().unwrap();
     assert!(resource.starts_with(capability.rendered.as_str()));
     for claim in &capability.assertions {
         assert!(resource.contains(&format!("\"status_name\":\"{:?}\"", claim.status)));

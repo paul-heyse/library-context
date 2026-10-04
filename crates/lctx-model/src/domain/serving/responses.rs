@@ -33,6 +33,27 @@ response!(SearchCapabilitiesResponse {results:SectionPage<CapabilityPacket>,chan
 response!(GetCapabilityResponse {
     capability: CapabilityPacket
 });
+impl GetCapabilityResponse {
+    /// Keep canonical authored bytes intact; expose the same attributed claims as the packet.
+    pub fn resource_text(&self) -> Result<String, WireError> {
+        let mut text = self.capability.rendered.as_str().to_owned();
+        text.push_str("\n\n## Snapshot metadata\n\n```json\n");
+        text.push_str(&serde_json::to_string(&serde_json::json!({
+            "generation": self.generation,
+            "capability": self.capability.capability,
+            "uri_scope": "process"
+        }))?);
+        text.push_str("\n```\n\n## Assertion evidence\n");
+        for assertion in &self.capability.assertions {
+            let metadata = serde_json::json!({"assertion":assertion.assertion,"status":assertion.status,"status_name":format!("{:?}",assertion.status),"kind":assertion.kind,"qualification":assertion.qualification,"claim_basis":assertion.claim_basis,"terminal_question":assertion.terminal_question,"text":assertion.text,"supports":assertion.supports});
+            text.push_str("\n```json\n");
+            text.push_str(&serde_json::to_string(&metadata)?);
+            text.push_str("\n```\n");
+        }
+        Ok(text)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NativeAssessmentPacket {

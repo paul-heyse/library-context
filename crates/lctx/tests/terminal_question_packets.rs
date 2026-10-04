@@ -302,7 +302,7 @@ async fn terminal_questions_reach_actual_catalog_briefs_without_completion_autho
                 .await
                 .unwrap();
             assert_eq!(standalone.capability, *brief);
-            let resource = brief.resource_text().unwrap();
+            let resource = standalone.resource_text().unwrap();
             assert!(resource.contains("\"terminal_question\""));
             assert!(resource.contains("\"cleanup_unknown\":true"));
         }

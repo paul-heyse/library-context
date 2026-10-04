@@ -60,32 +60,12 @@ impl Cursor {
         CursorIdentity(sink.finish())
     }
     pub fn encode(&self) -> Result<CursorToken, WireError> {
-        let bytes = serde_json::to_vec(self)?;
-        let mut text = String::with_capacity(bytes.len() * 2);
-        use std::fmt::Write;
-        for byte in bytes {
-            write!(&mut text, "{byte:02x}").expect("writing string");
-        }
-        CursorToken::new(text)
+        CursorToken::new(hex::encode(serde_json::to_vec(self)?))
     }
     pub fn decode(token: &CursorToken, expected: &CursorBinding) -> Result<Self, WireError> {
-        let text = token.as_str();
-        if !text.len().is_multiple_of(2) || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(WireError::Invalid("cursor encoding".into()));
-        }
-        let bytes: Result<Vec<_>, _> = text
-            .as_bytes()
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| {
-                std::str::from_utf8(c)
-                    .ok()
-                    .and_then(|s| u8::from_str_radix(s, 16).ok())
-                    .ok_or_else(|| WireError::Invalid("cursor encoding".into()))
-            })
-            .collect();
-        let cursor: Self = serde_json::from_slice(&bytes?)?;
+        let bytes = hex::decode(token.as_str())
+            .map_err(|_| WireError::Invalid("cursor encoding".into()))?;
+        let cursor: Self = serde_json::from_slice(&bytes)?;
         if &cursor.binding != expected {
             return Err(WireError::Continuation("generation, request, policy, representation, group, section, member, ordering or channel changed".into()));
         }

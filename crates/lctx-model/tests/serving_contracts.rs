@@ -749,17 +749,27 @@ fn capability_assertion_status_is_structured_and_visible_without_rewriting_autho
     observed["section"] = json!(1);
     observed["text"] = json!("Observed access.");
     let capability:CapabilityPacket=serde_json::from_value(json!({"capability":vec![6u8;16],"title":"API","rendered":"Original authored body.\n","assertions":[claim,observed],"originals":[],"availability":{"status":"available"},"unreviewed":true,"documentation_only":true})).unwrap();
-    let resource = capability.resource_text().unwrap();
+    let response = GetCapabilityResponse {
+        generation: GenerationKey([7; 16]),
+        capability,
+    };
+    let resource = response.resource_text().unwrap();
     assert!(resource.starts_with("Original authored body.\n"));
-    assert_eq!(capability.rendered.as_str(), "Original authored body.\n");
+    assert_eq!(response.capability.rendered.as_str(), "Original authored body.\n");
+    let snapshot_text = resource.split("## Snapshot metadata\n\n```json\n").nth(1).unwrap().split("\n```").next().unwrap();
+    let snapshot: serde_json::Value = serde_json::from_str(snapshot_text).unwrap();
+    assert_eq!(snapshot["generation"], json!(vec![7u8; 16]));
+    assert_eq!(snapshot["capability"], json!(vec![6u8; 16]));
+    assert_eq!(snapshot["uri_scope"], "process");
+    let mut other = response.clone();
+    other.generation = GenerationKey([8; 16]);
+    assert_ne!(other.resource_text().unwrap(), resource);
+    assert_eq!(other.capability.rendered, response.capability.rendered);
     assert!(resource.contains("\"status_name\":\"Documented\""));
     assert!(resource.contains("\"status_name\":\"StructurallyObserved\""));
     assert!(resource.contains("Authored result."));
     assert!(resource.contains("Observed access."));
-    let response = Response::GetCapability(GetCapabilityResponse {
-        generation: GenerationKey([7; 16]),
-        capability,
-    });
+    let response = Response::GetCapability(response);
     let encoded = response.to_json().unwrap();
     assert!(tool_result("get_capability", &encoded, false).is_ok());
 }
