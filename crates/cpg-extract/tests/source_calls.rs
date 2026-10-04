@@ -486,7 +486,7 @@ async fn retained_source_shapes_preserve_invocation_and_frame_boundaries() {
                                 eprintln!("SOURCE_CALL_SIGNATURE_COVERAGE {coverage:?}");
                             }
                         }
-                        for boundary in f.rows::<attribution::SubjectBoundary>().iter().filter(|b| {
+                        for boundary in f.rows::<syntax::SubjectBoundary>().iter().filter(|b| {
                             b.scope == signature.scope && b.family == attribution::FactFamily::Signatures
                         }).take(8) {
                             eprintln!("SOURCE_CALL_SIGNATURE_BOUNDARY {boundary:?}");
