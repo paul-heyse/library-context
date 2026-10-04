@@ -16,6 +16,8 @@ pub(super) fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelErro
 }
 pub struct Data {
     pub projection: ProjectionData,
+    pub assumptions: assumptions::AssumptionIndex,
+    pub(crate) ownership: ownership::ScopeIndex,
     pub events: EventOutput,
     pub handoffs: super::handoffs::Data,
     pub controls: super::controls::Data,
@@ -32,6 +34,8 @@ impl Data {
             handoffs: super::handoffs::Data::new(b),
             controls: super::controls::Data::new(b),
             projection: ProjectionData::new(b),
+            assumptions: assumptions::AssumptionIndex::new(b),
+            ownership: ownership::ScopeIndex::new(b, "structural scopes"),
             events: EventOutput::new(b),
             uses: Rows::new(b),
             members: Rows::new(b),
@@ -46,13 +50,15 @@ impl Data {
         name: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<bool, ModelError> {
+        let assumptions = self.assumptions.visit(name, batch)?;
+        let ownership = self.ownership.visit(name, batch)?;
         let a = self.projection.visit(name, batch)?;
         let b = self.events.visit(name, batch)?;
         let c = self.handoffs.visit(name, batch)?;
         let d = self.controls.visit(name, batch)?;
         macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(if name==<$ty>::NAME{self.$field.decode(batch)?;return Ok(true);})*};}
         rows! {uses:input::ArtifactUse,members:catalog::CatalogMember,callables:catalog::CatalogCallable,core_links:catalog::CatalogMemberInvocation,core_invocations:analysis::catalog_core::AnalysisInvocation,assessments:EffectiveCallableAssessment,}
-        Ok(a || b || c || d)
+        Ok(a || b || c || d || assumptions || ownership)
     }
 }
 fn in_roots(settings: &AnalyticsConfiguration, path: &str) -> bool {
@@ -424,6 +430,8 @@ fn step_records(
 impl Data {
     pub fn validation_inputs() -> Vec<ValidationInput> {
         let mut inputs = ProjectionData::validation_inputs();
+        inputs.extend(assumptions::AssumptionIndex::inputs());
+        inputs.extend(ownership::ScopeIndex::inputs());
         inputs.extend(EventOutput::validation_inputs());
         inputs.extend(super::handoffs::Data::inputs());
         inputs.extend(super::controls::Data::inputs());
@@ -477,6 +485,8 @@ pub fn definition(
     method.encode(&mut hash);
     ContentHash::of(include_bytes!("build.rs")).encode(&mut hash);
     ContentHash::of(include_bytes!("controls.rs")).encode(&mut hash);
+    ContentHash::of(include_bytes!("outcomes.rs")).encode(&mut hash);
+    ContentHash::of(include_bytes!("qualifications.rs")).encode(&mut hash);
     ContentHash::of(include_bytes!("handoffs.rs")).encode(&mut hash);
     ContentHash::of(include_bytes!("conclusions.rs")).encode(&mut hash);
     ContentHash::of(include_bytes!("../analysis/delegation.rs")).encode(&mut hash);
@@ -530,6 +540,8 @@ pub fn stage(
         assertion::AssertionQualification,
         conditions::Condition,
         conditions::ConditionNode,
+        assumptions::AssumptionSet,
+        assumptions::AssumptionSetMember,
         publication::Invocation,
         publication::InvocationSource,
         publication::AnalysisInput,

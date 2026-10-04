@@ -4,6 +4,8 @@ pub mod conclusions;
 pub mod controls;
 pub mod frames;
 pub mod handoffs;
+pub mod outcomes;
+mod qualifications;
 pub use conclusions::{Conclusion, ConclusionSource};
 mod records;
 use crate::domain::{normalized::Rows, resources::ResourceBudget, *};
@@ -46,13 +48,19 @@ macro_rules! structural_outputs {
     };
 }
 macro_rules! outputs {($($field:ident:$ty:ty,)*)=>{
- pub struct Output {pub conclusion_qualifications:Rows<assertion::AssertionQualification>,$(pub $field:Rows<$ty>,)*}
+ pub struct Output {pub conclusion_qualifications:Rows<assertion::AssertionQualification>,pub flow_conditions:Rows<conditions::Condition>,pub flow_condition_nodes:Rows<conditions::ConditionNode>,pub flow_assumption_sets:Rows<assumptions::AssumptionSet>,pub flow_assumption_members:Rows<assumptions::AssumptionSetMember>,$(pub $field:Rows<$ty>,)*}
  impl Output {
- pub fn new(b:&ResourceBudget)->Self{Self{conclusion_qualifications:Rows::new(b),$($field:Rows::new(b),)*}}
- pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if name==<$ty>::NAME{self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
- pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
+ pub fn new(b:&ResourceBudget)->Self{Self{conclusion_qualifications:Rows::new(b),flow_conditions:Rows::new(b),flow_condition_nodes:Rows::new(b),flow_assumption_sets:Rows::new(b),flow_assumption_members:Rows::new(b),$($field:Rows::new(b),)*}}
+ pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
+ if name==assertion::AssertionQualification::NAME{self.conclusion_qualifications.decode(batch)?;return Ok(true);}
+ if name==conditions::Condition::NAME{self.flow_conditions.decode(batch)?;return Ok(true);}
+ if name==conditions::ConditionNode::NAME{self.flow_condition_nodes.decode(batch)?;return Ok(true);}
+ if name==assumptions::AssumptionSet::NAME{self.flow_assumption_sets.decode(batch)?;return Ok(true);}
+ if name==assumptions::AssumptionSetMember::NAME{self.flow_assumption_members.decode(batch)?;return Ok(true);}
+$(if name==<$ty>::NAME{self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
+ pub fn validation_inputs()->Vec<ValidationInput>{vec![ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(stages::PublicationBoundary::Structural),ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(stages::PublicationBoundary::Structural),ValidationInput::of::<conditions::ConditionNode>(&["id"]).at_epoch(stages::PublicationBoundary::Structural),ValidationInput::of::<assumptions::AssumptionSet>(&["id"]).at_epoch(stages::PublicationBoundary::Structural),ValidationInput::of::<assumptions::AssumptionSetMember>(&["id"]).at_epoch(stages::PublicationBoundary::Structural),$(ValidationInput::of::<$ty>(&["id"]),)*]}
  pub fn matches(&self,expected:&Self)->Result<(),ModelError>{$(if !self.$field.same(&expected.$field){return Err(ModelError::Invalid(format!("structural inventory differs: {}",<$ty>::NAME)));})*Ok(())}
- pub fn extend(&mut self,other:Self)->Result<(),ModelError>{for row in other.conclusion_qualifications.iter(){self.conclusion_qualifications.insert(row.clone())?;}$(for row in other.$field.iter(){self.$field.insert(row.clone())?;})*Ok(())}
+ pub fn extend(&mut self,other:Self)->Result<(),ModelError>{for row in other.flow_conditions.iter(){self.flow_conditions.insert(row.clone())?;}for row in other.flow_condition_nodes.iter(){self.flow_condition_nodes.insert(row.clone())?;}for row in other.flow_assumption_sets.iter(){self.flow_assumption_sets.insert(row.clone())?;}for row in other.flow_assumption_members.iter(){self.flow_assumption_members.insert(row.clone())?;}for row in other.conclusion_qualifications.iter(){self.conclusion_qualifications.insert(row.clone())?;}$(for row in other.$field.iter(){self.$field.insert(row.clone())?;})*Ok(())}
  }
 };}
 crate::structural_outputs!(outputs);

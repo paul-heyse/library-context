@@ -258,6 +258,7 @@ fn flow(
     proof: &LocalContribution,
     alias: Option<Id<handoffs::ValueSource>>,
     out: &mut Output,
+    budget: &resources::ResourceBudget,
 ) -> Result<bool, ModelError> {
     let FlowInputs { d, h, base } = flow_inputs;
     let attempt = need(&h.attempts, binding.attempt)?;
@@ -288,6 +289,8 @@ fn flow(
     if caller.entity != entry.owner || q.context != entry.context {
         return Ok(false);
     }
+    let local_q = need(&h.entry.qualifications, proof.qualification)?;
+    let q = super::qualifications::intersect(base, q, local_q, site.source, out, budget)?;
     let (catches, tested) = suppression(h, d, site, entry.formal, entry.owner, q.context)?;
     let modality = if matches!(
         base.events.alternative_sources.get(alt.source),
@@ -360,7 +363,7 @@ pub fn produce(
             {
                 continue;
             }
-            flow(FlowInputs { d, h, base }, frame, binding, proof, None, out)?;
+            flow(FlowInputs { d, h, base }, frame, binding, proof, None, out, budget)?;
         }
         if bound
             && argument.syntax_kind == SyntaxKind::ExprName
@@ -383,6 +386,7 @@ pub fn produce(
                         proof,
                         Some(alias.id()),
                         out,
+                        budget,
                     )?;
                 }
             }

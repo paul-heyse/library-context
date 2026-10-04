@@ -84,7 +84,13 @@ pub async fn produce(
         analysis::AnalysisDefinition,
         analysis::MethodParameters,
         analysis::local::Invocation,
-        analysis::local::AnalysisOutcome
+        analysis::local::AnalysisOutcome,
+        assumptions::AssumptionSet,
+        assumptions::AssumptionSetMember,
+        assumptions::Assumption,
+        assumptions::AssumptionUniverse,
+        input::CorpusLibrary,
+        input::InputDistribution
     );
     macro_rules! expected_inputs {($($field:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>(){read!($ty);})*};}
     lctx_model::expected_domain_inputs!(expected_inputs);
@@ -187,7 +193,6 @@ pub async fn produce(
         )?)?;
         tokio::task::yield_now().await;
     }
-    let access_profile = access.profile();
     let mut output = StageOutput::new(
         access,
         attempt,
@@ -209,6 +214,10 @@ pub async fn produce(
         assertion::AssertionQualification,
         results.conclusion_qualifications
     );
+    write!(conditions::Condition, results.flow_conditions);
+    write!(conditions::ConditionNode, results.flow_condition_nodes);
+    write!(assumptions::AssumptionSet, results.flow_assumption_sets);
+    write!(assumptions::AssumptionSetMember, results.flow_assumption_members);
     output.declare::<conditions::Condition>()?;
     output.declare::<conditions::ConditionNode>()?;
     let (condition, nodes) = conditions::Diagram::always().records();
@@ -230,56 +239,13 @@ pub async fn produce(
         owner::CoverageRequirement,
         owner::CoverageRequiredSource
     );
-    for invocation in context.invocations.iter() {
+    let outcomes = semantic::outcomes::derive(&context, &results, runtime.budget())?;
+    for outcome in outcomes.iter() {
+        let invocation = context.invocations.get(outcome.invocation).unwrap();
         let definition = context.definitions.get(invocation.definition).unwrap();
-        let capability = match definition.method {
-            analysis::AnalysisMethod::Delegation => analysis::AnalysisCapability::Delegation,
-            analysis::AnalysisMethod::DirectUsage => analysis::AnalysisCapability::DirectUsage,
-            analysis::AnalysisMethod::Handoffs => analysis::AnalysisCapability::Handoffs,
-            analysis::AnalysisMethod::Controls => analysis::AnalysisCapability::Controls,
-            _ => unreachable!(),
-        };
-        let bounded = definition.method == analysis::AnalysisMethod::Delegation
-            && results
-                .frames
-                .iter()
-                .filter(|f| f.invocation == invocation.id())
-                .any(|f| {
-                    results
-                        .traversals
-                        .iter()
-                        .any(|t| t.frame == f.id() && t.stop.is_some())
-                })
-            || definition.method == analysis::AnalysisMethod::Controls
-                && results
-                    .frames
-                    .iter()
-                    .filter(|f| f.control_invocation == invocation.id())
-                    .any(|f| {
-                        results
-                            .control_traversals
-                            .iter()
-                            .any(|t| t.frame == f.id() && t.stop.is_some())
-                    });
-        let controls = definition.method == analysis::AnalysisMethod::Controls;
-        let (status, reason) = if controls && access_profile == Profile::Catalog {
-            (
-                analysis::AnalysisStatus::NotRequested,
-                Some(obligation::ObligationKind::NotRequested),
-            )
-        } else if bounded {
-            (
-                analysis::AnalysisStatus::Partial,
-                Some(obligation::ObligationKind::BudgetReached),
-            )
-        } else if controls {
-            (
-                analysis::AnalysisStatus::Partial,
-                Some(obligation::ObligationKind::IncompleteDomain),
-            )
-        } else {
-            (analysis::AnalysisStatus::Completed, None)
-        };
+        let capability = semantic::outcomes::capability(definition.method)?;
+        let status = outcome.status;
+        let reason = outcome.reason;
         let domain = owner::coverage::admit(
             invocation,
             definition,

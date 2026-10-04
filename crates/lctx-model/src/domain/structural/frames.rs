@@ -16,6 +16,7 @@ pub struct Context {
     pub parameters: Rows<analysis::MethodParameters>,
     pub local: Rows<analysis::local::Invocation>,
     pub local_outcomes: Rows<analysis::local::AnalysisOutcome>,
+    pub outcomes: Rows<owner::AnalysisOutcome>,
     pub graphs: ProjectionOutput,
     pub invocations: Rows<owner::Invocation>,
     pub sources: Rows<owner::InvocationSource>,
@@ -29,6 +30,7 @@ impl Context {
             parameters: Rows::new(b),
             local: Rows::new(b),
             local_outcomes: Rows::new(b),
+            outcomes: Rows::new(b),
             graphs: ProjectionOutput::new(b),
             invocations: Rows::new(b),
             sources: Rows::new(b),
@@ -40,7 +42,7 @@ impl Context {
             return Ok(true);
         }
         macro_rules! rows {($($f:ident:$ty:ty,)*)=>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*};}
-        rows! {settings:AnalyticsConfiguration,definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,local:analysis::local::Invocation,local_outcomes:analysis::local::AnalysisOutcome,invocations:owner::Invocation,sources:owner::InvocationSource,inputs:owner::AnalysisInput,}
+        rows! {settings:AnalyticsConfiguration,definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,local:analysis::local::Invocation,local_outcomes:analysis::local::AnalysisOutcome,outcomes:owner::AnalysisOutcome,invocations:owner::Invocation,sources:owner::InvocationSource,inputs:owner::AnalysisInput,}
         Ok(false)
     }
     pub fn configuration(&self) -> Result<&AnalyticsConfiguration, ModelError> {
@@ -62,6 +64,7 @@ impl Context {
             ValidationInput::of::<analysis::MethodParameters>(&["id"]),
             ValidationInput::of::<analysis::local::Invocation>(&["id"]),
             ValidationInput::of::<analysis::local::AnalysisOutcome>(&["id"]),
+            ValidationInput::of::<owner::AnalysisOutcome>(&["id"]),
             ValidationInput::of::<owner::Invocation>(&["id"]),
             ValidationInput::of::<owner::InvocationSource>(&["id"]),
             ValidationInput::of::<owner::AnalysisInput>(&["id"]),
@@ -169,6 +172,9 @@ pub fn verify(
     // Unsheduled owner rows are empty during earlier scoped generations. Once C0 frames exist,
     // the structural stage must publish both methods; coupled removal does not hide the domain.
     if parents.is_empty() && c.invocations.is_empty() && actual.frames.is_empty() {
+        if !c.outcomes.is_empty() {
+            return Err(invalid("unscheduled Structural outcomes are not empty"));
+        }
         return actual.matches(&Output::new(b));
     }
     let settings = c.configuration()?;
@@ -219,6 +225,38 @@ pub fn verify(
             "structural exact invocation/parent membership differs",
         ));
     }
+    if !c.outcomes.same(&outcomes::derive(c, &expected, b)?) {
+        return Err(invalid("Structural outcomes differ from retained semantic inventory"));
+    }
+    for qualification in expected.conclusion_qualifications.iter() {
+        // Static conclusion qualification checks have their own invariant. Argument-flow
+        // qualifiers are additionally replayed here, including their complete generated basis.
+        if expected.argument_flows.iter().any(|f| f.qualification == qualification.id())
+            && actual.conclusion_qualifications.get(qualification.id()) != Some(qualification)
+        {
+            return Err(invalid("Structural argument qualification differs from replay"));
+        }
+    }
+    for condition in expected.flow_conditions.iter() {
+        if actual.flow_conditions.get(condition.id()) != Some(condition) {
+            return Err(invalid("Structural argument condition differs from replay"));
+        }
+    }
+    for node in expected.flow_condition_nodes.iter() {
+        if actual.flow_condition_nodes.get(node.id()) != Some(node) {
+            return Err(invalid("Structural argument condition node differs from replay"));
+        }
+    }
+    for set in expected.flow_assumption_sets.iter() {
+        if actual.flow_assumption_sets.get(set.id()) != Some(set) {
+            return Err(invalid("Structural argument assumption basis differs from replay"));
+        }
+    }
+    for member in expected.flow_assumption_members.iter() {
+        if actual.flow_assumption_members.get(member.id()) != Some(member) {
+            return Err(invalid("Structural argument assumption membership differs from replay"));
+        }
+    }
     actual.matches(&expected)
 }
 pub(super) fn invariants() -> Vec<Invariant> {
@@ -247,6 +285,21 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn visit_input(&mut self, input: &ValidationInput, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        if input.prefix() == Some(stages::PublicationBoundary::Local) {
+            if !self.data.visit(input.name(), batch)? {
+                return Err(invalid("undeclared Structural predecessor vocabulary"));
+            }
+            return Ok(());
+        }
+        if input.prefix() == Some(stages::PublicationBoundary::Structural) {
+            if !self.output.visit(input.name(), batch)? {
+                return Err(invalid("undeclared Structural output vocabulary"));
+            }
+            return Ok(());
+        }
+        self.visit(input.name(), batch)
+    }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         let data = self.data.visit(n, b)?;
         let context = self.context.visit(n, b)?;

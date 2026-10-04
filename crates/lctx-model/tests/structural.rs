@@ -200,6 +200,7 @@ fn fixture() -> (ResourceBudget, Data, Context) {
         c.invocations.insert(row).unwrap();
     }
     assert_eq!(d.projection.refs.get(entity).unwrap().id(), entity);
+    c.outcomes = outcomes::derive(&c, &produce(&d, &c, &b), &b).unwrap();
     (b, d, c)
 }
 fn produce(d: &Data, c: &Context, b: &ResourceBudget) -> Output {
@@ -302,6 +303,65 @@ fn coupled_frame_removal_foreign_settings_and_parent_shrink_refuse() {
     c.settings = Rows::new(&b);
     c.settings.insert(changed).unwrap();
     assert!(frames::verify(&d, &c, &out, &b).is_err());
+}
+#[test]
+fn structural_outcomes_are_exact_replayed_semantic_results() {
+    let (b, d, mut c) = fixture();
+    let out = produce(&d, &c, &b);
+    assert_eq!(c.outcomes.len(), 4);
+    let control = c.outcomes.iter().find(|r| r.status == analysis::AnalysisStatus::NotRequested).unwrap().clone();
+    assert_eq!(control.reason, Some(obligation::ObligationKind::NotRequested));
+    assert_eq!(c.outcomes.iter().filter(|r| r.status == analysis::AnalysisStatus::Completed).count(), 3);
+    c.outcomes = Rows::new(&b);
+    assert!(frames::verify(&d, &c, &out, &b).is_err());
+    let correct = outcomes::derive(&c, &out, &b).unwrap();
+    for row in correct.iter() {
+        let mut row = row.clone();
+        if row.invocation == control.invocation {
+            row.status = analysis::AnalysisStatus::Completed;
+            row.reason = None;
+        }
+        c.outcomes.insert(row).unwrap();
+    }
+    assert!(frames::verify(&d, &c, &out, &b).is_err());
+    c.outcomes = correct;
+    frames::verify(&d, &c, &out, &b).unwrap();
+    let tiny = ResourceBudget::fixed(1).unwrap();
+    assert!(outcomes::derive(&c, &out, &tiny).is_err());
+    assert_eq!(tiny.reserved(), 0);
+}
+#[test]
+fn structural_stops_and_earlier_frontier_outcomes_keep_distinct_meanings() {
+    let (b, d, c) = fixture();
+    let mut out = produce(&d, &c, &b);
+    let mut frame = out.frames.iter().next().unwrap().clone();
+    frame.controls_requested = true;
+    out.frames = Rows::new(&b);
+    out.frames.insert(frame.clone()).unwrap();
+    let no_stop = outcomes::derive(&c, &out, &b).unwrap();
+    assert!(no_stop.iter().any(|r| r.invocation == frame.control_invocation
+        && r.status == analysis::AnalysisStatus::Partial
+        && r.reason == Some(obligation::ObligationKind::IncompleteDomain)));
+    out.traversals.insert(Traversal {
+        frame: frame.id(), seed: id(99), stop: Some(TraversalStop::Depth), partial: true,
+        examined_vertices: 1, examined_arcs: 0,
+    }).unwrap();
+    out.control_traversals.insert(controls::ControlTraversal {
+        frame: frame.id(), seed: id(99), formal: id(98), stop: Some(TraversalStop::Arcs),
+        vertices: 1, arcs: 0,
+    }).unwrap();
+    let stopped = outcomes::derive(&c, &out, &b).unwrap();
+    for invocation in [frame.invocation, frame.control_invocation] {
+        assert!(stopped.iter().any(|r| r.invocation == invocation
+            && r.status == analysis::AnalysisStatus::Partial
+            && r.reason == Some(obligation::ObligationKind::BudgetReached)));
+    }
+    let empty_data = Data::new(&b);
+    let mut empty_context = Context::new(&b);
+    let empty = Output::new(&b);
+    frames::verify(&empty_data, &empty_context, &empty, &b).unwrap();
+    empty_context.outcomes.insert(stopped.iter().next().unwrap().clone()).unwrap();
+    assert!(frames::verify(&empty_data, &empty_context, &empty, &b).is_err());
 }
 #[test]
 fn static_conclusions_retain_exact_source_and_refuse_promotion_or_erasure() {

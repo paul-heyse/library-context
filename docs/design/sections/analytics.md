@@ -30,6 +30,13 @@ relations.
 
 Every method records input/context, definition and parameters, projection/version, universe,
 output selector, direction, multiplicity, weight policy, seed, library identity and diagnostics.
+Structural outcomes are derived and replayed by `domain::structural::outcomes` over all four exact
+method invocations and retained stop inventories (**Implemented, focused-Tested 2026-10-04**;
+actual publication adversarial controls pending). Core publishes those results without interpreting
+status. Source coverage is a separate fold. Conditional argument flows compose call and Local
+qualifications, including canonical conditions and assumption sets; publication reads immutable Local
+premises separately from current Structural vocabulary.
+
 A selected method's unsupported/budget outcome is explicit. Disabled techniques publish
 NotRequested; missing vectors or candidates are not an empty successful analysis. A nominal
 Analytic frame links the complete selected technique set and its outcomes.
