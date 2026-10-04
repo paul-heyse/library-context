@@ -52,7 +52,7 @@ async fn direct_capture_answers_preserve_actual_sources_frames_and_characterizat
             assert!(capture.frame.under_caller_entry);
             assert!(capture.timing.characterization_only);
             assert_eq!(capture.origin.declaring,capture.frame.caller_declaration);
-            assert_eq!(capture.native_capture.declaring.0.is_some(),true);
+            assert!(capture.native_capture.declaring.0.is_some());
             assert_eq!(capture.native_capture.name.as_str(),"value");
             assert_eq!(capture.timing.proof.support.input,capture.input);
             assert_eq!(capture.timing.proof.support.context,capture.context);

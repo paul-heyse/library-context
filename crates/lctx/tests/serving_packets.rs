@@ -702,7 +702,7 @@ class Settings:
  assert!(!host.types.is_empty(),"generated host slot retains its native str typing");
  // Native slot entities are actual normalized identities, not source-formal declarations.
  let formals=host.formals.clone();
- let entities=execution.query(move |lease|Box::pin(async move {Ok(lease.read_ids::<lctx_model::domain::normalized::entities::ParameterEntity>(&formals).await?)})).await.unwrap();
+ let entities=execution.query(move |lease|Box::pin(async move {lease.read_ids::<lctx_model::domain::normalized::entities::ParameterEntity>(&formals).await})).await.unwrap();
  assert_eq!(entities.rows().len(),host.formals.len());
  for entity in entities.rows() {
   let lctx_model::domain::normalized::entities::ParameterEntity::NativeSlot{signature,parameter,..}=entity else {panic!("generated slot invented a source formal: {entity:?}");};

@@ -503,7 +503,8 @@ async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
         "SELECT spelling.spelling,basis.count,f.effects_unknown,f.exceptions_unknown,f.question FROM {0}.conditional_terminal_frontiers f JOIN {0}.assertion_qualifications q ON q.id=f.qualification JOIN {0}.assumption_sets basis ON basis.id=q.assumptions JOIN {0}.entity_refs e ON e.id=f.owner JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations spelling ON spelling.occurrence=d.name ORDER BY 1",id.schema())))
         .fetch_all(db.owner.pool()).await.unwrap();
     eprintln!("frontiers={frontiers:?}");
-    let diagnostic:Vec<(String,i16,Option<i16>,i16,i16,Option<i16>,Option<i16>,Option<i16>)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
+    type TargetDiagnostic = (String,i16,Option<i16>,i16,i16,Option<i16>,Option<i16>,Option<i16>);
+    let diagnostic:Vec<TargetDiagnostic>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT spelling.spelling,t.basis,t.reason,a.outcome,a.authority_reason,eff.identity,eff.descriptor,eff.signatures FROM {0}.closed_target_assessments t JOIN {0}.call_binding_attempts a ON a.id=t.attempt JOIN {0}.normalized_call_events event ON event.id=t.event JOIN {0}.occurrence_ownership o ON o.id=event.owner JOIN {0}.entity_refs e ON e.id=o.entity JOIN {0}.callable_entities c ON c.id=e.callable_callable JOIN {0}.declaration_observations d ON d.declaration=c.source_declaration JOIN {0}.syntax_observations spelling ON spelling.occurrence=d.name LEFT JOIN {0}.effective_callable_assessments eff ON eff.id=a.effective ORDER BY 1,2,3",id.schema())))
         .fetch_all(db.owner.pool()).await.unwrap();
     eprintln!("target_diagnostic={diagnostic:?}");
