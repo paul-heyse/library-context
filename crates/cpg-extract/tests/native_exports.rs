@@ -94,8 +94,8 @@ async fn exact_alias_lookup_retains_namespace_bundle_unresolved_and_native_parse
         let native=data.provider_modules.get(lookup.module).unwrap();
         assert!(match kind {"namespace"=>matches!(native,ProviderModule::Namespace {name,..} if name=="namespace"),"bundle"=>matches!(native,ProviderModule::Bundled {name,..} if name=="pathlib"),"root"=>matches!(native,ProviderModule::Acquired {..}),"unresolved"=>matches!(native,ProviderModule::Unresolved {name,..} if name=="missing_package"),_=>false},"{text}: {native:?}");
     }
-    let broken=enumeration(&data,"_invalid.broken");assert_eq!(broken.status,ExportEnumerationStatus::Partial);assert_eq!(broken.basis,ExportEnumerationBasis::Invalid);
-    assert_eq!(status(&data,&output,"_invalid.broken","missing"),PublicPathStatus::Unknown);
+    let broken=enumeration(data,"_invalid.broken");assert_eq!(broken.status,ExportEnumerationStatus::Partial);assert_eq!(broken.basis,ExportEnumerationBasis::Invalid);
+    assert_eq!(status(data,output,"_invalid.broken","missing"),PublicPathStatus::Unknown);
 }
 #[tokio::test]
 async fn absence_requires_exact_supported_enumeration_and_decision_retains_basis() {
