@@ -297,7 +297,7 @@ Production execution is **in progress**, 2026-10-04. A0/A2 model ownership and q
 composition, C1–C6, enabled C7, R1 and G1 observation/explanation consumers are integrated.
 The current assembled CLI/extractor release compile passed; individual functional receipts below
 do not qualify Q1. K1/K2's independent finite-context controls passed; R2's differential oracle is
-implemented with its bounded joined-process runtime oracle passed; explicit source-context controls are being strengthened. G2/G3 remain Deferred under the G0 decision. Final PostgreSQL/MCP journeys and same-tree adapter freshness remain pending. The first
+implemented with its bounded joined-process runtime oracle passed, including explicit typing-only and unreachable-use controls. G2/G3 remain Deferred under the G0 decision. Final PostgreSQL/MCP journeys and same-tree adapter freshness remain pending. The first
 `just test-all` and `just hygiene` attempts **failed** at a concurrent uv build-cache lock timeout;
 functional and named hygiene reruns are underway on the assembled tree.
 
@@ -371,7 +371,8 @@ on an untyped decorated callable; a separate known-signature positive control an
 unavailable decorated-keyword negative control repair that assumption. Final
 `cargo test --release -p cpg-extract --test python_reference_oracle -- --nocapture` **passed**,
 2026-10-04: joined parent/child controls completed in 0.40 seconds, with included-file reorder,
-shadowing, keyword/member/property/augmented assignment and original-range normalization checks.
+shadowing, keyword/member/property/augmented assignment, explicit typing-only/unreachable reads
+and original-range normalization checks (`lctx-python-reference-oracle-contexts.log`).
 The ignored child is invoked and joined by the passing bounded parent; it is not skipped evidence.
 
 Superseded task-owned compile/test processes ended with scoped SIGINT (exit 130) to release a
@@ -395,10 +396,39 @@ use the earlier model/lowering, so the checker does not compare their generation
 the explicitly preserved operator state, not authorization to reset it. A separate disposable
 PostgreSQL 18 database using the unchanged four service roles was provisioned; current-model
 `lctx --database <qualification-config> store install` **passed**, and named `just store-check`
-with `LCTX_DATABASE_CONFIG=<qualification-config>` is running. This scopes store qualification
+with `LCTX_DATABASE_CONFIG=<qualification-config>` **passed**, zero generations/findings, for
+model `9767e8813dc7d763d7c9be89e88516da3d117263f432e4a1da189463de30bc4c` at `4d437f30`
+(`lctx-enrichment-store-check-current-model.log`). The isolated empty database was reset once
+after the decoder source changed its model identity; no operator state was reset. Final handoff
+source changes require a matching scoped reset/check. This scopes store qualification
 to the planned fixture state; default operator-store migration remains outside Q1.
 
 Actual serving journeys progressed past Analytic after `ca887c56`, then **failed** before packet
 assertions at Synthesis's missing declared Terminal input loader. The narrow dispatcher repair
 `014d8d29` compiled successfully; all affected native/PostgreSQL journeys are rerunning. It
 changes neither declared input inventory nor validators. Composite hygiene and Q1 remain open.
+
+The subsequent consumed-input audit found Synthesis's shared ScopeIndex loader also omitted
+CorpusLibrary/InputDistribution. `4d437f30` restores the exact model-owned ownership macro without
+widening the declared input inventory. The four Local/Summary/Analytic/Synthesis decoder-registry
+controls **passed** for both profiles; the two consumed-input controls **passed**, retaining distinct
+immutable epochs and coalescing aliases of the same source. Matching `just native-adapter-ready`
+**passed** for this revision (`lctx-enrichment-native-adapter-final.log`).
+The genuine full-layer Structural journey then published and validated both profiles, but **failed**
+at its Behavioral named-handoff assertion: the older handoff consumer still used global Flow-family
+completeness as authority for a particular use. The bounded correction requires the new complete
+native per-use inventory/support plus all existing exact reaching/definition/condition premises;
+Partial family coverage remains evidence, never enumeration authority. The unchanged positive
+journey and incomplete/foreign-inventory controls are pending. This failure is not a decoder or
+whole-model validator bypass and does not reopen G2/G3.
+
+ADR-0122 supersedes the old singleton global-family admission requirement while carrying forward
+ADR-0111's checked-false retention lane and finite-negative boundaries. The architectural owners
+now distinguish per-use enumeration closure from family coverage. Corrected runtime, schema
+migration and final adapter/gate receipts remain pending; accepted decision is not verified closure.
+
+`UV_NO_SYNC=1 just adr-lint` **passed**, 67 records, and `UV_NO_SYNC=1 just docs-check`
+**passed**, 289 canonical pages, zero errors, after ADR-0122 and owner updates. The queued
+`lctx-enrichment-test-all-final.log` attempt was interrupted with scoped SIGINT before tests
+while the discovered Entry/handoff admission correction changes shared source; it is **not_run**,
+not a functional pass. Final stable-tree acceptance remains pending.

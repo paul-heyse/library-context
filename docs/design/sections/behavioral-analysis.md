@@ -184,7 +184,8 @@ independently of witness deduplication; an empty channel alone proves nothing.
 
 A Refutation proof requires a definite exact false BDD and complete relevant native coverage,
 with exact invocation, qualification and coverage-member digest. Unknown, proof=None and Partial
-coverage do not acquire finding authority. S0 consumes the nominal Summary derivation and keeps
+requested finite coverage do not acquire finding authority. Global Flow-family coverage is
+separate from the per-use origin inventory required by ADR-0122. S0 consumes the nominal Summary derivation and keeps
 that negative as BehavioralRefutation rather than an applicable-case positive.
 
 **Implemented / focused-Tested, 2026-10-01:** the native provider retains a direct bare-name
@@ -197,7 +198,7 @@ from an empty table or a closed claim that a parameter can never reach any retur
 `TYPE_CHECKING` supplies the existing runtime-false control. Native mapping source participates
 in the provider build digest; no guard evaluations are identified or coverage strengthened.
 
-> Decision: ADR-0111
+> Decision: ADR-0122
 
 Symbolic constructor→field→reader associations have a separate uncertainty domain. The normalized
 association is available in both profiles; Local adds Entry/Flow premises where admitted. Summary

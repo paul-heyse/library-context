@@ -57,7 +57,7 @@ remain unresolved. These candidates support a negative about one qualified finit
 not a conclusion from silence or a whole-function transfer-absence claim. Retained candidates
 are not discarded skip counts, and mapping source is included in provider build identity.
 
-> Decision: ADR-0111
+> Decision: ADR-0122
 
 ## The runtime view
 
@@ -118,8 +118,10 @@ a quotient only after the exact factor/quotient equality check.
 
 The theory asks whether a condition can hold for an exact primitive value at an admitted entry
 formal. Identity precedes value reasoning. `EntryValueWitness` requires the normalized owner and
-formal, exact access/place, parameter definition, complete provider/context-qualified reaching
-set and complete relevant Flow coverage. Assignment, unbound, loop-carried, mixed-owner or
+formal, exact access/place, parameter definition and complete provider/context-qualified reaching
+set. **Accepted target**, 2026-10-04 (ADR-0122): the attributed per-use native inventory and
+its replayed membership establish that closure; global family coverage remains cited evidence.
+Incomplete or foreign inventory refuses admission. Assignment, unbound, loop-carried, mixed-owner or
 nonlocal reaching prevents that proof.
 
 The finite scalar whitelist and conservative nominal class/MRO reasoning consume structural

@@ -7,18 +7,22 @@ The [coordinator §7](docs/plans/code-facts-analytical-enrichment-plan_2026-10-0
 owns F01/F02/O01–O08 and current receipts. Model-owned Structural outcome replay, qualified
 singleton composition, C1–C7, R1 and G1 consumers are integrated. Native overload identity/replay
 controls and exact eight-case old/new checker parity passed; ty's joined-process differential oracle
-passed, with explicit typing-only/unreachable controls being strengthened. K1/K2's four independent
+passed, including explicit typing-only/unreachable controls. K1/K2's four independent
 finite-context controls passed. G1's native inventories and domain/PG forgery controls passed.
 Actual upper serving qualification revealed missing Analytic and Synthesis declared input loaders;
-both narrow repairs compiled and affected PostgreSQL journeys are rerunning. A0's truthful fixture
-now needs the genuine upper stages required by whole-model validation; sink adversaries remain scoped.
+the complete decoder inventories passed both-profile controls and matching adapters rebuilt.
+A0's genuine full-layer fixture published both profiles, then exposed a named-handoff consumer
+that still requires global family completeness; ADR-0122 selects per-use inventory authority
+for Entry/handoff admission, with correction and refusal controls in progress.
+Affected PostgreSQL journeys and sink adversaries remain pending.
 G0's native usefulness search passed: G2/G3 are Deferred until an actual complete multi-candidate
 inventory supplies exclusion conditions. C7 is enabled and carries retained Expected uncertainty.
 Ty references and odis remain development-only. No Q1 or full functional pass is claimed yet.
 Full workspace Clippy and named hygiene repairs passed. The initial full gate stopped at a uv
-build-cache timeout; both adapters have rebuilt, and the retry is running. Default store-check
-refused the preserved old-model staging; current-model store qualification uses an isolated PG18
-database. Operator registrations/staging are untouched and activation remains excluded.
+build-cache timeout; both adapters rebuilt at the decoder revision; the queued retry was interrupted before tests
+to await the discovered shared admission repair. Default store-check
+refused the preserved old-model staging; current-model store qualification passed on an isolated PG18 database at the decoder revision;
+final admission source changes require matching qualification. Operator registrations/staging are untouched and activation remains excluded.
 
 **The five-plan code-facts expansion is functionally integrated; assembled qualification is pending.**
 The [coordinator §5/§7](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)

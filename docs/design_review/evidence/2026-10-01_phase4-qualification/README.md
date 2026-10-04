@@ -139,7 +139,7 @@ identity sources backed by actual native uses, and complete native reaching rete
 nonempty, wholly exact-false sets without loop headers. Every Defined/Undefined/Deleted state
 survives; live/approximate sets keep prior pruning. Entry exact-one/formal-origin admission,
 complete coverage and proof validation remain unchanged. Existing semantic types suffice;
-[ADR-0111](../../../adr/0111-checked-false-native-source-candidates.md) records this bounded native
+[ADR-0122](../../../adr/0122-per-use-native-origin-closure.md) carries forward this bounded native
 policy and rejects preferred-formal selection, live inactive-row inclusion and no-read relabeling.
 The provider build digest includes the changed mapping source. This advice is not the assembled
 exit review.

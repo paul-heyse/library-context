@@ -95,6 +95,14 @@ cited events. Identity and Derived value relationships remain distinct from cont
 Normalized receiver/binding evidence determines ownership; matching field names cannot manufacture
 cross-method storage or reader identity.
 
+**Accepted target**, 2026-10-04 (ADR-0122): named Flow handoffs require complete attributed
+per-use enumeration plus exact use/reaching/definition premises. Global family coverage is cited
+evidence and cannot establish or suppress enumeration closure for an individual use; legitimate
+Partial family coverage remains distinct from incomplete per-use inventory. Implementation and
+qualification are owned by the analytical-enrichment coordinator.
+
+> Decision: ADR-0122
+
 Symbolic source field associations can enrich the catalog and Summary uncertainty inventory.
 They do not prove allocation, intervening alias/mutation stability or later runtime values.
 Direct handoff conclusions and unresolved associations retain separate sources and coverage.

@@ -484,7 +484,7 @@ loop-header expansion. Live/approximate sets keep their existing pruning. Entry 
 missing, multiple or unbound origins. Exact finite negatives keep the same qualified source,
 proof and complete-coverage requirements through Summary/S0; silence is not a negative.
 
-> Decision: ADR-0111
+> Decision: ADR-0122
 The canonical Local definition includes finite scalar type theory, conservative nominal class
 reasoning and exact field-location witnesses. An open runtime class domain cannot prove a negative;
 a field location does not establish allocation, alias or mutation stability. **Focused-Tested,
