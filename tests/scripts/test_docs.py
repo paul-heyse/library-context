@@ -196,6 +196,24 @@ def test_tools_fail_actionably(monkeypatch, settings, failure):
         docs.check_tools(settings)
 
 
+def test_an_unversioned_tool_needs_only_presence(monkeypatch, settings):
+    settings["tools"] = {"mdbook": ""}
+    monkeypatch.setattr(docs, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, "v9.9.9"))
+    docs.check_tools(settings)
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr(docs, "run", missing)
+    with pytest.raises(ValueError, match="bootstrap-docs"):
+        docs.check_tools(settings)
+
+
+def test_bootstrap_installs_a_pin_exactly_and_an_unversioned_tool_at_the_latest():
+    assert docs.install_command("mdbook", "0.5.4")[-3:] == ["--version", "0.5.4", "mdbook"]
+    assert "--version" not in docs.install_command("mdbook", "")
+
+
 @pytest.mark.parametrize("tool", ["mdbook", "pagefind", "lychee"])
 def test_pipeline_failure_preserves_previous_artifact(root, settings, monkeypatch, tool):
     destination = root / "build/docs/site"
@@ -231,7 +249,7 @@ def test_replacement_removes_deleted_pages(tmp_path):
     assert [p.name for p in old.iterdir()] == ["new.html"]
 
 
-def test_isolated_command_uses_existing_pins_and_no_project():
+def test_isolated_command_uses_the_locked_pytest_and_no_project():
     command = docs.isolated(
         docs.ROOT, "--with", f"pytest=={docs.pytest_version(docs.ROOT)}", "pytest"
     )

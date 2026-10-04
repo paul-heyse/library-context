@@ -368,13 +368,20 @@ def annotate(root: Path, site: Path, pages: list[Page], settings: dict) -> None:
 
 
 def check_tools(settings: dict) -> None:
+    """Every listed tool is present; a tool listed with a version (a pin) is exactly that one."""
     for tool, version in settings["tools"].items():
         try:
             output = run([tool, "--version"], capture_output=True).stdout.strip()
         except FileNotFoundError as error:
             raise ValueError(f"missing {tool}; run just bootstrap-docs") from error
-        if not re.search(r"(?<![\d.])v?" + re.escape(version) + r"(?![\d.])", output):
+        if version and not re.search(r"(?<![\d.])v?" + re.escape(version) + r"(?![\d.])", output):
             raise ValueError(f"{tool}: expected {version}, got {output}; run just bootstrap-docs")
+
+
+def install_command(tool: str, version: str) -> list[str]:
+    """Install a pinned tool at its version, and an unversioned one at the latest release."""
+    pin = ["--version", version] if version else []
+    return ["cargo-binstall", "--no-confirm", "--disable-strategies", "compile", *pin, tool]
 
 
 def replace_site(candidate: Path, destination: Path) -> None:
@@ -466,17 +473,7 @@ def main() -> int:
         settings["site"]["base_url"] = args.base_url
     if args.command == "bootstrap":
         for tool, version in settings["tools"].items():
-            run(
-                [
-                    "cargo-binstall",
-                    "--no-confirm",
-                    "--disable-strategies",
-                    "compile",
-                    "--version",
-                    version,
-                    tool,
-                ]
-            )
+            run(install_command(tool, version))
         run(
             isolated(
                 ROOT,

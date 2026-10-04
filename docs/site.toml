@@ -4,10 +4,12 @@ repository = "https://github.com/paul-heyse/library-context"
 branch = "main"
 base_url = "/"
 
+# Documentation binaries. An empty version means the latest release (presence is checked); a
+# version given here is a pin and needs a docs/pins.md row with its reason.
 [tools]
-mdbook = "0.5.4"
-pagefind = "1.5.2"
-lychee = "0.24.2"
+mdbook = ""
+pagefind = ""
+lychee = ""
 
 [publication]
 entrypoints = ["README.md", "docs/README.md", "docs/design/README.md", "STATUS.md", "AGENTS.md", "docs/publishing.md"]
