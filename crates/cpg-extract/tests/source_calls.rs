@@ -1770,7 +1770,7 @@ async fn selected_source_body_closure_preserves_partial_family_and_refuses_missi
     let support = f.data.signature_enumeration_supports.get(support).unwrap();
     let effective = f.data.callable_assessments.get(attempt.effective.unwrap()).unwrap();
     let normalized::entities::CallableEntity::Source { declaration, .. } = f.data.callables.get(effective.callable).unwrap() else { panic!("source") };
-    for mutation in 0..9 {
+    for mutation in 0..14 {
         let mut data = binding_normalization::BindingData::new(&f.budget);
         macro_rules! copy { ($($field:ident:$ty:ty,)*) => {$(
             for row in f.data.$field.iter() { data.$field.insert(row.clone()).unwrap(); }
@@ -1827,6 +1827,34 @@ async fn selected_source_body_closure_preserves_partial_family_and_refuses_missi
                 data.signature_enumerations.insert(expanded).unwrap();
                 for member in members { data.signature_enumeration_members.insert(member).unwrap(); }
             }
+            9 | 12 => {
+                let declared = data.entity_declarations.iter().find(|d| d.symbol == header.symbol).unwrap();
+                let original = data.declaration_supports.iter().find(|s| s.assertion == declared.id()).unwrap().clone();
+                if mutation == 9 {
+                    let mut changed = original.clone();
+                    changed.evidence = support.evidence;
+                    keep!(declaration_supports, |s: &&declarations::SymbolDeclarationSupport| s.id() != original.id());
+                    data.declaration_supports.insert(changed).unwrap();
+                } else {
+                    keep!(native_evidence, |e: &&assertion::Evidence| e.id() != original.evidence);
+                }
+            }
+            10 | 13 => {
+                let original = data.signature_supports.iter().find(|s| s.assertion == signature.id()).unwrap().clone();
+                let mut changed = original.clone();
+                changed.evidence = if mutation == 10 {
+                    data.declaration_supports.iter().find(|s| {
+                        data.entity_declarations.get(s.assertion).is_some_and(|d| d.symbol == header.symbol)
+                    }).unwrap().evidence
+                } else {
+                    data.native_evidence.iter().find(|e| {
+                        matches!(e, assertion::Evidence::Invocation { run } if *run != support.run)
+                    }).unwrap().id()
+                };
+                keep!(signature_supports, |s: &&calls::SignatureSupport| s.id() != original.id());
+                data.signature_supports.insert(changed).unwrap();
+            }
+            11 => keep!(native_evidence, |e: &&assertion::Evidence| e.id() != support.evidence),
             _ => unreachable!(),
         }
         let refused = if mutation == 6 || mutation == 8 {

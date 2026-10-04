@@ -1214,6 +1214,7 @@ fn selected_source_body_closure(
     if supports.next().is_some() || !data.declaration_supports.iter().any(|s| {
         s.assertion == declared.id() && s.run == support.run
             && valid(s.run, s.surface, s.origin, s.mode, s.fidelity)
+            && matches!(data.native_evidence.get(s.evidence), Some(crate::domain::assertion::Evidence::Occurrence { occurrence }) if *occurrence == *declaration)
     }) {
         return Ok(None);
     }
@@ -1239,6 +1240,7 @@ fn selected_source_body_closure(
             || !data.signature_supports.iter().any(|s| {
                 s.assertion == member.signature && s.run == support.run
                     && valid(s.run, s.surface, s.origin, s.mode, s.fidelity)
+                    && matches!(data.native_evidence.get(s.evidence), Some(crate::domain::assertion::Evidence::Invocation { run }) if *run == s.run)
             })
         {
             return Ok(None);
