@@ -49,8 +49,26 @@ fn terminal_lowering_requires_source13_role_call_derivation_and_unknown_effects(
 #[test]
 fn terminal_schema_has_required_question_finite_code_and_nullable_assertion_slot(){
  let (d,s,w,q)=fixture();let packet=TerminalQuestionPacket::from_canonical(&terminal::checked(&d,&s,w.id(),&q,id(1),id(2)).unwrap());
- let schema=schema_for::<TerminalQuestionPacket>(true);let validator=jsonschema::validator_for(&schema).unwrap();let mut value=serde_json::to_value(packet).unwrap();assert!(validator.is_valid(&value));value["question"]=serde_json::json!(1);assert!(!validator.is_valid(&value));assert!(serde_json::from_value::<TerminalQuestionPacket>(value).is_err());
- let assertion=schema_for::<AssertionPacket>(true);assert!(assertion["required"].as_array().unwrap().contains(&serde_json::json!("terminal_question")));assert!(assertion["properties"]["terminal_question"].to_string().contains("null"));
+ let schema=schema_for::<TerminalQuestionPacket>(true);let validator=jsonschema::validator_for(&schema).unwrap();let question=serde_json::to_value(packet).unwrap();let mut value=question.clone();assert!(validator.is_valid(&value));value["question"]=serde_json::json!(1);assert!(!validator.is_valid(&value));assert!(serde_json::from_value::<TerminalQuestionPacket>(value).is_err());
+ let assertion=schema_for::<AssertionPacket>(true);
+ // Validate the complete root: nullable fields can be represented by local references.
+ let validator=jsonschema::validator_for(&assertion).unwrap();
+ let empty=AssumptionSet::empty();
+ let mut claim=serde_json::json!({"assertion":vec![1u8;16],"kind":0,"section":0,"status":1,"qualification":vec![2u8;16],"claim_basis":{"set":empty.id(),"members_digest":empty.members,"definitions":[]},"terminal_question":null,"text":"Given-entry typing question.","supports":[]});
+ assert!(validator.is_valid(&claim),"explicit null is admitted");
+ assert!(serde_json::from_value::<AssertionPacket>(claim.clone()).is_ok());
+ claim["terminal_question"]=question;
+ assert!(validator.is_valid(&claim),"a complete scoped question is admitted");
+ assert!(serde_json::from_value::<AssertionPacket>(claim.clone()).is_ok());
+ let mut absent=claim.clone();absent.as_object_mut().unwrap().remove("terminal_question");
+ assert!(!validator.is_valid(&absent),"the nullable field is still required");
+ assert!(serde_json::from_value::<AssertionPacket>(absent).is_err());
+ let mut primitive=claim.clone();primitive["terminal_question"]=serde_json::json!(false);
+ assert!(!validator.is_valid(&primitive));assert!(serde_json::from_value::<AssertionPacket>(primitive).is_err());
+ let mut incomplete=claim.clone();incomplete["terminal_question"].as_object_mut().unwrap().remove("qualification");
+ assert!(!validator.is_valid(&incomplete));assert!(serde_json::from_value::<AssertionPacket>(incomplete).is_err());
+ let mut invalid=claim;invalid["terminal_question"]["question"]=serde_json::json!(1);
+ assert!(!validator.is_valid(&invalid));assert!(serde_json::from_value::<AssertionPacket>(invalid).is_err());
  let binding=<CapabilityPacket as mappings::PacketOutput>::binding();for relation in [execution::summary_terminal::SummaryTerminalWitness::NAME,execution::protocol_interpretation::ConditionalTerminalFrontier::NAME,execution::protocol_interpretation::NormalContinuationRestriction::NAME]{assert!(binding.permits_relation(relation));}
 }
 
