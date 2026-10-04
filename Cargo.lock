@@ -1351,20 +1351,20 @@ dependencies = [
  "pyrefly_python",
  "pyrefly_types",
  "pyrefly_util",
- "ruff_db",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_linter",
  "ruff_python_ast 0.0.14",
- "ruff_python_ast 0.0.16",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_python_codegen",
  "ruff_python_index",
  "ruff_python_parser 0.0.14",
- "ruff_python_parser 0.0.16",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_python_semantic",
- "ruff_python_stdlib",
- "ruff_ranged_value",
+ "ruff_python_stdlib 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_ranged_value 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_source_file 0.0.14",
  "ruff_text_size 0.0.14",
- "ruff_text_size 0.0.16",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "rust-ini",
  "serde",
  "serde_json",
@@ -1385,16 +1385,16 @@ name = "cpg-flow"
 version = "0.1.0"
 dependencies = [
  "lctx-model",
- "ruff_db",
- "ruff_index",
- "ruff_python_ast 0.0.16",
- "ruff_python_parser 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_index 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "salsa",
  "serde",
- "ty_module_resolver",
- "ty_python_core",
- "ty_vendored",
+ "ty_module_resolver 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_python_core 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_vendored 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
 ]
 
 [[package]]
@@ -4248,6 +4248,7 @@ dependencies = [
  "lctx-postgres",
  "pyo3",
  "pyo3-async-runtimes",
+ "serde",
  "serde_json",
  "tokio",
 ]
@@ -4332,12 +4333,12 @@ dependencies = [
  "regex",
  "regex-automata",
  "regex-syntax 0.8.11",
- "ruff_db",
- "ruff_diagnostics 0.0.16",
- "ruff_python_ast 0.0.16",
- "ruff_ranged_value",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_ranged_value 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "rust_decimal",
  "rustc-hash",
  "rustix",
@@ -4375,8 +4376,8 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-core",
- "ty_python_core",
- "ty_vendored",
+ "ty_python_core 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ty_vendored 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "typenum",
  "unicode-normalization",
  "unicode-width",
@@ -6524,6 +6525,16 @@ dependencies = [
 [[package]]
 name = "ruff_annotate_snippets"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "anstyle",
+ "memchr",
+ "unicode-width",
+]
+
+[[package]]
+name = "ruff_annotate_snippets"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "anstyle",
@@ -6536,6 +6547,20 @@ name = "ruff_cache"
 version = "0.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a34b15d240667704d18c5e4ae591e051ad6f9963ce616be2859dbf41ebec7fc0"
+dependencies = [
+ "char_str",
+ "filetime",
+ "glob",
+ "globset",
+ "itertools 0.15.0",
+ "regex",
+ "seahash",
+]
+
+[[package]]
+name = "ruff_cache"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
  "char_str",
  "filetime",
@@ -6563,6 +6588,46 @@ dependencies = [
 [[package]]
 name = "ruff_db"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "anstyle",
+ "arc-swap",
+ "camino",
+ "compact_str",
+ "dashmap",
+ "dunce",
+ "filetime",
+ "get-size2",
+ "matchit 0.9.2",
+ "path-slash",
+ "pathdiff",
+ "quick-junit",
+ "ruff_annotate_snippets 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_cache 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_notebook 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "rustc-hash",
+ "salsa",
+ "serde",
+ "serde_json",
+ "similar 3.2.0",
+ "supports-hyperlinks",
+ "thiserror 2.0.21",
+ "tracing",
+ "ty_static 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "web-time",
+ "zip",
+]
+
+[[package]]
+name = "ruff_db"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "anstyle",
@@ -6577,16 +6642,16 @@ dependencies = [
  "path-slash",
  "pathdiff",
  "quick-junit",
- "ruff_annotate_snippets 0.0.16",
- "ruff_cache 0.0.16",
- "ruff_diagnostics 0.0.16",
- "ruff_memory_usage",
- "ruff_notebook 0.0.16",
- "ruff_python_ast 0.0.16",
- "ruff_python_parser 0.0.16",
- "ruff_python_trivia 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_annotate_snippets 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_cache 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_notebook 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "rustc-hash",
  "salsa",
  "serde",
@@ -6595,7 +6660,7 @@ dependencies = [
  "supports-hyperlinks",
  "thiserror 2.0.21",
  "tracing",
- "ty_static",
+ "ty_static 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "web-time",
  "zip",
 ]
@@ -6614,12 +6679,33 @@ dependencies = [
 [[package]]
 name = "ruff_diagnostics"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "get-size2",
+ "is-macro",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "serde",
+]
+
+[[package]]
+name = "ruff_diagnostics"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "get-size2",
  "is-macro",
- "ruff_text_size 0.0.16",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "serde",
+]
+
+[[package]]
+name = "ruff_index"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "get-size2",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "salsa",
 ]
 
 [[package]]
@@ -6628,14 +6714,14 @@ version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "get-size2",
- "ruff_macros",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "salsa",
 ]
 
 [[package]]
 name = "ruff_linter"
 version = "0.16.10"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -6657,24 +6743,24 @@ dependencies = [
  "pep440_rs",
  "pyproject-toml",
  "regex",
- "ruff_cache 0.0.16",
- "ruff_db",
- "ruff_diagnostics 0.0.16",
- "ruff_macros",
- "ruff_notebook 0.0.16",
- "ruff_python_ast 0.0.16",
+ "ruff_cache 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_notebook 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_python_codegen",
  "ruff_python_edits",
  "ruff_python_importer",
  "ruff_python_index",
  "ruff_python_literal",
- "ruff_python_parser 0.0.16",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_python_semantic",
- "ruff_python_stdlib",
- "ruff_python_trivia 0.0.16",
- "ruff_ranged_value",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_python_stdlib 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_ranged_value 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -6694,6 +6780,20 @@ dependencies = [
 [[package]]
 name = "ruff_macros"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "heck 0.5.0",
+ "itertools 0.15.0",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "ruff_macros"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "heck 0.5.0",
@@ -6701,8 +6801,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "ruff_python_trivia 0.0.16",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "ruff_memory_usage"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "get-size2",
 ]
 
 [[package]]
@@ -6733,13 +6841,29 @@ dependencies = [
 [[package]]
 name = "ruff_notebook"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "anyhow",
+ "rand 0.10.3",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
+name = "ruff_notebook"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "anyhow",
  "rand 0.10.3",
- "ruff_diagnostics 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -6749,7 +6873,7 @@ dependencies = [
 [[package]]
 name = "ruff_options_metadata"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 
 [[package]]
 name = "ruff_python_ast"
@@ -6778,6 +6902,31 @@ dependencies = [
 [[package]]
 name = "ruff_python_ast"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "aho-corasick",
+ "arrayvec",
+ "bitflags 2.13.2",
+ "char_str",
+ "compact_str",
+ "get-size2",
+ "is-macro",
+ "memchr",
+ "ruff_cache 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "rustc-hash",
+ "salsa",
+ "serde",
+ "thin-vec",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ruff_python_ast"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "aho-corasick",
@@ -6788,11 +6937,11 @@ dependencies = [
  "get-size2",
  "is-macro",
  "memchr",
- "ruff_cache 0.0.16",
- "ruff_macros",
- "ruff_python_trivia 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_cache 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "rustc-hash",
  "salsa",
  "serde",
@@ -6803,59 +6952,59 @@ dependencies = [
 [[package]]
 name = "ruff_python_codegen"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
- "ruff_python_ast 0.0.16",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_python_literal",
- "ruff_python_parser 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
 ]
 
 [[package]]
 name = "ruff_python_edits"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
- "ruff_python_ast 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
 ]
 
 [[package]]
 name = "ruff_python_importer"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
  "anyhow",
- "ruff_diagnostics 0.0.16",
- "ruff_python_ast 0.0.16",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_python_codegen",
- "ruff_python_trivia 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
 ]
 
 [[package]]
 name = "ruff_python_index"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
- "ruff_python_ast 0.0.16",
- "ruff_python_trivia 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
 ]
 
 [[package]]
 name = "ruff_python_literal"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
  "bitflags 2.13.2",
  "icu_properties",
  "itertools 0.15.0",
- "ruff_python_ast 0.0.16",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
 ]
 
 [[package]]
@@ -6885,6 +7034,29 @@ dependencies = [
 [[package]]
 name = "ruff_python_parser"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "bitflags 2.13.2",
+ "bstr",
+ "drop_bomb",
+ "get-size2",
+ "hashbrown 0.17.1",
+ "memchr",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "rustc-hash",
+ "stacker",
+ "static_assertions",
+ "thin-vec",
+ "unicode-ident",
+ "unicode-normalization",
+ "unicode_names2",
+]
+
+[[package]]
+name = "ruff_python_parser"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "bitflags 2.13.2",
@@ -6893,9 +7065,9 @@ dependencies = [
  "get-size2",
  "hashbrown 0.17.1",
  "memchr",
- "ruff_python_ast 0.0.16",
- "ruff_python_trivia 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "rustc-hash",
  "stacker",
  "static_assertions",
@@ -6908,19 +7080,28 @@ dependencies = [
 [[package]]
 name = "ruff_python_semantic"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
  "bitflags 2.13.2",
  "is-macro",
- "ruff_cache 0.0.16",
- "ruff_index",
- "ruff_macros",
- "ruff_python_ast 0.0.16",
- "ruff_python_parser 0.0.16",
- "ruff_python_stdlib",
- "ruff_text_size 0.0.16",
+ "ruff_cache 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_index 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_stdlib 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "rustc-hash",
  "smallvec",
+]
+
+[[package]]
+name = "ruff_python_stdlib"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "bitflags 2.13.2",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -6948,12 +7129,26 @@ dependencies = [
 [[package]]
 name = "ruff_python_trivia"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "itertools 0.15.0",
+ "memchr",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "rustc-hash",
+ "unicode-ident",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "ruff_python_trivia"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "itertools 0.15.0",
  "memchr",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "rustc-hash",
  "unicode-ident",
  "unicode-normalization",
@@ -6962,12 +7157,25 @@ dependencies = [
 [[package]]
 name = "ruff_ranged_value"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "get-size2",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "serde",
+ "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
+name = "ruff_ranged_value"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "get-size2",
- "ruff_db",
- "ruff_python_ast 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "serde",
  "toml 1.1.6+spec-1.1.0",
 ]
@@ -6986,11 +7194,22 @@ dependencies = [
 [[package]]
 name = "ruff_source_file"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "get-size2",
+ "memchr",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "serde",
+]
+
+[[package]]
+name = "ruff_source_file"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "get-size2",
  "memchr",
- "ruff_text_size 0.0.16",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "serde",
 ]
 
@@ -6999,6 +7218,15 @@ name = "ruff_text_size"
 version = "0.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a4edc941f215495170a1bda0beeeb31db2fdcd67beecfe7f29d94b2663e1965"
+dependencies = [
+ "get-size2",
+ "serde",
+]
+
+[[package]]
+name = "ruff_text_size"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
  "get-size2",
  "serde",
@@ -8742,18 +8970,29 @@ checksum = "5283634e518fe9e82c7b20520bb4bc209009fd16c82077c802f8111ecbb0117a"
 [[package]]
 name = "ty_combine"
 version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "ordermap",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_ranged_value 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+]
+
+[[package]]
+name = "ty_combine"
+version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "ordermap",
- "ruff_db",
- "ruff_python_ast 0.0.16",
- "ruff_ranged_value",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_ranged_value 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
 ]
 
 [[package]]
 name = "ty_ide"
 version = "0.0.0"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
  "bitflags 2.13.2",
  "compact_str",
@@ -8762,16 +9001,16 @@ dependencies = [
  "itertools 0.15.0",
  "rayon",
  "regex",
- "ruff_db",
- "ruff_diagnostics 0.0.16",
- "ruff_index",
- "ruff_memory_usage",
- "ruff_python_ast 0.0.16",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_index 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_python_literal",
- "ruff_python_stdlib",
- "ruff_python_trivia 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_python_stdlib 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "rustc-hash",
  "salsa",
  "smallvec",
@@ -8779,11 +9018,37 @@ dependencies = [
  "strum_macros",
  "toml_parser",
  "tracing",
- "ty_module_resolver",
+ "ty_module_resolver 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ty_project",
- "ty_python_core",
+ "ty_python_core 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ty_python_semantic",
- "ty_vendored",
+ "ty_vendored 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+]
+
+[[package]]
+name = "ty_module_resolver"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "anyhow",
+ "camino",
+ "compact_str",
+ "get-size2",
+ "itertools 0.15.0",
+ "memchr",
+ "ordermap",
+ "regex",
+ "regex-syntax 0.8.11",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_stdlib 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "rustc-hash",
+ "salsa",
+ "strum",
+ "strum_macros",
+ "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
@@ -8800,10 +9065,10 @@ dependencies = [
  "ordermap",
  "regex",
  "regex-syntax 0.8.11",
- "ruff_db",
- "ruff_memory_usage",
- "ruff_python_ast 0.0.16",
- "ruff_python_stdlib",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_stdlib 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "rustc-hash",
  "salsa",
  "strum",
@@ -8815,7 +9080,7 @@ dependencies = [
 [[package]]
 name = "ty_project"
 version = "0.0.0"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -8833,14 +9098,14 @@ dependencies = [
  "rayon",
  "regex",
  "regex-automata",
- "ruff_cache 0.0.16",
- "ruff_db",
- "ruff_macros",
- "ruff_memory_usage",
+ "ruff_cache 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_options_metadata",
- "ruff_python_ast 0.0.16",
- "ruff_ranged_value",
- "ruff_text_size 0.0.16",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_ranged_value 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "rustc-hash",
  "salsa",
  "serde",
@@ -8851,12 +9116,43 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 1.1.6+spec-1.1.0",
  "tracing",
- "ty_combine",
- "ty_module_resolver",
- "ty_python_core",
+ "ty_combine 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_module_resolver 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_python_core 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ty_python_semantic",
- "ty_static",
- "ty_vendored",
+ "ty_static 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_vendored 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+]
+
+[[package]]
+name = "ty_python_core"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "bitflags 2.13.2",
+ "bitvec",
+ "char_str",
+ "get-size2",
+ "hashbrown 0.17.1",
+ "itertools 0.15.0",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_index 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "rustc-hash",
+ "salsa",
+ "serde",
+ "smallvec",
+ "static_assertions",
+ "thin-vec",
+ "tracing",
+ "ty_combine 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_module_resolver 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_site_packages 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_vendored 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
 ]
 
 [[package]]
@@ -8870,13 +9166,13 @@ dependencies = [
  "get-size2",
  "hashbrown 0.17.1",
  "itertools 0.15.0",
- "ruff_db",
- "ruff_index",
- "ruff_macros",
- "ruff_memory_usage",
- "ruff_python_ast 0.0.16",
- "ruff_python_parser 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_index 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "rustc-hash",
  "salsa",
  "serde",
@@ -8884,16 +9180,16 @@ dependencies = [
  "static_assertions",
  "thin-vec",
  "tracing",
- "ty_combine",
- "ty_module_resolver",
- "ty_site_packages",
- "ty_vendored",
+ "ty_combine 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ty_module_resolver 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ty_site_packages 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ty_vendored 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
 ]
 
 [[package]]
 name = "ty_python_semantic"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
 dependencies = [
  "bitflags 2.13.2",
  "char_str",
@@ -8905,21 +9201,21 @@ dependencies = [
  "memchr",
  "ordermap",
  "rayon",
- "ruff_db",
- "ruff_diagnostics 0.0.16",
- "ruff_index",
- "ruff_macros",
- "ruff_memory_usage",
- "ruff_python_ast 0.0.16",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_index 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "ruff_python_codegen",
  "ruff_python_edits",
  "ruff_python_importer",
  "ruff_python_literal",
- "ruff_python_parser 0.0.16",
- "ruff_python_stdlib",
- "ruff_python_trivia 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_python_parser 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_stdlib 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
  "rustc-hash",
  "salsa",
  "serde",
@@ -8929,10 +9225,31 @@ dependencies = [
  "strum_macros",
  "thiserror 2.0.21",
  "tracing",
- "ty_module_resolver",
- "ty_python_core",
- "ty_site_packages",
- "ty_static",
+ "ty_module_resolver 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_python_core 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_site_packages 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ty_static 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+]
+
+[[package]]
+name = "ty_site_packages"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "camino",
+ "colored",
+ "get-size2",
+ "indexmap 2.14.2",
+ "ruff_annotate_snippets 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "strum",
+ "strum_macros",
+ "tracing",
+ "ty_static 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
 ]
 
 [[package]]
@@ -8944,16 +9261,24 @@ dependencies = [
  "colored",
  "get-size2",
  "indexmap 2.14.2",
- "ruff_annotate_snippets 0.0.16",
- "ruff_db",
- "ruff_python_ast 0.0.16",
- "ruff_python_trivia 0.0.16",
- "ruff_source_file 0.0.16",
- "ruff_text_size 0.0.16",
+ "ruff_annotate_snippets 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_source_file 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+ "ruff_text_size 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "strum",
  "strum_macros",
  "tracing",
- "ty_static",
+ "ty_static 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+]
+
+[[package]]
+name = "ty_static"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
 ]
 
 [[package]]
@@ -8961,7 +9286,19 @@ name = "ty_static"
 version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
- "ruff_macros",
+ "ruff_macros 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
+]
+
+[[package]]
+name = "ty_vendored"
+version = "0.0.16"
+source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+dependencies = [
+ "path-slash",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968)",
+ "static_assertions",
+ "walkdir",
+ "zip",
 ]
 
 [[package]]
@@ -8970,7 +9307,7 @@ version = "0.0.16"
 source = "git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301#f7bdff69e1fb94ab0ed5b340e977aac0d26e9301"
 dependencies = [
  "path-slash",
- "ruff_db",
+ "ruff_db 0.0.16 (git+https://github.com/paul-heyse/ruff?rev=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301)",
  "static_assertions",
  "walkdir",
  "zip",

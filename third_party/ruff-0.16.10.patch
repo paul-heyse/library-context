@@ -1,21 +1,5 @@
-From f7bdff69e1fb94ab0ed5b340e977aac0d26e9301 Mon Sep 17 00:00:00 2001
-From: paul-heyse <paul@heyse.io>
-Date: Sat, 3 Oct 2026 15:03:11 -0400
-Subject: [PATCH] Expose explicit lint source roots, owned semantic facts and
- ty precision metadata
-
-Aggregate fork patch on exact Ruff 0.16.10 parent. Existing native traversal and sticky precision metadata are unchanged; make the existing deterministic LinterSettings::new_with_src constructor public for check_path consumers without ambient cwd reads.
----
- crates/ruff_linter/src/checkers/ast/mod.rs    | 115 +++++-
- crates/ruff_linter/src/lib.rs                 |   3 +
- crates/ruff_linter/src/semantic_facts.rs      | 389 ++++++++++++++++++
- crates/ruff_linter/src/settings/mod.rs        |   7 +-
- .../src/narrowing_constraints.rs              |  65 +++
- 5 files changed, 561 insertions(+), 18 deletions(-)
- create mode 100644 crates/ruff_linter/src/semantic_facts.rs
-
 diff --git a/crates/ruff_linter/src/checkers/ast/mod.rs b/crates/ruff_linter/src/checkers/ast/mod.rs
-index 344f6ae..cbea1fe 100644
+index 344f6ae..ca90f2f 100644
 --- a/crates/ruff_linter/src/checkers/ast/mod.rs
 +++ b/crates/ruff_linter/src/checkers/ast/mod.rs
 @@ -249,6 +249,7 @@ pub(crate) struct Checker<'a> {
@@ -56,20 +40,7 @@ index 344f6ae..cbea1fe 100644
          // Step 0: Pre-processing
          self.semantic.push_node(stmt);
  
-@@ -1672,7 +1687,11 @@ impl<'a> Visitor<'a> for Checker<'a> {
-                 self.visit_boolean_test(test);
- 
-                 self.semantic.push_branch();
--                if typing::is_type_checking_block(stmt_if, &self.semantic) {
-+                let type_checking = typing::is_type_checking_block(stmt_if, &self.semantic);
-+                if let Some(observation) = &self.observation {
-+                    observation.branch(stmt_if.range(), self.semantic.scope_id, type_checking);
-+                }
-+                if type_checking {
-                     if self.semantic.at_top_level() {
-                         self.importer.visit_type_checking_block(stmt);
-                     }
-@@ -1710,6 +1729,9 @@ impl<'a> Visitor<'a> for Checker<'a> {
+@@ -1710,6 +1725,9 @@ impl<'a> Visitor<'a> for Checker<'a> {
          // Step 3: Clean-up
  
          // Step 4: Analysis
@@ -79,7 +50,7 @@ index 344f6ae..cbea1fe 100644
          analyze::statement(stmt, self);
  
          self.semantic.flags = flags_snapshot;
-@@ -1725,6 +1747,9 @@ impl<'a> Visitor<'a> for Checker<'a> {
+@@ -1725,6 +1743,9 @@ impl<'a> Visitor<'a> for Checker<'a> {
      }
  
      fn visit_expr(&mut self, expr: &'a Expr) {
@@ -89,7 +60,7 @@ index 344f6ae..cbea1fe 100644
          self.with_semantic_checker(|semantic, context| semantic.visit_expr(expr, context));
  
          // Step 0: Pre-processing
-@@ -2379,6 +2404,9 @@ impl<'a> Visitor<'a> for Checker<'a> {
+@@ -2379,6 +2400,9 @@ impl<'a> Visitor<'a> for Checker<'a> {
          }
  
          self.semantic.flags = flags_snapshot;
@@ -99,7 +70,7 @@ index 344f6ae..cbea1fe 100644
          analyze::expression(expr, self);
          self.semantic.pop_node();
      }
-@@ -3503,6 +3531,30 @@ pub(crate) fn check_ast(
+@@ -3503,6 +3527,30 @@ pub(crate) fn check_ast(
      target_version: TargetVersion,
      context: &LintContext,
  ) -> Vec<SemanticSyntaxError> {
@@ -130,7 +101,7 @@ index 344f6ae..cbea1fe 100644
      let module_path = package
          .map(PackageRoot::path)
          .and_then(|package| to_module_path(package, path));
-@@ -3526,6 +3578,7 @@ pub(crate) fn check_ast(
+@@ -3526,6 +3574,7 @@ pub(crate) fn check_ast(
      };
  
      let allocator = typed_arena::Arena::new();
@@ -138,7 +109,7 @@ index 344f6ae..cbea1fe 100644
      let mut checker = Checker::new(
          parsed,
          &allocator,
-@@ -3544,35 +3597,63 @@ pub(crate) fn check_ast(
+@@ -3544,35 +3593,63 @@ pub(crate) fn check_ast(
          target_version,
          context,
      );
@@ -231,14 +202,14 @@ index f971c43..dd30314 100644
 +pub mod semantic_facts;
 diff --git a/crates/ruff_linter/src/semantic_facts.rs b/crates/ruff_linter/src/semantic_facts.rs
 new file mode 100644
-index 0000000..76e80fd
+index 0000000..b24c9a1
 --- /dev/null
 +++ b/crates/ruff_linter/src/semantic_facts.rs
-@@ -0,0 +1,389 @@
+@@ -0,0 +1,373 @@
 +//! Owned, bounded lexical observations from Ruff's existing Checker traversal.
 +//!
 +//! IDs are local to one invocation; ranges are source bytes. Node callbacks capture the active
-+//! context, while binding/reference/export rows are emitted only after deferred passes. Ruff
++//! context, while binding/reference rows are emitted only after deferred passes. Ruff
 +//! lexical qualified names are not filesystem or instance-member resolution. A failed invocation
 +//! leaves only partial sink output: consumers must publish it as incomplete or discard it.
 +
@@ -248,7 +219,7 @@ index 0000000..76e80fd
 +use ruff_python_codegen::Stylist;
 +use ruff_python_index::Indexer;
 +use ruff_python_parser::{ParseOptions, Parsed, parse_unchecked};
-+use ruff_python_semantic::{BindingKind, Definition, ExecutionContext, Imported, ScopeId, ScopeKind, SemanticModel};
++use ruff_python_semantic::{BindingKind, Definition, ExecutionContext, Imported, ScopeKind, SemanticModel};
 +use ruff_text_size::{Ranged, TextRange};
 +
 +use crate::checkers::ast::{LintContext, check_ast_with_observation};
@@ -365,15 +336,11 @@ index 0000000..76e80fd
 +pub enum Fact {
 +    Input(Settings),
 +    Node(Node),
-+    /// The classifier's answer at the actual if-test phase, before branch traversal/rebinding.
-+    /// False means Ruff did not classify this as TYPE_CHECKING, not a constant-false branch.
-+    Branch { range: TextRange, scope: u32, type_checking: bool },
 +    Scope(Scope),
 +    Definition { id: u32, parent: Option<u32>, name: Option<String>, range: Option<TextRange>, kind: &'static str },
 +    Binding(Binding),
 +    Reference(Reference),
 +    Unresolved { range: TextRange, name: String, wildcard_import: bool, annotation_binding: Option<u32> },
-+    Export { binding: u32, range: TextRange, name: String },
 +}
 +
 +/// Parse and observe a Python module with no diagnostic rules or fixes. A successful return only
@@ -488,10 +455,6 @@ index 0000000..76e80fd
 +        }));
 +    }
 +
-+    pub(crate) fn branch(&mut self, range: TextRange, scope: ScopeId, type_checking: bool) {
-+        self.emit(Fact::Branch { range, scope: scope.as_u32(), type_checking });
-+    }
-+
 +    pub(crate) fn finish(&mut self, semantic: &SemanticModel<'_>, source: &str) {
 +        if !self.is_active() { return; }
 +        for (id, scope) in semantic.scopes.iter_enumerated() {
@@ -537,12 +500,6 @@ index 0000000..76e80fd
 +                    runtime_annotation: reference.in_runtime_evaluated_annotation(), string_annotation: reference.in_string_type_definition(), type_checking: reference.in_type_checking_block(),
 +                }));
 +            }
-+            if let BindingKind::Export(export) = &binding.kind {
-+                for name in &export.names {
-+                    if !self.is_active() { return; }
-+                    self.emit(Fact::Export { binding: id.as_u32(), range: name.range(), name: name.name().to_owned() });
-+                }
-+            }
 +        }
 +        for reference in semantic.unresolved_references() {
 +            if !self.is_active() { return; }
@@ -568,7 +525,6 @@ index 0000000..76e80fd
 +    fn is_active(&self) -> bool;
 +    fn checkpoint(&self) -> bool;
 +    fn node(&self, node: AnyNodeRef<'_>, semantic: &SemanticModel<'_>, expr: Option<&Expr>);
-+    fn branch(&self, range: TextRange, scope: ScopeId, type_checking: bool);
 +    fn finish(&self, semantic: &SemanticModel<'_>, source: &str);
 +}
 +
@@ -576,7 +532,6 @@ index 0000000..76e80fd
 +    fn is_active(&self) -> bool { self.borrow().is_active() }
 +    fn checkpoint(&self) -> bool { self.borrow_mut().checkpoint() }
 +    fn node(&self, node: AnyNodeRef<'_>, semantic: &SemanticModel<'_>, expr: Option<&Expr>) { self.borrow_mut().node(node, semantic, expr); }
-+    fn branch(&self, range: TextRange, scope: ScopeId, type_checking: bool) { self.borrow_mut().branch(range, scope, type_checking); }
 +    fn finish(&self, semantic: &SemanticModel<'_>, source: &str) { self.borrow_mut().finish(semantic, source); }
 +}
 +
@@ -786,6 +741,3 @@ index 44f3ad5..3283b1e 100644
      #[test]
      fn boolean_operations_match_their_truth_tables() {
          let mut constraints = NarrowingConstraintsBuilder::default();
--- 
-2.43.0
-

@@ -10,9 +10,9 @@ use ruff_python_ast_latest::{ModModule, PySourceType, PythonVersion};
 use ruff_python_parser_latest::{ParseOptions, Parsed, parse_unchecked};
 use std::path::{Path, PathBuf};
 
-pub const RUFF_REVISION: &str = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301";
+pub const RUFF_REVISION: &str = "9080ee7a82a4ec7359ba2ade60839ef1108a2968";
 pub const RUFF_PATCH_SHA256: &str =
-    "b7154806d8d5106f02c225d35c4cb8802c869d551af4ce1dd2d391178deaa6f8";
+    "b6bb67f9d297dda222a5b7c983b553424fed37ed6e31e90aa797bde9d0bb9b2e";
 
 /// These are interpretation inputs, never discovered from ambient files or process state.
 #[derive(Clone, serde::Serialize)]
