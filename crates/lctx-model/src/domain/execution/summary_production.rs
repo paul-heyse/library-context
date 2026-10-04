@@ -225,12 +225,24 @@ macro_rules! summary_vocabulary{($apply:ident)=>{$apply!{
 }};}
 macro_rules! vocabulary{($($field:ident:$ty:ty,)*)=>{pub struct Vocabulary{$(pub $field:ChargedMap<Id<$ty>,$ty>,)*charge:StateCharge}impl Vocabulary{pub(super) fn new(b:&ResourceBudget)->Self{Self{$($field:Default::default(),)*charge:StateCharge::new(b,"summary-vocabulary")}}pub(super) fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{$(if n==<$ty>::NAME{for row in <$ty>::decode(b)?{self.$field.insert(&mut self.charge,row.id(),row)?;}})*Ok(())}fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]).at_epoch(stages::PublicationBoundary::Model),)*]}}};}
 crate::summary_vocabulary!(vocabulary);
+// Predecessor evidence resolves its claim basis from the cumulative Model publication.
+// Entry/binding vocabulary remains a separate Facts view.
+fn evidence_inputs() -> Vec<ValidationInput> {
+    let mut inputs = analysis::local::support::EvidenceIndex::inputs();
+    inputs.extend(analysis::model::support::EvidenceIndex::inputs());
+    for input in &mut inputs {
+        if stages::is_vocabulary(input.name()) {
+            *input = input.clone().at_epoch(stages::PublicationBoundary::Model);
+        }
+    }
+    inputs
+}
 macro_rules! data{($($field:ident:$ty:ty,)*)=>{pub struct SummaryData{pub graphs:projection::normalization::ProjectionOutput,pub entry:EntryData,pub bindings:BindingData,pub binding_output:BindingOutput,pub path:PathData,pub vocabulary:Vocabulary,pub local_evidence:analysis::local::support::EvidenceIndex,pub model_evidence:analysis::model::support::EvidenceIndex,$(pub $field:Rows<$ty>,)*}
 impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{graphs:projection::normalization::ProjectionOutput::new(b),entry:EntryData::new(b),bindings:BindingData::new(b),binding_output:BindingOutput::new(b),path:PathData::new(b),vocabulary:Vocabulary::new(b),local_evidence:analysis::local::support::EvidenceIndex::new(b),model_evidence:analysis::model::support::EvidenceIndex::new(b),$($field:Rows::new(b),)*}}
- pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{let n=input.name();if stages::is_vocabulary(n){return match input.prefix(){Some(stages::PublicationBoundary::Facts)=>{self.entry.visit(n,b)?;self.bindings.visit(n,b)?;Ok(())},Some(stages::PublicationBoundary::Model)=>self.vocabulary.visit(n,b),_=>Err(invalid("Summary input changes vocabulary prefix"))}}self.visit(n,b)}
+ pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{let n=input.name();if stages::is_vocabulary(n){return match input.prefix(){Some(stages::PublicationBoundary::Facts)=>{self.entry.visit(n,b)?;self.bindings.visit(n,b)?;Ok(())},Some(stages::PublicationBoundary::Model)=>{self.vocabulary.visit(n,b)?;self.local_evidence.visit(n,b)?;self.model_evidence.visit(n,b)?;Ok(())},_=>Err(invalid("Summary input changes vocabulary prefix"))}}self.visit(n,b)}
  pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{self.graphs.visit(n,b)?;self.entry.visit(n,b)?;self.bindings.visit(n,b)?;self.binding_output.visit(n,b)?;self.path.visit(n,b)?;self.local_evidence.visit(n,b)?;self.model_evidence.visit(n,b)?;$(if n==<$ty>::NAME{self.$field.decode(b)?;})*Ok(())}
  pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{let mut inputs=super::summary_replay::production_inputs(profile);inputs.extend(analysis::expected::inputs(analysis::AnalysisMethod::Summaries));inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
- pub fn inputs()->Vec<ValidationInput>{let mut inputs=BindingData::validation_inputs();inputs.extend(BindingOutput::validation_inputs());inputs.extend(EntryData::validation_inputs().into_iter().map(|i|if stages::is_vocabulary(i.name()){i.at_epoch(stages::PublicationBoundary::Facts)}else{i}));inputs.extend(PathData::inputs());inputs.extend(projection_inputs());inputs.extend(Vocabulary::inputs());inputs.extend(analysis::local::support::EvidenceIndex::inputs());inputs.extend(analysis::model::support::EvidenceIndex::inputs());inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
+ pub fn inputs()->Vec<ValidationInput>{let mut inputs=BindingData::validation_inputs();inputs.extend(BindingOutput::validation_inputs());inputs.extend(EntryData::validation_inputs().into_iter().map(|i|if stages::is_vocabulary(i.name()){i.at_epoch(stages::PublicationBoundary::Facts)}else{i}));inputs.extend(PathData::inputs());inputs.extend(projection_inputs());inputs.extend(Vocabulary::inputs());inputs.extend(evidence_inputs());inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
 }};}
 crate::summary_owned_inputs!(data);
 #[macro_export]

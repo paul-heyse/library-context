@@ -98,3 +98,64 @@ fn summary_dependencies_use_only_published_nominal_evidence_routes() {
     }
     assert_eq!(budget.reserved(), 0);
 }
+
+#[test]
+fn summary_model_assumptions_hydrate_both_evidence_indexes_without_mixing_facts() {
+    use lctx_model::domain::{assumptions::*, execution::summary_production::SummaryData, value::*};
+    fn id<T>(n: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([n; 16].into_iter()))
+        .unwrap()
+    }
+    fn load<R: Record>(data: &mut SummaryData, rows: &[R], prefix: PublicationBoundary) {
+        let input = ValidationInput::of::<R>(&["id"]).at_epoch(prefix);
+        data.visit_input(&input, &R::encode(rows).unwrap()).unwrap();
+    }
+    for profile in Profile::ALL {
+        assert!(SummaryData::consumed_inputs(profile).iter()
+            .filter(|i| is_vocabulary(i.name()))
+            .all(|i| matches!(i.prefix(), Some(PublicationBoundary::Facts | PublicationBoundary::Model))));
+    }
+    for input in AssumptionIndex::inputs() {
+        let declarations: Vec<_> = SummaryData::inputs().into_iter()
+            .filter(|i| i.name() == input.name()).collect();
+        assert!(!declarations.is_empty());
+        assert!(declarations.iter().all(|i| i.prefix() == Some(PublicationBoundary::Model)));
+    }
+    let budget = resources::ResourceBudget::fixed(1 << 24).unwrap();
+    let mut data = SummaryData::new(&budget);
+    let facts_predicate = Predicate::IsNone;
+    let model_predicate = Predicate::IsValue { value: Literal::None.id() };
+    load(&mut data, std::slice::from_ref(&facts_predicate), PublicationBoundary::Facts);
+    load(&mut data, std::slice::from_ref(&model_predicate), PublicationBoundary::Model);
+    assert!(data.entry.predicates.get(facts_predicate.id()).is_some());
+    assert!(data.entry.predicates.get(model_predicate.id()).is_none());
+    assert!(data.vocabulary.predicates.get(&model_predicate.id()).is_some());
+    assert!(data.vocabulary.predicates.get(&facts_predicate.id()).is_none());
+
+    let universe = AssumptionUniverse {
+        context: id(1), input: id(2), environment: ContentHash::of(b"fixture environment"),
+        model_definition: ContentHash::of(b"fixture model"),
+    };
+    let assumption = Assumption::NoExtraOverrides { class: id(3), support: id(4), universe: universe.id() };
+    let basis = AssumptionSet::new([assumption.id()]).unwrap();
+    load(&mut data, std::slice::from_ref(&universe), PublicationBoundary::Model);
+    load(&mut data, std::slice::from_ref(&assumption), PublicationBoundary::Model);
+    load(&mut data, std::slice::from_ref(&basis.set), PublicationBoundary::Model);
+    assert!(data.local_evidence.assumptions.resolve(basis.set.id()).is_err());
+    assert!(data.model_evidence.assumptions.resolve(basis.set.id()).is_err());
+    load(&mut data, &basis.members, PublicationBoundary::Model);
+    for resolver in [&data.local_evidence.assumptions, &data.model_evidence.assumptions] {
+        assert_eq!(resolver.resolve(basis.set.id()).unwrap(), basis);
+        assert!(resolver.universes.get(&universe.id()).is_some());
+    }
+    assert_eq!(data.vocabulary.assumption_sets.get(&basis.set.id()), Some(&basis.set));
+    let batch = AssumptionSet::encode(std::slice::from_ref(&basis.set)).unwrap();
+    let unprefixed = ValidationInput::of::<AssumptionSet>(&["id"]);
+    assert!(data.visit_input(&unprefixed, &batch).is_err());
+    assert!(data.visit_input(&unprefixed.at_epoch(PublicationBoundary::Local), &batch).is_err());
+    drop(data);
+    assert_eq!(budget.reserved(), 0);
+}
