@@ -1,6 +1,6 @@
 //! Mandatory public catalog. Normalized/raw contracts remain their single semantic owners.
-mod aliases;
 pub mod access_routes;
+mod aliases;
 pub mod build;
 pub mod evidence;
 mod inventory;

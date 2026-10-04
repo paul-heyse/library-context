@@ -228,8 +228,7 @@ def oracle_scope(
     graph_packages = {p["id"]: p for p in metadata["packages"]}
     nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
     if any(
-        (p["name"], p["version"], p["source"]) not in locked
-        for p in graph_packages.values()
+        (p["name"], p["version"], p["source"]) not in locked for p in graph_packages.values()
     ) or any(
         node["id"] not in graph_packages
         or any(edge["pkg"] not in nodes or not edge["dep_kinds"] for edge in node["deps"])
@@ -306,15 +305,22 @@ def _metadata(lockfile: Path) -> CargoMetadata | None:
     try:
         result = subprocess.run(
             [
-                "cargo", "metadata", "--locked", "--offline", "--all-features",
-                "--format-version", "1", "--manifest-path", str(manifest),
+                "cargo",
+                "metadata",
+                "--locked",
+                "--offline",
+                "--all-features",
+                "--format-version",
+                "1",
+                "--manifest-path",
+                str(manifest),
             ],
             check=True,
             capture_output=True,
             text=True,
         )
         return cast(CargoMetadata, json.loads(result.stdout))
-    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+    except OSError, subprocess.CalledProcessError, json.JSONDecodeError:
         return None
 
 

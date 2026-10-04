@@ -1,11 +1,12 @@
 //! Immutable generation schemas lowered exclusively from a validated semantic model (ADR-0086).
+mod access_routes_service;
 mod capability_service;
 mod catalog;
 mod codec;
 mod ddl;
 mod evidence_service;
-mod flow_inventory_service;
 mod failure;
+mod flow_inventory_service;
 mod guard;
 mod install;
 mod lease;
@@ -18,7 +19,6 @@ mod runtime;
 mod serving_shape;
 mod source_characterization_service;
 mod source_usage_service;
-mod access_routes_service;
 mod vectors;
 pub use native_service::PreparedNative;
 mod service;

@@ -11,13 +11,13 @@ use super::{
     *,
 };
 use crate::{Assertion, Domain, DomainCode, DomainSum};
+pub mod contextual;
 mod generics;
 pub mod locations;
-pub mod contextual;
-mod signatures;
 mod overload_origins;
-pub use overload_origins::*;
+mod signatures;
 pub use generics::*;
+pub use overload_origins::*;
 pub use signatures::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]

@@ -626,39 +626,117 @@ async fn native_parameter_bridge_requires_the_exact_first_identifier_and_native_
 
 #[tokio::test]
 async fn partial_family_native_singleton_requires_its_complete_attributed_inventory() {
-    use lctx_model::domain::{attribution::*,flow_inventory::*};
-    let (mut data,_,_,budget)=fixture().await;
-    let req=request(&data,"parameter");
-    let coverage=data.coverage.iter().cloned().collect::<Vec<_>>();
-    data.coverage=Rows::new(&budget);
-    for mut row in coverage {if row.family==FactFamily::Flow && row.run.is_some() {row.status=CoverageStatus::Partial;row.reason=Some(obligation::ObligationKind::IncompleteCoverage);} data.coverage.insert(row).unwrap();}
-    let proof=EntryValueWitness::derive(&data,req,&budget).unwrap().expect("complete native per-use singleton survives Partial family coverage");
-    let witness=proof.witness().clone();
-    let inventory=data.inventories.get(witness.inventory).unwrap().clone();
-    let native_support=data.inventory_supports.get(witness.inventory_support).unwrap().clone();
-    assert!(inventory.complete);
-    assert_eq!(data.coverage.get(witness.coverage).unwrap().status,CoverageStatus::Partial);
-    drop(proof);
-    let originals=data.inventory_supports.iter().cloned().collect::<Vec<_>>();
-    for change in 0..3 {
-        data.inventory_supports=Rows::new(&budget);
-        for mut row in originals.clone() {if row.id()==native_support.id() {match change {0=>row.run=data.runs.iter().find(|r|r.id()!=req.run).expect("independent analyzer run").id(),1=>row.origin=Origin::SourceObservation,_=>row.mode=ExtractionMode::ReportDecode}} data.inventory_supports.insert(row).unwrap();}
-        assert!(EntryValueWitness::derive(&data,req,&budget).unwrap().is_err(),"foreign run or non-native origin/mode cannot certify native closure");
+    use lctx_model::domain::{attribution::*, flow_inventory::*};
+    let (mut data, _, _, budget) = fixture().await;
+    let req = request(&data, "parameter");
+    let coverage = data.coverage.iter().cloned().collect::<Vec<_>>();
+    data.coverage = Rows::new(&budget);
+    for mut row in coverage {
+        if row.family == FactFamily::Flow && row.run.is_some() {
+            row.status = CoverageStatus::Partial;
+            row.reason = Some(obligation::ObligationKind::IncompleteCoverage);
+        }
+        data.coverage.insert(row).unwrap();
     }
-    data.inventory_supports=Rows::new(&budget);
-    for row in originals {data.inventory_supports.insert(row).unwrap();}
-    let old_inventories=data.inventories.iter().cloned().collect::<Vec<_>>();
-    data.inventories=Rows::new(&budget);
-    assert!(EntryValueWitness::derive(&data,req,&budget).unwrap().is_err(),"missing inventory must refuse");
-    for row in old_inventories {data.inventories.insert(row).unwrap();}
-    let mut candidates=data.inventory_candidates.iter().filter(|c|c.inventory==inventory.id()).map(FlowUseCandidate::state).collect::<Vec<_>>();
-    candidates[0].reachability_lost=true;
-    let members=data.inventory_members.iter().filter(|m|m.inventory==inventory.id()).map(|m|(m.ordinal,m.reaching,m.support)).collect::<Vec<_>>();
-    let (incomplete,candidates,members)=FlowUseInventoryObservation::new(inventory.qualification,inventory.use_,inventory.scope,inventory.view,&candidates,&members).unwrap();
+    let proof = EntryValueWitness::derive(&data, req, &budget)
+        .unwrap()
+        .expect("complete native per-use singleton survives Partial family coverage");
+    let witness = proof.witness().clone();
+    let inventory = data.inventories.get(witness.inventory).unwrap().clone();
+    let native_support = data
+        .inventory_supports
+        .get(witness.inventory_support)
+        .unwrap()
+        .clone();
+    assert!(inventory.complete);
+    assert_eq!(
+        data.coverage.get(witness.coverage).unwrap().status,
+        CoverageStatus::Partial
+    );
+    drop(proof);
+    let originals = data.inventory_supports.iter().cloned().collect::<Vec<_>>();
+    for change in 0..3 {
+        data.inventory_supports = Rows::new(&budget);
+        for mut row in originals.clone() {
+            if row.id() == native_support.id() {
+                match change {
+                    0 => {
+                        row.run = data
+                            .runs
+                            .iter()
+                            .find(|r| r.id() != req.run)
+                            .expect("independent analyzer run")
+                            .id()
+                    }
+                    1 => row.origin = Origin::SourceObservation,
+                    _ => row.mode = ExtractionMode::ReportDecode,
+                }
+            }
+            data.inventory_supports.insert(row).unwrap();
+        }
+        assert!(
+            EntryValueWitness::derive(&data, req, &budget)
+                .unwrap()
+                .is_err(),
+            "foreign run or non-native origin/mode cannot certify native closure"
+        );
+    }
+    data.inventory_supports = Rows::new(&budget);
+    for row in originals {
+        data.inventory_supports.insert(row).unwrap();
+    }
+    let old_inventories = data.inventories.iter().cloned().collect::<Vec<_>>();
+    data.inventories = Rows::new(&budget);
+    assert!(
+        EntryValueWitness::derive(&data, req, &budget)
+            .unwrap()
+            .is_err(),
+        "missing inventory must refuse"
+    );
+    for row in old_inventories {
+        data.inventories.insert(row).unwrap();
+    }
+    let mut candidates = data
+        .inventory_candidates
+        .iter()
+        .filter(|c| c.inventory == inventory.id())
+        .map(FlowUseCandidate::state)
+        .collect::<Vec<_>>();
+    candidates[0].reachability_lost = true;
+    let members = data
+        .inventory_members
+        .iter()
+        .filter(|m| m.inventory == inventory.id())
+        .map(|m| (m.ordinal, m.reaching, m.support))
+        .collect::<Vec<_>>();
+    let (incomplete, candidates, members) = FlowUseInventoryObservation::new(
+        inventory.qualification,
+        inventory.use_,
+        inventory.scope,
+        inventory.view,
+        &candidates,
+        &members,
+    )
+    .unwrap();
     assert!(!incomplete.complete);
-    data.inventories=Rows::new(&budget);data.inventories.insert(incomplete.clone()).unwrap();
-    data.inventory_candidates=Rows::new(&budget);for row in candidates {data.inventory_candidates.insert(row).unwrap();}
-    data.inventory_members=Rows::new(&budget);for row in members {data.inventory_members.insert(row).unwrap();}
-    data.inventory_supports=Rows::new(&budget);let mut support=native_support;support.assertion=incomplete.id();data.inventory_supports.insert(support).unwrap();
-    assert!(EntryValueWitness::derive(&data,req,&budget).unwrap().is_err(),"Partial family plus incomplete per-use inventory cannot certify entry");
+    data.inventories = Rows::new(&budget);
+    data.inventories.insert(incomplete.clone()).unwrap();
+    data.inventory_candidates = Rows::new(&budget);
+    for row in candidates {
+        data.inventory_candidates.insert(row).unwrap();
+    }
+    data.inventory_members = Rows::new(&budget);
+    for row in members {
+        data.inventory_members.insert(row).unwrap();
+    }
+    data.inventory_supports = Rows::new(&budget);
+    let mut support = native_support;
+    support.assertion = incomplete.id();
+    data.inventory_supports.insert(support).unwrap();
+    assert!(
+        EntryValueWitness::derive(&data, req, &budget)
+            .unwrap()
+            .is_err(),
+        "Partial family plus incomplete per-use inventory cannot certify entry"
+    );
 }

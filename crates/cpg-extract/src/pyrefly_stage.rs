@@ -434,10 +434,10 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             TypeRestrictionSupport,
             NativeSignatureObservation,
             NativeSignatureSupport,
-        NativeOverloadObservation,
-        NativeOverloadSupport,
-        NativeOverloadCandidate,
-        NativeOverloadCandidateSupport,
+            NativeOverloadObservation,
+            NativeOverloadSupport,
+            NativeOverloadCandidate,
+            NativeOverloadCandidateSupport,
             SignatureTypeSubject,
             SignatureTypeObservation,
             SignatureTypeSupport,
@@ -2952,8 +2952,12 @@ fn write_types<S: StageSink + 'static>(
     for (row, fidelity) in records.native_signatures {
         supported!(NativeSignatureSupport, row, fidelity);
     }
-    for row in records.overloads { supported!(NativeOverloadSupport, row, Fidelity::NativeStructural); }
-    for (row,fidelity) in records.overload_candidates { supported!(NativeOverloadCandidateSupport,row,fidelity); }
+    for row in records.overloads {
+        supported!(NativeOverloadSupport, row, Fidelity::NativeStructural);
+    }
+    for (row, fidelity) in records.overload_candidates {
+        supported!(NativeOverloadCandidateSupport, row, fidelity);
+    }
     for (row, fidelity) in records.port_types {
         supported!(SignatureTypeSupport, row, fidelity);
     }

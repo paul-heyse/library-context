@@ -92,7 +92,7 @@ pub struct Records {
     pub specializations: Vec<(GenericSpecializationObservation, Fidelity)>,
     pub native_signatures: Vec<(NativeSignatureObservation, Fidelity)>,
     pub overloads: Vec<NativeOverloadObservation>,
-    pub overload_candidates: Vec<(NativeOverloadCandidate,Fidelity)>,
+    pub overload_candidates: Vec<(NativeOverloadCandidate, Fidelity)>,
     pub port_subjects: Vec<SignatureTypeSubject>,
     pub port_types: Vec<(SignatureTypeObservation, Fidelity)>,
     pub terms: Vec<TypeTerm>,
@@ -1741,7 +1741,9 @@ pub fn records<'a>(
                     .is_some_and(|(parent, _)| parent == call.site))
             .then_some(node)
         });
-        let argument_node = argument_nodes.next().filter(|_| argument_nodes.next().is_none());
+        let argument_node = argument_nodes
+            .next()
+            .filter(|_| argument_nodes.next().is_none());
         let argument_range = argument_node.and_then(|node| spans.range_of(node));
         if let Some(range) = argument_range {
             let trace = ctx.answers.get_native_overload_trace(range);
@@ -1755,27 +1757,63 @@ pub fn records<'a>(
                     S::ClosestOnly => OverloadSelection::ClosestOnly,
                     S::Recovered => OverloadSelection::Recovered,
                 };
-                b.out.charge.grow(trace.candidates.len().saturating_mul(1024))?;
+                b.out
+                    .charge
+                    .grow(trace.candidates.len().saturating_mul(1024))?;
                 let mut candidates = Vec::new();
                 let mut fidelities = Vec::new();
                 for (ordinal, candidate) in trace.candidates.iter().enumerate() {
-                    if candidate.ordinal != ordinal { return Err(invalid("native overload original vector has a gap")); }
+                    if candidate.ordinal != ordinal {
+                        return Err(invalid("native overload original vector has a gap"));
+                    }
                     let term = b.term(&Type::Callable(Box::new(candidate.callable.clone())), 0)?;
                     fidelities.push(term.fidelity());
-                    let origin = candidate.origin.as_ref().map(|origin| {
-                        b.function(&pyrefly_types::function::FunctionKind::Def(std::sync::Arc::new(origin.clone())))
-                    }).transpose()?.flatten();
-                    candidates.push(OverloadCandidateInput { term:term.id,origin,generic:candidate.tparams.as_ref().is_some_and(|p| !p.is_empty()),receiver_basis_required:candidate.origin.as_ref().is_some_and(|o|o.cls.is_some()) });
+                    let origin = candidate
+                        .origin
+                        .as_ref()
+                        .map(|origin| {
+                            b.function(&pyrefly_types::function::FunctionKind::Def(
+                                std::sync::Arc::new(origin.clone()),
+                            ))
+                        })
+                        .transpose()?
+                        .flatten();
+                    candidates.push(OverloadCandidateInput {
+                        term: term.id,
+                        origin,
+                        generic: candidate.tparams.as_ref().is_some_and(|p| !p.is_empty()),
+                        receiver_basis_required: candidate
+                            .origin
+                            .as_ref()
+                            .is_some_and(|o| o.cls.is_some()),
+                    });
                 }
-                let (observation, members) = NativeOverloadObservation::new(b.qualification.id(),b.qualification.scope,call.site,argument_node.expect("exact Arguments attachment"),selection,trace.closest_ordinal as i64,&candidates)?;
+                let (observation, members) = NativeOverloadObservation::new(
+                    b.qualification.id(),
+                    b.qualification.scope,
+                    call.site,
+                    argument_node.expect("exact Arguments attachment"),
+                    selection,
+                    trace.closest_ordinal as i64,
+                    &candidates,
+                )?;
                 b.out.hold(&observation)?;
                 b.out.overloads.push(observation);
-                for (member,fidelity) in members.into_iter().zip(fidelities) { b.out.hold(&member)?;b.out.overload_candidates.push((member,fidelity)); }
+                for (member, fidelity) in members.into_iter().zip(fidelities) {
+                    b.out.hold(&member)?;
+                    b.out.overload_candidates.push((member, fidelity));
+                }
             }
             // The old getter returns representatives and recovery hints too. Preserve them as
             // candidate typing, but only actual unique native selection receives ChosenOverload.
-            if trace.as_ref().is_some_and(|t| matches!(t.selection,pyrefly::alt::answers::NativeOverloadSelection::Resolved | pyrefly::alt::answers::NativeOverloadSelection::Selected))
-                && let Some(ty) = ctx.answers.get_chosen_overload_trace(range) {
+            if trace.as_ref().is_some_and(|t| {
+                matches!(
+                    t.selection,
+                    pyrefly::alt::answers::NativeOverloadSelection::Resolved
+                        | pyrefly::alt::answers::NativeOverloadSelection::Selected
+                )
+            }) && let Some(ty) = ctx.answers.get_chosen_overload_trace(range)
+            {
                 b.observe(call.site, TypeRole::ChosenOverload, false, &ty)?;
             }
             if let Some((alternatives, _closest_index)) = ctx.answers.get_all_overload_trace(range)
@@ -1800,7 +1838,8 @@ pub fn records<'a>(
             // Retain the provider's recorded argument context at its exact original
             // expression. This is not proof of successful overload selection or
             // assignability; recovered/closest context remains an observation.
-            if let Some(ty) = spans.range_of(argument.value)
+            if let Some(ty) = spans
+                .range_of(argument.value)
                 .and_then(|range| ctx.answers.get_expected_type_trace(range))
             {
                 b.observe(argument.value, TypeRole::Expected, false, &ty)?;

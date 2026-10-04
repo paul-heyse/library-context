@@ -4,7 +4,11 @@ use lctx_model::domain::{
     analysis::native::NativeAssertionPremise,
     assertion::{Support, *},
     attribution::*,
-    catalog::evidence::{OriginalSource, SourceCharacterization, SourceCharacterizationScenario, SourceUsage, DiagnosticUseAssessment, DiagnosticUseLink, DiagnosticUsePath, DiagnosticUseTarget, ScenarioAssociation},
+    catalog::evidence::{
+        DiagnosticUseAssessment, DiagnosticUseLink, DiagnosticUsePath, DiagnosticUseTarget,
+        OriginalSource, ScenarioAssociation, SourceCharacterization,
+        SourceCharacterizationScenario, SourceUsage,
+    },
     diagnostics::*,
     serving::*,
     source::{Occurrence, SourceArtifact},
@@ -32,58 +36,209 @@ fn unavailable() -> Availability {
     }
 }
 impl PacketLease<'_> {
-    async fn diagnostic_correlation(&mut self, characterization: &SourceCharacterization, grant: &OriginalRange, maximum: usize) -> Result<Nullable<DiagnosticCorrelationPacket>, Error> {
-        let assessments=self.read_for::<DiagnosticUseAssessment,SourceCharacterization>("characterization",&[characterization.id()]).await?;
-        if assessments.rows().is_empty() { return Ok(Nullable(None)); }
-        if assessments.rows().len()!=1 { return Err(Error::Contract); }
-        let assessment=&assessments.rows()[0];
-        let links=self.read_for::<DiagnosticUseLink,DiagnosticUseAssessment>("assessment",&[assessment.id()]).await?;
-        let mut charge=charged::StateCharge::new(&self.lease.budget,"diagnostic-correlation-packet");
-        charge.grow(links.rows().len().saturating_mul(4096))?;
-        let mut links=links.rows().to_vec(); links.sort_by_key(Record::id);
-        let mut items=Vec::new(); let mut uses=std::collections::BTreeSet::new();
-        for link in &links {
-            let usage=required(&self.read_ids::<SourceUsage>(&[link.usage]).await?,link.usage)?;
-            uses.insert(link.usage);
-            let event=required(&self.read_ids::<normalized::events::NormalizedCallEvent>(&[usage.event]).await?,usage.event)?;
-            let source=required(&self.read_ids::<normalized::events::CallEventSource>(&[link.event_source]).await?,link.event_source)?;
-            let subject=required(&self.read_ids::<Occurrence>(&[link.subject]).await?,link.subject)?;
-            let usage_characterization=required(&self.read_ids::<SourceCharacterization>(&[usage.characterization]).await?,usage.characterization)?;
-            let usage_q=required(&self.read_ids::<AssertionQualification>(&[usage_characterization.qualification]).await?,usage_characterization.qualification)?;
-            if usage_q.context!=grant.context || source.event!=event.id() || event.context!=grant.context || usage_characterization.artifact!=grant.artifact || subject.source!=grant.artifact {return Err(Error::Contract);}
-            let native=required(&self.read_ids::<calls::ProviderCallSite>(&[source.observation]).await?,source.observation)?;
-            if native.site!=event.site || native.origin!=event.origin {return Err(Error::Contract);}
-            // Fully hydrate source ownership and path before page trimming, using the declared mapping.
-            let owner=required(&self.read_ids::<normalized::entities::OccurrenceOwnership>(&[event.owner]).await?,event.owner)?;
-            if owner.occurrence!=event.site{return Err(Error::Contract);}
-            let paths=self.read_for::<DiagnosticUsePath,DiagnosticUseLink>("link",&[link.id()]).await?;
-            let mut path=paths.rows().to_vec();path.sort_by_key(|p|p.ordinal);
-            let mut current=link.subject;
-            let mut proof=vec![ProofReference::from_canonical(derivation::RowRef::of(link.id())),ProofReference::from_canonical(derivation::RowRef::of(link.event_source))];
-            for (ordinal,step) in path.iter().enumerate() {
-                let placement=required(&self.read_ids::<syntax::SyntaxPlacement>(&[step.placement]).await?,step.placement)?;
-                let q=required(&self.read_ids::<AssertionQualification>(&[placement.qualification]).await?,placement.qualification)?;
-                if step.ordinal!=ordinal as i64 || placement.occurrence!=current || q.context!=grant.context {return Err(Error::Contract);}
-                current=placement.parent.ok_or(Error::Contract)?;proof.push(ProofReference::from_canonical(derivation::RowRef::of(step.id())));
-            }
-            if current!=event.site {return Err(Error::Contract);}
-            let targets=self.read_for::<DiagnosticUseTarget,DiagnosticUseLink>("link",&[link.id()]).await?;
-            charge.grow(targets.rows().len().saturating_mul(1024))?;
-            let mut target_packets=vec![];
-            for target in targets.rows() {
-                let association=required(&self.read_ids::<ScenarioAssociation>(&[target.association]).await?,target.association)?;
-                let alternative=required(&self.read_ids::<normalized::events::NormalizedCallAlternative>(&[association.alternative]).await?,association.alternative)?;
-                if alternative.event!=event.id() {return Err(Error::Contract);}
-                self.read_ids::<catalog::CatalogMember>(&[association.member]).await?;
-                proof.push(ProofReference::from_canonical(derivation::RowRef::of(target.id())));
-                target_packets.push(DiagnosticUseTargetPacket {association:association.id(),member:association.member,scenario:association.scenario,alternative:association.alternative,basis:association.basis});
-            }
-            target_packets.sort_by_key(|t|t.association);
-            if items.len()<maximum {items.push(DiagnosticUseLinkPacket {link:link.id(),usage:usage.id(),event:event.id(),subject:link.subject,event_source:source.id(),targets:target_packets,proof});}
+    async fn diagnostic_correlation(
+        &mut self,
+        characterization: &SourceCharacterization,
+        grant: &OriginalRange,
+        maximum: usize,
+    ) -> Result<Nullable<DiagnosticCorrelationPacket>, Error> {
+        let assessments = self
+            .read_for::<DiagnosticUseAssessment, SourceCharacterization>(
+                "characterization",
+                &[characterization.id()],
+            )
+            .await?;
+        if assessments.rows().is_empty() {
+            return Ok(Nullable(None));
         }
-        if assessment.uses!=uses.len() as i64 {return Err(Error::Contract);}
-        let omitted=links.len().saturating_sub(items.len()) as u64;
-        Ok(Nullable(Some(DiagnosticCorrelationPacket {assessment:assessment.id(),status:assessment.status,uses:uses.len() as u64,remainder:assessment.remainder,links:SectionPage {availability:if omitted>0 {Availability::Partial {reason:Name::new("diagnostic correlation page bound reached").map_err(wire)?}} else {Availability::Available {}},items,continuation:Optional::default(),omitted,truncated:omitted>0}})))
+        if assessments.rows().len() != 1 {
+            return Err(Error::Contract);
+        }
+        let assessment = &assessments.rows()[0];
+        let links = self
+            .read_for::<DiagnosticUseLink, DiagnosticUseAssessment>(
+                "assessment",
+                &[assessment.id()],
+            )
+            .await?;
+        let mut charge =
+            charged::StateCharge::new(&self.lease.budget, "diagnostic-correlation-packet");
+        charge.grow(links.rows().len().saturating_mul(4096))?;
+        let mut links = links.rows().to_vec();
+        links.sort_by_key(Record::id);
+        let mut items = Vec::new();
+        let mut uses = std::collections::BTreeSet::new();
+        for link in &links {
+            let usage = required(
+                &self.read_ids::<SourceUsage>(&[link.usage]).await?,
+                link.usage,
+            )?;
+            uses.insert(link.usage);
+            let event = required(
+                &self
+                    .read_ids::<normalized::events::NormalizedCallEvent>(&[usage.event])
+                    .await?,
+                usage.event,
+            )?;
+            let source = required(
+                &self
+                    .read_ids::<normalized::events::CallEventSource>(&[link.event_source])
+                    .await?,
+                link.event_source,
+            )?;
+            let subject = required(
+                &self.read_ids::<Occurrence>(&[link.subject]).await?,
+                link.subject,
+            )?;
+            let usage_characterization = required(
+                &self
+                    .read_ids::<SourceCharacterization>(&[usage.characterization])
+                    .await?,
+                usage.characterization,
+            )?;
+            let usage_q = required(
+                &self
+                    .read_ids::<AssertionQualification>(&[usage_characterization.qualification])
+                    .await?,
+                usage_characterization.qualification,
+            )?;
+            if usage_q.context != grant.context
+                || source.event != event.id()
+                || event.context != grant.context
+                || usage_characterization.artifact != grant.artifact
+                || subject.source != grant.artifact
+            {
+                return Err(Error::Contract);
+            }
+            let native = required(
+                &self
+                    .read_ids::<calls::ProviderCallSite>(&[source.observation])
+                    .await?,
+                source.observation,
+            )?;
+            if native.site != event.site || native.origin != event.origin {
+                return Err(Error::Contract);
+            }
+            // Fully hydrate source ownership and path before page trimming, using the declared mapping.
+            let owner = required(
+                &self
+                    .read_ids::<normalized::entities::OccurrenceOwnership>(&[event.owner])
+                    .await?,
+                event.owner,
+            )?;
+            if owner.occurrence != event.site {
+                return Err(Error::Contract);
+            }
+            let paths = self
+                .read_for::<DiagnosticUsePath, DiagnosticUseLink>("link", &[link.id()])
+                .await?;
+            let mut path = paths.rows().to_vec();
+            path.sort_by_key(|p| p.ordinal);
+            let mut current = link.subject;
+            let mut proof = vec![
+                ProofReference::from_canonical(derivation::RowRef::of(link.id())),
+                ProofReference::from_canonical(derivation::RowRef::of(link.event_source)),
+            ];
+            for (ordinal, step) in path.iter().enumerate() {
+                let placement = required(
+                    &self
+                        .read_ids::<syntax::SyntaxPlacement>(&[step.placement])
+                        .await?,
+                    step.placement,
+                )?;
+                let q = required(
+                    &self
+                        .read_ids::<AssertionQualification>(&[placement.qualification])
+                        .await?,
+                    placement.qualification,
+                )?;
+                if step.ordinal != ordinal as i64
+                    || placement.occurrence != current
+                    || q.context != grant.context
+                {
+                    return Err(Error::Contract);
+                }
+                current = placement.parent.ok_or(Error::Contract)?;
+                proof.push(ProofReference::from_canonical(derivation::RowRef::of(
+                    step.id(),
+                )));
+            }
+            if current != event.site {
+                return Err(Error::Contract);
+            }
+            let targets = self
+                .read_for::<DiagnosticUseTarget, DiagnosticUseLink>("link", &[link.id()])
+                .await?;
+            charge.grow(targets.rows().len().saturating_mul(1024))?;
+            let mut target_packets = vec![];
+            for target in targets.rows() {
+                let association = required(
+                    &self
+                        .read_ids::<ScenarioAssociation>(&[target.association])
+                        .await?,
+                    target.association,
+                )?;
+                let alternative = required(
+                    &self
+                        .read_ids::<normalized::events::NormalizedCallAlternative>(&[
+                            association.alternative
+                        ])
+                        .await?,
+                    association.alternative,
+                )?;
+                if alternative.event != event.id() {
+                    return Err(Error::Contract);
+                }
+                self.read_ids::<catalog::CatalogMember>(&[association.member])
+                    .await?;
+                proof.push(ProofReference::from_canonical(derivation::RowRef::of(
+                    target.id(),
+                )));
+                target_packets.push(DiagnosticUseTargetPacket {
+                    association: association.id(),
+                    member: association.member,
+                    scenario: association.scenario,
+                    alternative: association.alternative,
+                    basis: association.basis,
+                });
+            }
+            target_packets.sort_by_key(|t| t.association);
+            if items.len() < maximum {
+                items.push(DiagnosticUseLinkPacket {
+                    link: link.id(),
+                    usage: usage.id(),
+                    event: event.id(),
+                    subject: link.subject,
+                    event_source: source.id(),
+                    targets: target_packets,
+                    proof,
+                });
+            }
+        }
+        if assessment.uses != uses.len() as i64 {
+            return Err(Error::Contract);
+        }
+        let omitted = links.len().saturating_sub(items.len()) as u64;
+        Ok(Nullable(Some(DiagnosticCorrelationPacket {
+            assessment: assessment.id(),
+            status: assessment.status,
+            uses: uses.len() as u64,
+            remainder: assessment.remainder,
+            links: SectionPage {
+                availability: if omitted > 0 {
+                    Availability::Partial {
+                        reason: Name::new("diagnostic correlation page bound reached")
+                            .map_err(wire)?,
+                    }
+                } else {
+                    Availability::Available {}
+                },
+                items,
+                continuation: Optional::default(),
+                omitted,
+                truncated: omitted > 0,
+            },
+        })))
     }
 
     async fn span_in_grant(
@@ -299,7 +454,12 @@ impl PacketLease<'_> {
                     let usage = self.source_usage(&row, &raw, grant, &mut charge).await?;
                     // The per-characterization precharge covers this fixed payload;
                     // the usage operation separately charges its retained collections.
-                    (SourceCharacterizationPayload::Usage { usage: Box::new(usage) }, basis)
+                    (
+                        SourceCharacterizationPayload::Usage {
+                            usage: Box::new(usage),
+                        },
+                        basis,
+                    )
                 }
                 NativeAssertionPremise::RuffDiagnosticObservation { assertion, support } => {
                     let raw = required(
@@ -435,9 +595,11 @@ impl PacketLease<'_> {
                     usage.usage,
                 )));
             }
-            let diagnostic_correlation=self.diagnostic_correlation(&row,grant,maximum).await?;
-            if let Some(correlation)=&diagnostic_correlation.0 {
-                proof.push(ProofReference::from_canonical(derivation::RowRef::of(correlation.assessment)));
+            let diagnostic_correlation = self.diagnostic_correlation(&row, grant, maximum).await?;
+            if let Some(correlation) = &diagnostic_correlation.0 {
+                proof.push(ProofReference::from_canonical(derivation::RowRef::of(
+                    correlation.assessment,
+                )));
             }
             items.push(SourceCharacterizationPacket {
                 characterization: row.id(),

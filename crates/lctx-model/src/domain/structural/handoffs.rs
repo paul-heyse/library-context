@@ -279,8 +279,27 @@ pub fn named_definition(
         for rs in d.entry.reaching_supports.iter().filter(|s| {
             s.assertion == reaching.id() && s.attribution().is_some_and(|r| r.run == a.run)
         }) {
-            let Some((inventory,inventory_support))=flow_inventory::complete_native_singleton(&d.entry,observation,support,reaching,rs,budget)? else {continue};
-            if !native(d,NativeAssertionPremise::FlowUseInventory {assertion:inventory.id(),support:inventory_support.id()},inventory.qualification) {continue}
+            let Some((inventory, inventory_support)) = flow_inventory::complete_native_singleton(
+                &d.entry,
+                observation,
+                support,
+                reaching,
+                rs,
+                budget,
+            )?
+            else {
+                continue;
+            };
+            if !native(
+                d,
+                NativeAssertionPremise::FlowUseInventory {
+                    assertion: inventory.id(),
+                    support: inventory_support.id(),
+                },
+                inventory.qualification,
+            ) {
+                continue;
+            }
             if !native(
                 d,
                 NativeAssertionPremise::Reaching {

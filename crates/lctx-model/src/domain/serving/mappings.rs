@@ -253,9 +253,13 @@ impl PacketKind {
     pub fn binding(self) -> &'static PacketBinding {
         match self {
             Self::OperationCore => <super::OperationCore as PacketOutput>::binding(),
-            Self::CallableComparisonPacket => <super::CallableComparisonPacket as PacketOutput>::binding(),
+            Self::CallableComparisonPacket => {
+                <super::CallableComparisonPacket as PacketOutput>::binding()
+            }
             Self::ContextualTypePacket => <super::ContextualTypePacket as PacketOutput>::binding(),
-            Self::IncomingReferencePacket => <super::IncomingReferencePacket as PacketOutput>::binding(),
+            Self::IncomingReferencePacket => {
+                <super::IncomingReferencePacket as PacketOutput>::binding()
+            }
             Self::AccessRoutePacket => <super::AccessRoutePacket as PacketOutput>::binding(),
             Self::EvidencePacket => <super::EvidencePacket as PacketOutput>::binding(),
             Self::ScenarioPacket => <super::ScenarioPacket as PacketOutput>::binding(),
@@ -426,7 +430,21 @@ macro_rules! binding {
                                 .rsplit("::")
                                 .next()
                                 .expect("packet type"),
-                            revision: if matches!($name,"original_evidence"|"scenario"|"relationships"|"operation"|"callable_comparison"|"contextual_typing"|"incoming_references"|"access_routes") {2} else {1},
+                            revision: if matches!(
+                                $name,
+                                "original_evidence"
+                                    | "scenario"
+                                    | "relationships"
+                                    | "operation"
+                                    | "callable_comparison"
+                                    | "contextual_typing"
+                                    | "incoming_references"
+                                    | "access_routes"
+                            ) {
+                                2
+                            } else {
+                                1
+                            },
                         },
                     }
                 })
@@ -694,9 +712,30 @@ binding!(
     &[PacketKind::OriginalRange],
     &[]
 );
-binding!("callable_comparison", CallableComparisonPacket, &[Capability::Catalog], vec![], &[], &[PreparedDependency::Selection]);
-binding!("contextual_typing", ContextualTypePacket, &[Capability::Catalog], vec![], &[], &[PreparedDependency::Selection]);
-binding!("incoming_references", IncomingReferencePacket, &[Capability::Catalog], vec![], &[], &[PreparedDependency::Selection]);
+binding!(
+    "callable_comparison",
+    CallableComparisonPacket,
+    &[Capability::Catalog],
+    vec![],
+    &[],
+    &[PreparedDependency::Selection]
+);
+binding!(
+    "contextual_typing",
+    ContextualTypePacket,
+    &[Capability::Catalog],
+    vec![],
+    &[],
+    &[PreparedDependency::Selection]
+);
+binding!(
+    "incoming_references",
+    IncomingReferencePacket,
+    &[Capability::Catalog],
+    vec![],
+    &[],
+    &[PreparedDependency::Selection]
+);
 binding!(
     "relationships",
     RelationshipPacket,
@@ -879,20 +918,27 @@ macro_rules! serving_retrieval_inputs {($m:ident)=>{$m!{
  units:$crate::domain::retrieval::Unit,fragments:$crate::domain::retrieval::Fragment,subjects:$crate::domain::retrieval::Subject,unit_subjects:$crate::domain::retrieval::UnitSubject,anchors:$crate::domain::retrieval::OriginalAnchor,origins:$crate::domain::retrieval::Origin,uses:$crate::domain::retrieval::consumption::RetrievalEmbeddingUse,parents:$crate::domain::input::CorpusLibrary,
 }};}
 
-binding!("access_routes", AccessRoutePacket, &[Capability::Catalog], sources!(
- domain::syntax::ImportAliasObservation,
- domain::normalized::links::ImportModuleAssessment,
- domain::normalized::links::ImportModuleCandidate,
- domain::symbols::ModuleResolutionObservation,
- domain::symbols::ModuleResolutionSupport,
- domain::ruff::RuffBindingObservation,
- domain::ruff::RuffBindingSupport,
- domain::symbols::PublicNameObservation,
- domain::symbols::PublicNameSupport,
- domain::symbols::ExportOrigin,
- domain::normalized::entities::ClassEntity,
- domain::attribution::ProviderRun,
- domain::attribution::Provider,
- domain::assertion::ProviderSurface,
- domain::assertion::Evidence
-), &[], &[PreparedDependency::Selection]);
+binding!(
+    "access_routes",
+    AccessRoutePacket,
+    &[Capability::Catalog],
+    sources!(
+        domain::syntax::ImportAliasObservation,
+        domain::normalized::links::ImportModuleAssessment,
+        domain::normalized::links::ImportModuleCandidate,
+        domain::symbols::ModuleResolutionObservation,
+        domain::symbols::ModuleResolutionSupport,
+        domain::ruff::RuffBindingObservation,
+        domain::ruff::RuffBindingSupport,
+        domain::symbols::PublicNameObservation,
+        domain::symbols::PublicNameSupport,
+        domain::symbols::ExportOrigin,
+        domain::normalized::entities::ClassEntity,
+        domain::attribution::ProviderRun,
+        domain::attribution::Provider,
+        domain::assertion::ProviderSurface,
+        domain::assertion::Evidence
+    ),
+    &[],
+    &[PreparedDependency::Selection]
+);

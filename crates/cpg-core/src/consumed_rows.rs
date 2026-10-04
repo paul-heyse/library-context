@@ -101,8 +101,15 @@ pub(crate) fn assert_decoder_reachability(
     declarations: Vec<ValidationInput>,
     decoders: &std::collections::BTreeSet<TypeId>,
 ) {
-    let missing=declarations.iter().filter(|input|!decoders.contains(&input.type_id())).map(|input|(input.name(),input.prefix())).collect::<Vec<_>>();
-    assert!(missing.is_empty(),"model-owned consumed sources lack decoder reachability: {missing:?}");
+    let missing = declarations
+        .iter()
+        .filter(|input| !decoders.contains(&input.type_id()))
+        .map(|input| (input.name(), input.prefix()))
+        .collect::<Vec<_>>();
+    assert!(
+        missing.is_empty(),
+        "model-owned consumed sources lack decoder reachability: {missing:?}"
+    );
 }
 
 /// Register an existing typed source in its stage session and stream to an explicit consumer.
@@ -134,10 +141,16 @@ mod tests {
     use lctx_model::domain::{input::Package, memory::MemoryGeneration, value::Literal};
     #[test]
     fn missing_decoder_names_the_stage_without_changing_error_class() {
-        let budget=ResourceBudget::fixed(1 << 20).unwrap();
-        let inputs=ConsumedInputs::new(vec![ValidationInput::of::<Literal>(&["id"])],&budget).unwrap();
-        let ModelError::Invalid(message)=inputs.finish("synthesize").unwrap_err() else {panic!("missing decoder changed error class")};
-        assert_eq!(message,"stage synthesize consumed input has no typed loader: literal_values");
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let inputs =
+            ConsumedInputs::new(vec![ValidationInput::of::<Literal>(&["id"])], &budget).unwrap();
+        let ModelError::Invalid(message) = inputs.finish("synthesize").unwrap_err() else {
+            panic!("missing decoder changed error class")
+        };
+        assert_eq!(
+            message,
+            "stage synthesize consumed input has no typed loader: literal_values"
+        );
     }
     #[tokio::test]
     async fn two_acknowledged_epochs_remain_distinct_while_same_source_aliases_coalesce() {

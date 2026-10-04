@@ -30,7 +30,8 @@ def dynamic(error):
             &GetOperationRequest {
                 library: Name::new("demo").unwrap(),
                 operation: path("demo.finite_zero"),
-                comparison: Optional::default(), reference_parameter:Optional::default(),
+                comparison: Optional::default(),
+                reference_parameter: Optional::default(),
                 sections: vec![OperationSection::Behavior, OperationSection::Briefs],
                 page: PageRequest {
                     size: 100,

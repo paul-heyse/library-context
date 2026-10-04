@@ -363,7 +363,15 @@ pub fn produce(
             {
                 continue;
             }
-            flow(FlowInputs { d, h, base }, frame, binding, proof, None, out, budget)?;
+            flow(
+                FlowInputs { d, h, base },
+                frame,
+                binding,
+                proof,
+                None,
+                out,
+                budget,
+            )?;
         }
         if bound
             && argument.syntax_kind == SyntaxKind::ExprName

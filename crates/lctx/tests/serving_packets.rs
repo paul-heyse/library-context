@@ -12,8 +12,10 @@ use support::*;
 
 #[tokio::test]
 async fn analytical_enrichment_serves_real_comparison_context_and_non_call_references() {
-    use lctx_model::domain::{calls::SignatureRole, lexical::SyntaxField, normalized::contract_comparison::Difference};
-    let source=br#"from typing import Callable
+    use lctx_model::domain::{
+        calls::SignatureRole, lexical::SyntaxField, normalized::contract_comparison::Difference,
+    };
+    let source = br#"from typing import Callable
 from dataclasses import dataclass
 __all__=['decorate','changed','typed','Settings']
 def decorate(fn):
@@ -47,89 +49,314 @@ class Settings:
     def read_title(self):
         return self.title
 "#;
-    let fixture=ServingFixture::start(source).await;
-    println!("API_PACKET_MODEL={} GENERATION={}",fixture.store.model().digest().hex(),fixture.generation.hex());
-    let execution=fixture.service.execution().await.unwrap();
-    let request=|value:&str,sections| GetOperationRequest {library:Name::new("demo").unwrap(),operation:path(value),comparison:Optional::default(),reference_parameter:Optional::default(),sections,page:PageRequest {expanded:true,..Default::default()}};
-    let mut exchanges=Vec::new();
-    let exchange=|request:&GetOperationRequest,response:&GetOperationResponse,sections:&[&str],control:&str|serde_json::json!({"request":request,"native":response,"sections":sections,"control":control});
-    let initial=request("demo.changed",vec![]);
-    let OperationResolution::Unique {packet}=fixture.catalog.operation(&execution,&initial).await.unwrap().operation else {panic!("changed missing")};
-    let left=packet.core.signatures.iter().find(|s|s.role==SignatureRole::Source).unwrap();
-    let right=packet.core.signatures.iter().find(|s|s.role==SignatureRole::EffectiveTyped).unwrap();
-    let mut comparison=request("demo.changed",vec![OperationSection::CallableComparison]);
-    comparison.comparison=Optional(Some(CallableComparisonRequest {analysis:left.analysis,left:left.variant,right:right.variant}));
-    let response=fixture.catalog.operation(&execution,&comparison).await.unwrap();
-    exchanges.push(exchange(&comparison,&response,&["callable_comparison"],"comparison"));
-    let OperationResolution::Unique {packet}=response.operation else {panic!("comparison missing")};
-    let answer=&packet.callable_comparison.items[0];
-    assert_eq!(answer.left_role,SignatureRole::Source);
-    assert_eq!(answer.right_role,SignatureRole::EffectiveTyped);
-    assert_eq!(answer.ports[0].layout,Difference::DifferentRetainedStructure {});
+    let fixture = ServingFixture::start(source).await;
+    println!(
+        "API_PACKET_MODEL={} GENERATION={}",
+        fixture.store.model().digest().hex(),
+        fixture.generation.hex()
+    );
+    let execution = fixture.service.execution().await.unwrap();
+    let request = |value: &str, sections| GetOperationRequest {
+        library: Name::new("demo").unwrap(),
+        operation: path(value),
+        comparison: Optional::default(),
+        reference_parameter: Optional::default(),
+        sections,
+        page: PageRequest {
+            expanded: true,
+            ..Default::default()
+        },
+    };
+    let mut exchanges = Vec::new();
+    let exchange = |request: &GetOperationRequest,
+                    response: &GetOperationResponse,
+                    sections: &[&str],
+                    control: &str| serde_json::json!({"request":request,"native":response,"sections":sections,"control":control});
+    let initial = request("demo.changed", vec![]);
+    let OperationResolution::Unique { packet } = fixture
+        .catalog
+        .operation(&execution, &initial)
+        .await
+        .unwrap()
+        .operation
+    else {
+        panic!("changed missing")
+    };
+    let left = packet
+        .core
+        .signatures
+        .iter()
+        .find(|s| s.role == SignatureRole::Source)
+        .unwrap();
+    let right = packet
+        .core
+        .signatures
+        .iter()
+        .find(|s| s.role == SignatureRole::EffectiveTyped)
+        .unwrap();
+    let mut comparison = request("demo.changed", vec![OperationSection::CallableComparison]);
+    comparison.comparison = Optional(Some(CallableComparisonRequest {
+        analysis: left.analysis,
+        left: left.variant,
+        right: right.variant,
+    }));
+    let response = fixture
+        .catalog
+        .operation(&execution, &comparison)
+        .await
+        .unwrap();
+    exchanges.push(exchange(
+        &comparison,
+        &response,
+        &["callable_comparison"],
+        "comparison",
+    ));
+    let OperationResolution::Unique { packet } = response.operation else {
+        panic!("comparison missing")
+    };
+    let answer = &packet.callable_comparison.items[0];
+    assert_eq!(answer.left_role, SignatureRole::Source);
+    assert_eq!(answer.right_role, SignatureRole::EffectiveTyped);
+    assert_eq!(
+        answer.ports[0].layout,
+        Difference::DifferentRetainedStructure {}
+    );
     assert!(!answer.proof.is_empty());
-    let typing=request("demo.typed",vec![OperationSection::ContextualTyping]);
-    let response=fixture.catalog.operation(&execution,&typing).await.unwrap();
-    exchanges.push(exchange(&typing,&response,&["contextual_typing"],"context_unknown"));
-    let OperationResolution::Unique {packet}=response.operation else {panic!("typing missing")};
+    let typing = request("demo.typed", vec![OperationSection::ContextualTyping]);
+    let response = fixture
+        .catalog
+        .operation(&execution, &typing)
+        .await
+        .unwrap();
+    exchanges.push(exchange(
+        &typing,
+        &response,
+        &["contextual_typing"],
+        "context_unknown",
+    ));
+    let OperationResolution::Unique { packet } = response.operation else {
+        panic!("typing missing")
+    };
     assert!(!packet.contextual_typing.items.is_empty());
-    assert!(packet.contextual_typing.items.iter().any(|t|!t.actual.is_empty() && !t.expected.is_empty()));
-    let argument_start=std::str::from_utf8(source).unwrap().find("consume([])").unwrap()+"consume(".len();
-    assert!(packet.contextual_typing.items.iter().any(|t|t.start==argument_start as i64 && !t.actual.is_empty() && !t.expected.is_empty()),"original argument retains native actual and Expected observations");
-    assert!(packet.contextual_typing.items.iter().all(|t|!t.error_recovery_known && !t.proof.is_empty()));
-    let mut references=request("demo.decorate",vec![OperationSection::IncomingReferences]);
-    references.page.size=1;
-    let response=fixture.catalog.operation(&execution,&references).await.unwrap();
-    exchanges.push(exchange(&references,&response,&["incoming_references"],"omitted_truncated"));
-    let OperationResolution::Unique {packet}=response.operation else {panic!("references missing")};
-    let scope=packet.reference_scope.0.unwrap();
+    assert!(
+        packet
+            .contextual_typing
+            .items
+            .iter()
+            .any(|t| !t.actual.is_empty() && !t.expected.is_empty())
+    );
+    let argument_start = std::str::from_utf8(source)
+        .unwrap()
+        .find("consume([])")
+        .unwrap()
+        + "consume(".len();
+    assert!(
+        packet
+            .contextual_typing
+            .items
+            .iter()
+            .any(|t| t.start == argument_start as i64
+                && !t.actual.is_empty()
+                && !t.expected.is_empty()),
+        "original argument retains native actual and Expected observations"
+    );
+    assert!(
+        packet
+            .contextual_typing
+            .items
+            .iter()
+            .all(|t| !t.error_recovery_known && !t.proof.is_empty())
+    );
+    let mut references = request("demo.decorate", vec![OperationSection::IncomingReferences]);
+    references.page.size = 1;
+    let response = fixture
+        .catalog
+        .operation(&execution, &references)
+        .await
+        .unwrap();
+    exchanges.push(exchange(
+        &references,
+        &response,
+        &["incoming_references"],
+        "omitted_truncated",
+    ));
+    let OperationResolution::Unique { packet } = response.operation else {
+        panic!("references missing")
+    };
+    let scope = packet.reference_scope.0.unwrap();
     assert!(scope.lexical_names_only && scope.external_consumers_unknown);
     assert!(!scope.artifacts.is_empty());
-    assert_eq!(packet.incoming_references.items.len(),1);
-    let mut incoming=packet.incoming_references.items;
-    let mut cursor=packet.incoming_references.continuation;
+    assert_eq!(packet.incoming_references.items.len(), 1);
+    let mut incoming = packet.incoming_references.items;
+    let mut cursor = packet.incoming_references.continuation;
     while cursor.0.is_some() {
-        references.page.cursor=cursor;
-        let OperationResolution::Unique {packet}=fixture.catalog.operation(&execution,&references).await.unwrap().operation else {panic!("reference continuation missing")};
-        assert_eq!(packet.reference_scope.0.unwrap().identity,scope.identity);
-        incoming.extend(packet.incoming_references.items); cursor=packet.incoming_references.continuation;
+        references.page.cursor = cursor;
+        let OperationResolution::Unique { packet } = fixture
+            .catalog
+            .operation(&execution, &references)
+            .await
+            .unwrap()
+            .operation
+        else {
+            panic!("reference continuation missing")
+        };
+        assert_eq!(packet.reference_scope.0.unwrap().identity, scope.identity);
+        incoming.extend(packet.incoming_references.items);
+        cursor = packet.incoming_references.continuation;
     }
-    assert_eq!(incoming.len(),3,"decorator and two value uses; shadowed formal is another entity");
+    assert_eq!(
+        incoming.len(),
+        3,
+        "decorator and two value uses; shadowed formal is another entity"
+    );
     // A decorator wrapper sits in FunctionDef.Decorator; its ExprName is an
     // immediate Child of that wrapper. Preserve the actual placement field and
     // prove decorator participation through the canonical source ancestry.
-    let decorator_start=std::str::from_utf8(source).unwrap().find("@decorate").unwrap()+1;
-    let decorator=incoming.iter().find(|r|r.start==decorator_start as i64 && r.end==(decorator_start+"decorate".len()) as i64).expect("exact original decorator name is an incoming reference");
-    let lexical=execution.read::<lctx_model::domain::lexical::ReferenceObservation>().await.unwrap();
-    let syntax=execution.read::<lctx_model::domain::source::Occurrence>().await.unwrap();
-    let placements=execution.read::<lctx_model::domain::syntax::SyntaxPlacement>().await.unwrap();
-    let reference=lexical.rows().iter().find(|r|r.id()==decorator.reference).unwrap();
-    let parent=syntax.rows().iter().find(|o|o.id()==reference.parent).unwrap();
-    assert_eq!(parent.syntax_kind,lctx_model::domain::source::SyntaxKind::Decorator);
-    assert_eq!(decorator.field,reference.field);
-    assert_eq!(decorator.field,SyntaxField::Child);
-    assert!(placements.rows().iter().any(|p|p.occurrence==reference.parent && p.parent.is_some() && p.field==SyntaxField::Decorator));
-    assert!(incoming.iter().all(|r|!r.call_target_syntax && !r.proof.is_empty()));
-    let fields=request("demo.Settings",vec![OperationSection::Relationships]);
-    let response=fixture.catalog.operation(&execution,&fields).await.unwrap();
-    exchanges.push(exchange(&fields,&response,&["relationships"],"runtime_unknown"));
-    let OperationResolution::Unique {packet}=response.operation else {panic!("Settings missing")};
-    let links=packet.relationships.items.iter().filter_map(|r| match r {RelationshipPacket::SourceField {source_association,runtime_value,parameter_option,field_option,..}=>Some((*source_association,*runtime_value,*parameter_option,*field_option)),_=>None}).collect::<Vec<_>>();
-    assert_eq!(links.len(),2,"distinct timeout/title constructor-to-reader associations");
-    assert!(links.iter().all(|(source,runtime,_,_)|*source==lctx_model::domain::normalized::callables::Knowledge::Known && *runtime==lctx_model::domain::normalized::callables::Knowledge::Unknown));
-    assert_ne!(links[0].2,links[1].2); assert_ne!(links[0].3,links[1].3);
-    let empty=request("demo.Settings",vec![OperationSection::IncomingReferences]);
-    let response=fixture.catalog.operation(&execution,&empty).await.unwrap();
-    let OperationResolution::Unique {packet}=&response.operation else {panic!("empty reference member missing")};
-    assert!(packet.incoming_references.items.is_empty(),"declared class has no represented incoming lexical-name reads");
-    exchanges.push(exchange(&empty,&response,&["incoming_references"],"empty"));
-    let spec=fixture.dir.path().join("enrichment-stdio.json");
+    let decorator_start = std::str::from_utf8(source)
+        .unwrap()
+        .find("@decorate")
+        .unwrap()
+        + 1;
+    let decorator = incoming
+        .iter()
+        .find(|r| {
+            r.start == decorator_start as i64
+                && r.end == (decorator_start + "decorate".len()) as i64
+        })
+        .expect("exact original decorator name is an incoming reference");
+    let lexical = execution
+        .read::<lctx_model::domain::lexical::ReferenceObservation>()
+        .await
+        .unwrap();
+    let syntax = execution
+        .read::<lctx_model::domain::source::Occurrence>()
+        .await
+        .unwrap();
+    let placements = execution
+        .read::<lctx_model::domain::syntax::SyntaxPlacement>()
+        .await
+        .unwrap();
+    let reference = lexical
+        .rows()
+        .iter()
+        .find(|r| r.id() == decorator.reference)
+        .unwrap();
+    let parent = syntax
+        .rows()
+        .iter()
+        .find(|o| o.id() == reference.parent)
+        .unwrap();
+    assert_eq!(
+        parent.syntax_kind,
+        lctx_model::domain::source::SyntaxKind::Decorator
+    );
+    assert_eq!(decorator.field, reference.field);
+    assert_eq!(decorator.field, SyntaxField::Child);
+    assert!(
+        placements
+            .rows()
+            .iter()
+            .any(|p| p.occurrence == reference.parent
+                && p.parent.is_some()
+                && p.field == SyntaxField::Decorator)
+    );
+    assert!(
+        incoming
+            .iter()
+            .all(|r| !r.call_target_syntax && !r.proof.is_empty())
+    );
+    let fields = request("demo.Settings", vec![OperationSection::Relationships]);
+    let response = fixture
+        .catalog
+        .operation(&execution, &fields)
+        .await
+        .unwrap();
+    exchanges.push(exchange(
+        &fields,
+        &response,
+        &["relationships"],
+        "runtime_unknown",
+    ));
+    let OperationResolution::Unique { packet } = response.operation else {
+        panic!("Settings missing")
+    };
+    let links = packet
+        .relationships
+        .items
+        .iter()
+        .filter_map(|r| match r {
+            RelationshipPacket::SourceField {
+                source_association,
+                runtime_value,
+                parameter_option,
+                field_option,
+                ..
+            } => Some((
+                *source_association,
+                *runtime_value,
+                *parameter_option,
+                *field_option,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        links.len(),
+        2,
+        "distinct timeout/title constructor-to-reader associations"
+    );
+    assert!(links.iter().all(|(source, runtime, _, _)| *source
+        == lctx_model::domain::normalized::callables::Knowledge::Known
+        && *runtime == lctx_model::domain::normalized::callables::Knowledge::Unknown));
+    assert_ne!(links[0].2, links[1].2);
+    assert_ne!(links[0].3, links[1].3);
+    let empty = request("demo.Settings", vec![OperationSection::IncomingReferences]);
+    let response = fixture.catalog.operation(&execution, &empty).await.unwrap();
+    let OperationResolution::Unique { packet } = &response.operation else {
+        panic!("empty reference member missing")
+    };
+    assert!(
+        packet.incoming_references.items.is_empty(),
+        "declared class has no represented incoming lexical-name reads"
+    );
+    exchanges.push(exchange(
+        &empty,
+        &response,
+        &["incoming_references"],
+        "empty",
+    ));
+    let spec = fixture.dir.path().join("enrichment-stdio.json");
     write(&spec,serde_json::to_vec(&serde_json::json!({"config":fixture.dir.path().join("postgres-serving.json"),"generation":fixture.generation.hex(),"unknown_label":lctx_model::domain::normalized::callables::Knowledge::Unknown,"cases":exchanges})).unwrap());
-    let python_root=std::env::var_os("LCTX_T0_PYTHON_ROOT").map(std::path::PathBuf::from).unwrap_or_else(||std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
-    let python_paths=std::env::join_paths([python_root.join("python/lctx_mcp/src"),python_root.join("python/lctx_storage/python"),python_root.join("python/lctx_semantics/python")]).unwrap();
-    let output=std::process::Command::new("uv").current_dir(&python_root).args(["run","--no-sync","python","python/lctx_mcp/tests/analytical_enrichment_stdio.py"]).arg(&spec).env("PYTHONPATH",python_paths).output().unwrap();
-    assert!(output.status.success(),"actual enrichment stdio: {}\n{}",String::from_utf8_lossy(&output.stdout),String::from_utf8_lossy(&output.stderr));
-    println!("{}",String::from_utf8_lossy(&output.stdout));
-    drop(execution);fixture.finish().await;
+    let python_root = std::env::var_os("LCTX_T0_PYTHON_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
+    let python_paths = std::env::join_paths([
+        python_root.join("python/lctx_mcp/src"),
+        python_root.join("python/lctx_storage/python"),
+        python_root.join("python/lctx_semantics/python"),
+    ])
+    .unwrap();
+    let output = std::process::Command::new("uv")
+        .current_dir(&python_root)
+        .args([
+            "run",
+            "--no-sync",
+            "python",
+            "python/lctx_mcp/tests/analytical_enrichment_stdio.py",
+        ])
+        .arg(&spec)
+        .env("PYTHONPATH", python_paths)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "actual enrichment stdio: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    println!("{}", String::from_utf8_lossy(&output.stdout));
+    drop(execution);
+    fixture.finish().await;
 }
 #[tokio::test]
 async fn mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration() {
@@ -138,7 +365,8 @@ async fn mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration(
     let r = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.api"),
-        comparison: Optional::default(), reference_parameter:Optional::default(),
+        comparison: Optional::default(),
+        reference_parameter: Optional::default(),
         sections: vec![],
         page: PageRequest::default(),
     };
@@ -309,7 +537,8 @@ async fn complete_signature_over_default_budget_refuses_and_expanded_packet_is_c
     let mut request = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.huge"),
-        comparison: Optional::default(), reference_parameter:Optional::default(),
+        comparison: Optional::default(),
+        reference_parameter: Optional::default(),
         sections: vec![],
         page: PageRequest::default(),
     };
@@ -385,7 +614,8 @@ async fn optional_sections_use_original_scenarios_and_policy_admissions_with_bou
     let mut request = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.relay"),
-        comparison: Optional::default(), reference_parameter:Optional::default(),
+        comparison: Optional::default(),
+        reference_parameter: Optional::default(),
         sections: sections.clone(),
         page: PageRequest {
             size: 100,
@@ -426,11 +656,16 @@ async fn optional_sections_use_original_scenarios_and_policy_admissions_with_bou
     assert_eq!(packet.relationships.omitted, 2);
     let token = packet.relationships.continuation.0.clone().unwrap();
     for relationship in &packet.relationships.items {
-        let RelationshipPacket::Invocation { role, proof, witnesses, .. } = relationship else { panic!("expected invocation relationship") };
-        assert_eq!(
-            *role,
-            lctx_model::domain::selection::RelationRole::Invokes
-        );
+        let RelationshipPacket::Invocation {
+            role,
+            proof,
+            witnesses,
+            ..
+        } = relationship
+        else {
+            panic!("expected invocation relationship")
+        };
+        assert_eq!(*role, lctx_model::domain::selection::RelationRole::Invokes);
         assert!(!proof.is_empty());
         assert!(witnesses.is_empty());
         let reference = proof
@@ -490,7 +725,8 @@ async fn optional_sections_use_original_scenarios_and_policy_admissions_with_bou
     let scenarios = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.api"),
-        comparison: Optional::default(), reference_parameter:Optional::default(),
+        comparison: Optional::default(),
+        reference_parameter: Optional::default(),
         sections: vec![OperationSection::Scenarios],
         page: PageRequest {
             size: 100,
@@ -546,7 +782,8 @@ async fn behavioral_packet_preserves_the_stored_five_verdict_condition_and_model
     let request = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.api"),
-        comparison: Optional::default(), reference_parameter:Optional::default(),
+        comparison: Optional::default(),
+        reference_parameter: Optional::default(),
         sections: vec![OperationSection::Behavior],
         page: PageRequest {
             size: 100,
@@ -665,7 +902,8 @@ async fn large_optional_brief_keeps_the_complete_core_and_resumes_with_expanded_
     let mut request = GetOperationRequest {
         library: Name::new("demo").unwrap(),
         operation: path("demo.api"),
-        comparison: Optional::default(), reference_parameter:Optional::default(),
+        comparison: Optional::default(),
+        reference_parameter: Optional::default(),
         sections: vec![OperationSection::Briefs],
         page: PageRequest::default(),
     };
@@ -799,7 +1037,8 @@ class Settings:
             &GetOperationRequest {
                 library: Name::new("demo").unwrap(),
                 operation: path("demo.changed"),
-                comparison: Optional::default(), reference_parameter:Optional::default(),
+                comparison: Optional::default(),
+                reference_parameter: Optional::default(),
                 sections: vec![],
                 page: PageRequest {
                     expanded: true,
@@ -1063,7 +1302,8 @@ class Settings:
             &GetOperationRequest {
                 library: Name::new("demo").unwrap(),
                 operation: path("demo.Settings"),
-                comparison: Optional::default(), reference_parameter:Optional::default(),
+                comparison: Optional::default(),
+                reference_parameter: Optional::default(),
                 sections: vec![],
                 page: PageRequest {
                     expanded: true,
@@ -1133,8 +1373,8 @@ class Settings:
 
 #[tokio::test]
 async fn original_evidence_explains_complete_native_use_inventory() {
-    use lctx_model::domain::{flow::*,flow_inventory::*,source::Occurrence};
-    let source=br#"__all__=['choose','echo','conditional']
+    use lctx_model::domain::{flow::*, flow_inventory::*, source::Occurrence};
+    let source = br#"__all__=['choose','echo','conditional']
 def choose(flag: bool):
     if flag:
         value = 1
@@ -1148,55 +1388,233 @@ def conditional(value: int, flag: bool) -> int:
         return value
     return 0
 "#;
-    let fixture=ServingFixture::start_profile(source,"behavioral").await;
-    let execution=fixture.service.execution().await.unwrap();
-    let start=std::str::from_utf8(source).unwrap().find("return value").unwrap()+"return ".len();
-    let occurrence=execution.query(move |lease|Box::pin(async move {
-        let inventories=lease.read::<FlowUseInventoryObservation>().await?;
-        let uses=lease.read_ids::<FlowUse>(&inventories.rows().iter().map(|i|i.use_).collect::<Vec<_>>()).await?;
-        let occurrences=lease.read_ids::<Occurrence>(&uses.rows().iter().map(|u|u.occurrence).collect::<Vec<_>>()).await?;
-        Ok(occurrences.rows().iter().find(|o|o.start==start as i64).expect("original return read has a native inventory").id())
-    })).await.unwrap();
-    let response=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Occurrence {occurrence},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
-    let items=&response.evidence.flow_inventory.items;
-    assert!(!items.is_empty(),"actual provider inventory reaches original evidence");
+    let fixture = ServingFixture::start_profile(source, "behavioral").await;
+    let execution = fixture.service.execution().await.unwrap();
+    let start = std::str::from_utf8(source)
+        .unwrap()
+        .find("return value")
+        .unwrap()
+        + "return ".len();
+    let occurrence = execution
+        .query(move |lease| {
+            Box::pin(async move {
+                let inventories = lease.read::<FlowUseInventoryObservation>().await?;
+                let uses = lease
+                    .read_ids::<FlowUse>(
+                        &inventories
+                            .rows()
+                            .iter()
+                            .map(|i| i.use_)
+                            .collect::<Vec<_>>(),
+                    )
+                    .await?;
+                let occurrences = lease
+                    .read_ids::<Occurrence>(
+                        &uses.rows().iter().map(|u| u.occurrence).collect::<Vec<_>>(),
+                    )
+                    .await?;
+                Ok(occurrences
+                    .rows()
+                    .iter()
+                    .find(|o| o.start == start as i64)
+                    .expect("original return read has a native inventory")
+                    .id())
+            })
+        })
+        .await
+        .unwrap();
+    let response = fixture
+        .service
+        .evidence(
+            &execution,
+            &GetEvidenceRequest {
+                source: OriginalReference::Occurrence { occurrence },
+                page: PageRequest {
+                    expanded: true,
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let items = &response.evidence.flow_inventory.items;
+    assert!(
+        !items.is_empty(),
+        "actual provider inventory reaches original evidence"
+    );
     for inventory in items {
-        assert_eq!(inventory.occurrence,occurrence);
-        assert_eq!(inventory.start,start as u64);
-        assert_eq!(inventory.native_count,inventory.candidates.len() as u64);
-        assert_eq!(inventory.mapped_count,inventory.members.len() as u64);
-        assert_eq!(inventory.entry_value_reason.0,Some(lctx_model::domain::obligation::ObligationKind::EntryValueUnknown));
+        assert_eq!(inventory.occurrence, occurrence);
+        assert_eq!(inventory.start, start as u64);
+        assert_eq!(inventory.native_count, inventory.candidates.len() as u64);
+        assert_eq!(inventory.mapped_count, inventory.members.len() as u64);
+        assert_eq!(
+            inventory.entry_value_reason.0,
+            Some(lctx_model::domain::obligation::ObligationKind::EntryValueUnknown)
+        );
         assert!(inventory.entry_outcomes.items.is_empty());
         assert!(!inventory.members.is_empty() && !inventory.proof.is_empty());
         assert!(!inventory.view.coverage.is_empty());
-        assert!(inventory.members.iter().all(|m|matches!(m.target,FlowOriginTarget::Bound {..})));
+        assert!(
+            inventory
+                .members
+                .iter()
+                .all(|m| matches!(m.target, FlowOriginTarget::Bound { .. }))
+        );
     }
-    assert_eq!(response.evidence.flow_inventory.omitted,0);
+    assert_eq!(response.evidence.flow_inventory.omitted, 0);
     assert!(!response.evidence.flow_inventory.truncated);
-    let echo_start=std::str::from_utf8(source).unwrap().find("def echo").unwrap()+"def echo(value: int) -> int:\n    return ".len();
-    let echo=execution.query(move |lease|Box::pin(async move {
-        let inventories=lease.read::<FlowUseInventoryObservation>().await?;
-        let uses=lease.read_ids::<FlowUse>(&inventories.rows().iter().map(|i|i.use_).collect::<Vec<_>>()).await?;
-        let occurrences=lease.read_ids::<Occurrence>(&uses.rows().iter().map(|u|u.occurrence).collect::<Vec<_>>()).await?;
-        Ok(occurrences.rows().iter().find(|o|o.start==echo_start as i64).expect("echo return inventory").id())
-    })).await.unwrap();
-    let echo=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Occurrence {occurrence:echo},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
-    assert!(echo.evidence.flow_inventory.items.iter().any(|i|!i.entry_outcomes.items.is_empty() && i.entry_value_reason.0.is_none()),"admitted singleton parameter outcome survives alongside enumeration");
-    assert!(echo.evidence.flow_inventory.items.iter().flat_map(|i|&i.entry_outcomes.items).all(|o|!o.premises.is_empty() && !o.proof.is_empty()));
-    let conditional_start=std::str::from_utf8(source).unwrap().rfind("return value").unwrap()+"return ".len();
-    let conditional=execution.query(move |lease|Box::pin(async move {
-        let inventories=lease.read::<FlowUseInventoryObservation>().await?;
-        let uses=lease.read_ids::<FlowUse>(&inventories.rows().iter().map(|i|i.use_).collect::<Vec<_>>()).await?;
-        let occurrences=lease.read_ids::<Occurrence>(&uses.rows().iter().map(|u|u.occurrence).collect::<Vec<_>>()).await?;
-        let occurrence=occurrences.rows().iter().find(|o|o.start==conditional_start as i64).expect("conditional native return inventory").id();
-        let use_=uses.rows().iter().find(|u|u.occurrence==occurrence).unwrap();
-        assert!(inventories.rows().iter().any(|i|i.use_==use_.id() && i.complete && i.native_count==1 && i.mapped_count==1),"native conditional access has a complete singleton inventory");
-        Ok(occurrence)
-    })).await.unwrap();
-    let conditional=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Occurrence {occurrence:conditional},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
-    let contributions=conditional.evidence.flow_inventory.items.iter().flat_map(|i|&i.entry_outcomes.items).flat_map(|o|&o.contributions).collect::<Vec<_>>();
-    assert!(!contributions.is_empty(),"actual conditional singleton has a stored Local proof");
-    assert!(contributions.iter().all(|c|c.condition!=lctx_model::domain::conditions::Diagram::always().id()),"serving cannot replace a native conditional Local proof by an unconditional claim");
-    assert!(conditional.evidence.flow_inventory.items.iter().flat_map(|i|&i.entry_outcomes.items).all(|o|!o.proof.is_empty() && !o.premises.is_empty()));
-    drop(execution);fixture.finish().await;
+    let echo_start = std::str::from_utf8(source)
+        .unwrap()
+        .find("def echo")
+        .unwrap()
+        + "def echo(value: int) -> int:\n    return ".len();
+    let echo = execution
+        .query(move |lease| {
+            Box::pin(async move {
+                let inventories = lease.read::<FlowUseInventoryObservation>().await?;
+                let uses = lease
+                    .read_ids::<FlowUse>(
+                        &inventories
+                            .rows()
+                            .iter()
+                            .map(|i| i.use_)
+                            .collect::<Vec<_>>(),
+                    )
+                    .await?;
+                let occurrences = lease
+                    .read_ids::<Occurrence>(
+                        &uses.rows().iter().map(|u| u.occurrence).collect::<Vec<_>>(),
+                    )
+                    .await?;
+                Ok(occurrences
+                    .rows()
+                    .iter()
+                    .find(|o| o.start == echo_start as i64)
+                    .expect("echo return inventory")
+                    .id())
+            })
+        })
+        .await
+        .unwrap();
+    let echo = fixture
+        .service
+        .evidence(
+            &execution,
+            &GetEvidenceRequest {
+                source: OriginalReference::Occurrence { occurrence: echo },
+                page: PageRequest {
+                    expanded: true,
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        echo.evidence
+            .flow_inventory
+            .items
+            .iter()
+            .any(|i| !i.entry_outcomes.items.is_empty() && i.entry_value_reason.0.is_none()),
+        "admitted singleton parameter outcome survives alongside enumeration"
+    );
+    assert!(
+        echo.evidence
+            .flow_inventory
+            .items
+            .iter()
+            .flat_map(|i| &i.entry_outcomes.items)
+            .all(|o| !o.premises.is_empty() && !o.proof.is_empty())
+    );
+    let conditional_start = std::str::from_utf8(source)
+        .unwrap()
+        .rfind("return value")
+        .unwrap()
+        + "return ".len();
+    let conditional = execution
+        .query(move |lease| {
+            Box::pin(async move {
+                let inventories = lease.read::<FlowUseInventoryObservation>().await?;
+                let uses = lease
+                    .read_ids::<FlowUse>(
+                        &inventories
+                            .rows()
+                            .iter()
+                            .map(|i| i.use_)
+                            .collect::<Vec<_>>(),
+                    )
+                    .await?;
+                let occurrences = lease
+                    .read_ids::<Occurrence>(
+                        &uses.rows().iter().map(|u| u.occurrence).collect::<Vec<_>>(),
+                    )
+                    .await?;
+                let occurrence = occurrences
+                    .rows()
+                    .iter()
+                    .find(|o| o.start == conditional_start as i64)
+                    .expect("conditional native return inventory")
+                    .id();
+                let use_ = uses
+                    .rows()
+                    .iter()
+                    .find(|u| u.occurrence == occurrence)
+                    .unwrap();
+                assert!(
+                    inventories.rows().iter().any(|i| i.use_ == use_.id()
+                        && i.complete
+                        && i.native_count == 1
+                        && i.mapped_count == 1),
+                    "native conditional access has a complete singleton inventory"
+                );
+                Ok(occurrence)
+            })
+        })
+        .await
+        .unwrap();
+    let conditional = fixture
+        .service
+        .evidence(
+            &execution,
+            &GetEvidenceRequest {
+                source: OriginalReference::Occurrence {
+                    occurrence: conditional,
+                },
+                page: PageRequest {
+                    expanded: true,
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let contributions = conditional
+        .evidence
+        .flow_inventory
+        .items
+        .iter()
+        .flat_map(|i| &i.entry_outcomes.items)
+        .flat_map(|o| &o.contributions)
+        .collect::<Vec<_>>();
+    assert!(
+        !contributions.is_empty(),
+        "actual conditional singleton has a stored Local proof"
+    );
+    assert!(
+        contributions
+            .iter()
+            .all(|c| c.condition != lctx_model::domain::conditions::Diagram::always().id()),
+        "serving cannot replace a native conditional Local proof by an unconditional claim"
+    );
+    assert!(
+        conditional
+            .evidence
+            .flow_inventory
+            .items
+            .iter()
+            .flat_map(|i| &i.entry_outcomes.items)
+            .all(|o| !o.proof.is_empty() && !o.premises.is_empty())
+    );
+    drop(execution);
+    fixture.finish().await;
 }

@@ -89,12 +89,23 @@ impl InvariantCheck for Check {
                 .ok_or_else(|| ModelError::Invalid("located type source absent".into()))?;
             // Argument context is admitted only through an exact captured call argument,
             // independently of a provider's Expected trace or its overload success state.
-            if observation.role==TypeRole::Expected && !observation.declared
-                && self.arguments.iter().any(|a|a.value==observation.subject
-                    && self.calls.get(a.call).is_some_and(|call|
-                        self.qualifications.get(call.qualification).is_some_and(|q|q.context==qualification.context)
-                        && self.occurrences.get(call.site).is_some_and(|site|site.source==source.source)))
-            {continue}
+            if observation.role == TypeRole::Expected
+                && !observation.declared
+                && self.arguments.iter().any(|a| {
+                    a.value == observation.subject
+                        && self.calls.get(a.call).is_some_and(|call| {
+                            self.qualifications
+                                .get(call.qualification)
+                                .is_some_and(|q| q.context == qualification.context)
+                                && self
+                                    .occurrences
+                                    .get(call.site)
+                                    .is_some_and(|site| site.source == source.source)
+                        })
+                })
+            {
+                continue;
+            }
             if observation.declared
                 || !self.placements.iter().any(|p| {
                     p.occurrence == observation.subject

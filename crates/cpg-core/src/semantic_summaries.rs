@@ -13,7 +13,8 @@ use lctx_model::domain::{
 use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 // Decoder reachability is separate from the model-owned consumed source inventory.
-macro_rules! decoder_inputs {($apply:ident)=>{
+macro_rules! decoder_inputs {
+    ($apply:ident) => {
         lctx_model::normalized_binding_inputs!($apply);
         lctx_model::normalized_binding_outputs!($apply);
         lctx_model::entry_value_inputs!($apply);
@@ -23,7 +24,8 @@ macro_rules! decoder_inputs {($apply:ident)=>{
         lctx_model::summary_evidence_inputs!($apply);
         lctx_model::summary_projection_inputs!($apply);
         lctx_model::expected_domain_inputs!($apply);
-};}
+    };
+}
 pub async fn produce(
     access: StageAccess<'_, '_>,
     attempt: &GenerationAttempt,
@@ -200,11 +202,14 @@ mod decoder_tests {
     use super::*;
     #[test]
     fn declared_sources_have_decoder_reachability_in_both_profiles() {
-        let mut decoders=std::collections::BTreeSet::new();
+        let mut decoders = std::collections::BTreeSet::new();
         macro_rules! collect {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
         decoder_inputs!(collect);
         for profile in Profile::ALL {
-            crate::consumed_rows::assert_decoder_reachability(SummaryData::consumed_inputs(profile),&decoders);
+            crate::consumed_rows::assert_decoder_reachability(
+                SummaryData::consumed_inputs(profile),
+                &decoders,
+            );
         }
     }
 }

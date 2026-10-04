@@ -628,10 +628,10 @@ fn final_transport_admission_counts_actual_utf8_envelope_and_metadata_bytes() {
 #[test]
 fn optional_packets_retain_their_canonical_question_and_typed_condition() {
     let schema = schema_for::<RelationshipPacket>(true);
-    let arms=schema["oneOf"].as_array().unwrap();
-    assert_eq!(arms.len(),3);
+    let arms = schema["oneOf"].as_array().unwrap();
+    assert_eq!(arms.len(), 3);
     for arm in arms {
-        let required=arm["required"].as_array().unwrap();
+        let required = arm["required"].as_array().unwrap();
         assert!(required.contains(&json!("analysis")));
         assert!(required.contains(&json!("proof")));
     }
@@ -653,18 +653,28 @@ fn optional_packets_retain_their_canonical_question_and_typed_condition() {
 
 #[test]
 fn enrichment_sections_require_exact_comparison_selection_and_closed_shapes() {
-    let base=json!({"library":"demo","operation":{"kind":"member","member":vec![1u8;16]},"sections":["callable_comparison"]});
-    assert!(decode("get_operation",base.clone()).is_err());
-    let mut request=base;
-    request["comparison"]=json!({"analysis":vec![2u8;16],"left":vec![3u8;16],"right":vec![4u8;16]});
-    decode("get_operation",request.clone()).unwrap();
-    request["comparison"]["inferred_role"]="first_effective".into();
-    assert!(decode("get_operation",request).is_err());
-    let schema=schema_for::<GetOperationRequest>(false).to_string();
-    for section in ["callable_comparison","contextual_typing","incoming_references"] {assert!(schema.contains(section));}
-    let fields=schema_for::<OperationPacket>(true).to_string();
+    let base = json!({"library":"demo","operation":{"kind":"member","member":vec![1u8;16]},"sections":["callable_comparison"]});
+    assert!(decode("get_operation", base.clone()).is_err());
+    let mut request = base;
+    request["comparison"] =
+        json!({"analysis":vec![2u8;16],"left":vec![3u8;16],"right":vec![4u8;16]});
+    decode("get_operation", request.clone()).unwrap();
+    request["comparison"]["inferred_role"] = "first_effective".into();
+    assert!(decode("get_operation", request).is_err());
+    let schema = schema_for::<GetOperationRequest>(false).to_string();
+    for section in [
+        "callable_comparison",
+        "contextual_typing",
+        "incoming_references",
+    ] {
+        assert!(schema.contains(section));
+    }
+    let fields = schema_for::<OperationPacket>(true).to_string();
     assert!(fields.contains("ReferenceSearchScope"));
-    assert!(fields.contains("DifferentRetainedStructure") || fields.contains("different_retained_structure"));
+    assert!(
+        fields.contains("DifferentRetainedStructure")
+            || fields.contains("different_retained_structure")
+    );
 }
 
 #[test]
@@ -879,11 +889,24 @@ fn behavior_requires_explicit_direct_capture_provenance_even_when_empty() {
 
 #[test]
 fn original_flow_inventory_schema_preserves_native_closure_and_value_boundary() {
-    let value=serde_json::to_value(schemars::schema_for!(EvidencePacket)).unwrap().to_string();
-    for field in ["flow_inventory","native_count","mapped_count","complete","condition_unavailable","reachability_lost","entry_value_reason","renamed_type_checking","view_content"] {
-        assert!(value.contains(field),"original evidence loses {field}");
+    let value = serde_json::to_value(schemars::schema_for!(EvidencePacket))
+        .unwrap()
+        .to_string();
+    for field in [
+        "flow_inventory",
+        "native_count",
+        "mapped_count",
+        "complete",
+        "condition_unavailable",
+        "reachability_lost",
+        "entry_value_reason",
+        "renamed_type_checking",
+        "view_content",
+    ] {
+        assert!(value.contains(field), "original evidence loses {field}");
     }
-    let binding=<EvidencePacket as lctx_model::domain::serving::mappings::PacketOutput>::binding();
+    let binding =
+        <EvidencePacket as lctx_model::domain::serving::mappings::PacketOutput>::binding();
     assert!(binding.permits::<lctx_model::domain::flow_inventory::FlowUseCandidate>());
     assert!(binding.permits::<lctx_model::domain::flow_inventory::FlowUseInventoryMember>());
     assert!(binding.permits::<lctx_model::domain::flow::FlowReachingSupport>());

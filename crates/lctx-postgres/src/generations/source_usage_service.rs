@@ -37,63 +37,211 @@ fn bounded<T>(rows: &[T], maximum: usize) -> Result<(), Error> {
 }
 impl PacketLease<'_> {
     async fn usage_native_overloads(
-        &mut self, site:Id<Occurrence>, context:Id<AnalysisContext>, grant:&OriginalRange,
-        charge:&mut charged::StateCharge,
-    )->Result<Vec<UsageNativeOverloadPacket>,Error> {
+        &mut self,
+        site: Id<Occurrence>,
+        context: Id<AnalysisContext>,
+        grant: &OriginalRange,
+        charge: &mut charged::StateCharge,
+    ) -> Result<Vec<UsageNativeOverloadPacket>, Error> {
         use lctx_model::domain::normalized::overload_association::*;
-        use lctx_model::domain::normalized::{callables::SignatureVariant,entities::SymbolEntityResolution};
-        let traces=self.read_for::<NativeOverloadObservation,Occurrence>("site",&[site]).await?;
-        bounded(traces.rows(),64)?;
+        use lctx_model::domain::normalized::{
+            callables::SignatureVariant, entities::SymbolEntityResolution,
+        };
+        let traces = self
+            .read_for::<NativeOverloadObservation, Occurrence>("site", &[site])
+            .await?;
+        bounded(traces.rows(), 64)?;
         charge.grow(traces.rows().len().saturating_mul(4096))?;
-        let mut packets=Vec::new();
+        let mut packets = Vec::new();
         for trace in traces.rows() {
-            let q=need(&self.read_ids::<AssertionQualification>(&[trace.qualification]).await?,trace.qualification)?;
-            if q.context!=context {continue;}
-            let support=self.usage_supports::<NativeOverloadSupport>(trace.id(),&q,grant,FactFamily::Types,"pyrefly",Origin::AnalyzerAssertion,false).await?;
-            if support.is_empty() {continue;}
-            if !matches!(self.usage_occurrence(trace.arguments,grant).await?.0,Availability::Available {..}) {return Err(Error::Contract);}
-            let rows=self.read_for::<NativeOverloadCandidate,NativeOverloadObservation>("trace",&[trace.id()]).await?;
-            bounded(rows.rows(),MAX_OVERLOAD_CANDIDATES)?;
+            let q = need(
+                &self
+                    .read_ids::<AssertionQualification>(&[trace.qualification])
+                    .await?,
+                trace.qualification,
+            )?;
+            if q.context != context {
+                continue;
+            }
+            let support = self
+                .usage_supports::<NativeOverloadSupport>(
+                    trace.id(),
+                    &q,
+                    grant,
+                    FactFamily::Types,
+                    "pyrefly",
+                    Origin::AnalyzerAssertion,
+                    false,
+                )
+                .await?;
+            if support.is_empty() {
+                continue;
+            }
+            if !matches!(
+                self.usage_occurrence(trace.arguments, grant).await?.0,
+                Availability::Available { .. }
+            ) {
+                return Err(Error::Contract);
+            }
+            let rows = self
+                .read_for::<NativeOverloadCandidate, NativeOverloadObservation>(
+                    "trace",
+                    &[trace.id()],
+                )
+                .await?;
+            bounded(rows.rows(), MAX_OVERLOAD_CANDIDATES)?;
             charge.grow(rows.rows().len().saturating_mul(8192))?;
-            let mut candidates=rows.rows().to_vec();candidates.sort_by_key(|r|r.ordinal);
-            trace.verify_candidates(&candidates).map_err(|_|Error::Contract)?;
-            let mut member_packets=Vec::new();
+            let mut candidates = rows.rows().to_vec();
+            candidates.sort_by_key(|r| r.ordinal);
+            trace
+                .verify_candidates(&candidates)
+                .map_err(|_| Error::Contract)?;
+            let mut member_packets = Vec::new();
             for candidate in candidates {
-                let candidate_support=self.usage_supports::<NativeOverloadCandidateSupport>(candidate.id(),&q,grant,FactFamily::Types,"pyrefly",Origin::AnalyzerAssertion,false).await?;
-                if candidate_support.is_empty() {return Err(Error::Contract);}
-                let assessments=self.read_for::<OverloadVariantAssessment,NativeOverloadCandidate>("candidate",&[candidate.id()]).await?;
-                if assessments.rows().len()!=1 {return Err(Error::Contract);}
-                let assessment=&assessments.rows()[0];
-                if assessment.context!=context || assessment.policy!=definition() {return Err(Error::Contract);}
-                let members=self.read_for::<OverloadVariantCandidate,OverloadVariantAssessment>("assessment",&[assessment.id()]).await?;
-                bounded(members.rows(),4096)?;charge.grow(members.rows().len().saturating_mul(4096))?;
-                let mut variants=Vec::new();
-                let mut proof=vec![ProofReference::from_canonical(derivation::RowRef::of(candidate.id())),ProofReference::from_canonical(derivation::RowRef::of(assessment.id()))];
+                let candidate_support = self
+                    .usage_supports::<NativeOverloadCandidateSupport>(
+                        candidate.id(),
+                        &q,
+                        grant,
+                        FactFamily::Types,
+                        "pyrefly",
+                        Origin::AnalyzerAssertion,
+                        false,
+                    )
+                    .await?;
+                if candidate_support.is_empty() {
+                    return Err(Error::Contract);
+                }
+                let assessments = self
+                    .read_for::<OverloadVariantAssessment, NativeOverloadCandidate>(
+                        "candidate",
+                        &[candidate.id()],
+                    )
+                    .await?;
+                if assessments.rows().len() != 1 {
+                    return Err(Error::Contract);
+                }
+                let assessment = &assessments.rows()[0];
+                if assessment.context != context || assessment.policy != definition() {
+                    return Err(Error::Contract);
+                }
+                let members = self
+                    .read_for::<OverloadVariantCandidate, OverloadVariantAssessment>(
+                        "assessment",
+                        &[assessment.id()],
+                    )
+                    .await?;
+                bounded(members.rows(), 4096)?;
+                charge.grow(members.rows().len().saturating_mul(4096))?;
+                let mut variants = Vec::new();
+                let mut proof = vec![
+                    ProofReference::from_canonical(derivation::RowRef::of(candidate.id())),
+                    ProofReference::from_canonical(derivation::RowRef::of(assessment.id())),
+                ];
                 for member in members.rows() {
-                    let variant=need(&self.read_ids::<SignatureVariant>(&[member.variant]).await?,member.variant)?;
-                    let native=need(&self.read_ids::<NativeSignatureObservation>(&[member.native]).await?,member.native)?;
-                    let nq=need(&self.read_ids::<AssertionQualification>(&[native.qualification]).await?,native.qualification)?;
-                    if nq.context!=context || native.metadata_origin!=candidate.origin || variant.native!=Some(native.id()) || variant.context!=context {return Err(Error::Contract);}
+                    let variant = need(
+                        &self.read_ids::<SignatureVariant>(&[member.variant]).await?,
+                        member.variant,
+                    )?;
+                    let native = need(
+                        &self
+                            .read_ids::<NativeSignatureObservation>(&[member.native])
+                            .await?,
+                        member.native,
+                    )?;
+                    let nq = need(
+                        &self
+                            .read_ids::<AssertionQualification>(&[native.qualification])
+                            .await?,
+                        native.qualification,
+                    )?;
+                    if nq.context != context
+                        || native.metadata_origin != candidate.origin
+                        || variant.native != Some(native.id())
+                        || variant.context != context
+                    {
+                        return Err(Error::Contract);
+                    }
                     // Hydrate the nominal owner and the actual declaration support, not just IDs.
-                    let _owner=need(&self.read_ids::<SymbolEntityResolution>(&[variant.resolution]).await?,variant.resolution)?;
-                    let ns=need(&self.read_ids::<NativeSignatureSupport>(&[member.native_support]).await?,member.native_support)?;
-                    let ts=need(&self.read_ids::<NativeOverloadSupport>(&[member.trace_support]).await?,member.trace_support)?;
-                    let na=ns.attribution().ok_or(Error::Contract)?;let ta=ts.attribution().ok_or(Error::Contract)?;
-                    if ns.assertion()!=native.id() || ts.assertion()!=trace.id() || na.run!=ta.run || na.surface!=ta.surface {return Err(Error::Contract);}
-                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(ns.id())));
-                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(ts.id())));
-                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(member.id())));
-                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(variant.id())));
-                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(native.id())));
+                    let _owner = need(
+                        &self
+                            .read_ids::<SymbolEntityResolution>(&[variant.resolution])
+                            .await?,
+                        variant.resolution,
+                    )?;
+                    let ns = need(
+                        &self
+                            .read_ids::<NativeSignatureSupport>(&[member.native_support])
+                            .await?,
+                        member.native_support,
+                    )?;
+                    let ts = need(
+                        &self
+                            .read_ids::<NativeOverloadSupport>(&[member.trace_support])
+                            .await?,
+                        member.trace_support,
+                    )?;
+                    let na = ns.attribution().ok_or(Error::Contract)?;
+                    let ta = ts.attribution().ok_or(Error::Contract)?;
+                    if ns.assertion() != native.id()
+                        || ts.assertion() != trace.id()
+                        || na.run != ta.run
+                        || na.surface != ta.surface
+                    {
+                        return Err(Error::Contract);
+                    }
+                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(
+                        ns.id(),
+                    )));
+                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(
+                        ts.id(),
+                    )));
+                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(
+                        member.id(),
+                    )));
+                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(
+                        variant.id(),
+                    )));
+                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(
+                        native.id(),
+                    )));
                     variants.push(variant.id());
                 }
-                if let Some(origin)=candidate.origin {let _origin=need(&self.read_ids::<ProviderSymbol>(&[origin]).await?,origin)?;proof.push(ProofReference::from_canonical(derivation::RowRef::of(origin)));}
-                variants.sort();variants.dedup();proof.sort_by_key(|p|(p.relation.clone(),p.row));proof.dedup();
-                member_packets.push(UsageNativeOverloadCandidatePacket {candidate:candidate.id(),ordinal:candidate.ordinal as u64,term:candidate.term,origin:Nullable(candidate.origin),assessment:assessment.id(),resolution:assessment.status,reason:assessment.reason,variant:Nullable(assessment.variant),variants,support:candidate_support,proof});
+                if let Some(origin) = candidate.origin {
+                    let _origin = need(&self.read_ids::<ProviderSymbol>(&[origin]).await?, origin)?;
+                    proof.push(ProofReference::from_canonical(derivation::RowRef::of(
+                        origin,
+                    )));
+                }
+                variants.sort();
+                variants.dedup();
+                proof.sort_by_key(|p| (p.relation.clone(), p.row));
+                proof.dedup();
+                member_packets.push(UsageNativeOverloadCandidatePacket {
+                    candidate: candidate.id(),
+                    ordinal: candidate.ordinal as u64,
+                    term: candidate.term,
+                    origin: Nullable(candidate.origin),
+                    assessment: assessment.id(),
+                    resolution: assessment.status,
+                    reason: assessment.reason,
+                    variant: Nullable(assessment.variant),
+                    variants,
+                    support: candidate_support,
+                    proof,
+                });
             }
-            packets.push(UsageNativeOverloadPacket {trace:trace.id(),arguments:trace.arguments,selection:trace.selection,closest_ordinal:trace.closest_ordinal as u64,candidates:member_packets,support});
+            packets.push(UsageNativeOverloadPacket {
+                trace: trace.id(),
+                arguments: trace.arguments,
+                selection: trace.selection,
+                closest_ordinal: trace.closest_ordinal as u64,
+                candidates: member_packets,
+                support,
+            });
         }
-        packets.sort_by_key(|r|r.trace);Ok(packets)
+        packets.sort_by_key(|r| r.trace);
+        Ok(packets)
     }
     async fn usage_occurrence(
         &mut self,
@@ -526,7 +674,9 @@ impl PacketLease<'_> {
                 support,
             });
         }
-        let native_overloads = self.usage_native_overloads(event.site,event.context,grant,charge).await?;
+        let native_overloads = self
+            .usage_native_overloads(event.site, event.context, grant, charge)
+            .await?;
         bounded(&overloads, 64)?;
         overloads.sort_by_key(|o| o.observation);
         charge.grow(arguments_support.len().saturating_mul(2048))?;

@@ -65,20 +65,22 @@ async def observe(spec: dict) -> None:
             elif control == "context_unknown":
                 assert packet["contextual_typing"]["items"]
                 assert all(
-                    not row["error_recovery_known"]
-                    for row in packet["contextual_typing"]["items"]
+                    not row["error_recovery_known"] for row in packet["contextual_typing"]["items"]
                 )
             elif control == "runtime_unknown":
                 fields = [
-                    row for row in packet["relationships"]["items"]
-                    if row["kind"] == "source_field"
+                    row for row in packet["relationships"]["items"] if row["kind"] == "source_field"
                 ]
                 assert fields and all(
                     row["runtime_value"] == spec["unknown_label"] for row in fields
                 )
             controls.add(control)
     assert controls == {
-        "comparison", "context_unknown", "omitted_truncated", "empty", "runtime_unknown"
+        "comparison",
+        "context_unknown",
+        "omitted_truncated",
+        "empty",
+        "runtime_unknown",
     }
     print(
         "actual stdio enrichment: native comparison, contextual typing, references, "

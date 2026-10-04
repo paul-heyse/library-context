@@ -116,16 +116,57 @@ packet!(DeploymentPacket {deployment:Id<catalog::evidence::CatalogDeployment>,fi
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RelationshipPacket {
-    Invocation { target:Id<catalog::CatalogMember>, analysis:Id<attribution::AnalysisContext>, role:selection::RelationRole, fidelity:selection::Fidelity, witnesses:Vec<Id<selection::Witness>>, proof:Vec<ProofReference> },
-    SourceFieldBoundary { class:Id<normalized::symbolic_fields::SourceFieldClass>, analysis:Id<attribution::AnalysisContext>, reason:obligation::ObligationKind, source_association:normalized::callables::Knowledge, runtime_value:normalized::callables::Knowledge, proof:Vec<ProofReference> },
-    SourceField { link:Id<catalog::evidence::SourceFieldLink>, parameter_option:Id<catalog::CatalogOption>, field_option:Id<catalog::CatalogOption>, parameter:Id<calls::SignatureParameter>, association:Id<normalized::symbolic_fields::SourceFieldAssociation>, reader_link:Id<normalized::symbolic_fields::SourceFieldReaderLink>, reader:Id<normalized::symbolic_fields::SourceFieldReader>, access:Id<source::Occurrence>, owner:Id<normalized::entities::EntityRef>, analysis:Id<attribution::AnalysisContext>, source_association:normalized::callables::Knowledge, runtime_value:normalized::callables::Knowledge, proof:Vec<ProofReference> },
+    Invocation {
+        target: Id<catalog::CatalogMember>,
+        analysis: Id<attribution::AnalysisContext>,
+        role: selection::RelationRole,
+        fidelity: selection::Fidelity,
+        witnesses: Vec<Id<selection::Witness>>,
+        proof: Vec<ProofReference>,
+    },
+    SourceFieldBoundary {
+        class: Id<normalized::symbolic_fields::SourceFieldClass>,
+        analysis: Id<attribution::AnalysisContext>,
+        reason: obligation::ObligationKind,
+        source_association: normalized::callables::Knowledge,
+        runtime_value: normalized::callables::Knowledge,
+        proof: Vec<ProofReference>,
+    },
+    SourceField {
+        link: Id<catalog::evidence::SourceFieldLink>,
+        parameter_option: Id<catalog::CatalogOption>,
+        field_option: Id<catalog::CatalogOption>,
+        parameter: Id<calls::SignatureParameter>,
+        association: Id<normalized::symbolic_fields::SourceFieldAssociation>,
+        reader_link: Id<normalized::symbolic_fields::SourceFieldReaderLink>,
+        reader: Id<normalized::symbolic_fields::SourceFieldReader>,
+        access: Id<source::Occurrence>,
+        owner: Id<normalized::entities::EntityRef>,
+        analysis: Id<attribution::AnalysisContext>,
+        source_association: normalized::callables::Knowledge,
+        runtime_value: normalized::callables::Knowledge,
+        proof: Vec<ProofReference>,
+    },
 }
 impl RelationshipPacket {
     pub fn ordering(&self) -> (u8, Vec<u8>) {
         match self {
-            Self::Invocation { target, analysis, proof, .. } => (0, [target.bytes().as_slice(), analysis.bytes().as_slice(), proof[0].row.as_slice()].concat()),
+            Self::Invocation {
+                target,
+                analysis,
+                proof,
+                ..
+            } => (
+                0,
+                [
+                    target.bytes().as_slice(),
+                    analysis.bytes().as_slice(),
+                    proof[0].row.as_slice(),
+                ]
+                .concat(),
+            ),
             Self::SourceField { link, .. } => (1, link.bytes().to_vec()),
-            Self::SourceFieldBoundary {class,..} => (2,class.bytes().to_vec()),
+            Self::SourceFieldBoundary { class, .. } => (2, class.bytes().to_vec()),
         }
     }
 }
@@ -288,7 +329,9 @@ packet!(CaptureTimingPacket {use_:Id<flow::FlowUse>,nested_scope:Id<lexical::Lex
 packet!(CaptureFramePacket {header:Id<execution::source_call_records::SourceCallHeader>,call:Id<execution::enriched_records::SourceExecutionInvocation>,caller_body:Id<execution::enriched_records::BodyExecution>,callee_body:Id<execution::enriched_records::BodyExecution>,event:Id<normalized::events::NormalizedCallEvent>,call_site:Id<source::Occurrence>,caller:Id<normalized::entities::EntityRef>,callee:Id<normalized::entities::EntityRef>,caller_declaration:Id<source::Occurrence>,callee_declaration:Id<source::Occurrence>,returned_at:Id<source::Occurrence>,#[doc = "Conditional on entry to this exact direct synchronous caller frame, under the bounded source-call model."] under_caller_entry:bool,qualification:Id<assertion::AssertionQualification>});
 packet!(BehavioralCapturePacket {witness:Id<execution::summary_capture::SummaryCaptureWitness>,binding:Id<execution::capture_bridge::CapturedEntryBinding>,alternative:Id<transfer::summary::TransferAlternative>,transfer:Id<transfer::summary::TransferKey>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,read:Id<source::Occurrence>,value_source:CapturedValueSourcePacket,frame:CaptureFramePacket,origin:CaptureOriginPacket,native_capture:NativeCapturePacket,timing:CaptureTimingPacket,claim_basis:ClaimBasisPacket,proof:Vec<ProofReference>});
 pub use normalized::contract_comparison::ContractComparison as CallableComparisonPacket;
-pub use normalized::incoming_references::{IncomingReference as IncomingReferencePacket, ReferenceSearchScope};
+pub use normalized::incoming_references::{
+    IncomingReference as IncomingReferencePacket, ReferenceSearchScope,
+};
 pub use types::contextual::ContextualType as ContextualTypePacket;
 pub type AccessRoutePacket = catalog::access_routes::AccessRoute;
 packet!(OperationPacket {core:OperationCore,access_routes:SectionPage<AccessRoutePacket>,callable_comparison:SectionPage<CallableComparisonPacket>,contextual_typing:SectionPage<ContextualTypePacket>,incoming_references:SectionPage<IncomingReferencePacket>,#[serde(default, skip_serializing_if = "Optional::is_absent")] reference_scope:Optional<ReferenceSearchScope>,scenarios:SectionPage<ScenarioPacket>,deployment:SectionPage<DeploymentPacket>,relationships:SectionPage<RelationshipPacket>,conflicts:SectionPage<ConflictPacket>,briefs:SectionPage<CapabilityPacket>,behavior:SectionPage<BehaviorPacket>});
@@ -376,9 +419,12 @@ pub struct EvidenceBodyPage {
     pub truncated: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FlowOriginTarget {
-    Bound { definition:Id<flow::FlowDefinition>, occurrence:Id<source::Occurrence> },
+    Bound {
+        definition: Id<flow::FlowDefinition>,
+        occurrence: Id<source::Occurrence>,
+    },
     Unbound {},
     Nested {},
 }

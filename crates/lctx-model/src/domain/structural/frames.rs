@@ -226,15 +226,22 @@ pub fn verify(
         ));
     }
     if !c.outcomes.same(&outcomes::derive(c, &expected, b)?) {
-        return Err(invalid("Structural outcomes differ from retained semantic inventory"));
+        return Err(invalid(
+            "Structural outcomes differ from retained semantic inventory",
+        ));
     }
     for qualification in expected.conclusion_qualifications.iter() {
         // Static conclusion qualification checks have their own invariant. Argument-flow
         // qualifiers are additionally replayed here, including their complete generated basis.
-        if expected.argument_flows.iter().any(|f| f.qualification == qualification.id())
+        if expected
+            .argument_flows
+            .iter()
+            .any(|f| f.qualification == qualification.id())
             && actual.conclusion_qualifications.get(qualification.id()) != Some(qualification)
         {
-            return Err(invalid("Structural argument qualification differs from replay"));
+            return Err(invalid(
+                "Structural argument qualification differs from replay",
+            ));
         }
     }
     for condition in expected.flow_conditions.iter() {
@@ -244,17 +251,23 @@ pub fn verify(
     }
     for node in expected.flow_condition_nodes.iter() {
         if actual.flow_condition_nodes.get(node.id()) != Some(node) {
-            return Err(invalid("Structural argument condition node differs from replay"));
+            return Err(invalid(
+                "Structural argument condition node differs from replay",
+            ));
         }
     }
     for set in expected.flow_assumption_sets.iter() {
         if actual.flow_assumption_sets.get(set.id()) != Some(set) {
-            return Err(invalid("Structural argument assumption basis differs from replay"));
+            return Err(invalid(
+                "Structural argument assumption basis differs from replay",
+            ));
         }
     }
     for member in expected.flow_assumption_members.iter() {
         if actual.flow_assumption_members.get(member.id()) != Some(member) {
-            return Err(invalid("Structural argument assumption membership differs from replay"));
+            return Err(invalid(
+                "Structural argument assumption membership differs from replay",
+            ));
         }
     }
     actual.matches(&expected)
@@ -285,7 +298,11 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn visit_input(&mut self, input: &ValidationInput, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         if input.prefix() == Some(stages::PublicationBoundary::Local) {
             if !self.data.visit(input.name(), batch)? {
                 return Err(invalid("undeclared Structural predecessor vocabulary"));

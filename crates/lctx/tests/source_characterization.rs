@@ -229,7 +229,11 @@ def example(unknown):
     unknown(5)
 "#;
     let fixture = source_fixture(source, true).await;
-    println!("C2_PACKET_MODEL={} GENERATION={}",fixture.store.model().digest().hex(),fixture.generation.hex());
+    println!(
+        "C2_PACKET_MODEL={} GENERATION={}",
+        fixture.store.model().digest().hex(),
+        fixture.generation.hex()
+    );
     let execution = fixture.service.execution().await.unwrap();
     let artifacts = execution.read::<SourceArtifact>().await.unwrap();
     let artifact = artifacts
@@ -349,14 +353,36 @@ def example(unknown):
     );
     // Native original candidates are a separate authority from legacy structural traces.
     // A source-origin association does not confer call selection or applicability.
-    use lctx_model::domain::{types::{NativeOverloadObservation,NativeOverloadCandidate,OverloadSelection},normalized::overload_association::OverloadAssociationReason,normalized::entities::ResolutionStatus};
-    let selected_native=chosen.native_overloads.iter().find(|t|t.selection==OverloadSelection::Selected).expect("successful native overloaded call retains its selection state");
-    assert_eq!(selected_native.candidates.len(),2);
-    assert!(selected_native.candidates.iter().all(|c|c.origin.0.is_some() && c.resolution==ResolutionStatus::Resolved && c.reason==OverloadAssociationReason::IdentityAgreement && c.variant.0.is_some()));
-    assert_ne!(selected_native.candidates[0].origin,selected_native.candidates[1].origin,"original overload declarations are distinct");
-    assert_ne!(selected_native.candidates[0].variant,selected_native.candidates[1].variant,"variant identity follows original declaration, not shape");
-    let native_traces=execution.read::<NativeOverloadObservation>().await.unwrap();
-    let native_candidates=execution.read::<NativeOverloadCandidate>().await.unwrap();
+    use lctx_model::domain::{
+        normalized::entities::ResolutionStatus,
+        normalized::overload_association::OverloadAssociationReason,
+        types::{NativeOverloadCandidate, NativeOverloadObservation, OverloadSelection},
+    };
+    let selected_native = chosen
+        .native_overloads
+        .iter()
+        .find(|t| t.selection == OverloadSelection::Selected)
+        .expect("successful native overloaded call retains its selection state");
+    assert_eq!(selected_native.candidates.len(), 2);
+    assert!(
+        selected_native
+            .candidates
+            .iter()
+            .all(|c| c.origin.0.is_some()
+                && c.resolution == ResolutionStatus::Resolved
+                && c.reason == OverloadAssociationReason::IdentityAgreement
+                && c.variant.0.is_some())
+    );
+    assert_ne!(
+        selected_native.candidates[0].origin, selected_native.candidates[1].origin,
+        "original overload declarations are distinct"
+    );
+    assert_ne!(
+        selected_native.candidates[0].variant, selected_native.candidates[1].variant,
+        "variant identity follows original declaration, not shape"
+    );
+    let native_traces = execution.read::<NativeOverloadObservation>().await.unwrap();
+    let native_candidates = execution.read::<NativeOverloadCandidate>().await.unwrap();
     let (_, failed) = call("aliased(object())");
     assert!(matches!(failed.chosen, Availability::Unavailable { .. }));
     assert!(
@@ -371,21 +397,45 @@ def example(unknown):
             .iter()
             .any(|o| o.role == TypeRole::ChosenOverload)
     );
-    assert!(failed.native_overloads.iter().any(|t|matches!(t.selection,OverloadSelection::ClosestOnly|OverloadSelection::Recovered)),"failed call retains native recovery/closest state without chosen authority");
-    for (_,usage) in &usages {
+    assert!(
+        failed.native_overloads.iter().any(|t| matches!(
+            t.selection,
+            OverloadSelection::ClosestOnly | OverloadSelection::Recovered
+        )),
+        "failed call retains native recovery/closest state without chosen authority"
+    );
+    for (_, usage) in &usages {
         for trace in &usage.native_overloads {
-            let stored=native_traces.rows().iter().find(|row|row.id()==trace.trace).unwrap();
-            assert_eq!(trace.selection,stored.selection);
-            assert_eq!(trace.arguments,stored.arguments);
-            assert_eq!(trace.closest_ordinal,stored.closest_ordinal as u64);
-            assert_eq!(trace.candidates.len(),stored.candidate_count as usize);
+            let stored = native_traces
+                .rows()
+                .iter()
+                .find(|row| row.id() == trace.trace)
+                .unwrap();
+            assert_eq!(trace.selection, stored.selection);
+            assert_eq!(trace.arguments, stored.arguments);
+            assert_eq!(trace.closest_ordinal, stored.closest_ordinal as u64);
+            assert_eq!(trace.candidates.len(), stored.candidate_count as usize);
             assert!(!trace.support.is_empty());
             for candidate in &trace.candidates {
-                let row=native_candidates.rows().iter().find(|row|row.id()==candidate.candidate).unwrap();
-                assert_eq!(row.trace,stored.id());assert_eq!(candidate.origin.0,row.origin);assert_eq!(candidate.term,row.term);assert_eq!(candidate.ordinal,row.ordinal as u64);
+                let row = native_candidates
+                    .rows()
+                    .iter()
+                    .find(|row| row.id() == candidate.candidate)
+                    .unwrap();
+                assert_eq!(row.trace, stored.id());
+                assert_eq!(candidate.origin.0, row.origin);
+                assert_eq!(candidate.term, row.term);
+                assert_eq!(candidate.ordinal, row.ordinal as u64);
                 assert!(!candidate.proof.is_empty() && !candidate.support.is_empty());
-                assert!(candidate.support.iter().all(|support|support.context==packet.evidence.original.context));
-                if let Some(variant)=candidate.variant.0 {assert!(candidate.variants.contains(&variant));}
+                assert!(
+                    candidate
+                        .support
+                        .iter()
+                        .all(|support| support.context == packet.evidence.original.context)
+                );
+                if let Some(variant) = candidate.variant.0 {
+                    assert!(candidate.variants.contains(&variant));
+                }
             }
         }
     }
@@ -472,32 +522,123 @@ def example(unknown):
 
 #[tokio::test]
 async fn diagnostic_primary_argument_has_supported_use_and_route_packets_retain_alias_identity() {
-    use lctx_model::domain::catalog::{evidence::DiagnosticUseStatus,access_routes::{RouteHop,RouteStop}};
-    let source=br#"from .api import parse as parse
+    use lctx_model::domain::catalog::{
+        access_routes::{RouteHop, RouteStop},
+        evidence::DiagnosticUseStatus,
+    };
+    let source = br#"from .api import parse as parse
 from .reexport import public_parse as forwarded
 __all__=['parse','forwarded','example']
 def example():
     parse(1.5)
     forwarded('text')
 "#;
-    let fixture=source_fixture(source,true).await;
-    let execution=fixture.service.execution().await.unwrap();
-    let artifacts=execution.read::<SourceArtifact>().await.unwrap();
-    let artifact=artifacts.rows().iter().find(|a|a.content==ContentHash::of(source)).unwrap().id();
-    let response=fixture.service.evidence(&execution,&GetEvidenceRequest {source:OriginalReference::Artifact{artifact},page:PageRequest {expanded:true,..Default::default()}}).await.unwrap();
-    let call_start=std::str::from_utf8(source).unwrap().find("parse(1.5)").unwrap() as u64;
-    let call_end=call_start+"parse(1.5)".len() as u64;
-    let diagnostic=response.evidence.source_characterization.items.iter().find(|item|matches!(&item.payload,SourceCharacterizationPayload::PyreflyDiagnostic{..})&&item.source.start>=call_start&&item.source.end<=call_end).expect("native diagnosis is anchored within the failed call");
-    let correlation=diagnostic.diagnostic_correlation.0.as_ref().unwrap();
-    assert_eq!(correlation.status,DiagnosticUseStatus::UniqueUse);
-    assert!(!correlation.remainder);assert!(!correlation.links.items.is_empty());
-    assert!(correlation.links.items.iter().all(|link|!link.proof.is_empty()));
-    assert!(correlation.links.items.iter().any(|link|!link.targets.is_empty()),"API relevance cites exact event alternative/scenario association");
-    let request=GetOperationRequest {library:Name::new("demo").unwrap(),operation:OperationSelector::PublicPath {path:vec![Name::new("demo").unwrap(),Name::new("forwarded").unwrap()]},comparison:Optional::default(),reference_parameter:Optional::default(),sections:vec![OperationSection::AccessRoutes],page:PageRequest{expanded:true,..Default::default()}};
-    let OperationResolution::Unique{packet}=fixture.catalog.operation(&execution,&request).await.unwrap().operation else{panic!("forwarded operation missing")};
+    let fixture = source_fixture(source, true).await;
+    let execution = fixture.service.execution().await.unwrap();
+    let artifacts = execution.read::<SourceArtifact>().await.unwrap();
+    let artifact = artifacts
+        .rows()
+        .iter()
+        .find(|a| a.content == ContentHash::of(source))
+        .unwrap()
+        .id();
+    let response = fixture
+        .service
+        .evidence(
+            &execution,
+            &GetEvidenceRequest {
+                source: OriginalReference::Artifact { artifact },
+                page: PageRequest {
+                    expanded: true,
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let call_start = std::str::from_utf8(source)
+        .unwrap()
+        .find("parse(1.5)")
+        .unwrap() as u64;
+    let call_end = call_start + "parse(1.5)".len() as u64;
+    let diagnostic = response
+        .evidence
+        .source_characterization
+        .items
+        .iter()
+        .find(|item| {
+            matches!(
+                &item.payload,
+                SourceCharacterizationPayload::PyreflyDiagnostic { .. }
+            ) && item.source.start >= call_start
+                && item.source.end <= call_end
+        })
+        .expect("native diagnosis is anchored within the failed call");
+    let correlation = diagnostic.diagnostic_correlation.0.as_ref().unwrap();
+    assert_eq!(correlation.status, DiagnosticUseStatus::UniqueUse);
+    assert!(!correlation.remainder);
+    assert!(!correlation.links.items.is_empty());
+    assert!(
+        correlation
+            .links
+            .items
+            .iter()
+            .all(|link| !link.proof.is_empty())
+    );
+    assert!(
+        correlation
+            .links
+            .items
+            .iter()
+            .any(|link| !link.targets.is_empty()),
+        "API relevance cites exact event alternative/scenario association"
+    );
+    let request = GetOperationRequest {
+        library: Name::new("demo").unwrap(),
+        operation: OperationSelector::PublicPath {
+            path: vec![Name::new("demo").unwrap(), Name::new("forwarded").unwrap()],
+        },
+        comparison: Optional::default(),
+        reference_parameter: Optional::default(),
+        sections: vec![OperationSection::AccessRoutes],
+        page: PageRequest {
+            expanded: true,
+            ..Default::default()
+        },
+    };
+    let OperationResolution::Unique { packet } = fixture
+        .catalog
+        .operation(&execution, &request)
+        .await
+        .unwrap()
+        .operation
+    else {
+        panic!("forwarded operation missing")
+    };
     assert!(!packet.access_routes.items.is_empty());
-    assert!(packet.access_routes.items.iter().any(|route|route.hops.iter().filter(|hop|matches!(hop,RouteHop::Import{..})).count()==2),"explicit reexport has two ordered supported import-name hops");
-    assert!(packet.access_routes.items.iter().any(|route|route.stop==RouteStop::Declaration));
-    assert!(packet.access_routes.items.iter().all(|route|route.captured_modules>0));
-    drop(execution);fixture.finish().await;
+    assert!(
+        packet.access_routes.items.iter().any(|route| route
+            .hops
+            .iter()
+            .filter(|hop| matches!(hop, RouteHop::Import { .. }))
+            .count()
+            == 2),
+        "explicit reexport has two ordered supported import-name hops"
+    );
+    assert!(
+        packet
+            .access_routes
+            .items
+            .iter()
+            .any(|route| route.stop == RouteStop::Declaration)
+    );
+    assert!(
+        packet
+            .access_routes
+            .items
+            .iter()
+            .all(|route| route.captured_modules > 0)
+    );
+    drop(execution);
+    fixture.finish().await;
 }

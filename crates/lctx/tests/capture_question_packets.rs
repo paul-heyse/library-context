@@ -85,7 +85,8 @@ async fn direct_capture_answers_preserve_actual_sources_frames_and_characterizat
                 &GetOperationRequest {
                     library: Name::new("demo").unwrap(),
                     operation: path(operation),
-                    comparison: Optional::default(), reference_parameter:Optional::default(),
+                    comparison: Optional::default(),
+                    reference_parameter: Optional::default(),
                     sections: vec![OperationSection::Behavior],
                     page: PageRequest {
                         size: 100,
@@ -406,7 +407,8 @@ async fn direct_capture_answers_preserve_actual_sources_frames_and_characterizat
                 &GetOperationRequest {
                     library: Name::new("demo").unwrap(),
                     operation: path(&format!("demo.{operation}")),
-                    comparison: Optional::default(), reference_parameter:Optional::default(),
+                    comparison: Optional::default(),
+                    reference_parameter: Optional::default(),
                     sections: vec![OperationSection::Behavior],
                     page: PageRequest {
                         size: 100,

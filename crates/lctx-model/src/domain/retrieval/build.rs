@@ -450,20 +450,40 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                         dependency.status
                     ));
                 }
-                let _diagnostic_notes=b.reserve("retrieval-diagnostic-relevance",d.evidence.diagnostic_use_targets.len().saturating_mul(256))?;
-                let mut diagnostics=std::collections::BTreeSet::new();
-                let mut notes=0usize;
+                let _diagnostic_notes = b.reserve(
+                    "retrieval-diagnostic-relevance",
+                    d.evidence.diagnostic_use_targets.len().saturating_mul(256),
+                )?;
+                let mut diagnostics = std::collections::BTreeSet::new();
+                let mut notes = 0usize;
                 for target in d.evidence.diagnostic_use_targets.iter() {
-                    let association=need(&d.evidence.associations,target.association)?;
-                    if association.scenario!=*scenario {continue}
-                    let link=need(&d.evidence.diagnostic_use_links,target.link)?;
-                    let assessment=need(&d.evidence.diagnostic_use_assessments,link.assessment)?;
-                    if assessment.status!=c1::DiagnosticUseStatus::UniqueUse||assessment.remainder {continue}
-                    if !diagnostics.insert((assessment.characterization,association.member)){continue}
-                    if notes==128 {text.push_str("Additional diagnostic relevance notes omitted by finite rendering bound.\n");break}
-                    notes+=1;
-                    let characterization=need(&d.evidence.source_characterizations,assessment.characterization)?;
-                    let native=need(&d.source.facts.characterization_native,characterization.native)?;
+                    let association = need(&d.evidence.associations, target.association)?;
+                    if association.scenario != *scenario {
+                        continue;
+                    }
+                    let link = need(&d.evidence.diagnostic_use_links, target.link)?;
+                    let assessment = need(&d.evidence.diagnostic_use_assessments, link.assessment)?;
+                    if assessment.status != c1::DiagnosticUseStatus::UniqueUse
+                        || assessment.remainder
+                    {
+                        continue;
+                    }
+                    if !diagnostics.insert((assessment.characterization, association.member)) {
+                        continue;
+                    }
+                    if notes == 128 {
+                        text.push_str("Additional diagnostic relevance notes omitted by finite rendering bound.\n");
+                        break;
+                    }
+                    notes += 1;
+                    let characterization = need(
+                        &d.evidence.source_characterizations,
+                        assessment.characterization,
+                    )?;
+                    let native = need(
+                        &d.source.facts.characterization_native,
+                        characterization.native,
+                    )?;
                     let (channel,settings)=match native {
                         crate::domain::analysis::native::NativeAssertionPremise::RuffDiagnosticObservation{assertion,..}=>{let row=need(&d.source.facts.ruff_diagnostics,*assertion)?;(row.channel,row.settings)},
                         crate::domain::analysis::native::NativeAssertionPremise::PyreflyDiagnosticObservation{assertion,support}=>{let row=need(&d.source.facts.pyrefly_diagnostics,*assertion)?;let support=need(&d.source.facts.pyrefly_diagnostic_supports,*support)?;(row.channel,need(&d.source.facts.runs,support.run)?.configuration)},

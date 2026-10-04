@@ -309,9 +309,23 @@ fn structural_outcomes_are_exact_replayed_semantic_results() {
     let (b, d, mut c) = fixture();
     let out = produce(&d, &c, &b);
     assert_eq!(c.outcomes.len(), 4);
-    let control = c.outcomes.iter().find(|r| r.status == analysis::AnalysisStatus::NotRequested).unwrap().clone();
-    assert_eq!(control.reason, Some(obligation::ObligationKind::NotRequested));
-    assert_eq!(c.outcomes.iter().filter(|r| r.status == analysis::AnalysisStatus::Completed).count(), 3);
+    let control = c
+        .outcomes
+        .iter()
+        .find(|r| r.status == analysis::AnalysisStatus::NotRequested)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        control.reason,
+        Some(obligation::ObligationKind::NotRequested)
+    );
+    assert_eq!(
+        c.outcomes
+            .iter()
+            .filter(|r| r.status == analysis::AnalysisStatus::Completed)
+            .count(),
+        3
+    );
     c.outcomes = Rows::new(&b);
     assert!(frames::verify(&d, &c, &out, &b).is_err());
     let correct = outcomes::derive(&c, &out, &b).unwrap();
@@ -339,17 +353,33 @@ fn structural_stops_and_earlier_frontier_outcomes_keep_distinct_meanings() {
     out.frames = Rows::new(&b);
     out.frames.insert(frame.clone()).unwrap();
     let no_stop = outcomes::derive(&c, &out, &b).unwrap();
-    assert!(no_stop.iter().any(|r| r.invocation == frame.control_invocation
-        && r.status == analysis::AnalysisStatus::Partial
-        && r.reason == Some(obligation::ObligationKind::IncompleteDomain)));
-    out.traversals.insert(Traversal {
-        frame: frame.id(), seed: id(99), stop: Some(TraversalStop::Depth), partial: true,
-        examined_vertices: 1, examined_arcs: 0,
-    }).unwrap();
-    out.control_traversals.insert(controls::ControlTraversal {
-        frame: frame.id(), seed: id(99), formal: id(98), stop: Some(TraversalStop::Arcs),
-        vertices: 1, arcs: 0,
-    }).unwrap();
+    assert!(
+        no_stop
+            .iter()
+            .any(|r| r.invocation == frame.control_invocation
+                && r.status == analysis::AnalysisStatus::Partial
+                && r.reason == Some(obligation::ObligationKind::IncompleteDomain))
+    );
+    out.traversals
+        .insert(Traversal {
+            frame: frame.id(),
+            seed: id(99),
+            stop: Some(TraversalStop::Depth),
+            partial: true,
+            examined_vertices: 1,
+            examined_arcs: 0,
+        })
+        .unwrap();
+    out.control_traversals
+        .insert(controls::ControlTraversal {
+            frame: frame.id(),
+            seed: id(99),
+            formal: id(98),
+            stop: Some(TraversalStop::Arcs),
+            vertices: 1,
+            arcs: 0,
+        })
+        .unwrap();
     let stopped = outcomes::derive(&c, &out, &b).unwrap();
     for invocation in [frame.invocation, frame.control_invocation] {
         assert!(stopped.iter().any(|r| r.invocation == invocation
@@ -360,7 +390,10 @@ fn structural_stops_and_earlier_frontier_outcomes_keep_distinct_meanings() {
     let mut empty_context = Context::new(&b);
     let empty = Output::new(&b);
     frames::verify(&empty_data, &empty_context, &empty, &b).unwrap();
-    empty_context.outcomes.insert(stopped.iter().next().unwrap().clone()).unwrap();
+    empty_context
+        .outcomes
+        .insert(stopped.iter().next().unwrap().clone())
+        .unwrap();
     assert!(frames::verify(&empty_data, &empty_context, &empty, &b).is_err());
 }
 #[test]

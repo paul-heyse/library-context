@@ -890,21 +890,62 @@ fn native_signature_ports_keep_role_origin_and_qualification() {
 
 #[test]
 fn expected_argument_locations_require_exact_call_membership_and_context() {
-    use lctx_model::domain::{assertion::AssertionQualification,calls::{Actual,ArgumentKind,CallSyntax,CallArgument},source::{Occurrence,SyntaxKind},syntax::SyntaxPlacement};
-    for case in ["exact","absent","foreign-context","declared"] {
-        let mut f=Fixture::new(false);
-        let q=f.base.rows::<AssertionQualification>()[0].clone();
-        let original=f.base.rows::<Occurrence>()[0].clone();
-        let argument=Occurrence {syntax_kind:SyntaxKind::ExprList,..original.clone()};
-        let callsite=Occurrence {syntax_kind:SyntaxKind::ExprCall,..original};
-        let mut occurrences=f.base.rows::<Occurrence>();occurrences.extend([argument.clone(),callsite.clone()]);f.base.put(occurrences);
-        let mut callq=q.clone();
-        if case=="foreign-context" {callq.context=serde_json::from_value(serde_json::to_value([255u8;16]).unwrap()).unwrap();let mut qualifications=f.base.rows::<AssertionQualification>();qualifications.push(callq.clone());f.base.put(qualifications);}
-        let (call,arguments)=CallSyntax::new(callq.id(),callsite.id(),callsite.id(),false,&[Actual {occurrence:argument.id(),kind:ArgumentKind::Positional,keyword:None}]).unwrap();
-        f.base.put(vec![call]);f.base.put(if case=="absent" {Vec::<CallArgument>::new()}else{arguments});
+    use lctx_model::domain::{
+        assertion::AssertionQualification,
+        calls::{Actual, ArgumentKind, CallArgument, CallSyntax},
+        source::{Occurrence, SyntaxKind},
+        syntax::SyntaxPlacement,
+    };
+    for case in ["exact", "absent", "foreign-context", "declared"] {
+        let mut f = Fixture::new(false);
+        let q = f.base.rows::<AssertionQualification>()[0].clone();
+        let original = f.base.rows::<Occurrence>()[0].clone();
+        let argument = Occurrence {
+            syntax_kind: SyntaxKind::ExprList,
+            ..original.clone()
+        };
+        let callsite = Occurrence {
+            syntax_kind: SyntaxKind::ExprCall,
+            ..original
+        };
+        let mut occurrences = f.base.rows::<Occurrence>();
+        occurrences.extend([argument.clone(), callsite.clone()]);
+        f.base.put(occurrences);
+        let mut callq = q.clone();
+        if case == "foreign-context" {
+            callq.context =
+                serde_json::from_value(serde_json::to_value([255u8; 16]).unwrap()).unwrap();
+            let mut qualifications = f.base.rows::<AssertionQualification>();
+            qualifications.push(callq.clone());
+            f.base.put(qualifications);
+        }
+        let (call, arguments) = CallSyntax::new(
+            callq.id(),
+            callsite.id(),
+            callsite.id(),
+            false,
+            &[Actual {
+                occurrence: argument.id(),
+                kind: ArgumentKind::Positional,
+                keyword: None,
+            }],
+        )
+        .unwrap();
+        f.base.put(vec![call]);
+        f.base.put(if case == "absent" {
+            Vec::<CallArgument>::new()
+        } else {
+            arguments
+        });
         f.base.put(Vec::<SyntaxPlacement>::new());
-        f.base.put(vec![TypeObservation {qualification:q.id(),subject:argument.id(),role:TypeRole::Expected,declared:case=="declared",term:f.term.id()}]);
-        let result=f.base.check(&TypeObservation::invariants()[0]);
-        assert_eq!(result.is_ok(),case=="exact","{case}: {result:?}");
+        f.base.put(vec![TypeObservation {
+            qualification: q.id(),
+            subject: argument.id(),
+            role: TypeRole::Expected,
+            declared: case == "declared",
+            term: f.term.id(),
+        }]);
+        let result = f.base.check(&TypeObservation::invariants()[0]);
+        assert_eq!(result.is_ok(), case == "exact", "{case}: {result:?}");
     }
 }

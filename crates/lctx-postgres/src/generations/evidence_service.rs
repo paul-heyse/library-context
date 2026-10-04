@@ -317,13 +317,19 @@ impl GenerationService {
                 })
             })
             .await?;
-        let flow_grant=original.clone();
-        let flow_execution=execution.clone();
-        let maximum_inventories=if request.page.expanded {64}else{16};
-        let flow_inventory=execution.query(move |lease|Box::pin(async move {
-            let mut packet=super::packet_reads::PacketLease::new::<EvidencePacket>(lease);
-            packet.flow_inventory(&flow_grant,maximum_inventories,&flow_execution).await
-        })).await?;
+        let flow_grant = original.clone();
+        let flow_execution = execution.clone();
+        let maximum_inventories = if request.page.expanded { 64 } else { 16 };
+        let flow_inventory = execution
+            .query(move |lease| {
+                Box::pin(async move {
+                    let mut packet = super::packet_reads::PacketLease::new::<EvidencePacket>(lease);
+                    packet
+                        .flow_inventory(&flow_grant, maximum_inventories, &flow_execution)
+                        .await
+                })
+            })
+            .await?;
         let granted = original.clone();
         let maximum = if request.page.expanded { 64 } else { 16 };
         let source_characterization = execution
@@ -407,10 +413,12 @@ impl GenerationService {
                         return Err(Error::Contract);
                     };
                     if value.evidence.flow_inventory.items.pop().is_some() {
-                        let section=&mut value.evidence.flow_inventory;
-                        section.omitted=section.omitted.checked_add(1).ok_or(Error::Contract)?;
-                        section.truncated=true;
-                        section.availability=Availability::Partial {reason:Name::new("flow inventory byte bound reached").map_err(wire)?};
+                        let section = &mut value.evidence.flow_inventory;
+                        section.omitted = section.omitted.checked_add(1).ok_or(Error::Contract)?;
+                        section.truncated = true;
+                        section.availability = Availability::Partial {
+                            reason: Name::new("flow inventory byte bound reached").map_err(wire)?,
+                        };
                         continue;
                     }
                     if value.evidence.source_characterization.items.pop().is_some() {

@@ -2,8 +2,11 @@
 pub mod build;
 pub mod characterization;
 pub mod diagnostic_uses;
-pub use diagnostic_uses::{DiagnosticUseAssessment,DiagnosticUseStatus,DiagnosticUseLink,DiagnosticUsePath,DiagnosticUseTarget};
 pub use characterization::{SourceCharacterization, SourceCharacterizationScenario, SourceUsage};
+pub use diagnostic_uses::{
+    DiagnosticUseAssessment, DiagnosticUseLink, DiagnosticUsePath, DiagnosticUseStatus,
+    DiagnosticUseTarget,
+};
 mod fields;
 pub mod frames;
 mod intent;

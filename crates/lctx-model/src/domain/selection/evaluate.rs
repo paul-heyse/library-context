@@ -556,14 +556,22 @@ fn option_name<'a>(
             Some(need(&d.source.core.fields, *field)?.name.as_str())
         }
         catalog::CatalogOptionSubject::SourceParameter { parameter } => {
-            let mut names = d.source.core.parameter_links.iter()
+            let mut names = d
+                .source
+                .core
+                .parameter_links
+                .iter()
                 .filter(|link| link.entity == *parameter)
                 .filter_map(|link| d.facts.signature_parameters.get(link.parameter))
                 .filter_map(|p| d.facts.shapes.get(p.shape))
                 .filter_map(|shape| shape.name.as_ref().map(|n| n.as_str()));
             let first = names.next();
-            if names.any(|n| Some(n) != first) { None } else { first }
-        },
+            if names.any(|n| Some(n) != first) {
+                None
+            } else {
+                first
+            }
+        }
     })
 }
 fn default_state(
@@ -1184,7 +1192,12 @@ fn evaluate(
                     }
                     Predicate::ConfigurationRelationship { kind, target, .. } => {
                         if *kind == FieldRelationship::DeclaredParameter {
-                            values.push(super::source_fields::declared_parameter(d, o.id(), target, c.analysis())?);
+                            values.push(super::source_fields::declared_parameter(
+                                d,
+                                o.id(),
+                                target,
+                                c.analysis(),
+                            )?);
                             continue;
                         }
                         for access in d.evidence.accesses.iter().filter(|a| a.option == o.id()) {

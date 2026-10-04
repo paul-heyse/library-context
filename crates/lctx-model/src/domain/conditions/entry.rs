@@ -229,9 +229,29 @@ pub(crate) fn exact(
     Ok(q)
 }
 #[derive(Clone, Copy)]
-pub(crate) struct SupportFrame {pub access:Id<Occurrence>,pub context:Id<AnalysisContext>,pub run:Id<ProviderRun>}
-impl From<EntryRequest> for SupportFrame {fn from(r:EntryRequest)->Self{Self{access:r.access,context:r.context,run:r.run}}}
-impl From<AccessFrame> for SupportFrame {fn from(r:AccessFrame)->Self{Self{access:r.access,context:r.context,run:r.run}}}
+pub(crate) struct SupportFrame {
+    pub access: Id<Occurrence>,
+    pub context: Id<AnalysisContext>,
+    pub run: Id<ProviderRun>,
+}
+impl From<EntryRequest> for SupportFrame {
+    fn from(r: EntryRequest) -> Self {
+        Self {
+            access: r.access,
+            context: r.context,
+            run: r.run,
+        }
+    }
+}
+impl From<AccessFrame> for SupportFrame {
+    fn from(r: AccessFrame) -> Self {
+        Self {
+            access: r.access,
+            context: r.context,
+            run: r.run,
+        }
+    }
+}
 pub(crate) fn supported<S: Support>(
     data: &EntryData,
     support: &S,
@@ -831,12 +851,33 @@ impl EntryValueWitness {
                         .is_some_and(|m| m.source == read.source),
                     _ => false,
                 };
-                if relevant && matches!(row.status,CoverageStatus::CompleteUnderStatedModel|CoverageStatus::Partial) {
+                if relevant
+                    && matches!(
+                        row.status,
+                        CoverageStatus::CompleteUnderStatedModel | CoverageStatus::Partial
+                    )
+                {
                     coverage = Some(row.id());
                 }
             }
             let coverage = coverage.ok_or(ObligationKind::IncompleteCoverage)?;
-            let (inventory,inventory_support)=flow_inventory::complete_native_singleton(data,use_observation,need(&data.use_supports,use_support)?,reaching,need(&data.reaching_supports,reaching_support)?,budget).map_err(|error|{resource_error=Some(error);if matches!(resource_error,Some(ModelError::Resource{..})){ObligationKind::ResourceRefused}else{ObligationKind::MissingEvidence}})?.ok_or(ObligationKind::EntryValueUnknown)?;
+            let (inventory, inventory_support) = flow_inventory::complete_native_singleton(
+                data,
+                use_observation,
+                need(&data.use_supports, use_support)?,
+                reaching,
+                need(&data.reaching_supports, reaching_support)?,
+                budget,
+            )
+            .map_err(|error| {
+                resource_error = Some(error);
+                if matches!(resource_error, Some(ModelError::Resource { .. })) {
+                    ObligationKind::ResourceRefused
+                } else {
+                    ObligationKind::MissingEvidence
+                }
+            })?
+            .ok_or(ObligationKind::EntryValueUnknown)?;
             use crate::domain::analysis::policy::{self, EvidenceStatus, SupportRole};
             let mut statuses = [(SupportRole::Support, EvidenceStatus::Unresolved); 9];
             let mut count = 0;
@@ -847,7 +888,7 @@ impl EntryValueWitness {
                 );
                 count += 1;
             };
-            evidence(FactFamily::Flow,inventory_support.fidelity);
+            evidence(FactFamily::Flow, inventory_support.fidelity);
             evidence(
                 FactFamily::Flow,
                 need(&data.use_supports, use_support)?.fidelity,

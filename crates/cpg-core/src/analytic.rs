@@ -228,11 +228,14 @@ mod decoder_tests {
     use super::*;
     #[test]
     fn declared_sources_have_decoder_reachability_in_both_profiles() {
-        let mut decoders=std::collections::BTreeSet::new();
+        let mut decoders = std::collections::BTreeSet::new();
         macro_rules! collect {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
         decoder_inputs!(collect);
         for profile in Profile::ALL {
-            crate::consumed_rows::assert_decoder_reachability(build::Data::consumed_inputs(profile),&decoders);
+            crate::consumed_rows::assert_decoder_reachability(
+                build::Data::consumed_inputs(profile),
+                &decoders,
+            );
         }
     }
 }

@@ -211,9 +211,14 @@ def oracle_fixture() -> tuple[list[check_family.LockPackage], check_family.Cargo
 def write_packages(path: Path, packages: list[check_family.LockPackage]) -> None:
     lines = ["version = 4"]
     for package in packages:
-        lines.extend([
-            "", "[[package]]", f'name = "{package["name"]}"', f'version = "{package["version"]}"',
-        ])
+        lines.extend(
+            [
+                "",
+                "[[package]]",
+                f'name = "{package["name"]}"',
+                f'version = "{package["version"]}"',
+            ]
+        )
         if (source := package.get("source")) is not None:
             lines.append(f'source = "{source}"')
         if dependencies := package.get("dependencies"):
@@ -230,10 +235,12 @@ def test_only_proven_oracle_graph_is_exempt_and_other_family_stays_strict(tmp_pa
     write_packages(lock, packages)
     assert check_family.duplicates(lock) == {"petgraph": ["0.6.5", "0.8.3"]}
     assert check_family.duplicates(lock, development=development) == {}
-    packages.extend([
-        {"name": "arrow-array", "version": "58.0.0"},
-        {"name": "arrow-array", "version": "59.3.0"},
-    ])
+    packages.extend(
+        [
+            {"name": "arrow-array", "version": "58.0.0"},
+            {"name": "arrow-array", "version": "59.3.0"},
+        ]
+    )
     write_packages(lock, packages)
     assert check_family.duplicates(lock, development=development) == {
         "arrow-array": ["58.0.0", "59.3.0"]

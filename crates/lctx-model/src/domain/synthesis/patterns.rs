@@ -1130,7 +1130,10 @@ pub(crate) mod tests {
         ];
         for name in flow_inputs {
             assert!(!catalog.iter().any(|input| input.name() == name), "{name}");
-            assert!(behavioral.iter().any(|input| input.name() == name), "{name}");
+            assert!(
+                behavioral.iter().any(|input| input.name() == name),
+                "{name}"
+            );
         }
         let model = crate::domain::model().unwrap();
         for relation in model.relations() {

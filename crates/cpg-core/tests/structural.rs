@@ -1,10 +1,12 @@
 //! Actual structural publication over native C0/Local and borrowed normalized graphs.
 #[path = "fixtures/catalog_runtime.rs"]
-#[allow(dead_code, reason = "The shared fixture also exposes relation declarations used by other tests")]
+#[allow(
+    dead_code,
+    reason = "The shared fixture also exposes relation declarations used by other tests"
+)]
 mod catalog_runtime;
-#[path="fixtures/structural_mutations.rs"]
+#[path = "fixtures/structural_mutations.rs"]
 mod structural_mutations;
-use structural_mutations::{Case,MutatingSink,State};
 use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
 use cpg_extract::{
     acquisition::AcquiredInput,
@@ -12,7 +14,7 @@ use cpg_extract::{
     capture::CapturedInput,
 };
 use lctx_model::domain::{
-    admission::{Frontier,FrontierContract},
+    admission::{Frontier, FrontierContract},
     stages::*,
     *,
 };
@@ -22,9 +24,15 @@ use lctx_postgres::{
     testing::DisposableDatabase,
 };
 use std::sync::Arc;
+use structural_mutations::{Case, MutatingSink, State};
 #[tokio::test]
 async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
-    for (profile,case) in Profile::ALL.into_iter().map(|p|(p,Case::Truthful)).chain(Case::ALL.into_iter().filter(|c|*c!=Case::Truthful).map(|c|(Profile::Behavioral,c))) {
+    for (profile, case) in Profile::ALL.into_iter().map(|p| (p, Case::Truthful)).chain(
+        Case::ALL
+            .into_iter()
+            .filter(|c| *c != Case::Truthful)
+            .map(|c| (Profile::Behavioral, c)),
+    ) {
         let runtime = AttemptRuntime::new(RuntimeOptions {
             memory_bytes: 1 << 30,
             partitions: 2,
@@ -81,16 +89,30 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             mention_layer: false,
             knn_layer: false,
         };
-        let prepared=cpg_core::compilation::PreparedCompilation::new(Frontier::Catalog,settings.clone(),captured.config().catalog(),None,budget).unwrap();
-        let configuration=prepared.configuration();
-        let definition=|method|configuration.definitions().iter().find(|d|d.method==method).unwrap().clone();
-        let enriched_definition=definition(analysis::AnalysisMethod::EnrichedExecution);
-        let model_definition=definition(analysis::AnalysisMethod::Models);
-        let summary_definition=definition(analysis::AnalysisMethod::Summaries);
-        let mut providers=cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
-        let schedule=prepared.schedule(&model,&providers,profile).unwrap();
-        let mutation_state=Arc::new(std::sync::Mutex::new(State::default()));
-        let mut refused=false;
+        let prepared = cpg_core::compilation::PreparedCompilation::new(
+            Frontier::Catalog,
+            settings.clone(),
+            captured.config().catalog(),
+            None,
+            budget,
+        )
+        .unwrap();
+        let configuration = prepared.configuration();
+        let definition = |method| {
+            configuration
+                .definitions()
+                .iter()
+                .find(|d| d.method == method)
+                .unwrap()
+                .clone()
+        };
+        let enriched_definition = definition(analysis::AnalysisMethod::EnrichedExecution);
+        let model_definition = definition(analysis::AnalysisMethod::Models);
+        let summary_definition = definition(analysis::AnalysisMethod::Summaries);
+        let mut providers = cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
+        let schedule = prepared.schedule(&model, &providers, profile).unwrap();
+        let mutation_state = Arc::new(std::sync::Mutex::new(State::default()));
+        let mut refused = false;
         let mut execution = schedule.execute();
         let attempt = store
             .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
@@ -212,23 +234,104 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                 )
                 .await
                 .unwrap();
-            } else if matches!(declaration.name,"embedding_configuration"|"analytic_text"|"analytic_embedding"|"analyze_analytic"|"synthesis"|"retrieval"|"assess_analysis_frontier"|"assess_catalog_frontier") {
-                cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access| {
-                    match declaration.name {
-                        "embedding_configuration"=>cpg_core::analysis_prepare::embedding_configuration(access,&attempt,&model,&runtime,None).await,
-                        "analytic_text"=>cpg_core::analytic_text::publish(access,&attempt,&config,&runtime,&model,embedding::text::TextDefinition {requested:false,..embedding::text::TextDefinition::builtin()}).await,
-                        "analytic_embedding"=>cpg_core::analytic_embedding::produce(access,&attempt,&config,&runtime,&model,None,None).await,
-                        "analyze_analytic"=>{
-                            let graphs=cpg_core::analysis_graphs::PreparedGraphs::load(&access,&attempt,&config,&runtime,&model,&[projection::ProjectionName::CallableInvocation].into_iter().collect()).await?;
-                            cpg_core::analytic::produce(access,&attempt,&config,&runtime,&model,&graphs).await
-                        },
-                        "synthesis"=>cpg_core::synthesis::produce(access,&attempt,&config,&runtime,&model).await,
-                        "retrieval"=>cpg_core::retrieval::produce(access,&attempt,&config,&runtime,&model,None,None).await,
-                        "assess_analysis_frontier"=>cpg_core::final_coverage::produce(access,&attempt,&config,&runtime,&model,analysis::frontier::Target::Analysis).await,
-                        "assess_catalog_frontier"=>cpg_core::final_coverage::produce(access,&attempt,&config,&runtime,&model,analysis::frontier::Target::Catalog).await,
-                        _=>unreachable!()
-                    }
-                },&mut |_| {}).await.unwrap_or_else(|e|panic!("stage {} failed: {e}",declaration.name));
+            } else if matches!(
+                declaration.name,
+                "embedding_configuration"
+                    | "analytic_text"
+                    | "analytic_embedding"
+                    | "analyze_analytic"
+                    | "synthesis"
+                    | "retrieval"
+                    | "assess_analysis_frontier"
+                    | "assess_catalog_frontier"
+            ) {
+                cpg_core::stage_runtime::run_declared_stage(
+                    &mut execution,
+                    declaration,
+                    async |access| match declaration.name {
+                        "embedding_configuration" => {
+                            cpg_core::analysis_prepare::embedding_configuration(
+                                access, &attempt, &model, &runtime, None,
+                            )
+                            .await
+                        }
+                        "analytic_text" => {
+                            cpg_core::analytic_text::publish(
+                                access,
+                                &attempt,
+                                &config,
+                                &runtime,
+                                &model,
+                                embedding::text::TextDefinition {
+                                    requested: false,
+                                    ..embedding::text::TextDefinition::builtin()
+                                },
+                            )
+                            .await
+                        }
+                        "analytic_embedding" => {
+                            cpg_core::analytic_embedding::produce(
+                                access, &attempt, &config, &runtime, &model, None, None,
+                            )
+                            .await
+                        }
+                        "analyze_analytic" => {
+                            let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
+                                &access,
+                                &attempt,
+                                &config,
+                                &runtime,
+                                &model,
+                                &[projection::ProjectionName::CallableInvocation]
+                                    .into_iter()
+                                    .collect(),
+                            )
+                            .await?;
+                            cpg_core::analytic::produce(
+                                access, &attempt, &config, &runtime, &model, &graphs,
+                            )
+                            .await
+                        }
+                        "synthesis" => {
+                            cpg_core::synthesis::produce(
+                                access, &attempt, &config, &runtime, &model,
+                            )
+                            .await
+                        }
+                        "retrieval" => {
+                            cpg_core::retrieval::produce(
+                                access, &attempt, &config, &runtime, &model, None, None,
+                            )
+                            .await
+                        }
+                        "assess_analysis_frontier" => {
+                            cpg_core::final_coverage::produce(
+                                access,
+                                &attempt,
+                                &config,
+                                &runtime,
+                                &model,
+                                analysis::frontier::Target::Analysis,
+                            )
+                            .await
+                        }
+                        "assess_catalog_frontier" => {
+                            cpg_core::final_coverage::produce(
+                                access,
+                                &attempt,
+                                &config,
+                                &runtime,
+                                &model,
+                                analysis::frontier::Target::Catalog,
+                            )
+                            .await
+                        }
+                        _ => unreachable!(),
+                    },
+                    &mut |_| {},
+                )
+                .await
+                .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
             } else if matches!(
                 declaration.name,
                 "analyze_local" | "evaluate_base" | "complete_base" | "prepare_source_calls"
@@ -252,20 +355,76 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                 .await
                 .unwrap();
             } else if declaration.name == "enrich_execution" {
-                cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access| {
-                    cpg_core::semantic_execution::enrich(access,&attempt,&config,&runtime,&model,&enriched_definition).await
-                },&mut |_| {}).await.unwrap();
+                cpg_core::stage_runtime::run_declared_stage(
+                    &mut execution,
+                    declaration,
+                    async |access| {
+                        cpg_core::semantic_execution::enrich(
+                            access,
+                            &attempt,
+                            &config,
+                            &runtime,
+                            &model,
+                            &enriched_definition,
+                        )
+                        .await
+                    },
+                    &mut |_| {},
+                )
+                .await
+                .unwrap();
             } else if declaration.name == "apply_models" {
-                cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access| {
-                    cpg_core::semantic_models::apply(access,&attempt,&config,&runtime,&model,&model_definition).await
-                },&mut |_| {}).await.unwrap();
+                cpg_core::stage_runtime::run_declared_stage(
+                    &mut execution,
+                    declaration,
+                    async |access| {
+                        cpg_core::semantic_models::apply(
+                            access,
+                            &attempt,
+                            &config,
+                            &runtime,
+                            &model,
+                            &model_definition,
+                        )
+                        .await
+                    },
+                    &mut |_| {},
+                )
+                .await
+                .unwrap();
             } else if declaration.name == "analyze_summaries" {
-                cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access| {
-                    let graphs=cpg_core::analysis_graphs::PreparedGraphs::load(&access,&attempt,&config,&runtime,&model,&[projection::ProjectionName::CallableInvocation].into_iter().collect()).await?;
-                    cpg_core::semantic_summaries::produce(access,&attempt,&config,&runtime,&model,&summary_definition,&graphs).await
-                },&mut |_| {}).await.unwrap();
+                cpg_core::stage_runtime::run_declared_stage(
+                    &mut execution,
+                    declaration,
+                    async |access| {
+                        let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
+                            &access,
+                            &attempt,
+                            &config,
+                            &runtime,
+                            &model,
+                            &[projection::ProjectionName::CallableInvocation]
+                                .into_iter()
+                                .collect(),
+                        )
+                        .await?;
+                        cpg_core::semantic_summaries::produce(
+                            access,
+                            &attempt,
+                            &config,
+                            &runtime,
+                            &model,
+                            &summary_definition,
+                            &graphs,
+                        )
+                        .await
+                    },
+                    &mut |_| {},
+                )
+                .await
+                .unwrap();
             } else if declaration.name == "analyze_structural" {
-                let result=cpg_core::stage_runtime::run_declared_stage(
+                let result = cpg_core::stage_runtime::run_declared_stage(
                     &mut execution,
                     declaration,
                     async |access| {
@@ -283,30 +442,98 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                             .collect(),
                         )
                         .await?;
-                        if case==Case::Truthful {
-                            cpg_core::structural::produce(access,&attempt,&config,&runtime,&model,&graphs).await
+                        if case == Case::Truthful {
+                            cpg_core::structural::produce(
+                                access, &attempt, &config, &runtime, &model, &graphs,
+                            )
+                            .await
                         } else {
-                            let sources=structural_mutations::capture(&access,budget)?;
-                            let mut admission=analysis::expected::CoverageAdmission::new(&sources,budget)?;
-                            structural_mutations::load_admission(&access,&attempt,&config,&runtime,&model,&mut admission).await?;
-                            let definitions=structural::build::methods().into_iter().map(|m|structural::build::definition(&settings,m).map(|(_,d)|d)).collect::<Result<Vec<_>,_>>()?;
-                            let sink=MutatingSink {sink:&attempt,model:&model,budget,admission:&admission,definitions:&definitions,case,state:mutation_state.clone()};
-                            cpg_core::structural::produce_with_sink(access,&attempt,&config,&runtime,&model,&graphs,&sink).await
+                            let sources = structural_mutations::capture(&access, budget)?;
+                            let mut admission =
+                                analysis::expected::CoverageAdmission::new(&sources, budget)?;
+                            structural_mutations::load_admission(
+                                &access,
+                                &attempt,
+                                &config,
+                                &runtime,
+                                &model,
+                                &mut admission,
+                            )
+                            .await?;
+                            let definitions = structural::build::methods()
+                                .into_iter()
+                                .map(|m| {
+                                    structural::build::definition(&settings, m).map(|(_, d)| d)
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+                            let sink = MutatingSink {
+                                sink: &attempt,
+                                model: &model,
+                                budget,
+                                admission: &admission,
+                                definitions: &definitions,
+                                case,
+                                state: mutation_state.clone(),
+                            };
+                            cpg_core::structural::produce_with_sink(
+                                access, &attempt, &config, &runtime, &model, &graphs, &sink,
+                            )
+                            .await
                         }
                     },
                     &mut |_| {},
                 )
                 .await;
-                if case==Case::Truthful { result.unwrap(); } else {
-                    let error=result.expect_err("adversarial Structural output cannot close publication");
-                    let detail=error.to_string();
-                    let expected=match case {Case::Strengthen|Case::Missing=>"Structural outcomes differ from retained semantic inventory",Case::Extra=>"structural exact invocation/parent membership differs",Case::Paired=>"structural invocation domain incomplete",Case::EraseCondition=>"structural inventory differs: structural_argument_flows",Case::Truthful=>unreachable!()};
-                    assert!(detail.contains(expected),"{case:?}: {detail}");
-                    let schema=id.schema();
-                    let parents:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {schema}.catalog_core_analysis_invocations"))).fetch_one(db.owner.pool()).await.unwrap();assert!(parents>0,"independent C0 parent survives {case:?}");
-                    let (changed,changed_coverage,stops)={let state=mutation_state.lock().unwrap();(state.changed,state.changed_coverage,state.stops.clone())};assert!(changed>0,"{case:?} performed its mutation");
-                    if case==Case::Strengthen {assert!(changed_coverage>0);assert!(!stops.is_empty());for (relation,expected) in &stops {let actual=sqlx::query_scalar::<_,Vec<u8>>(sqlx::AssertSqlSafe(format!("SELECT id FROM {schema}.{relation} WHERE stop IS NOT NULL"))).fetch_all(db.owner.pool()).await.unwrap().into_iter().collect::<std::collections::BTreeSet<_>>();assert_eq!(&actual,expected,"stop inventory unchanged");}}
-                    eprintln!("profile={profile:?} case={case:?} refused: {detail}");refused=true;break;
+                if case == Case::Truthful {
+                    result.unwrap();
+                } else {
+                    let error =
+                        result.expect_err("adversarial Structural output cannot close publication");
+                    let detail = error.to_string();
+                    let expected = match case {
+                        Case::Strengthen | Case::Missing => {
+                            "Structural outcomes differ from retained semantic inventory"
+                        }
+                        Case::Extra => "structural exact invocation/parent membership differs",
+                        Case::Paired => "structural invocation domain incomplete",
+                        Case::EraseCondition => {
+                            "structural inventory differs: structural_argument_flows"
+                        }
+                        Case::Truthful => unreachable!(),
+                    };
+                    assert!(detail.contains(expected), "{case:?}: {detail}");
+                    let schema = id.schema();
+                    let parents: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                        "SELECT count(*) FROM {schema}.catalog_core_analysis_invocations"
+                    )))
+                    .fetch_one(db.owner.pool())
+                    .await
+                    .unwrap();
+                    assert!(parents > 0, "independent C0 parent survives {case:?}");
+                    let (changed, changed_coverage, stops) = {
+                        let state = mutation_state.lock().unwrap();
+                        (state.changed, state.changed_coverage, state.stops.clone())
+                    };
+                    assert!(changed > 0, "{case:?} performed its mutation");
+                    if case == Case::Strengthen {
+                        assert!(changed_coverage > 0);
+                        assert!(!stops.is_empty());
+                        for (relation, expected) in &stops {
+                            let actual =
+                                sqlx::query_scalar::<_, Vec<u8>>(sqlx::AssertSqlSafe(format!(
+                                    "SELECT id FROM {schema}.{relation} WHERE stop IS NOT NULL"
+                                )))
+                                .fetch_all(db.owner.pool())
+                                .await
+                                .unwrap()
+                                .into_iter()
+                                .collect::<std::collections::BTreeSet<_>>();
+                            assert_eq!(&actual, expected, "stop inventory unchanged");
+                        }
+                    }
+                    eprintln!("profile={profile:?} case={case:?} refused: {detail}");
+                    refused = true;
+                    break;
                 }
             } else if declaration.name == "catalog_core" {
                 cpg_core::stage_runtime::run_declared_stage(
@@ -367,8 +594,17 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             }
         }
         if refused {
-            attempt.fail(&ModelError::Invalid(format!("intentional {case:?} control"))).await.unwrap();
-            store.abort(id).await.unwrap();drop(prepared);drop(captured);assert_eq!(budget.reserved(),0);continue;
+            attempt
+                .fail(&ModelError::Invalid(format!(
+                    "intentional {case:?} control"
+                )))
+                .await
+                .unwrap();
+            store.abort(id).await.unwrap();
+            drop(prepared);
+            drop(captured);
+            assert_eq!(budget.reserved(), 0);
+            continue;
         }
         let validated = attempt
             .seal(execution.finish().unwrap())
@@ -434,7 +670,10 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             assert!(controls.2 > 0, "qualified local conditional raise");
             assert!(controls.3 > 0, "computed/rebound argument boundaries");
             let qualified:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_argument_flows f JOIN {s}.structural_public_candidates p ON p.entity=f.caller AND p.frame=f.frame JOIN {s}.local_flow_contributions l ON l.id=f.contribution JOIN {s}.assertion_qualifications q ON q.id=f.qualification JOIN {s}.assertion_qualifications lq ON lq.id=l.qualification JOIN {s}.flow_value_observations v ON v.id=l.value JOIN {s}.flow_use_inventory_observations i ON i.use_=v.use_ WHERE p.path='api.tested' AND i.complete AND i.native_count=1 AND i.mapped_count=1 AND f.conditional AND q.condition<>$1 AND q.condition=lq.condition AND q.modality>=lq.modality AND q.approximation=lq.approximation"))).bind(conditions::Diagram::always().id().bytes().to_vec()).fetch_one(db.owner.pool()).await.unwrap();
-            assert!(qualified>0,"actual native singleton Local qualification remains conditional in persisted Structural flow");
+            assert!(
+                qualified > 0,
+                "actual native singleton Local qualification remains conditional in persisted Structural flow"
+            );
             let caught:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_conditional_raises r JOIN {s}.structural_control_paths p ON p.id=r.path JOIN {s}.structural_control_traversals t ON t.id=p.traversal JOIN {s}.structural_public_candidates c ON c.entity=t.seed AND c.frame=t.frame WHERE c.path IN ('api.caught','api.swallowed','api.tested')"))).fetch_one(db.owner.pool()).await.unwrap();
             assert_eq!(
                 caught, 0,
@@ -501,7 +740,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
                             "Partial"
                         })
         );
-        assert!(report.outcomes.iter().any(|r|r.owner=="analytic"));
+        assert!(report.outcomes.iter().any(|r| r.owner == "analytic"));
         assert!(
             !serde_json::to_string(&report)
                 .unwrap()

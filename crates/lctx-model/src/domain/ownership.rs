@@ -21,13 +21,15 @@ fn invalid(message: &str) -> ModelError {
 }
 #[macro_export]
 macro_rules! ownership_scope_inputs {
-    ($apply:ident) => {$apply! {
-        sources:$crate::domain::source::SourceArtifact,
-        modules:$crate::domain::source::Module,
-        corpus:$crate::domain::input::CorpusLibrary,
-        distributions:$crate::domain::input::InputDistribution,
-        scopes:$crate::domain::source::CoverageScope,
-    }};
+    ($apply:ident) => {
+        $apply! {
+            sources:$crate::domain::source::SourceArtifact,
+            modules:$crate::domain::source::Module,
+            corpus:$crate::domain::input::CorpusLibrary,
+            distributions:$crate::domain::input::InputDistribution,
+            scopes:$crate::domain::source::CoverageScope,
+        }
+    };
 }
 impl ScopeIndex {
     pub fn inputs() -> Vec<ValidationInput> {

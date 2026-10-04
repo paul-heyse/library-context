@@ -63,7 +63,8 @@ async fn terminal_questions_reach_actual_catalog_briefs_without_completion_autho
                 &GetOperationRequest {
                     library: Name::new("demo").unwrap(),
                     operation: path(operation),
-                    comparison: Optional::default(), reference_parameter:Optional::default(),
+                    comparison: Optional::default(),
+                    reference_parameter: Optional::default(),
                     sections: vec![OperationSection::Briefs],
                     page: PageRequest {
                         size: 100,
@@ -308,7 +309,8 @@ async fn terminal_questions_reach_actual_catalog_briefs_without_completion_autho
                 &GetOperationRequest {
                     library: Name::new("demo").unwrap(),
                     operation: path(operation),
-                    comparison: Optional::default(), reference_parameter:Optional::default(),
+                    comparison: Optional::default(),
+                    reference_parameter: Optional::default(),
                     sections: vec![OperationSection::Briefs],
                     page: PageRequest {
                         size: 100,
