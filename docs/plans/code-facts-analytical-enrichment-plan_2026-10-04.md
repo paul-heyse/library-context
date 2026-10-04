@@ -602,3 +602,24 @@ The split structural/documentary rerun **failed**: four passed, four failed, no 
 rollback controls, named-handoff admission and duplicate signature-role option candidates are
 being reconciled with their original strict acceptance obligations. This remains a partial
 qualification receipt, not Q1 closure.
+
+
+Additional bounded repair evidence, **2026-10-04**: the focused Cargo build failed at a
+new diagnostic's `SubjectBoundary` namespace; this was repaired to its syntax owner. Other
+successfully compiled test binaries were executed directly, with exact commands/artifact
+modification times retained in `lctx-enrichment-built-repair-receipts.json`, one test thread
+per binary and seven independent binaries. Normalized bindings **passed** all 11 controls,
+including native ClassOf/cross-provider receipt refusals; symbolic fields **passed** all five,
+including 22 generated-initializer mutations; Entry witnesses **passed** all five; attributed
+lexical oracle **passed** both. This does not claim a completed Cargo/Nextest gate.
+Normalized recovery **failed** all three controls at the definition report-role gate; the
+exact emitter uses ReportProjection and its bounded correction is integrated, rerun pending.
+Read channels **failed** two of three, retired read expectations two of five. Their actual
+Flow coverage is CompleteUnderStatedModel; field declaration/read receiver admission is
+being repaired without relaxing that closure requirement. Direct model completion controls
+**passed** both; documentary role controls **passed** all six
+(`lctx-enrichment-built-{prepared-completion,documentary-roles}.log`). No speed claim is made.
+Actual conditional serving now hydrates without Contract, but its typing-qualified answer is
+missing (`lctx-enrichment-local-proof-lexical-rerun2.log`); the positive is retained. Exact finite
+claim/facet/owner diagnostics and shared restricted-Local-seed consequence admission are in
+progress. Matching artifacts, affected hygiene and the full gate remain open.
