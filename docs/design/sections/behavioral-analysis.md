@@ -212,6 +212,10 @@ Symbolic constructor→field→reader associations have a separate uncertainty d
 association is available in both profiles; Local adds Entry/Flow premises where admitted. Summary
 retains Unknown reader alternatives with proof=None and the actual boundary. Source route depth
 does not establish temporal heap identity or consume a finite recursive call-path proof.
+**Implemented / Interface-checked, 2026-10-04:** an exact native finalized module reference may
+identify a module binding's source initializer for declared-class inspection. Its reference and
+binding must retain the same native run, source and context. Cross-scope lexical capture and
+runtime class/value authority remain unchanged; no recognizer fills a missing native reference.
 
 > Decision: ADR-0052, ADR-0053, ADR-0057, ADR-0064, ADR-0085, ADR-0106
 

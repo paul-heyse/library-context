@@ -682,3 +682,12 @@ integrated (`79a2b874`, `a6bafbea`). Independent static review is **clean within
 nullable keyed fields. Actual native PostgreSQL explanation/JSON wire parity, replay corruption
 controls, reviewed schema/adapters and the full gate/hygiene remain required. No MCP explanation
 interface is added: the new explanation control uses the existing native ProofReference service.
+
+
+Selected-domain/schema contract checks **passed**, 2026-10-04:
+`cargo check --release -p lctx-model -p cpg-extract -p cpg-core -p lctx --tests`, first after
+proof-field integration, then after native FinalReference inspection (`lctx-enrichment-selected-domain-contract-check.log`,
+`lctx-enrichment-final-reference-contract-check.log`). These are compile receipts, not runtime
+closure. FinalReference/Ruff binding correspondence and initializer controls are integrated at
+`937e918d`; scope-exact capture remains unchanged. Focused runtime controls and matching native
+adapters are being rebuilt against this model; current hygiene/full acceptance remain open.
