@@ -258,6 +258,27 @@ mod tests {
   assert_eq!(result.routes[0].omitted_frontiers,2);assert!(result.partial);
  }
  #[test]
+ fn same_named_target_without_selected_entity_cannot_complete_import_route(){
+  let(b,mut d,extra,member)=imported_fixture(false);
+  let selected=d.source.catalog.members.get(member).unwrap();
+  let target_exposure=d.source.catalog.exposures.iter().find(|ce|d.source.core.exposures.get(ce.exposure).unwrap().access!=selected.access).unwrap().id();
+  let selected_entity=d.source.catalog.candidates.iter().find(|c|c.exposure!=target_exposure).unwrap().entity.unwrap();
+  let wrong_entity=d.source.core.entity_candidates.iter().find(|e|e.id()!=selected_entity).unwrap().id();
+  let candidates=d.source.catalog.candidates.iter().cloned().collect::<Vec<_>>();d.source.catalog.candidates=Rows::new(&b);
+  for mut candidate in candidates {if candidate.exposure==target_exposure{candidate.entity=Some(wrong_entity)}d.source.catalog.candidates.insert(candidate).unwrap();}
+  let result=explain(&d,&extra,member,16,128,&b).unwrap();
+  assert_eq!(result.routes.len(),1);assert_eq!(result.routes[0].stop,RouteStop::UnresolvedNameCorrespondence);assert!(result.partial);
+  assert!(!result.routes[0].hops.iter().any(|hop|matches!(hop,RouteHop::Import{..})));
+ }
+ #[test]
+ fn candidate_publicity_never_becomes_a_supported_declaration_route(){
+  let(b,mut d,extra,member)=fixture();let mut public=d.source.core.exposures.iter().next().unwrap().clone();public.publicity=PublicPathKnowledge::Candidate;
+  d.source.core.exposures=Rows::new(&b);d.source.core.exposures.insert(public.clone()).unwrap();
+  let mut exposure=d.source.catalog.exposures.iter().next().unwrap().clone();exposure.exposure=public.id();d.source.catalog.exposures=Rows::new(&b);d.source.catalog.exposures.insert(exposure.clone()).unwrap();
+  let mut candidate=d.source.catalog.candidates.iter().next().unwrap().clone();candidate.exposure=exposure.id();d.source.catalog.candidates=Rows::new(&b);d.source.catalog.candidates.insert(candidate).unwrap();
+  let result=explain(&d,&extra,member,16,128,&b).unwrap();assert_eq!(result.routes[0].stop,RouteStop::CandidateOnly);assert_eq!(result.routes[0].publicity,PublicPathKnowledge::Candidate);assert!(result.partial);
+ }
+ #[test]
  fn direct_route_preserves_exact_identity_and_request_bound(){
   let(b,d,extra,member)=fixture();let result=explain(&d,&extra,member,16,128,&b).unwrap();assert_eq!(result.routes.len(),1);assert_eq!(result.routes[0].stop,RouteStop::Declaration);assert_eq!(result.routes[0].hops.len(),1);assert!(!result.partial);assert!(explain(&d,&extra,member,0,128,&b).is_err());assert!(explain(&d,&extra,member,16,0,&b).is_err());
   let denied=ResourceBudget::fixed(1).unwrap();assert!(matches!(explain(&d,&extra,member,16,128,&denied),Err(ModelError::Resource{..})));

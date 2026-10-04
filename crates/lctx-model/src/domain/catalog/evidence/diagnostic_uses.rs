@@ -73,7 +73,10 @@ pub(super) fn derive(d: &EvidenceData, out: &mut EvidenceOutput, b: &ResourceBud
         let source = need(&out.original_sources,diagnostic.source)?;
         let primary = match source {
             OriginalSource::Span {span} => match need(&d.facts.canonical_evidence,span.id())? {
-                assertion::Evidence::SourceSpan {source,start,end} => Some((*source,*start,*end)),
+                assertion::Evidence::SourceSpan {source,start,end} => {
+                    if *source != diagnostic.artifact { return Err(invalid("diagnostic use primary changes original artifact/view")); }
+                    Some((*source,*start,*end))
+                },
                 _ => return Err(invalid("diagnostic use primary has foreign evidence kind")),
             },
             _ => None,
@@ -171,6 +174,34 @@ mod tests {
   removed.diagnostic_use_assessments=normalized::Rows::new(&b);
   assert!(removed.matches(&out).is_err(),"coupled assessment/link removal cannot retain exact C1 membership");
   let denied=ResourceBudget::fixed(1).unwrap();assert!(matches!(derive(&d,&mut removed,&denied),Err(ModelError::Resource{..})));
+ }
+ #[test]
+ fn duplicate_diagnoses_keep_their_exact_use_and_ignore_same_spelled_foreign_site(){
+  let(b,mut d,mut out,a,q)=fixture();
+  let first=occurrence(&mut d,&a,0,14,SyntaxKind::ExprCall,OccurrenceRole::Call,0);
+  let subject=occurrence(&mut d,&a,8,13,SyntaxKind::ExprName,OccurrenceRole::Read,1);
+  let other=occurrence(&mut d,&a,15,27,SyntaxKind::ExprCall,OccurrenceRole::Call,2);
+  let other_subject=occurrence(&mut d,&a,21,26,SyntaxKind::ExprName,OccurrenceRole::Read,3);
+  d.core.placements.insert(SyntaxPlacement{qualification:q.id(),occurrence:subject,parent:Some(first),field:SyntaxField::Argument,ordinal:0}).unwrap();
+  d.core.placements.insert(SyntaxPlacement{qualification:q.id(),occurrence:other_subject,parent:Some(other),field:SyntaxField::Argument,ordinal:0}).unwrap();
+  let expected=usage(&mut d,&mut out,&a,&q,first,11);let unrelated=usage(&mut d,&mut out,&a,&q,other,12);
+  diagnostic(&mut d,&mut out,&a,&q,Some((8,13)),0);diagnostic(&mut d,&mut out,&a,&q,Some((8,13)),1);
+  derive(&d,&mut out,&b).unwrap();
+  assert_eq!(out.diagnostic_use_assessments.len(),2);assert_eq!(out.diagnostic_use_links.len(),2);
+  assert!(out.diagnostic_use_assessments.iter().all(|row|row.status==DiagnosticUseStatus::UniqueUse&&row.uses==1&&!row.remainder));
+  assert!(out.diagnostic_use_links.iter().all(|link|link.usage==expected&&link.usage!=unrelated&&link.subject==subject));
+ }
+ #[test]
+ fn foreign_primary_artifact_cannot_acquire_an_exact_use(){
+  let(b,mut d,mut out,a,q)=fixture();let diagnosis=diagnostic(&mut d,&mut out,&a,&q,Some((0,14)),0);
+  let foreign=SourceArtifact::from_bytes(a.input,"foreign.py".into(),b"consume(value)\n").unwrap();d.core.artifacts.insert(foreign.clone()).unwrap();
+  let call=occurrence(&mut d,&foreign,0,14,SyntaxKind::ExprCall,OccurrenceRole::Call,0);usage(&mut d,&mut out,&foreign,&q,call,11);
+  let span=assertion::Evidence::SourceSpan{source:foreign.id(),start:0,end:14};d.facts.canonical_evidence.insert(span.clone()).unwrap();
+  let source=out.original_sources.insert(OriginalSource::Span{span:EvidenceSourceSpanId::of(&span).unwrap()}).unwrap();
+  let mut rows=out.source_characterizations.iter().cloned().collect::<Vec<_>>();for row in &mut rows {if row.id()==diagnosis{row.source=source}}
+  out.source_characterizations=normalized::Rows::new(&b);for row in rows{out.source_characterizations.insert(row).unwrap();}
+  assert!(matches!(derive(&d,&mut out,&b),Err(ModelError::Invalid(message)) if message.contains("primary changes original artifact/view")));
+  assert!(out.diagnostic_use_links.is_empty());
  }
  #[test]
  fn ambiguous_exact_subjects_and_foreign_ancestry_preserve_unknown_or_fail(){
