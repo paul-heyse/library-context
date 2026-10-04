@@ -272,6 +272,7 @@ fn a_guarded_read_proves_entry_only_when_its_condition_is_covered_by_parameter_r
     f.data.use_observations.insert(changed).unwrap();
     f.data.use_supports = Rows::new(&f.budget);
     f.data.use_supports.insert(support).unwrap();
+    f.seed_inventory();
     let proof = f.derive().unwrap();
     f.validate(proof.witness()).unwrap();
     let impossible = Diagram::never();
@@ -422,4 +423,66 @@ fn partial_coverage_is_evidence_while_exact_false_singleton_uses_its_inventory()
     assert_eq!(proof.condition().id(),Diagram::never().id());f.validate(proof.witness()).unwrap();drop(proof);
     f.data.inventories=Rows::new(&f.budget);
     assert!(matches!(f.derive(),Err(ObligationKind::EntryValueUnknown)),"Partial family coverage cannot replace missing per-use closure");
+}
+
+#[test]
+fn singleton_inventory_refuses_a_forged_original_view_snapshot() {
+    for changed_length in [false,true] {
+        let mut f=Fixture::new();
+        let proof=f.derive().unwrap();let witness=proof.witness().clone();drop(proof);
+        let mut inventory=f.data.inventories.get(witness.inventory).unwrap().clone();
+        let mut view=f.data.source_views.get(inventory.view).unwrap().clone();
+        if changed_length {view.byte_len+=1;}else{view.original_content=ContentHash::of(b"forged original source");view.view_content=view.original_content;}
+        let mut view_support=f.data.source_view_supports.iter().next().unwrap().clone();view_support.assertion=view.id();
+        inventory.view=view.id();
+        let mut inventory_support=f.data.inventory_supports.get(witness.inventory_support).unwrap().clone();inventory_support.assertion=inventory.id();
+        let mut candidate=f.data.inventory_candidates.iter().next().unwrap().clone();candidate.inventory=inventory.id();
+        let mut member=f.data.inventory_members.iter().next().unwrap().clone();member.inventory=inventory.id();
+        f.data.source_views=Rows::new(&f.budget);f.data.source_views.insert(view).unwrap();
+        f.data.source_view_supports=Rows::new(&f.budget);f.data.source_view_supports.insert(view_support).unwrap();
+        f.data.inventories=Rows::new(&f.budget);f.data.inventories.insert(inventory).unwrap();
+        f.data.inventory_supports=Rows::new(&f.budget);f.data.inventory_supports.insert(inventory_support).unwrap();
+        f.data.inventory_candidates=Rows::new(&f.budget);f.data.inventory_candidates.insert(candidate).unwrap();
+        f.data.inventory_members=Rows::new(&f.budget);f.data.inventory_members.insert(member).unwrap();
+        assert!(matches!(f.derive(),Err(ObligationKind::EntryValueUnknown)),"nominal matching view source must retain actual original digest and length");
+    }
+}
+
+#[test]
+fn raw_singleton_selector_checks_source_qualifications_and_bound_target() {
+    use lctx_model::domain::flow_inventory::*;
+    fn selected(f:&Fixture)->bool {
+        let observation=f.data.use_observations.iter().next().unwrap();
+        let support=f.data.use_supports.iter().find(|s|s.assertion==observation.id()).unwrap();
+        let reaching=f.data.reaching.iter().next().unwrap();
+        let rs=f.data.reaching_supports.iter().find(|s|s.assertion==reaching.id()).unwrap();
+        complete_native_singleton(&f.data,observation,support,reaching,rs,&f.budget).unwrap().is_some()
+    }
+    assert!(selected(&Fixture::new()));
+    for mutation in 0..4 {
+        let mut f=Fixture::new();
+        if mutation<2 {
+            let mut q=f.q.clone();
+            if mutation==0 {q.modality=Modality::Candidate;}else{let foreign=source::SourceArtifact::from_bytes(f.data.artifacts.iter().next().unwrap().input,"foreign.py".into(),b"foreign").unwrap();let scope=source::CoverageScope::Artifact{artifact:foreign.id()};f.data.artifacts.insert(foreign).unwrap();f.data.scopes.insert(scope.clone()).unwrap();q.scope=scope.id();}
+            f.data.qualifications.insert(q.clone()).unwrap();
+            let observation=FlowUseObservation{qualification:q.id(),..f.data.use_observations.iter().next().unwrap().clone()};
+            let mut support=f.data.use_supports.iter().next().unwrap().clone();support.assertion=observation.id();
+            f.data.use_observations=Rows::new(&f.budget);f.data.use_observations.insert(observation).unwrap();f.data.use_supports=Rows::new(&f.budget);f.data.use_supports.insert(support).unwrap();
+            let reaching=FlowReachingObservation{qualification:q.id(),..f.reaching.clone()};replace_reaching(&mut f,reaching);f.seed_inventory();
+        }else if mutation==2 {
+            let q=AssertionQualification{approximation:assertion::Approximation::Over,..f.q.clone()};f.data.qualifications.insert(q.clone()).unwrap();
+            let mut view=f.data.source_views.iter().next().unwrap().clone();view.qualification=q.id();
+            let mut vs=f.data.source_view_supports.iter().next().unwrap().clone();vs.assertion=view.id();
+            let mut inv=f.data.inventories.iter().next().unwrap().clone();inv.view=view.id();let mut is=f.data.inventory_supports.iter().next().unwrap().clone();is.assertion=inv.id();
+            let mut c=f.data.inventory_candidates.iter().next().unwrap().clone();c.inventory=inv.id();let mut m=f.data.inventory_members.iter().next().unwrap().clone();m.inventory=inv.id();
+            f.data.source_views=Rows::new(&f.budget);f.data.source_views.insert(view).unwrap();f.data.source_view_supports=Rows::new(&f.budget);f.data.source_view_supports.insert(vs).unwrap();
+            f.data.inventories=Rows::new(&f.budget);f.data.inventories.insert(inv).unwrap();f.data.inventory_supports=Rows::new(&f.budget);f.data.inventory_supports.insert(is).unwrap();f.data.inventory_candidates=Rows::new(&f.budget);f.data.inventory_candidates.insert(c).unwrap();f.data.inventory_members=Rows::new(&f.budget);f.data.inventory_members.insert(m).unwrap();
+        }else {
+            f.data.targets.insert(ReachingDefinition::Unbound).unwrap();let row=FlowReachingObservation{target:ReachingDefinition::Unbound.id(),..f.reaching.clone()};replace_reaching(&mut f,row);
+            let old=f.data.inventories.iter().next().unwrap().clone();let reach=f.data.reaching.iter().next().unwrap();let rs=f.data.reaching_supports.iter().next().unwrap();let state=f.data.inventory_candidates.iter().next().unwrap().state();
+            let (inv,candidates,members)=FlowUseInventoryObservation::new(old.qualification,old.use_,old.scope,old.view,&[state],&[(0,reach.id(),rs.id())]).unwrap();let mut support=f.data.inventory_supports.iter().next().unwrap().clone();support.assertion=inv.id();
+            f.data.inventories=Rows::new(&f.budget);f.data.inventories.insert(inv).unwrap();f.data.inventory_supports=Rows::new(&f.budget);f.data.inventory_supports.insert(support).unwrap();f.data.inventory_candidates=Rows::new(&f.budget);for c in candidates{f.data.inventory_candidates.insert(c).unwrap();}f.data.inventory_members=Rows::new(&f.budget);for m in members{f.data.inventory_members.insert(m).unwrap();}
+        }
+        assert!(!selected(&f),"raw selector must independently reject qualification/scope/target mutation {mutation}");
+    }
 }
