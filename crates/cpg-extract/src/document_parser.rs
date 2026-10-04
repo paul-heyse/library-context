@@ -124,14 +124,11 @@ fn span(n: &Node) -> Option<(usize, usize)> {
 
 /// A dotted identifier, as the recognizer reads one.
 fn is_dotted(text: &str) -> bool {
-    !text.is_empty()
-        && text.split('.').all(|seg| {
-            let mut chars = seg.chars();
-            chars
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-        })
+    // The documentary recognizer intentionally nominates ASCII words (keywords included),
+    // rather than expanding its task policy to every Python Unicode identifier.
+    !text.is_empty() && text.split('.').all(|segment| segment.is_ascii()
+        && (ruff_python_stdlib::identifiers::is_identifier(segment)
+            || ruff_python_stdlib::keyword::is_keyword(segment)))
 }
 
 /// A bare name distinctive enough to count in prose: an underscore inside it, or at least two

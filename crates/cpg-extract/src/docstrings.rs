@@ -26,17 +26,14 @@ pub(crate) enum Located {
 
 /// The string body of a literal's source: after its prefix and opening quotes, before its closing
 /// ones.
-fn literal_body(literal: &str) -> (usize, usize) {
-    let prefix = literal
-        .bytes()
-        .take_while(|b| matches!(b, b'r' | b'R' | b'u' | b'U' | b'b' | b'B' | b'f' | b'F'))
-        .count();
-    let rest = &literal[prefix..];
-    let quote = ["\"\"\"", "'''", "\"", "'"]
-        .into_iter()
-        .find(|q| rest.starts_with(q) && rest.len() >= 2 * q.len() && rest.ends_with(q))
-        .map_or(0, str::len);
-    (prefix + quote, literal.len() - quote)
+fn literal_body(literal: &str) -> Option<(usize, usize)> {
+    let opening = ruff_python_ast_latest::str::leading_quote(literal)?;
+    let closing = ruff_python_ast_latest::str::trailing_quote(literal)?;
+    let quotes = opening.find(['\'', '"'])?;
+    if &opening[quotes..] != closing || literal.len() < opening.len() + closing.len() {
+        return None;
+    }
+    Some((opening.len(), literal.len() - closing.len()))
 }
 
 fn leading_spaces(line: &str) -> usize {
@@ -91,7 +88,7 @@ pub(crate) fn locate_description(literal: &str, name: &str, text: &str) -> Optio
     if wanted.is_empty() {
         return None;
     }
-    let (open, close) = literal_body(literal);
+    let (open, close) = literal_body(literal)?;
     let body = &literal[open..close];
     let mut lines: Vec<(usize, &str)> = Vec::new();
     let mut at = 0;
@@ -139,7 +136,7 @@ pub(crate) fn locate_description(literal: &str, name: &str, text: &str) -> Optio
 
 #[cfg(test)]
 mod docstring_tests {
-    use super::{Located, locate_description};
+    use super::{Located, locate_description, literal_body};
 
     fn at(literal: &str, located: Option<Located>) -> String {
         match located.expect("located") {
@@ -195,6 +192,17 @@ mod docstring_tests {
             "Consent screen behavior.\n            - True: always ask\n            - \"remember\": ask once\
              |Consent screen behavior.\n- True: always ask\n- \"remember\": ask once"
         );
+    }
+
+    #[test]
+    fn native_quote_helpers_preserve_exact_utf8_body_and_refuse_malformed_delimiters() {
+        for literal in ["r\"\"\"café\"\"\"", "u'café'", "\"café\"", "'''café'''"] {
+            let (start, end) = literal_body(literal).unwrap();
+            assert_eq!(&literal[start..end], "café");
+        }
+        for malformed in ["not a literal", "r\"unfinished", "'''mixed\"", "'", "\"\"\"\"\""] {
+            assert!(literal_body(malformed).is_none(), "{malformed}");
+        }
     }
 
     #[test]

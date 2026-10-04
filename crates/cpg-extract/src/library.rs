@@ -27,21 +27,9 @@ pub(crate) fn fail(msg: impl Into<String>) -> ExtractError {
 }
 
 /// PEP 503: lowercase, with runs of `-`, `_` and `.` as one `-`.
-pub fn normalize(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    let mut sep = false;
-    for c in name.chars() {
-        if matches!(c, '-' | '_' | '.') {
-            sep = true;
-        } else {
-            if sep && !out.is_empty() {
-                out.push('-');
-            }
-            sep = false;
-            out.push(c.to_ascii_lowercase());
-        }
-    }
-    out
+pub fn normalize(name: &str) -> Result<String, String> {
+    pep508_rs::PackageName::new(name.to_owned())
+        .map(|name| name.to_string()).map_err(|e| e.to_string())
 }
 
 /// The files Pyrefly's module finder reads (`py.typed` changes how a package resolves).
@@ -99,7 +87,7 @@ fn parse_definition(text: &str) -> Result<Definition, String> {
     let [requirement] = <[String; 1]>::try_from(p.project.dependencies)
         .map_err(|_| "[project] dependencies must be one requirement".to_owned())?;
     crate::deployment_parser::requirement(&requirement)?;
-    let release: Vec<String> = p.tool.lctx.release.iter().map(|r| normalize(r)).collect();
+    let release: Vec<String> = p.tool.lctx.release.iter().map(|r| normalize(r)).collect::<Result<_, _>>()?;
     if release.is_empty() {
         return Err("[tool.lctx] release must name distributions".to_owned());
     }
@@ -163,7 +151,7 @@ pub(crate) fn lock(bytes: &str) -> Result<BTreeMap<String, (String, Vec<String>)
             .collect();
         artifacts.sort();
         artifacts.dedup();
-        out.insert(normalize(&p.name), (version, artifacts));
+        out.insert(normalize(&p.name).map_err(fail)?, (version, artifacts));
     }
     Ok(out)
 }
@@ -234,7 +222,7 @@ pub(crate) fn installed(
         let (name, version) = stem
             .rsplit_once('-')
             .ok_or_else(|| fail(format!("dist-info name {stem}")))?;
-        out.insert(normalize(name), (version.to_owned(), path));
+        out.insert(normalize(name).map_err(fail)?, (version.to_owned(), path));
     }
     Ok(out)
 }
@@ -271,10 +259,13 @@ mod tests {
 
     #[test]
     fn names_normalize_as_pep_503() {
-        assert_eq!(normalize("fastmcp_slim"), "fastmcp-slim");
-        assert_eq!(normalize("Foo.Bar--baz"), "foo-bar-baz");
+        assert_eq!(normalize("fastmcp_slim").unwrap(), "fastmcp-slim");
+        assert_eq!(normalize("Foo.Bar--baz").unwrap(), "foo-bar-baz");
         assert_eq!(requirement_name("fastmcp[tasks]==4.0.5"), "fastmcp");
         assert_eq!(requirement_name("foo @ git+https://x"), "foo");
+        for invalid in ["", "-foo", "foo-", "a b", "café", "a/b"] {
+            assert!(normalize(invalid).is_err(), "{invalid}");
+        }
     }
 
     #[test]

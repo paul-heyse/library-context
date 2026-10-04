@@ -43,6 +43,23 @@ impl Translator<'_> {
         &self.original[usize::from(range.start())..usize::from(range.end())]
     }
 
+    fn uncommented(&self, range: ruff_text_size_ty::TextRange) -> String {
+        let mut out = String::with_capacity(usize::from(range.len()));
+        let mut at = usize::from(range.start());
+        let end = usize::from(range.end());
+        for token in self.module.tokens().in_range(range) {
+            let token_range = token.range();
+            if token.kind() == ruff_python_ast_ty::token::TokenKind::Comment
+                && token_range.start() >= range.start() && token_range.end() <= range.end() {
+                let start = usize::from(token_range.start());
+                out.push_str(&self.original[at..start]);
+                at = usize::from(token_range.end());
+            }
+        }
+        out.push_str(&self.original[at..end]);
+        out
+    }
+
     fn site(&self, e: &Expr) -> EvaluationSite {
         EvaluationSite::Source(Span::from(e.range()))
     }
@@ -97,7 +114,7 @@ impl Translator<'_> {
 
     /// An untranslatable test is always a fresh evaluation, even when its text repeats.
     fn opaque(&self, e: &Expr) -> Condition {
-        self.atom(Atom::opaque(&strip_comments(self.source(e.range()))), e)
+        self.atom(Atom::opaque(&self.uncommented(e.range())), e)
     }
 
     /// The place an expression names, as ty spells it, when it has at most two attribute
@@ -527,7 +544,7 @@ impl Translator<'_> {
     ) -> Condition {
         let Some(place) = self.place(subject) else {
             return Condition::atom(
-                Atom::opaque(&strip_comments(self.source(subject.range())))
+                Atom::opaque(&self.uncommented(subject.range()))
                     .evaluated(evaluation.clone()),
             );
         };
@@ -548,9 +565,7 @@ impl Translator<'_> {
                         Condition::atom(Atom::Equals { place, value }.evaluated(evaluation.clone()))
                     }
                     None => Condition::atom(
-                        Atom::opaque(&strip_comments(
-                            self.source(v.node_ref(self.db).node(self.module).range()),
-                        ))
+                        Atom::opaque(&self.uncommented(v.node_ref(self.db).node(self.module).range()))
                         .evaluated(evaluation.clone()),
                     ),
                 }
@@ -591,7 +606,7 @@ impl Translator<'_> {
 
     fn pattern_opaque(&self, subject: &Expr, evaluation: &EvaluationSite) -> Condition {
         Condition::atom(
-            Atom::opaque(&strip_comments(self.source(subject.range())))
+            Atom::opaque(&self.uncommented(subject.range()))
                 .evaluated(evaluation.clone()),
         )
     }
@@ -731,49 +746,4 @@ fn int_tuple(e: &Expr) -> Option<Vec<i64>> {
             _ => None,
         })
         .collect()
-}
-
-/// A test's source without its comments: `#` to the end of the line, outside string literals.
-pub(crate) fn strip_comments(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut quote: Option<(char, bool)> = None;
-    let mut chars = text.char_indices().peekable();
-    while let Some((i, c)) = chars.next() {
-        match quote {
-            Some((q, triple)) => {
-                out.push(c);
-                if c == '\\' {
-                    if let Some((_, next)) = chars.next() {
-                        out.push(next);
-                    }
-                } else if c == q && (!triple || text[i..].starts_with(&q.to_string().repeat(3))) {
-                    if triple {
-                        out.push(q);
-                        out.push(q);
-                        chars.next();
-                        chars.next();
-                    }
-                    quote = None;
-                }
-            }
-            None if c == '#' => {
-                while chars.peek().is_some_and(|&(_, n)| n != '\n') {
-                    chars.next();
-                }
-            }
-            None if c == '"' || c == '\'' => {
-                let triple = text[i..].starts_with(&c.to_string().repeat(3));
-                out.push(c);
-                if triple {
-                    out.push(c);
-                    out.push(c);
-                    chars.next();
-                    chars.next();
-                }
-                quote = Some((c, triple));
-            }
-            None => out.push(c),
-        }
-    }
-    out
 }

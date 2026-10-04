@@ -406,7 +406,7 @@ fn init(
                 .strip_suffix(".dist-info")?
                 .to_owned();
             let metadata = fs_err::read_to_string(p.join("METADATA")).unwrap_or_default();
-            Some((library::normalize(stem.rsplit_once('-')?.0), metadata))
+            Some((library::normalize(stem.rsplit_once('-')?.0).ok()?, metadata))
         })
         .collect();
     let (release, found) = propose::propose(&dist, &installed);
