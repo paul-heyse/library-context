@@ -153,8 +153,8 @@ mod tests {
   d.facts.ruff_diagnostics.insert(raw.clone()).unwrap();let native=d.facts.characterization_native.insert(NativeAssertionPremise::RuffDiagnosticObservation{assertion:raw.id(),support:id(3)}).unwrap();
   let source=out.original_sources.insert(primary.map_or(OriginalSource::Artifact{artifact:a.id()},|span|OriginalSource::Span{span})).unwrap();out.source_characterizations.insert(SourceCharacterization{native,qualification:q.id(),artifact:a.id(),source}).unwrap()
  }
- fn usage(d:&mut EvidenceData,out:&mut EvidenceOutput,a:&SourceArtifact,q:&AssertionQualification,site:Id<Occurrence>,tag:u8)->Id<SourceUsage>{
-  let raw=ProviderCallSite{qualification:q.id(),site,origin:id(tag),kind:PysaSiteKind::Regular,caller:id(7),callee:PysaCalleeKind::Call,is_attribute:None};d.facts.usage_sites.insert(raw.clone()).unwrap();
+ fn usage(d:&mut EvidenceData,out:&mut EvidenceOutput,a:&SourceArtifact,q:&AssertionQualification,site:Id<Occurrence>,_tag:u8)->Id<SourceUsage>{
+  let raw=ProviderCallSite{qualification:q.id(),site,origin:CallOrigin::explicit(),kind:PysaSiteKind::Regular,caller:id(7),callee:PysaCalleeKind::Call,is_attribute:None};d.facts.usage_sites.insert(raw.clone()).unwrap();
   let event=normalized::events::NormalizedCallEvent{site,origin:raw.origin,context:q.context,owner:id(8)};d.facts.events.insert(event.clone()).unwrap();d.facts.usage_event_sources.insert(normalized::events::CallEventSource{event:event.id(),observation:raw.id()}).unwrap();
   let source=out.original_sources.insert(OriginalSource::Occurrence{occurrence:site}).unwrap();let native=d.facts.characterization_native.insert(NativeAssertionPremise::ProviderCallSite{assertion:raw.id(),support:id(9)}).unwrap();let characterization=out.source_characterizations.insert(SourceCharacterization{native,qualification:q.id(),artifact:a.id(),source}).unwrap();out.source_usages.insert(SourceUsage{characterization,event:event.id()}).unwrap()
  }
