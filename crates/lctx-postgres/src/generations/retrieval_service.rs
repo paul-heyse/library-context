@@ -75,13 +75,10 @@ impl RetrievalService {
         let binding = mappings::prepared_binding(mappings::PreparedDependency::Retrieval);
         macro_rules! load{($($field:ident:$ty:ty,)*)=>{$(if !binding.permits::<$ty>() {return Err(Error::Contract);}lease.visit_verified::<$ty>(|batch|{for row in batch.rows(){data.$field.insert(row.clone())?;}Ok(())}).await?;)*};}
         lctx_model::serving_retrieval_inputs!(load);
-        let budget = lease.budget.clone();
         drop(held);
         let generation = GenerationKey(*catalog.service().generation().bytes());
-        let retained_guard = guard.clone();
         let (data, unit_occurrences, member_occurrences, unit_corpus, member_corpus, charge) =
-            tokio::task::spawn_blocking(move || {
-                let _guard = retained_guard;
+            guard.prepare_cpu(move |budget| {
                 let mut charge = budget.reserve("retrieval-occurrence-joins", 0)?;
                 let mut bytes = 0usize;
                 let mut unit_occurrences = Vec::new();
@@ -184,8 +181,7 @@ impl RetrievalService {
                     charge,
                 ))
             })
-            .await
-            .map_err(|_| Error::State)??;
+            .await?;
         guard.check().await?;
         let vectors = if vector_enabled {
             Some(guard.vector_artifact().await?)

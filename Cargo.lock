@@ -4226,6 +4226,7 @@ dependencies = [
  "testcontainers-modules",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util 0.7.19",
  "tracing",
  "url",
 ]
@@ -8480,6 +8481,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",

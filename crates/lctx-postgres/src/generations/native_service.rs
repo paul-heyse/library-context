@@ -154,11 +154,9 @@ impl GenerationService {
         }
         let actual = inputs.actual_rows();
         drop(locked);
-        let semantics = native_requests::PreparedNativeSemantics::prepare(
-            inputs,
-            selection.prepared().data(),
-            &budget,
-        )?;
+        let semantics = guard.prepare_cpu(move |budget| {
+            Ok(native_requests::PreparedNativeSemantics::prepare(inputs, selection.prepared().data(), budget)?)
+        }).await?;
         guard.check().await?;
         Ok(PreparedNative {
             state: Arc::new(State {

@@ -96,9 +96,14 @@ impl super::GenerationGuard {
                 })
                 .await?;
         }
-        admission.validate(&data, &output, &lease.budget)?;
+        drop(locked);
+        let (prepared, admission) = self.prepare_cpu(move |budget| {
+            admission.validate(&data, &output, budget)?;
+            Ok((Prepared::from_local_rows(data, output, budget)?, admission))
+        }).await?;
+        let mut locked = self.state.lease.lock().await;
+        let lease = locked.as_mut().ok_or(Error::State)?;
         lease.verify_selection_sources(&admission, profile).await?;
-        let prepared = Prepared::from_local_rows(data, output, &lease.budget)?;
         drop(locked);
         self.check().await?;
         Ok(AdmittedSelection {

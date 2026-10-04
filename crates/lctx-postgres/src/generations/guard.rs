@@ -12,6 +12,9 @@ pub(super) struct State {
     pub(super) lease: tokio::sync::Mutex<Option<GenerationLease>>,
     generation: GenerationId,
     lost: AtomicBool,
+    pub(super) cpu_slots: Arc<tokio::sync::Semaphore>,
+    startup_jobs: tokio_util::task::TaskTracker,
+    startup_admission: std::sync::Mutex<()>,
     _charge: Box<dyn lctx_model::domain::resources::Reservation>,
 }
 #[derive(Clone)]
@@ -35,6 +38,9 @@ impl GenerationReader {
                 lease: tokio::sync::Mutex::new(Some(lease)),
                 generation,
                 lost: AtomicBool::new(false),
+                cpu_slots: Arc::new(tokio::sync::Semaphore::new(lctx_model::domain::serving::ResourceLimits::default().cpu_jobs as usize)),
+                startup_jobs: tokio_util::task::TaskTracker::new(),
+                startup_admission: std::sync::Mutex::new(()),
                 _charge: charge,
             }),
             owners: Arc::new(()),
@@ -86,6 +92,36 @@ impl GenerationGuard {
         }
         result
     }
+    /// Startup has its own admission wait and no request deadline. Once started, finite pure
+    /// work retains its slot, preparation allowance and original guard through cancellation.
+    pub async fn prepare_cpu<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&ResourceBudget) -> Result<T, Error> + Send + 'static,
+    ) -> Result<T, Error> {
+        self.check().await?;
+        let budget = self.state.lease.lock().await.as_ref().ok_or(Error::State)?.budget.clone();
+        let job_charge = budget.reserve("startup-cpu-job", 1024)?;
+        let slot = tokio::time::timeout(Duration::from_secs(30), self.state.cpu_slots.clone().acquire_owned())
+            .await.map_err(|_| Error::ResourceRefused("startup CPU admission wait"))?
+            .map_err(|_| Error::State)?;
+        let job = {
+            let _registration = self.state.startup_admission.lock().map_err(|_| Error::State)?;
+            if self.is_lost() { return Err(Error::State); }
+            let retained = self.clone();
+            self.state.startup_jobs.spawn_blocking(move || {
+                let _slot = slot;
+                let _charge = job_charge;
+                if retained.is_lost() { return Err(Error::State); }
+                let result = work(&budget);
+                drop(retained);
+                result
+            })
+        };
+        let result = job.await.map_err(|_| Error::State)?;
+        self.check().await?;
+        result
+    }
+
     /// Sole-owner release remains available to minimal canonical consumers.
     pub async fn release(self) -> Result<(), Error> {
         // The weak supervisor may be checking transiently. Acquire the mutex before checking
@@ -97,7 +133,13 @@ impl GenerationGuard {
     }
     /// Runtime shutdown calls this only after stopping admission and draining jobs/query cleanup.
     pub(super) async fn close(&self) -> Result<(), Error> {
-        self.state.lost.store(true, Ordering::Release);
+        {
+            let _registration = self.state.startup_admission.lock().map_err(|_| Error::State)?;
+            self.state.lost.store(true, Ordering::Release);
+            self.state.cpu_slots.close();
+            self.state.startup_jobs.close();
+        }
+        self.state.startup_jobs.wait().await;
         let lease = self.state.lease.lock().await.take();
         match lease {
             Some(lease) => lease.release().await,

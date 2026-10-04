@@ -90,6 +90,7 @@ impl GenerationService {
         let preparation = ResourceBudget::scoped(&memory, limits.preparation_bytes as usize)?;
         let guard = reader.guard(generation, preparation.clone()).await?;
         let selection = guard.prepare_selection().await?;
+        let cpu_slots = guard.state.cpu_slots.clone();
         Ok(Self {
             state: Arc::new(State {
                 reader,
@@ -97,7 +98,7 @@ impl GenerationService {
                 selection,
                 memory,
                 preparation,
-                slots: Arc::new(Semaphore::new(limits.cpu_jobs as usize)),
+                slots: cpu_slots,
                 queries: Arc::new(Semaphore::new(limits.query_connections as usize)),
                 stopped: AtomicBool::new(false),
                 active: AtomicUsize::new(0),

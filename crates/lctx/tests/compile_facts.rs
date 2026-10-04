@@ -991,6 +991,49 @@ async fn qualify_generation_runtime(
     assert!(service.guard().is_lost());
     assert!(service.execution().await.is_err());
 
+    // Startup has independent admission and actual-worker drain, not a request deadline.
+    let startup = GenerationService::admit(model.clone(), &role, Some(generation)).await.unwrap();
+    let first = startup.execution().await.unwrap();
+    let second = startup.execution().await.unwrap();
+    let guard = startup.guard();
+    let (began, mut observed) = tokio::sync::oneshot::channel();
+    let queued = tokio::spawn(async move { guard.prepare_cpu(move |_| { let _ = began.send(()); Ok(()) }).await });
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert!(observed.try_recv().is_err(), "queued startup did not bypass the shared CPU slots");
+    queued.abort();
+    assert!(queued.await.unwrap_err().is_cancelled());
+    drop(first); drop(second);
+    assert!(matches!(observed.await, Err(_)), "cancelled queued work never began");
+    let baseline = startup.memory_reserved();
+    let failed = startup.guard().prepare_cpu(|_| Err::<(), _>(Error::Contract)).await;
+    assert!(matches!(failed, Err(Error::Contract)));
+    assert_eq!(startup.memory_reserved(), baseline, "failed startup work releases its admission");
+    let retained = startup.guard().prepare_cpu(|budget| Ok(budget.reserve("startup-retained-control", 4096)?)).await.unwrap();
+    assert_eq!(startup.memory_reserved(), baseline + 4096);
+    drop(retained); assert_eq!(startup.memory_reserved(), baseline);
+    let (began, observed) = tokio::sync::oneshot::channel();
+    let (finish, blocked) = std::sync::mpsc::channel();
+    let guard = startup.guard();
+    let job = tokio::spawn(async move {
+        guard.prepare_cpu(move |budget| {
+            let _charge = budget.reserve("startup-cancel-control", 4096)?;
+            let _ = began.send(()); blocked.recv().unwrap(); Ok(())
+        }).await
+    });
+    observed.await.unwrap();
+    job.abort(); assert!(job.await.unwrap_err().is_cancelled());
+    assert!(startup.memory_reserved() > baseline);
+    assert!(matches!(store.retire(generation).await, Err(Error::Busy)));
+    let close = startup.clone();
+    let shutdown = tokio::spawn(async move { close.shutdown().await });
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert!(!shutdown.is_finished(), "shutdown awaits the real startup worker");
+    finish.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), shutdown).await.unwrap().unwrap().unwrap();
+    assert!(startup.guard().is_lost());
+    assert!(matches!(startup.guard().prepare_cpu(|_| Ok(())).await, Err(Error::State)));
+    assert_eq!(startup.memory_reserved(), baseline, "discarded startup work releases its reservations");
+
     // A valid-width replacement view cannot masquerade as the generated identity projection.
     let view = format!("{}.serving_members", generation.schema());
     let original: String = sqlx::query_scalar("SELECT pg_get_viewdef(to_regclass($1),false)")

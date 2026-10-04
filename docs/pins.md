@@ -58,6 +58,7 @@ Exact pins at the versions `Cargo.lock` already held, so none moved; `just deps`
 |---|---|---|---|
 | tokio | =1.53.1 (`macros`, `rt-multi-thread`) | 2026-09-23 | `Cargo.lock`; `just deps` |
 | hex | =0.4.3: cursor token encoding, unchanged lowercase hex format | 2026-10-04 | Registry `hex-0.4.3/Cargo.toml` read; existing locked version; targeted cursor controls and Q0 pending |
+| tokio-util | =0.7.19 (`rt`): tracked startup workers and actual completion drain | 2026-10-04 | Registry manifest and `TaskTracker::spawn_blocking`/`close`/`wait` source read; existing locked version; focused lifecycle controls pending |
 | base64 | =0.22.1: `RECORD` hashes (Stage A, ADR-0117) | 2026-09-23 | same (already in the graph at this version) |
 | getrandom | =0.3.4: each attempt's `snapshot_id` (§3.4.1) | 2026-09-23 | same |
 | futures | =0.3.34 (the validation stream, H1 P2) | 2026-09-23 | same |
