@@ -3,7 +3,8 @@ use super::{relation_normalization::{RelationData,RelationOutput},entities::Reso
 use crate::domain::{assertion::*,attribution::*,ruff::*,resources::ResourceBudget,source::*,*};
 use std::collections::BTreeMap;
 fn context(data:&RelationData,q:Id<AssertionQualification>)->Result<Id<AnalysisContext>,ModelError>{data.facts.qualifications.get(q).map(|q|q.context).ok_or_else(||ModelError::Invalid("native lexical qualification missing".into()))}
-fn supported(data:&RelationData,q:Id<AssertionQualification>,run:Id<ProviderRun>,surface:Id<ProviderSurface>,evidence:Id<Evidence>,origin:Origin,mode:ExtractionMode,fidelity:Fidelity,subject:Id<Occurrence>)->bool {
+fn supported(data:&RelationData,q:Id<AssertionQualification>,subject:Id<Occurrence>,attribution:Option<SupportAttribution>)->bool {
+    let Some(SupportAttribution {run,surface,evidence,origin,mode,fidelity}) = attribution else { return false; };
     let Some(q)=data.facts.qualifications.get(q) else{return false;};
     let Some(run)=data.facts.runs.get(run) else{return false;};let Some(surface)=data.native_surfaces.get(surface) else{return false;};
     let Some(provider)=data.native_providers.get(run.provider) else{return false;};let Some(occurrence)=data.facts.occurrences.get(subject) else{return false;};let Some(artifact)=data.artifacts.get(occurrence.source) else{return false;};
@@ -29,8 +30,8 @@ pub(super) fn characterize(data:&RelationData,out:&mut RelationOutput,budget:&Re
         for reference in references.get(&(native.subject,ctx)).into_iter().flatten(){
             for binding in bindings.get(&(event,ctx)).into_iter().flatten(){
                 let site=data.facts.bindings.get(event).map(|b|b.site).ok_or_else(||ModelError::Invalid("native lexical event missing".into()))?;
-                let context_support=cs.get(&native.id()).into_iter().flatten().find(|s|supported(data,native.qualification,s.run,s.surface,s.evidence,s.origin,s.mode,s.fidelity,native.subject)).map(|s|s.id());
-                let support=bs.get(&binding.id()).into_iter().flatten().find(|s|supported(data,binding.qualification,s.run,s.surface,s.evidence,s.origin,s.mode,s.fidelity,site)).map(|s|s.id());
+                let context_support=cs.get(&native.id()).into_iter().flatten().find(|s|supported(data,native.qualification,native.subject,s.attribution())).map(|s|s.id());
+                let support=bs.get(&binding.id()).into_iter().flatten().find(|s|supported(data,binding.qualification,site,s.attribution())).map(|s|s.id());
                 let hits=candidates.get(&(reference.id(),event));
                 if let Some(hits)=hits {for (candidate,assessment) in hits {
                     let admitted=context_support.is_some()&&support.is_some();
@@ -41,7 +42,7 @@ pub(super) fn characterize(data:&RelationData,out:&mut RelationOutput,budget:&Re
     }
     for native in data.ruff_definitions.iter(){
         for declaration in declarations.get(&(native.declaration,context(data,native.qualification)?)).into_iter().flatten(){
-            let support=ds.get(&native.id()).into_iter().flatten().find(|s|supported(data,native.qualification,s.run,s.surface,s.evidence,s.origin,s.mode,s.fidelity,native.declaration)).map(|s|s.id());
+            let support=ds.get(&native.id()).into_iter().flatten().find(|s|supported(data,native.qualification,native.declaration,s.attribution())).map(|s|s.id());
             let kind_matches=matches!((declaration.kind,native.kind),(crate::domain::syntax::DeclarationKind::Class,RuffDefinitionKind::Class|RuffDefinitionKind::NestedClass)|(crate::domain::syntax::DeclarationKind::Function|crate::domain::syntax::DeclarationKind::AsyncFunction,RuffDefinitionKind::Function|RuffDefinitionKind::NestedFunction|RuffDefinitionKind::Method));
             let admitted=support.is_some()&&native.parent_location!=NativeRelationLocation::Unlocated&&native.parent==declaration.parent&&kind_matches;
             out.declaration_native_characterizations.insert(DeclarationNativeCharacterization{declaration:declaration.id(),native_definition:native.id(),support,status:if admitted{ResolutionStatus::Resolved}else{ResolutionStatus::Unresolved},reason:if admitted{LinkReason::ExplicitIdentity}else if support.is_none(){LinkReason::UnsupportedNativeOrigin}else{LinkReason::MissingCorrespondence}})?;

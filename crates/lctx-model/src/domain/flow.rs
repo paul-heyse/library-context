@@ -149,11 +149,11 @@ impl InvariantCheck for ViewCheck {
         Ok(())
     }
     fn finish(self:Box<Self>)->Result<(),ModelError> {
-        for (_,row) in self.views.iter() {
+        for row in self.views.values() {
             let source=self.sources.get(&row.source).ok_or_else(||ModelError::Invalid("flow view source missing".into()))?;
             if source.content!=row.original_content || source.byte_len!=row.byte_len {return Err(ModelError::Invalid("flow view source snapshot mismatch".into()));}
         }
-        for (_,row) in self.narrowing.iter() {
+        for row in self.narrowing.values() {
             let q=self.qualifications.get(&row.qualification).ok_or_else(||ModelError::Invalid("flow narrowing qualification missing".into()))?;
             if row.precision_lost && matches!(q.approximation,super::assertion::Approximation::Exact|super::assertion::Approximation::Under) {
                 return Err(ModelError::Invalid("precision-lost narrowing cannot certify exact or under-approximate truth".into()));

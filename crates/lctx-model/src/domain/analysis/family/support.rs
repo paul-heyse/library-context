@@ -52,6 +52,7 @@ impl AnalysisDerivation {
     pub fn emit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,subject:Id<ObligationSubject>,channel:AnalysisChannel,phase:CallPhase,operation:QualificationOperation,premises:&[EvidencePremise<'_>],budget:&resources::ResourceBudget)->Result<(Self,AnalysisProposition,Vec<AnalysisDerivationPremise>,QualifiedResult),ModelError> {
         Self::emit_with_basis(invocation,definition,subject,channel,phase,operation,premises,None,budget)
     }
+    #[allow(clippy::too_many_arguments, reason = "Derivation emission keeps the nominal question, evidence and assumption resolver distinct.")]
     pub fn emit_with_basis(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,subject:Id<ObligationSubject>,channel:AnalysisChannel,phase:CallPhase,operation:QualificationOperation,premises:&[EvidencePremise<'_>],basis:Option<&dyn assumptions::AssumptionResolver>,budget:&resources::ResourceBudget)->Result<(Self,AnalysisProposition,Vec<AnalysisDerivationPremise>,QualifiedResult),ModelError> {
         if invocation.definition!=definition.id() {return Err(invalid("derivation changes analysis definition"));}
         let mut charge=charged::StateCharge::new(budget,"analysis_derivation_emit");let mut sources=charged::ChargedSet::default();

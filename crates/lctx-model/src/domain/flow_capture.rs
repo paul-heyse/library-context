@@ -125,7 +125,7 @@ impl InvariantCheck for InventoryCheck {
     fn finish(mut self:Box<Self>)->Result<(),ModelError> {
         self.flush()?;
         if self.inventories.values().any(|digest|*digest!=inventory_digest(&[])) {return Err(invalid("capture inventory missing members"));}
-        for (_,row) in self.snapshots.iter() {
+        for row in self.snapshots.values() {
             let q=self.qualifications.get(&row.qualification).ok_or_else(||invalid("capture qualification missing"))?;
             if row.timing==CaptureTiming::LazySnapshot && q.modality!=Modality::Candidate {return Err(invalid("lazy AssumeBound snapshot is only a candidate"));}
             if row.constraint_precision_lost && matches!(q.approximation,Approximation::Exact|Approximation::Under) {return Err(invalid("precision-lost snapshot constraint cannot be exact"));}

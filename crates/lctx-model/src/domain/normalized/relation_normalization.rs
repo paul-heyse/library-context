@@ -261,6 +261,7 @@ fn references(
     Ok(())
 }
 type QualifiedPath = (Id<AnalysisContext>, Id<input::InputRevision>, String);
+type QualifiedImportAlias = (Id<AnalysisContext>, Id<input::InputRevision>, Id<Occurrence>);
 fn imports(
     data: &RelationData,
     _index: &Index<'_>,
@@ -268,7 +269,7 @@ fn imports(
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "import-resolution-index");
-    let mut resolutions: ChargedMap<(Id<AnalysisContext>, Id<input::InputRevision>, Id<Occurrence>), Vec<&ModuleResolutionObservation>> = Default::default();
+    let mut resolutions: ChargedMap<QualifiedImportAlias, Vec<&ModuleResolutionObservation>> = Default::default();
     for row in data.module_resolutions.iter() {
         need(&data.facts.provider_modules, row.module)?;
         if let Some(alias) = row.alias {

@@ -56,6 +56,7 @@ fn validate_set(set:&AssumptionSet) -> Result<(),ModelError> {
 impl AssumptionSet {
     pub fn empty() -> Self { Self { members: digest(&BTreeSet::new()), count: 0 } }
     pub fn empty_id() -> Id<Self> { Self::empty().id() }
+    #[allow(clippy::new_ret_no_self, reason = "Canonical set construction also returns its required membership rows as one resolved basis.")]
     pub fn new(values: impl IntoIterator<Item = Id<Assumption>>) -> Result<ResolvedAssumptions, ModelError> {
         let mut ids = BTreeSet::new();
         for id in values {

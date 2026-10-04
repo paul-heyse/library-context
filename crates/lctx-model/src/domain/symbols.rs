@@ -339,7 +339,7 @@ impl InvariantCheck for ExportCheck {
         else {return Err(invalid("undeclared export enumeration input"));}Ok(())
     }
     fn finish(self:Box<Self>)->Result<(),ModelError> {
-        for (_,row) in self.enumerations.iter() {
+        for row in self.enumerations.values() {
             let q=self.qualifications.get(&row.qualification).ok_or_else(||invalid("export enumeration qualification absent"))?;
             let module=self.modules.get(&row.access).ok_or_else(||invalid("export enumeration source module absent"))?;
             if q.scope!=(CoverageScope::Artifact {artifact:module.source}).id() && q.scope!=(CoverageScope::Module {module:row.access}).id() {return Err(invalid("export enumeration crosses source module qualification"));}
@@ -759,10 +759,9 @@ impl InvariantCheck for SymbolCheck {
             }
         } else if relation == ModuleResolutionObservation::NAME {
             for row in ModuleResolutionObservation::decode(batch)? {
-                if let Some(alias) = row.alias {
-                    if !self.import_aliases.contains(&(row.qualification, alias)) {
-                        return Err(invalid("module resolution requires its exact import alias and qualification"));
-                    }
+                if let Some(alias) = row.alias
+                    && !self.import_aliases.contains(&(row.qualification, alias)) {
+                    return Err(invalid("module resolution requires its exact import alias and qualification"));
                 }
                 let located = match self
                     .modules

@@ -103,7 +103,7 @@ impl<'a> CheckedExactClass<'a> {
         let mut ancestors = charged::ChargedSet::default();
         let result = (|| {
             let b = &data;
-            let symbol = need(&b.symbols, symbol)?;
+            let symbol = need(b.symbols, symbol)?;
             if symbol.kind != calls::SymbolKind::Class || symbol.context != context {
                 return Err(ObligationKind::IncompatibleContexts);
             }
@@ -120,14 +120,14 @@ impl<'a> CheckedExactClass<'a> {
             }) {
                 return Err(ObligationKind::MissingEvidence);
             }
-            let sequence = need(&b.sequences, mro.ancestors)?;
+            let sequence = need(b.sequences, mro.ancestors)?;
             let _ = sequence;
             for member in b
                 .sequence_members
                 .iter()
                 .filter(|m| m.sequence == mro.ancestors)
             {
-                let ancestor = need(&b.symbols, member.symbol)?;
+                let ancestor = need(b.symbols, member.symbol)?;
                 if ancestor.kind != calls::SymbolKind::Class
                     || ancestor.context != context
                     || ancestor.provider != symbol.provider

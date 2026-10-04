@@ -319,6 +319,7 @@ pub(super) fn append_native_evidence(
 ) -> Result<(), RuntimeEvidenceError> {
     append_native_evidence_rows(&data.bindings.qualifications, &data.native, &data.premises, None, reference, q, context, rows, status)
 }
+#[allow(clippy::too_many_arguments, reason = "Native evidence joins preserve separate qualification, premise, index and charged output owners.")]
 pub(super) fn append_native_evidence_rows(
     qualifications: &Rows<AssertionQualification>, native: &Rows<analysis::native::NativeQualification>,
     premises: &Rows<analysis::native::NativeAssertionPremise>, index: Option<&charged::ChargedMap<derivation::RowRef, Vec<Id<analysis::native::NativeQualification>>>>, reference: derivation::RowRef,

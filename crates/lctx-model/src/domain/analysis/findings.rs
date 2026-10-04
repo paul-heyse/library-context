@@ -105,6 +105,7 @@ pub fn emit(
 > {
     emit_with_basis(invocation,kind,subject,members,coverage,evidence,None,budget)
 }
+#[allow(clippy::too_many_arguments, reason = "Finding emission keeps subject membership, closure, evidence and assumption resolution explicit.")]
 pub fn emit_with_basis(
     invocation: Id<Invocation>,
     kind: FindingKind,

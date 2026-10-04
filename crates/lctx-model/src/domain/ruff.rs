@@ -45,7 +45,7 @@ pub struct RuffContextObservation {
 
 /// Recognition consumes exact populated context, never a decorator's trailing spelling.
 /// Missing or contradictory source observations do not establish a resolved name.
-pub fn resolved_name<'a>(rows: &'a [RuffContextObservation], qualification: Id<AssertionQualification>, subject: Id<Occurrence>) -> Option<&'a [String]> {
+pub fn resolved_name(rows: &[RuffContextObservation], qualification: Id<AssertionQualification>, subject: Id<Occurrence>) -> Option<&[String]> {
     let mut matches = rows.iter().filter(|row| row.qualification == qualification && row.subject == subject && row.phase == ContextPhase::ActiveNode);
     let first = matches.next()?.qualified_name.as_deref()?;
     if matches.any(|row| row.qualified_name.as_deref() != Some(first)) { return None; }

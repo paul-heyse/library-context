@@ -41,7 +41,7 @@ impl InvariantCheck for Check {
             let _parse = self.charge.budget().ok_or_else(|| invalid("universe validation budget missing"))?.reserve("universe-source-parse", c.source.len().saturating_mul(32).saturating_add(65536))?;
             if AssumptionUniverseSupport::new(u, c, m)? != *support { return Err(invalid("pinned universe support differs")); }
         }
-        for assumption in self.definitions.values() { if let Assumption::NoExtraOverrides { universe, .. } = assumption { if !self.supports.values().any(|support| support.universe == *universe) { return Err(invalid("actual pinned-universe support missing")); } } }
+        for assumption in self.definitions.values() { if let Assumption::NoExtraOverrides { universe, .. } = assumption && !self.supports.values().any(|support| support.universe == *universe) { return Err(invalid("actual pinned-universe support missing")); } }
         Ok(())
     }
 }
