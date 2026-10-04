@@ -38,7 +38,7 @@ macro_rules! synthesis_control_text_inputs {
 }
 macro_rules! control_data{($($f:ident:$t:ty,)*)=>{pub struct ControlData{$(pub $f:Rows<$t>,)*}impl ControlData{pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$t>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]}}};}
 crate::synthesis_control_text_inputs!(control_data);
-pub const TEMPLATE_VERSION: i64 = 1;
+pub const TEMPLATE_VERSION: i64 = 2;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "synthesis_assertion_templates")]
 pub enum AssertionTemplate {
@@ -150,8 +150,7 @@ fn invalid(s: impl Into<String>) -> ModelError {
     ModelError::Invalid(s.into())
 }
 fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
-    rows.get(id)
-        .ok_or_else(|| invalid(format!("programmatic assertion input absent: {}", R::NAME)))
+    rows.required(id, || invalid(format!("programmatic assertion input absent: {}", R::NAME)))
 }
 /// All constructors use the same status/policy operation. Requested status is not an input.
 struct AssertionContent<'a> {
@@ -748,20 +747,9 @@ fn structural_text(
             };
             let expression = occurrence_text(d, *occurrence, b)?;
             let literal = need(&d.literals, argument.literal)?;
-            let literal = match literal {
-                value::Literal::None => "None".into(),
-                value::Literal::Bool { value } => {
-                    if *value {
-                        "True".into()
-                    } else {
-                        "False".into()
-                    }
-                }
-                value::Literal::Integer { decimal } => decimal.clone(),
-                value::Literal::String { value } => format!("{value:?}"),
-                value::Literal::Bytes { value } => format!("bytes {value:?}"),
-                value::Literal::Float { bits } => format!("IEEE bits {bits}"),
-            };
+            let presentation = value::presentation::render(literal, value::presentation::Mode::Human, None, b)?
+                .map_err(|_| invalid("human literal presentation unavailable"))?;
+            let literal = &presentation.text;
             (
                 AssertionKind::TransformedControl,
                 format!(

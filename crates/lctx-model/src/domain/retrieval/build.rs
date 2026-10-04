@@ -10,8 +10,7 @@ pub fn invalid(s: impl Into<String>) -> ModelError {
     ModelError::Invalid(s.into())
 }
 pub fn need<R: Record>(r: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
-    r.get(id)
-        .ok_or_else(|| invalid(format!("retrieval premise absent: {}", R::NAME)))
+    r.required(id, || invalid(format!("retrieval premise absent: {}", R::NAME)))
 }
 pub struct Data {
     pub source: EvidenceData,
@@ -111,6 +110,7 @@ fn api(
     d: &Data,
     m: &catalog::CatalogMember,
     context: Id<AnalysisContext>,
+    b: &ResourceBudget,
 ) -> Result<Render, ModelError> {
     let mut text = member_path(d, m)?;
     text.push('\n');
@@ -225,7 +225,9 @@ fn api(
             catalog::CatalogDefault::Unknown {} => "Unknown".into(),
             catalog::CatalogDefault::Unavailable {} => "Unavailable".into(),
             catalog::CatalogDefault::Literal { literal } => {
-                format!("Literal {:?}", need(&d.facts.literals, *literal)?)
+                format!("Literal {}", value::presentation::render(
+                    need(&d.facts.literals, *literal)?, value::presentation::Mode::Human, None, b
+                )?.map_err(|_| invalid("human literal presentation unavailable"))?.text)
             }
             catalog::CatalogDefault::Expression { .. } => "Unevaluated expression".into(),
             catalog::CatalogDefault::Factory { .. } => "Factory (not evaluated)".into(),
@@ -386,7 +388,7 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                         origin: Origin::Api { member: *member },
                         title: title.clone(),
                     },
-                    api(d, m, root.context)?,
+                    api(d, m, root.context, b)?,
                     b,
                 )?;
                 let module = need(&d.source.core.modules, m.access)?;

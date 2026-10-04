@@ -1,4 +1,5 @@
 //! Structural values and places. Display spellings are never access-path identity encodings.
+pub mod presentation;
 use super::charged::{ChargedMap, StateCharge};
 use super::source::{Module, Occurrence};
 use super::{Id, ModelError, Record};

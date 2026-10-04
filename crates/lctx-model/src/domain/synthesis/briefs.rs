@@ -10,7 +10,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode};
-pub const RENDERING_VERSION: i64 = 2;
+pub const RENDERING_VERSION: i64 = 3;
 pub const PART_BYTES: usize = 8192;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]

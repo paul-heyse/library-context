@@ -32,6 +32,7 @@ pub fn definition() -> (MethodParameters, AnalysisDefinition) {
         include_bytes!("automatic.rs").as_slice(),
         include_bytes!("briefs.rs").as_slice(),
         include_bytes!("../analysis/policy.rs").as_slice(),
+        include_bytes!("../value/presentation.rs").as_slice(),
     ] {
         ContentHash::of(code).encode(&mut hash);
     }

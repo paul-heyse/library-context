@@ -11,7 +11,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-pub const RENDER_VERSION: i64 = 1;
+pub const RENDER_VERSION: i64 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 pub enum Family {
