@@ -428,6 +428,32 @@ fn validate_upper_dependencies(schedule: &Schedule) -> Result<(), ModelError> {
     Ok(())
 }
 
+/// Resolve the declaration's immutable predecessor view using static semantic dependencies.
+/// An unspecified shared-vocabulary input binds its first producer group, matching the model
+/// scheduler contract. Ordinary relations retain their completed-stream selection.
+fn completed_input_declaration(schedule:&Schedule,declaration:&Stage)->Stage {
+    let mut selected=declaration.clone();
+    for input in &mut selected.inputs {
+        if input.prefix().is_some() || !is_vocabulary(input.name()){continue;}
+        if let Some(group)=schedule.publication_groups().iter().find(|group|schedule.stages().iter().any(|producer|
+            group.stages.contains(&producer.name)&&producer.outputs.iter().any(|output|output.name()==input.name()))) {
+            *input=input.at_epoch(group.epoch);
+        }
+    }
+    selected
+}
+/// Freeze only completed vocabulary descriptors, once all statically named producers for a
+/// boundary finish. No stage grant, receipt, mutable publication epoch or store is involved.
+fn freeze_completed_inputs(workspace:&Workspace,schedule:&Schedule,completed:&std::collections::BTreeSet<&'static str>,
+    frozen:&mut std::collections::BTreeSet<PublicationBoundary>)->Result<(),ModelError>{
+    for group in schedule.publication_groups(){
+        if frozen.contains(&group.epoch){continue;}
+        if !group.stages.iter().all(|name|completed.contains(name)){break;}
+        workspace.freeze_inputs(group.epoch)?;frozen.insert(group.epoch);
+    }
+    Ok(())
+}
+
 /// Execute all selected compiler owners into completed local streams. Publication is a separate
 /// consumer of the admitted graph artifact and is intentionally absent from this API.
 pub async fn compile(
@@ -453,18 +479,25 @@ pub async fn compile(
     facts::compile_facts(workspace,&captured,profile,providers,Default::default()).await?;
     drop(captured);
     workspace.facts_availability(profile)?;
+    let mut completed=schedule.stages().iter().filter(|stage|fact_names.contains(stage.name)).map(|stage|stage.name).collect();
+    let mut frozen=Default::default();
+    freeze_completed_inputs(workspace,&schedule,&completed,&mut frozen)?;
     for declaration in schedule.stages() {
         let Some(normalization)=Normalization::ALL.into_iter().find(|n|n.declaration(profile).name==declaration.name) else {continue;};
-        let access=workspace.inputs(declaration.name,profile,declaration.inputs.iter().map(|i|i.name()))?;
+        let selected=completed_input_declaration(&schedule,declaration);
+        let access=workspace.stage_inputs(&selected,profile)?;
         let output=workspace.producer(declaration,profile,access.clone());
         normalization.run(access,output,workspace,model).await?;
+        completed.insert(declaration.name);
+        freeze_completed_inputs(workspace,&schedule,&completed,&mut frozen)?;
     }
     let graph_needs=schedule.stages().iter().filter_map(|s|UpperStage::resolve(s.name).ok()).flat_map(|s|s.graphs().iter().copied()).collect();
     let mut graphs=None;
     for declaration in schedule.stages() {
         if fact_names.contains(declaration.name) {continue;}
         if Normalization::ALL.into_iter().any(|n|n.declaration(profile).name==declaration.name) {continue;}
-        let access=workspace.inputs(declaration.name,profile,declaration.inputs.iter().map(|i|i.name()))?;
+        let selected=completed_input_declaration(&schedule,declaration);
+        let access=workspace.stage_inputs(&selected,profile)?;
         let output=workspace.producer(declaration,profile,access.clone());
         let binding=UpperStage::resolve(declaration.name)?;
         let prepared=prepared.ok_or_else(||ModelError::Invalid("missing upper configuration".into()))?;
@@ -494,6 +527,8 @@ pub async fn compile(
             UpperStage::Synthesis=>crate::synthesis::produce(access,output,workspace,model).await?,
             UpperStage::Retrieval=>crate::retrieval::produce(access,output,workspace,model,embedder,cache.clone()).await?,
         }
+        completed.insert(declaration.name);
+        freeze_completed_inputs(workspace,&schedule,&completed,&mut frozen)?;
     }
     Ok(())
 }
