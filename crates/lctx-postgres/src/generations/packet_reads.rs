@@ -414,20 +414,36 @@ mod tests {
     async fn empty_attempted_undeclared_read_refuses_before_canonical_query() {
         let db = DisposableDatabase::start().await;
         db.migrate().await;
-        let model = Arc::new(model().unwrap());
+        // Fragment is present and canonically readable, with its complete nominal inputs.
+        // This fixture asks only about packet scope, so it needs no full-model claim basis.
+        let model = Arc::new(ValidatedModel::declared(vec![
+            Relation::of::<input::Package>(),
+            Relation::of::<retrieval::Fragment>(),
+            Relation::of::<retrieval::Definition>(),
+            Relation::of::<retrieval::CorpusText>(),
+        ]).unwrap());
         let store = GenerationStore::install(db.owner.clone(), model.clone())
             .await
             .unwrap();
         let budget = resources::ResourceBudget::fixed(128 << 20).unwrap();
-        let mut attempt = Harness::begin_empty_conformance(
+        let mut attempt = Harness::begin(
             &store,
             db.writer.clone(),
             stages::Profile::Catalog,
             budget.clone(),
-            vec![],
         )
         .await
         .unwrap();
+        macro_rules! empty {
+            ($ty:ty) => {
+                attempt.copy(&Batch::<$ty>::new(&model, vec![], &budget).unwrap(), &budget)
+                    .await.unwrap();
+            };
+        }
+        empty!(input::Package);
+        empty!(retrieval::Definition);
+        empty!(retrieval::CorpusText);
+        empty!(retrieval::Fragment);
         attempt.seal().await.unwrap();
         attempt.validate(&budget).await.unwrap();
         attempt.publish().await.unwrap();
@@ -440,6 +456,8 @@ mod tests {
         {
             let mut locked = guard.state.lease.lock().await;
             let lease = locked.as_mut().unwrap();
+            assert!(lease.read_ids::<retrieval::Fragment>(&[]).await.unwrap().rows().is_empty(),
+                "canonical hydration succeeds, so the following refusal must come from packet scope");
             let mut scoped = PacketLease::new::<serving::OperationCore>(lease);
             assert!(
                 matches!(

@@ -282,9 +282,10 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     let staged = validated.content();
     validated.abort().await.unwrap();
 
-    // Validator state and read buffers are charged. A tiny budget fails the attempt with class
-    // `resource`; nothing is repaired in place, and a new funded attempt over the same rows
-    // validates to the stage path's content digest.
+    // Frozen content can reuse its acknowledgement, but final validation still admits fresh
+    // session capacity. An insufficient budget fails the attempt with class `resource`;
+    // nothing is repaired in place, and a new funded attempt over the same rows validates
+    // to the stage path's content digest.
     let rows = Batch::new(
         &model,
         (0..5000)
@@ -305,7 +306,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     .unwrap();
     starved.copy(&rows, &budget()).await.unwrap();
     starved.seal().await.unwrap();
-    let tiny = ResourceBudget::fixed(64 << 10).unwrap();
+    let tiny = ResourceBudget::fixed(1).unwrap();
     assert!(matches!(
         starved.validate(&tiny).await,
         Err(Error::Model(ModelError::Resource { .. }))
