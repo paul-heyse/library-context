@@ -83,7 +83,6 @@ FAMILIES = {
                 "tests/scripts",
                 "--ignore=tests/scripts/test_flow_soundness.py",
                 "--ignore=tests/scripts/test_semantic_soundness.py",
-                "--ignore=tests/scripts/test_postgres_serving.py",
                 "-q",
             ),
             ("cargo", "test", "--release", "--workspace", "--doc", "--no-fail-fast"),
