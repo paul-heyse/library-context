@@ -349,7 +349,8 @@ pub(crate) fn method_contract(method: AnalysisMethod) -> Result<Contract, ModelE
     };
     contract(method, capability)
 }
-pub(crate) fn inputs(method: AnalysisMethod) -> Vec<ValidationInput> {
+/// Exact typed compiler sources needed to enumerate this method's requested obligations.
+pub fn inputs(method: AnalysisMethod) -> Vec<ValidationInput> {
     let contract = method_contract(method).expect("bound method has a finite expected contract");
     let mut inputs = vec![
         ValidationInput::of::<InputRevision>(&["id"]),
