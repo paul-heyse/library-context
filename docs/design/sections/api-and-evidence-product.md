@@ -1,10 +1,11 @@
 # API and evidence product target
 
-**Implemented across Phases 4–5, 2026-10-02; scoped receipts retain their original boundaries.** The accepted
-[semantic model](semantic-model.md) owns the catalog, associations, selection, synthesis and
-retrieval contracts. Their Phase 4 construction uses typed `lctx-model` owners, native computation
-and `cpg-core` PostgreSQL generation adapters. Generation-bound serving is implemented. Real-library qualification and activation remain stopped;
-PR6 comparative product work remains paused until that boundary is qualified.
+**Accepted graph-native target, 2026-10-05 (ADR-0128); compiler integration in progress.**
+The [semantic model](semantic-model.md) owns catalog, association, selection, synthesis and retrieval
+meaning. `cpg-core` constructs completed store-free inputs and admitted graph artifacts. Native
+SurrealDB publication and serving follow the [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md).
+The retired PostgreSQL service is unavailable. Real-library qualification, activation and PR6 remain
+pending; earlier receipts retain their original boundaries.
 
 <a id="section-14"></a>
 
@@ -16,19 +17,18 @@ limitations behind that choice. Structured selection and connected, version-scop
 its proposed advantage. General behavioral completion is enrichment rather than the first-product
 exit criterion.
 
-PR1–PR5 define the retained product contract. Their earlier pipeline qualification does not qualify
-the replacement typed pipeline or make its agent interface available. Phase 4 now constructs the
-catalog and evidence needed by that interface; Phase 5 connects them to serving; its real-library qualification remains stopped. Neither implementation establishes an advantage over Context7.
+PR1–PR5 define the retained product contract. Earlier pipeline qualification does not qualify
+the replacement compiler or make the agent interface available. The compiler stage constructs the
+catalog and evidence; native publication and serving must integrate them. Neither establishes an
+advantage over Context7.
 
-The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) and
-[Phase 5 plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md) and
-[alignment coordinator](../../plans/semantic-model-incremental-alignment-plan_2026-10-02.md) own current delivery and
-qualification. The [forward plan](../../plans/behavioral-model-forward-plan_2026-09-24.md) owns the
-retained product sequence and product findings. New product behavior remains **Proposed** unless
-its owning implementation and qualification are explicitly identified. Logical domain contracts
-below lower from `lctx-model`; they are not independent SQL or Python schema authorities.
+The [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns current delivery
+and qualification. The [forward plan](../../plans/behavioral-model-forward-plan_2026-09-24.md) owns the
+retained product sequence and findings. New behavior remains **Proposed** unless its implementation
+and scoped acceptance are identified. Logical contracts lower from `lctx-model`; SQL and Python
+are not independent semantic authorities.
 
-> Decision: ADR-0071, ADR-0085, ADR-0086, ADR-0087
+> Decision: ADR-0071, ADR-0085, ADR-0128
 
 <a id="section-14-1"></a>
 
@@ -48,11 +48,11 @@ and qualification are owned by the [enrichment coordinator](../../plans/code-fac
 resolves requested names over admitted first-party release/corpus captures before filtering;
 unknown input refuses distinctly from admitted-empty results. Canonical enumeration and analyzer
 coverage remain separate. Every response carries grouped capture/provider/status/reason coverage with exact observation counts and explicitly representative scope identities. Only the three search routes accept an omitted library filter, meaning the admitted union; same-name releases remain ambiguous for exact lookup. Capability resources preserve authored bytes while carrying the process
-GenerationKey and capability identity; their URIs remain process-relative. Owned display/source/
+admitted capture and capability identity; their URIs remain process-relative. Owned display/source/
 expression modes preserve exact values and unknown/factory states. The
 [target coordinator](../../plans/target-implementation-alignment-plan_2026-10-04.md)
 owns implementation and qualification; acceptance is not inferred from the decision.
-This contract neither activates Phase 5 nor executes §14.12 confirmation.
+The earlier serving implementation is retired; native adapters must retain this contract. This does not execute §14.12 confirmation.
 
 > Decision: ADR-0124
 
@@ -90,18 +90,18 @@ the single typed semantic model rather than the retired catalog/projection pipel
 
 | Recommendation | Retained contract | Current delivery boundary |
 |---|---|---|
-| R01 independent catalog readiness | Public universe independent of optional analysis/briefs; capability availability explicit | Phase 4 C0/catalog construction; Phase 5 readiness and loading |
-| R02 API contracts and packets | Distinct public exposure, binding, declaration and signature variant | Phase 4 typed catalog; Phase 5 ordered packet hydration |
+| R01 independent catalog readiness | Public universe independent of optional analysis/briefs; capability availability explicit | Compiler C0/catalog construction; native readiness and loading |
+| R02 API contracts and packets | Distinct public exposure, binding, declaration and signature variant | Typed compiler catalog; native ordered packet hydration |
 | R03 decorator surface | One ordered normalization owner; binding, protocol, registration and body admission separate | Normalized and Model owners; no general decorator evaluator |
 | R04 options and relationships | Defaults/factories and domain basis explicit; field links scoped | Typed catalog and bounded Local/Summary/Structural evidence |
 | R05 docs/scenarios/evidence roots | Original enclosing context, independent roots and expected-failure intent | C1 evidence/associations and S0 original-source grounding |
-| R06 units, views and witnesses | Finite families, contextual units, family-normalized ranking and winning-unit witnesses | Phase 4 retrieval construction; Phase 5 query ranking |
-| R07 strict/discovery/joint support | Explicit completeness domains, conflict and availability; one classifier | Phase 4 C2 selection; Phase 5 request/response adapters |
+| R06 units, views and witnesses | Finite families, contextual units, family-normalized ranking and winning-unit witnesses | Compiler retrieval construction; native query ranking |
+| R07 strict/discovery/joint support | Explicit completeness domains, conflict and availability; one classifier | Compiler C2 selection; native request/response adapters |
 | R08 agent-task evaluation | Frozen development/confirmation tasks, deployment, usability distinct from differentiation | PR6 paused; §14.12 remains Proposed |
 
 Runtime inspection is a conditional isolated observation for a task blocked by source/evidence
-absence, never request-time import. PostgreSQL trigram suggestions, native text search and ANN
-changes require a measured task gap and a replacement comparison. Coarse rebuilds reuse exact
+absence, never request-time import. Native SurrealDB querying and indexed search are selected. Choose operation shapes and indexes
+using qualitative design judgment and the library capabilities; quantitative speed claims require measurement. Coarse rebuilds reuse exact
 admitted inputs; they do not introduce another canonical store or general incremental engine.
 Deployment metadata, safe negative examples, version alignment and deterministic candidate
 comparison serve the same product contract rather than expanding general analysis scope.
@@ -112,21 +112,21 @@ comparison serve the same product contract rather than expanding general analysi
 
 > Decision: ADR-0071, ADR-0073, ADR-0074, ADR-0085, ADR-0078
 
-The flow is pinned sources and metadata → attributed facts → normalized relations → typed Phase 4
-analysis/catalog owners → validated PostgreSQL generations. Phase 5 consumes those generations
-for typed selection, bounded hydration, ranking and MCP presentation.
+The flow is pinned sources and metadata → attributed facts → normalized relations → typed
+analysis/catalog owners → admitted graph artifacts → native SurrealDB publication. Native serving
+consumes the selected admitted content for typed selection, hydration, ranking and MCP presentation.
 
 | Owner | Responsibility | Consumer boundary |
 |---|---|---|
 | Acquisition, `cpg-extract`, `cpg-flow` | Pinned inputs, declarations/types/docs/package metadata, attributed source and optional flow observations | No static-fact extraction by library import |
-| `lctx-model::domain` and normalized owners | Declared relations, identities, codebooks, codecs and shared invariants | One semantic and wire authority; PostgreSQL physical contracts derive from it |
+| `lctx-model::domain` and normalized owners | Declared relations, identities, codebooks, codecs and shared invariants | One semantic and wire authority; graph codecs and native schema derive from it |
 | Local, execution, transfer, Model and Summary | Pure bounded semantics, coverage, proof and obligations | Explicit qualification and uncertainty; no ambient store effects |
 | Structural and Analytic; native `lctx-analytics` kernels | Typed traversal/patterns and ranking, community, concept and neighbour results | Complete input/universe/parameter identity; no inherited capability from navigation |
 | C0 catalog, C1 evidence/association, C2 selection | Public contracts, original evidence, contextual witnesses and classification | Independent of brief seed selection |
 | S0 synthesis, retrieval and embedding | Assertions/briefs/code boundaries; contextual units and explicit vector consumers | Grounded source/support closure; spec-qualified vectors |
-| `cpg-core` | Stage read grants, decode/compute/validate/publication adapters | Real generation-store writes, no parallel semantic policy |
-| `lctx-postgres` | Generation state, physical schema, typed storage and read/write grants | One relational store; readiness distinct from selection |
-| Phase 5 Rust/native and `lctx_mcp` adapters | Typed requests, bounded hydration, optional semantic loading and presentation | Serving implemented with scoped controls; activation awaits qualification; Python does not restate semantics |
+| `cpg-core` | Completed-input streams, bounded computation and artifact admission | Store-free compiler; no parallel semantic policy |
+| Native SurrealDB publication | Model-derived entities, assertions, indexes and publication state | Native realization pending; readiness distinct from selection |
+| Native serving and `lctx_mcp` adapters | Typed requests, bounded hydration, optional semantic loading and presentation | Native implementation pending; Python does not restate semantics |
 | Evaluation tooling | Pinned task environments, independent checks and paired runs | No task answers or skill-derived gold enter compiler inputs |
 
 The catalog is a compiled projection of canonical evidence, not an authored knowledge store.
@@ -258,26 +258,15 @@ pinned disposable environment, without a generic shell semantics engine or manda
 
 > Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0077, ADR-0081, ADR-0085; ADR-0114
 
-**Implemented / focused-Tested foundation, 2026-10-02:** the
-[foundation enhancement scope](../../plans/semantic-model-foundation-enhancements_2026-10-01.md)
-separates the 45-relation classification inventory and six C2 output relations from broad
-publication replay. Owned preparation retains charged indexes and uses the same finite predicate
-and conjunction operations; standalone preparation still performs the authoritative broad replay.
-The opaque canonical PostgreSQL consumer verifies content, captured source/epoch identity,
-applicable selection availability and matching C2 validator receipts, retaining the original
-serving-role generation lease. Actual Catalog admission, strict replay parity, corruption refusal
-and lifetime controls passed in both profiles on 2026-10-02; foundation qualification passed within companion §5.4’s recorded source boundary.
-These foundations do not activate catalog routes or MCP serving.
+**Accepted target (ADR-0128), 2026-10-05.** C2 owns the finite predicate and conjunction
+operations, contextual witnesses and completeness domains. The compiler prepares these from
+completed typed inputs. Native serving applies the same model operations to admitted captures;
+physical hydration must preserve exact source membership and evidence closure. The graph-native
+plans own the replacement implementation and acceptance. Earlier PostgreSQL controls do not
+qualify it.
 
-**Accepted serving target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
-and the [Phase 5 plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md) implement
-process-wide preparation and the remaining request, lifecycle and representation contracts.
-They establish no new predicate semantics.
-
-Phase 4 C2 owns pure typed selection and contextual witnesses. Phase 5 adapts those contracts
-to PostgreSQL selection/hydration and MCP requests. Rust owns decoding/classification; Python
-transports/presents it. Arbitrary SQL, an unconstrained predicate DSL and a second classifier are
-outside the interface.
+Rust owns decoding and classification; Python transports and presents results. An unconstrained
+predicate DSL and a second classifier are outside the interface.
 
 Each finite requirement declares domains/quantifiers, input relations/capabilities, witness shape
 and completeness scope. Unsupported predicates are refused before effects. Nominal member,
@@ -329,13 +318,12 @@ its final limit; bounded ranking never claims exhaustiveness.
 
 ## §14.8 Retrieval units, witnesses and ranking
 
-> Decision: ADR-0077, ADR-0085; ADR-0114
+> Decision: ADR-0077, ADR-0085, ADR-0128
 
-**Accepted target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
-places fusion and winning-witness decisions in one model operation over library numerical scores.
-Its narrow disposable exact-vector artifact derives from canonical embedding-use bytes/specs;
-semantic units, contextual membership and evidence remain canonical. Physical admission, cleanup
-and real-library retrieval journeys remain stopped Phase 5 qualification.
+**Accepted graph-native target, 2026-10-05.** Fusion and winning-witness decisions remain
+one model operation over library numerical scores. Native realization derives vector indexes
+from canonical embedding-use bytes and specifications; units, context and evidence remain
+canonical. Physical realization and real-library retrieval journeys are pending native acceptance.
 
 Phase 4 retrieval constructs addressable units with typed subjects, evidence origins, family,
 rendering/input identity and source context. The four families are API/options,
@@ -355,10 +343,10 @@ RRF K60. Duplicate examples are not extra votes. Return winning unit/channel/ran
 than finding an approximate explanation afterward. A ranking witness is distinct from the evidence
 that establishes a requirement. Eligibility precedes ranking.
 
-Phase 4 unit/embedding construction does not establish live embedding service availability,
-retrieval quality or MCP search. Phase 5 admits its physical indexes and query policy against
-canonical generation/spec identity; an ANN route needs separate qualification. Serving artifacts
-are derived from typed generations rather than another canonical bundle/import store.
+Compiler unit/embedding construction does not establish live embedding availability, retrieval
+quality or MCP search. Native publication admits physical indexes and query policy against exact
+semantic capture/specification identity. Native realization is derived from admitted compiler
+content; it does not introduce another semantic authority.
 
 <a id="section-14-9"></a>
 
@@ -366,17 +354,14 @@ are derived from typed generations rather than another canonical bundle/import s
 
 > Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081; ADR-0114
 
-**Accepted target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
-and [Phase 5 packages](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md#8-dependency-ordered-execution-packages)
-specify a process generation guard distinct from request SQL occupancy, one CPU admission owner,
-current model-derived wire mappings and bounded native exact-input reconstruction. The ten retained
-routes and indivisible mandatory packet contract are Implemented with scoped controls; real-library
-qualification and activation remain stopped.
+**Accepted graph-native target, 2026-10-05 (ADR-0128).** Native serving retains pinned
+request context, one CPU admission owner, model-derived wire mappings, exact-input reconstruction
+and the indivisible mandatory packet. Native implementation and qualification are pending.
 
-**Implemented Phase 5 contract, 2026-10-02; real-library qualification stopped.** Ten retained routes are `search_operations`,
-`find_operations`, `get_operation`, `browse_library`, `get_evidence`, `search_evidence`,
-`compare_operations`, `search_capabilities`, `get_capability` and `inspect_value_paths`.
-They are not newly qualified by Phase 4. Proposed concept/explanation tools remain separate scope.
+The ten retained routes are `search_operations`, `find_operations`, `get_operation`,
+`browse_library`, `get_evidence`, `search_evidence`, `compare_operations`, `search_capabilities`,
+`get_capability` and `inspect_value_paths`. The retired service does not provide them. Proposed
+concept/explanation tools remain separate scope.
 
 | Route | Responsibility |
 |---|---|
@@ -421,11 +406,11 @@ and behavioral profiles have explicit identity. Unrequested analysis is `NotRequ
 partial/unsupported coverage remains declared. Crashes or invalid required outputs fail publication.
 A seed without an admissible Outcome produces no brief rather than a weakened documentary claim.
 
-Phase 4 adapters read complete granted input closures, compute typed results and invoke shared
-validation before publishing through the generation store. Coverage, readiness and availability are
+Compiler adapters read completed declared input closures, compute typed results and admit graph
+artifacts with model-owned structural, reference and outcome checks. Coverage, readiness and availability are
 different: unknown effective signature, absent scenario, unselected analysis and corrupt required
 artifact cannot collapse to the same empty result. Advertised semantic closure must validate.
-Phase 5 checks those capabilities before loading native execution; corrupt claimed artifacts
+Native serving checks those capabilities before loading native execution; corrupt claimed artifacts
 cannot fall back to a different backend.
 
 Coarse dependency-aware reuse remains the accepted rebuild contract:
@@ -440,8 +425,9 @@ Coarse dependency-aware reuse remains the accepted rebuild contract:
 
 Reuse includes scanned relations, group membership, missing lookups, roots/profile, coverage and
 policy/provider definitions. Evidence-only or moved-span changes require current attribution/source
-identity even when semantic shape is unchanged. Admission compares canonical outputs and provenance
-against recomputation; valid encoding alone is insufficient. No measured reuse or performance claim
+identity even when semantic shape is unchanged. Admission checks canonical outputs, declared provenance, reference closure and exact required
+outcomes. Independent targeted functional controls challenge semantic meaning; blanket production
+recomputation is not a prerequisite. Valid encoding alone is insufficient. No measured reuse or performance claim
 is made here, and no obsolete Delta or catalog-rebuild runtime is preserved as a second authority.
 
 A serving generation must reference exact semantic content, retrieval/spec set, required capabilities
@@ -455,17 +441,17 @@ version-qualified, never replacements for canonical validation.
 
 > Decision: ADR-0071, ADR-0073, ADR-0074, ADR-0076, ADR-0081, ADR-0085
 
-Reuse the pinned Ruff/Pyrefly/ty extraction, Arrow/DataFusion compute, PostgreSQL/SQLx/pgpq storage,
+Reuse the pinned Ruff/Pyrefly/ty extraction, Arrow/DataFusion compute, native SurrealDB capabilities,
 existing graph/condition kernels, PyO3 lifetime adapters, FastMCP transport and embedding codecs/cache.
 `lctx-model` owns domain rules; native modules re-export those owners, and `cpg-core` performs effects.
-No parallel analyzer, ORM, graph store, semantic Python engine or broad orchestration framework is
+No parallel analyzer, ORM, semantic Python engine or broad orchestration framework is
 selected. [Pins](../../pins.md) owns versions, rather than stale versions in this product section.
 
 Schemars derives wire schemas; independent schema tests use the selected offline validator policy.
 Typed decoding/shared domain validators own production ingress. Schema and nominal-ID compile-fail
-tests must exercise actual contract distinctions. SQLx adapter types do not replace smart-constructor
+tests must exercise actual contract distinctions. Native database adapter types do not replace smart-constructor
 invariants. Dynamic identifiers come from executable declarations, values are bound, and Arrow
-codecs/grants validate results. JSON belongs to genuinely variable payloads, not core selection keys.
+codecs and declared reference checks validate results. JSON belongs to genuinely variable payloads, not core selection keys.
 
 Conditional alternatives retain consumer triggers in the [forward plan §7](../../plans/behavioral-model-forward-plan_2026-09-24.md#7-deferred-each-with-a-trigger):
 
@@ -556,25 +542,22 @@ required for a broad superiority claim. The earlier semantic suite retains its o
 
 ## §14.13 Migration and immediate implementation priority
 
-**Implemented across Phases 4–5, 2026-10-02; scoped receipts retain their original boundaries.** The current delivery is typed Local,
-execution/transfer, Model, Summary, Structural, Analytic, C0/C1/C2, S0, retrieval and embedding owners
-with real PostgreSQL generation adapters. The Phase 4 plan owns review/Q0 outcomes and any remaining
-qualification. This section does not promote that status to acceptance, a FastMCP pilot, live
-embedding qualification or product differentiation.
+**Graph-native compiler integration in progress, 2026-10-05.** The current stage realizes typed
+Local, execution/transfer, Model, Summary, Structural, Analytic, C0/C1/C2, S0, retrieval and explicit
+embedding effects as store-free compilation and admitted graph artifacts. The graph-native
+coordinator owns current package status and commands; implementation alone is not acceptance,
+a FastMCP pilot, live embedding qualification or product differentiation.
 
-The cutover is a hard ownership replacement. Remove retired `cpg-schema` semantic declarations,
-Delta/projection/bundle authorities, duplicate catalog classifiers and legacy analytics/template
-paths when their typed owner replaces them. Retain source/domain definitions, current regression
-obligations and product contracts rather than compatibility readers or historical runtime records.
-After a validated replacement is selected, quiesce affected readers and remove obsolete generations,
-runtime copies and rollback assets under ADR-0078. Current reconstruction is required; historical
-runtime recovery is not a product obligation.
+This is a hard ownership replacement. Remove the PostgreSQL backend, lifecycle and old serving
+paths; retain pure domain definitions, independent regression obligations and product contracts.
+No compatibility reader, old-ID bridge or historical runtime retention is required. A validated
+native replacement is rebuilt from pinned inputs under ADR-0078; operator replacement remains a
+separate authorized boundary.
 
-Phase 5 is the next serving boundary: generation-pinned requests, typed hydration, optional native
-loading, ranking, bounded packets and thin MCP transport must be implemented and qualified together.
-Catalog/member readiness remains independent of brief availability. PR6 remains paused until that
-boundary exits. The forward plan retains the product sequence—contracts/options, scenarios/deployment,
-selection/witnesses, agent tools and comparative tasks—without treating old pipeline formats or
-receipts as qualification of the replacement.
+Native publication and serving follow this compiler stage: pinned requests, typed hydration,
+optional native loading, ranking, bounded packets and thin MCP transport must integrate together.
+Catalog/member readiness remains independent of brief availability. PR6 resumes after that
+boundary exits. The forward plan retains product sequencing and comparative tasks without
+promoting old formats or receipts to replacement qualification.
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0078, ADR-0081, ADR-0085
+> Decision: ADR-0071, ADR-0078, ADR-0085, ADR-0128

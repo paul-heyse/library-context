@@ -1,29 +1,27 @@
 # Validation and evaluation
 
-**Implemented for canonical publication; Phase 5 serving qualification pending, 2026-10-02.**
-[§15](semantic-model.md) owns the typed model, PostgreSQL generation store and declared stage
-validation. The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) records
-completed layer receipts and the remaining serving boundary.
+**Accepted graph-native validation target, 2026-10-05 (ADR-0128); compiler integration in progress.**
+The [semantic owner](semantic-model.md) supplies typed declarations and shared validators. The
+[graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns current commands,
+package acceptance and native publication/serving dependencies. Earlier PostgreSQL receipts
+qualify only their original tree and boundary.
 
-This owner states what the system checks and how its answers are judged. **§8** covers
-publication validation: the rules every snapshot passes before it becomes visible, and the
-independent oracles that challenge the analysis without feeding it. **§12** covers evaluation:
-whether published answers are useful and correct on registered questions. Validation consumes
-the Arrow contracts and derived tables of [facts and identity](facts-and-identity.md) and runs
-inside publication ([§6.1](storage-and-publication.md#section-6-1)); evaluation consumes a
-published generation through the serving tools ([§11.3](synthesis-and-serving.md#section-11-3)).
-Neither writes facts. Declarations and shared validators live in `lctx-model::domain`;
-`lctx-postgres` enforces their physical lowerings and publication receipts. `cpg-core` invokes
-model-owned validation and replay before publication. Independent generated runtime controls live
-in `tests/scripts/test_flow_soundness.py` and `tests/scripts/test_semantic_soundness.py`, `eval/behavior/` (question sets) and `scripts/gold_match.py` (retained preregistered matcher and source-span arithmetic). Stage exit rules and
-open validation work are in the [forward plan](../../plans/behavioral-model-forward-plan_2026-09-24.md).
+This owner states what the system checks and how answers are judged. **§8** covers admission and
+independent oracles; **§12** covers usefulness and correctness on registered questions. Compiler
+checks consume completed typed Arrow streams and typed graph records. Native publication and
+serving will enforce the same declarations against selected admitted content. Neither validation
+nor evaluation writes facts. Shared semantic validators live in `lctx-model::domain`; `cpg-core`
+invokes the applicable structural, reference, outcome and derivation checks. Independent generated
+runtime controls live in `tests/scripts/test_flow_soundness.py` and
+`tests/scripts/test_semantic_soundness.py`; the latter observation bundle needs a native served
+comparison before it can qualify replacement serving. Product evaluation remains separate work.
 
 ## §8 Validation
 
-**Implemented / Tested within the recorded canonical-layer receipts.** Model declarations own
-structural checks; pure validators and strict stage replay own semantic agreement. Independent
-known-answer and invalid-row controls challenge each supported layer. A new serving consumer
-requires its own acceptance evidence; prior publication tests do not establish served fidelity.
+**Accepted target.** Model declarations own structural and reference checks. Targeted independent
+known-answer and invalid-row controls challenge semantic operations. Admission retains exact
+producer outcomes and declared derivation topology; it does not rerun every compiler algorithm.
+Native serving requires its own acceptance evidence; prior publication tests do not establish fidelity.
 
 **Accepted wire/catalog verification target, implementation Proposed (ADR-0073).** Rust
 `jsonschema` validators independently challenge Schemars schemas against typed request decoding
@@ -34,7 +32,7 @@ cannot certify transport parity. Shared runtime/publication validators still enf
 membership, relational integrity, coverage and evidence closure; schema validity cannot prove them.
 Use existing `insta`/`proptest` and meaningful cross-module ID/state compile-fail cases (`trybuild`
 when a dedicated harness is justified). Pure catalog known answers should not need acquisition,
-embedding or PostgreSQL. Coarse and optional fine-grained reuse compare complete clean/reused
+embedding or a database. Coarse and optional fine-grained reuse compare complete clean/reused
 outputs, including insert/delete, missing evidence, source coordinates and policy changes.
 [Forward-plan §3.0/§6.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
 owns timing and CLF closure. These controls do not replace PR6's independent product comparison.
@@ -45,28 +43,26 @@ owns timing and CLF closure. These controls do not replace PR6's independent pro
 widths (`RecordBatch::try_new` against the declared schema); codebook membership; numeric bounds;
 finite floats and unit-norm vectors.
 
-**Physical publication** (PostgreSQL) enforces generated nominal keys, references, nullability,
-codebooks and declared checks. The lowering and physical admission inspect the same model;
-there is no Delta write path or independent rule registry.
+**Compiler artifact admission** checks typed graph records, canonical identity/content,
+reference namespace/kind/subtype closure, source bounds, required scoped outcomes, declared
+acyclic derivations and exact consumed vector values. Captured originals remain byte-exact.
+IPC is transport rather than semantic identity. Pending or cancelled output cannot become admitted.
 
-**Cross-relation validation and replay** use shared pure model validators, with DataFusion where
-relational construction is appropriate. Completed runs retain the declared source relations,
-epochs, content digests and qualification boundary. Publication verifies the exact closure;
-strict consumers reconstruct meaning from those records. Missing coverage, mismatched receipt
-content or an undeclared source refuses admission rather than becoming an empty result. Tests
-challenge injected invalid rows and independent hand-known semantics separately from generated
-structural checks.
+**Native publication** (Accepted target, implementation pending) derives schema and indexes from
+the model and enforces the artifact's contract before readiness or selection. No PostgreSQL path,
+old-format reader or independent rule registry remains.
 
-**Implemented / Tested assurance pivot (2026-10-05; composite fixture qualification).** One model-owned definition
-with stable ID/revision supplies each obligation's complete ordered premises. Relations and stage
-uses reference it explicitly. Existing store receipts own complete acknowledged binding conclusions;
-read-check receipts are grant evidence. A stable validation session shares compatible streams and
-charged preparation, with bounded separate execution when order/state requires it. Binding identity
-includes installation/generation, model/layout, definition, exact immutable source/prefix and relevant
-semantic configuration. Missing, failed, partial or unconfirmed conclusions never authorize a hit.
-Fresh consumer admission remains required. Normal reads trust owned immutability; explicit audit
-recomputes physical integrity, nominal references and pure/publication semantics. The [coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md)
-owns the passing composite qualification and closed F01–F04; structural work counts alone establish no measured speed benefit.
+**Shared semantic controls** replay selected model-owned operations where a test or corruption
+audit needs agreement. Pure stateless replay consumes explicit completed input streams and profile
+premises. Missing coverage or undeclared input refuses; an explicitly unrequested profile domain
+cannot establish absence. Independent hand-known expectations are separate from producer replay.
+
+**Assurance policy (ADR-0126/0128).** During this stage, run focused affected model, provider,
+compiler and analytics controls, then applicable leaves at functional completion. Assembled
+`just qualify` follows native persistence/publication/serving integration; the old PostgreSQL/MCP
+receipt is not replacement acceptance. Quantitative performance claims require measurements.
+Efficient design uses qualitative judgment, bounded streams, shared preparation and library
+capabilities; runtime accounting or proof machinery is not an admission prerequisite.
 
 > Decision: ADR-0126
 
@@ -91,7 +87,7 @@ real-provider fixtures, served round trips) are kept separate from derived valid
 `ORDER BY`; every `row_number()` ends in a unique tie-break; every cast in validation code uses
 `safe: false`.
 
-> Decision: ADR-0086, ADR-0117, ADR-0015
+> Decision: ADR-0128, ADR-0117, ADR-0015
 
 ### §8.1 Independent oracles (the validation lane)
 
@@ -101,7 +97,7 @@ none writes facts or tunes analysis. Provider CLI agreement is parity, not indep
 | Instrument | Claim and expectation source | Live control |
 |---|---|---|
 | Raw-flow runtime challenge | Independent bounded CPython observations challenge regions, reaching definitions and admitted flow over generated programs | `tests/scripts/test_flow_soundness.py` |
-| Served-claim runtime challenge | Independent guards/returns challenge original served refutations and exact identity transfers | Observation bundle: `tests/scripts/test_semantic_soundness.py`; actual producer/store/served comparison: `crates/lctx/tests/serving_soundness.rs` |
+| Served-claim runtime challenge | Independent guards/returns challenge original served refutations and exact identity transfers | Observation bundle: `tests/scripts/test_semantic_soundness.py`; native served comparison pending S2/S3 |
 | Finite analytics challenges | Authored incidence matrices, independent double derivation/concept enumeration and dev-only odis implication consequences | `crates/lctx-analytics/tests/implication_oracle.rs`; [analytics owner](analytics.md#section-9) |
 
 The former Pysa TITO control is absent from the current tree. Historical Pysa output and CrossHair
@@ -113,12 +109,11 @@ inconclusive. Observation-only bundle success is not served correctness.
 **Boundaries.** Only generated programs execute; the analyzed library and `fixtures/python/`
 never do, and nothing runs with network access. Oracles stay out of compiler inputs; the gold
 stays out of analysis. The current runtime oracle checks raw flow over a small generated corpus;
-its broader exclusions remain separate. The Phase 5 generated CPython oracle challenges
-original served path-local refutations and exact identity transfers using independently observed
-guards and returns. Its driver is `crates/lctx/tests/serving_soundness.rs`; the actual
-producer/store/served comparison **passed**, 2026-10-05, in the assembled oracle family and
-again on the affected release rerun. The [assurance coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md#7-current-contractcontrol-map-and-execution-checkpoint)
-owns those command receipts. May-compatible answers are never interpreted as established identity.
+its broader exclusions remain separate. The retained generated CPython observation bundle
+challenges path-local refutations and exact identity transfers using independent guards and
+returns. Its former PostgreSQL serving driver is retired. A native driver must compare actual
+producer and served answers before claiming replacement fidelity. May-compatible answers never
+establish identity; historical receipts retain their own scope.
 
 **Implemented and focused Tested (2026-09-27):** the raw-flow runtime oracle builds and drives
 this checkout's release `lctx` binary, overriding an inherited target directory. `uv run --no-sync

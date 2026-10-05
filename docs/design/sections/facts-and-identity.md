@@ -1,12 +1,11 @@
 # Facts and identity
 
-**Implemented; code-facts expansion qualification in progress, 2026-10-03.** `lctx-model::domain` owns
-facts, nominal identities, provider-qualified assertions, typed supports and coverage. PostgreSQL
-generations store them; native provider objects are transient. [§15](semantic-model.md) owns the
-shared contracts and [the cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) owns
-qualification. Phase 5 serving is implemented within its recorded boundaries; activation and
-real-library qualification are stopped at the 2026-10-03 code-facts pivot. The current
-[code-facts coordinator](../../plans/code-facts-expansion-plan_2026-10-03.md) owns the new series qualification.
+**Native facts implemented; graph-native compiler acceptance in progress, 2026-10-05.**
+`lctx-model::domain` owns nominal identities, provider-qualified assertions, supports and coverage.
+`cpg-core` compiles completed private streams without a store. [§15](semantic-model.md) owns the
+shared graph contract; the [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md)
+owns acceptance. Provider objects are transient. Native publication/serving and real-library/operator
+acceptance are subsequent work. Earlier PostgreSQL receipts do not establish replacement acceptance.
 
 ## §3 Fact model
 
@@ -58,7 +57,7 @@ Flow. Behavioral explicitly requests it. `NotRequested`, unavailable, partial an
 are different outcomes. Facts publication does not select the generation and does not establish
 normalized, analysis, catalog or serving readiness merely because those relations exist elsewhere.
 
-Model declarations lower mechanically to Arrow and PostgreSQL. Snapshot changes are schema
+Model declarations lower mechanically to internal Arrow and selected graph codecs. Snapshot changes are schema
 migrations; no second hand-written column contract or old-format reader is maintained.
 
 > Decision: ADR-0078, ADR-0086
@@ -131,7 +130,7 @@ premises do not silently erase an open set question. The shared verdict and disc
 declarations derive exact source inventory and stored vertex/arc lineage. Candidate invocation,
 source/effective body and boundary decisions are made before graph construction. A selector never
 shrinks the graph universe. [§15.10](semantic-model.md#section-15-10) and [§5](storage-and-publication.md#section-5)
-own graph hydration and borrowed algorithm access. Serving wire/graph projections remain Phase 5
+own graph hydration and borrowed algorithm access. Published exports and native serving remain subsequent graph-native packages
 reconstruction work; retained `cpg-schema` contracts are not current fact authority.
 
 > Decision: ADR-0086, ADR-0100, ADR-0103, ADR-0085

@@ -1,32 +1,25 @@
 # Plan: the API and evidence product, going forward
 
-**Status:** Active replacement product plan; **Revised 2026-09-29** under ADR-0071. The filename
-stays stable for existing links. The [target design §14](../design/sections/api-and-evidence-product.md)
-replaces general behavioral completion as the first-product target. This plan owns PR0–PR6 and
-current finding disposition, including PostgreSQL adoption triggers. PR0–PR5 functional scope is
-implemented under ADR-0078/0073/0074/0076/0077/0081; current qualification is recorded below.
-PR0 comparative admission remains blocked; product differentiation remains unqualified.
-ADR-0073/0074/0076 foundations are implemented through PR3; PR4–PR5 extend these contracts. This plan §6.2 owns CLF/F01–F03 alongside AP findings; §7 owns conditional adoption.
+**Status:** Retained product sequence and product finding dispositions; current execution is the
+[graph-native pivot](graph-native-pivot-plan_2026-10-05.md) under ADR-0128, 2026-10-05.
+The [product target](../design/sections/api-and-evidence-product.md) replaces general behavioral
+completion as the first-product exit. PR0 comparison remains blocked on independent parity; PR6
+remains Proposed. Earlier implementation and qualification descriptions below are dated receipts,
+not prescriptions to retain or restore retired storage and serving code.
 
-**Current verification policy, 2026-10-05 (ADR-0126):** select focused affected verification
-families during functional work and applicable non-functional leaves at scope end. A changed
-shared model/receipt/trust/transport contract or unresolved cross-boundary uncertainty requires
-assembled `just qualify`, including full keep-going Clippy and required real disposable
-PG/native/MCP journeys on one tree. The hook alone owns formatting and generators. Historical
-completed product/Stage receipts retain their dated commands and limits below. The research
-backlog is activated only by its stated product trigger; real-library/evaluation campaigns still
-require their separate authorization.
+**Current verification policy (ADR-0126/0128):** focused affected families during compiler work,
+applicable leaves at functional completion; assembled `just qualify` after native publication and
+serving integrate. Root `just turn-end` owns formatting and generators. Real-library/live-vector
+and evaluation campaigns retain their separate authorization. The research backlog activates only
+through its stated product trigger.
 
 ## 1. Current state and qualification boundary
 
-**Paused behind the semantic model cutover (operator decision, 2026-09-29; ADR-0085/0083/0084).** The
-[cutover plan](semantic-model-cutover-plan_2026-09-29.md) is the current execution owner. PR6 and new
-product features resume after its phase 5.
-
-The cutover plan's §8 owns the disposition of the
-[semantic data model review](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md)
-findings F01–F13. This plan keeps product context, PR0 and every other finding. PR0 comparison remains
-independently blocked on parity.
+**Paused behind the graph-native hard pivot.** The graph-native coordinator owns compiler,
+persistence and serving package state, acceptance and finding disposition for its two selected
+source reviews. PR6 and new product features resume after native serving acceptance. This plan
+retains product obligations and findings; obsolete PostgreSQL deployment and adoption choices
+are superseded by native SurrealDB querying, publication and serving.
 
 **PR5 completed at bounded Tested strength (2026-09-29).**
 Compiler112/extractor37, template21, behavior-model catalog7, bundle16/projection6/wire4 and
@@ -74,7 +67,7 @@ contextual classifier are implemented in PR4; conditional library adoption remai
 | Comparative value | No controlled Context7 comparison | PR0 protocol/baselines; PR6 confirmation; parity leaves objective open |
 | Existing semantic Stage 3 | Functionally incomplete; earlier tests retain their scope | Research backlog, except defects affecting exposed claims must be fixed or withheld |
 
-**Next:** PR6 is the next proposed product slice.
+**Next after graph-native acceptance:** PR6 is the next proposed product slice.
 Resolve PR0 independent parity/admission before comparative scoring. Read §3.0, not the retained
 semantic queue, for current execution. General all-channel proof,
 new logger models, ontology work, ANN tuning and wheel builds are off the first-product critical path.
@@ -732,9 +725,9 @@ catalog digest in `compiler_digest`; no model cites `.claude/skills/`.
 
 <a id="postgresql-workstream"></a>
 
-### 3.4 PostgreSQL deployment and integration workstream
+### 3.4 Superseded PostgreSQL deployment workstream
 
-**Implemented, 2026-09-28.** PostgreSQL is the rebuildable transactional/cache and online serving
+**Retired under ADR-0128, 2026-10-05; former receipt only.** PostgreSQL was the transactional/cache and online serving
 owner. Delta and immutable receipts remain the implemented canonical store until the semantic model
 cutover phase 1 moves every relation into PostgreSQL generations (ADR-0086). SQLx owns effects, pgpq owns
 COPY encoding, and the maintained DataFusion provider exposes admitted read-only reports. Fixed
@@ -1205,7 +1198,11 @@ the established boundary. Skill availability and transitive lockfile presence ar
 
 <a id="postgresql-adoption"></a>
 
-### PostgreSQL adoption triggers
+### Superseded PostgreSQL adoption triggers
+
+These triggers are retired under ADR-0128. Native SurrealDB querying is selected and does not
+require an adoption comparison. The graph-native plans own current implementation choices;
+remaining product requirements above survive independently of these former mechanisms.
 
 **Proposed only when triggered.** The stable F IDs retain their original owners. Serving, exact
 pgvector ranks, COPY and admitted federation are implemented; library availability alone does
