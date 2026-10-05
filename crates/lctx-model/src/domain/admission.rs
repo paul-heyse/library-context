@@ -156,7 +156,7 @@ impl FrontierDescriptor {
         }
         Ok(relations)
     }
-    pub fn invariants(self, model: &ValidatedModel) -> Result<Vec<&Invariant>, ModelError> {
+    pub fn invariants(self, model: &ValidatedModel) -> Result<Vec<Invariant>, ModelError> {
         let relations = self.relations(model)?;
         model.invariants_for_scope(&relations)
     }

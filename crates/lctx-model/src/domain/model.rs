@@ -193,7 +193,7 @@ fn validate_definition(identity: ValidationIdentity, inputs: &[ValidationInput],
                 return Err(ModelError::Invalid(format!("{} has invalid input order {}.{order}", identity.id, relation.name)));
             }
         }
-        if !input.order.contains(&"id") { return Err(ModelError::Invalid(format!("{} needs ID as deterministic input order tie breaker", identity.id))); }
+        if !input.order.contains(&"id") && !relation.fields.iter().filter(|f| f.is_key()).all(|f| input.order.contains(&f.name())) { return Err(ModelError::Invalid(format!("{} needs the complete nominal key or ID for a deterministic input order", identity.id))); }
     }
     Ok(())
 }
@@ -433,38 +433,16 @@ impl ValidatedModel {
             .filter(|r| r.derivation().is_some())
             .cloned()
             .collect();
-        if !sources.is_empty() {
+        if let Some(invariant) = generated_derivation(sources) {
             if names.contains("derivations") || names.contains("derivation_premises") {
-                return Err(ModelError::Invalid(
-                    "relation name reserved for generated derivation view".into(),
-                ));
+                return Err(ModelError::Invalid("relation name reserved for generated derivation view".into()));
             }
-            let name = "derivation_acyclic";
-            if !invariant_names.insert(name) {
-                return Err(ModelError::Invalid(
-                    "reserved generated invariant name".into(),
-                ));
+            if !invariant_names.insert(invariant.name) {
+                return Err(ModelError::Invalid("reserved generated invariant name".into()));
             }
-            let inputs: Vec<ValidationInput> = sources
-                .iter()
-                .map(|r| ValidationInput {
-                    type_id: r.type_id,
-                    name: r.name,
-                    order: vec!["id"],
-                    prefix: None,
-                })
-                .collect();
-            let identity = ValidationIdentity { kind: ValidationKind::Invariant, id: name, revision: 1 };
-            identity.encode(&mut digest);
-            for input in &inputs { input.encode_contract(&mut digest); }
-            invariants.push(Invariant {
-                revision: 1,
-                name,
-                inputs,
-                create: std::sync::Arc::new(move |budget| {
-                    Box::new(super::derivation::Check::new(sources.clone(), budget))
-                }),
-            });
+            invariant.identity().encode(&mut digest);
+            for input in &invariant.inputs { input.encode_contract(&mut digest); }
+            invariants.push(invariant);
         }
         invariants.sort_by_key(|v| v.name);
         Ok(Self {
@@ -491,7 +469,7 @@ impl ValidatedModel {
         &self.publication_checks
     }
     /// Every reference in the scope is required, even if another referring relation is absent.
-    pub fn invariants_for_scope(&self, names: &std::collections::BTreeSet<&str>) -> Result<Vec<&Invariant>, ModelError> {
+    pub fn invariants_for_scope(&self, names: &std::collections::BTreeSet<&str>) -> Result<Vec<Invariant>, ModelError> {
         let mut ids = std::collections::BTreeSet::new();
         for name in names {
             let relation = self.relation(name).ok_or_else(|| ModelError::Invalid(format!("unknown validation scope relation {name}")))?;
@@ -503,15 +481,21 @@ impl ValidatedModel {
             if let Some(input) = check.inputs.iter().find(|input| !names.contains(input.name())) {
                 return Err(ModelError::Invalid(format!("{id} requires validation premise {} outside scope", input.name())));
             }
-            checks.push(check);
+            checks.push(check.clone());
         }
-        // This generated collective obligation belongs to this entire declared model. Lower
-        // frontiers generate their own collective checker when constructed as a scoped model.
-        if let Some(check) = self.invariants.iter().find(|i| i.name == "derivation_acyclic")
-            && check.inputs.iter().all(|i| names.contains(i.name())) {
-            checks.push(check);
-        }
+        if let Some(check) = self.generated_invariant_for_scope(names)? { checks.push(check); }
         Ok(checks)
+    }
+    /// The generated checker is over exactly the declared derivation sources in this scope.
+    /// A lower frontier must not silently omit the rule because upper inputs are unavailable.
+    pub fn generated_invariant_for_scope(&self, names: &std::collections::BTreeSet<&str>) -> Result<Option<Invariant>, ModelError> {
+        let mut sources = Vec::new();
+        for name in names {
+            let relation = self.relation(name).ok_or_else(|| ModelError::Invalid(format!("unknown generated validation scope relation {name}")))?;
+            if relation.derivation().is_some() { sources.push(relation.clone()); }
+        }
+        sources.sort_by_key(Relation::name);
+        Ok(generated_derivation(sources))
     }
     pub fn invariant(&self, id: &str) -> Result<&Invariant, ModelError> {
         self.invariants.iter().find(|i| i.name == id).ok_or_else(|| ModelError::Invalid(format!("unresolved invariant {id}")))
@@ -531,6 +515,14 @@ impl ValidatedModel {
             .find(|r| r.type_id == TypeId::of::<R>())
             .ok_or_else(|| ModelError::Invalid(format!("{} is not in this model", R::NAME)))
     }
+}
+fn generated_derivation(sources: Vec<Relation>) -> Option<Invariant> {
+    if sources.is_empty() { return None; }
+    let inputs = sources.iter().map(|r| ValidationInput::of_relation(r, &["id"])).collect();
+    Some(Invariant {
+        name: "derivation_acyclic", revision: 1, inputs,
+        create: std::sync::Arc::new(move |budget| Box::new(super::derivation::Check::new(sources.clone(), budget))),
+    })
 }
 fn identifier(name: &str) -> bool {
     !name.is_empty()
