@@ -10,6 +10,12 @@ The target is **Proposed, assessed 2026-10-05**. This review recommends the arch
 not implement or activate it. Current snapshots are disposable. The ability to produce a new
 validated snapshot and pin it while answering questions remains a useful product guarantee.
 
+**Capability follow-up, 2026-10-05:** the
+[SurrealDB capability assessment](design_review_surrealdb-capabilities_2026-10-05.md)
+refines this target with database-local operations, snapshot-pinned executable definitions and a
+detailed native/integration adoption inventory. Its execution-placement recommendations qualify
+the host-Rust placement described below; Rust semantic ownership remains the common principle.
+
 The central change is an **admitted, attributed graph as the compiled artifact**. Rust owns what
 the graph means and whether its contents are admissible. SurrealDB persists it, indexes it and
 retrieves connected evidence. Analytics and external databases consume named projections of that
