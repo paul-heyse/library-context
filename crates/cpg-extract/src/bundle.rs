@@ -265,7 +265,7 @@ impl<S: ProviderSink + 'static> StageContext<S> {
             )));
         }
         let result = operation(self);
-        self.failed |= result.is_err();
+        if result.is_err() { self.failed.store(true, Ordering::Release); }
         result
     }
     fn output<R: Record>(&mut self, mode: Mode) -> Result<&mut Writer<R>, ModelError> {
