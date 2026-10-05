@@ -210,3 +210,47 @@ fn analytic_semantic_output_inventory_is_retained_without_iteration_history() {
     restored.validate().unwrap();assert_eq!(mapped,restored);
     assert!(matches!(restored.value,AssertionValue::Provenance(ProvenanceValue::AnalyticIncidence(value)) if value==row));
 }
+
+#[test]
+fn couse_provenance_retains_exact_usage_and_policy_support() {
+    use d::{normalized::events::{CallPolicy, CallPolicyAdmission, CallPolicyAssessment, PolicyReason}, structural::{UsageEvidence, UsageSite}};
+    let site=UsageSite {frame:id(1),site:id(2),targets:2,complete:true,uncertain:false};
+    let policy=CallPolicyAssessment {event:id(3),policy:CallPolicy::Usage,event_assessment:id(4),admitted:2,members:hash(5),reason:PolicyReason::Admitted};
+    let admission=CallPolicyAdmission {assessment:policy.id(),alternative:id(6)};
+    let left=UsageEvidence {site:site.id(),event:policy.event,policy:policy.id(),admission:admission.id(),alternative:admission.alternative,target:id(7)};
+    let mut right=left.clone();right.target=id(8);
+    let pair=d::analytics::PairSource::CoUse {scope:site.site,left:left.id(),right:right.id()};
+    let site_assertion=Assertion::from_record(site.clone()).unwrap();
+    let policy_assertion=Assertion::from_record(policy.clone()).unwrap();
+    let admission_assertion=Assertion::from_record(admission.clone()).unwrap();
+    let left_assertion=Assertion::from_record(left.clone()).unwrap();
+    let right_assertion=Assertion::from_record(right.clone()).unwrap();
+    let pair_assertion=Assertion::from_record(pair.clone()).unwrap();
+    assert_eq!(left_assertion.participants,vec![
+        Participant {role:ParticipantRole::Object,field:Some("site".into()),position:Some(0),target:Target::Assertion(AssertionId::of(site.id()))},
+        Participant {role:ParticipantRole::Object,field:Some("event".into()),position:Some(1),target:Target::Assertion(AssertionId::of(policy.event))},
+        Participant {role:ParticipantRole::Object,field:Some("policy".into()),position:Some(2),target:Target::Assertion(AssertionId::of(policy.id()))},
+        Participant {role:ParticipantRole::Object,field:Some("admission".into()),position:Some(3),target:Target::Assertion(AssertionId::of(admission.id()))},
+        Participant {role:ParticipantRole::Object,field:Some("alternative".into()),position:Some(4),target:Target::Assertion(AssertionId::of(admission.alternative))},
+        Participant {role:ParticipantRole::Callee,field:Some("target".into()),position:Some(5),target:Target::Entity(EntityId::of(left.target))},
+    ]);
+    assert_eq!(pair_assertion.participants.iter().map(|p|p.target.clone()).collect::<Vec<_>>(),vec![Target::Entity(EntityId::of(site.site)),Target::Assertion(left_assertion.id()),Target::Assertion(right_assertion.id())]);
+    assert!(matches!(&site_assertion.value,AssertionValue::Provenance(ProvenanceValue::StructuralUsageSite(row)) if row==&site));
+    assert!(matches!(&policy_assertion.value,AssertionValue::Provenance(ProvenanceValue::CallPolicyAssessment(row)) if row==&policy));
+    assert!(matches!(&admission_assertion.value,AssertionValue::Provenance(ProvenanceValue::CallPolicyAdmission(row)) if row==&admission));
+    assert!(matches!(&left_assertion.value,AssertionValue::Provenance(ProvenanceValue::StructuralUsageEvidence(row)) if row==&left));
+    let mut lookup=Lookup::default();
+    lookup.entities.extend([(EntityId::of(site.frame),EntityKind::StructuralFrame),(EntityId::of(site.site),EntityKind::Occurrence),(EntityId::of(left.target),EntityKind::EntityReference),(EntityId::of(right.target),EntityKind::EntityReference)]);
+    lookup.assertions.extend([AssertionId::of(policy.event),AssertionId::of(policy.event_assessment),AssertionId::of(admission.alternative),site_assertion.id(),policy_assertion.id(),admission_assertion.id(),left_assertion.id(),right_assertion.id()]);
+    for assertion in [&site_assertion,&policy_assertion,&admission_assertion,&left_assertion,&right_assertion,&pair_assertion] {
+        admit_assertion(assertion,&lookup).unwrap();
+        let restored:Assertion=serde_json::from_slice(&serde_json::to_vec(assertion).unwrap()).unwrap();
+        restored.validate().unwrap();assert_eq!(assertion,&restored);
+    }
+    lookup.assertions.remove(&admission_assertion.id());
+    assert!(admit_assertion(&left_assertion,&lookup).is_err());
+    let mut changed=policy;changed.members=hash(9);
+    let changed_assertion=Assertion::from_record(changed).unwrap();
+    assert_eq!(changed_assertion.id(),policy_assertion.id());
+    assert_ne!(changed_assertion.content(),policy_assertion.content());
+}

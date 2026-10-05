@@ -210,7 +210,7 @@ pub struct EventPhaseTarget {
     #[model(key)]
     pub entity: Id<EntityRef>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_policy_assessments")]
 pub struct CallPolicyAssessment {
     #[model(key)]
@@ -222,7 +222,7 @@ pub struct CallPolicyAssessment {
     pub members: ContentHash,
     pub reason: PolicyReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_policy_admissions")]
 pub struct CallPolicyAdmission {
     #[model(key)]

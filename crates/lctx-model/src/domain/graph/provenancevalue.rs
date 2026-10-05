@@ -172,6 +172,10 @@ pub enum ProvenanceValue{
     AnalyticIncidence(crate::domain::analytics::Incidence),
     AnalyticTypeMetadataSelection(crate::domain::analytics::TypeMetadataSelection),
     AnalyticDecoratorSelection(crate::domain::analytics::DecoratorSelection),
+    StructuralUsageSite(crate::domain::structural::UsageSite),
+    StructuralUsageEvidence(crate::domain::structural::UsageEvidence),
+    CallPolicyAssessment(crate::domain::normalized::events::CallPolicyAssessment),
+    CallPolicyAdmission(crate::domain::normalized::events::CallPolicyAdmission),
 }
 impl Key for ProvenanceValue{fn encode(&self,sink:&mut KeySink){match self{
     Self::NativeQualification(row)=>{sink.part(b"semantic-type",<crate::domain::analysis::native::NativeQualification as Record>::NAME.as_bytes());row.content_digest().encode(sink);},
@@ -345,6 +349,10 @@ impl Key for ProvenanceValue{fn encode(&self,sink:&mut KeySink){match self{
     Self::AnalyticIncidence(row)=>{sink.part(b"variant",&(120u16).to_le_bytes());row.content_digest().encode(sink);},
     Self::AnalyticTypeMetadataSelection(row)=>{sink.part(b"variant",&(121u16).to_le_bytes());row.content_digest().encode(sink);},
     Self::AnalyticDecoratorSelection(row)=>{sink.part(b"variant",&(122u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::StructuralUsageSite(row)=>{sink.part(b"variant",&(123u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::StructuralUsageEvidence(row)=>{sink.part(b"variant",&(124u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::CallPolicyAssessment(row)=>{sink.part(b"variant",&(125u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::CallPolicyAdmission(row)=>{sink.part(b"variant",&(126u16).to_le_bytes());row.content_digest().encode(sink);},
 }}}
 impl ProvenanceValue{pub fn validate(&self)->Result<(),ModelError>{match self{
     Self::NativeQualification(row)=>row.validate(),
@@ -518,6 +526,10 @@ impl ProvenanceValue{pub fn validate(&self)->Result<(),ModelError>{match self{
     Self::AnalyticIncidence(row)=>row.validate(),
     Self::AnalyticTypeMetadataSelection(row)=>row.validate(),
     Self::AnalyticDecoratorSelection(row)=>row.validate(),
+    Self::StructuralUsageSite(row)=>row.validate(),
+    Self::StructuralUsageEvidence(row)=>row.validate(),
+    Self::CallPolicyAssessment(row)=>row.validate(),
+    Self::CallPolicyAdmission(row)=>row.validate(),
 }}pub fn references(&self)->Vec<super::super::SemanticReference>{match self{
     Self::NativeQualification(row)=>row.references(),
     Self::LocalAnalysisObligation(row)=>row.references(),
@@ -690,6 +702,10 @@ impl ProvenanceValue{pub fn validate(&self)->Result<(),ModelError>{match self{
     Self::AnalyticIncidence(row)=>row.references(),
     Self::AnalyticTypeMetadataSelection(row)=>row.references(),
     Self::AnalyticDecoratorSelection(row)=>row.references(),
+    Self::StructuralUsageSite(row)=>row.references(),
+    Self::StructuralUsageEvidence(row)=>row.references(),
+    Self::CallPolicyAssessment(row)=>row.references(),
+    Self::CallPolicyAdmission(row)=>row.references(),
 }}pub fn semantic_key(&self)->SemanticKey{match self{
     Self::NativeQualification(row)=>SemanticKey::of(row.id()),
     Self::LocalAnalysisObligation(row)=>SemanticKey::of(row.id()),
@@ -862,4 +878,8 @@ impl ProvenanceValue{pub fn validate(&self)->Result<(),ModelError>{match self{
     Self::AnalyticIncidence(row)=>SemanticKey::of(row.id()),
     Self::AnalyticTypeMetadataSelection(row)=>SemanticKey::of(row.id()),
     Self::AnalyticDecoratorSelection(row)=>SemanticKey::of(row.id()),
+    Self::StructuralUsageSite(row)=>SemanticKey::of(row.id()),
+    Self::StructuralUsageEvidence(row)=>SemanticKey::of(row.id()),
+    Self::CallPolicyAssessment(row)=>SemanticKey::of(row.id()),
+    Self::CallPolicyAdmission(row)=>SemanticKey::of(row.id()),
 }}}

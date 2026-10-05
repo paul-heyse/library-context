@@ -173,7 +173,7 @@ pub struct UnresolvedStep {
     pub target: Id<EntityRef>,
     pub evidence: Id<StepEvidence>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "structural_usage_sites")]
 pub struct UsageSite {
     #[model(key)]
@@ -184,7 +184,7 @@ pub struct UsageSite {
     pub complete: bool,
     pub uncertain: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "structural_usage_evidence")]
 pub struct UsageEvidence {
     #[model(key)]

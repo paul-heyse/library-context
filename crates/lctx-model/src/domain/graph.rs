@@ -898,6 +898,11 @@ pub fn reference_target(reference:&super::SemanticReference)->Result<(Target,Opt
     }
 }
 fn assertion_reference_target(reference:&super::SemanticReference)->Result<(Target,Option<EntityKind>),ModelError>{match reference.target{
+    <super::structural::UsageSite as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::structural::UsageEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::events::CallPolicyAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::events::CallPolicyAdmission as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+
     <super::analytics::UniverseMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::analytics::PublicSelector as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::analytics::PartitionMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
@@ -1902,6 +1907,11 @@ impl GraphAssertionRecord for super::symbols::ModuleResolutionSupport{const GRAP
 // Selected analytics retain their computation universe, weights, memberships, availability and
 // provenance. QualityStep iteration traces have no semantic/serving consumer and remain private.
 macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
+    StructuralUsageSite:$crate::domain::structural::UsageSite,
+    StructuralUsageEvidence:$crate::domain::structural::UsageEvidence,
+    CallPolicyAssessment:$crate::domain::normalized::events::CallPolicyAssessment,
+    CallPolicyAdmission:$crate::domain::normalized::events::CallPolicyAdmission,
+
     AnalyticUniverseMember:$crate::domain::analytics::UniverseMember,
     AnalyticPublicSelector:$crate::domain::analytics::PublicSelector,
     AnalyticPartitionMember:$crate::domain::analytics::PartitionMember,
@@ -3102,3 +3112,17 @@ impl GraphAssertionRecord for super::analytics::TypeMetadataSelection{const GRAP
 
 impl From<super::analytics::DecoratorSelection> for ProvenanceValue{fn from(row:super::analytics::DecoratorSelection)->Self{Self::AnalyticDecoratorSelection(row)}}
 impl GraphAssertionRecord for super::analytics::DecoratorSelection{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+// Exact usage and call-policy support for selected analytic CoUse provenance.
+impl From<super::structural::UsageSite> for ProvenanceValue{fn from(row:super::structural::UsageSite)->Self{Self::StructuralUsageSite(row)}}
+impl GraphAssertionRecord for super::structural::UsageSite{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+impl From<super::structural::UsageEvidence> for ProvenanceValue{fn from(row:super::structural::UsageEvidence)->Self{Self::StructuralUsageEvidence(row)}}
+impl GraphAssertionRecord for super::structural::UsageEvidence{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+impl From<super::normalized::events::CallPolicyAssessment> for ProvenanceValue{fn from(row:super::normalized::events::CallPolicyAssessment)->Self{Self::CallPolicyAssessment(row)}}
+impl GraphAssertionRecord for super::normalized::events::CallPolicyAssessment{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+impl From<super::normalized::events::CallPolicyAdmission> for ProvenanceValue{fn from(row:super::normalized::events::CallPolicyAdmission)->Self{Self::CallPolicyAdmission(row)}}
+impl GraphAssertionRecord for super::normalized::events::CallPolicyAdmission{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
