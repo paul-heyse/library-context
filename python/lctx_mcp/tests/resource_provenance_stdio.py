@@ -76,7 +76,8 @@ async def observe(spec: dict) -> None:
         stdio, http = response_encodings(result, "snapshot-λ")
         assert len(stdio) <= bound and len(http) <= bound
     print(
-        "actual capability stdio: authored bytes/hash, tool/resource snapshot, assertion evidence and SDK envelopes passed"
+        "actual capability stdio: authored bytes/hash, tool/resource snapshot, "
+        "assertion evidence and SDK envelopes passed"
     )
 
 
