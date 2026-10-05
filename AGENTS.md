@@ -180,9 +180,12 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
   the FCA oracle)
 - `python-oracles` (Pysa, CrossHair, Hypothesis with `sys.monitoring`, bytecode: independent
   cross-checks of the facts)
-- `rust-code-model`
-- `ast-grep-ripgrep`
-- `datafusion-tracing`
+- `rust-code-model` (rustdoc JSON, ra_ap_* syntax/HIR/project model, MIR and dataflow, cargo
+  metadata: which layer answers which question about Rust code)
+- `ast-grep-ripgrep` (structural and regex search/rewrite: flags, node kinds, rule fields, PCRE2)
+- `datafusion-tracing` (DataFusion planning, execution and object-store spans, metrics, exporters)
+- `salsa` (0.28.4 index; the workspace pins 0.28.5, so check before transferring a claim: macro
+  options, durability, backdating, cycles, cancellation)
 - `sqlx-postgres` (sqlx 0.9 with PostgreSQL, plus sea-query, pgpq, pgvector, testcontainers-modules
   and the DataFusion table-provider fork: `AssertSqlSafe`, `query!`/`.sqlx`, pools, COPY
   finish/abort, migrations, disposable PG18; executed probes against PostgreSQL 18)
@@ -192,6 +195,13 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
 - `serde-arrow` (serde_arrow 0.15.1 with the `arrow-59` profile, marrow: the Arrow major must equal
   the Arrow crates we pin; explicit-schema traps)
 - `fixedbitset` (0.5.7, petgraph's own dependency: length rules, tail bits, the `serde` feature)
+- `typer-rich` (Typer 0.27.2 with its vendored Click, Rich 15.0.0: CLI options, help/error output,
+  console styling, tables and progress)
+- `neo4j-surrealdb` (Neo4j Python driver 6.3.1 on Neo4j 2026.09 Community with Cypher 25;
+  SurrealDB 3.3 Rust SDK/core, SurrealQL and GQL: choosing between them for graph modelling and
+  writing correct code against either)
+- `pyomo-and-solvers` (Pyomo 6.10.1, HiGHS, PySCIPOpt, cyipopt and native solvers; idaes-pse 2.13.0
+  characterized statically)
 - `fastmcp` (FastMCP; must match `libraries/fastmcp`, checked by `scripts/check_gold.py`). This is
   also the **gold reference for evaluation**: its capability
   families are never a compiler input (DESIGN §1.4).

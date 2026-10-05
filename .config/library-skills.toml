@@ -6,6 +6,7 @@ enabled = [
   "datafusion",
   "datafusion-tracing",
   "fixedbitset",
+  "neo4j-surrealdb",
   "fastmcp",
   "pyomo-and-solvers",
   "pyo3",
