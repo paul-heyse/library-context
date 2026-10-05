@@ -673,3 +673,25 @@ impl<R: Record> Batch<R> {
         self.reservation.size()
     }
 }
+
+/// Admission for decoded typed rows uses the logical slice, not retained Arrow buffer
+/// capacity. An IPC batch may share a file mapping with every other batch in that file.
+/// Those borrowed bytes are owned by the reader; they are not allocated again by decoding.
+pub fn decode_allowance<R:Record>(batch:&RecordBatch)->Result<usize,ModelError>{
+    fn logical(array:&dyn arrow_array::Array)->Result<usize,ModelError>{
+        use arrow_array::{StringArray,BinaryArray,ListArray};
+        use arrow_schema::DataType;
+        let invalid=||ModelError::Invalid("logical decode size overflow or undeclared Arrow type".into());
+        let fixed=match array.data_type(){DataType::Boolean=>Some(1),DataType::Int16=>Some(2),DataType::Int32=>Some(4),DataType::Int64|DataType::Float64=>Some(8),DataType::FixedSizeBinary(n)=>usize::try_from(*n).ok(),_=>None};
+        if let Some(width)=fixed{return array.len().checked_mul(width).ok_or_else(invalid);}
+        let variable=match array.data_type(){
+            DataType::Utf8=>{let values=array.as_any().downcast_ref::<StringArray>().ok_or_else(invalid)?;let offsets=values.value_offsets();usize::try_from(offsets[offsets.len()-1]-offsets[0]).map_err(ModelError::codec)?},
+            DataType::Binary=>{let values=array.as_any().downcast_ref::<BinaryArray>().ok_or_else(invalid)?;let offsets=values.value_offsets();usize::try_from(offsets[offsets.len()-1]-offsets[0]).map_err(ModelError::codec)?},
+            DataType::List(_)=>{let list=array.as_any().downcast_ref::<ListArray>().ok_or_else(invalid)?;let offsets=list.value_offsets();let start=usize::try_from(offsets[0]).map_err(ModelError::codec)?;let length=usize::try_from(offsets[offsets.len()-1]-offsets[0]).map_err(ModelError::codec)?;logical(list.values().slice(start,length).as_ref())?},
+            _=>return Err(invalid()),
+        };
+        variable.checked_add(array.len().checked_mul(8).ok_or_else(invalid)?).ok_or_else(invalid)
+    }
+    let payload=batch.columns().iter().try_fold(0usize,|bytes,array|bytes.checked_add(logical(array.as_ref())?).ok_or_else(||ModelError::Invalid("logical decode size overflow".into())))?;
+    batch.num_rows().checked_mul(size_of::<R>()).and_then(|inline|inline.checked_add(payload.checked_mul(4)?)).ok_or_else(||ModelError::Invalid(format!("{} decode size overflow",R::NAME)))
+}

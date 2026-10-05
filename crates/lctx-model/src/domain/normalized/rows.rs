@@ -33,7 +33,7 @@ impl<R: Record> Rows<R> {
             self.charge.budget().expect("rows budget"),
             "normalized-decode",
         );
-        transient.grow(batch.get_array_memory_size().saturating_mul(4))?;
+        transient.grow(crate::domain::record::decode_allowance::<R>(batch)?)?;
         for row in R::decode(batch)? {
             self.insert(row)?;
         }
@@ -70,6 +70,16 @@ mod required_controls {
         #[model(key)]
         key: String,
         value: String,
+    }
+    #[test]
+    fn decoding_a_tiny_slice_does_not_charge_unrelated_retained_arrow_bytes(){
+        let rows=vec![Row{key:"small".into(),value:"v".into()},Row{key:"large".into(),value:"x".repeat(1<<20)}];
+        let batch=Row::encode(&rows).unwrap().slice(0,1);
+        assert!(batch.get_array_memory_size()>1<<20);
+        let budget=ResourceBudget::fixed(1<<15).unwrap();
+        let mut output=Rows::<Row>::new(&budget);output.decode(&batch).unwrap();
+        assert_eq!(output.get(rows[0].id()),Some(&rows[0]));
+        assert!(budget.reserved()<1<<15);
     }
     #[test]
     fn required_lookup_preserves_error_domains_conflicts_and_retained_admission() {
