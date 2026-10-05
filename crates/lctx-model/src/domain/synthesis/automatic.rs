@@ -28,7 +28,7 @@ pub enum RankBasis {
     PageRankUnavailable = 2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
-#[model(name="synthesis_automatic_seed_decisions",semantic_source=include_bytes!("automatic.rs"))]
+#[model(name="synthesis_automatic_seed_decisions")]
 pub struct Decision {
     #[model(key)]
     pub plan: Id<seeds::SeedPlan>,

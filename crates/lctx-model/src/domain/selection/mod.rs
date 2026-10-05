@@ -21,7 +21,7 @@ pub fn relations() -> Vec<Relation> {
     rows
 }
 #[derive(Debug, Clone, PartialEq, Eq, crate::Domain)]
-#[model(name="catalog_selection_invocations",invariant_refs=frames::invariants_refs,semantic_source=include_bytes!("frames.rs"))]
+#[model(name="catalog_selection_invocations",invariant_refs=frames::invariants_refs)]
 pub struct SelectionInvocation {
     #[model(key)]
     pub domain: Id<SelectionDomain>,

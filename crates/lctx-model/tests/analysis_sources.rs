@@ -168,7 +168,7 @@ fn projection_meaning_is_early_exact_and_identity_bearing() {
     );
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="publication_inventory_control",publication_refs=invalid_inventory_refs,semantic_source=include_bytes!("analysis_sources.rs"))]
+#[model(name="publication_inventory_control",publication_refs=invalid_inventory_refs)]
 struct InventoryControl {
     #[model(key)]
     value: i64,

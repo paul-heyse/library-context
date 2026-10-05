@@ -231,7 +231,6 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut invariants: Option<syn::Path> = None;
     let mut publication_checks: Option<syn::Path> = None;
     let mut projection_roles: Option<syn::Path> = None;
-    let mut semantic_source: Option<syn::Expr> = None;
     let mut required_support: Option<syn::Ident> = None;
     let mut family: Option<syn::Path> = None;
     let mut assertion_derived = false;
@@ -268,13 +267,11 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     publication_checks=Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("projection_roles") {
                     projection_roles = Some(meta.value()?.parse()?);
-                } else if meta.path.is_ident("semantic_source") {
-                    semantic_source = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("family") {
                     family = Some(meta.value()?.parse()?);
                 } else {
                     return Err(meta
-                        .error("expected name, validate, invariants, family, projection_roles or semantic_source"));
+                        .error("expected name, rule, conclusion, validate, invariant_refs, publication_refs, projection_roles or family"));
                 }
                 Ok(())
             })?;
@@ -406,9 +403,6 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let physical = format_ident!("__{}Physical", name);
     let physical_ref = format_ident!("__{}PhysicalRef", name);
     let vis = &input.vis;
-    let semantic_source = semantic_source
-        .map(|expr| quote!(#expr))
-        .unwrap_or_else(|| quote!(b""));
     let validation = validator.map(|v| quote! { #v(self)?; });
     let invariants = invariants
         .map(|v| quote! { #v() })
@@ -450,7 +444,6 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             const NAME: &'static str = #table;
             const CONTRACT: &'static str = #declaration;
             const OWNER: &'static str = env!("CARGO_PKG_NAME");
-            const SEMANTIC_SOURCE: &'static [u8] = #semantic_source;
             fn key(&self) -> Self::Key { #key_name { #(#keys: self.#keys.clone(),)* } }
             fn write_key(&self, sink: &mut ::lctx_model::domain::KeySink) {
                 #(::lctx_model::domain::Key::encode(&self.#keys, sink);)*
@@ -669,7 +662,6 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut table = None;
     let mut validator: Option<syn::Path> = None;
     let mut invariants: Option<syn::Path> = None;
-    let mut semantic_source: Option<syn::Expr> = None;
     let mut rule: Option<LitStr> = None;
     for attr in &input.attrs {
         if attr.path().is_ident("model") {
@@ -680,9 +672,6 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 } else if meta.path.is_ident("rule") {
                     rule = Some(meta.value()?.parse()?);
                     Ok(())
-                } else if meta.path.is_ident("semantic_source") {
-                    semantic_source = Some(meta.value()?.parse()?);
-                    Ok(())
                 } else if meta.path.is_ident("validate") {
                     validator = Some(meta.value()?.parse()?);
                     Ok(())
@@ -690,16 +679,13 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     invariants = Some(meta.value()?.parse()?);
                     Ok(())
                 } else {
-                    Err(meta.error("expected name, semantic_source, validate or invariant_refs"))
+                    Err(meta.error("expected name, rule, validate or invariant_refs"))
                 }
             })?;
         }
     }
     let table = table
         .ok_or_else(|| syn::Error::new_spanned(&input.ident, "model(name = …) is required"))?;
-    let semantic_source = semantic_source
-        .map(|expr| quote!(#expr))
-        .unwrap_or_else(|| quote!(b""));
     let validation = validator.map(|v| quote! { #v(self)?; });
     let invariant_creation = invariants
         .map(|v| quote! { #v() })
@@ -886,7 +872,6 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             const NAME: &'static str = #table;
             const CONTRACT: &'static str = #declaration;
             const OWNER: &'static str = env!("CARGO_PKG_NAME");
-            const SEMANTIC_SOURCE: &'static [u8] = #semantic_source;
             fn key(&self) -> Self { self.clone() }
             fn write_key(&self, sink: &mut ::lctx_model::domain::KeySink) { ::lctx_model::domain::Key::encode(self,sink); }
             fn content_digest(&self) -> ::lctx_model::domain::ContentHash {

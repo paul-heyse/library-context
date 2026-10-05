@@ -94,7 +94,7 @@ fn validate_text(r: &CorpusText) -> Result<(), ModelError> {
     Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="retrieval_units",invariant_refs=build::invariants_refs,semantic_source=b"retrieval-unit-policy/v1")]
+#[model(name="retrieval_units",invariant_refs=build::invariants_refs)]
 pub struct Unit {
     #[model(key)]
     pub input: Id<InputRevision>,

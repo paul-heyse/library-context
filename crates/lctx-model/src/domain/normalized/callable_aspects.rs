@@ -53,7 +53,7 @@ pub enum AspectSource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="callable_aspects",invariant_refs=invariants_refs,semantic_source=b"callable-aspects-policy/v1")]
+#[model(name="callable_aspects",invariant_refs=invariants_refs)]
 pub struct CallableAspect {
     #[model(key)]
     pub assessment: Id<EffectiveCallableAssessment>,

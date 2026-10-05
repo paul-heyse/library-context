@@ -18,7 +18,7 @@ use crate::domain::{
 use crate::{Domain, DomainCode, DomainSum};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="catalog_members",validate=validate_member,invariant_refs=build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
+#[model(name="catalog_members",validate=validate_member,invariant_refs=build::invariants_refs)]
 pub struct CatalogMember {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -222,7 +222,7 @@ pub fn core_relations() -> Vec<Relation> {
 }
 /// Each slot's contextual computation has exact admitted source receipts and coverage.
 #[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
-#[model(name="catalog_member_invocations",invariant_refs=build::invocation_invariants_refs,semantic_source=include_bytes!("build.rs"))]
+#[model(name="catalog_member_invocations",invariant_refs=build::invocation_invariants_refs)]
 pub struct CatalogMemberInvocation {
     #[model(key)]
     pub member: Id<CatalogMember>,
@@ -249,7 +249,7 @@ pub enum PublicPathDisposition {
     Candidate = 2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="catalog_paths",semantic_source=include_bytes!("paths.rs"))]
+#[model(name="catalog_paths")]
 pub struct CatalogPath {
     #[model(key)]
     pub parent: Id<CatalogCandidate>,
@@ -291,7 +291,7 @@ pub enum CatalogContractBasis {
 }
 /// A source alias premise does not improve its original public exposure or runtime equivalence.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="catalog_aliases",semantic_source=include_bytes!("aliases.rs"))]
+#[model(name="catalog_aliases")]
 pub struct CatalogAlias {
     #[model(key)]
     pub parent: Id<CatalogExposure>,

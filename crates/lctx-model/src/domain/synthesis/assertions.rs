@@ -100,7 +100,7 @@ pub enum AssertionSource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="programmatic_assertions",invariant_refs=invariants_refs,semantic_source=include_bytes!("assertions.rs"))]
+#[model(name="programmatic_assertions",invariant_refs=invariants_refs)]
 pub struct ProgrammaticAssertion {
     #[model(key)]
     pub invocation: Id<owner::Invocation>,

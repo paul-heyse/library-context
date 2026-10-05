@@ -493,7 +493,6 @@ pub trait Record:
     const NAME: &'static str;
     const CONTRACT: &'static str;
     const OWNER: &'static str;
-    const SEMANTIC_SOURCE: &'static [u8];
     fn key(&self) -> Self::Key;
     /// Encode the declared key by reference; identity checks must not clone large key payloads.
     fn write_key(&self, sink: &mut super::KeySink);

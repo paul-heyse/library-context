@@ -19,7 +19,7 @@ pub enum DiagnosticUseStatus {
     IncompleteCorrespondence = 4,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_diagnostic_use_assessments",rule="diagnostic_use_assessment",semantic_source=include_bytes!("diagnostic_uses.rs"))]
+#[model(name="catalog_diagnostic_use_assessments",rule="diagnostic_use_assessment")]
 pub struct DiagnosticUseAssessment {
     #[model(key, premise)]
     pub characterization: Id<SourceCharacterization>,
@@ -29,7 +29,7 @@ pub struct DiagnosticUseAssessment {
     pub remainder: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_diagnostic_use_links",rule="diagnostic_use_link",semantic_source=include_bytes!("diagnostic_uses.rs"))]
+#[model(name="catalog_diagnostic_use_links",rule="diagnostic_use_link")]
 pub struct DiagnosticUseLink {
     #[model(key)]
     pub assessment: Id<DiagnosticUseAssessment>,
@@ -41,7 +41,7 @@ pub struct DiagnosticUseLink {
     pub event_source: Id<normalized::events::CallEventSource>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_diagnostic_use_paths",rule="diagnostic_use_path",semantic_source=include_bytes!("diagnostic_uses.rs"))]
+#[model(name="catalog_diagnostic_use_paths",rule="diagnostic_use_path")]
 pub struct DiagnosticUsePath {
     #[model(key)]
     pub link: Id<DiagnosticUseLink>,
@@ -51,7 +51,7 @@ pub struct DiagnosticUsePath {
     pub placement: Id<SyntaxPlacement>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_diagnostic_use_targets",rule="diagnostic_use_target",semantic_source=include_bytes!("diagnostic_uses.rs"))]
+#[model(name="catalog_diagnostic_use_targets",rule="diagnostic_use_target")]
 pub struct DiagnosticUseTarget {
     #[model(key)]
     pub link: Id<DiagnosticUseLink>,

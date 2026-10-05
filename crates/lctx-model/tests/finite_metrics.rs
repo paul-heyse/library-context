@@ -3,7 +3,7 @@ use lctx_model::{Domain, domain::*};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "test_metrics", semantic_source = include_bytes!("finite_metrics.rs"))]
+#[model(name = "test_metrics")]
 struct Metric {
     #[model(key)]
     subject: String,

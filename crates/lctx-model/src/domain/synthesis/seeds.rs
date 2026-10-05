@@ -9,7 +9,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainCode, DomainSum};
 #[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
-#[model(name="synthesis_seed_plans",invariant_refs=invariants_refs,semantic_source=include_bytes!("seeds.rs"))]
+#[model(name="synthesis_seed_plans",invariant_refs=invariants_refs)]
 pub struct SeedPlan {
     #[model(key)]
     pub invocation: Id<owner::Invocation>,

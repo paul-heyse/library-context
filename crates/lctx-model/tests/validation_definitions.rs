@@ -12,26 +12,26 @@ use std::sync::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="validation_premises", semantic_source=include_bytes!("validation_definitions.rs"))]
+#[model(name="validation_premises")]
 struct Premise {
     #[model(key)]
     ordinal: i64,
     accepted: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="validation_left", invariant_refs=shared_refs, semantic_source=include_bytes!("validation_definitions.rs"))]
+#[model(name="validation_left", invariant_refs=shared_refs)]
 struct Left {
     #[model(key)]
     ordinal: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="validation_right", invariant_refs=shared_refs, semantic_source=include_bytes!("validation_definitions.rs"))]
+#[model(name="validation_right", invariant_refs=shared_refs)]
 struct Right {
     #[model(key)]
     ordinal: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="validation_checkpoint_only", invariant_refs=checkpoint_only_refs, semantic_source=include_bytes!("validation_definitions.rs"))]
+#[model(name="validation_checkpoint_only", invariant_refs=checkpoint_only_refs)]
 struct CheckpointOnly {
     #[model(key)]
     ordinal: i64,
@@ -249,6 +249,7 @@ fn revision_identity_input_order_and_kind_are_explicit_and_conflicts_refuse() {
     let declarations = vec![Relation::of::<Left>(), Relation::of::<Premise>()];
     let model1 = ValidatedModel::validate(declarations.clone(), shared(1, count.clone())).unwrap();
     let model2 = ValidatedModel::validate(declarations.clone(), shared(2, count.clone())).unwrap();
+    assert_eq!(model1.relations().iter().map(Relation::schema).collect::<Vec<_>>(), model2.relations().iter().map(Relation::schema).collect::<Vec<_>>());
     assert_ne!(model1.digest(), model2.digest());
     assert_ne!(
         model1.invariants()[0].digest(),
@@ -372,7 +373,7 @@ fn actual_source_replay_refuses_orphan_run_malformed_header_and_extra_argument_i
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="scoped_proofs", rule="scoped_proof", semantic_source=include_bytes!("validation_definitions.rs"))]
+#[model(name="scoped_proofs", rule="scoped_proof")]
 struct Proof {
     #[model(key)]
     ordinal: i64,
@@ -380,7 +381,7 @@ struct Proof {
     parent: Option<Id<Proof>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="other_scoped_proofs", rule="other_scoped_proof", semantic_source=include_bytes!("validation_definitions.rs"))]
+#[model(name="other_scoped_proofs", rule="other_scoped_proof")]
 struct OtherProof {
     #[model(key)]
     ordinal: i64,

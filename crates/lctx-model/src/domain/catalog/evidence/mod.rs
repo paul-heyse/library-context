@@ -62,7 +62,7 @@ pub enum Intent {
     Mixed = 5,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="catalog_scenarios",invariant_refs=build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
+#[model(name="catalog_scenarios",invariant_refs=build::invariants_refs)]
 pub struct CatalogScenario {
     #[model(key)]
     pub source: Id<ScenarioSource>,
@@ -136,7 +136,7 @@ pub enum AssociationBasis {
     ExactRead = 6,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="catalog_scenario_associations",semantic_source=include_bytes!("intent.rs"))]
+#[model(name="catalog_scenario_associations")]
 pub struct ScenarioAssociation {
     #[model(key)]
     pub scenario: Id<CatalogScenario>,
@@ -187,7 +187,7 @@ pub enum FieldAccessKind {
 }
 /// Source access is retained with unknown receiver applicability; earlier exact witnesses own promotion.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_field_access_assessments",semantic_source=include_bytes!("fields.rs"))]
+#[model(name="catalog_field_access_assessments")]
 pub struct FieldAccessAssessment {
     #[model(key)]
     pub option: Id<CatalogOption>,
@@ -262,7 +262,7 @@ pub struct EvidenceRoot {
     pub subject: Id<RootSubject>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_evidence_invocations",invariant_refs=build::invocation_invariants_refs,semantic_source=include_bytes!("frames.rs"))]
+#[model(name="catalog_evidence_invocations",invariant_refs=build::invocation_invariants_refs)]
 pub struct EvidenceInvocation {
     #[model(key)]
     pub root: Id<EvidenceRoot>,

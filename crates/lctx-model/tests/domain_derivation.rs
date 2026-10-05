@@ -6,8 +6,7 @@ use lctx_model::{
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(
     name = "proof_nodes",
-    rule = "follows",
-    semantic_source = b"proof fixture v1"
+    rule = "follows"
 )]
 struct Node {
     #[model(key)]
@@ -16,7 +15,7 @@ struct Node {
     next: Option<Id<Node>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "proof_steps",rule = "step",conclusion = result,semantic_source = b"proof fixture v1")]
+#[model(name = "proof_steps",rule = "step",conclusion = result)]
 struct Step {
     #[model(key)]
     name: String,
@@ -25,7 +24,7 @@ struct Step {
     previous: Id<Node>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "optional_conclusion",rule = "step",conclusion = result,semantic_source = b"proof fixture v1")]
+#[model(name = "optional_conclusion",rule = "step",conclusion = result)]
 struct OptionalConclusion {
     #[model(key)]
     name: String,
@@ -139,7 +138,7 @@ fn resource_work_refusal_does_not_certify_an_empty_or_truncated_proof() {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "self_steps",rule = "self_step",conclusion = result,semantic_source = b"proof fixture v1")]
+#[model(name = "self_steps",rule = "self_step",conclusion = result)]
 struct SelfStep {
     #[model(key)]
     name: String,
@@ -148,7 +147,7 @@ struct SelfStep {
     previous: Option<Id<SelfStep>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "left_steps",rule = "left_step",conclusion = result,semantic_source = b"proof fixture v1")]
+#[model(name = "left_steps",rule = "left_step",conclusion = result)]
 struct LeftStep {
     #[model(key)]
     name: String,
@@ -157,7 +156,7 @@ struct LeftStep {
     previous: Option<Id<RightStep>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "right_steps",rule = "right_step",conclusion = result,semantic_source = b"proof fixture v1")]
+#[model(name = "right_steps",rule = "right_step",conclusion = result)]
 struct RightStep {
     #[model(key)]
     name: String,

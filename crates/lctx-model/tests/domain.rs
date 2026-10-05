@@ -216,35 +216,6 @@ fn decoded_ids_and_physical_schemas_are_verified() {
 }
 
 #[test]
-fn semantic_validation_revision_changes_model_but_not_arrow_schema() {
-    fn first(_: &Before) -> Result<(), ModelError> {
-        Ok(())
-    }
-    fn second(row: &After) -> Result<(), ModelError> {
-        if row.name.is_empty() {
-            return Err(ModelError::Invalid("empty".into()));
-        }
-        Ok(())
-    }
-    #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-    #[model(name = "contracts", validate = first, semantic_source = b"contract-validation/v1")]
-    struct Before {
-        #[model(key)]
-        name: String,
-    }
-    #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-    #[model(name = "contracts", validate = second, semantic_source = b"contract-validation/v2")]
-    struct After {
-        #[model(key)]
-        name: String,
-    }
-    assert_eq!(Before::schema(), After::schema());
-    let before = ValidatedModel::declared(vec![Relation::of::<Before>()]).unwrap();
-    let after = ValidatedModel::declared(vec![Relation::of::<After>()]).unwrap();
-    assert_ne!(before.digest(), after.digest());
-}
-
-#[test]
 fn tagged_sums_preserve_active_optional_null_and_reject_inactive_payloads() {
     use arrow_array::{ArrayRef, Int16Array, RecordBatch, StringArray};
     use lctx_model::DomainSum;

@@ -144,7 +144,7 @@ impl DocumentarySource {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="synthesis_documentary_conclusions",rule="sourced_authored_prose",invariant_refs=invariants_refs,semantic_source=include_bytes!("documentary.rs"))]
+#[model(name="synthesis_documentary_conclusions",rule="sourced_authored_prose",invariant_refs=invariants_refs)]
 pub struct DocumentaryConclusion {
     #[model(key, premise)]
     pub source: Id<DocumentarySource>,

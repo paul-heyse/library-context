@@ -7,7 +7,7 @@ use crate::domain::{
     *,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
-#[model(name="synthesis_frames",invariant_refs=invariants_refs,semantic_source=include_bytes!("frames.rs"))]
+#[model(name="synthesis_frames",invariant_refs=invariants_refs)]
 pub struct Frame {
     #[model(key)]
     pub invocation: Id<owner::Invocation>,

@@ -10,7 +10,7 @@ use crate::domain::{
     *,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
-#[model(name="synthesis_summary_facets",rule="synthesis_summary_facet",invariant_refs=invariants_refs,semantic_source=include_bytes!("summary.rs"))]
+#[model(name="synthesis_summary_facets",rule="synthesis_summary_facet",invariant_refs=invariants_refs)]
 pub struct SummaryFacet {
     #[model(key)]
     pub frame: Id<frames::Frame>,

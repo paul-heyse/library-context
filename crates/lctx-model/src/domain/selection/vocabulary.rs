@@ -370,7 +370,7 @@ pub enum Witness {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="catalog_selection_domains",invariant_refs=super::build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
+#[model(name="catalog_selection_domains",invariant_refs=super::build::invariants_refs)]
 pub struct SelectionDomain {
     #[model(key)]
     pub member: Id<CatalogMember>,

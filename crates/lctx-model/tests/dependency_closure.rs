@@ -4,7 +4,7 @@ use lctx_model::{
     domain::{dependency_closure::*, input::Package, stages::*, value::Literal, *},
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="closure_probe", semantic_source=include_bytes!("dependency_closure.rs"))]
+#[model(name="closure_probe")]
 struct Probe {
     #[model(key)]
     value: Id<Literal>,
@@ -110,7 +110,7 @@ fn inferred_facts_omission_preserves_explicit_inputs_and_unfinished_output_refus
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="closure_epoch_probe", invariant_refs=epoch_checks_refs, semantic_source=include_bytes!("dependency_closure.rs"))]
+#[model(name="closure_epoch_probe", invariant_refs=epoch_checks_refs)]
 struct EpochProbe {
     #[model(key)]
     value: Id<Literal>,

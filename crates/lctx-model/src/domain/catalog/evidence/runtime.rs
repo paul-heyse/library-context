@@ -10,7 +10,7 @@ use crate::domain::{
     *,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_field_location_links",semantic_source=include_bytes!("runtime.rs"))]
+#[model(name="catalog_field_location_links")]
 pub struct FieldLocationLink {
     #[model(key)]
     pub assessment: Id<FieldAccessAssessment>,
@@ -24,7 +24,7 @@ pub struct FieldLocationLink {
 }
 /// Earlier normalized constructor target/binding evidence is a source candidate, not execution.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_constructor_candidate_links",semantic_source=include_bytes!("runtime.rs"))]
+#[model(name="catalog_constructor_candidate_links")]
 pub struct ConstructorCandidateLink {
     #[model(key)]
     pub association: Id<ScenarioAssociation>,

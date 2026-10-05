@@ -43,7 +43,7 @@ pub struct AuthoredCodeSource {
     pub source_input: Id<input::InputRevision>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
-#[model(name="synthesis_authored_code_conclusions",rule="original_official_code",invariant_refs=invariants_refs,semantic_source=include_bytes!("patterns.rs"))]
+#[model(name="synthesis_authored_code_conclusions",rule="original_official_code",invariant_refs=invariants_refs)]
 pub struct AuthoredCodeConclusion {
     #[model(key, premise)]
     pub source: Id<AuthoredCodeSource>,
