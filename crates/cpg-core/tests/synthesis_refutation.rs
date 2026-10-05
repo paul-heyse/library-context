@@ -1,157 +1,37 @@
-//! An explicit native checked-false source crosses Summary, S0 and the real PG18 generation store.
-//! Refusal twins change only typed views of the published Summary input; they never alter storage.
-use cpg_core::{
-    compilation::{PreparedCompilation, publish},
-    generation_read::{GenerationSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, RuntimeOptions},
-};
-use cpg_extract::{acquisition::AcquiredInput, bundle::CapturedInputs, capture::CapturedInput};
-use datafusion::prelude::SessionContext;
-use lctx_model::domain::{
-    admission::Frontier,
-    analysis::{
-        policy::{AssertionKind, BriefSection, EvidenceStatus, FindingKind},
-        synthesis as owner,
-    },
-    execution::summary_consequences::{ClaimProof, ClaimRefutationCoverage},
-    normalized::Rows,
-    stages::Profile,
-    synthesis::{self, assertions, documentary, observations, summary},
-    *,
-};
-use lctx_postgres::{
-    generations::GenerationStore,
-    roles::{Role, RoleConfig},
-    testing::DisposableDatabase,
-};
-use std::sync::Arc;
-
-async fn batches<R: Record>(reader: &GenerationSession) -> Vec<arrow_array::RecordBatch> {
-    SessionContext::new()
-        .read_table(reader.table::<R>().unwrap())
-        .unwrap()
-        .collect()
-        .await
-        .unwrap()
-}
-async fn rows<R: Record>(
-    reader: &GenerationSession,
-    budget: &resources::ResourceBudget,
-) -> Rows<R> {
-    let mut rows = Rows::new(budget);
-    for batch in batches::<R>(reader).await {
-        rows.decode(&batch).unwrap();
-    }
-    rows
-}
-
+//! Native checked-false sources retain negative authority; proofless twins cannot invent it.
+#[path = "fixtures/catalog_runtime.rs"]
+mod catalog_runtime;
+use cpg_core::workspace::Workspace;
+use lctx_model::domain::{admission::Frontier, analysis::{policy::{AssertionKind,BriefSection,EvidenceStatus,FindingKind},synthesis as owner}, execution::summary_consequences::{ClaimProof,ClaimRefutationCoverage}, normalized::Rows, stages::Profile, synthesis::{self,assertions,documentary,observations,summary},*};
+fn batches<R:Record>(workspace:&Workspace)->Vec<arrow_array::RecordBatch> {workspace.completed::<R>().unwrap().batches().unwrap().map(Result::unwrap).collect()}
+fn rows<R:Record>(workspace:&Workspace,budget:&resources::ResourceBudget)->Rows<R> {let mut rows=Rows::new(budget);for batch in batches::<R>(workspace){rows.decode(&batch).unwrap();}rows}
 #[tokio::test]
-async fn native_false_source_persists_exact_negative_s0_authority() {
-    let profile = Profile::Behavioral;
-    let runtime = AttemptRuntime::new(RuntimeOptions {
-        memory_bytes: 2 << 30,
-        partitions: 2,
-    })
-    .unwrap();
-    let budget = runtime.budget();
-    let db = DisposableDatabase::start().await;
-    db.migrate().await;
-    let importer = RoleConfig {
-        format: 1,
-        role: Role::Importer,
-        url: db.url("lctx_importer"),
-        max_connections: 6,
-        provider_connections: 4,
-        acquire_timeout_seconds: 5,
-        statement_timeout_seconds: 60,
-        lock_timeout_seconds: 10,
-    };
-    let serving = RoleConfig {
-        role: Role::Serving,
-        url: db.url("lctx_serving"),
-        max_connections: 6,
-        provider_connections: 2,
-        ..importer.clone()
-    };
-    let model = Arc::new(model().unwrap());
-    let store = GenerationStore::install(db.owner.clone(), model.clone())
-        .await
-        .unwrap();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/python/synthesis_refutation");
-    let captured = Arc::new(CapturedInputs::new(
-        vec![AcquiredInput::tree(
-            CapturedInput::capture(&root, &["cases.py".into()], budget).unwrap(),
-            "negative-Summary",
-        )],
-        cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
-    ));
-    let settings = analysis::settings::AnalyticsConfiguration {
-        module_prefixes: vec!["cases".into()],
-        public_roots: vec!["cases".into()],
-        configured_seeds: vec!["cases.false_source_control".into()],
-        depth: 2,
-        vertices: 512,
-        arcs: 2048,
-        witnesses: 128,
-        brief_budget: 1,
-        communities: false,
-        pagerank: false,
-        fca: false,
-        knn: false,
-        rca: false,
-        type_layer: false,
-        mention_layer: false,
-        knn_layer: false,
-    };
-    let prepared = PreparedCompilation::new(
-        Frontier::Catalog,
-        settings,
-        captured.config().catalog(),
-        None,
-        budget,
-    )
-    .unwrap();
-    let published = publish(
-        &store,
-        &importer,
-        db.writer.clone(),
-        captured.clone(),
-        &runtime,
-        profile,
-        ContentHash::of(b"native checked-false source"),
-        &prepared,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
-    let reader = GenerationSession::open(
-        &serving,
-        model.clone(),
-        published.generation,
-        ProviderOptions::default(),
-    )
-    .await
-    .unwrap();
+async fn native_false_source_compiles_exact_negative_s0_authority() {
+    let mut settings = catalog_runtime::settings("cases");
+    settings.configured_seeds=vec!["cases.false_source_control".into()];
+    settings.witnesses=128;
+    settings.brief_budget=1;
+    let fixture=catalog_runtime::compile("synthesis_refutation",Profile::Behavioral,Frontier::Catalog,settings,None).await;
+    let reader=fixture.workspace.clone();
+    let budget=reader.budget();
     let mut data = summary::Data::new(budget);
-    macro_rules! load_summary {($($f:ident:$t:ty,)*)=>{$(for b in batches::<$t>(&reader).await { data.$f.decode(&b).unwrap(); })*};}
+    macro_rules! load_summary {($($f:ident:$t:ty,)*)=>{$(for b in batches::<$t>(&reader) { data.$f.decode(&b).unwrap(); })*};}
     lctx_model::synthesis_summary_inputs!(load_summary);
     let mut docs = documentary::Data::new(budget);
-    macro_rules! load_docs {($($f:ident:$t:ty,)*)=>{$(for b in batches::<$t>(&reader).await { docs.$f.decode(&b).unwrap(); })*};}
+    macro_rules! load_docs {($($f:ident:$t:ty,)*)=>{$(for b in batches::<$t>(&reader) { docs.$f.decode(&b).unwrap(); })*};}
     lctx_model::synthesis_documentary_inputs!(load_docs);
     let mut original = observations::Output::new(budget);
-    macro_rules! load_outputs {($($f:ident:$t:ty,)*)=>{$(for b in batches::<$t>(&reader).await { original.$f.decode(&b).unwrap(); })*};}
+    macro_rules! load_outputs {($($f:ident:$t:ty,)*)=>{$(for b in batches::<$t>(&reader) { original.$f.decode(&b).unwrap(); })*};}
     lctx_model::synthesis_observation_outputs!(load_outputs);
-    let frames = rows::<synthesis::frames::Frame>(&reader, budget).await;
-    let invocations = rows::<owner::Invocation>(&reader, budget).await;
-    let coverage = rows::<owner::AnalysisCoverage>(&reader, budget).await;
-    let facets = rows::<summary::SummaryFacet>(&reader, budget).await;
-    let authored = rows::<assertions::ProgrammaticAssertion>(&reader, budget).await;
-    let templates = rows::<assertions::AssertionTemplate>(&reader, budget).await;
-    let supports = rows::<assertions::ProgrammaticAssertionSupport>(&reader, budget).await;
-    let assertion_sources = rows::<assertions::AssertionSource>(&reader, budget).await;
-    let brief_links = rows::<synthesis::briefs::BriefAssertion>(&reader, budget).await;
+    let frames = rows::<synthesis::frames::Frame>(&reader, budget);
+    let invocations = rows::<owner::Invocation>(&reader, budget);
+    let coverage = rows::<owner::AnalysisCoverage>(&reader, budget);
+    let facets = rows::<summary::SummaryFacet>(&reader, budget);
+    let authored = rows::<assertions::ProgrammaticAssertion>(&reader, budget);
+    let templates = rows::<assertions::AssertionTemplate>(&reader, budget);
+    let supports = rows::<assertions::ProgrammaticAssertionSupport>(&reader, budget);
+    let assertion_sources = rows::<assertions::AssertionSource>(&reader, budget);
+    let brief_links = rows::<synthesis::briefs::BriefAssertion>(&reader, budget);
     let negatives = data
         .conclusions
         .iter()
@@ -307,7 +187,7 @@ async fn native_false_source_persists_exact_negative_s0_authority() {
     // membership or Partial coverage. Reads and mutations are typed, never SQL writes.
     let invariant = lctx_model::domain::validation::invariants_for::<ClaimProof>()[0].clone();
     let mut proof_inputs = Vec::new();
-    macro_rules! proof_input {($($t:ty),*)=>{$(for batch in batches::<$t>(&reader).await { proof_inputs.push((<$t>::NAME, batch)); })*};}
+    macro_rules! proof_input {($($t:ty),*)=>{$(for batch in batches::<$t>(&reader) { proof_inputs.push((<$t>::NAME, batch)); })*};}
     proof_input!(
         ClaimProof,
         ClaimRefutationCoverage,
@@ -348,7 +228,6 @@ async fn native_false_source_persists_exact_negative_s0_authority() {
             );
         }
     }
-    reader.close().await.unwrap();
 
     let mut observed = observations::Data::new(budget);
     for q in original.qualifications.iter() {
@@ -405,5 +284,4 @@ async fn native_false_source_persists_exact_negative_s0_authority() {
             "Unknown/proofNone cannot acquire finding or assertion authority"
         );
     }
-    store.retire(published.generation).await.unwrap();
 }
