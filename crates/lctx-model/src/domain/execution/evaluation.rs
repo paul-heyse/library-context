@@ -21,7 +21,7 @@ macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{
     impl EvaluationData {
         pub fn new(budget:&ResourceBudget)->Self {Self{$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})* Ok(false)}
-        pub fn validation_inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*].into_iter().map(|input|if stages::is_vocabulary(input.name()){input.at_epoch(stages::PublicationBoundary::Facts)}else{input}).collect()}
+        pub fn validation_inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*].into_iter().map(|input|if stages::is_vocabulary(input.name()){input}else{input}).collect()}
     }
 };}
 #[macro_export]

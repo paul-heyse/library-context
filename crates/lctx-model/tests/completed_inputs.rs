@@ -48,3 +48,14 @@ fn completed_input_rejects_invalid_metadata() {
     assert!(CompletedInput::<First>::new("", ContentHash([1;32]), ContentHash([2;32]), ContentHash([3;32]), 0).is_err());
     assert!(CompletedInput::<First>::new("p", ContentHash([1;32]), ContentHash([2;32]), ContentHash([3;32]), u64::MAX).is_err());
 }
+
+#[test]
+fn actual_upper_inputs_do_not_require_publication_epochs() {
+    for profile in Profile::ALL {
+        let mut inputs=local_semantics::LocalData::consumed_inputs(profile);
+        inputs.extend(execution::summary_production::SummaryData::consumed_inputs(profile));
+        inputs.extend(analytics::build::Data::consumed_inputs(profile));
+        inputs.extend(synthesis::production::Data::consumed_inputs(profile));
+        assert!(inputs.iter().all(|input|input.prefix().is_none()));
+    }
+}

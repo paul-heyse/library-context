@@ -192,7 +192,7 @@ impl SourceCallData {
         ));
         inputs.extend(EntryData::validation_inputs().into_iter().map(|input| {
             if stages::is_vocabulary(input.name()) {
-                input.at_epoch(stages::PublicationBoundary::Facts)
+                input
             } else {
                 input
             }
@@ -206,7 +206,7 @@ impl SourceCallData {
                 .into_iter()
                 .map(|input| {
                     if stages::is_vocabulary(input.name()) {
-                        input.at_epoch(stages::PublicationBoundary::Facts)
+                        input
                     } else {
                         input
                     }

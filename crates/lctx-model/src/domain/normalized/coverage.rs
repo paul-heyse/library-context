@@ -385,7 +385,7 @@ pub fn assemble(
     profile: Profile,
     evidence: &ScopedAvailability,
     artifacts: &Rows<SourceArtifact>,
-    sources: &[CompletedRelation],
+    sources: &[crate::domain::analysis::sources::SourceSnapshot],
     budget: &resources::ResourceBudget,
 ) -> Result<CoverageOutput, ModelError> {
     let _temporary = budget.reserve(
@@ -468,13 +468,11 @@ pub fn assemble(
                 .iter()
                 .find(|s| s.relation() == relation.name() && s.producer() == stage.name)
                 .ok_or_else(|| invalid("normalization output has no completed producer receipt"))?;
-            let receipt = source.receipt();
             out.receipts.insert(NormalizationOutputReceipt {
                 computation,
                 relation: relation.name().into(),
-                rows: i64::try_from(receipt.rows)
-                    .map_err(|_| invalid("normalization receipt row overflow"))?,
-                content: receipt.content,
+                rows: source.rows(),
+                content: source.content(),
             })?;
         }
     }

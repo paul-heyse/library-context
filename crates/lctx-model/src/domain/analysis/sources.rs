@@ -19,6 +19,14 @@ impl HeapSize for SourceSnapshot {
     fn heap_bytes(&self) -> usize { self.relation.heap_bytes() + self.producer.heap_bytes() }
 }
 impl SourceSnapshot {
+    pub fn of_relation(relation: &Relation, producer: impl Into<String>, model: ContentHash,
+                       implementation: ContentHash, content: ContentHash, rows: u64) -> Result<Self, ModelError> {
+        let producer=producer.into();
+        if producer.is_empty() {return Err(invalid("completed input needs a producer"));}
+        Ok(Self {relation:relation.name().into(),producer,model,implementation,content,
+                 rows:i64::try_from(rows).map_err(|_|invalid("completed input row count exceeds representation"))?})
+    }
+
     pub fn producer(&self) -> &str { &self.producer }
     pub fn implementation(&self) -> ContentHash { self.implementation }
     pub fn relation(&self) -> &str { &self.relation }

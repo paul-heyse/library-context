@@ -443,11 +443,7 @@ impl Data {
             ValidationInput::of::<analysis::catalog_core::AnalysisInvocation>(&["id"]),
             ValidationInput::of::<EffectiveCallableAssessment>(&["id"]),
         ]);
-        for input in &mut inputs {
-            if stages::is_vocabulary(input.name()) {
-                *input = input.clone().at_epoch(stages::PublicationBoundary::Local);
-            }
-        }
+        
         inputs.sort_by_key(|i| (i.name(), i.prefix()));
         inputs.dedup_by_key(|i| (i.name(), i.prefix()));
         inputs

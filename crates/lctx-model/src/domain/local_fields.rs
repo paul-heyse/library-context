@@ -525,11 +525,6 @@ impl InvariantCheck for FieldCheck {
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if stages::is_vocabulary(input.name())
-            && input.prefix() != Some(stages::PublicationBoundary::Facts)
-        {
-            return Err(invalid("field replay requires Facts vocabulary"));
-        }
         self.visit(input.name(), batch)
     }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {

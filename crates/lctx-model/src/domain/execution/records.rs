@@ -264,7 +264,7 @@ pub fn base_invariants() -> Vec<Invariant> {
     let mut inputs = EvaluationData::validation_inputs();
     inputs.extend(EntryData::validation_inputs().into_iter().map(|input| {
         if stages::is_vocabulary(input.name()) {
-            input.at_epoch(stages::PublicationBoundary::Facts)
+            input
         } else {
             input
         }

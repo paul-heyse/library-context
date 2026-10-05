@@ -22,7 +22,7 @@ pub(crate) mod availability;
 pub use availability::{CoverageEvidence, ScopedAvailability};
 
 /// What a generation can answer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Frontier {
     Conformance,
     Facts,
@@ -995,7 +995,11 @@ impl AdmissionCheck {
                 contract.profile,
                 &scoped,
                 &artifacts,
-                receipt.sources(),
+                &receipt.sources().iter().map(|source| super::analysis::sources::SourceSnapshot {
+                    relation:source.relation().into(), producer:source.producer().into(),
+                    model:source.model(), implementation:super::implementation_digest(),
+                    content:source.receipt().content, rows:source.receipt().rows as i64,
+                }).collect::<Vec<_>>(),
                 budget,
             )?;
             super::normalized::coverage::validate(&expected, &self.normalized)?;

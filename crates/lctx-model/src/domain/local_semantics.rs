@@ -81,7 +81,7 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
  pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{let mut handled=self.entry.visit(name,batch)?;handled|=self.theory.visit(name,batch)?;handled|=self.fields.visit(name,batch)?;$(if name==<$ty>::NAME {self.$field.decode(batch)?;handled=true;})*Ok(handled)}
  pub fn visit_consumed(&mut self,profile:stages::Profile,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{if profile==stages::Profile::Behavioral{return self.visit(name,batch);}if name==ProviderRun::NAME||name==Provider::NAME{return self.entry.visit(name,batch);}Ok(false)}
  pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{let mut inputs=if profile==stages::Profile::Behavioral{Self::validation_inputs()}else{vec![ValidationInput::of::<ProviderRun>(&["id"]),ValidationInput::of::<Provider>(&["id"])]};inputs.extend(analysis::expected::inputs(analysis::AnalysisMethod::LocalTransfers));inputs.push(ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]));inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
- pub fn validation_inputs()->Vec<ValidationInput>{let mut inputs=EntryData::validation_inputs();inputs.extend(crate::domain::local_theory::TheoryInventory::validation_inputs());inputs.extend(crate::domain::local_fields::FieldInventory::validation_inputs());inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);for input in &mut inputs {if stages::is_vocabulary(input.name()) {*input=input.clone().at_epoch(stages::PublicationBoundary::Facts);}}inputs}
+ pub fn validation_inputs()->Vec<ValidationInput>{let mut inputs=EntryData::validation_inputs();inputs.extend(crate::domain::local_theory::TheoryInventory::validation_inputs());inputs.extend(crate::domain::local_fields::FieldInventory::validation_inputs());inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs}
  }
 };}
 crate::local_semantic_inputs!(data);
@@ -504,11 +504,6 @@ impl InvariantCheck for LocalCheck {
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if stages::is_vocabulary(input.name())
-            && input.prefix() != Some(stages::PublicationBoundary::Facts)
-        {
-            return Err(invalid("Local native replay requires Facts vocabulary"));
-        }
         self.visit(input.name(), batch)
     }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {

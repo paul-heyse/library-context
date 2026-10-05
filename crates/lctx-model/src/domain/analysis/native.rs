@@ -30,7 +30,7 @@ macro_rules! native_pairs {
         }
         impl NativeInventory {
             pub fn inputs() -> Vec<ValidationInput> {
-                let mut inputs = vec![ValidationInput::of::<AssertionQualification>(&["id"]).at_epoch(stages::PublicationBoundary::Facts)];
+                let mut inputs = vec![ValidationInput::of::<AssertionQualification>(&["id"])];
                 $(inputs.extend([ValidationInput::of::<$assertion>(&["id"]),
                     ValidationInput::of::<$support>(&["id"])]);)*
                 inputs
@@ -38,7 +38,7 @@ macro_rules! native_pairs {
             /// Native support validators stay authoritative. The producer must read confirmed
             /// facts with these validators; this projection does not reimplement attribution.
             pub fn stage_inputs(profile: stages::Profile) -> Vec<stages::RelationUse> {
-                let mut inputs = vec![stages::RelationUse::stored::<AssertionQualification>().at_epoch(stages::PublicationBoundary::Facts)];
+                let mut inputs = vec![stages::RelationUse::stored::<AssertionQualification>()];
                 $(if profile == stages::Profile::Behavioral || <$assertion as Assertion>::FAMILY != FactFamily::Flow {
                     inputs.extend([stages::RelationUse::stored::<$assertion>(),
                         stages::RelationUse::stored::<$support>().validated_by(&[<$support>::NAME])]);

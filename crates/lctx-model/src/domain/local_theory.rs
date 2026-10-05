@@ -87,7 +87,7 @@ macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{
  pub struct TheoryInventory {$(pub $field:Rows<$ty>,)*}
  impl TheoryInventory {pub fn new(budget:&resources::ResourceBudget)->Self{Self{$($field:Rows::new(budget),)*}}
  pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if name==<$ty>::NAME{self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
- pub fn validation_inputs()->Vec<ValidationInput>{let mut inputs=vec![$(ValidationInput::of::<$ty>(&["id"]),)*];for input in &mut inputs{if stages::is_vocabulary(input.name()){*input=input.clone().at_epoch(stages::PublicationBoundary::Facts);}}inputs}
+ pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
  }
 };}
 crate::local_theory_inputs!(inputs);
@@ -105,11 +105,7 @@ impl TheoryData<'_> {
     pub fn validation_inputs() -> Vec<ValidationInput> {
         let mut inputs = EntryData::validation_inputs();
         inputs.extend(TheoryInventory::validation_inputs());
-        for input in &mut inputs {
-            if stages::is_vocabulary(input.name()) {
-                *input = input.clone().at_epoch(stages::PublicationBoundary::Facts);
-            }
-        }
+        
         inputs
     }
 }
@@ -1554,11 +1550,6 @@ impl InvariantCheck for TheoryCheck {
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if stages::is_vocabulary(input.name())
-            && input.prefix() != Some(stages::PublicationBoundary::Facts)
-        {
-            return Err(invalid("Local theory requires Facts vocabulary"));
-        }
         self.visit(input.name(), batch)
     }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {

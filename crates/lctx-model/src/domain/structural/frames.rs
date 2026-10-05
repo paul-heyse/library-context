@@ -307,18 +307,6 @@ impl InvariantCheck for Check {
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if input.prefix() == Some(stages::PublicationBoundary::Local) {
-            if !self.data.visit(input.name(), batch)? {
-                return Err(invalid("undeclared Structural predecessor vocabulary"));
-            }
-            return Ok(());
-        }
-        if input.prefix() == Some(stages::PublicationBoundary::Structural) {
-            if !self.output.visit(input.name(), batch)? {
-                return Err(invalid("undeclared Structural output vocabulary"));
-            }
-            return Ok(());
-        }
         self.visit(input.name(), batch)
     }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {

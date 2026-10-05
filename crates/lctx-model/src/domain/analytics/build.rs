@@ -194,11 +194,8 @@ impl Data {
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if stages::is_vocabulary(input.name())
-            && input.prefix() == Some(stages::PublicationBoundary::Facts)
-        {
+        if stages::is_vocabulary(input.name()) {
             self.native.visit(input.name(), batch)?;
-            return Ok(());
         }
         self.visit(input.name(), batch)?;
         Ok(())
