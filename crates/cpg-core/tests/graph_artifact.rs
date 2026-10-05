@@ -167,9 +167,10 @@ async fn raw_original_bytes_and_half_open_span_survive_artifact_transport() {
     let configuration=ContentHash::of(b"raw-original-artifact");
     let source=captured.inputs()[0].captured().artifacts().iter().find(|row|row.path=="original.bin").unwrap().clone();
     let evidence=d::assertion::Evidence::SourceSpan {source:source.id(),start:1,end:4};
-    let declaration=d::stages::Stage {name:"raw-source-span-fixture",inputs:vec![],outputs:vec![d::stages::RelationUse::of::<d::assertion::Evidence>()],contributes:vec![],coverage:vec![],profiles:vec![Profile::Catalog],effect:d::stages::Effect::Pure,code:ContentHash::of(b"raw-source-span-fixture/v1"),configuration};
+    let declaration=d::stages::Stage {name:"raw-source-span-fixture",inputs:vec![],outputs:vec![],contributes:vec![d::stages::RelationUse::of::<d::assertion::Evidence>()],coverage:vec![],profiles:vec![Profile::Catalog],effect:d::stages::Effect::Pure,code:ContentHash::of(b"raw-source-span-fixture/v1"),configuration};
     let output=workspace.producer(&declaration,Profile::Catalog,workspace.inputs(declaration.name,Profile::Catalog,[]).unwrap());
-    output.declare::<d::assertion::Evidence>().unwrap();output.push_sync(evidence.clone()).unwrap();
+    let batch=d::Batch::new(workspace.model(),vec![evidence.clone()],workspace.budget()).unwrap();
+    output.contribute(&batch).unwrap();
     output.finish(d::stages::ProviderOutcome::Complete).await.unwrap();
     compilation::compile(&workspace,captured.clone(),Profile::Catalog,configuration,Frontier::Facts,None,None,None).await.unwrap();
     let admitted=artifact::admit(&workspace,&captured,Frontier::Facts,Profile::Catalog,configuration).await.unwrap();
