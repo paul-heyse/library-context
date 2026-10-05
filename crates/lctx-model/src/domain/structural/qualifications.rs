@@ -34,17 +34,18 @@ pub(super) fn intersect(
         ));
     }
     let entry = &data.handoffs.entry;
+    let vocabulary = &data.handoffs.local;
     let _charge = budget.reserve(
         "structural qualification nodes",
-        entry
+        vocabulary
             .condition_nodes
             .len()
             .checked_mul(2048)
             .ok_or_else(|| invalid("Structural condition allocation overflow"))?,
     )?;
-    let nodes = entry.condition_nodes.iter().cloned().collect::<Vec<_>>();
-    let a = Diagram::from_records(need(&entry.conditions, call.condition)?, &nodes)?;
-    let b = Diagram::from_records(need(&entry.conditions, local.condition)?, &nodes)?;
+    let nodes = vocabulary.condition_nodes.iter().cloned().collect::<Vec<_>>();
+    let a = Diagram::from_records(need(&vocabulary.conditions, call.condition)?, &nodes)?;
+    let b = Diagram::from_records(need(&vocabulary.conditions, local.condition)?, &nodes)?;
     let admitted = a
         .admitted_binary(&b, BooleanOperation::Conjunction, budget)
         .map_err(|e| match e {
@@ -157,7 +158,10 @@ mod tests {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
     }
     fn load<R: Record>(data: &mut Data, rows: &[R]) {
-        assert!(data.visit(R::NAME, &R::encode(rows).unwrap()).unwrap());
+        let batch=R::encode(rows).unwrap();
+        if crate::domain::stages::is_vocabulary(R::NAME){
+            for input in Data::validation_inputs().into_iter().filter(|i|i.name()==R::NAME){assert!(data.visit_input(&input,&batch).unwrap());}
+        }else{assert!(data.visit(R::NAME,&batch).unwrap());}
     }
     #[test]
     fn singleton_conditional_basis_is_not_promoted_or_erased() {
@@ -188,9 +192,11 @@ mod tests {
         let conditional = Diagram::from_atom(id(6));
         for diagram in [Diagram::always(), conditional.clone()] {
             let (condition, nodes) = diagram.records();
-            data.handoffs.entry.conditions.insert(condition).unwrap();
+            data.handoffs.entry.conditions.insert(condition.clone()).unwrap();
+            data.handoffs.local.conditions.insert(condition).unwrap();
             for node in nodes {
-                data.handoffs.entry.condition_nodes.insert(node).unwrap();
+                data.handoffs.entry.condition_nodes.insert(node.clone()).unwrap();
+                data.handoffs.local.condition_nodes.insert(node).unwrap();
             }
         }
         let call = AssertionQualification {
@@ -253,13 +259,11 @@ mod tests {
         assert_eq!(target_q.assumptions, q.assumptions);
         let opposite = conditional.not().unwrap();
         let (opposite_record, opposite_nodes) = opposite.records();
-        data.handoffs
-            .entry
-            .conditions
-            .insert(opposite_record)
-            .unwrap();
+        data.handoffs.entry.conditions.insert(opposite_record.clone()).unwrap();
+        data.handoffs.local.conditions.insert(opposite_record).unwrap();
         for node in opposite_nodes {
-            data.handoffs.entry.condition_nodes.insert(node).unwrap();
+            data.handoffs.entry.condition_nodes.insert(node.clone()).unwrap();
+                data.handoffs.local.condition_nodes.insert(node).unwrap();
         }
         let exclusive_local = AssertionQualification {
             condition: opposite.id(),
@@ -370,9 +374,11 @@ mod tests {
         let conditional = Diagram::from_atom(id(20));
         for diagram in [Diagram::always(), conditional.clone()] {
             let (condition, nodes) = diagram.records();
-            data.handoffs.entry.conditions.insert(condition).unwrap();
+            data.handoffs.entry.conditions.insert(condition.clone()).unwrap();
+            data.handoffs.local.conditions.insert(condition).unwrap();
             for node in nodes {
-                data.handoffs.entry.condition_nodes.insert(node).unwrap();
+                data.handoffs.entry.condition_nodes.insert(node.clone()).unwrap();
+                data.handoffs.local.condition_nodes.insert(node).unwrap();
             }
         }
         let call = AssertionQualification {

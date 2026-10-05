@@ -148,3 +148,22 @@ fn synthesis_native_entry_and_conclusion_vocabulary_are_isolated(){
  let selected=synthesis::production::Data::consumed_inputs(Profile::Behavioral).into_iter().filter(|i|i.name()==conditions::Condition::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
  assert_eq!(selected,[Some(View::Facts),Some(View::Analytic)].into_iter().collect());
 }
+
+#[test]
+fn structural_native_entry_and_local_conclusion_vocabulary_are_isolated(){
+ use stages::PublicationBoundary as View;
+ let budget=budget();let mut data=structural::build::Data::new(&budget);
+ let native=conditions::Condition{root:conditions::ConditionNode::False.id()};
+ let derived=conditions::Condition{root:conditions::ConditionNode::True.id()};
+ let facts=ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Facts);
+ let local=ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Local);
+ data.visit_input(&facts,&conditions::Condition::encode(std::slice::from_ref(&native)).unwrap()).unwrap();
+ data.visit_input(&local,&conditions::Condition::encode(&[native.clone(),derived.clone()]).unwrap()).unwrap();
+ assert_eq!(data.handoffs.entry.conditions.len(),1);
+ assert!(data.handoffs.entry.conditions.get(derived.id()).is_none());
+ assert_eq!(data.handoffs.local.conditions.len(),2);
+ assert!(data.handoffs.local.conditions.get(derived.id()).is_some());
+ let selected=structural::build::Data::consumed_inputs(Profile::Behavioral).into_iter().filter(|i|i.name()==conditions::Condition::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
+ assert_eq!(selected,[Some(View::Facts),Some(View::Local)].into_iter().collect());
+ assert!(data.visit(conditions::Condition::NAME,&conditions::Condition::encode(&[derived]).unwrap()).is_err());
+}

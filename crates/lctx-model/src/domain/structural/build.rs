@@ -47,11 +47,39 @@ impl Data {
             assessments: Rows::new(b),
         }
     }
+    pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
+        let name=input.name();
+        if !stages::is_vocabulary(name){return self.visit(name,batch);}
+        match input.prefix(){
+            Some(stages::PublicationBoundary::Facts)=>{let projection=self.projection.visit(name,batch)?;let native=self.handoffs.entry.visit_input(input,batch)?;Ok(projection||native)},
+            Some(stages::PublicationBoundary::Local)=>{let assumptions=self.assumptions.visit(name,batch)?;let local=self.handoffs.local.visit(name,batch)?;Ok(assumptions||local)},
+            _=>Err(invalid(format!("structural input {name} changes its completed vocabulary view")))
+        }
+    }
+    pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{
+        let mut inputs=Self::validation_inputs();
+        if profile==stages::Profile::Catalog{
+            let inherited=ProjectionData::validation_inputs();
+            let mut native=conditions::entry::EntryData::facts_inputs();native.extend(super::controls::Data::inputs());
+            inputs.retain(|input|inherited.iter().any(|r|r.name()==input.name())||!native.iter().any(|r|r.name()==input.name()));
+        }
+        inputs.extend([
+            ValidationInput::of::<analysis::settings::AnalyticsConfiguration>(&["id"]),
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+            ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+            ValidationInput::of::<analysis::local::Invocation>(&["id"]),
+            ValidationInput::of::<analysis::local::AnalysisOutcome>(&["id"]),
+            ValidationInput::of::<analysis::local::AnalysisCoverage>(&["id"]),
+            ValidationInput::of::<projection::ProjectionSourceAssessment>(&["id"]),
+        ]);
+        inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs
+    }
     pub fn visit(
         &mut self,
         name: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<bool, ModelError> {
+        if stages::is_vocabulary(name){return Err(invalid("structural vocabulary needs an explicit completed view"));}
         let assumptions = self.assumptions.visit(name, batch)?;
         let ownership = self.ownership.visit(name, batch)?;
         let a = self.projection.visit(name, batch)?;
@@ -432,7 +460,7 @@ fn step_records(
 impl Data {
     pub fn validation_inputs() -> Vec<ValidationInput> {
         let mut inputs = ProjectionData::validation_inputs();
-        inputs.extend(assumptions::AssumptionIndex::inputs());
+        inputs.extend(assumptions::AssumptionIndex::inputs().into_iter().map(|i|i.at_epoch(stages::PublicationBoundary::Local)));
         inputs.extend(ownership::ScopeIndex::inputs());
         inputs.extend(EventOutput::validation_inputs());
         inputs.extend(super::handoffs::Data::inputs());

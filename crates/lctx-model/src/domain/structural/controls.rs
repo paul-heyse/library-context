@@ -289,7 +289,7 @@ fn flow(
     if caller.entity != entry.owner || q.context != entry.context {
         return Ok(false);
     }
-    let local_q = need(&h.entry.qualifications, proof.qualification)?;
+    let local_q = need(&h.local.qualifications, proof.qualification)?;
     let alias = alias
         .map(|id| need(&out.handoff_values, id).cloned())
         .transpose()?;
@@ -831,21 +831,21 @@ fn alias_covers(
         &h.entry.qualifications,
         need(&h.entry.use_observations, *observation)?.qualification,
     )?;
-    let local = need(&h.entry.qualifications, local)?;
+    let local = need(&h.local.qualifications, local)?;
     if (q.context, q.scope) != (local.context, local.scope) {
         return Ok(false);
     }
     let _nodes = budget.reserve(
         "alias-condition-replay",
-        h.entry
+        h.local
             .condition_nodes
             .len()
             .checked_mul(2048)
             .ok_or_else(|| invalid("alias condition overflow"))?,
     )?;
-    let nodes = h.entry.condition_nodes.iter().cloned().collect::<Vec<_>>();
+    let nodes = h.local.condition_nodes.iter().cloned().collect::<Vec<_>>();
     let read = handoffs::named_condition(h, alias, budget)?;
-    let local = Diagram::from_records(need(&h.entry.conditions, local.condition)?, &nodes)?;
+    let local = Diagram::from_records(need(&h.local.conditions, local.condition)?, &nodes)?;
     let covered = read
         .admitted_binary(&local, BooleanOperation::Conjunction, budget)
         .map_err(|e| match e {

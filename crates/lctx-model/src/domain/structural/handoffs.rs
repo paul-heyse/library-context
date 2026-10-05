@@ -31,9 +31,26 @@ macro_rules! structural_handoff_inputs {
         }
     };
 }
+/// Cumulative Local qualification vocabulary for retained Local conclusions. Native entry
+/// observations remain in the separate immutable Facts collector.
+pub struct LocalVocabulary {
+ pub qualifications:Rows<assertion::AssertionQualification>,
+ pub conditions:Rows<conditions::Condition>,
+ pub condition_nodes:Rows<conditions::ConditionNode>,
+}
+impl LocalVocabulary {
+ pub fn new(b:&resources::ResourceBudget)->Self{Self{qualifications:Rows::new(b),conditions:Rows::new(b),condition_nodes:Rows::new(b)}}
+ pub fn inputs()->Vec<ValidationInput>{vec![ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(stages::PublicationBoundary::Local),ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(stages::PublicationBoundary::Local),ValidationInput::of::<conditions::ConditionNode>(&["id"]).at_epoch(stages::PublicationBoundary::Local)]}
+ pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{
+  if n==assertion::AssertionQualification::NAME{self.qualifications.decode(b)?;return Ok(true);}
+  if n==conditions::Condition::NAME{self.conditions.decode(b)?;return Ok(true);}
+  if n==conditions::ConditionNode::NAME{self.condition_nodes.decode(b)?;return Ok(true);}
+  Ok(false)
+ }
+}
 macro_rules! inputs {($($f:ident:$ty:ty,)*)=>{
- pub struct Data {pub entry:EntryData,$(pub $f:Rows<$ty>,)*}
- impl Data {pub fn new(b:&resources::ResourceBudget)->Self{Self{entry:EntryData::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{let e=self.entry.visit(n,b)?;$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(e)}pub fn inputs()->Vec<ValidationInput>{let mut v=EntryData::validation_inputs();v.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);v}}
+ pub struct Data {pub entry:EntryData,pub local:LocalVocabulary,$(pub $f:Rows<$ty>,)*}
+ impl Data {pub fn new(b:&resources::ResourceBudget)->Self{Self{entry:EntryData::new(b),local:LocalVocabulary::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{let e=self.entry.visit(n,b)?;$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(e)}pub fn inputs()->Vec<ValidationInput>{let mut v=EntryData::facts_inputs();v.extend(LocalVocabulary::inputs());v.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);v}}
 };}
 crate::structural_handoff_inputs!(inputs);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
