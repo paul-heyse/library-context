@@ -246,17 +246,17 @@ pub fn build(
 }
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = Data::inputs();
-    inputs.extend(documentary::Data::validation_inputs());
+    inputs.extend(documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts));
     inputs.extend([
         ValidationInput::of::<frames::Frame>(&["id"]),
         ValidationInput::of::<owner::Invocation>(&["id"]),
         ValidationInput::of::<SummaryFacet>(&["id"]),
         ValidationInput::of::<owner::SupportSource>(&["id"]),
     ]);
-    inputs.sort_by_key(|r| r.name());
-    inputs.dedup_by_key(|r| r.name());
+    inputs.sort_by_key(|r| (r.name(), r.prefix()));
+    inputs.dedup_by_key(|r| (r.name(), r.prefix()));
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "synthesis_exact_summary_facets",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -282,9 +282,14 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        let d = self.data.visit(n, b)?;
-        let docs = self.docs.visit(n, b)?;
+    fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+    }
+    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        documentary::replay_selector(input)?;
+        let n = input.name();
+        let d = documentary::replay_visit(input, None, |name| self.data.visit(name, b))?;
+        let docs = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.docs.visit(name, b))?;
         macro_rules! row {
             ($t:ty,$f:ident) => {
                 if n == <$t>::NAME {
@@ -808,9 +813,9 @@ mod tests {
                 sources: Rows::new(&b),
                 budget: b.clone(),
             };
-            macro_rules! data{($($field:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+            macro_rules! data{($($field:ident:$ty:ty,)*)=>{$(check.visit_input(&ValidationInput::of::<$ty>(&["id"]),&<$ty as Record>::encode(&d.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
             crate::synthesis_summary_inputs!(data);
-            macro_rules! docs{($($field:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&docs.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+            macro_rules! docs{($($field:ident:$ty:ty,)*)=>{$(check.visit_input(&documentary::replay_input::<$ty>(stages::PublicationBoundary::Facts),&<$ty as Record>::encode(&docs.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
             crate::synthesis_documentary_inputs!(docs);
             for row in f.iter() {
                 check.frames.insert(row.clone()).unwrap();

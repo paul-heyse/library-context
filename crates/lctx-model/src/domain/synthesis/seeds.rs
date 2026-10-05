@@ -214,7 +214,7 @@ struct Check {
     output: Output,
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = documentary::Data::validation_inputs();
+    let mut inputs = documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts);
     inputs.extend(Output::validation_inputs());
     inputs.extend(super::automatic::Data::inputs());
     inputs.extend(super::frames::AnalyticParents::inputs());
@@ -226,10 +226,10 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<structural::StructuralFrame>(&["id"]),
         ValidationInput::of::<analysis::structural::Invocation>(&["id"]),
     ]);
-    inputs.sort_by_key(|r| r.name());
-    inputs.dedup_by_key(|r| r.name());
+    inputs.sort_by_key(|r| (r.name(), r.prefix()));
+    inputs.dedup_by_key(|r| (r.name(), r.prefix()));
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "synthesis_configured_seed_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -250,14 +250,19 @@ pub fn invariants() -> Vec<Invariant> {
     }]
 }
 impl InvariantCheck for Check {
-    fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+    }
+    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        documentary::replay_selector(input)?;
+        let n = input.name();
         macro_rules! rows{($($f:ident:$ty:ty,)*)=>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(());})*};}
         rows! {settings:AnalyticsConfiguration,invocations:owner::Invocation,public:structural::PublicCandidate,structural_frames:structural::StructuralFrame,structural_invocations:analysis::structural::Invocation,}
-        let d = self.data.visit(n, b)?;
-        let o = self.output.visit(n, b)?;
-        let a = self.automatic.visit(n, b)?;
-        let analytic = self.analytic.visit(n, b)?;
-        let docs = self.docs.visit(n, b)?;
+        let d = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.data.visit(name, b))?;
+        let o = documentary::replay_visit(input, None, |name| self.output.visit(name, b))?;
+        let a = documentary::replay_visit(input, None, |name| self.automatic.visit(name, b))?;
+        let analytic = documentary::replay_visit(input, None, |name| self.analytic.visit(name, b))?;
+        let docs = documentary::replay_visit(input, None, |name| self.docs.visit(name, b))?;
         if !d && !o && !a && !docs && !analytic {
             return Err(invalid("undeclared seed replay input"));
         }

@@ -635,17 +635,17 @@ pub fn relations() -> Vec<Relation> {
     rows
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = Data::inputs(stages::Profile::Behavioral);
-    inputs.extend(documentary::Data::validation_inputs());
+    let mut inputs = documentary::replay_inputs(Data::inputs(stages::Profile::Behavioral), stages::PublicationBoundary::Facts);
+    inputs.extend(documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts));
     inputs.extend(Output::inputs());
     inputs.extend([
         ValidationInput::of::<frames::Frame>(&["id"]),
         ValidationInput::of::<owner::Invocation>(&["id"]),
     ]);
-    inputs.sort_by_key(|r| r.name());
-    inputs.dedup_by_key(|r| r.name());
+    inputs.sort_by_key(|r| (r.name(), r.prefix()));
+    inputs.dedup_by_key(|r| (r.name(), r.prefix()));
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "authored_original_statement_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -669,10 +669,15 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        let d = self.data.visit(n, b)?;
-        let docs = self.docs.visit(n, b)?;
-        let out = self.output.visit(n, b)?;
+    fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+    }
+    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        documentary::replay_selector(input)?;
+        let n = input.name();
+        let d = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.data.visit(name, b))?;
+        let docs = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.docs.visit(name, b))?;
+        let out = documentary::replay_visit(input, None, |name| self.output.visit(name, b))?;
         if n == frames::Frame::NAME {
             self.frames.decode(b)?;
             return Ok(());

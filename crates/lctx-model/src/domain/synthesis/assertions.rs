@@ -900,23 +900,23 @@ pub fn relations() -> Vec<Relation> {
     output_rows!(relations)
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = documentary::Data::validation_inputs();
+    let mut inputs = documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts);
     inputs.extend(documentary::Output::validation_inputs());
     inputs.extend(Output::validation_inputs());
-    inputs.extend(super::observations::Data::inputs());
+    inputs.extend(documentary::replay_inputs(super::observations::Data::inputs(), stages::PublicationBoundary::Analytic));
     inputs.extend(ControlData::inputs());
     inputs.extend(super::summary::Data::inputs());
-    inputs.extend(super::terminal::Data::inputs());
-    inputs.extend(super::patterns::Data::inputs(stages::Profile::Behavioral));
+    inputs.extend(documentary::replay_inputs(super::terminal::Data::inputs(), stages::PublicationBoundary::Analytic));
+    inputs.extend(documentary::replay_inputs(super::patterns::Data::inputs(stages::Profile::Behavioral), stages::PublicationBoundary::Facts));
     inputs.extend([
         ValidationInput::of::<super::frames::Frame>(&["id"]),
         ValidationInput::of::<structural::PublicCandidate>(&["id"]),
     ]);
     inputs.push(ValidationInput::of::<owner::Invocation>(&["id"]));
-    inputs.sort_by_key(|i| i.name());
-    inputs.dedup_by_key(|i| i.name());
+    inputs.sort_by_key(|i| (i.name(), i.prefix()));
+    inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "programmatic_assertion_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -952,7 +952,12 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+    }
+    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        documentary::replay_selector(input)?;
+        let n = input.name();
         if n == owner::Invocation::NAME {
             self.invocations.decode(b)?;
             return Ok(());
@@ -965,14 +970,14 @@ impl InvariantCheck for Check {
             self.public.decode(b)?;
             return Ok(());
         }
-        let observations = self.observations.visit(n, b)?;
-        let controls = self.controls.visit(n, b)?;
-        let summary = self.summary.visit(n, b)?;
-        let terminal = self.terminal.visit(n, b)?;
-        let patterns = self.patterns.visit(n, b)?;
-        let a = self.data.visit(n, b)?;
-        let c = self.conclusions.visit(n, b)?;
-        let o = self.output.visit(n, b)?;
+        let observations = documentary::replay_visit(input, Some(stages::PublicationBoundary::Analytic), |name| self.observations.visit(name, b))?;
+        let controls = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.controls.visit(name, b))?;
+        let summary = documentary::replay_visit(input, None, |name| self.summary.visit(name, b))?;
+        let terminal = documentary::replay_visit(input, Some(stages::PublicationBoundary::Analytic), |name| self.terminal.visit(name, b))?;
+        let patterns = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.patterns.visit(name, b))?;
+        let a = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.data.visit(name, b))?;
+        let c = documentary::replay_visit(input, None, |name| self.conclusions.visit(name, b))?;
+        let o = documentary::replay_visit(input, None, |name| self.output.visit(name, b))?;
         if !a && !c && !o && !observations && !summary && !terminal && !patterns && !controls {
             return Err(invalid("undeclared assertion replay input"));
         }
@@ -1030,7 +1035,7 @@ mod tests {
         b: &ResourceBudget,
     ) -> Result<(), ModelError> {
         let mut check = (invariants().remove(0).create)(b);
-        macro_rules! data{($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}
+        macro_rules! data{($($f:ident:$ty:ty,)*)=>{$(check.visit_input(&documentary::replay_input::<$ty>(stages::PublicationBoundary::Facts),&<$ty as Record>::encode(&d.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}
         crate::synthesis_documentary_inputs!(data);
         for relation in documentary::Output::validation_inputs() {
             let batch = match relation.name() {
@@ -1070,13 +1075,13 @@ mod tests {
                     &docs.qualifications.iter().cloned().collect::<Vec<_>>(),
                 )?,
             };
-            check.visit(relation.name(), &batch)?;
+            check.visit_input(&relation, &batch)?;
         }
-        check.visit(
-            owner::Invocation::NAME,
+        check.visit_input(
+            &ValidationInput::of::<owner::Invocation>(&["id"]),
             &owner::Invocation::encode(&invocations.iter().cloned().collect::<Vec<_>>())?,
         )?;
-        macro_rules! output{($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&out.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}
+        macro_rules! output{($($f:ident:$ty:ty,)*)=>{$(check.visit_input(&ValidationInput::of::<$ty>(&["id"]),&<$ty as Record>::encode(&out.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}
         output_rows!(output);
         check.finish()
     }
