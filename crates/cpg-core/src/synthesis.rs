@@ -186,6 +186,7 @@ pub async fn produce(
         &assertions,
         &seeds,
         &data.summary,
+        &data.observations.qualifications,
         &facets,
         &frames,
         &patterns,

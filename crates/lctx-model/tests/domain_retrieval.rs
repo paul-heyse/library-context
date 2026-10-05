@@ -118,6 +118,7 @@ fn distinct_occurrences_deduplicate_text_without_losing_members_or_anchors() {
         "source occurrence merges member roots while API slots remain distinct"
     );
     assert_eq!(out.corpus.len(), 3);
+    out.verify_completion(&d, &b).unwrap();
     let source = out
         .units
         .iter()
@@ -154,6 +155,14 @@ fn distinct_occurrences_deduplicate_text_without_losing_members_or_anchors() {
     assert_eq!(next.units.len(), 5);
     assert_eq!(next.corpus.len(), 3);
     assert_eq!(next.fragments.len(), 3);
+    next.verify_completion(&d, &b).unwrap();
+    let mut crossed = retrieval::build::build(&d, &b).unwrap();
+    let foreign = d.evidence.roots.iter().find(|r| r.context != source.context).unwrap();
+    crossed.roots.insert(retrieval::UnitRoot { unit: source.id(), root: foreign.id() }).unwrap();
+    assert!(crossed.verify_completion(&d, &b).is_err(), "every root must retain its exact context");
+    let mut rootless = retrieval::build::build(&d, &b).unwrap();
+    rootless.roots = Rows::new(&b);
+    assert!(rootless.verify_completion(&d, &b).is_err(), "every unit requires a root");
 }
 #[test]
 fn api_corpus_preserves_default_uncertainty_and_exact_values() {

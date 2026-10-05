@@ -84,13 +84,18 @@ impl Output {
                 + self.roots.len() * (size_of::<&UnitRoot>() + 64)
                 + self.anchors.len() * (size_of::<&OriginalAnchor>() + 64)
                 + self.units.len() * (size_of::<Id<CorpusText>>() + 64))?;
-        let mut roots = std::collections::BTreeMap::new();
+        let mut rooted_units = std::collections::BTreeSet::new();
         let mut anchors = std::collections::BTreeMap::<Id<Unit>, Vec<&OriginalAnchor>>::new();
         let mut corpora = std::collections::BTreeSet::new();
         for unit in self.units.iter() { corpora.insert(unit.corpus); }
         for root in self.roots.iter() {
-            need(&self.units, root.unit)?;
-            if roots.insert(root.unit, root.root).is_some() { return Err(invalid("retrieval unit has multiple contextual roots")); }
+            let unit = need(&self.units, root.unit)?;
+            let evidence = need(&d.evidence.roots, root.root)?;
+            if evidence.input != unit.input || evidence.context != unit.context {
+                return Err(invalid("retrieval unit differs from its exact contextual root"));
+            }
+            // A shared source occurrence retains each member's root; the pair is the row key.
+            rooted_units.insert(root.unit);
         }
         for anchor in self.anchors.iter() {
             need(&self.units, anchor.unit)?;
@@ -131,9 +136,8 @@ impl Output {
             let corpus = need(&self.corpus, unit.corpus)?;
             let origin = need(&self.origins, unit.origin)?;
             if unit.family != corpus.family { return Err(invalid("retrieval unit family differs from corpus")); }
-            let root = need(&d.evidence.roots, *roots.get(&unit.id()).ok_or_else(|| invalid("retrieval unit lacks C1 root"))?)?;
-            if root.input != unit.input || root.context != unit.context {
-                return Err(invalid("retrieval unit differs from its exact contextual root"));
+            if !rooted_units.contains(&unit.id()) {
+                return Err(invalid("retrieval unit lacks C1 root"));
             }
             let unit_anchors = anchors.entry(unit.id()).or_default();
             unit_anchors.sort_by_key(|a| a.ordinal);

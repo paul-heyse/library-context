@@ -152,10 +152,13 @@ pub fn build(
         &super::summary::Data::new(b),
         &Rows::new(b),
         &Rows::new(b),
+        &Rows::new(b),
         &super::patterns::Output::new(b),
         b,
     )
 }
+/// Summary facet qualifications come from the completed Analytic vocabulary; documentary
+/// qualifications remain the immutable Facts view used by authored-source checks.
 #[allow(
     clippy::too_many_arguments,
     reason = "Public brief construction keeps independent documentary, assertion, pattern, summary and seed owners explicit."
@@ -166,6 +169,7 @@ pub fn build_with_summary(
     assertions: &assertions::Output,
     seeds: &seeds::Output,
     summary: &super::summary::Data,
+    summary_qualifications: &Rows<assertion::AssertionQualification>,
     facets: &Rows<super::summary::SummaryFacet>,
     frames: &Rows<super::frames::Frame>,
     patterns: &super::patterns::Output,
@@ -283,7 +287,7 @@ pub fn build_with_summary(
                     facet,
                     facet
                         .qualification
-                        .map(|q| need(&d.qualifications, q))
+                        .map(|q| need(summary_qualifications, q))
                         .transpose()?,
                     b,
                 )?);
@@ -386,7 +390,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|r| (r.name(), r.prefix()));
     inputs.dedup_by_key(|r| (r.name(), r.prefix()));
     vec![Invariant {
-        revision: 2,
+        revision: 3,
         name: "canonical_brief_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -505,6 +509,7 @@ impl InvariantCheck for Check {
             &self.assertions,
             &self.seeds,
             &self.summary,
+            &self.observations.qualifications,
             &facets,
             &self.frames,
             &patterns,
@@ -582,6 +587,50 @@ mod tests {
         macro_rules! emit{($($f:ident:$ty:ty,)*)=>{$(row!($ty,output.$f);)*};}
         outputs!(emit);
         check.finish()
+    }
+    #[test]
+    fn summary_facets_read_retained_qualifications_without_enlarging_documentary_facts() {
+        // This renderer control assumes the Summary owner admitted the finite facet.
+        let (b, d, docs, assertions, seeds, _) = inputs("\"\"\"Run carefully.\"\"\"", "Run carefully.");
+        let seed = seeds.selected.iter().next().unwrap();
+        let plan = seeds.plans.get(seed.plan).unwrap();
+        let (_, earlier) = super::super::frames::tests::fixture();
+        let parent = super::super::frames::parents(&earlier, &b).unwrap().remove(0);
+        let frame = super::super::frames::frame(&parent, plan.invocation);
+        let mut frames = Rows::new(&b);
+        frames.insert(frame.clone()).unwrap();
+        let mut retained = d.qualifications.iter().next().unwrap().clone();
+        retained.modality = attribution::Modality::Candidate;
+        retained.approximation = assertion::Approximation::Over;
+        assert!(d.qualifications.get(retained.id()).is_none());
+        let mut qualifications = Rows::new(&b);
+        qualifications.insert(retained.clone()).unwrap();
+        let mut facets = Rows::new(&b);
+        facets.insert(super::super::summary::SummaryFacet {
+            frame: frame.id(),
+            conclusion: serde_json::from_value(serde_json::json!(vec![240u8; 16])).unwrap(),
+            member: Some(seed.member),
+            claim: None,
+            qualification: Some(retained.id()),
+            coverage: attribution::CoverageStatus::Partial,
+            verdict: obligation::Verdict::Unknown,
+            reason: None,
+            source: None,
+        }).unwrap();
+        let summary = super::super::summary::Data::new(&b);
+        let patterns = super::super::patterns::Output::new(&b);
+        let output = build_with_summary(
+            &d, &docs, &assertions, &seeds, &summary, &qualifications,
+            &facets, &frames, &patterns, &b,
+        ).unwrap();
+        assert!(output.documents.iter().any(|part|
+            part.text.as_str().contains("Behavioral analysis for this captured frame: Unknown; coverage Partial")
+        ));
+        assert!(build_with_summary(
+            &d, &docs, &assertions, &seeds, &summary, &Rows::new(&b),
+            &facets, &frames, &patterns, &b,
+        ).is_err(), "missing retained qualification must be refused");
+        assert!(d.qualifications.get(retained.id()).is_none());
     }
     #[test]
     fn canonical_documents_are_unreviewed_and_retain_full_warnings_after_the_outcome() {
