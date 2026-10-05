@@ -2,7 +2,7 @@
 
 Load `.claude/skills/design-review/SKILL.md` and the standard, profiles and binding it routes to.
 Read the relevant owners and adjacent consumers yourself. Assess domain meaning, change locality,
-contracts, composition and library fit independently; previous conclusions are leads to examine.
+contracts, composition, workload execution fit and composed library capabilities independently; previous conclusions are leads to examine.
 Preserve separate architectural judgments and correctness/fidelity judgments.
 
 The brief selects the output appropriate to the work:

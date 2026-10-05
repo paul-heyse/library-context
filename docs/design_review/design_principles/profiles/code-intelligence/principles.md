@@ -1,15 +1,16 @@
 # Code-intelligence design principles
 
-**Version 1.3 · 2026-09-30** · Domain profile for code-intelligence systems: static analysis
+**Version 1.4 · 2026-10-05** · Domain profile for code-intelligence systems: static analysis
 of source code into fact graphs, graph and program analyses over those facts, and
 evidence-backed answers served to people and coding agents. Refines the
 [core design principles](../../core/design-principles.md) under their layering rules (§B). It
 adds and tightens; it never relaxes a core principle. It names no specific analyzer or library —
 the repository binding does that.
 
-Version 1.3 retains CI-01–CI-13 and CI-G1–CI-G3 and aligns review guidance with core 3.2's
-bounded assessment and discretionary investigation. Historical reviews retain their versions.
-Core FP-01–FP-06 organize architecture review; these domain rules constrain supported behavior.
+Version 1.4 retains CI-01–CI-13 and CI-G1–CI-G3, applying core 3.3's execution-fit judgment
+without prescribing a storage engine or execution runtime. Bounded assessment and discretionary
+investigation remain; historical reviews retain their versions. Core FP-01–FP-07 and A1–A4
+organize architecture review; these domain rules independently constrain supported behavior.
 The explicit domain model must govern operations as well as fact shapes (FP-04, A2): resolution,
 derivation and projection have owned meanings consumed by their callers. Source fidelity alone
 does not establish model adequacy, modularity, testability or the locality of the next extension.
@@ -17,7 +18,7 @@ does not establish model adequacy, modularity, testability or the locality of th
 ## Functional target
 
 A best-in-class code-intelligence system turns a pinned body of code (and its documentation,
-examples and tests) into provider-attributed facts. It builds explicit graph projections and
+examples and tests) into provider-attributed facts. It maintains explicit graphs and declared analytic views and
 program analyses over them, and answers questions — what exists, what calls what, what a
 function does with its inputs, what is safe to use together — with claims an agent can trust and
 trace to evidence. The workloads a design must serve:
@@ -41,7 +42,7 @@ facts that exist).
 | CI-02 | Fidelity is typed and never relabelled | MUST | DP-02, DP-07 | CI-G1 |
 | CI-03 | Relationships have their own identity | MUST | DP-04, DP-07 | G1 |
 | CI-04 | Unknown is not absent | MUST | DP-02, DP-12 | CI-G1 |
-| CI-05 | Every graph is a declared projection | MUST | DP-07, DP-08 | G6 |
+| CI-05 | Every graph or view has declared semantics | MUST | DP-07, DP-08 | G6 |
 | CI-06 | Claims are relative to a stated model | MUST | DP-08, DP-11, DP-22 | CI-G1 |
 | CI-07 | Route analyses by their semantics | SHOULD | DP-13 | G8 |
 | CI-08 | Cardinality is bounded; partial is not complete | MUST | DP-12, DP-20 | G5 |
@@ -97,11 +98,12 @@ and a partial result never carries the same label as a complete one.
 **Audit.** For a query that returns nothing, can the system say whether the answer is "none" or
 "not known here"? Is coverage recorded wherever an extractor could stop short?
 
-### CI-05 — Every graph is a declared projection
+### CI-05 — Every graph or view has declared semantics
 
-**MUST · G6 · refines DP-07, DP-08.** A graph is a derived projection with a declared
-specification: source snapshot, relation kinds, direction, multiplicity and simplification
-policy, weight meaning, scope and completeness. The universe needed to compute an answer is
+**MUST · G6 · refines DP-07, DP-08.** A canonical artifact may itself be graph-native. Every
+graph and analytic/query view has a declared specification: source or canonical snapshot,
+relation kinds, direction, multiplicity and simplification policy, weight meaning, scope and
+completeness. A view need not reconstruct or persist another graph to meet this contract. The universe needed to compute an answer is
 separate from the selector that chooses what to return — filtering requested symbols must not
 remove the intermediate nodes a traversal or global metric needs. Different relations
 (containment, calls, dataflow, imports, types, similarity) get separate projections, never an
@@ -124,12 +126,12 @@ refuted-under-model answer be read as proof of absence outside the model?
 
 ### CI-07 — Route analyses by their semantics
 
-**SHOULD · G8 · refines DP-13.** Fact construction, joins, aggregation and validation are
-relational work for a query engine. Reachability, cycles, dominance and ranking are topology for
-graph libraries. Reaching definitions, liveness, taint and interprocedural summaries are
-fixed-point program analyses with transfer and join semantics — bare reachability is not a sound
-dataflow analysis. A bounded relationship pattern can stay a join; a graph is built when topology
-is the question.
+**SHOULD · G8 · refines DP-13.** Place each analysis where its semantic operations and physical
+access pattern fit. Set processing, topology algorithms and program-analysis transfer/fixpoint
+operations remain distinct, but may be implemented by a suitable query engine, graph library,
+columnar runtime or shared kernel. Account for data movement, preparation, optimizer support,
+resource behavior and reuse across the complete operation. Plain reachability does not establish
+a dataflow result; moving execution does not move semantic authority or relax its contract.
 
 **Audit.** Is each analysis placed where its semantics fit? Is any program-analysis question
 answered by plain reachability?
@@ -141,7 +143,11 @@ neighbourhoods on demand and retain compact witnesses, not every path. Do not ma
 all-pairs results, all paths or dense similarity matrices unless an answer requires them and
 their cost is bounded. A requested bound ("within three hops") can be a complete answer; an
 operational limit that interrupts work produces a partial result, labelled as such, with what
-was left uncovered where practical.
+was left uncovered where practical. Bound examined work, branching/degree, intermediate
+cardinality and bytes as well as returned output; a depth bound alone does not bound a frontier.
+Reuse compact views or checked certificates where they reduce repeated work while preserving
+the required universe and completeness. Do not narrow an analysis universe merely to make its
+physical execution cheaper.
 
 **Audit.** Is any closure or path set materialized eagerly? When a budget is hit, is the result
 distinguishable from a complete one?
@@ -190,13 +196,17 @@ Were the criteria fixed before the results were seen?
 
 **MUST · G5, G6 · refines DP-01, DP-09, DP-19.** The serving layer (indexes, bundles, search
 structures) is derived from one canonical snapshot and can be rebuilt from it; it never becomes
-a second authority. A serving process holds one generation for its lifetime, and names the
-snapshot it serves. Query-time and index-time representations — embeddings, tokenizers,
-ranking features — come from one declared spec, and a cached representation is not reused after
-its spec changes.
+a second authority. Pin and name the complete served realization for the declared consumer
+lifetime, including multi-call evidence retrieval, resources and continuations. Returned
+references, cursors and cache tokens bind to that realization: semantic content and answer-affecting
+functions, analyzers, embedding and index specifications. Incompatible reuse is refused or
+explicitly reselected without silently reinterpreting an existing reference. Process-lifetime
+pinning is one implementation. Query-time and index-time representations — embeddings, tokenizers,
+ranking features — use one declared compatible spec; a cached representation is not reused after
+an incompatible spec change.
 
-**Audit.** Can a server mix generations, or serve without naming its snapshot? Can a query vector
-and an indexed vector come from different specs?
+**Audit.** Can a consumer journey mix realizations or resolve an earlier reference under a new
+one? Is its pin lifetime declared? Can a query vector and indexed vector use incompatible specs?
 
 ## Profile gates
 

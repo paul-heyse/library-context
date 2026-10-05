@@ -28,6 +28,13 @@ settling the verdict during preparation. Where alternatives or library capabilit
 identify the semantic or integration question a comparison would resolve. The selected design
 standard remains the basis for judgment.
 
+Where execution fit matters, establish a brief workload premise from functional intent and ask
+which physical choices determine necessary work, access paths, crossings, working set, reuse,
+assurance and transaction/recovery scope. Compare composed library capabilities, not only isolated
+components. Select revealing growth, skew, concurrency or failure scenarios. Static evidence may
+settle a structural defect; reserve measurement for quantitative claims or a premise that needs it.
+This extends existing questions and scope; it adds no checklist, standing review or artifact.
+
 ## Choose breadth and depth deliberately
 
 Establish enough context to recognize relevant responsibilities, semantic owners, suppliers

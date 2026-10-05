@@ -1,11 +1,11 @@
 # Design review template
 
-**Version 3.2 · 2026-09-30** · Core layer: repository- and domain-agnostic.
-Standard: [design principles](design-principles.md): FP-01–FP-06 organize architectural
-assessment; DP-01–DP-24 support it; A1–A3 and G1–G8 remain separate judgments.
+**Version 3.3 · 2026-10-05** · Core layer: repository- and domain-agnostic.
+Standard: [design principles](design-principles.md): FP-01–FP-07 organize architectural
+assessment; DP-01–DP-24 support it; A1–A4 and G1–G8 remain separate judgments.
 Profiles add domain constraints within the slots. The binding supplies local owners and cadence.
 
-Output and synthesis guidance revised 2026-10-01; assessment rules and slot identifiers unchanged.
+Execution-fit assessment added 2026-10-05; existing slot identifiers and bounded review cadence remain.
 
 ## Part 1 — The review contract
 
@@ -13,7 +13,7 @@ Output and synthesis guidance revised 2026-10-01; assessment rules and slot iden
 
 | Tier | Use for | Required content |
 |---|---|---|
-| Change | A bounded implementation within an accepted architecture | Scope, affected owners/contracts, one relevant change scenario or a reason it does not apply, applicable gates, findings, library implications, A1–A3 and decision. Compress slots into 1, 6, 7, 8, 12. |
+| Change | A bounded implementation within an accepted architecture | Scope, affected owners/contracts, one relevant change scenario or a reason it does not apply, applicable gates, findings, library implications, A1–A4 and decision. Compress slots into 1, 6, 7, 8, 12. |
 | Design | A substantial stage, architectural decision, new mechanism or boundary; assembled architecture | Slots 1–12, scoped to the subject and adjacent consumers. Reconstruct responsibilities and dependencies before investigating mechanisms. |
 
 | Purpose | Judged against | Handling a blocking repository authority |
@@ -62,16 +62,18 @@ incorrect output occurs; semantic failure is not a prerequisite.
 | Finding | A falsifiable defect in the architecture, contract or implementation. |
 | Principles · judgment/gate | Only FP/DP/profile IDs and A/G judgments used in the argument. |
 | Evidence or gap | Relevant owner, dependency, contract or executing expression; source path/line or design section, and what is missing. |
-| Consequence | A supported input causes semantic failure, **or a realistic change requires duplicated decisions, unrelated internal edits, hidden knowledge, inseparable testing or unjustified machinery**. Name the scenario and propagation; file counts alone do not establish it. |
+| Consequence | A supported input causes semantic failure, **or a realistic change requires duplicated decisions, unrelated internal edits, hidden knowledge, inseparable testing or unjustified machinery; or a supported workload suffers avoidable repeated full-input work, crossings/materialization, excessive live state, queues/fan-out, overbroad invalidation or mismatched resource/transaction lifetimes**. Name the scenario and causal mechanism; file counts alone do not establish it. |
 | Correction | Owning boundary and direction, rough affected surface, alternatives and deletion obligations where relevant. |
 | Verification | Evidence that would close the finding; a traced change or inspection can suffice. Add a test/probe only when it resolves uncertainty or protects a meaningful regression. |
 | Disposition link | Where current execution status is owned, if assigned; otherwise explicit deferred trigger or required decision. A review remains a dated assessment. |
 
 ### Priority and decisions
 
-Prioritize correctness and fidelity breaches, then architectural barriers to planned work and
-repeated semantic ownership, then other justified improvements and measured costs. Discuss
-interactions: resolving a correctness defect may require changing an architectural boundary.
+Prioritize correctness/fidelity failures and architectural choices that make a supported workload
+infeasible, unstable or operationally disproportionate. Structural cost evidence can establish
+such a failure before measurement. Assess change barriers, repeated semantic ownership and other
+material complexity in the same functional context; prioritize by consequence rather than by
+whether the evidence is a benchmark. Resolving a defect may require changing a boundary.
 Library adoption and bespoke code both carry complexity. A concrete architectural violation is
 eligible for revision even when its supporting DP rule is a SHOULD.
 The core §1 domain-model MUST is assessed through FP-04 and A2: both model adequacy and
@@ -80,7 +82,7 @@ recording a deferral does not waive it for supported behavior.
 
 | Situation | Decision |
 |---|---|
-| Applicable A1–A3 satisfied; no MUST gap or failed/unresolved gate in supported scope | Accept, at the stated evidence strength and scope. |
+| Applicable A1–A4 satisfied; no MUST gap or failed/unresolved gate in supported scope | Accept, at the stated evidence strength and scope. |
 | Violation or unresolved architectural judgment for an in-scope change scenario | Revise; name the boundary or decision to resolve. |
 | A scenario is deliberately excluded, with consequence, disposition and revisit trigger; remaining architecture and gates hold | Accept scoped; state separately what remains unresolved in the enclosing architecture. |
 | MUST gap or failed/unresolved gate on claimed behavior | Revise, or remove that behavior explicitly from supported scope. A deferral alone does not make it acceptable. |
@@ -136,7 +138,7 @@ new evidence folder, artifact hierarchy or registration process.
 | Tier · purpose | Change/design · conformance/target |
 | Reviewer · date | Accountable reviewer and date |
 | Maturity and outcome | Current design phase; what this decision should enable |
-| Supported scope | Capabilities, adjacent consumers and guarantees; exclusions |
+| Supported scope | Capabilities, adjacent consumers and guarantees; exclusions; brief workload premise from functional intent (operations, size/skew/growth, concurrency/deployment and resource envelope where material) |
 | Expected changes | Selected realistic scenarios and why they matter now |
 | Baseline | Existing architecture and material limits |
 | Method and coverage | Examined/clean, unresolved, not examined; tests and assumptions |
@@ -177,6 +179,10 @@ from independent definitions. Ordinary domain functions can supply these contrac
 Assess how primitives compose. Identify rules that orchestration reimplements, implicit
 ordering and special cases. Include cardinality/cost, identity mappings, representation loss and
 resource budgets where material. A graph projection states its universe and relationship semantics.
+Assess the complete physical operation: access paths, repeated work, crossings and intermediates,
+optimizer visibility, reuse, enforcement frequency, transaction and recovery scope. Semantic
+composition need not create physical stages or materializations. Distinguish examined-work and
+output limits; safe refusal alone does not establish fitness for the workload.
 
 ### 5. Change and failure scenarios
 
@@ -193,6 +199,10 @@ mechanism, and explain why the edits belong to the affected authorities. For a s
 architecture review, examine a relevant domain extension and a mechanism substitution where
 credible; give a scope reason when either does not apply. A bounded review still needs only its
 relevant scenario. Assess semantic ownership and propagation, not a promise of inexpensive replacement.
+Select relevant growth, high-degree/skew, concurrency or failure cases as well. Explain why the
+physical route remains credible for the intended use; tiny fixtures cannot silently replace the
+product's workload premise. Static reasoning may settle structural cost; measured claims require
+measurements. These are lenses within existing slots, not a new campaign or checklist.
 
 ### 6. Correctness and fidelity gates
 
@@ -243,7 +253,11 @@ useful leads on established capabilities and integration patterns. Consulting th
 
 Inspect the resolved version's interfaces when making an API claim. A library's full surface is eligible for the
 agreed capability; availability alone is not a requirement. An intentional shared library data
-contract can be preferable to a forwarding abstraction. This is a focused comparison, not a catalog.
+contract can be preferable to a forwarding abstraction. Compare composed capabilities, including
+optimizer/bulk interfaces, physical access, locality, preparation/reuse, working set and recovery.
+Account for generated objects and operator/developer obligations as well as handwritten code.
+A built-in must fit the semantic contract and total integration. This is a focused comparison,
+not a catalog.
 
 ### 9. Alternatives and tradeoffs
 
@@ -296,10 +310,14 @@ there. Preserve original findings and versioned evidence rather than rewriting h
 | A1 Localize change | | | |
 | A2 Encode domain meaning explicitly | | | |
 | A3 Extend through composition | | | |
+| A4 Fit execution to the supported workload | | | |
 
 **Bounded change decision:** Accept / Accept scoped / Revise / Reject, with reason.
 **Enclosing architecture:** accepted for named scenarios / needs revision / unresolved / not
 assessed (scope reason). State the evidence strength; a passing local slice does not certify it.
+A4 needs a credible physical route for the workload premise. Material unresolved execution fit
+prevents acceptance of that use; "performance unmeasured" does not excuse known amplification.
+A documented cost is justified only by its retained benefit against a conforming alternative.
 
 | Priority | Change and responsible component | Source findings | Closure evidence or revisit trigger |
 |---|---|---|---|

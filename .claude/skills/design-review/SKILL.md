@@ -9,9 +9,9 @@ model-baseline: claude-5 (2026-08)
 # Design review
 
 Review a proposed design, implementation or both. Establish how the system accommodates realistic
-change, then judge correctness and domain fidelity independently. The six foundations organize
+change, then judge correctness and domain fidelity independently. The seven foundations organize
 the analysis: separation of concerns, stable contracts, composition, explicit domain models and
-scoped semantic authority, explicit structure and local reasoning. The model must govern
+scoped semantic authority, explicit structure, local reasoning and execution fit. The model must govern
 implemented behavior wherever domain meaning is established or interpreted (core §1, FP-04, A2).
 
 Apply this assessment during a requested design review or a review due at the repository's
@@ -79,7 +79,10 @@ question about ownership, behavior or change remains unresolved; no complete flo
    functions can suffice; no registry, universal model or conversion of algorithms to data is required.
 4. **Alternatives and library fit.** Compare a suitable library mechanism and the simplest viable
    design where relevant. Qualify semantics at the resolved version and total integration burden. Functions or
-   modules may be sufficient; a wrapper or new crate must improve a real boundary.
+   modules may be sufficient; a wrapper or new crate must improve a real boundary. Compare the
+   composed physical operation: access paths, optimizer/bulk capabilities, movement, preparation,
+   working set, enforcement frequency, transaction/recovery scope and total operator/developer
+   machinery. A module or semantic kind need not impose an execution stage or storage object.
 
    **Optional context: existing library use.** A focused look at relevant entries in
    docs/library-utilization.jsonl, where available, can be especially helpful when considering
@@ -90,9 +93,12 @@ question about ownership, behavior or change remains unresolved; no complete flo
    catalog entries inform the alternatives, while alignment with the design principles governs
    the judgment.
 
-5. **Independent judgments.** Settle A1–A3 from scenario evidence, G1–G8 and profile gates from
+5. **Independent judgments.** Settle A1–A4 from scenario evidence, G1–G8 and profile gates from
    their own evidence, and applicable foundation/supporting-rule verdicts. A2 requires both an
-   adequate domain model and behavior governed by its authorities. Unresolved stays unresolved.
+   adequate domain model and behavior governed by its authorities. A4 needs a credible execution
+   route for a workload premise drawn from functional intent: relevant operations, input size/skew,
+   growth, concurrency/deployment and resource envelope. Use relevant growth/failure scenarios;
+   safe refusal or bounded output alone does not establish fit. Unresolved stays unresolved.
 6. **Actionable findings and disposition.** Group by structural cause. Name a concrete semantic
    failure or architectural consequence, owner, correction and closure evidence. Link the single
    location owning current status. Follow the template's decision rules.
@@ -108,6 +114,9 @@ revision even when outputs are currently correct. A deferral alone is not confor
 Read every citation at the grain used. Proposals remain Proposed; interface inspection is
 Interface-checked; code existence is Implemented. Tested/Measured claims name commands, cases,
 conditions and dates. Attribute historical receipts rather than reporting them as current runs.
+Structural cost evidence can establish avoidable amplification before measurement. No speed claim
+is needed for an A4 defect; quantitative speed/capacity claims still require measurements. Do not
+narrow the workload to convenient fixtures or turn these lenses into a standing audit/checklist.
 Static review of documentation, source and types can be sufficient, including for library
 features and fit. The reviewing agent decides whether complexity, criticality or unresolved
 uncertainty warrants creating and running a probe. No review tier or kind requires probes or
@@ -211,7 +220,7 @@ content references and scoped profile additions. A read-only delegated reviewer 
 and intended path; the coordinator publishes it while preserving the reviewer's judgment.
 Focused design advice during plan creation can instead be incorporated in the plan; it does not
 replace a formal review due under the binding. A request to discuss or revise this process does not itself require
-an additional review artifact. Close with scope, A1–A3, gates, material findings, bounded decision,
+an additional review artifact. Close with scope, A1–A4, gates, material findings, bounded decision,
 enclosing architectural status and path. Distinguish review acceptance from release qualification.
 
 ## Failure modes

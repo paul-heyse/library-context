@@ -74,6 +74,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0124](0124-captured-evidence-admission-compatibility.md) | Preserve captured evidence, admitted domains and explicit compatibility contracts | 2026-10-04 | [§14.1](../design/sections/api-and-evidence-product.md#section-14-1), [§15.3](../design/sections/semantic-model.md#section-15-3) | Proposed |  |
 | [ADR-0125](0125-dependencies-float.md) | Dependencies float; exact pins need a recorded reason | 2026-10-04 | [§7](../design/DESIGN.md#section-7) | Tested |  |
 | [ADR-0126](0126-contract-assurance-pivot.md) | Validation trusts acknowledged immutable inputs and verification follows current contracts | 2026-10-04 | [§1.2](../design/DESIGN.md#section-1-2), [§6.1](../design/sections/storage-and-publication.md#section-6-1), [§6.2](../design/sections/storage-and-publication.md#section-6-2), [§8](../design/sections/validation-and-evaluation.md#section-8), [§15](../design/sections/semantic-model.md#section-15) | Interface-checked | ADR-0110 |
+| [ADR-0127](0127-execution-fit-architecture.md) | Assess physical execution fit alongside semantic architecture | 2026-10-05 | [§2](../design/DESIGN.md#section-2) | Implemented |  |
 
 ## Proposed: open choices, not accepted decisions
 

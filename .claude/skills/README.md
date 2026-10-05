@@ -10,7 +10,7 @@ Workflows for building this repository. A skill is added when a workflow has act
 |---|---|
 | [`adr/`](adr/SKILL.md) | Record or supersede a decision; amend the owning architectural section in the same commit |
 | [`plan-design-review/`](plan-design-review/SKILL.md) | Plan an approach to the user's review goal, using the existing design-review skills and standard |
-| [`design-review/`](design-review/SKILL.md) | Review explicit domain models, ownership, contracts and change scenarios against the layered design standard (`docs/design_review/design_principles/standard.toml`); cadence in the library-context binding |
+| [`design-review/`](design-review/SKILL.md) | Review explicit domain models, ownership, contracts, change scenarios and workload execution fit against the layered design standard (`docs/design_review/design_principles/standard.toml`); cadence in the library-context binding |
 | [`design-review-code-intelligence/`](design-review-code-intelligence/SKILL.md) | The code-intelligence profile, loaded with `design-review` |
 | [`plan-creation/`](plan-creation/SKILL.md) | Plan the authoring approach from a design review or existing plan, including focused assessment of relevant dependencies |
 | [`create-plan/`](create-plan/SKILL.md) | Write the design and execution plan, including foundation improvements and an adaptable document structure |

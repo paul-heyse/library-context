@@ -24,6 +24,9 @@ are recovered from Git, never read as a chain (ADR-0042).
 2. Use Context → Options → Decision → Consequences. Identify the expected change, responsible
    components and affected consumer contracts. Include the simplest viable alternative; compare
    coupling, composition, local testing and total integration burden where they distinguish options.
+   For material execution choices, compare physical work, access paths, locality, reuse, assurance,
+   lifecycle/recovery and operator/developer burden for the intended workload. State the benefit
+   retained by a costlier option; no new benchmark or standalone comparison artifact is implied.
 3. `design:` lists stable governed section IDs across the architectural collection. Amend them in the same commit, retaining section
    IDs and a `> Decision: ADR-NNNN` line. Keep the section current rather than appending a
    revision diary. Reference executable contracts rather than duplicating their field definitions.

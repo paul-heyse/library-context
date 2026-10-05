@@ -33,6 +33,11 @@ chooses how to conduct it without repeating an assessment already supported by r
 
 Some questions shape many later choices: who owns a meaning, whether an existing foundation
 supports the new consumers, or whether a library capability fits the required semantics.
+Execution-fit questions may also shape the target: access paths, optimizer visibility, data
+movement, working set, reuse/invalidation, assurance placement and publication/recovery scope for
+the intended workload. Examine composed library routes before fixing a backend-neutral interface.
+Keep necessary whole-universe work distinct from avoidable repeated work, and output limits from
+examined-work limits. Use static evidence where sufficient; this is no mandatory benchmark stage.
 Investigate such questions early enough to avoid developing substantial detail around an
 unstable premise. Explain what a result would enable or change in the proposed design.
 

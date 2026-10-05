@@ -61,6 +61,14 @@ evidence that would reopen a decision. Relate an expected benefit to its mechani
 or conditions, and account for material integration, lifecycle and maintenance obligations.
 Quantitative benefits need a baseline and measurement route; unmeasured benefits remain hypotheses.
 
+For material execution choices, state a workload premise grounded in functional intent and a
+credible physical route: access paths, necessary/repeated work, crossings/intermediates, locality,
+preparation/reuse, admission/contention, assurance and transaction/recovery scope. Compare composed
+library capabilities and total runtime/operator machinery. Semantic ownership need not dictate
+layout or execution granularity. Carry known amplification corrections into the target and its
+dependencies; "performance unmeasured" does not justify an unsuitable route. Select relevant
+growth/failure scenarios without adding a mandatory cost model, artifact or measurement campaign.
+
 Resolve choices that materially shape responsibilities, semantics, sequencing or acceptance.
 If uncertainty remains, state the question, the evidence needed and the dependent work it
 constrains. A bounded investigation can be a work package when its decision outcome changes

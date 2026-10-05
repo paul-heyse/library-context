@@ -15,8 +15,8 @@ from implemented or verified behavior.
 |---|---|
 | Purpose, scope and basis | Intended outcome, completion boundary, reference material, governing architecture and credible changes the target should accommodate |
 | Current baseline and affected foundations | What exists, relevant evidence limits, reusable components, and conclusions from the focused dependency assessment |
-| Target design and contracts | Responsibilities, semantic owners, interactions, preserved guarantees, intentional behavior changes and support limits |
-| Choices and alternatives | Material decisions, library fit, benefit mechanisms, ownership costs, assumptions and conditions for reconsideration |
+| Target design and contracts | Responsibilities, semantic owners, interactions, preserved guarantees, support limits and physical execution fit for a brief workload premise |
+| Choices and alternatives | Material decisions, composed library/optimizer capabilities, necessary work, locality, reuse, assurance/lifecycle scope, total machinery, assumptions and reconsideration conditions |
 | Execution sequence | Coherent work packages, specific prerequisites, affected owners, available capabilities and completion evidence |
 | Migration and adoption | Consumer changes, preservation and retirement, intermediate states and operational transitions where relevant |
 | Verification and acceptance | Revealing scenarios, local and assembled acceptance, applicable review points, and measurements with their conditions and completion role |
@@ -132,7 +132,10 @@ do not imply universal requirements for compatibility paths or deployment stages
 Separate future acceptance requirements from actual evidence. Identify local checks, assembled
 journeys and measurements by what they establish and when they are needed. Follow repository
 policy for execution timing and evidence reporting. Optional or deferred measurements should have
-a clear purpose and trigger, without obscuring required completion evidence.
+a clear purpose and trigger, without obscuring required completion evidence. Relevant growth,
+skew, concurrency and failure scenarios can establish execution fit by inspection. Bounded output
+or honest refusal does not settle whether the intended workload has a credible physical route;
+quantitative performance/capacity claims still require measurement.
 
 As execution proceeds, maintain concise state, decisions and next steps at their declared owner.
 If a package consumes an early slice of another plan, record which contract and consumers are

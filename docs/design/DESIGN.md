@@ -212,17 +212,21 @@ must resolve, historical `supersedes` entries need not, and ADR ids are never re
 > Decision: ADR-0041, ADR-0042
 
 
-**Implemented policy (ADR-0040/0093, 2026-09-30).** These are the load-bearing choices. The
-repository owns core 3.2 and declares its standard in
-`docs/design_review/design_principles/standard.toml`. The six foundations organize review of
+**Implemented policy (ADR-0040/0093/0127, 2026-10-05).** These are the load-bearing choices. The
+repository owns core 3.3 and CI profile 1.4 and declares its standard in
+`docs/design_review/design_principles/standard.toml`. The seven foundations organize review of
 responsibilities, contracts, composition, explicit domain models and scoped semantic authority,
-constraints and local reasoning. The principles and review skill own the domain-model criterion;
+constraints, local reasoning and physical execution fit. The principles and review skill own the domain-model criterion;
 assess it within bounded design/review periods at the binding's cadence. AGENTS.md routes to
 that process without imposing a standing modeling mandate. Investigation depth follows the
 scoped question; flow tracing is optional where it resolves a concrete uncertainty.
-A2 retains model adequacy and authoritative behavior as acceptance criteria. A1–A3 judge architecture
+A2 retains model adequacy and authoritative behavior as acceptance criteria. A1–A4 judge architecture
 independently of correctness and domain-fidelity gates. Supporting DP/CI IDs retain their
-historical meaning at the version cited by each review.
+historical meaning at the version cited by each review. FP-07/A4 assess access paths, necessary
+versus repeated work, library composition, locality, working sets, reuse, assurance and lifecycle
+scope against the intended workload. Semantic authority does not prescribe physical decomposition.
+Static evidence can establish unjustified amplification; speed/capacity claims need measurement.
+No mandatory benchmark, extra checklist or standing implementation review is introduced.
 
 The library-context binding maps §B decisions to the standard and owns review cadence and
 finding disposition. Changing a §B decision needs an ADR and a design/target review. Library
@@ -235,7 +239,7 @@ own their detailed contracts. ADRs record decisions and alternatives. Reviews pr
 evidence, while the active plan owns current disposition of scheduled findings. STATUS links to
 that owner. Acceptance, implementation and verification remain distinct facts.
 
-> Decision: ADR-0040, ADR-0093
+> Decision: ADR-0040, ADR-0093, ADR-0127
 
 <a id="section-b1"></a>
 

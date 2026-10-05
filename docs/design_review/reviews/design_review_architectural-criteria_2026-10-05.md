@@ -563,8 +563,7 @@ plan owners; the rows below do not create a second product defect ledger.
 scales with incidental declarations, unrelated corpus data or long-lived transaction state.
 DP-10/20 and the template's cost prompts are insufficiently decisive. Add FP-07/A4 and the scoped
 work/growth scenarios. Closure is an amended standard/template that can reject the counterfactuals
-in §6 without waiting for a latency claim. **Disposition: Deferred to standard adoption; owner:
-core/template. Trigger: adopting this assessment.**
+in §6 without waiting for a latency claim. **Disposition: Closed for standard adoption, 2026-10-05; core/template 3.3 and the independent assessment in §10 establish closure.**
 
 <a id="f02"></a>
 **F02 — Authority, physical granularity and runtime placement are not distinguished strongly
@@ -573,7 +572,7 @@ authority-first sequencing and categorical CI-07 placement that can favor mechan
 lowering or host-only execution. Clarify core §1/FP-01/04 and CI-05/07; evaluate composed native
 capabilities and optimizer-visible contracts. Closure is a scenario where one meaning has several
 legitimate efficient realizations without a second owner or mandated universal abstraction.
-**Disposition: Deferred to standard adoption; owner: core/profile. Trigger: adopting this assessment.**
+**Disposition: Closed for standard adoption, 2026-10-05; core 3.3 and CI 1.4 separate authority from physical realization (§10).**
 
 <a id="f03"></a>
 **F03 — Assurance rules do not sufficiently distinguish additional protection from repeated
@@ -581,8 +580,7 @@ work.** Invariant enforcement and evidence closure are explicit; the physical co
 failure coverage of repeated enforcement are not. Refine DP-03/19/23 with admission, immutable reuse,
 reconciliation and certificate semantics; preserve independent controls. Closure is a coherent
 failure argument for removing repeated work without claiming that a digest proves correctness.
-**Disposition: Deferred to standard adoption; owner: core with profile applications. Trigger:
-adopting this assessment.**
+**Disposition: Closed for standard adoption, 2026-10-05; DP-03/19/23 and preserved profile guarantees satisfy the failure-coverage argument (§10).**
 
 <a id="f04"></a>
 **F04 — The review's prioritization and growth scenarios underweight operational architecture.**
@@ -590,8 +588,7 @@ The template emphasizes semantic extension scenarios and “measured costs”; f
 can obscure inability to serve a supported input. Amend slots and priority text as in §5.4, using
 existing review cadence. Closure is a review that considers assembled cardinality, skew, concurrency
 or recovery where material and distinguishes structural evidence from measured speed.
-**Disposition: Deferred to standard adoption; owner: template/profile review guidance and skills.
-Trigger: adopting this assessment.**
+**Disposition: Closed for standard adoption, 2026-10-05; amended review slots, acceptance, planning and ADR guidance apply execution fit without new process (§10).**
 
 | Alternative | Judgment |
 |---|---|
@@ -679,3 +676,63 @@ Documentation verification: `just docs-check` **passed** (309 canonical pages, z
 The pre-existing unclosed HTML-tag warning in the earlier native-realization evidence README
 remains outside this change. Product tests, real-library compilation and benchmarks are **not_run**
 for this assessment-only scope.
+
+
+## 10. Standard adoption and independent assessment — 2026-10-05
+
+**Implemented policy; Accept scoped.** The user authorized adoption across the five active
+repositories and the project template. The earlier sections retain the original assessment and
+proposal evidence; current policy lives in the amended standards and their architectural owners.
+F01–F04 close for standard adoption only. Product findings retain their existing disposition owners.
+
+| Repository | Adopted core/template | Domain profile | Decision |
+|---|---|---|---|
+| library-context | 3.3, FP-07/A4 | CI 1.4 | [ADR-0127](../../adr/0127-execution-fit-architecture.md), DESIGN §2 |
+| corpus-intelligence | 3.3, FP-07/A4 | CI 1.4 | ADR-0083, DESIGN §2 |
+| arrow-polars-duckdb | 3.3, FP-07/A4 | none | ADR-0011, DESIGN §2 |
+| thermo-knowledge | 3.3, FP-07/A4 | PS 1.4 | ADR-0070, DESIGN §2; binding owns AP/G9 crosswalk |
+| pse-arrow | 3.4, AP-07 through existing G9 | PS 1.5 | ADR-0162, DESIGN §24.4 |
+| project-template | 3.3, FP-07/A4 | optional CI 1.4 | Fresh-copy seeds ADR-0002/0006; existing-project protections retained |
+
+Core rules, review templates, relevant profile rules/additions, manifests, bindings, detailed
+instruction/index summaries and review/planning/ADR skills now carry the criteria. Existing
+accepted ADR bodies, historical reviews, generic routing references and Copier answers were
+preserved. Library capability skills remain repo-agnostic and unchanged; this task modifies
+architectural selection guidance, not their technical capability claims. No repository's store
+choice changes through this adoption.
+
+The independent design reviewer inspected all six written-policy implementations. All twelve
+lenses are substantively represented. A1–A4 are satisfied for policy adoption; PSE's corresponding
+AP-01–AP-07/G9 judgment is satisfied. No remaining material policy defect was found. One correction
+moved thermo's repository-specific crosswalk/application out of its domain profile into its binding.
+PSE retains PS-09's solver/composition division and PS-10's independent numerical checks.
+
+| Static counterexample | Required judgment under the adopted policy |
+|---|---|
+| Honest refusal with predictably unsuitable work | Truthfulness does not establish execution fit. |
+| Global SCC/fixpoint requiring a complete universe | Necessary global work remains valid; output selection cannot remove required inputs. |
+| Generated objects per semantic kind | Counts alone establish no defect; unjustified amplification can require revision. |
+| Removing repeated checks | Reuse needs unchanged premises and preserved independent/state/trust failure coverage. |
+| Reconciliation before writers finish | Drain/freeze the certified content and definitions, reconcile, then publish that same realization. |
+| Returned references outliving their pin | Bind references and continuations to the complete realization for the declared consumer journey. |
+| Small fixtures standing in for intended use | Cannot establish architectural acceptance of the broader workload. |
+
+**Verification, 2026-10-05:** library-context and corpus `just docs-check`, `just lint-agents`,
+`just adr-lint` passed; PSE `just docs`, `just lint-agents`, `just adr-lint` passed; arrow and thermo
+`just lint-agents`, `just adr-lint` passed. PSE's initial ADR check found a stale generated index;
+regeneration and rerun passed. Thermo's initial check found existing missing ADR-0065/0066 governing
+references; targeted reference repair and rerun passed without changing those decisions.
+Template `just test` passed core, Rust, Python and full render combinations, including optional CI
+profile and existing scaffold/doc checks. Root `just turn-end` passed in all five active repositories.
+These receipts establish documentation/scaffold scope.
+
+**Concurrent-tree limit:** a later PSE `just adr-lint` failed after another session introduced
+proposed ADR-0163, whose referenced contextual-accuracy-contracts review was not yet present, and
+changed the generated index inputs. Final PSE `just docs` and `just lint-agents` passed. The earlier
+adoption ADR receipt remains passed at its recorded baseline; the later all-tree failure is not
+claimed resolved. ADR-0163 and the concurrent product changes are outside this adoption commit.
+
+Independent review was static; no new probe, permanent alignment linter, benchmark campaign or
+ordinary-implementation review obligation was added. Product qualification, scientific campaigns,
+real-library compilation, performance measurement and graph-store implementation were **not_run**.
+This adoption does not establish any current product's workload fitness or runtime improvement.

@@ -2,11 +2,11 @@
 
 _Updated 2026-10-05 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Architectural-criteria assessment complete (Proposed / Revise standard, 2026-10-05).**
-The [assessment](docs/design_review/reviews/design_review_architectural-criteria_2026-10-05.md)
-recommends FP-07/A4 for execution fit, with twelve concrete architectural lenses and amendments to
-existing core/profile rules. It owns deferred F01–F04 until standard adoption; no governing text changed.
-Next: decide/adopt the standard revision, then record and plan the graph replacement.
+**Execution-fit principles adopted (Implemented / Accept scoped, 2026-10-05; ADR-0127).**
+Core/template 3.3 and CI 1.4 add FP-07/A4 with twelve architectural lenses; independent semantic
+and evidence gates remain. The [adoption assessment](docs/design_review/reviews/design_review_architectural-criteria_2026-10-05.md#10-standard-adoption-and-independent-assessment--2026-10-05)
+closes standard findings F01–F04 across five active repositories and the template.
+Next: record and plan the graph replacement. Product/store behavior is unchanged.
 The [capability assessment](docs/design_review/reviews/design_review_surrealdb-capabilities_2026-10-05.md)
 recommends native functions, graph/search composition, sealed realizations and exports; it owns F01–F03.
 The [target review](docs/design_review/reviews/design_review_graph-native-target_2026-10-05.md) recommends
@@ -46,7 +46,7 @@ assertion-pass cache, compatibility receipt readers or historical runtime archiv
 
 ## Last verified — 2026-10-05
 
-**Architectural-criteria assessment:** `just docs-check` **passed** (309 pages, zero link errors); independent review accepted scoped proposal.
+**Policy adoption:** `just docs-check`, `just lint-agents`, `just adr-lint` **passed** (310 pages, zero link errors); independent review Accept scoped.
 `just qualify`, real-library compilation and benchmarks **not_run** (assessment-only scope).
 
 **Earlier design-review session (store, compile and docs only; no product code changed):**

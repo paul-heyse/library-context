@@ -10,19 +10,22 @@ ADR-0040. Other design contracts and accepted decisions govern their domains; re
 
 | Layer | Document | Version |
 |---|---|---|
-| Core | [design principles](../core/design-principles.md), [review template](../core/design-review-template.md) | 3.2 (repository-owned edition, ADR-0040/0093) |
-| Profile | [code-intelligence principles](../profiles/code-intelligence/principles.md), [review additions](../profiles/code-intelligence/review.md) | 1.3 |
+| Core | [design principles](../core/design-principles.md), [review template](../core/design-review-template.md) | 3.3 (repository-owned edition, ADR-0040/0127) |
+| Profile | [code-intelligence principles](../profiles/code-intelligence/principles.md), [review additions](../profiles/code-intelligence/review.md) | 1.4 |
 | Binding | this page | — |
 
 The version/path declaration in [`standard.toml`](../standard.toml) is authoritative for loading.
 ADR-0040 establishes repository ownership; it replaces ADR-0023's unlocated shared-copy
-requirement. ADR-0093 adopts core/template 3.2 and profile guidance 1.3. Other repositories are
+requirement. ADR-0127 adopts core/template 3.3 and profile guidance 1.4, retaining ADR-0093's bounded assessment policy. Other repositories are
 not changed by a local revision. Preserve FP/DP/CI IDs and historical version semantics;
-FP-01–FP-06 and A1–A3 supply the architecture structure. FP-04/A2 assess whether an adequate,
+FP-01–FP-07 and A1–A4 supply the architecture structure. FP-04/A2 assess whether an adequate,
 explicit domain model governs behavior, independently of other architectural and fidelity judgments.
 This assessment belongs to the bounded reviews below. Ordinary implementation work does not
 itself trigger a domain-model review; investigation depth and optional flow tracing follow the
-concrete question being assessed.
+concrete question being assessed. FP-07/A4 assess physical work for the functional workload,
+independently of correctness gates: semantic declarations do not prescribe physical objects,
+execution hops or enforcement frequency. This policy does not itself adopt the proposed graph-store
+replacement; existing product decisions remain in force until their separate decision route.
 
 ## Reviews in this repository
 
@@ -90,8 +93,8 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a d
 ## 2. Recurring review questions, routed onto the gates
 
 Use these domain questions after reconstructing responsibilities and expected changes. Their
-gates constrain supported behavior; A1–A3 independently determine architectural fitness. A
-concrete change-propagation or testability defect can require revision without a failed G gate.
+gates constrain supported behavior; A1–A4 independently determine architectural fitness. A
+concrete change-propagation, testability or execution-fit defect can require revision without a failed G gate.
 
 | # | Question | Gate | Principles |
 |---|---|---|---|
@@ -111,14 +114,15 @@ concrete change-propagation or testability defect can require revision without a
 | 14 | Does a read, validation or inspection path mutate, fetch, build, or read ambient state, including analyzer config discovery? | G4 | DP-18, CI-10 |
 | 15 | Can anything under `.claude/skills/` (the gold reference) reach the compiler's inputs, or can analytics parameters be tuned on the gold? | CI-G3 | CI-12 |
 | 16 | Which phenomena and owned operations govern this feature, and do consumers reuse their meaning? Distinguish instances, bindings, compositions, policies, concepts and mechanisms when assessing change. | A1, A2, A3 | FP-01–06, DP-08, DP-16, core §E |
-| 17 | Does each added layer or technique have a named consumer in the served model (a tool's output or a brief), and does its ablation change published output (§9.8)? | — | DP-16 |
+| 17 | Does a complete compile or evidence request have a credible physical route as fact volume, semantic kinds or degree grow? Account for examined work, crossings, immutable reuse, assurance and publication scope. | A4 | FP-07, DP-03, DP-10, DP-19, DP-20, DP-23 |
+| 18 | Does each added layer or technique have a named consumer in the served model (a tool's output or a brief), and does its ablation change published output (§9.8)? | — | DP-16 |
 
 ## 3. Vocabulary and scenario authorities
 
 | Meaning | Authority |
 |---|---|
 | Design claim strength | Core principles §D; label and date the claim actually established |
-| Architectural judgments | Core §E, A1–A3; report separately from gate verdicts |
+| Architectural judgments | Core §E, A1–A4; report separately from gate verdicts |
 | Correctness/fidelity gate verdicts | Core §A and profile gates |
 | Check execution outcomes | AGENTS.md Reporting; each outcome names its command |
 | Domain fidelity, verdicts and boundary reasons | `lctx-model::domain` and DESIGN §15 (ADR-0085–0088); §3/§9 preserve typed provider and finite analysis obligations |
@@ -133,6 +137,8 @@ Select scenarios from the active plan. The recurring architectural questions are
 | Add a rendering | Consume canonical results/evidence without another semantic interpreter |
 | Change an invariant | Update its authoritative definition and mechanical derivations; inspect independent enforcement |
 | Test a transformation | Explicit inputs and observable outputs without unrelated acquisition/store/server setup |
+| Grow a real-library compile or serve a high-degree outlier | Work follows required input; per-kind layout/hops need a workload reason; resource and recovery scope remain credible |
+| Follow evidence across calls while publishing a new realization | Returned references, resources and continuations remain pinned to complete content and answer-affecting definitions |
 
 These are scenario seeds, not promises about current implementation. The review names its chosen
 scenario, expected propagation, observed or proposed route, and evidence strength. Shared Arrow

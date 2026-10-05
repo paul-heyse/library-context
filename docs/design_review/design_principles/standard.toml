@@ -4,13 +4,13 @@
 [core]
 # Repository owns this edition; ADR-0040 replaces the verbatim-copy policy.
 owner = "repository"
-version = "3.2"
+version = "3.3"
 principles = "core/design-principles.md"
 template = "core/design-review-template.md"
 
 [[profiles]]
 name = "code-intelligence"
-version = "1.3"
+version = "1.4"
 prefix = "CI"
 principles = "profiles/code-intelligence/principles.md"
 review = "profiles/code-intelligence/review.md"

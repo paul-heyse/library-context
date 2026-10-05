@@ -7,7 +7,7 @@ allowed-tools: Read, Glob, Grep, Bash, Write, Edit, Agent
 # Design review — code-intelligence profile
 
 This skill **layers onto `design-review`**; it never replaces it. Load the core skill first.
-The core fixes slots 1–12, foundations FP-01–FP-06, architectural judgments A1–A3,
+The core fixes slots 1–12, foundations FP-01–FP-07, architectural judgments A1–A4,
 gates G1–G8, findings and decisions. This profile adds domain constraints. Its fact and
 fidelity analysis supports ownership, contracts, change and composition; it does not replace them.
 Core FP-04/A2 require an adequate domain model that governs behavior; an attributed fact schema
@@ -40,6 +40,11 @@ profile names none.
    operations behind the facts and relations in the review scope.
    Check whether consumers independently classify the same concept or interpret an operation's
    outcomes, and identify the affected owners.
+6. **Execution fit under A4:** canonical graph-native artifacts are permitted; declared views
+   retain their universe/edge semantics without necessarily rebuilding a graph. Compare semantic
+   and physical fit across query engines, graph libraries and transfer/fixpoint kernels. Include
+   degree, examined work and intermediate bytes beside output bounds. Consumer pins cover the
+   entire declared journey, including evidence references, resources and continuations.
 
 ## Lenses
 

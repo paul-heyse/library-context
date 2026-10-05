@@ -200,6 +200,24 @@ equations are solved sequentially and converge elsewhere or fail, with no diagno
 **Verification:** a fixture with such a cycle asserting one block of size two; it fails today.
 DP-07, DP-12, G6."
 
+### G — Execution fit without a benchmark claim
+
+**Inadequate.** "The implementation uses a database and bounds every response, so performance
+is outside this review until benchmarks exist."
+
+**Adequate.** "A request for ten records rehashes an unchanged immutable catalog, then makes one
+round trip per semantic kind before fetching the records. More unrelated catalog data and more
+kinds therefore increase work for the same answer. **Consequence:** unnecessary global work and
+crossings in a supported repeated-small-request workload. **Correction:** establish immutable
+validity at sealing, retain its premises, use indexed batch access, and keep checks for new trust
+boundaries. **Verification:** inspect the new access and validity lifetimes; benchmark separately
+before claiming latency or capacity. FP-07, DP-03, DP-10, DP-23, A4."
+
+A global SCC computation can legitimately need all nodes and edges even when returning one node's
+component. An output selector cannot justify shrinking the semantic universe. A single native
+query also needs scrutiny of its physical work. These counterexamples prevent "less work" from
+becoming a reason to weaken correctness or a synonym for "one call."
+
 ## §3 How the slots compress
 
 | Slot | Document subject | Code subject | Change review |
@@ -207,15 +225,15 @@ DP-07, DP-12, G6."
 | 1 Scope and coverage | With method note | With method note | Compressed; keep the coverage note |
 | 2 Owners and authority | Reconstruct domain model, boundaries/dependencies | Actual semantic definitions, operations and consumers | Affected boundary and consumers |
 | 3 Contracts | Concepts and operations | Invariant owners and enforcement sites cited | Merged into findings |
-| 4 Stage table | Reconstructed per stage | From the executing path | Only stages carrying a finding |
-| 5 Scenarios | Expected changes; failures where relevant | Trace real owners and consumers | One relevant change or explicit scope reason |
+| 4 Composition/execution | Semantic and physical routes | Actual access, work, movement, reuse and lifecycle | Affected operations |
+| 5 Scenarios | Changes plus relevant growth/skew/concurrency/failure | Actual owners and credible workload | Relevant scenario or explicit scope reason |
 | 6 Gates | Tabular | Tabular | Tabular |
 | 7 Findings | Tabular | Tabular | Tabular |
-| 8 Library fit | Expected | Expected | Changed capability or scope reason |
+| 8 Library fit | Composed capabilities and total machinery | Actual composition/optimizer/locality | Changed capability or scope reason |
 | 9 Alternatives | Worth the work | Worth the work | Optional; say why omitted |
 | 10 Verification | Proposed checks | Existing coverage and gaps | Top gaps only |
 | 11 Authority changes / exceptions | Target reviews; deviations | Same | Only if present |
-| 12 Architecture and decision | A1–A3 and scoped decision | A1–A3 and scoped decision | Bounded judgment; enclosing limit |
+| 12 Architecture and decision | A1–A4 and scoped decision | A1–A4 and scoped decision | Bounded judgment; enclosing limit |
 
 <a id="synthesis-and-corrective-reasoning"></a>
 
