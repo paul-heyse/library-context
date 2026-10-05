@@ -45,6 +45,13 @@ pub fn render(
         .checked_mul(6)
         .and_then(|n| n.checked_add(128))
         .ok_or_else(|| ModelError::Invalid("value presentation size overflow".into()))?;
+    // Display may expand a finite binary64 into 327 decimal characters. Admit a single
+    // fixed-capacity buffer before formatting, including sign and a float suffix.
+    let allowance = if mode != Mode::CapturedSource && matches!(literal, Literal::Float { .. }) {
+        allowance.max(512)
+    } else {
+        allowance
+    };
     let reservation = budget.reserve("literal_presentation", allowance)?;
     let text = if mode == Mode::CapturedSource {
         source.expect("source checked above").to_owned()
@@ -96,7 +103,8 @@ pub fn render(
                     };
                     format!("{name} (IEEE-754 bits 0x{:016x})", *bits as u64)
                 } else {
-                    let mut text = value.to_string();
+                    let mut text = String::with_capacity(512);
+                    write!(text, "{value}").expect("string write");
                     if !text.contains(['.', 'e', 'E']) {
                         text.push_str(".0");
                     }
@@ -195,6 +203,33 @@ mod tests {
             render(&Literal::None, Mode::Human, None, &refused),
             Err(ModelError::Resource { .. })
         ));
+    }
+    #[test]
+    fn finite_float_extremes_roundtrip_bits_and_account_the_formatting_buffer() {
+        let bits = [1u64, 0x8000000000000001, f64::MAX.to_bits(), (-f64::MAX).to_bits()];
+        let budget = ResourceBudget::fixed(512).unwrap();
+        let mut expressions = Vec::new();
+        for bits in bits {
+            let literal = Literal::Float { bits: bits as i64 };
+            let rendered = render(&literal, Mode::PythonExpression, None, &budget)
+                .unwrap().unwrap();
+            assert_eq!(budget.reserved(), 512);
+            assert_eq!(rendered.text.capacity(), 512);
+            assert!(rendered.text.len() <= budget.reserved());
+            expressions.push((bits.to_string(), rendered.text.clone()));
+            drop(rendered);
+            assert_eq!(budget.reserved(), 0);
+            let refused = ResourceBudget::fixed(511).unwrap();
+            assert!(matches!(render(&literal, Mode::PythonExpression, None, &refused),
+                Err(ModelError::Resource { .. })));
+            assert_eq!(refused.reserved(), 0);
+        }
+        let encoded = serde_json::to_string(&expressions).unwrap();
+        let output = std::process::Command::new("uv")
+            .args(["run", "--no-sync", "python", "-I", "-c",
+                "import json,struct,sys; rows=json.loads(sys.argv[1]); assert all(struct.unpack('>Q', struct.pack('>d', eval(expression, {'__builtins__': {}})))[0] == int(bits) for bits,expression in rows)",
+                &encoded]).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     }
     #[test]
     fn large_signed_integer_expressions_execute_under_python_decimal_limits() {
