@@ -11,18 +11,17 @@ use lctx_model::domain::{
         build::{self, CatalogData},
     },
     normalized::Rows,
-    stages::*,
     *,
 };
 use std::sync::Arc;
+use lctx_model::domain::stages::ProviderOutcome;
 async fn load<R: Record>(
     session: &SessionContext,
     rows: &mut Rows<R>,
     permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
-    let query = session
-        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -35,9 +34,9 @@ async fn load<R: Record>(
 /// Internal stage entry; public catalog frontiers are assembled separately by F0.
 pub async fn produce(
     access: CompletedInputs,
-    mut output: ProducerOutput,
+    output: ProducerOutput,
     runtime: &Workspace,
-    model: &Arc<ValidatedModel>,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
@@ -170,14 +169,14 @@ pub async fn produce(
 /// Retained callable/field metadata completed under the normalized authority before C0.
 pub async fn aspects(
     access: CompletedInputs,
-    mut output: ProducerOutput,
+    output: ProducerOutput,
     runtime: &Workspace,
-    model: &Arc<ValidatedModel>,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use normalized::callable_aspects::{self, AspectData};
     let session = access.session(runtime).await?;
     let mut data = AspectData::new(runtime.budget());
-    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;let query=session.sql(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.$field.decode(&batch)?;}})*};}
+    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$({access.read::<$ty>()?;let query=crate::sql::query(&session,&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.$field.decode(&batch)?;}})*};}
     lctx_model::callable_aspect_inputs!(read);
     drop(session);
     let budget = runtime.budget().clone();

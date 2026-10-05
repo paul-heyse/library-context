@@ -24,8 +24,7 @@ async fn load<R: Record>(
     }
     let permit = access.read::<R>()?;
     
-    let query = session
-        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;

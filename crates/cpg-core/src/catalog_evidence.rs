@@ -11,18 +11,17 @@ use lctx_model::domain::{
         build::{self, EvidenceData},
     },
     normalized::Rows,
-    stages::*,
     *,
 };
 use std::sync::Arc;
+use lctx_model::domain::stages::ProviderOutcome;
 async fn load<R: Record>(
     session: &SessionContext,
     rows: &mut Rows<R>,
     permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
-    let query = session
-        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -34,9 +33,9 @@ async fn load<R: Record>(
 }
 pub async fn produce(
     access: CompletedInputs,
-    mut output: ProducerOutput,
+    output: ProducerOutput,
     runtime: &Workspace,
-    model: &Arc<ValidatedModel>,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;

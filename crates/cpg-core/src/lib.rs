@@ -4,7 +4,6 @@ pub mod analysis_graphs;
 pub mod analysis_prepare;
 pub mod analytic_embedding;
 pub mod analytic_text;
-// src/bundle.rs remains uncompiled Phase 5 recovery source (P4 plan §11).
 pub mod analytic;
 pub mod catalog_core;
 pub mod catalog_evidence;
@@ -56,3 +55,7 @@ pub mod semantic_summaries;
 
 /// Store-free attempt workspace and immutable completed inputs.
 pub mod workspace;
+
+pub mod artifact;
+
+mod artifact_manifest;

@@ -1,5 +1,5 @@
 //! The one SQL entry point (DESIGN §4.3; review F7): DDL, DML and statements are disallowed, so no
-//! compute query can write to a fact table and bypass generation admission or validation.
+//! compute query can write to a completed input and bypass its compiler owner.
 
 use datafusion::dataframe::DataFrame;
 use datafusion::error::Result;
@@ -19,8 +19,3 @@ pub async fn query(ctx: &SessionContext, sql: &str) -> Result<DataFrame> {
     ctx.sql_with_options(sql, read_only()).await
 }
 
-/// Run a read-only query and render its result as a table (the `lctx query` output).
-pub async fn render(ctx: &SessionContext, sql: &str) -> Result<String> {
-    let batches = query(ctx, sql).await?.collect().await?;
-    Ok(datafusion::arrow::util::pretty::pretty_format_batches(&batches)?.to_string())
-}

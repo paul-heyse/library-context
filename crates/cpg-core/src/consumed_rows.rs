@@ -34,7 +34,7 @@ pub async fn stream<R: Record>(
     input: &CompletedInput<R>, session: &SessionContext,
     mut consume: impl FnMut(&CompletedInput<R>, &arrow_array::RecordBatch)->Result<(),ModelError>,
 ) -> Result<(), ModelError> {
-    let mut batches = session.sql(&format!("SELECT * FROM \"{}\"", R::NAME)).await.map_err(ModelError::codec)?
+    let mut batches = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME)).await.map_err(ModelError::codec)?
         .execute_stream().await.map_err(ModelError::codec)?;
     while let Some(batch) = batches.try_next().await.map_err(ModelError::codec)? {
         consume(input, &batch)?;

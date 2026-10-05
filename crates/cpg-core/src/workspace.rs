@@ -36,6 +36,21 @@ impl Cancellation {
     }
 }
 struct WorkspaceFiles { directory: tempfile::TempDir }
+#[derive(PartialEq,Eq)]
+struct CompilationCompletion {
+    frontier:lctx_model::domain::admission::Frontier,profile:Profile,configuration:ContentHash,
+    captures:ContentHash,content:ContentHash,
+}
+fn capture_identity(captured:&cpg_extract::bundle::CapturedInputs,budget:&ResourceBudget)->Result<ContentHash,ModelError>{
+    use lctx_model::domain::Key;
+    let _keys=budget.reserve("compiler-capture-keys",captured.inputs().len().saturating_mul(64))?;
+    let mut ids=captured.inputs().iter().map(|input|input.captured().revision().id()).collect::<Vec<_>>();
+    ids.sort_unstable();
+    if ids.windows(2).any(|pair|pair[0]==pair[1]){return Err(ModelError::Invalid("duplicate compiler capture".into()));}
+    let mut sink=lctx_model::domain::KeySink::new("compiler-captures/v1");
+    for id in ids{id.encode(&mut sink);}
+    Ok(sink.finish())
+}
 /// The attempt owns one runtime, spill directory, buffer budget, and completed relation registry.
 pub struct Workspace {
     files: Arc<WorkspaceFiles>,
@@ -44,9 +59,11 @@ pub struct Workspace {
     budget: ResourceBudget,
     model: Arc<ValidatedModel>,
     completed: Mutex<BTreeMap<&'static str, Arc<CompletedRelation>>>,
+    frozen_vocabulary: Mutex<BTreeMap<(lctx_model::domain::stages::PublicationBoundary, &'static str), Arc<CompletedRelation>>>,
     next: AtomicU64,
     cancellation: Cancellation,
     completion_gate: tokio::sync::Mutex<()>,
+    compilation_complete:Mutex<Option<CompilationCompletion>>,
 }
 impl Workspace {
     pub fn new(model: Arc<ValidatedModel>, options: WorkspaceOptions) -> Result<Arc<Self>, ModelError> {
@@ -68,9 +85,11 @@ impl Workspace {
             budget: ResourceBudget::from_pool(Arc::new(WorkspacePool { memory: runtime.memory_pool.clone(), limit: options.memory_bytes }))?,
             model,
             completed: Mutex::default(),
+            frozen_vocabulary: Mutex::default(),
             next: AtomicU64::new(0),
             cancellation: Cancellation::default(),
             completion_gate: tokio::sync::Mutex::new(()),
+            compilation_complete:Mutex::default(),
         }))
     }
     /// Reuse a captured native configuration's pool. DataFusion allocations and typed retained
@@ -86,6 +105,23 @@ impl Workspace {
         owner.context=SessionContext::new_with_config_rt(owner.context.copied_config(),runtime);
         owner.budget=budget;
         Ok(workspace)
+    }
+    fn writable(&self)->Result<(),ModelError>{
+        if self.compilation_complete.lock().map_err(|_|poisoned())?.is_some(){return Err(ModelError::Invalid("completed compiler workspace is immutable".into()));}
+        Ok(())
+    }
+    pub(crate) async fn finish_compilation(&self,captures:ContentHash,frontier:lctx_model::domain::admission::Frontier,profile:Profile,configuration:ContentHash)->Result<(),ModelError>{
+        let _gate=self.completion_gate.lock().await;
+        self.cancellation.check()?;self.writable()?;
+        let content=self.content()?;
+        *self.compilation_complete.lock().map_err(|_|poisoned())?=Some(CompilationCompletion{frontier,profile,configuration,captures,content});
+        Ok(())
+    }
+    pub(crate) fn captures(&self,captured:&cpg_extract::bundle::CapturedInputs)->Result<ContentHash,ModelError>{capture_identity(captured,&self.budget)}
+    pub(crate) fn require_compilation(&self,captured:&cpg_extract::bundle::CapturedInputs,frontier:lctx_model::domain::admission::Frontier,profile:Profile,configuration:ContentHash)->Result<(),ModelError>{
+        let expected=CompilationCompletion{frontier,profile,configuration,captures:self.captures(captured)?,content:self.content()?};
+        if self.compilation_complete.lock().map_err(|_|poisoned())?.as_ref()!=Some(&expected){return Err(ModelError::Invalid("artifact requires the completed requested compilation and exact captures".into()));}
+        Ok(())
     }
     fn coverage_rows<R:Record>(&self)->Result<(Vec<R>,StateCharge),ModelError> {
         let mut rows=Vec::new();
@@ -123,12 +159,35 @@ impl Workspace {
         let inputs=self.inputs("artifact-admission",Profile::Catalog,names.iter().copied())?;
         let session=inputs.session(self).await?;
         self.validate_references(&session,&relations).await?;
-        for invariant in self.model.invariants_for_scope(&names)? {
+        // Catalog explicitly leaves native flow unrequested. Empty premises come from that
+        // provider declaration, never from arbitrary missing requested relations.
+        let mut unrequested=std::collections::BTreeSet::new();
+        if relations.iter().all(|r|r.profile==Profile::Catalog)
+            && names.contains(lctx_model::domain::normalized::bindings::CallBinding::NAME) {
+            let declaration=crate::facts::providers(ContentHash::of(b"flow-profile-premises")).into_iter()
+                .map(|provider|provider.declaration(Profile::Behavioral)).find(|stage|stage.name=="ty_flow")
+                .ok_or_else(||ModelError::Invalid("native flow declaration missing".into()))?;
+            for relation in declaration.outputs.iter().filter(|relation|!lctx_model::domain::stages::is_vocabulary(relation.name())) {
+                if !names.contains(relation.name()) {
+                    session.register_batch(relation.name(),RecordBatch::new_empty(self.model.relation(relation.name()).ok_or(ModelError::Schema(relation.name()))?.schema().clone())).map_err(ModelError::codec)?;
+                    unrequested.insert(relation.name());
+                }
+            }
+        }
+        let frozen=self.frozen_vocabulary.lock().map_err(|_|poisoned())?.clone();
+        let mut frozen_tables=BTreeMap::new();
+        for ((boundary,name),source) in &frozen {
+            let table=format!("_frozen_{boundary:?}_{name}");
+            session.register_arrow(&table,source.path.to_string_lossy(),ArrowReadOptions::default().schema(source.relation.schema().as_ref())).await.map_err(ModelError::codec)?;
+            frozen_tables.insert((*boundary,*name),table);
+        }
+        for invariant in self.model.invariants_for_scope_with_premises(&names,&unrequested)? {
             let mut check=(invariant.create)(self.budget());
             for input in &invariant.inputs {
                 let order=input.order().iter().map(|name|format!("\"{name}\"")).collect::<Vec<_>>().join(",");
-                let sql=format!("SELECT * FROM \"{}\"{}",input.name(),if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")});
-                let mut stream=session.sql(&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                let table=match input.prefix(){Some(boundary) if !frozen.is_empty()=>frozen_tables.get(&(boundary,input.name())).map(String::as_str).ok_or_else(||ModelError::Invalid(format!("missing frozen validation input {}",input.name())))?,_=>input.name()};
+                let sql=format!("SELECT * FROM \"{}\"{}",table,if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")});
+                let mut stream=crate::sql::query(&session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
                 while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {self.cancellation.check()?;check.visit_input(input,&batch)?;}
             }
             check.finish()?;
@@ -158,7 +217,7 @@ impl Workspace {
             for input in &invariant.inputs {
                 let order=input.order().iter().map(|name|format!("\"{name}\"")).collect::<Vec<_>>().join(",");
                 let sql=format!("SELECT * FROM \"{}\"{}",input.name(),if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")});
-                let mut stream=session.sql(&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                let mut stream=crate::sql::query(&session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
                 while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {self.cancellation.check()?;check.visit_input(input,&batch)?;}
             }
             check.finish(&source.inputs,source.profile)?;
@@ -188,7 +247,7 @@ impl Workspace {
             for batch in source.batches()? {
                 self.cancellation.check()?;
                 let batch=batch.map_err(ModelError::codec)?;
-                let _input=self.budget.reserve("nominal-reference-input",batch.get_array_memory_size())?;
+                let _input=self.budget.reserve("nominal-reference-input",lctx_model::domain::logical_batch_bytes(&batch)?)?;
                 let row_ids=batch.column_by_name("id").and_then(|c|c.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema(source.name()))?;
                 let subtype=source.relation.sum().map(|sum|batch.column_by_name(sum.tag).and_then(|c|c.as_any().downcast_ref::<Int16Array>()).ok_or(ModelError::Schema(source.name()))).transpose()?;
                 let mut names=StringBuilder::new();let mut key_ids=FixedSizeBinaryBuilder::new(16);let mut key_tags=Int16Builder::new();
@@ -210,7 +269,7 @@ impl Workspace {
         drop(targets);drop(references);drop(_buffer);
         session.register_arrow("_nominal_targets",target_path.to_string_lossy(),ArrowReadOptions::default().schema(&target_schema)).await.map_err(ModelError::codec)?;
         session.register_arrow("_nominal_references",refs_path.to_string_lossy(),ArrowReadOptions::default().schema(&refs_schema)).await.map_err(ModelError::codec)?;
-        let mut stream=session.sql("SELECT r.source,r.field,r.target FROM _nominal_references r LEFT JOIN _nominal_targets t ON r.target=t.relation AND r.id=t.id WHERE t.id IS NULL OR (r.subtype IS NOT NULL AND (t.subtype IS NULL OR r.subtype<>t.subtype)) LIMIT 1").await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        let mut stream=crate::sql::query(&session,"SELECT r.source,r.field,r.target FROM _nominal_references r LEFT JOIN _nominal_targets t ON r.target=t.relation AND r.id=t.id WHERE t.id IS NULL OR (r.subtype IS NOT NULL AND (t.subtype IS NULL OR r.subtype<>t.subtype)) LIMIT 1").await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
         while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
             if batch.num_rows()>0 {return Err(ModelError::Invalid(format!("missing or wrong-subtype nominal reference: {batch:?}")));}
         }
@@ -238,17 +297,40 @@ impl Workspace {
         for name in names { relations.insert(name, self.relation(name)?); }
         Ok(CompletedInputs { name, profile, relations })
     }
+    /// Bind each declared semantic boundary to immutable vocabulary streams. Only small
+    /// descriptors are retained; later contributions cannot widen an earlier producer's inputs.
+    pub fn freeze_inputs(&self,boundary:lctx_model::domain::stages::PublicationBoundary)->Result<(),ModelError>{
+        let completed=self.completed.lock().map_err(|_|poisoned())?;
+        let mut frozen=self.frozen_vocabulary.lock().map_err(|_|poisoned())?;
+        if frozen.keys().any(|(existing,_)|*existing==boundary){return Err(ModelError::Invalid("compiler input boundary already frozen".into()));}
+        for (name,source) in completed.iter().filter(|(name,_)|lctx_model::domain::stages::is_vocabulary(name)) {
+            frozen.insert((boundary,*name),source.clone());
+        }
+        Ok(())
+    }
+    pub fn stage_inputs(&self,declaration:&lctx_model::domain::stages::Stage,profile:Profile)->Result<CompletedInputs,ModelError>{
+        let frozen=self.frozen_vocabulary.lock().map_err(|_|poisoned())?;
+        let mut relations=BTreeMap::new();
+        for input in &declaration.inputs {
+            let source=if let Some(boundary)=input.prefix(){
+                frozen.get(&(boundary,input.name())).cloned().ok_or_else(||ModelError::Invalid(format!("{} lacks frozen {:?} input {}",declaration.name,boundary,input.name())))?
+            }else {self.relation(input.name())?};
+            relations.insert(input.name(),source);
+        }
+        Ok(CompletedInputs{name:declaration.name,profile,relations})
+    }
     pub fn output(self: &Arc<Self>, name: &'static str, profile: Profile, implementation: ContentHash, inputs: CompletedInputs) -> ProducerOutput {
-        ProducerOutput { workspace: self.clone(), name, profile, implementation, inputs,
+        ProducerOutput { workspace: self.clone(), name, profile, implementation, configuration:None, inputs,
             expected: None, allowed: None, writers: Mutex::default(), outcome: Mutex::new(None), failed: AtomicBool::new(false) }
     }
     pub fn producer(self:&Arc<Self>,declaration:&lctx_model::domain::stages::Stage,profile:Profile,inputs:CompletedInputs)->ProducerOutput {
         let mut output=self.output(declaration.name,profile,declaration.code,inputs);
+        output.configuration=Some(declaration.configuration);
         output.expected=Some(declaration.outputs.iter().map(|r|r.name()).collect());
         output.allowed=Some(declaration.outputs.iter().chain(&declaration.contributes).map(|r|r.name()).collect());
         output
     }
-    async fn order(&self, producer: &'static str, implementation: ContentHash, pending: PendingRelation, inputs: Arc<[lctx_model::domain::analysis::sources::SourceSnapshot]>, profile: Profile) -> Result<Arc<CompletedRelation>, ModelError> {
+    async fn order(&self, producer: &'static str, implementation: ContentHash, configuration:Option<ContentHash>, pending: PendingRelation, inputs: Arc<[lctx_model::domain::analysis::sources::SourceSnapshot]>, profile: Profile) -> Result<Arc<CompletedRelation>, ModelError> {
         self.cancellation.check()?;
         let name = pending.relation.name();
         let path = self.path(name, "complete");
@@ -264,14 +346,14 @@ impl Workspace {
             .await.map_err(ModelError::codec)?;
         self.context.register_table(&table, frame.into_view()).map_err(ModelError::codec)?;
         let result = async {
-            let mut stream = self.context.sql(&format!("SELECT * FROM \"{table}\" ORDER BY id"))
+            let mut stream = crate::sql::query(&self.context,&format!("SELECT * FROM \"{table}\" ORDER BY id"))
                 .await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
             let mut writer = FileWriter::try_new(File::create(&path).map_err(ModelError::codec)?, pending.relation.schema().as_ref()).map_err(ModelError::codec)?;
             let mut content = pending.relation.content();
             let mut previous: Option<RecordBatch> = None;
             while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
                 self.cancellation.check()?;
-                let _buffer = self.budget.reserve("workspace-order-batch", batch.get_array_memory_size().saturating_mul(3))?;
+                let _buffer = self.budget.reserve("workspace-order-batch", lctx_model::domain::logical_batch_bytes(&batch)?.saturating_mul(3))?;
                 let ids = batch.column_by_name("id").and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema(name))?;
                 let mut selected = Vec::with_capacity(batch.num_rows());
                 for index in 0..batch.num_rows() {
@@ -299,7 +381,7 @@ impl Workspace {
             writer.into_inner().map_err(ModelError::codec)?.sync_all().map_err(ModelError::codec)?;
             self.cancellation.check()?;
             let (rows, content) = content.finish();
-            Ok(Arc::new(CompletedRelation { relation: pending.relation, producer, implementation,
+            Ok(Arc::new(CompletedRelation { relation: pending.relation, producer, implementation, configuration,
                 contract: self.model.digest(), content, rows, inputs, profile, contribution:pending.contribution, snapshot: (pending.snapshot)(producer, self.model.digest(), implementation, content, rows)?, path, _files: self.files.clone() }))
         }.await;
         self.context.deregister_table(&table).map_err(ModelError::codec)?;
@@ -313,6 +395,7 @@ pub struct CompletedRelation {
     relation: Relation,
     producer: &'static str,
     implementation: ContentHash,
+    configuration:Option<ContentHash>,
     contract: ContentHash,
     content: ContentHash,
     rows: u64,
@@ -330,6 +413,7 @@ impl CompletedRelation {
     pub fn rows(&self) -> u64 { self.rows }
     pub fn producer(&self) -> &'static str { self.producer }
     pub fn implementation(&self) -> ContentHash { self.implementation }
+    pub fn configuration(&self)->Option<ContentHash> {self.configuration}
     pub fn contract(&self) -> ContentHash { self.contract }
     pub fn snapshot(&self) -> lctx_model::domain::analysis::sources::SourceSnapshot { self.snapshot.clone() }
     pub fn batches(&self) -> Result<FileReader<File>, ModelError> {
@@ -410,7 +494,7 @@ impl<R: Record> ErasedWriter for Writer<R> {
 }
 /// One producer owns pending streams; completion makes its whole output set visible atomically.
 pub struct ProducerOutput {
-    workspace: Arc<Workspace>, name: &'static str, profile: Profile, implementation: ContentHash,
+    workspace: Arc<Workspace>, name: &'static str, profile: Profile, implementation: ContentHash, configuration:Option<ContentHash>,
     inputs: CompletedInputs, expected: Option<std::collections::BTreeSet<&'static str>>, allowed: Option<std::collections::BTreeSet<&'static str>>, writers: Mutex<BTreeMap<&'static str, Box<dyn ErasedWriter>>>,
     outcome: Mutex<Option<ProviderOutcome>>, failed: AtomicBool,
 }
@@ -420,6 +504,7 @@ impl ProducerOutput {
     pub fn workspace(&self) -> &Arc<Workspace> { &self.workspace }
     fn check(&self) -> Result<(), ModelError> {
         self.workspace.cancellation.check()?;
+        self.workspace.writable()?;
         if self.failed.load(Ordering::Acquire) || self.outcome.lock().map_err(|_| poisoned())?.is_some() {
             return Err(ModelError::Invalid("producer output is closed or failed".into()));
         }
@@ -494,8 +579,10 @@ impl ProducerOutput {
     }
     pub async fn complete(self) -> Result<(), ModelError> {
         self.workspace.cancellation.check()?;
+        self.workspace.writable()?;
         if self.failed.load(Ordering::Acquire) || self.outcome.lock().map_err(|_| poisoned())?.is_none() { return Err(ModelError::Invalid("producer did not complete successfully".into())); }
         let _completion=self.workspace.completion_gate.lock().await;
+        self.workspace.writable()?;
         let writers = self.writers.into_inner().map_err(|_| poisoned())?;
         if let Some(expected)=&self.expected {
             if let Some(name)=expected.iter().find(|name|!writers.contains_key(**name)) {return Err(ModelError::Invalid(format!("{} omitted completed output {name}",self.name)));}
@@ -504,7 +591,7 @@ impl ProducerOutput {
         let mut completed = Vec::new();
         for (_, writer) in writers {
             let pending = writer.close(&self.workspace.model, self.workspace.budget())?;
-            completed.push(self.workspace.order(self.name, self.implementation, pending, input_snapshots.clone(), self.profile).await?);
+            completed.push(self.workspace.order(self.name, self.implementation, self.configuration, pending, input_snapshots.clone(), self.profile).await?);
         }
         self.workspace.cancellation.check()?;
         let mut visible = self.workspace.completed.lock().map_err(|_| poisoned())?;

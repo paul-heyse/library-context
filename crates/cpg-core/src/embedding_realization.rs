@@ -66,8 +66,7 @@ impl<'a> Session<'a> {
         macro_rules! read {
             ($ty:ty,$rows:ident) => {{
                 let _permit = access.read::<$ty>()?;
-                let query = session
-                    .sql(&format!("SELECT * FROM \"{}\"", <$ty>::NAME))
+                let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", <$ty>::NAME))
                     .await
                     .map_err(ModelError::codec)?;
                 let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;

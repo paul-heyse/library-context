@@ -11,18 +11,17 @@ use lctx_model::domain::{
         self,
         build::{self, Data},
     },
-    stages::*,
     *,
 };
 use std::sync::Arc;
+use lctx_model::domain::stages::ProviderOutcome;
 async fn load<R: Record>(
     session: &SessionContext,
     rows: &mut Rows<R>,
     permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
-    let query = session
-        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -34,9 +33,9 @@ async fn load<R: Record>(
 }
 pub async fn produce(
     access: CompletedInputs,
-    mut output: ProducerOutput,
+    output: ProducerOutput,
     runtime: &Workspace,
-    model: &Arc<ValidatedModel>,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
@@ -53,7 +52,7 @@ pub async fn produce(
     lctx_model::catalog_evidence_inputs!(facts);
     macro_rules! evidence {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.evidence.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_evidence_outputs!(evidence);
-    macro_rules! selection_facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;if registered.insert(&mut registration,<$ty>::NAME)? {load(&session,&mut data.facts.$f,&permit,&mut admission).await?;} else {let query=session.sql(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {data.facts.$f.decode(&batch)?;}})*};}
+    macro_rules! selection_facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;if registered.insert(&mut registration,<$ty>::NAME)? {load(&session,&mut data.facts.$f,&permit,&mut admission).await?;} else {let query=crate::sql::query(&session,&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {data.facts.$f.decode(&batch)?;}})*};}
     lctx_model::catalog_selection_inputs!(selection_facts);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
     let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());

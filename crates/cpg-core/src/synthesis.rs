@@ -1,5 +1,4 @@
 //! Single S0 writer; rendering never reconstructs graphs or invents completed parents.
-use datafusion::execution::context::SessionContext;
 use crate::{
     workspace::{CompletedInputs, ProducerOutput, Workspace},
     synthesis_preparation,
@@ -34,7 +33,7 @@ pub async fn produce(
     access: CompletedInputs,
     mut output: ProducerOutput,
     runtime: &Workspace,
-    model: &Arc<ValidatedModel>,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     let captured = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&captured, runtime.budget())?;

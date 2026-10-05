@@ -7,14 +7,13 @@ use futures::TryStreamExt;
 use lctx_model::domain::{
     embedding::text::{self, TextAssessment, TextData, TextDefinition, TextSubject, TextWindow},
     normalized::Rows,
-    stages::*,
     *,
 };
 use std::sync::Arc;
+use lctx_model::domain::stages::ProviderOutcome;
 
 async fn load<R: Record>(session: &SessionContext, rows: &mut Rows<R>) -> Result<(), ModelError> {
-    let query = session
-        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -25,9 +24,9 @@ async fn load<R: Record>(session: &SessionContext, rows: &mut Rows<R>) -> Result
 }
 pub async fn publish(
     access: CompletedInputs,
-    mut output: ProducerOutput,
+    output: ProducerOutput,
     runtime: &Workspace,
-    model: &Arc<ValidatedModel>,
+    _model: &Arc<ValidatedModel>,
     definition: TextDefinition,
 ) -> Result<(), ModelError> {
     let session = access.session(runtime).await?;

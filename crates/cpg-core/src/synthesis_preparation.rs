@@ -7,14 +7,12 @@ use crate::{
 use futures::TryStreamExt;
 use lctx_model::domain::{
     normalized::Rows,
-    stages::*,
     synthesis::documentary::{Data, Output},
     *,
 };
 use std::sync::Arc;
 async fn load<R: Record>(session: &SessionContext, rows: &mut Rows<R>) -> Result<(), ModelError> {
-    let query = session
-        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -26,11 +24,11 @@ async fn load<R: Record>(session: &SessionContext, rows: &mut Rows<R>) -> Result
 pub async fn documentary(
     access: &CompletedInputs,
     runtime: &Workspace,
-    model: &Arc<ValidatedModel>,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(Data, Output), ModelError> {
     let session = access.session(runtime).await?;
     let mut data = Data::new(runtime.budget());
-    macro_rules! read{($($field:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;load(&session,&mut data.$field).await?;)*};}
+    macro_rules! read{($($field:ident:$ty:ty,)*)=>{$(access.read::<$ty>()?;load(&session,&mut data.$field).await?;)*};}
     lctx_model::synthesis_documentary_inputs!(read);
     drop(session);
     let budget = runtime.budget().clone();
@@ -45,10 +43,10 @@ pub async fn documentary(
 pub async fn code_blocks(
     access: &CompletedInputs,
     runtime: &Workspace,
-    model: &Arc<ValidatedModel>,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<Rows<documents::CodeBlockObservation>, ModelError> {
     let session = access.session(runtime).await?;
-    let permit = access.read::<documents::CodeBlockObservation>()?;
+    access.read::<documents::CodeBlockObservation>()?;
     
     let mut rows = Rows::new(runtime.budget());
     load(&session, &mut rows).await?;
@@ -58,11 +56,11 @@ pub async fn code_blocks(
 pub async fn source_setup(
     access: &CompletedInputs,
     runtime: &Workspace,
-    model: &Arc<ValidatedModel>,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<synthesis::source_setup::Data, ModelError> {
     let session = access.session(runtime).await?;
     let mut rows = synthesis::source_setup::Data::new(runtime.budget());
-    macro_rules! read{($($field:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;load(&session,&mut rows.$field).await?;)*};}
+    macro_rules! read{($($field:ident:$ty:ty,)*)=>{$(access.read::<$ty>()?;load(&session,&mut rows.$field).await?;)*};}
     lctx_model::synthesis_setup_inputs!(read);
     drop(session);
     Ok(rows)

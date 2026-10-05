@@ -16,8 +16,7 @@ use std::sync::Arc;
 /// One transfer-bounded stream at a time. The typed collector admits every retained row; the
 /// source-bound session and PreparedQuery own remote scan admission and stream lifetime.
 async fn load<R: Record>(session: &datafusion::prelude::SessionContext, rows: &mut Rows<R>) -> Result<(), ModelError> {
-    let query = session
-        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;

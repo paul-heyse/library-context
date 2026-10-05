@@ -23,8 +23,7 @@ async fn load<R: Record>(
     permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
-    let query = session
-        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;

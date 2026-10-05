@@ -32,8 +32,9 @@ fn settings(workspace:&Workspace, acquisition:ContentHash)->Result<ContentHash,M
 /// Build the versioned manifest after graph stream admission. Metadata indexes contain only
 /// definitions, scoped obligations and vector digests, never resident graph payloads.
 pub async fn populate(workspace:&Arc<Workspace>,frontier:Frontier,profile:Profile,acquisition_config:ContentHash,
-    mut captures:Vec<EntityId>,mut originals:Vec<Original>,mut families:Vec<FamilyContent>)->Result<Manifest,ModelError>{
+    mut captures:Vec<EntityId>,mut originals:Vec<Original>,mut families:Vec<FamilyContent>)->Result<(Manifest,charged::StateCharge),ModelError>{
     let mut charge=charged::StateCharge::new(workspace.budget(),"artifact-manifest");
+    charge.grow(size_of::<Manifest>()+captures.len()*size_of::<EntityId>()+originals.len()*size_of::<Original>()+families.len()*size_of::<FamilyContent>())?;
     let mut producers=BTreeMap::new();
     for relation in workspace.completed_relations()? {
         let configuration=relation.configuration().ok_or_else(||invalid(format!("{} has no declared producer configuration",relation.name())))?;
@@ -90,8 +91,8 @@ pub async fn populate(workspace:&Arc<Workspace>,frontier:Frontier,profile:Profil
     captures.sort_unstable();if captures.windows(2).any(|w|w[0]==w[1]){return Err(invalid("duplicate manifest capture"));}
     originals.sort_by_key(|r|r.source);if originals.windows(2).any(|w|w[0].source==w[1].source){return Err(invalid("duplicate manifest original"));}
     families.sort_by_key(|r|r.family);if families.windows(2).any(|w|w[0].family==w[1].family){return Err(invalid("duplicate manifest family"));}
-    let manifest=Manifest {format_version:ARTIFACT_FORMAT_VERSION,frontier,profile,captures,semantic_contract:workspace.model().digest(),producers:producers.into_values().collect(),settings:settings(workspace,acquisition_config)?,families,required_outcomes:outcomes.keys().cloned().collect(),outcomes:outcomes.into_values().collect(),originals,projections,embeddings};
-    manifest.validate()?;Ok(manifest)
+    let manifest=Manifest {format_version:ARTIFACT_FORMAT_VERSION,frontier,profile,captures,semantic_contract:graph::semantic_contract(workspace.model()),producers:producers.into_values().collect(),settings:settings(workspace,acquisition_config)?,families,required_outcomes:outcomes.keys().cloned().collect(),outcomes:outcomes.into_values().collect(),originals,projections,embeddings};
+    manifest.validate()?;Ok((manifest,charge))
 }
 
 fn projections(workspace:&Workspace,frontier:Frontier,charge:&mut charged::StateCharge)->Result<Vec<graph::ProjectionDefinition>,ModelError>{
@@ -150,7 +151,7 @@ async fn embeddings(workspace:&Workspace,profile:Profile,charge:&mut charged::St
         let inputs=workspace.inputs("manifest-vector-binding",profile,[<$record>::NAME,<$text>::NAME])?;
         let context=inputs.session(workspace).await?;
         let query=format!("SELECT u.*, t.text AS consumed_text FROM {} u LEFT JOIN {} t ON u.{} = t.id",<$record>::NAME,<$text>::NAME,stringify!($field));
-        let mut stream=context.sql(&query).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        let mut stream=crate::sql::query(&context,&query).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
         while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
             let width=<$record>::schema().fields().len();
             let typed=batch.project(&(0..width).collect::<Vec<_>>()).map_err(ModelError::codec)?;

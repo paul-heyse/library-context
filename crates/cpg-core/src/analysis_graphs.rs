@@ -57,7 +57,7 @@ async fn load<R: Record>(
     session: &datafusion::prelude::SessionContext,
     rows: &mut Rows<R>,
 ) -> Result<(), ModelError> {
-    let mut stream=session.sql(&format!("SELECT * FROM \"{}\"",R::NAME)).await.map_err(ModelError::codec)?
+    let mut stream=crate::sql::query(&session,&format!("SELECT * FROM \"{}\"",R::NAME)).await.map_err(ModelError::codec)?
         .execute_stream().await.map_err(ModelError::codec)?;
     while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? { rows.decode(&batch)?; }
     Ok(())

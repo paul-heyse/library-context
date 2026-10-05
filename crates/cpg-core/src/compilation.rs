@@ -462,6 +462,7 @@ pub async fn compile(
     embedder: Option<&dyn Embedder>, cache: Option<Arc<dyn crate::embedding_realization::EmbeddingCache>>,
 ) -> Result<(),ModelError> {
     let model=workspace.model();
+    let capture_identity=workspace.captures(&captured)?;
     let providers=facts::providers(configuration);
     // Plan every declaration before running native effects. The schedule is static dependency
     // metadata only; completed streams, not execution grants, supply runtime inputs.
@@ -530,5 +531,5 @@ pub async fn compile(
         completed.insert(declaration.name);
         freeze_completed_inputs(workspace,&schedule,&completed,&mut frozen)?;
     }
-    Ok(())
+    workspace.finish_compilation(capture_identity,frontier,profile,configuration).await
 }
