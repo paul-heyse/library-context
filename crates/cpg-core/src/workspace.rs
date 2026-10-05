@@ -288,6 +288,14 @@ impl Workspace {
         self.completed.lock().map_err(|_| poisoned())?.get(name).cloned()
             .ok_or_else(|| ModelError::Invalid(format!("input {name} is not completed")))
     }
+    /// Resolve a replay's declared completed view without widening it to later vocabulary.
+    pub fn input_relation(&self,input:&lctx_model::domain::ValidationInput)->Result<Arc<CompletedRelation>,ModelError>{
+        if let Some(boundary)=input.prefix(){
+            return self.frozen_vocabulary.lock().map_err(|_|poisoned())?.get(&(boundary,input.name())).cloned()
+                .ok_or_else(||ModelError::Invalid(format!("missing frozen {:?} input {}",boundary,input.name())));
+        }
+        self.relation(input.name())
+    }
     pub fn completed_relations(&self) -> Result<Vec<Arc<CompletedRelation>>, ModelError> {
         Ok(self.completed.lock().map_err(|_| poisoned())?.values().cloned().collect())
     }

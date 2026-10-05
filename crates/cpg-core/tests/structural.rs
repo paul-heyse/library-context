@@ -89,7 +89,7 @@ async fn structural_replay_refuses_support_invocation_and_condition_forgery() {
  for corruption in 0..6 {
   let mut check=(invariant.create)(fixture.workspace.budget());let mut changed=0;
   for input in &invariant.inputs {
-   let relation=fixture.workspace.relation(input.name()).unwrap();
+   let relation=fixture.workspace.input_relation(input).unwrap();
    for batch in relation.batches().unwrap(){let batch=batch.unwrap();let mut forwarded=batch.clone();
     if corruption==1 && input.name()==owner::AnalysisOutcome::NAME {let mut rows=owner::AnalysisOutcome::decode(&batch).unwrap();for row in &mut rows{if row.status==analysis::AnalysisStatus::Partial{row.status=analysis::AnalysisStatus::Completed;row.reason=None;changed+=1;}}forwarded=owner::AnalysisOutcome::encode(&rows).unwrap();}
     if corruption==2 && input.name()==owner::AnalysisOutcome::NAME && changed==0 {let mut rows=owner::AnalysisOutcome::decode(&batch).unwrap();if !rows.is_empty(){rows.remove(0);changed+=1;}forwarded=owner::AnalysisOutcome::encode(&rows).unwrap();}

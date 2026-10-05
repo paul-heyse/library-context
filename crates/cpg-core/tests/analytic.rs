@@ -251,7 +251,7 @@ async fn replay_controls(fixture:&catalog_runtime::Fixture) {
  let graphs=cpg_core::analysis_graphs::PreparedGraphs::load(&access,workspace,workspace.model(),&[projection::ProjectionName::CallableInvocation].into_iter().collect()).await.unwrap();
  let mut d=analytics::build::Data::new(b);
  let mut seen=std::collections::BTreeSet::new();
- for input in analytics::build::Data::validation_inputs(){if !seen.insert(input.name()){continue;}if let Ok(relation)=workspace.relation(input.name()){for batch in relation.batches().unwrap(){d.visit(input.name(),&batch.unwrap()).unwrap();}}}
+ for input in analytics::build::Data::validation_inputs(){if !seen.insert((input.name(),input.prefix())){continue;}if let Ok(relation)=workspace.input_relation(&input){for batch in relation.batches().unwrap(){d.visit_input(&input,&batch.unwrap()).unwrap();}}}
     let mut c = analytics::frames::Context::new(b);
     let sources = analysis::sources::CapturedSources::capture(access.profile(),access.snapshots(),b).unwrap();
     let mut out = analytics::Output::new(b);
