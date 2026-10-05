@@ -1,4 +1,6 @@
 //! Reconcile stored structural outputs by replaying the same canonical transformations.
+// Increment for a meaning/rule change; implementation source bytes live in producer provenance.
+const SEMANTIC_RULE_REVISION:i64=1;
 use super::*;
 use crate::domain::{
     analysis::{delegation, settings::AnalyticsConfiguration, structural as publication, usage},
@@ -477,16 +479,9 @@ pub fn definition(
         model_catalog: None,
     };
     let mut hash = KeySink::new("structural-conversion-v1");
+    SEMANTIC_RULE_REVISION.encode(&mut hash);
     settings.id().encode(&mut hash);
     method.encode(&mut hash);
-    ContentHash::of(include_bytes!("build.rs")).encode(&mut hash);
-    ContentHash::of(include_bytes!("controls.rs")).encode(&mut hash);
-    ContentHash::of(include_bytes!("outcomes.rs")).encode(&mut hash);
-    ContentHash::of(include_bytes!("qualifications.rs")).encode(&mut hash);
-    ContentHash::of(include_bytes!("handoffs.rs")).encode(&mut hash);
-    ContentHash::of(include_bytes!("conclusions.rs")).encode(&mut hash);
-    ContentHash::of(include_bytes!("../analysis/delegation.rs")).encode(&mut hash);
-    ContentHash::of(include_bytes!("../analysis/usage.rs")).encode(&mut hash);
     let row = analysis::AnalysisDefinition {
         method,
         parameters: parameters.id(),
@@ -585,6 +580,7 @@ pub fn stage(
         order,
     )?;
     let mut key = KeySink::new("structural-stage");
+    SEMANTIC_RULE_REVISION.encode(&mut key);
     settings.id().encode(&mut key);
     for method in methods() {
         definition(settings, method)?.1.id().encode(&mut key);

@@ -1,4 +1,6 @@
 //! Canonical conversions shared by producer and stored replay.
+// Increment for a meaning/rule change; implementation source bytes live in producer provenance.
+const SEMANTIC_RULE_REVISION:i64=1;
 use super::*;
 use crate::domain::{
     analysis::{self, analytic as owner, settings::AnalyticsConfiguration},
@@ -89,25 +91,7 @@ pub fn definition_with_policy(
         .id()
         .encode(&mut key);
     policy.recipe()?.encode(&mut key);
-    for bytes in [
-        include_bytes!("build.rs").as_slice(),
-        include_bytes!("mod.rs"),
-        include_bytes!("policy.rs"),
-        include_bytes!("records.rs"),
-        include_bytes!("communities.rs"),
-        include_bytes!("ranking.rs"),
-        include_bytes!("concepts.rs"),
-        include_bytes!("neighbours.rs"),
-        include_bytes!("frames.rs"),
-        include_bytes!("conclusions.rs"),
-        include_bytes!("attributes.rs"),
-        include_bytes!("native_attributes.rs"),
-        include_bytes!("../normalized/decorator_identity.rs"),
-        include_bytes!("partitions.rs"),
-        include_bytes!("vectors.rs"),
-    ] {
-        ContentHash::of(bytes).encode(&mut key);
-    }
+    SEMANTIC_RULE_REVISION.encode(&mut key);
     Ok((
         p.clone(),
         analysis::AnalysisDefinition {

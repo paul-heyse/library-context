@@ -1,4 +1,6 @@
 //! One finite declaration-domain producer and shared exact closure replay.
+// Increment for a meaning/rule change; implementation source bytes live in producer provenance.
+const SEMANTIC_RULE_REVISION:i64=1;
 use super::*;
 use crate::domain::{
     catalog::{
@@ -858,22 +860,7 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
         parameters: parameters.id(),
         semantic_version: {
             let mut k = KeySink::new("catalog-selection/v2");
-            for bytes in [
-                include_bytes!("build.rs").as_slice(),
-                include_bytes!("evaluate.rs").as_slice(),
-                include_bytes!("source_fields.rs").as_slice(),
-                include_bytes!("classification.rs").as_slice(),
-                include_bytes!("preparation.rs").as_slice(),
-                include_bytes!("admission.rs").as_slice(),
-                include_bytes!("vocabulary.rs").as_slice(),
-                include_bytes!("frames.rs").as_slice(),
-                include_bytes!("facets.rs").as_slice(),
-                include_bytes!("specialization.rs").as_slice(),
-                include_bytes!("structural_facets.rs").as_slice(),
-                include_bytes!("../normalized/decorator_identity.rs").as_slice(),
-            ] {
-                ContentHash::of(bytes).encode(&mut k);
-            }
+            SEMANTIC_RULE_REVISION.encode(&mut k);
             k.finish()
         },
     };

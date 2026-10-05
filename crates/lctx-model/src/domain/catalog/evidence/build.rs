@@ -1,4 +1,6 @@
 //! Deterministic contextual evidence closure, shared by publication and independent controls.
+// Increment for a meaning/rule change; implementation source bytes live in producer provenance.
+const SEMANTIC_RULE_REVISION:i64=1;
 use super::*;
 use crate::domain::{
     assertion::Evidence,
@@ -1072,18 +1074,7 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
     let (parameters, _) = catalog::build::definition();
     let mut version = KeySink::new("catalog-context-evidence/v2");
     parameters.id().encode(&mut version);
-    for bytes in [
-        include_bytes!("build.rs").as_slice(),
-        include_bytes!("fields.rs").as_slice(),
-        include_bytes!("symbolic.rs").as_slice(),
-        include_bytes!("runtime.rs").as_slice(),
-        include_bytes!("frames.rs").as_slice(),
-        include_bytes!("intent.rs").as_slice(),
-        include_bytes!("characterization.rs").as_slice(),
-        include_bytes!("diagnostic_uses.rs").as_slice(),
-    ] {
-        ContentHash::of(bytes).encode(&mut version);
-    }
+    SEMANTIC_RULE_REVISION.encode(&mut version);
     let definition = analysis::AnalysisDefinition {
         method: analysis::AnalysisMethod::CatalogEvidence,
         interpretation: analysis::Interpretation::Structural,

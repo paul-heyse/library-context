@@ -1,4 +1,6 @@
 //! Canonical authored definition shared by S0 and its downstream retrieval consumer.
+// Increment for a meaning/rule change; implementation source bytes live in producer provenance.
+const SEMANTIC_RULE_REVISION:i64=1;
 use crate::domain::{analysis::*, *};
 pub fn definition() -> (MethodParameters, AnalysisDefinition) {
     let parameters = MethodParameters {
@@ -15,27 +17,7 @@ pub fn definition() -> (MethodParameters, AnalysisDefinition) {
     };
     let mut hash = KeySink::new("programmatic-synthesis-version-v2");
     parameters.id().encode(&mut hash);
-    for code in [
-        include_bytes!("build.rs").as_slice(),
-        include_bytes!("frames.rs").as_slice(),
-        include_bytes!("production.rs").as_slice(),
-        include_bytes!("observations.rs").as_slice(),
-        include_bytes!("summary.rs").as_slice(),
-        include_bytes!("terminal.rs").as_slice(),
-        include_bytes!("patterns.rs").as_slice(),
-        include_bytes!("documentary.rs").as_slice(),
-        include_bytes!("documentary_templates.rs").as_slice(),
-        include_bytes!("source_code.rs").as_slice(),
-        include_bytes!("source_setup.rs").as_slice(),
-        include_bytes!("assertions.rs").as_slice(),
-        include_bytes!("seeds.rs").as_slice(),
-        include_bytes!("automatic.rs").as_slice(),
-        include_bytes!("briefs.rs").as_slice(),
-        include_bytes!("../analysis/policy.rs").as_slice(),
-        include_bytes!("../value/presentation.rs").as_slice(),
-    ] {
-        ContentHash::of(code).encode(&mut hash);
-    }
+    SEMANTIC_RULE_REVISION.encode(&mut hash);
     let definition = AnalysisDefinition {
         method: AnalysisMethod::Synthesis,
         parameters: parameters.id(),

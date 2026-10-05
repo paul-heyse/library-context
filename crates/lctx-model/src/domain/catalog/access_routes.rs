@@ -783,7 +783,7 @@ pub fn explain(
 }
 
 pub fn definition() -> ContentHash {
-    ContentHash::of(include_bytes!("access_routes.rs"))
+    ContentHash::of(b"catalog-access-route-policy/v1")
 }
 
 #[cfg(test)]

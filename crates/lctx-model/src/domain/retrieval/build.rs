@@ -1,4 +1,6 @@
 //! Four-family deterministic renderer and shared replay, over completed canonical C0/C1 evidence.
+// Increment for a meaning/rule change; implementation source bytes live in producer provenance.
+const SEMANTIC_RULE_REVISION:i64=1;
 use super::*;
 use crate::domain::{
     catalog::evidence::build::{EvidenceData, EvidenceOutput},
@@ -706,14 +708,7 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
     let (parameters, _) = catalog::build::definition();
     let mut version = KeySink::new("retrieval-final-owner/v2");
     parameters.id().encode(&mut version);
-    for bytes in [
-        include_bytes!("build.rs").as_slice(),
-        include_bytes!("source.rs").as_slice(),
-        include_bytes!("inventory.rs").as_slice(),
-        include_bytes!("consumption.rs").as_slice(),
-    ] {
-        ContentHash::of(bytes).encode(&mut version);
-    }
+    SEMANTIC_RULE_REVISION.encode(&mut version);
     let definition = analysis::AnalysisDefinition {
         method: analysis::AnalysisMethod::Retrieval,
         interpretation: analysis::Interpretation::Heuristic,

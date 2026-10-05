@@ -1,5 +1,7 @@
 //! Local semantic observations replay exact native flow and private entry-value proofs.
 //! This bounded direct operator retains unsupported paths as assessments, never false flow.
+// Increment for a meaning/rule change; implementation source bytes live in producer provenance.
+const SEMANTIC_RULE_REVISION:i64=1;
 use crate::Domain;
 use crate::domain::{
     analysis::{
@@ -30,17 +32,7 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
         model_catalog: None,
     };
     let mut sink = KeySink::new("Local semantic definition");
-    for code in [
-        include_bytes!("local_semantics.rs").as_slice(),
-        include_bytes!("local_theory.rs").as_slice(),
-        include_bytes!("atom_decision.rs").as_slice(),
-        include_bytes!("local_fields.rs").as_slice(),
-        include_bytes!("local_symbolic.rs").as_slice(),
-        include_bytes!("conditions/entry.rs").as_slice(),
-        include_bytes!("conditions/stability.rs").as_slice(),
-    ] {
-        ContentHash::of(code).encode(&mut sink);
-    }
+    SEMANTIC_RULE_REVISION.encode(&mut sink);
     parameters.id().encode(&mut sink);
     let definition = analysis::AnalysisDefinition {
         method: analysis::AnalysisMethod::LocalTransfers,

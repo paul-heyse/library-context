@@ -30,33 +30,17 @@ use super::*;
 pub use rows::Rows;
 
 /// Normalized owners reconstruct the captured facts universe. Later vocabulary cannot enlarge it.
-pub(crate) fn facts_inputs(inputs: Vec<ValidationInput>) -> Vec<ValidationInput> {
-    let mut inputs = inputs
-        .into_iter()
-        .map(|input| {
-            if stages::is_vocabulary(input.name()) {
-                input.at_epoch(stages::PublicationBoundary::Facts)
-            } else {
-                input
-            }
-        })
-        .collect::<Vec<_>>();
-    inputs.sort_by_key(|input| (input.name(), input.prefix()));
-    inputs.dedup_by_key(|input| (input.name(), input.prefix()));
-    inputs
+pub(crate) fn facts_inputs(mut inputs:Vec<ValidationInput>)->Vec<ValidationInput>{
+    inputs.sort_by_key(ValidationInput::name);inputs.dedup_by_key(|input|input.name());inputs
 }
 
 /// Revision of semantic normalization, included in every assessment key and stage declaration.
 pub fn policy_revision() -> ContentHash {
-    ContentHash::of(
-        &[
-            b"lctx-normalization/phase4/dispatch-class-of/v3".as_slice(),
-            include_bytes!("native_lexical.rs").as_slice(),
-            include_bytes!("overload_association.rs").as_slice(),
-        ]
-        .concat(),
-    )
+    // Revise this declared policy when normalization meaning changes. Rust source and dependency
+    // changes belong to producer implementation provenance, not every normalized logical key.
+    ContentHash::of(b"lctx-normalization/graph-native/v1")
 }
+
 pub fn relations() -> Vec<Relation> {
     let mut relations = entities::relations();
     relations.extend(links::relations());

@@ -1,5 +1,7 @@
 //! The bound base rule sets have fixed limits. Other authored limits/method meanings require
 //! their own operation binding before activation; a producer cannot label this kernel arbitrarily.
+// Increment for a meaning/rule change; implementation source bytes live in producer provenance.
+const SEMANTIC_RULE_REVISION:i64=1;
 use crate::domain::{
     analysis::{AnalysisDefinition, AnalysisMethod, Interpretation, MethodParameters},
     *,
@@ -40,22 +42,7 @@ pub fn summaries(
         ..parameters()
     };
     let mut key = KeySink::new("finite-summary-rule-set");
-    ContentHash::of(include_bytes!("configuration.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("../composition.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("../transfer/witness.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_production.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_capture.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_replay.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_path.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_alias.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_control.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_proof.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_worklist.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_schedule.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_consequences.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_terminal.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_symbolic.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("summary_exceptions.rs")).encode(&mut key);
+    SEMANTIC_RULE_REVISION.encode(&mut key);
     enriched_execution(catalog)
         .1
         .semantic_version
@@ -85,17 +72,7 @@ fn parameters() -> MethodParameters {
 pub fn base_evaluation() -> (MethodParameters, AnalysisDefinition) {
     let parameters = parameters();
     let mut key = KeySink::new("base-evaluation-rule-set");
-    ContentHash::of(include_bytes!("read_channels.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("read_fields.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("read_dynamic.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("../conditions/entry.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("evaluation.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("builtin_read.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_context.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_application.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("closed_targets.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("protocol_interpretation.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("production.rs")).encode(&mut key);
+    SEMANTIC_RULE_REVISION.encode(&mut key);
     let definition = AnalysisDefinition {
         method: AnalysisMethod::Execution,
         semantic_version: key.finish(),
@@ -107,11 +84,7 @@ pub fn base_evaluation() -> (MethodParameters, AnalysisDefinition) {
 pub fn base_completion() -> (MethodParameters, AnalysisDefinition) {
     let parameters = parameters();
     let mut key = KeySink::new("base-completion-rule-set");
-    ContentHash::of(include_bytes!("completion.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("completion_production.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("outcome.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("body.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("body_records.rs")).encode(&mut key);
+    SEMANTIC_RULE_REVISION.encode(&mut key);
     let definition = AnalysisDefinition {
         method: AnalysisMethod::Completion,
         semantic_version: key.finish(),
@@ -124,10 +97,7 @@ pub fn base_completion() -> (MethodParameters, AnalysisDefinition) {
 pub fn source_calls() -> (MethodParameters, AnalysisDefinition) {
     let parameters = parameters();
     let mut key = KeySink::new("fresh-source-call-rule-set");
-    ContentHash::of(include_bytes!("source_call.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("capture_bridge.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("source_call_records.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("source_invocation.rs")).encode(&mut key);
+    SEMANTIC_RULE_REVISION.encode(&mut key);
     let definition = AnalysisDefinition {
         method: AnalysisMethod::SourceCalls,
         semantic_version: key.finish(),
@@ -139,19 +109,7 @@ pub fn source_calls() -> (MethodParameters, AnalysisDefinition) {
 
 fn enriched_version() -> ContentHash {
     let mut key = KeySink::new("enriched-execution-rule-set");
-    ContentHash::of(include_bytes!("context_execution.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("context_binding.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_context.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_construction.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("definition.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("enriched.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("enriched_records.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("modeled_call.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("enriched_production.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_application.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("closed_targets.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("protocol_interpretation.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("../normalized/binding_normalization.rs")).encode(&mut key);
+    SEMANTIC_RULE_REVISION.encode(&mut key);
     base_evaluation().1.semantic_version.encode(&mut key);
     base_completion().1.semantic_version.encode(&mut key);
     source_calls().1.semantic_version.encode(&mut key);
@@ -186,18 +144,7 @@ pub fn models(
     let mut parameters = parameters();
     parameters.model_catalog = Some(catalog);
     let mut key = KeySink::new("authored-model-rule-set");
-    ContentHash::of(include_bytes!("model_application.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("closed_targets.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("protocol_interpretation.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("../normalized/binding_normalization.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("../normalized/signature_applicability.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_context.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_construction.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_transfer.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_protocol.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_context_transfer.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_rules.rs")).encode(&mut key);
-    ContentHash::of(include_bytes!("model_production.rs")).encode(&mut key);
+    SEMANTIC_RULE_REVISION.encode(&mut key);
     let definition = AnalysisDefinition {
         method: AnalysisMethod::Models,
         semantic_version: key.finish(),
