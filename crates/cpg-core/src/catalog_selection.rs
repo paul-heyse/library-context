@@ -3,7 +3,6 @@ use datafusion::execution::context::SessionContext;
 use crate::{
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{self, selection::*},
     normalized::Rows,
@@ -15,19 +14,40 @@ use lctx_model::domain::{
 };
 use std::sync::Arc;
 use lctx_model::domain::stages::ProviderOutcome;
+// The semantic owner declares exact views; these macros provide typed decoders.
+macro_rules! decoder_inputs {
+    ($apply:ident) => {
+        lctx_model::catalog_inputs!($apply);
+        lctx_model::catalog_outputs!($apply);
+        lctx_model::catalog_evidence_inputs!($apply);
+        lctx_model::catalog_evidence_outputs!($apply);
+        lctx_model::catalog_selection_inputs!($apply);
+        lctx_model::catalog_runtime_inputs!($apply);
+        $apply! {definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,}
+        lctx_model::expected_domain_inputs!($apply);
+    };
+}
+fn consumed_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
+    let mut declarations = Data::consumed_inputs(profile);
+    declarations.extend([
+        ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+        ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+    ]);
+    declarations.extend(analysis::expected::inputs(build::definition().1.method));
+    declarations
+}
 async fn load<R: Record>(
+    access: &CompletedInputs,
     session: &SessionContext,
-    rows: &mut Rows<R>,
-    permit: &analysis::sources::CompletedInput<R>,
+    consumed: &mut crate::consumed_rows::ConsumedInputs,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
+    mut visit: impl FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        admission.visit_if_expected(permit, &batch)?;
-        rows.decode(&batch)?;
+    while let Some((input, permit)) = consumed.next::<R>(access)? {
+        crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+            admission.visit_if_expected(permit, batch)?;
+            visit(&input, batch)
+        }).await?;
     }
     Ok(())
 }
@@ -40,36 +60,18 @@ pub async fn produce(
     let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let session = access.session(runtime).await?;
-    let mut registered = charged::ChargedSet::default();
-    let mut registration =
-        charged::StateCharge::new(runtime.budget(), "expected-input-registration");
     let mut data = Data::new(runtime.budget());
-    macro_rules! core {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.source.core.$f,&permit,&mut admission).await?;)*};}
-    lctx_model::catalog_inputs!(core);
-    macro_rules! catalog {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.source.catalog.$f,&permit,&mut admission).await?;)*};}
-    lctx_model::catalog_outputs!(catalog);
-    macro_rules! facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.source.facts.$f,&permit,&mut admission).await?;)*};}
-    lctx_model::catalog_evidence_inputs!(facts);
-    macro_rules! evidence {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.evidence.$f,&permit,&mut admission).await?;)*};}
-    lctx_model::catalog_evidence_outputs!(evidence);
-    macro_rules! selection_facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;if registered.insert(&mut registration,<$ty>::NAME)? {load(&session,&mut data.facts.$f,&permit,&mut admission).await?;} else {let query=crate::sql::query(&session,&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {data.facts.$f.decode(&batch)?;}})*};}
-    lctx_model::catalog_selection_inputs!(selection_facts);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
     let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());
-    macro_rules! meta {
-        ($ty:ty,$rows:ident,$admit:expr) => {{
-            let permit = access.read::<$ty>()?;
-            
-            registered.insert(&mut registration, <$ty>::NAME)?;
-            load(&session, &mut $rows, &permit, $admit).await?;
-        }};
-    }
-    meta!(analysis::AnalysisDefinition, definitions, &mut admission);
-    meta!(analysis::MethodParameters, parameters, &mut admission);
-    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,&mut admission);}})*};}
-    lctx_model::expected_domain_inputs!(expected);
-    macro_rules! lower {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.source.runtime.$f,&permit,&mut admission).await?;)*};}
-    lctx_model::catalog_runtime_inputs!(lower);
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(consumed_inputs(access.profile()), runtime.budget())?;
+    macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,batch|{
+        data.visit_input(input,batch)?;
+        if input.name()==analysis::AnalysisDefinition::NAME {definitions.decode(batch)?;}
+        if input.name()==analysis::MethodParameters::NAME {parameters.decode(batch)?;}
+        Ok(())
+    }).await?;)*};}
+    decoder_inputs!(inventory);
+    consumed.finish(access.name())?;
     drop(session);
     let budget = runtime.budget().clone();
     let (data, rows) = tokio::task::spawn_blocking(move || {
@@ -175,4 +177,18 @@ pub async fn produce(
     drop(admission);
     drop(sources);
     output.finish(ProviderOutcome::Complete).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn declared_views_have_profile_decoder_reachability() {
+        for profile in [stages::Profile::Catalog, stages::Profile::Behavioral] {
+            let mut decoders = std::collections::BTreeSet::new();
+            macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
+            decoder_inputs!(inventory);
+            crate::consumed_rows::assert_decoder_reachability(consumed_inputs(profile), &decoders);
+        }
+    }
 }
