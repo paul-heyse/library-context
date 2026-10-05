@@ -96,6 +96,13 @@ impl<'s> Session<'s> {
                     .bind(self.generation.0.to_vec()).bind(input.name()).fetch_optional(&mut *tx).await?;
             }
         }
+        if expected.is_none() && physical == input.name() {
+            // Final validation freezes every held relation, including explicitly empty
+            // unrequested families. Its final receipt is owned acknowledgement too;
+            // this does not manufacture producer stage/source authority.
+            expected = sqlx::query_as("SELECT r.row_count,r.content_digest FROM lctx_model_store.receipts r JOIN lctx_model_store.generations g ON g.id=r.generation_id WHERE r.generation_id=$1 AND r.relation_name=$2 AND g.state IN ('validated','published')")
+                .bind(self.generation.0.to_vec()).bind(input.name()).fetch_optional(&mut *tx).await?;
+        }
         let receipt = match expected {
             Some((rows, content)) => RelationReceipt { rows: u64::try_from(rows).map_err(|_| Error::Contract)?,
                 content: ContentHash(content.try_into().map_err(|_| Error::Contract)?) },

@@ -269,6 +269,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
         name: "invalid-utf8".into(),
         body: lctx_model::domain::EvidenceBytes(vec![0, 255, 128]),
     };
+    g_h.copy(&Batch::new(&model, vec![lctx_model::domain::assumptions::AssumptionSet::empty()], &budget()).unwrap(), &budget()).await.unwrap();
     copy!(
         binary,
         other_package,
