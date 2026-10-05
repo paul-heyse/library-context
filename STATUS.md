@@ -2,6 +2,31 @@
 
 _Updated 2026-10-05 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+**Store and graph-engine design review: Revise (2026-10-05; review and evidence uncommitted).**
+The [SurrealDB graph-store review](docs/design_review/reviews/design_review_surrealdb-graph-store_2026-10-05.md)
+(design/target, with a coordinator addendum) pivots the architecture, not the store: SurrealDB 3.3 is not adopted now and is kept as the leading alternative lowering behind the F12 seam; Neo4j is not integrated. Its primary
+structural finding is F12: the typed declarations are *coupled*, not only connected, to physical
+layout, execution unit and identity scope. It orders the work as follows:
+1. F01: validation holds the lifecycle transaction idle across `finish()` under the product's own
+   30 s idle-in-transaction cap.
+2. A model-side lowering seam, with store-free stage reads and declaration-derived identity
+   (F12 part 1, F09, F05).
+3. A pipeline-shape ADR, with compile-then-store (R3) leading, settled by PR-3.
+4. F02–F14.
+
+Its §11 owns the disposition of F01–F14 until a plan's findings table takes them over. Accepted
+architecture is unchanged until ADRs follow.
+
+**First real-library catalog compile failed (F01).** The authorized FastMCP 4.0.5 behavioral run
+through catalog (all analytics, fake embedder) went as follows:
+- Extraction completed in about 28 min.
+- About 1 h of store-side reference anti-joins followed.
+- PostgreSQL then terminated the lifecycle connection for idle-in-transaction at 10:09 EDT.
+- The attempt ended "cleanup unconfirmed".
+
+Interrupted generation `786cd6d58dc5dccea686c0a54a8f0dcd` (facts layer only, about 16.6M rows,
+staging) is retained as PR-3's input. `lctx generation abort` removes it when it is no longer needed.
+
 **Testing, validation and verification pivot implemented / Tested; assembled qualification composite passed.**
 The [assurance coordinator](docs/plans/testing-architecture-pivot-plan_2026-10-04.md#7-current-contractcontrol-map-and-execution-checkpoint)
 owns the current contract/control map and closed F01–F04. ADR-0126 replaces broad gate cadence
@@ -23,6 +48,19 @@ claims/evidence, duplicate replay factories and legacy broad aliases are removed
 assertion-pass cache, compatibility receipt readers or historical runtime archive is added.
 
 ## Last verified — 2026-10-05
+
+**Design-review session (store, compile and docs only; no product code changed):**
+
+| Command / boundary | Outcome |
+|---|---|
+| `target/release/lctx store check` (default store, before the compile) | **failed**: installed from a different model/lowering; orphan schema of an earlier generation |
+| `target/release/lctx store reset --confirm lctx`, then `store check` | **passed**: model `0ea88254…` installed; 0 generations, 0 findings |
+| `target/release/lctx compile fastmcp --through catalog --profile behavioral --techniques +communities,+pagerank,+fca,+rca,+knn,+type-layer,+mention-layer,+knn-layer --embedder fake` | **failed** (F01); log `build/review-compile-catalog-behavioral_2026-10-05.log` |
+| Phase B probes on synthetic data and the retained facts layer | Outcomes in review §10.2 and the four `docs/design_review/evidence/2026-10-05_*` folders; catalog journeys and analytics parity **blocked** by F01 |
+| `just turn-end`; `just docs-check` | **passed**; 306 pages, 0 link errors |
+| `just qualify`, Clippy, product families | **not_run**: documentation and review scope only |
+
+**Assurance pivot (earlier on 2026-10-05):**
 
 Commands use `python3 scripts/build_environment.py -- …` or the normalized shell environment.
 The deliberate `NEXTEST_TEST_THREADS=8 just qualify` initially failed; affected repair reruns
@@ -69,9 +107,12 @@ functional campaign.
 
 **Phase 5 real-library activation remains stopped at the operator's review pivot.**
 [Phase 5 §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
-owns activation/serving limits. Default store, client registrations, live vectors, gold and heldout
-are untouched. New receipt/install schemas are exercised only in disposable stores; default-store
-reconstruction is required before later authorized activation.
+owns activation/serving limits.
+
+The default store was reset and reinstalled with the current model on 2026-10-05 for the
+authorized review compile. It now holds only the interrupted generation above; nothing is published
+or selected. Client registrations, live vectors, gold and heldout are untouched. Real-library
+upper-frontier compilation is blocked on F01.
 
 The three clean integrated assurance worktrees were removed; the two older target-alignment trees
 retain their current consumers. Logs/caches and unrelated concurrent work are preserved. The operator
