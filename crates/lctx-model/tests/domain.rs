@@ -227,13 +227,13 @@ fn semantic_validation_revision_changes_model_but_not_arrow_schema() {
         Ok(())
     }
     #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-    #[model(name = "contracts", validate = first)]
+    #[model(name = "contracts", validate = first, semantic_source = b"contract-validation/v1")]
     struct Before {
         #[model(key)]
         name: String,
     }
     #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-    #[model(name = "contracts", validate = second)]
+    #[model(name = "contracts", validate = second, semantic_source = b"contract-validation/v2")]
     struct After {
         #[model(key)]
         name: String,
