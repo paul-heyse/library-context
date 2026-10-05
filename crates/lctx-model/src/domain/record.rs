@@ -231,7 +231,7 @@ pub trait Codebook: Sized {
 pub trait FlatValue: FieldValue {}
 /// A direct nominal semantic reference used by graph lowering, independent of Arrow buffers.
 #[derive(Debug,Clone,PartialEq,Eq)]
-pub struct SemanticReference {pub field:&'static str,pub target:&'static str,pub key:[u8;16]}
+pub struct SemanticReference {pub field:&'static str,pub target:&'static str,pub key:[u8;16],pub subtype:Option<i16>}
 pub trait FieldValue: HeapSize {
     fn semantic_reference(&self,_field:&'static str)->Option<SemanticReference>{None}
     fn subtype() -> Option<i16> {
@@ -265,7 +265,7 @@ scalar!(super::EvidenceBytes, Binary);
 scalar!(super::Utf8Text, Binary);
 impl<T: Record> FlatValue for Id<T> {}
 impl<T: Record> FieldValue for Id<T> {
-    fn semantic_reference(&self,field:&'static str)->Option<SemanticReference>{Some(SemanticReference{field,target:T::NAME,key:*self.bytes()})}
+    fn semantic_reference(&self,field:&'static str)->Option<SemanticReference>{Some(SemanticReference{field,target:T::NAME,key:*self.bytes(),subtype:None})}
     const SCALAR: Scalar = Scalar::Id;
     fn target() -> Option<(TypeId, &'static str)> {
         Some((TypeId::of::<T>(), T::NAME))
@@ -510,6 +510,8 @@ pub trait Record:
     fn row_bytes(&self) -> usize {
         size_of::<Self>().saturating_add(self.heap_bytes())
     }
+    /// Actual arm of a typed sum row; obtained without encoding an Arrow batch.
+    fn sum_tag(&self) -> Option<i16> { None }
     fn sum() -> Option<Sum> {
         None
     }

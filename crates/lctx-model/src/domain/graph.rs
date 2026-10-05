@@ -249,6 +249,8 @@ macro_rules! graph_entities {($($variant:ident:$kind:ident=>$ty:ty,)*)=>{
     $(impl GraphEntityRecord for $ty{const GRAPH_KIND:EntityKind=EntityKind::$kind;fn into_graph(self)->Entity{Entity::$variant(self)}}
       impl From<$ty> for Entity{fn from(value:$ty)->Self{Self::$variant(value)}})*
     impl Entity{
+      pub fn subtype(&self)->Option<i16>{match self{$(Self::$variant(row)=>row.sum_tag(),)*}}
+      pub fn reference_requirements(&self)->Result<Vec<ReferenceRequirement>,ModelError>{let refs=match self{$(Self::$variant(row)=>row.references(),)*};refs.iter().map(reference_requirement).collect()}
       pub fn kind(&self)->EntityKind{match self{$(Self::$variant(_)=>EntityKind::$kind,)*}}
       pub fn id(&self)->EntityId{match self{$(Self::$variant(row)=>EntityId::of(row.id()),)*}}
       pub fn content(&self)->ContentHash{let mut sink=KeySink::new("graph-entity-content/v1");sink.part(b"kind",&(self.kind() as u16).to_le_bytes());match self{$(Self::$variant(row)=>row.content_digest().encode(&mut sink),)*};sink.finish()}
@@ -467,6 +469,10 @@ graph_entities! {
 }
 /// Mechanical nominal mapping for the selected graph vocabulary. Unsupported internal compiler
 /// bookkeeping is deliberately not an entity; its producer must fold it into its semantic owner.
+/// Nominal membership and optional sum-arm requirements for a bulk closure join.
+#[derive(Debug,Clone,PartialEq,Eq)]
+pub struct ReferenceRequirement {pub target:Target,pub kind:Option<EntityKind>,pub subtype:Option<i16>}
+fn reference_requirement(reference:&super::SemanticReference)->Result<ReferenceRequirement,ModelError>{let (target,kind)=reference_target(reference)?;Ok(ReferenceRequirement{target,kind,subtype:reference.subtype})}
 pub fn reference_target(reference:&super::SemanticReference)->Result<(Target,Option<EntityKind>),ModelError>{
     match reference.target {
     <super::local_theory::DomainValue as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Literal,reference.target,&reference.key)),Some(EntityKind::Literal))),
@@ -1345,7 +1351,7 @@ impl Assertion {
     pub fn from_record<R:GraphAssertionRecord>(row:R)->Result<Self,ModelError>{
         let references=row.references();let proof=row.proof();let declaration=R::derivation();
         let participants=references.iter().enumerate().map(|(position,reference)|Ok(Participant{role:participant_role(reference.field),field:Some(reference.field.into()),position:Some(u32::try_from(position).map_err(|_|invalid("participant ordinal overflow"))?),target:reference_target(reference)?.0})).collect::<Result<Vec<_>,ModelError>>()?;
-        let derivation=match (proof,declaration){(Some(proof),Some(declaration))=>{let premises=proof.premises.iter().map(|premise|reference_target(&super::SemanticReference{field:"premise",target:premise.relation(),key:*premise.bytes()}).map(|(target,_)|target)).collect::<Result<Vec<_>,_>>()?;Some(Derivation{rule:declaration.rule.into(),revision:1,conclusion:if proof.source==proof.conclusion {None}else{Some(reference_target(&super::SemanticReference{field:"conclusion",target:proof.conclusion.relation(),key:*proof.conclusion.bytes()})?.0)},premises,assumptions:vec![],outcome:OutcomeKind::Complete})},(None,None)=>None,_=>return Err(invalid("derivation declaration and row disagree"))};
+        let derivation=match (proof,declaration){(Some(proof),Some(declaration))=>{let premises=proof.premises.iter().map(|premise|reference_target(&super::SemanticReference{field:"premise",target:premise.relation(),key:*premise.bytes(),subtype:None}).map(|(target,_)|target)).collect::<Result<Vec<_>,_>>()?;Some(Derivation{rule:declaration.rule.into(),revision:1,conclusion:if proof.source==proof.conclusion {None}else{Some(reference_target(&super::SemanticReference{field:"conclusion",target:proof.conclusion.relation(),key:*proof.conclusion.bytes(),subtype:None})?.0)},premises,assumptions:vec![],outcome:OutcomeKind::Complete})},(None,None)=>None,_=>return Err(invalid("derivation declaration and row disagree"))};
         let mut assertion=R::graph_payload(row);assertion.participants=participants;assertion.derivation=derivation;assertion.validate()?;Ok(assertion)
     }
     pub fn declared_derivation(&self)->Option<GraphDerivation>{self.derivation.as_ref().map(|derivation|GraphDerivation{source:Target::Assertion(self.id()),conclusion:derivation.conclusion.clone().unwrap_or(Target::Assertion(self.id())),premises:derivation.premises.clone()})}
@@ -1364,6 +1370,12 @@ impl Assertion {
         for reference in payload {refs.push(reference_target(&reference)?);}
         match &self.value {AssertionValue::Domain{members,..}=>refs.extend(members.iter().map(|id|(Target::Entity(*id),None))),AssertionValue::Signature{parameters,returns}=>{refs.extend(parameters.iter().map(|id|(Target::Entity(*id),Some(K::Parameter))));refs.extend(returns.map(|id|(Target::Entity(id),Some(K::Type))));},AssertionValue::Predicate{predicate}=>refs.push((Target::Entity(*predicate),Some(K::Predicate))),_=>{}}
         if let Some(d)=&self.derivation{refs.extend(d.conclusion.iter().map(|target|(target.clone(),None)));refs.extend(d.premises.iter().map(|target|(target.clone(),None)));refs.extend(d.assumptions.iter().map(|id|(Target::Entity(*id),Some(K::Assumption))));}
+        Ok(refs)
+    }
+    pub fn reference_requirements(&self)->Result<Vec<ReferenceRequirement>,ModelError>{
+        let mut refs=self.references()?.into_iter().map(|(target,kind)|ReferenceRequirement{target,kind,subtype:None}).collect::<Vec<_>>();
+        let payload=match &self.value {AssertionValue::Claim(v)=>v.references(),AssertionValue::Native(v)=>v.references(),AssertionValue::Analysis(v)=>v.references(),AssertionValue::Support(v)=>v.references(),AssertionValue::Membership(v)=>v.references(),AssertionValue::Provenance(v)=>v.references(),_=>vec![]};
+        for reference in payload.iter().filter(|reference|reference.subtype.is_some()){refs.push(reference_requirement(reference)?);}
         Ok(refs)
     }
     fn encode(&self,sink:&mut KeySink){self.source.encode(sink);sink.part(b"kind",&(self.kind as u16).to_le_bytes());self.participants.encode(sink);self.qualification.encode(sink);self.run.encode(sink);self.evidence.encode(sink);self.value.encode(sink);self.derivation.encode(sink);}
@@ -1389,22 +1401,27 @@ fn invalid(message:&str)->ModelError {ModelError::Invalid(message.into())}
 /// Membership lookup is supplied by immutable completed local indexes. It is not a store grant.
 pub trait GraphLookup {
     fn entity_kind(&self,id:EntityId)->Result<Option<EntityKind>,ModelError>;
+    fn entity_subtype(&self,_id:EntityId)->Result<Option<i16>,ModelError>{Ok(None)}
     fn assertion_exists(&self,id:AssertionId)->Result<bool,ModelError>;
     fn source_length(&self,id:EntityId)->Result<Option<u64>,ModelError>;
 }
 pub fn admit_entity(entity:&Entity,lookup:&impl GraphLookup)->Result<(),ModelError>{
-    entity.validate()?;for (target,kind) in entity.references()?{admit_reference(target,kind,lookup)?;}
+    entity.validate()?;for reference in entity.reference_requirements()?{admit_requirement(reference,lookup)?;}
     if let Entity::Occurrence(row)=entity {if lookup.source_length(EntityId::of(row.source))?.is_none_or(|length|u64::try_from(row.end).ok().is_none_or(|end|end>length)){return Err(invalid("occurrence extends beyond captured source"));}}
     if let Entity::Evidence(super::assertion::Evidence::SourceSpan{source,end,..})=entity {if lookup.source_length(EntityId::of(*source))?.is_none_or(|length|u64::try_from(*end).ok().is_none_or(|end|end>length)){return Err(invalid("evidence extends beyond captured source"));}}
     Ok(())
 }
 fn require_kind(lookup:&impl GraphLookup,id:EntityId,kind:EntityKind)->Result<(),ModelError>{if lookup.entity_kind(id)?!=Some(kind){return Err(invalid("missing internal entity or wrong nominal kind"));}Ok(())}
+fn admit_requirement(reference:ReferenceRequirement,lookup:&impl GraphLookup)->Result<(),ModelError>{
+    if let Some(subtype)=reference.subtype{match reference.target{Target::Entity(id)=>if lookup.entity_subtype(id)?!=Some(subtype){return Err(invalid("internal entity has wrong nominal sum arm"));},_=>return Err(invalid("sum arm requires an internal entity"))}}
+    admit_reference(reference.target,reference.kind,lookup)
+}
 fn admit_reference(target:Target,kind:Option<EntityKind>,lookup:&impl GraphLookup)->Result<(),ModelError>{match target{
     Target::Entity(id)=>if let Some(kind)=kind {require_kind(lookup,id,kind)?;} else if lookup.entity_kind(id)?.is_none(){return Err(invalid("missing internal participant"));},
     Target::Assertion(id)=>{if kind.is_some() || !lookup.assertion_exists(id)?{return Err(invalid("missing referenced assertion or wrong nominal role"));}},
     Target::External{provider,context,name,..}=>{if kind.is_some(){return Err(invalid("external target cannot fill an internal nominal role"));}require_kind(lookup,provider,EntityKind::Provider)?;require_kind(lookup,context,EntityKind::Context)?;if name.is_empty(){return Err(invalid("external target needs name"));}},
 }Ok(())}
-pub fn admit_assertion(assertion:&Assertion,lookup:&impl GraphLookup)->Result<(),ModelError>{assertion.validate()?;for (target,kind) in assertion.references()?{admit_reference(target,kind,lookup)?;}Ok(())}
+pub fn admit_assertion(assertion:&Assertion,lookup:&impl GraphLookup)->Result<(),ModelError>{assertion.validate()?;for reference in assertion.reference_requirements()?{admit_requirement(reference,lookup)?;}Ok(())}
 
 pub const ARTIFACT_FORMAT_VERSION:u32=1;
 #[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Serialize,Deserialize)]
@@ -1498,7 +1515,7 @@ fn encode_outcome_key(key:&OutcomeKey,sink:&mut KeySink){key.producer.encode(sin
 #[derive(Debug,Clone,PartialEq,Eq)]
 pub struct GraphDerivation {pub source:Target,pub conclusion:Target,pub premises:Vec<Target>}
 fn graph_derivation(proof:Option<super::derivation::Proof>)->Result<Option<GraphDerivation>,ModelError>{
-    let target=|row:super::derivation::RowRef|reference_target(&super::SemanticReference{field:"premise",target:row.relation(),key:*row.bytes()}).map(|(target,_)|target);
+    let target=|row:super::derivation::RowRef|reference_target(&super::SemanticReference{field:"premise",target:row.relation(),key:*row.bytes(),subtype:None}).map(|(target,_)|target);
     proof.map(|proof|Ok(GraphDerivation{source:target(proof.source)?,conclusion:target(proof.conclusion)?,premises:proof.premises.into_iter().map(target).collect::<Result<Vec<_>,_>>()?})).transpose()
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
@@ -2794,7 +2811,7 @@ impl GraphAssertionRecord for super::analysis::retrieval::CoverageRequiredSource
 
 /// Explicit semantic graph policies. A change in role mapping or declared derivation meaning
 /// revises these constants; implementation source and artifact codec versions are independent.
-pub const GRAPH_ROLE_POLICY_REVISION:u32=1;
+pub const GRAPH_ROLE_POLICY_REVISION:u32=2;
 pub const GRAPH_DERIVATION_POLICY_REVISION:u32=1;
 pub fn semantic_contract(model:&super::ValidatedModel)->ContentHash{
  semantic_contract_with_policy(model,GRAPH_ROLE_POLICY_REVISION,GRAPH_DERIVATION_POLICY_REVISION)

@@ -330,7 +330,7 @@ impl<T: super::SumRecord, const CODE: i16> Key for ArmId<T, CODE> {
 }
 impl<T: super::SumRecord, const CODE: i16> super::FlatValue for ArmId<T, CODE> {}
 impl<T: super::SumRecord, const CODE: i16> super::FieldValue for ArmId<T, CODE> {
-    fn semantic_reference(&self,field:&'static str)->Option<super::SemanticReference>{Some(super::SemanticReference{field,target:T::NAME,key:*self.0.bytes()})}
+    fn semantic_reference(&self,field:&'static str)->Option<super::SemanticReference>{Some(super::SemanticReference{field,target:T::NAME,key:*self.0.bytes(),subtype:Some(CODE)})}
     const SCALAR: super::Scalar = super::Scalar::Id;
     fn target() -> Option<(std::any::TypeId, &'static str)> {
         Some((std::any::TypeId::of::<T>(), T::NAME))

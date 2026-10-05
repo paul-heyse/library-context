@@ -2,10 +2,11 @@ use lctx_model::domain::{self as d, *, graph::*};
 use std::collections::{BTreeMap,BTreeSet};
 
 #[derive(Default)]
-struct Lookup {entities:BTreeMap<EntityId,EntityKind>,assertions:BTreeSet<AssertionId>,sources:BTreeMap<EntityId,u64>}
-impl Lookup {fn add(&mut self,entity:&Entity){self.entities.insert(entity.id(),entity.kind());if let Entity::Source(row)=entity{self.sources.insert(entity.id(),row.byte_len.try_into().unwrap());}}}
+struct Lookup {entities:BTreeMap<EntityId,EntityKind>,assertions:BTreeSet<AssertionId>,sources:BTreeMap<EntityId,u64>,subtypes:BTreeMap<EntityId,i16>}
+impl Lookup {fn add(&mut self,entity:&Entity){self.entities.insert(entity.id(),entity.kind());if let Some(tag)=entity.subtype(){self.subtypes.insert(entity.id(),tag);}if let Entity::Source(row)=entity{self.sources.insert(entity.id(),row.byte_len.try_into().unwrap());}}}
 impl GraphLookup for Lookup {
  fn entity_kind(&self,id:EntityId)->Result<Option<EntityKind>,ModelError>{Ok(self.entities.get(&id).copied())}
+ fn entity_subtype(&self,id:EntityId)->Result<Option<i16>,ModelError>{Ok(self.subtypes.get(&id).copied())}
  fn assertion_exists(&self,id:AssertionId)->Result<bool,ModelError>{Ok(self.assertions.contains(&id))}
  fn source_length(&self,id:EntityId)->Result<Option<u64>,ModelError>{Ok(self.sources.get(&id).copied())}
 }
@@ -97,8 +98,22 @@ fn family_content_is_independent_of_transport_chunks_and_preserves_payload(){
 #[test]
 fn selected_semantic_inventory_has_nominally_closed_reference_types(){
  let mut absent=BTreeSet::new();
- macro_rules! check {($($variant:ident:$record:ty,)*)=>{$(for field in Relation::of::<$record>().fields(){if let Some((_,target))=field.target(){let reference=SemanticReference{field:field.name(),target,key:[0;16]};if reference_target(&reference).is_err(){absent.insert(format!("{}::{} -> {target}",<$record>::NAME,field.name()));}}})*};}
+ macro_rules! check {($($variant:ident:$record:ty,)*)=>{$(for field in Relation::of::<$record>().fields(){if let Some((_,target))=field.target(){let reference=SemanticReference{field:field.name(),target,key:[0;16],subtype:field.subtype()};if reference_target(&reference).is_err(){absent.insert(format!("{}::{} -> {target}",<$record>::NAME,field.name()));}}})*};}
  lctx_model::graph_entity_records!(check);
  lctx_model::graph_assertion_records!(check);
  assert!(absent.is_empty(),"unselected semantic references: {absent:#?}");
+}
+
+#[test]
+fn graph_admission_preserves_nominal_sum_arm_obligations(){
+ let node=d::documents::DocumentNode::Passage{span:serde_json::from_value(serde_json::json!(vec![1;16])).unwrap(),ordinal:0};
+ let node_entity=Entity::from(node.clone());
+ let row=d::documents::PassageObservation{qualification:id(2),passage:d::documents::DocumentNodePassageId::of(&node).unwrap(),level:0,heading:None,heading_path:vec![],text:"body".into()};
+ let assertion=Assertion::from_record(row).unwrap();
+ let mut lookup=Lookup::default();lookup.add(&node_entity);lookup.entities.insert(EntityId::of(id::<d::assertion::AssertionQualification>(2)),EntityKind::Qualification);
+ assert!(assertion.reference_requirements().unwrap().iter().any(|reference|reference.subtype==Some(0)));
+ admit_assertion(&assertion,&lookup).unwrap();
+ // A structurally valid membership entry with the same nominal family but a wrong arm fails.
+ lookup.subtypes.insert(node_entity.id(),1);
+ assert!(admit_assertion(&assertion,&lookup).is_err());
 }

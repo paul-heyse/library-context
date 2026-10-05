@@ -897,6 +897,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
 
             fn references(&self)->Vec<::lctx_model::domain::SemanticReference>{match self{#(#reference_arms,)*}}
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![::lctx_model::domain::Field::of::<i16>("kind", true, false), #(#descriptors,)*] }
+            fn sum_tag(&self)->Option<i16>{Some(<Self as ::lctx_model::domain::SumRecord>::tag(self))}
             fn sum() -> Option<::lctx_model::domain::Sum> { Some(::lctx_model::domain::Sum { tag: "kind", arms: vec![#(#sum_arms,)*] }) }
             fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> { #validation Ok(()) }
             fn invariant_refs() -> Vec<&'static str> { #invariant_creation }
