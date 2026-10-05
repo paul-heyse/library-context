@@ -65,7 +65,7 @@ fn nary_roles_and_ordered_premises_survive_and_missing_internal_targets_refuse()
  assertion.participants[0].target=Target::Entity(EntityId(hash(7)));assert!(admit_assertion(&assertion,&lookup).is_err());
  let a=AssertionId(hash(8));let b=AssertionId(hash(9));lookup.assertions.extend([a,b]);
  let mut derived=claim(vec![Participant{role:ParticipantRole::Subject,field:None,position:None,target:Target::Entity(caller)}]);
- derived.derivation=Some(Derivation{rule:"compose".into(),revision:1,premises:vec![Target::Assertion(a),Target::Assertion(b)],assumptions:vec![],outcome:OutcomeKind::Complete});
+ derived.derivation=Some(Derivation{rule:"compose".into(),revision:1,conclusion:None,premises:vec![Target::Assertion(a),Target::Assertion(b)],assumptions:vec![],outcome:OutcomeKind::Complete});
  admit_assertion(&derived,&lookup).unwrap();let first=derived.id();derived.derivation.as_mut().unwrap().premises.reverse();assert_ne!(first,derived.id());
  assert!(admit_derivations([(a,&[Target::Assertion(b)][..]),(b,&[Target::Assertion(a)][..])]).is_err());
  admit_derivations([(a,&[Target::Assertion(b)][..])]).unwrap();
@@ -74,7 +74,7 @@ fn nary_roles_and_ordered_premises_survive_and_missing_internal_targets_refuse()
 fn external_uncertainty_is_explicit_but_cannot_fill_internal_roles(){
  let mut lookup=qualified_lookup();let provider=EntityId(hash(4));lookup.entities.insert(provider,EntityKind::Provider);
  let target=Target::External{provider,context:EntityId(hash(1)),name:"other.module".into(),reason:d::normalized::entities::EntityReason::ProviderExternal};
- let mut assertion=claim(vec![Participant{role:ParticipantRole::Callee,target}]);admit_assertion(&assertion,&lookup).unwrap();
+ let mut assertion=claim(vec![Participant{role:ParticipantRole::Callee,field:None,position:None,target}]);admit_assertion(&assertion,&lookup).unwrap();
  assertion.participants[0].role=ParticipantRole::Declaration;assert!(admit_assertion(&assertion,&lookup).is_err());
 }
 #[test]

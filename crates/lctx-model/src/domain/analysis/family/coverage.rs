@@ -212,7 +212,7 @@ pub fn assess(
 }
 /// Canonical expected domain, populated from admitted source contracts. Stored validation
 /// compares outcomes against this record, never reconstructs the domain from output rows.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name=owner_table!("coverage_requirements"))]
 pub struct CoverageRequirement {
     #[model(key)] pub invocation: Id<AnalysisInvocation>,
@@ -223,7 +223,7 @@ pub struct CoverageRequirement {
     #[model(key)] pub requested: bool,
     #[model(key)] pub no_scope: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name=owner_table!("coverage_required_sources"))]
 pub struct CoverageRequiredSource {
     #[model(key)] pub requirement: Id<CoverageRequirement>,

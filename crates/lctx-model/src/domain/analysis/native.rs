@@ -11,7 +11,7 @@ use crate::{Domain, DomainSum};
 // Codes are append-only; the native assertion and support declarations remain their owners.
 macro_rules! native_pairs {
     ($($code:literal: $variant:ident => $assertion:ty, $support:ty;)*) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
         #[model(name = "native_analysis_premises", rule = "native_analysis_premise")]
         pub enum NativeAssertionPremise {
             $(#[model(code = $code)] $variant {
@@ -175,7 +175,7 @@ crate::native_analysis_pairs!(native_pairs);
 
 /// One-shot typed projection of an actual native pair. Every payload is recomputed from
 /// the paired assertion/support; it does not select a new attribution or claim.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "native_qualifications", rule = "native_qualification", invariant_refs = inventory_invariants_refs)]
 pub struct NativeQualification {
     #[model(key, premise)]

@@ -682,7 +682,7 @@ pub fn logical_batch_bytes(batch:&RecordBatch)->Result<usize,ModelError>{
         use arrow_array::{StringArray,BinaryArray,ListArray};
         use arrow_schema::DataType;
         let invalid=||ModelError::Invalid("logical decode size overflow or undeclared Arrow type".into());
-        let fixed=match array.data_type(){DataType::Boolean=>Some(1),DataType::Int16=>Some(2),DataType::Int32=>Some(4),DataType::Int64|DataType::Float64=>Some(8),DataType::FixedSizeBinary(n)=>usize::try_from(*n).ok(),_=>None};
+        let fixed=match array.data_type(){DataType::Boolean|DataType::Int8|DataType::UInt8=>Some(1),DataType::Int16|DataType::UInt16=>Some(2),DataType::Int32|DataType::UInt32|DataType::Float32=>Some(4),DataType::Int64|DataType::UInt64|DataType::Float64=>Some(8),DataType::FixedSizeBinary(n)=>usize::try_from(*n).ok(),_=>None};
         if let Some(width)=fixed{return array.len().checked_mul(width).ok_or_else(invalid);}
         let variable=match array.data_type(){
             DataType::Utf8=>{let values=array.as_any().downcast_ref::<StringArray>().ok_or_else(invalid)?;let offsets=values.value_offsets();usize::try_from(offsets[offsets.len()-1]-offsets[0]).map_err(ModelError::codec)?},

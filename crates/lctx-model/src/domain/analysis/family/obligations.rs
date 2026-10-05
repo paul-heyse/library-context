@@ -1,7 +1,7 @@
 use super::*;
 use crate::domain::analysis::obligation_support::{self, ObligationQuestion, Question};
 use crate::domain::derivation::RowRef;
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name=owner_table!("analysis_obligations"), validate = validate_obligation)]
 pub struct AnalysisObligation {
     #[model(key)]
@@ -36,7 +36,7 @@ pub fn relations() -> Vec<Relation> {
 
 /// A persisted discharge cites an exact subject proof. There is no producer-selected verdict;
 /// publication reconstructs it with the shared conservative verdict operation.
-#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[derive(Debug,Clone,PartialEq,Eq,Domain,serde::Serialize,serde::Deserialize)]
 #[model(name=owner_table!("analysis_discharge_evidence"),rule="analysis_discharge",invariant_refs=discharge_invariants_refs)]
 pub struct DischargeEvidence {
     #[model(key,premise)] pub obligation:Id<ObligationSource>,

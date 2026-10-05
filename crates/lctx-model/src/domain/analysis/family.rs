@@ -66,7 +66,7 @@ macro_rules! analysis_family {
             fn normalized_source(row:&NormalizationCoverage)->Result<CoverageSource,ModelError> {$(let _: &$normalized=row;return Ok(CoverageSource::Normalized {coverage:row.id()});)? Err(invalid("publication owner cannot consume final normalization coverage"))}
             fn normalized_reference(source:&CoverageSource)->Option<Id<NormalizationCoverage>> {match source {$(CoverageSource::Normalized {coverage}=>{let _:Id<$normalized>=*coverage;Some(*coverage)},)?_=>None}}
             fn normalization_enabled()->bool {let types:&[&str]=&[$(stringify!($normalized),)?];!types.is_empty()}
-            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
+            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum,serde::Serialize,serde::Deserialize)]
             #[model(name=owner_table!("obligation_subjects"))]
             pub enum ObligationSubject {
                 #[model(code=0)] Entity {entity:Id<EntityRef>},
@@ -87,7 +87,7 @@ macro_rules! analysis_family {
                     $(Self::$variant {invocation}=>derivation::RowRef::of(*invocation),)*
                 }}
             }
-            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
+            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum,serde::Serialize,serde::Deserialize)]
             #[model(name=owner_table!("obligation_sources"),rule="analysis_obligation_source")]
             pub enum ObligationSource {
                 #[model(code=0)] Current {#[model(premise)] obligation:Id<AnalysisObligation>},
