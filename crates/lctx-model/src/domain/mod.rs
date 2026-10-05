@@ -548,3 +548,5 @@ pub mod native_requests;
 pub mod dependency_closure;
 
 pub mod graph;
+
+pub use record::{logical_batch_bytes,decode_allowance};
