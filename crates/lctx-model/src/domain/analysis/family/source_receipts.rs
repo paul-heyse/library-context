@@ -8,18 +8,16 @@ pub struct SourceReceipt {
     #[model(key)] relation:String,
     #[model(key)] producer:String,
     #[model(key)] model:ContentHash,
-    #[model(key)] schedule:ContentHash,
+    #[model(key)] implementation:ContentHash,
     #[model(key)] content:ContentHash,
     #[model(key)] rows:i64,
-    #[model(key)] physical:String,
-    #[model(key)] prefix:Option<String>,
 }
 impl SourceReceipt {
-    fn from_snapshot(invocation:Id<AnalysisInvocation>,source:&SourceSnapshot)->Self {Self {invocation,relation:source.relation.clone(),producer:source.producer.clone(),model:source.model,schedule:source.schedule,content:source.content,rows:source.rows,physical:source.physical.clone(),prefix:source.prefix.clone()}}
-    fn snapshot(&self)->SourceSnapshot {SourceSnapshot {relation:self.relation.clone(),producer:self.producer.clone(),model:self.model,schedule:self.schedule,content:self.content,rows:self.rows,physical:self.physical.clone(),prefix:self.prefix.clone()}}
+    fn from_snapshot(invocation:Id<AnalysisInvocation>,source:&SourceSnapshot)->Self {Self {invocation,relation:source.relation.clone(),producer:source.producer.clone(),model:source.model,implementation:source.implementation,content:source.content,rows:source.rows}}
+    fn snapshot(&self)->SourceSnapshot {SourceSnapshot {relation:self.relation.clone(),producer:self.producer.clone(),model:self.model,implementation:self.implementation,content:self.content,rows:self.rows}}
     pub fn source(&self)->SourceSnapshot {self.snapshot()}
 }
-fn validate_source_receipt(row:&SourceReceipt)->Result<(),ModelError> {if row.relation.is_empty() || row.producer.is_empty() || row.physical.is_empty() || row.rows<0 || row.prefix.as_deref().is_some_and(|name|stages::PublicationBoundary::from_name(name).is_none()) {return Err(invalid("source receipt has invalid metadata"));}Ok(())}
+fn validate_source_receipt(row:&SourceReceipt)->Result<(),ModelError> {if row.relation.is_empty() || row.producer.is_empty() || row.rows<0 {return Err(invalid("source receipt has invalid metadata"));}Ok(())}
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name=owner_table!("projection_inputs"),rule="analysis_projection_input",conclusion=invocation)]
 pub struct ProjectionInput {#[model(key)] pub invocation:Id<AnalysisInvocation>,#[model(key,premise)] pub projection:Id<ProjectionDefinition>}
@@ -42,7 +40,7 @@ impl AnalysisInvocation {
         Ok((row,parents,receipts,projections))
     }
 }
-pub(crate) fn source_publication_checks()->Vec<PublicationInvariant> {let checks=vec![PublicationInvariant {revision: 1,name:owner_table!("invocation_sources"),inputs:vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<SourceReceipt>(&["id"])],create:std::sync::Arc::new(|budget|Box::new(SourcePublicationCheck {charge:charged::StateCharge::new(budget,"analysis_source_publication"),invocations:Default::default(),sources:Default::default()}))}];checks}
+pub(crate) fn source_publication_checks()->Vec<PublicationInvariant> {let checks=vec![PublicationInvariant {revision: 2,name:owner_table!("invocation_sources"),inputs:vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<SourceReceipt>(&["id"])],create:std::sync::Arc::new(|budget|Box::new(SourcePublicationCheck {charge:charged::StateCharge::new(budget,"analysis_source_publication"),invocations:Default::default(),sources:Default::default()}))}];checks}
 struct SourcePublicationCheck {charge:charged::StateCharge,invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,sources:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeMap<String,SourceSnapshot>>}
 impl PublicationCheck for SourcePublicationCheck {
     fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {

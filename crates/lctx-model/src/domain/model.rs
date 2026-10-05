@@ -13,11 +13,8 @@ pub struct Relation {
     sum: Option<super::Sum>,
     derivation: Option<super::derivation::Derivation>,
     schema: SchemaRef,
-    contract: &'static str,
-    owner: &'static str,
     family: Option<super::attribution::FactFamily>,
     projection_roles: Vec<super::projection::EndpointRole>,
-    semantic_source: &'static [u8],
     validate: fn(&arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError>,
     proofs: fn(&arrow_array::RecordBatch) -> Result<Vec<super::derivation::Proof>, ModelError>,
     hash_rows: fn(&arrow_array::RecordBatch, &mut RelationContent) -> Result<(), ModelError>,
@@ -34,11 +31,8 @@ impl Relation {
             sum: R::sum(),
             derivation: R::derivation(),
             schema: R::schema(),
-            contract: R::CONTRACT,
-            owner: R::OWNER,
             family: R::family(),
             projection_roles: R::projection_roles(),
-            semantic_source: R::SEMANTIC_SOURCE,
             validate: canonical::<R>,
             hash_rows: hash_rows::<R>,
             proofs: proofs::<R>,
@@ -286,6 +280,15 @@ fn validate_definition(
     Ok(())
 }
 
+/// Revise when a semantic policy changes without changing a declaration or a named invariant.
+pub const SEMANTIC_POLICY_REVISION: u32 = 1;
+
+/// Implementation provenance is deliberately independent of semantic model compatibility.
+/// This may invalidate reuse after an implementation/dependency change without renaming entities.
+pub fn implementation_digest() -> ContentHash {
+    ContentHash::of(include_bytes!(concat!(env!("OUT_DIR"), "/model-implementation.bin")))
+}
+
 /// The only model accepted by storage or execution. Validation supports reference cycles.
 #[derive(Debug)]
 pub struct ValidatedModel {
@@ -330,23 +333,10 @@ impl ValidatedModel {
             }
         }
         let mut digest = KeySink::new("model/v3");
-        digest.part(
-            b"owned-semantics",
-            &ContentHash::of(include_bytes!(concat!(
-                env!("OUT_DIR"),
-                "/semantic-contract.bin"
-            )))
-            .0,
-        );
+        // Declaration fields, codebooks, projection meanings and explicit invariant revisions
+        // define compatibility. Source text, documentation, implementation and the lockfile do not.
+        digest.part(b"semantic-policy-revision", &SEMANTIC_POLICY_REVISION.to_le_bytes());
         for relation in &relations {
-            if relation.owner != "lctx-model" && relation.semantic_source.is_empty() {
-                return Err(ModelError::Invalid(format!(
-                    "{} is outside the captured semantic owner; declare semantic_source",
-                    relation.name
-                )));
-            }
-            digest.part(b"semantic-source", relation.semantic_source);
-            digest.part(b"declaration", relation.contract.as_bytes());
             digest.part(b"relation", relation.name.as_bytes());
             let mut roles = HashSet::new();
             for role in &relation.projection_roles {

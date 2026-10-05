@@ -6,7 +6,8 @@ use crate::domain::{
     input::{ArtifactUse, InputRevision},
     normalized::coverage::{Capability, NormalizationComputation, NormalizationCoverage},
     source::{CoverageScope, SourceArtifact},
-    stages::{Profile, ReadPermit},
+    stages::Profile,
+    analysis::sources::CompletedInput,
     *,
 };
 /// The recognized expected-domain row inventory and typed decoder dispatch share this owner.
@@ -684,7 +685,7 @@ impl<'a> CoverageAdmission<'a> {
     ) -> Result<Self, ModelError> {
         let profile = sources
             .profile()
-            .ok_or_else(|| invalid("coverage admission requires a captured stage profile"))?;
+            .ok_or_else(|| invalid("coverage admission requires a captured compiler profile"))?;
         Ok(Self {
             sources,
             index: FrontierIndex::new(profile, budget),
@@ -694,7 +695,7 @@ impl<'a> CoverageAdmission<'a> {
     /// establish completeness; required method inputs are checked against the capture in domain.
     pub fn visit_if_expected<R: Record>(
         &mut self,
-        permit: &ReadPermit<'_, R>,
+        permit: &CompletedInput<R>,
         batch: &arrow_array::RecordBatch,
     ) -> Result<VisitResult, ModelError> {
         // The dispatch checks source identity for handled inputs before decoding or mutation.
@@ -711,7 +712,7 @@ impl<'a> CoverageAdmission<'a> {
     }
     pub fn visit<R: Record>(
         &mut self,
-        permit: &ReadPermit<'_, R>,
+        permit: &CompletedInput<R>,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
         self.sources.accepts(permit)?;

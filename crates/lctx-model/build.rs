@@ -1,4 +1,4 @@
-//! Every owned semantic definition and its generator participates in the model contract.
+//! Capture producer implementation provenance separately from semantic compatibility.
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -39,7 +39,7 @@ fn main() {
         content.extend_from_slice(&bytes);
     }
     fs::write(
-        Path::new(&env::var_os("OUT_DIR").expect("OUT_DIR")).join("semantic-contract.bin"),
+        Path::new(&env::var_os("OUT_DIR").expect("OUT_DIR")).join("model-implementation.bin"),
         content,
     )
     .expect("contract capture");
