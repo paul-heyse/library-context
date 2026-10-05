@@ -2,7 +2,7 @@
 #[path = "fixtures/serving_support.rs"]
 mod support;
 use lctx_model::domain::{self, serving::ranking::DocumentScore, serving::*};
-use lctx_postgres::generations::{Error, RetrievalService};
+use lctx_postgres::generations::{Error, GenerationReader, RetrievalService};
 use support::ServingFixture;
 fn request(tool: &str, value: serde_json::Value) -> Request {
     decode_request(tool, &value.to_string(), &ResourceLimits::default()).unwrap()
@@ -391,5 +391,32 @@ async fn one_member_in_multiple_release_captures_is_ambiguous_in_get_and_compare
     assert!(compare.operations[0].ambiguous);
     assert_eq!(compare.operations[0].candidates, candidates);
     drop(execution);
+    fixture.finish().await;
+}
+
+/// Privileged view-body drift is checked on a real compiled Catalog generation. The fixture
+/// is isolated because this mutation intentionally invalidates its physical serving contract.
+#[tokio::test]
+async fn identity_views_and_declared_indexes_are_checked_under_the_original_lease() {
+    let fixture = ServingFixture::start(b"__all__ = []\n").await;
+    let role = lctx_postgres::roles::RoleConfig::load(
+        &fixture.dir.path().join("postgres-serving.json"),
+    ).unwrap();
+    let reader = GenerationReader::connect(
+        std::sync::Arc::new(domain::model().unwrap()), &role,
+    ).await.unwrap();
+    let budget = domain::resources::ResourceBudget::fixed(128 << 20).unwrap();
+    let guard = reader.guard(fixture.generation, budget.clone()).await.unwrap();
+    guard.release().await.unwrap();
+    let view = format!("{}.serving_members", fixture.generation.schema());
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE OR REPLACE VIEW {view} AS SELECT * FROM {}.catalog_members WHERE false",
+        fixture.generation.schema(),
+    )))
+    .execute(&fixture.db.superuser)
+    .await
+    .unwrap();
+    assert!(reader.guard(fixture.generation, budget).await.is_err());
+    reader.close().await;
     fixture.finish().await;
 }
