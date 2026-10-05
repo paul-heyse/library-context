@@ -1,25 +1,12 @@
 //! E0 constructs mandatory retrieval content from completed C1 inputs; final realization extends it.
-use datafusion::execution::context::SessionContext;
 use crate::{
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
-    normalized::Rows,
     retrieval::build::{self, Data, Output},
     *,
 };
 use std::sync::Arc;
-async fn load<R: Record>(session: &SessionContext, rows: &mut Rows<R>) -> Result<(), ModelError> {
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        rows.decode(&batch)?;
-    }
-    Ok(())
-}
 /// Read through the declared finite source closure. Original bytes come solely from ArtifactChunk.
 pub async fn mandatory(
     access: &CompletedInputs,
@@ -28,18 +15,17 @@ pub async fn mandatory(
 ) -> Result<(Data, Output), ModelError> {
     let session = access.session(runtime).await?;
     let mut data = Data::new(runtime.budget());
-    macro_rules! core {($($f:ident:$ty:ty,)*)=>{$(access.read::<$ty>()?;load(&session,&mut data.source.core.$f).await?;)*};}
-    lctx_model::catalog_inputs!(core);
-    macro_rules! catalog {($($f:ident:$ty:ty,)*)=>{$(access.read::<$ty>()?;load(&session,&mut data.source.catalog.$f).await?;)*};}
-    lctx_model::catalog_outputs!(catalog);
-    macro_rules! facts {($($f:ident:$ty:ty,)*)=>{$(access.read::<$ty>()?;load(&session,&mut data.source.facts.$f).await?;)*};}
-    lctx_model::catalog_evidence_inputs!(facts);
-    macro_rules! evidence {($($f:ident:$ty:ty,)*)=>{$(access.read::<$ty>()?;load(&session,&mut data.evidence.$f).await?;)*};}
-    lctx_model::catalog_evidence_outputs!(evidence);
-    macro_rules! extra {($($f:ident:$ty:ty,)*)=>{$(access.read::<$ty>()?;load(&session,&mut data.facts.$f).await?;)*};}
-    lctx_model::retrieval_inputs!(extra);
-    macro_rules! lower {($($f:ident:$ty:ty,)*)=>{$(access.read::<$ty>()?;load(&session,&mut data.source.runtime.$f).await?;)*};}
-    lctx_model::catalog_runtime_inputs!(lower);
+    let mut consumed=crate::consumed_rows::ConsumedInputs::new(Data::mandatory_consumed_inputs(access.profile()),runtime.budget())?;
+    macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(access)?{
+        crate::consumed_rows::stream_at(&permit,&input,access,&session,|_,batch|{data.visit_input(&input,batch)?;Ok(())}).await?;
+    })*};}
+    lctx_model::catalog_inputs!(load);
+    lctx_model::catalog_outputs!(load);
+    lctx_model::catalog_evidence_inputs!(load);
+    lctx_model::catalog_evidence_outputs!(load);
+    lctx_model::retrieval_inputs!(load);
+    lctx_model::catalog_runtime_inputs!(load);
+    consumed.finish("mandatory-retrieval")?;
     drop(session);
     catalog::evidence::frames::verify(
         &data.source.facts.runs,
