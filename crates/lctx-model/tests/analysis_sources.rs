@@ -74,7 +74,10 @@ fn publication(
     sources: &[CompletedRelation],
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let descriptor = lctx_model::domain::validation::publication_checks_for::<Invocation>().remove(0);
+    let descriptor = lctx_model::domain::validation::publication_checks_for::<Invocation>()
+        .into_iter()
+        .find(|check| check.name == "local_invocation_sources")
+        .expect("canonical source-consistency definition");
     let mut check = (descriptor.create)(budget);
     check.visit(
         Invocation::NAME,
