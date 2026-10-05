@@ -40,7 +40,7 @@ macro_rules! outputs {
                 Ok(false)
             }
             pub fn matches(&self, expected: &Self) -> Result<(), ModelError> {
-                $(if !self.$field.same(&expected.$field) { return Err(ModelError::Invalid(format!("normalized entity closure differs: {}", <$ty>::NAME))); })*
+                $(if !self.$field.same(&expected.$field) { return Err(ModelError::Invalid(format!("normalized entity closure differs: {}; {}", <$ty>::NAME,self.$field.difference(&expected.$field)))); })*
                 Ok(())
             }
             pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }

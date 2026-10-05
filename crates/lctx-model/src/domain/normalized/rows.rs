@@ -42,6 +42,14 @@ impl<R: Record> Rows<R> {
     pub fn same(&self, other: &Self) -> bool {
         self.rows.iter().eq(other.rows.iter())
     }
+    /// Bounded diagnostics for a failed exact algorithm replay; never changes membership.
+    pub(crate) fn difference(&self, expected:&Self)->String {
+        let missing=expected.rows.iter().filter(|(id,_)|!self.rows.contains_key(id));
+        let extra=self.rows.iter().filter(|(id,_)|!expected.rows.contains_key(id));
+        let changed=self.rows.iter().filter(|(id,row)|expected.rows.get(id).is_some_and(|other|other!=*row));
+        let describe=|rows:Vec<(&Id<R>,&R)>|rows.into_iter().map(|(id,row)|format!("{id:?}: {}",format!("{row:?}").chars().take(256).collect::<String>())).collect::<Vec<_>>();
+        format!("actual={} expected={} missing={} {:?}; extra={} {:?}; changed={} {:?}",self.len(),expected.len(),missing.clone().count(),describe(missing.take(8).collect()),extra.clone().count(),describe(extra.take(8).collect()),changed.clone().count(),describe(changed.take(8).collect()))
+    }
     pub fn get(&self, id: Id<R>) -> Option<&R> {
         self.rows.get(&id)
     }
