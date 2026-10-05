@@ -335,7 +335,7 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<RetrievalEmbeddingUse>(&["id"]),
     ]);
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "retrieval_embedding_consumption_and_winners",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -357,6 +357,11 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+        if crate::domain::stages::is_vocabulary(input.name()){
+            if self.data.visit_input(input,batch)?{Ok(())}else{Err(invalid("undeclared retrieval vocabulary input"))}
+        }else{self.visit(input.name(),batch)}
+    }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if self.data.visit(n, b)? {
             return Ok(());

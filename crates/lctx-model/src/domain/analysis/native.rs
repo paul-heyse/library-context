@@ -30,7 +30,7 @@ macro_rules! native_pairs {
         }
         impl NativeInventory {
             pub fn inputs() -> Vec<ValidationInput> {
-                let mut inputs = vec![ValidationInput::of::<AssertionQualification>(&["id"])];
+                let mut inputs = vec![ValidationInput::of::<AssertionQualification>(&["id"]).at_epoch(stages::PublicationBoundary::Facts)];
                 $(inputs.extend([ValidationInput::of::<$assertion>(&["id"]),
                     ValidationInput::of::<$support>(&["id"])]);)*
                 inputs
@@ -281,7 +281,7 @@ pub(crate) fn inventory_invariants() -> Vec<Invariant> {
         ValidationInput::of::<NativeQualification>(&["id"]),
     ]);
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "native_inventory_projection",
         inputs,
         create: std::sync::Arc::new(|budget| {

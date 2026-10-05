@@ -174,18 +174,12 @@ impl Workspace {
                 }
             }
         }
-        let frozen=self.frozen_vocabulary.lock().map_err(|_|poisoned())?.clone();
-        let mut frozen_tables=BTreeMap::new();
-        for ((boundary,name),source) in &frozen {
-            let table=format!("_frozen_{}_{name}",boundary.name().to_ascii_lowercase());
-            session.register_arrow(&table,source.path.to_string_lossy(),ArrowReadOptions::default().schema(source.relation.schema().as_ref())).await.map_err(ModelError::codec)?;
-            frozen_tables.insert((*boundary,*name),table);
-        }
+        let frozen_tables=self.validation_views(&session).await?;
         for invariant in self.model.invariants_for_scope_with_premises(&names,&unrequested)? {
             let mut check=(invariant.create)(self.budget());
             for input in &invariant.inputs {
                 let order=input.order().iter().map(|name|format!("\"{name}\"")).collect::<Vec<_>>().join(",");
-                let table=match input.prefix(){Some(boundary) if !frozen.is_empty()=>frozen_tables.get(&(boundary,input.name())).map(String::as_str).ok_or_else(||ModelError::Invalid(format!("missing frozen validation input {}",input.name())))?,_=>input.name()};
+                let table=Self::validation_table(input,&frozen_tables)?;
                 let sql=format!("SELECT * FROM \"{}\"{}",table,if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")});
                 let mut stream=crate::sql::query(&session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
                 while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {self.cancellation.check()?;check.visit_input(input,&batch)?;}
@@ -194,12 +188,26 @@ impl Workspace {
         }
         self.content()
     }
+    async fn validation_views(&self,session:&SessionContext)->Result<BTreeMap<(lctx_model::domain::stages::PublicationBoundary,&'static str),String>,ModelError>{
+        let frozen=self.frozen_vocabulary.lock().map_err(|_|poisoned())?.clone();
+        let mut tables=BTreeMap::new();
+        for ((boundary,name),source) in &frozen {
+            let table=format!("_frozen_{}_{name}",boundary.name().to_ascii_lowercase());
+            session.register_arrow(&table,source.path.to_string_lossy(),ArrowReadOptions::default().schema(source.relation.schema().as_ref())).await.map_err(ModelError::codec)?;
+            tables.insert((*boundary,*name),table);
+        }
+        Ok(tables)
+    }
+    fn validation_table<'a>(input:&lctx_model::domain::ValidationInput,tables:&'a BTreeMap<(lctx_model::domain::stages::PublicationBoundary,&'static str),String>)->Result<&'a str,ModelError>{
+        match input.prefix(){Some(boundary) if !tables.is_empty()=>tables.get(&(boundary,input.name())).map(String::as_str).ok_or_else(||ModelError::Invalid(format!("missing frozen validation input {}",input.name()))),_=>Ok(input.name())}
+    }
     /// Explicit fixture replay for selected owner source/coverage contracts. Artifact admission
     /// does not automatically recompute every compiler algorithm.
     pub async fn validate_publications(&self,ids:&[&str])->Result<(),ModelError> {
         let relations=self.completed_relations()?;
         let inputs=self.inputs("selected-publication-controls",Profile::Catalog,relations.iter().map(|r|r.name()))?;
         let session=inputs.session(self).await?;
+        let frozen_tables=self.validation_views(&session).await?;
         let mut checks=BTreeMap::new();
         for source in &relations {
             for id in source.relation.publication_refs().iter().filter(|id|ids.contains(id)) {
@@ -216,7 +224,8 @@ impl Workspace {
             let mut check=(invariant.create)(self.budget());
             for input in &invariant.inputs {
                 let order=input.order().iter().map(|name|format!("\"{name}\"")).collect::<Vec<_>>().join(",");
-                let sql=format!("SELECT * FROM \"{}\"{}",input.name(),if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")});
+                let table=Self::validation_table(input,&frozen_tables)?;
+                let sql=format!("SELECT * FROM \"{}\"{}",table,if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")});
                 let mut stream=crate::sql::query(&session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
                 while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {self.cancellation.check()?;check.visit_input(input,&batch)?;}
             }

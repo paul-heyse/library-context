@@ -12,7 +12,7 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
     impl CatalogData {
         pub fn new(budget:&ResourceBudget)->Self {Self {$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if relation==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
-        pub fn validation_inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
+        pub fn validation_inputs()->Vec<ValidationInput> {crate::domain::normalized::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*])}
         pub fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::stored::<$ty>()),*]}
     }
 };}
@@ -701,7 +701,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = CatalogData::validation_inputs();
     inputs.extend(CatalogOutput::validation_inputs());
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "catalog_core_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {

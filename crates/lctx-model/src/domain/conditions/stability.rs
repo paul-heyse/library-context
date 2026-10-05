@@ -262,14 +262,14 @@ pub struct GuardSubstitution {
     pub qualification: Id<AssertionQualification>,
 }
 pub fn stability_invariants() -> Vec<Invariant> {
-    let mut inputs = EntryData::validation_inputs();
+    let mut inputs = EntryData::facts_inputs();
     inputs.extend([
         ValidationInput::of::<EntryValueWitness>(&["id"]),
         ValidationInput::of::<EntryAccessSource>(&["id"]),
         ValidationInput::of::<StabilityWitness>(&["id"]),
     ]);
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "entry_guard_stability_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
