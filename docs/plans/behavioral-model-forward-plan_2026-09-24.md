@@ -279,8 +279,10 @@ anonymous rank metadata, literal Python Arrow schemas, fixed-view masks and curr
 retrieval writes/reads only after consumers move. Preserve required facet semantics as typed predicates; delete compatibility adapters and obsolete assets.
 
 Implemented formats: compiler111, extractor37 (typed primitive literal output), template21, catalog7, wire3,
-bundle16/projection6 and migration012; version ranking policy explicitly. `just fmt`, `just test-all`,
-`just docs-check` and real pilots wait until all functional scope is implemented. Code qualification
+bundle16/projection6 and migration012; version ranking policy explicitly. Current changes use
+focused affected families and applicable leaves; shared-contract changes require assembled
+`just qualify` (ADR-0126), with hook-owned formatting/generators. Real pilots remain separately
+authorized. Code qualification
 alone does not close live embedding/recovery or comparative product acceptance. AP/F04 and AP/F05
 are closed at bounded Tested strength by the current integrated evidence under the live-embedding
 waiver; CLF/F01 and CLF/F03 are closed by the bounded PR5 controls in §6.2.

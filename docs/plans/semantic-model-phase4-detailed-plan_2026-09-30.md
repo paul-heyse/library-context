@@ -1013,9 +1013,11 @@ retains its dated interruption boundaries, not current status.
 | Q0 | All functional scope and mapped X0 retirement are complete. The assembled Design/Target review remains Accept scoped at72ba0413. `NEXTEST_TEST_THREADS=8 just test-all` full5 passed the complete release Rust suite, Python/oracles, separate real PostgreSQL gate and doctests. Hygiene is a composite pass from the initial run and named corrected/affected reruns; current full Clippy and live store-check passed. The qualification receipt retains full1–4 failures, corrected fixture/schema controls, the inspected snapshot migration, the empty-store reset and final coherence capture. These receipts accept only the supported finite envelope; R4 broader admission, excluded pilots/measurements and Phase 5 remain open. |
 
 **Remaining scope:** no authorized Phase 4 functional or acceptance work remains.
-Owner documentation, finding disposition and handoff are reconciled; Phase 5 is the next layer. The repository's current
-AGENTS/ADR-0110 rules require `just hygiene` at scope end; only formatting/generators belong to the
-automatic hook. Historical hook-only process receipts do not override that rule.
+Owner documentation, finding disposition and handoff are reconciled; Phase 5 is the next layer.
+Current edits follow AGENTS/ADR-0126: focused affected families, applicable non-functional leaves
+at scope end, and assembled `just qualify` for shared-contract changes or unresolved cross-boundary
+uncertainty. Only automatic formatting/generators belong to the hook; historical receipts do not
+override current policy.
 
 Excluded full-library upper-frontier pilots/comparisons, live embedding, performance/hydration and
 total-RSS measurements remain outside this execution scope. Phase 5 serving and PR6 remain open.
