@@ -103,7 +103,7 @@ impl FlowCaptureInventory {
         Ok((row, members))
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="flow_capture_timing_observations",validate=validate_snapshot)]
 #[assertion(support=FlowCaptureTimingSupport,name="flow_capture_timing_supports",family=FactFamily::Flow,subjects(use_,nested_scope,enclosing_scope))]
 pub struct FlowCaptureTimingObservation {

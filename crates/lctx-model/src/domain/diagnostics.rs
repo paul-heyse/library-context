@@ -49,7 +49,7 @@ pub enum NativeBaselineStatus {
     Matched = 3,
     NotComparedOrUnmatched = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="ruff_diagnostic_observations",validate=validate_ruff)]
 #[assertion(support=RuffDiagnosticSupport,name="ruff_diagnostic_supports",family=FactFamily::Lexical,subjects(artifact,primary))]
 pub struct RuffDiagnosticObservation {
@@ -79,7 +79,7 @@ pub struct RuffDiagnosticObservation {
     #[model(key)]
     pub settings: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="pyrefly_diagnostic_observations",validate=validate_pyrefly)]
 #[assertion(support=PyreflyDiagnosticSupport,name="pyrefly_diagnostic_supports",family=FactFamily::Types,subjects(artifact,primary))]
 pub struct PyreflyDiagnosticObservation {
@@ -173,7 +173,7 @@ pub enum NativeDefinitionSymbolKind {
     Method = 8,
     Class = 9,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="native_parameter_definition_observations",validate=validate_parameter)]
 #[assertion(support=NativeParameterDefinitionSupport,name="native_parameter_definition_supports",family=FactFamily::Types,subjects(subject,target))]
 pub struct NativeParameterDefinitionObservation {

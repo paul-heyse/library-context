@@ -144,7 +144,7 @@ pub struct EffectiveCallableEvidence {
     pub premise: Id<EffectiveCallablePremise>,
 }
 /// Total over raw signatures, including those whose normalized correspondence is unavailable.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "signature_variants")]
 pub struct SignatureVariant {
     pub role: SignatureRole,

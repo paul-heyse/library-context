@@ -63,7 +63,7 @@ pub struct RecordTransformDefaults {
     pub field_specifier_identity_reason: Option<super::obligation::ObligationKind>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "class_metadata_observations", validate = validate_metadata)]
 #[assertion(support = ClassMetadataSupport, name = "class_metadata_supports", family = FactFamily::Types, subjects(class, metaclass, custom_metaclass))]
 pub struct ClassMetadataObservation {
@@ -135,7 +135,7 @@ pub enum MemberOrigin {
     Inherited = 1,
     Synthesized = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "class_member_observations", validate = validate_member)]
 #[assertion(support = ClassMemberSupport, name = "class_member_supports", family = FactFamily::Types, subjects(class, defining_class, term, enum_value), referents(declaration))]
 pub struct ClassMemberObservation {

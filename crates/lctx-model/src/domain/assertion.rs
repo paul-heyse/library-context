@@ -38,7 +38,7 @@ pub enum Approximation {
     Unknown = 4,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "assertion_qualifications", invariant_refs = qualification_invariants_refs)]
 pub struct AssertionQualification {
     #[model(key)]
@@ -54,7 +54,7 @@ pub struct AssertionQualification {
     #[model(key)]
     pub assumptions: Id<super::assumptions::AssumptionSet>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "provider_surfaces", validate = validate_surface)]
 pub struct ProviderSurface {
     #[model(key, provenance)]
@@ -70,7 +70,7 @@ fn validate_surface(row: &ProviderSurface) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "evidence", validate = validate_evidence, invariant_refs = evidence_invariants_refs)]
 pub enum Evidence {
     #[model(code = 0)]

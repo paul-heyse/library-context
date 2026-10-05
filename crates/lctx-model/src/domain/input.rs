@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{Domain, DomainCode, DomainSum};
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "packages", validate = validate_package)]
 pub struct Package {
     #[model(key)]
@@ -29,7 +29,7 @@ fn validate_package(value: &Package) -> Result<(), ModelError> {
 }
 
 /// A distribution release is not an acquired environment or an input tree.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "releases", validate = validate_release)]
 pub struct Release {
     #[model(key)]
@@ -45,7 +45,7 @@ fn validate_release(value: &Release) -> Result<(), ModelError> {
 }
 
 /// The digest covers all analyzer-visible entries. Provenance and display labels live separately.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "input_revisions", invariant_refs = input_invariants_refs)]
 pub struct InputRevision {
     #[model(key)]
@@ -72,7 +72,7 @@ impl InputRevision {
 }
 
 /// Describes acquisition; a label never substitutes for a tree's content manifest.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "input_origins")]
 pub enum InputOrigin {
     #[model(code = 0)]

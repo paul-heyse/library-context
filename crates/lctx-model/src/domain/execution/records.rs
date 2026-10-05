@@ -29,7 +29,7 @@ pub enum EvaluationSource {
         witness: Id<EntryValueWitness>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="base_expression_evaluations",rule="base_closed_expression",invariant_refs=base_invariants_refs)]
 pub struct ExpressionEvaluation {
     #[model(key, premise)]

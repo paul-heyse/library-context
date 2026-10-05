@@ -43,7 +43,7 @@ pub enum ExitDiagnosticPhase {
     Await = 3,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "native_exit_observations", validate = validate_exit, invariant_refs = invariants_refs)]
 #[assertion(support = NativeExitSupport, name = "native_exit_supports", family = FactFamily::Types, subjects(subject, receiver, member, normal_result, exceptional_result))]
 pub struct NativeExitObservation {
@@ -94,7 +94,7 @@ fn validate_exit(row: &NativeExitObservation) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "native_terminal_observations")]
 #[assertion(support = NativeTerminalSupport, name = "native_terminal_supports", family = FactFamily::Types, subjects(subject, callee, return_type))]
 pub struct NativeTerminalObservation {
@@ -113,7 +113,7 @@ pub struct NativeTerminalObservation {
     #[model(key)]
     pub decision: TerminalDecision,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "native_exit_diagnostics", validate = validate_diagnostic)]
 #[assertion(support = NativeExitDiagnosticSupport, name = "native_exit_diagnostic_supports", family = FactFamily::Types, subjects(subject, source))]
 pub struct NativeExitDiagnostic {

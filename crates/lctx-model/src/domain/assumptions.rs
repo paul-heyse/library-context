@@ -20,7 +20,7 @@ fn invalid(message: &str) -> ModelError {
 
 /// Exact identity of the world in which a no-extra-overrides premise is asserted. The digest
 /// alone is not closure evidence: the late model owner must publish UniverseSupport.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "assumption_universes")]
 pub struct AssumptionUniverse {
     #[model(key)]
@@ -32,7 +32,7 @@ pub struct AssumptionUniverse {
     #[model(key)]
     pub model_definition: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "assumptions", rule = "conditional_claim_premise")]
 pub enum Assumption {
     #[model(code = 0)]
@@ -52,7 +52,7 @@ pub enum Assumption {
         universe: Id<AssumptionUniverse>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "assumption_sets", invariant_refs = invariants_refs, validate = validate_set)]
 pub struct AssumptionSet {
     #[model(key)]

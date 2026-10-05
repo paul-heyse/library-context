@@ -7,7 +7,7 @@ pub enum TypeVariance {
     Contravariant = 1,
     Invariant = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="generic_specialization_observations",invariant_refs=generic_invariants_refs)]
 #[assertion(support=GenericSpecializationSupport,name="generic_specialization_supports",family=FactFamily::Types,subjects(scope,site,receiver,variable,argument))]
 pub struct GenericSpecializationObservation {

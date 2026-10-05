@@ -5,7 +5,7 @@ use super::{ContentHash, Id, ModelError, Record};
 use super::{assertion::AssertionQualification, attribution::FactFamily};
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "source_artifacts", validate = validate_source, invariant_refs = super::artifact::content_invariants_refs)]
 pub struct SourceArtifact {
     #[model(key)]
@@ -60,7 +60,7 @@ fn validate_source(row: &SourceArtifact) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "modules")]
 pub struct Module {
     #[model(key)]
@@ -68,7 +68,7 @@ pub struct Module {
     #[model(key)]
     pub qualified_name: String,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "occurrences", validate = validate_occurrence, invariant_refs = occurrence_invariants_refs)]
 pub struct Occurrence {
     #[model(key)]
@@ -111,7 +111,7 @@ pub enum OccurrenceRole {
     Yield = 11,
     Raise = 12,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "syntax_observations")]
 #[assertion(support = SyntaxSupport, name = "syntax_supports", family = FactFamily::Syntax, subjects(occurrence))]
 pub struct SyntaxObservation {
@@ -224,7 +224,7 @@ pub enum SyntaxKind {
 }
 
 /// Coverage attaches to an explicit scope rather than an untyped entity ID.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "coverage_scopes")]
 pub enum CoverageScope {
     #[model(code = 0)]

@@ -10,7 +10,7 @@ pub enum ContextPhase {
     FinalUnresolved = 2,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "ruff_context_observations", validate = validate_context)]
 #[assertion(support = RuffContextSupport, name = "ruff_context_supports", family = FactFamily::Lexical, subjects(subject, final_binding))]
 pub struct RuffContextObservation {
@@ -114,7 +114,7 @@ pub enum RuffDefinitionKind {
     NestedFunction = 3,
     Method = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "ruff_binding_observations", validate = validate_binding)]
 #[assertion(support = RuffBindingSupport, name = "ruff_binding_supports", family = FactFamily::Lexical, subjects(event, scope, shadowed, outer_shadowed, definition_scope))]
 pub struct RuffBindingObservation {
@@ -192,7 +192,7 @@ fn validate_binding(row: &RuffBindingObservation) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "ruff_definition_observations", validate = validate_definition)]
 #[assertion(support = RuffDefinitionSupport, name = "ruff_definition_supports", family = FactFamily::Lexical, subjects(declaration, parent))]
 pub struct RuffDefinitionObservation {

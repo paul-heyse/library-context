@@ -99,7 +99,7 @@ pub enum AssertionSource {
         witness: Id<execution::summary_terminal::SummaryTerminalWitness>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="programmatic_assertions",invariant_refs=invariants_refs,semantic_source=include_bytes!("assertions.rs"))]
 pub struct ProgrammaticAssertion {
     #[model(key)]

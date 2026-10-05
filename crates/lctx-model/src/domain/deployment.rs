@@ -264,7 +264,7 @@ fn validate_report(row: &TaskReport) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "task_report_observations")]
 #[assertion(support = TaskReportSupport, name = "task_report_supports", family = FactFamily::Deployment, subjects(receipt, target))]
 pub struct TaskReportObservation {
@@ -278,7 +278,7 @@ pub struct TaskReportObservation {
     #[model(key)]
     pub report: Id<TaskReport>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "deployment_observations", validate = validate_deployment)]
 #[assertion(support = DeploymentSupport, name = "deployment_supports", family = FactFamily::Deployment, subjects(span))]
 pub struct DeploymentObservation {

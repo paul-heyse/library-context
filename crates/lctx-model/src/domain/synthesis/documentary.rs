@@ -143,7 +143,7 @@ impl DocumentarySource {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="synthesis_documentary_conclusions",rule="sourced_authored_prose",invariant_refs=invariants_refs,semantic_source=include_bytes!("documentary.rs"))]
 pub struct DocumentaryConclusion {
     #[model(key, premise)]
@@ -203,7 +203,7 @@ macro_rules! synthesis_documentary_inputs {($m:ident)=>{$m! {
 macro_rules! outputs {($m:ident)=>{$m! {conclusions:DocumentaryConclusion,boundaries:DocumentaryBoundary,component_boundaries:crate::domain::synthesis::documentary_templates::ComponentBoundary,sources:DocumentarySource,prose_sources:ProseSource,slices:ProseSlice,qualifications:AssertionQualification,}};}
 macro_rules! data {($($f:ident:$ty:ty,)*)=>{
  pub struct Data{$(pub $f:Rows<$ty>,)*}
- impl Data {pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}} pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)} pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]} pub fn stage_inputs()->Vec<stages::RelationUse>{{let mut rows=vec![$(stages::RelationUse::stored::<$ty>()),*];rows}}}
+ impl Data {pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}} pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)} pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]} pub fn stage_inputs()->Vec<stages::RelationUse>{{vec![$(stages::RelationUse::stored::<$ty>()),*]}}}
 };}
 crate::synthesis_documentary_inputs!(data);
 macro_rules! output {($($f:ident:$ty:ty,)*)=>{

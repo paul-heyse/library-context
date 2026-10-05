@@ -36,7 +36,7 @@ pub enum ModuleBundle {
 /// namespace package (directories without an `__init__`) has no bytes and is scoped to its
 /// provider and context, as is an unresolved module, which keeps the provider's spelling and never
 /// equals a resolved one.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "provider_modules", validate = validate_provider_module, invariant_refs = provider_module_invariants_refs)]
 pub enum ProviderModule {
     #[model(code = 0)]
@@ -74,7 +74,7 @@ fn validate_provider_module(row: &ProviderModule) -> Result<(), ModelError> {
 }
 /// A provider's native symbol key, qualified by its pinned provider and analysis context.
 /// Cross-provider equivalence is a later attributed relationship, never a spelling join.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "provider_symbols", validate = validate_symbol, invariant_refs = native_support_invariants_refs)]
 pub struct ProviderSymbol {
     #[model(key, provenance)]
@@ -105,7 +105,7 @@ fn validate_symbol(row: &ProviderSymbol) -> Result<(), ModelError> {
 }
 /// Native graph ownership, distinct from the semantic occurrence owner. A module is provider
 /// neutral, so its body must explicitly retain the analyzer and invocation context.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "provider_callables")]
 pub enum ProviderCallable {
     #[model(code = 0)]
@@ -249,7 +249,7 @@ pub enum SignatureForm {
     NativeUnavailable = 3,
 }
 /// A parameter's structural shape. Its position/owner is SignatureParameter, not this value.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "parameter_shapes", validate = validate_parameter)]
 pub struct ParameterShape {
     #[model(key)]
@@ -290,7 +290,7 @@ impl SignatureRole {
         matches!(self, Self::Source | Self::Stub)
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "signature_observations", invariant_refs = signature_invariants_refs)]
 #[assertion(support = SignatureSupport, name = "signature_supports", family = FactFamily::Signatures, subjects(scope))]
 pub struct Signature {
@@ -311,7 +311,7 @@ pub struct Signature {
     #[model(key)]
     pub parameters: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "signature_parameters", validate = validate_member)]
 pub struct SignatureParameter {
     #[model(key)]
@@ -659,7 +659,7 @@ pub enum Receiver {
     #[model(code = 2)]
     Unknown { reason: ObligationKind },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_target_observations", invariant_refs = target_invariants_refs)]
 #[assertion(support = CallTargetSupport, name = "call_target_supports", family = FactFamily::Calls, subjects(site), referents(destination, receiver_class))]
 pub struct CallTarget {
@@ -909,7 +909,7 @@ pub enum PysaCalleeKind {
 /// A provider's call-graph site: one call event (site and origin), the callable whose graph
 /// reports it, and the native record kinds. The caller is the provider's attribution; the owner
 /// rule remains the model's only definition of a caller, and a difference stays visible.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "provider_call_sites", validate = validate_provider_site, invariant_refs = provider_site_invariants_refs)]
 #[assertion(support = ProviderCallSiteSupport, name = "provider_call_site_supports", family = FactFamily::Calls, subjects(site, caller))]
 pub struct ProviderCallSite {
@@ -1118,7 +1118,7 @@ pub struct Actual {
 
 /// A provider's syntax for one call site: its callee expression and complete ordered argument list.
 /// Arguments are relationship rows; the digest fixes their membership and order.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_syntax", invariant_refs = call_syntax_invariants_refs)]
 #[assertion(support = CallSyntaxSupport, name = "call_syntax_supports", family = FactFamily::Syntax, subjects(site, callee))]
 pub struct CallSyntax {
@@ -1800,7 +1800,7 @@ pub fn classify_receiver(evidence: ReceiverEvidence) -> Receiver {
 /// The declaration of the complete alternative set is independent of which policy consumes it.
 /// Its digest includes unresolved and otherwise inadmissible alternatives. Filtering first cannot
 /// manufacture uniqueness. Completeness remains an attributed provider claim.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_resolutions", invariant_refs = resolution_invariants_refs)]
 #[assertion(support = CallResolutionSupport, name = "call_resolution_supports", family = FactFamily::Calls, subjects(site))]
 pub struct CallResolution {

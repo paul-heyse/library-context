@@ -54,7 +54,7 @@ pub struct FlowUseInventoryMember {
     #[model(key)]
     pub support: Id<FlowReachingSupport>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="flow_use_inventory_observations", validate=validate_inventory, invariant_refs=inventory_invariants_refs)]
 #[assertion(support=FlowUseInventorySupport, name="flow_use_inventory_supports", family=FactFamily::Flow, subjects(use_,scope))]
 pub struct FlowUseInventoryObservation {

@@ -22,7 +22,7 @@ pub enum ReviewStatus {
 pub enum OmissionReason {
     NoDocumentedOutcome = 0,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="synthesis_briefs",invariant_refs=invariants_refs,semantic_source=include_bytes!("briefs.rs"))]
 pub struct Brief {
     #[model(key)]

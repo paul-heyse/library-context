@@ -12,7 +12,7 @@ pub enum TypeQueryStatus {
     Unavailable = 1,
     Partial = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="native_type_query_observations", validate=validate, invariant_refs=invariants_refs)]
 #[assertion(support=TypeQuerySupport, name="native_type_query_supports", family=FactFamily::Types, subjects(subject))]
 pub struct TypeQueryObservation {

@@ -18,7 +18,7 @@ pub enum CallableDeprecation {
     NotDeprecated = 1,
     Deprecated = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "native_signature_observations", invariant_refs = signature_port_invariants_refs)]
 #[assertion(support = NativeSignatureSupport, name = "native_signature_supports", family = FactFamily::Types, subjects(scope, term, family), referents(implementation, metadata_origin))]
 pub struct NativeSignatureObservation {
@@ -48,7 +48,7 @@ pub enum SignatureTypeSubject {
     #[model(code = 1)]
     Return { signature: Id<Signature> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "signature_type_observations")]
 #[assertion(support = SignatureTypeSupport, name = "signature_type_supports", family = FactFamily::Types, subjects(scope, term))]
 pub struct SignatureTypeObservation {

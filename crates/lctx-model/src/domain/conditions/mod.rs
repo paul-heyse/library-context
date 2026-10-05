@@ -19,7 +19,7 @@ pub use kernel::{
     KernelBoundary, RenderedCondition,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "evaluation_atoms", invariant_refs = rebase::guard_invariants_refs)]
 pub struct EvaluationAtom {
     #[model(key)]
@@ -31,7 +31,7 @@ pub struct EvaluationAtom {
     #[model(key)]
     pub operand: Option<Id<Place>>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "condition_nodes", validate = validate_node)]
 pub enum ConditionNode {
     #[model(code = 0)]
@@ -55,7 +55,7 @@ fn validate_node(row: &ConditionNode) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "conditions", invariant_refs = condition_invariants_refs)]
 pub struct Condition {
     #[model(key)]

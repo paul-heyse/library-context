@@ -229,7 +229,11 @@ pub trait Codebook: Sized {
     fn from_code(code: i16) -> Option<Self>;
 }
 pub trait FlatValue: FieldValue {}
+/// A direct nominal semantic reference used by graph lowering, independent of Arrow buffers.
+#[derive(Debug,Clone,PartialEq,Eq)]
+pub struct SemanticReference {pub field:&'static str,pub target:&'static str,pub key:[u8;16]}
 pub trait FieldValue: HeapSize {
+    fn semantic_reference(&self,_field:&'static str)->Option<SemanticReference>{None}
     fn subtype() -> Option<i16> {
         None
     }
@@ -261,12 +265,14 @@ scalar!(super::EvidenceBytes, Binary);
 scalar!(super::Utf8Text, Binary);
 impl<T: Record> FlatValue for Id<T> {}
 impl<T: Record> FieldValue for Id<T> {
+    fn semantic_reference(&self,field:&'static str)->Option<SemanticReference>{Some(SemanticReference{field,target:T::NAME,key:*self.bytes()})}
     const SCALAR: Scalar = Scalar::Id;
     fn target() -> Option<(TypeId, &'static str)> {
         Some((TypeId::of::<T>(), T::NAME))
     }
 }
 impl<T: FlatValue> FieldValue for Option<T> {
+    fn semantic_reference(&self,field:&'static str)->Option<SemanticReference>{self.as_ref().and_then(|value|value.semantic_reference(field))}
     const SCALAR: Scalar = T::SCALAR;
     const NULLABLE: bool = true;
     fn subtype() -> Option<i16> {
@@ -464,6 +470,7 @@ pub trait SumRecord: Record {
 pub trait Record:
     HeapSize + Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 'static
 {
+    fn references(&self)->Vec<SemanticReference>{Vec::new()}
     fn derivation() -> Option<super::derivation::Derivation> {
         None
     }

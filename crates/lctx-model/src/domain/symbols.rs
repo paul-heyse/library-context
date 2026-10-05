@@ -93,7 +93,7 @@ impl SymbolSequence {
 
 /// A provider asserts that it defines `symbol`: at its module's top level (`parent` none), or
 /// directly inside the class or function `parent` names.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "symbol_observations", invariant_refs = symbol_invariants_refs)]
 #[assertion(support = SymbolSupport, name = "symbol_supports", family = FactFamily::Signatures, subjects(symbol))]
 pub struct SymbolObservation {
@@ -113,7 +113,7 @@ pub enum FunctionOrigin {
     CallableField = 2,
     Unavailable = 3,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "function_trait_observations", validate = validate_function_traits)]
 #[assertion(support = FunctionTraitSupport, name = "function_trait_supports", family = FactFamily::Signatures, subjects(symbol))]
 pub struct FunctionTraitObservation {
@@ -160,7 +160,7 @@ fn validate_function_traits(row: &FunctionTraitObservation) -> Result<(), ModelE
     Ok(())
 }
 /// A provider's native traits of a class it defines.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "class_trait_observations")]
 #[assertion(support = ClassTraitSupport, name = "class_trait_supports", family = FactFamily::Signatures, subjects(symbol))]
 pub struct ClassTraitObservation {
@@ -192,7 +192,7 @@ pub enum Linearization {
 /// A class's declared bases, or its MRO as the provider reports it: ancestors exclude the class
 /// itself and `object`. A cyclic MRO states the empty sequence; only a complete one supports a
 /// negative hierarchy decision.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "class_ancestry_observations", validate = validate_ancestry)]
 #[assertion(support = ClassAncestrySupport, name = "class_ancestry_supports", family = FactFamily::Signatures, subjects(class))]
 pub struct ClassAncestryObservation {
@@ -226,7 +226,7 @@ fn validate_ancestry(row: &ClassAncestryObservation) -> Result<(), ModelError> {
 /// A signature parameter's annotation as the provider displays it. The display is a rendering:
 /// every support is display-only, and no structure is established from it (structural types are
 /// type observations).
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "parameter_annotation_observations", validate = validate_annotation)]
 #[assertion(support = ParameterAnnotationSupport, name = "parameter_annotation_supports", family = FactFamily::Signatures, fidelity = Fidelity::DisplayOnly, subjects(scope))]
 pub struct ParameterAnnotationObservation {
@@ -282,7 +282,7 @@ fn validate_origin(row: &ExportOrigin) -> Result<(), ModelError> {
 /// A provider asserts that `name` is public in module `access`, listed by `__all__` or by its
 /// definition of public, and defined where `origin` says. One public name has one origin. The
 /// claim is about the access module; the origin is a reference, which may lie in another module.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "public_name_observations", validate = validate_public_name)]
 #[assertion(support = PublicNameSupport, name = "public_name_supports", family = FactFamily::Exports, subjects(access), referents(origin))]
 pub struct PublicNameObservation {
@@ -318,7 +318,7 @@ pub enum ExportEnumerationBasis {
     Invalid = 3,
     Missing = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="export_enumeration_observations",validate=validate_export_enumeration,invariant_refs=export_enumeration_invariants_refs)]
 #[assertion(support=ExportEnumerationSupport,name="export_enumeration_supports",family=FactFamily::Exports,subjects(access))]
 pub struct ExportEnumerationObservation {
@@ -470,7 +470,7 @@ impl InvariantCheck for ExportCheck {
 }
 /// A parameter a function's docstring documents: the name as written, the provider's normalized
 /// text, and the description's verbatim bytes inside the `def`. The name need not be a parameter.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "parameter_doc_observations", validate = validate_doc)]
 #[assertion(support = ParameterDocSupport, name = "parameter_doc_supports", family = FactFamily::Signatures, subjects(declaration, description))]
 pub struct ParameterDocObservation {
@@ -494,7 +494,7 @@ fn validate_doc(row: &ParameterDocObservation) -> Result<(), ModelError> {
 /// retained as supporting context. Names alone never resolve an alias. A bundled stub's location
 /// is within its bundle and a namespace package's within its search root; acquired modules are
 /// located by their artifacts and unresolved modules have no location.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "module_resolution_observations")]
 #[assertion(support = ModuleResolutionSupport, name = "module_resolution_supports", family = FactFamily::Exports, subjects(alias), referents(module))]
 pub struct ModuleResolutionObservation {

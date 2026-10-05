@@ -18,7 +18,7 @@ use crate::domain::{
     value::{Place, PlaceRoot},
     *,
 };
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "model_transfer_witnesses", rule = "modeled_value_identity")]
 pub struct ModelTransferWitness {
     #[model(key, premise)]

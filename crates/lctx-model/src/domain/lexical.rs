@@ -102,7 +102,7 @@ fn validate_event(row: &BindingEvent) -> Result<(), ModelError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "lexical_scope_observations", validate = validate_scope)]
 #[assertion(support = LexicalScopeSupport, name = "lexical_scope_supports", family = FactFamily::Lexical, subjects(scope, parent))]
 pub struct LexicalScopeObservation {
@@ -122,7 +122,7 @@ fn validate_scope(row: &LexicalScopeObservation) -> Result<(), ModelError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "binding_observations", validate = validate_binding)]
 #[assertion(support = BindingSupport, name = "binding_supports", family = FactFamily::Lexical, subjects(event, scope, value))]
 pub struct BindingObservation {
@@ -152,7 +152,7 @@ fn validate_binding(row: &BindingObservation) -> Result<(), ModelError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "reference_observations", validate = validate_reference)]
 #[assertion(support = ReferenceSupport, name = "reference_supports", family = FactFamily::Lexical, subjects(read, scope, parent))]
 pub struct ReferenceObservation {
@@ -199,7 +199,7 @@ fn validate_target(row: &LexicalTarget) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "lexical_resolutions")]
 #[assertion(support = LexicalResolutionSupport, name = "lexical_resolution_supports", family = FactFamily::Lexical, subjects(read, target))]
 pub struct LexicalResolution {

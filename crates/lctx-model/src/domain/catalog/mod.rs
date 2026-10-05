@@ -17,7 +17,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainCode, DomainSum};
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="catalog_members",validate=validate_member,invariant_refs=build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct CatalogMember {
     #[model(key)]
@@ -63,7 +63,7 @@ pub struct CatalogCallable {
     pub assessment: Id<EffectiveCallableAssessment>,
     pub basis: CatalogContractBasis,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_invocations")]
 pub struct CatalogInvocation {
     #[model(key)]
@@ -130,7 +130,7 @@ pub enum ConstructorDisposition {
     Candidate = 2,
 }
 /// Association evidence, not a claim that an open MRO has a unique runtime winner.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_constructors")]
 pub struct CatalogConstructor {
     #[model(key)]
@@ -200,7 +200,7 @@ pub enum CatalogOptionEvidence {
         placement: Option<Id<syntax::SyntaxPlacement>>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_options")]
 pub struct CatalogOption {
     #[model(key)]
@@ -248,7 +248,7 @@ pub enum PublicPathDisposition {
     Shadowed = 1,
     Candidate = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="catalog_paths",semantic_source=include_bytes!("paths.rs"))]
 pub struct CatalogPath {
     #[model(key)]
@@ -290,7 +290,7 @@ pub enum CatalogContractBasis {
     SourceOnlyAlias = 1,
 }
 /// A source alias premise does not improve its original public exposure or runtime equivalence.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="catalog_aliases",semantic_source=include_bytes!("aliases.rs"))]
 pub struct CatalogAlias {
     #[model(key)]

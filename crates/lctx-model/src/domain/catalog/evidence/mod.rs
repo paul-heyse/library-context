@@ -26,7 +26,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainCode, DomainSum};
 pub use symbolic::SourceFieldLink;
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_original_sources")]
 pub enum OriginalSource {
     #[model(code = 0)]
@@ -61,7 +61,7 @@ pub enum Intent {
     SkipXfail = 4,
     Mixed = 5,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="catalog_scenarios",invariant_refs=build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct CatalogScenario {
     #[model(key)]
@@ -135,7 +135,7 @@ pub enum AssociationBasis {
     ExactInitialization = 5,
     ExactRead = 6,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="catalog_scenario_associations",semantic_source=include_bytes!("intent.rs"))]
 pub struct ScenarioAssociation {
     #[model(key)]
@@ -168,7 +168,7 @@ pub struct ScenarioOption {
     #[model(key)]
     pub option: Id<CatalogOption>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_document_associations")]
 pub struct DocumentAssociation {
     #[model(key)]
@@ -206,7 +206,7 @@ pub struct FieldAccessAssessment {
     pub basis: AssociationBasis,
     pub applicability: Knowledge,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_deployments")]
 pub struct CatalogDeployment {
     #[model(key)]
@@ -222,7 +222,7 @@ pub struct ReleaseDeployment {
     pub ownership: Id<ArtifactOwnership>,
     pub release: Id<Release>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_scenario_checks")]
 pub struct ScenarioCheck {
     #[model(key)]

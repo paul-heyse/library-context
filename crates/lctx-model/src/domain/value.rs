@@ -5,7 +5,7 @@ use super::source::{Module, Occurrence};
 use super::{Id, ModelError, Record};
 use crate::{Domain, DomainSum};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "literal_values", validate = validate_literal)]
 pub enum Literal {
     #[model(code = 0)]
@@ -39,7 +39,7 @@ fn validate_literal(row: &Literal) -> Result<(), ModelError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "place_roots", validate = validate_root)]
 pub enum PlaceRoot {
     #[model(code = 0)]
@@ -83,7 +83,7 @@ fn validate_root(row: &PlaceRoot) -> Result<(), ModelError> {
         _ => Ok(()),
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "path_segments")]
 pub enum PathSegment {
     #[model(code = 0)]
@@ -95,7 +95,7 @@ pub enum PathSegment {
 }
 /// Two explicit segments plus an unknown suffix are the bounded place contract.
 /// Reference collections are columns with distinct semantic positions, not a Vec<Id<_>>.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "access_paths", validate = validate_path)]
 pub struct AccessPath {
     #[model(key)]
@@ -151,7 +151,7 @@ impl AccessPath {
         out
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "places")]
 pub struct Place {
     #[model(key)]
@@ -160,7 +160,7 @@ pub struct Place {
     pub path: Id<AccessPath>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "predicates")]
 pub enum Predicate {
     #[model(code = 0)]
@@ -204,7 +204,7 @@ pub enum Predicate {
     FinallyNormalPathImpossible,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "literal_sets", invariant_refs = literal_set_invariants_refs)]
 pub struct LiteralSet {
     #[model(key)]

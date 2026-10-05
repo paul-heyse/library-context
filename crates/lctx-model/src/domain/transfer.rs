@@ -127,7 +127,7 @@ pub struct ControlInfluence {
 }
 /// A typed derivation edge: this supported influence reaches an atom guarding this supported
 /// alternative of a stable transfer. It is not a value flow from the influencing place.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = $selection_name, invariant_refs = control_invariants_refs, rule = "control_selects_transfer")]
 pub struct Selection {
     #[model(key, premise)]

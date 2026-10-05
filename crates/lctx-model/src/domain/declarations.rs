@@ -13,7 +13,7 @@ use super::{
 use crate::{Assertion, Domain};
 
 /// A provider asserts that `symbol` is declared by the definition occurrence `declaration`.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "symbol_declarations", invariant_refs = declaration_invariants_refs)]
 #[assertion(support = SymbolDeclarationSupport, name = "symbol_declaration_supports", family = FactFamily::Signatures, subjects(declaration))]
 pub struct SymbolDeclaration {
@@ -25,7 +25,7 @@ pub struct SymbolDeclaration {
     pub declaration: Id<Occurrence>,
 }
 /// A provider asserts that a signature parameter is declared by one parameter occurrence.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "parameter_declarations")]
 #[assertion(support = ParameterDeclarationSupport, name = "parameter_declaration_supports", family = FactFamily::Signatures, subjects(declaration))]
 pub struct ParameterDeclaration {

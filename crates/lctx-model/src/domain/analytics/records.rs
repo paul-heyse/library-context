@@ -28,7 +28,7 @@ pub enum Stop {
     DegeneratePartition = 7,
     InputPartial = 8,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_technique_results")]
 pub struct TechniqueResult {
     #[model(key)]
@@ -149,7 +149,7 @@ pub struct CombinedPair {
     pub right: Id<EntityRef>,
     pub weight: FiniteF64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_rank_scores")]
 pub struct RankScore {
     #[model(key)]
@@ -195,7 +195,7 @@ pub struct CommunityProfile {
     pub communities: i64,
     pub degenerate: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_communities")]
 pub struct Community {
     #[model(key)]
@@ -212,7 +212,7 @@ pub struct CommunityMember {
     #[model(key)]
     pub entity: Id<EntityRef>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_neighbours")]
 pub struct Neighbour {
     #[model(key)]
@@ -523,7 +523,7 @@ pub struct Incidence {
     #[model(key)]
     pub source: Id<IncidenceSource>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_concepts")]
 pub struct Concept {
     #[model(key)]
@@ -533,7 +533,7 @@ pub struct Concept {
     #[model(key)]
     pub intent: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_implications")]
 pub struct Implication {
     #[model(key)]

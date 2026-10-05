@@ -33,7 +33,7 @@ pub enum BindingSetReason {
     UndeterminedVariant = 3,
     IncompleteCoverage = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_binding_attempts", invariant_refs = super::binding_normalization::invariants_refs)]
 pub struct CallBindingAttempt {
     #[model(key)]
@@ -60,7 +60,7 @@ pub struct CallBindingAttempt {
     pub refusal: Option<ObligationKind>,
     pub bindings: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_bindings")]
 pub struct CallBinding {
     #[model(key)]
@@ -93,7 +93,7 @@ pub struct BindingSetAssessment {
     pub unique: bool,
     pub reason: BindingSetReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "binding_variant_assessments")]
 pub struct BindingVariantAssessment {
     #[model(key)]

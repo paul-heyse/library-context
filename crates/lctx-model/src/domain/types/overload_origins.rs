@@ -14,7 +14,7 @@ pub enum OverloadSelection {
     ClosestOnly = 4,
     Recovered = 5,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="native_overload_observations", validate=validate_trace, invariant_refs=trace_invariants_refs)]
 #[assertion(support=NativeOverloadSupport, name="native_overload_supports", family=crate::domain::attribution::FactFamily::Types, subjects(site, arguments, scope))]
 pub struct NativeOverloadObservation {
@@ -34,7 +34,7 @@ pub struct NativeOverloadObservation {
     #[model(key)]
     pub candidate_digest: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name="native_overload_candidates", validate=validate_candidate)]
 #[assertion(support=NativeOverloadCandidateSupport, name="native_overload_candidate_supports", family=crate::domain::attribution::FactFamily::Types, subjects(scope,term), referents(origin))]
 pub struct NativeOverloadCandidate {

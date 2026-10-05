@@ -20,7 +20,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "summary_path_witnesses", rule = "continue_proven_call_value")]
 pub struct SummaryPathWitness {
     #[model(key)]

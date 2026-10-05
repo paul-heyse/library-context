@@ -65,7 +65,7 @@ fn validate_node(row: &DocumentNode) -> Result<(), ModelError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "document_observations")]
 #[assertion(support = DocumentSupport, name = "document_supports", family = FactFamily::Docs, subjects(source))]
 pub struct DocumentObservation {
@@ -78,7 +78,7 @@ pub struct DocumentObservation {
     #[model(key)]
     pub parsed: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "passage_observations", validate = validate_passage)]
 #[assertion(support = PassageSupport, name = "passage_supports", family = FactFamily::Docs, subjects(passage))]
 pub struct PassageObservation {
@@ -104,7 +104,7 @@ fn validate_passage(row: &PassageObservation) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "code_block_observations", validate = validate_code)]
 #[assertion(support = CodeBlockSupport, name = "code_block_supports", family = FactFamily::Docs, subjects(block, passage), referents(materialized))]
 pub struct CodeBlockObservation {
@@ -142,7 +142,7 @@ fn validate_code(row: &CodeBlockObservation) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "document_link_observations")]
 #[assertion(support = DocumentLinkSupport, name = "document_link_supports", family = FactFamily::Docs, subjects(link, passage))]
 pub struct DocumentLinkObservation {
@@ -171,7 +171,7 @@ pub enum MentionSource {
     InlineCode = 0,
     Prose = 1,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "document_mention_observations")]
 #[assertion(support = DocumentMentionSupport, name = "document_mention_supports", family = FactFamily::Docs, subjects(mention, passage))]
 pub struct DocumentMentionObservation {
@@ -199,7 +199,7 @@ pub enum ComponentForm {
     Flow = 0,
     Text = 1,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "document_component_observations", validate = validate_component)]
 #[assertion(support = DocumentComponentSupport, name = "document_component_supports", family = FactFamily::Docs, subjects(component, passage, parent, inner, lead))]
 pub struct DocumentComponentObservation {
@@ -252,7 +252,7 @@ fn validate_attribute(row: &DocumentAttributeValue) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "document_attribute_observations", validate = validate_attribute_observation)]
 #[assertion(support = DocumentAttributeSupport, name = "document_attribute_supports", family = FactFamily::Docs, subjects(component))]
 pub struct DocumentAttributeObservation {

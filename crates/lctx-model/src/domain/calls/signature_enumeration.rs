@@ -5,7 +5,7 @@ pub const MAX_SIGNATURE_VARIANTS: usize = 4096;
 
 /// A provider's exact enumeration for one symbol. `complete` describes this export only;
 /// it does not upgrade family coverage or claim that an undecorated signature executes.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "signature_enumeration_observations", invariant_refs = enumeration_invariants_refs)]
 #[assertion(support = SignatureEnumerationSupport, name = "signature_enumeration_supports", family = FactFamily::Signatures, subjects(scope))]
 pub struct SignatureEnumerationObservation {

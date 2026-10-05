@@ -14,7 +14,7 @@ pub enum CaptureTiming {
     EagerSnapshot = 1,
     LazySnapshot = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "capture_observations", validate = validate_capture)]
 #[assertion(support = CaptureSupport, name = "capture_supports", family = FactFamily::Signatures, subjects(function, declaring))]
 pub struct CaptureObservation {

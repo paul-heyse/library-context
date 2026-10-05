@@ -18,7 +18,7 @@ pub enum Reduction {
 
 /// Typed persistence of the selected configuration. The protocol JSON is derived mechanically;
 /// it is never a second mutable store or an unparsed semantic column.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="embedding_specifications",validate=validate_spec)]
 pub struct EmbeddingSpec {
     #[model(key)]

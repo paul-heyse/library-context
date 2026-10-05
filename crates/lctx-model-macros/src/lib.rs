@@ -194,7 +194,8 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 inputs
             }
         }
-        #[derive(Debug, Clone, PartialEq, Eq, ::lctx_model::Domain)]
+        #[derive(Debug, Clone, PartialEq, Eq, ::lctx_model::Domain, ::lctx_model::domain::__private::serde::Serialize, ::lctx_model::domain::__private::serde::Deserialize)]
+        #[serde(crate = "::lctx_model::domain::__private::serde")]
         #support_model
         #vis struct #support {
             #[model(key)] pub assertion: ::lctx_model::domain::Id<#name>,
@@ -453,6 +454,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             fn key(&self) -> Self::Key { #key_name { #(#keys: self.#keys.clone(),)* } }
             fn write_key(&self, sink: &mut ::lctx_model::domain::KeySink) {
                 #(::lctx_model::domain::Key::encode(&self.#keys, sink);)*
+            }
+            fn references(&self)->Vec<::lctx_model::domain::SemanticReference>{
+                [#(::lctx_model::domain::FieldValue::semantic_reference(&self.#names,stringify!(#names)),)*].into_iter().flatten().collect()
             }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![#(#descriptors,)*] }
             fn invariant_refs() -> Vec<&'static str> { #invariants }
@@ -787,6 +791,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         .map(|variant| format_ident!("{}{}Id", name, variant))
         .collect();
     let mut key_arms = Vec::new();
+    let mut reference_arms=Vec::new();
     let mut heap_arms = Vec::new();
     let mut encode_arms = Vec::new();
     let mut decode_arms = Vec::new();
@@ -797,6 +802,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             ::lctx_model::domain::Key::encode(&(#code as i16), sink);
             #(::lctx_model::domain::Key::encode(#names, sink);)*
         }});
+        reference_arms.push(quote! {Self::#variant {#(#names,)*} => {let mut references=Vec::new();#(if let Some(reference)=::lctx_model::domain::FieldValue::semantic_reference(#names,stringify!(#names)){references.push(reference);})*references}});
         heap_arms.push(quote! { Self::#variant { #(#names,)* } => 0usize #(.saturating_add(::lctx_model::domain::HeapSize::heap_bytes(#names)))* });
         let values: Vec<_> = physical_names
             .iter()
@@ -889,6 +895,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 sink.finish()
             }
 
+            fn references(&self)->Vec<::lctx_model::domain::SemanticReference>{match self{#(#reference_arms,)*}}
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![::lctx_model::domain::Field::of::<i16>("kind", true, false), #(#descriptors,)*] }
             fn sum() -> Option<::lctx_model::domain::Sum> { Some(::lctx_model::domain::Sum { tag: "kind", arms: vec![#(#sum_arms,)*] }) }
             fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> { #validation Ok(()) }

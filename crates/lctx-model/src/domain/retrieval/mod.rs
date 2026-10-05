@@ -47,7 +47,7 @@ fn validate_definition(r: &RetrievalDefinition) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "retrieval_origins")]
 pub enum Origin {
     #[model(code = 0)]
@@ -72,7 +72,7 @@ pub enum Origin {
     },
 }
 /// Exact text/family deduplication does not discard any unit's contextual occurrence.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="retrieval_corpus_texts",validate=validate_text)]
 pub struct CorpusText {
     #[model(key)]
@@ -93,7 +93,7 @@ fn validate_text(r: &CorpusText) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="retrieval_units",invariant_refs=build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct Unit {
     #[model(key)]
@@ -115,7 +115,7 @@ pub enum Subject {
     #[model(code = 1)]
     Release { release: Id<Release> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "retrieval_unit_subjects")]
 pub struct UnitSubject {
     #[model(key)]
@@ -142,7 +142,7 @@ pub enum AnchorSource {
         slice: Id<crate::domain::synthesis::documentary::ProseSlice>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "retrieval_original_anchors")]
 pub struct OriginalAnchor {
     #[model(key)]

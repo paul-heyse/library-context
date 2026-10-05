@@ -23,12 +23,12 @@ pub struct Context<O, A> {
     budget: ResourceBudget,
     _reservation: Box<dyn Reservation>,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Concept<O, A> {
     pub extent: Vec<O>,
     pub intent: Vec<A>,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Implication<A> {
     pub premise: Vec<A>,
     pub conclusion: Vec<A>,

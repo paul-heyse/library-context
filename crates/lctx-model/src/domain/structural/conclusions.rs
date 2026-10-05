@@ -53,7 +53,7 @@ pub enum ConclusionSource {
         traversal: Id<controls::ControlTraversal>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "structural_conclusions",
     rule = "structural_source_observation"

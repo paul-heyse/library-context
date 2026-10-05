@@ -57,7 +57,7 @@ pub enum SummaryOrigin {
         witness: Id<super::summary_capture::SummaryCaptureWitness>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="summary_runs",invariant_refs=super::summary_replay::invariants_refs,publication_refs=super::summary_replay::profile_checks_refs)]
 pub struct SummaryRun {
     #[model(key)]

@@ -39,7 +39,7 @@ pub enum Interpretation {
     Heuristic = 2,
 }
 /// All parameters are typed, identity-bearing inputs. Diagnostics never feed this definition.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "method_parameters", validate = validate_parameters)]
 pub struct MethodParameters {
     #[model(key)]
@@ -79,7 +79,7 @@ fn validate_parameters(row: &MethodParameters) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analysis_definitions", validate = validate_definition)]
 pub struct AnalysisDefinition {
     #[model(key)]

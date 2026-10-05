@@ -369,7 +369,7 @@ pub enum Witness {
         coverage: Id<attribution::ProviderCoverage>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="catalog_selection_domains",invariant_refs=super::build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct SelectionDomain {
     #[model(key)]

@@ -32,7 +32,7 @@ pub enum ConclusionSource {
     #[model(code = 6)]
     Label { label: Id<CommunityLabel> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_conclusions", rule = "analytic_result_observation")]
 pub struct Conclusion {
     #[model(key)]

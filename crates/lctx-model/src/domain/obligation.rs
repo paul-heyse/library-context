@@ -231,7 +231,7 @@ pub enum Verdict {
     Unknown = 3,
     NotAnalyzed = 4,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Conclusion {
     pub verdict: Verdict,
     pub reason: Option<ObligationKind>,

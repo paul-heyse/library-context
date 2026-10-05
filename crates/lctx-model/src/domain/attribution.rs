@@ -74,7 +74,7 @@ pub enum Modality {
     Potential = 2,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "providers")]
 pub struct Provider {
     #[model(key)]
@@ -84,7 +84,7 @@ pub struct Provider {
     #[model(key)]
     pub build_digest: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analysis_contexts")]
 pub struct AnalysisContext {
     #[model(key)]
@@ -102,7 +102,7 @@ pub struct AnalysisContext {
     #[model(key)]
     pub lock_digest: Option<ContentHash>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "provider_runs", invariant_refs = invocation_invariants_refs)]
 pub struct ProviderRun {
     #[model(key, provenance)]

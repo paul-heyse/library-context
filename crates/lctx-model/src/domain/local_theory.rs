@@ -189,7 +189,7 @@ pub struct ScalarAssessment {
     pub witness: Option<Id<TheoryWitness>>,
     pub reason: Option<TheoryReason>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "local_theory_witnesses", rule = "structural_scalar_predicate")]
 pub struct TheoryWitness {
     #[model(key)]

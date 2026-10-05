@@ -20,7 +20,7 @@ pub enum CallableKind {
     Function = 0,
     Lambda = 1,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "callable_entities")]
 pub enum CallableEntity {
     #[model(code = 0)]
@@ -33,7 +33,7 @@ pub enum CallableEntity {
     #[model(code = 2)]
     External { symbol: Id<ProviderSymbol> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "class_entities")]
 pub enum ClassEntity {
     #[model(code = 0)]
@@ -43,7 +43,7 @@ pub enum ClassEntity {
     #[model(code = 2)]
     External { symbol: Id<ProviderSymbol> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "parameter_entities")]
 pub enum ParameterEntity {
     #[model(code = 0)]
@@ -55,7 +55,7 @@ pub enum ParameterEntity {
         parameter: Id<SignatureParameter>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "field_entities")]
 pub struct FieldEntity {
     #[model(key)]
@@ -105,7 +105,7 @@ pub enum EntityReason {
     MissingCorrespondence = 8,
     QualifiedUncertainty = 9,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "symbol_entity_resolutions", validate = validate_resolution, invariant_refs = super::entity_normalization::invariants_refs)]
 pub struct SymbolEntityResolution {
     #[model(key)]
@@ -204,7 +204,7 @@ pub enum PublicPathKnowledge {
     Candidate = 1,
     Unknown = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "public_enumeration_assessments")]
 pub struct PublicEnumerationAssessment {
     #[model(key)]
@@ -214,7 +214,7 @@ pub struct PublicEnumerationAssessment {
     /// Exactly a supported, unconditional complete enumeration can establish absence.
     pub closed: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "public_exposures")]
 pub struct PublicExposure {
     #[model(key)]

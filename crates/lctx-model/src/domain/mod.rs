@@ -69,7 +69,7 @@ pub use model::{
     implementation_digest, SEMANTIC_POLICY_REVISION,
 };
 pub use record::{
-    Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar, Sum,
+    Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar, SemanticReference, Sum,
     SumRecord,
 };
 
@@ -546,3 +546,5 @@ pub mod serving;
 pub mod native_requests;
 
 pub mod dependency_closure;
+
+pub mod graph;

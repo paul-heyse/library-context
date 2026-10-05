@@ -85,7 +85,7 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
  }
 };}
 crate::local_semantic_inputs!(data);
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="local_flow_assessments",invariant_refs=local_invariants_refs)]
 pub struct LocalAssessment {
     #[model(key)]
@@ -98,7 +98,7 @@ pub struct LocalAssessment {
     pub reason: Option<ObligationKind>,
 }
 /// One witnessed semantic occurrence; aggregate keys never substitute for this proof.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "local_flow_contributions", rule = "local_entry_value_transfer")]
 pub struct LocalContribution {
     #[model(key)]
@@ -905,7 +905,7 @@ pub fn stage(
         },
     })
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "local_guard_contributions", rule = "local_entry_guard")]
 pub struct LocalGuardContribution {
     #[model(key)]

@@ -26,7 +26,7 @@ fn invalid(message: &str) -> ModelError {
 
 /// Where an occurrence sits in the parse: its nearest placed ancestor (none for a module), the
 /// ancestor's field that holds it, and its ordinal among that field's placed children.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "syntax_placements", validate = validate_placement, invariant_refs = syntax_invariants_refs)]
 #[assertion(support = SyntaxPlacementSupport, name = "syntax_placement_supports", family = FactFamily::Syntax, subjects(occurrence, parent))]
 pub struct SyntaxPlacement {
@@ -101,7 +101,7 @@ pub enum SyntaxDetail {
     HandlerName { name: Option<String> },
 }
 /// A provider states an occurrence's `ordinal`th detail (a comparison chain has several).
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "syntax_detail_observations", validate = validate_detail)]
 #[assertion(support = SyntaxDetailSupport, name = "syntax_detail_supports", family = FactFamily::Syntax, subjects(occurrence))]
 pub struct SyntaxDetailObservation {
@@ -130,7 +130,7 @@ pub enum DeclarationKind {
 }
 /// A `def` or `class` statement: its name occurrence, enclosing declaration, `@overload` marker
 /// and docstring expression.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "declaration_observations", validate = validate_declaration)]
 #[assertion(support = DeclarationSupport, name = "declaration_supports", family = FactFamily::Syntax, subjects(declaration, name, parent, docstring))]
 pub struct DeclarationObservation {
@@ -161,7 +161,7 @@ fn validate_declaration(row: &DeclarationObservation) -> Result<(), ModelError> 
     Ok(())
 }
 /// A declaration's decorator, in source order.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "declaration_decorators", validate = validate_decorator)]
 #[assertion(support = DeclarationDecoratorSupport, name = "declaration_decorator_supports", family = FactFamily::Syntax, subjects(declaration, decorator))]
 pub struct DeclarationDecorator {
@@ -186,7 +186,7 @@ fn validate_decorator(row: &DeclarationDecorator) -> Result<(), ModelError> {
 /// statement's and alias's bytes; `resolved_module` is only an absolute source spelling,
 /// relative levels resolved against the importing module, when they do not climb past its top.
 /// Actual per-alias lookup identity is asserted by `ModuleResolutionObservation`.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "import_alias_observations", validate = validate_import)]
 #[assertion(support = ImportAliasSupport, name = "import_alias_supports", family = FactFamily::Exports, subjects(statement, alias))]
 pub struct ImportAliasObservation {
@@ -214,7 +214,7 @@ fn validate_import(row: &ImportAliasObservation) -> Result<(), ModelError> {
 }
 /// An `__all__` statement: complete literal syntax or a retained known literal subset.
 /// `literal=false,names=Some` characterizes a partial computed expression, never a complete set.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "dunder_all_observations", validate = validate_dunder_all)]
 #[assertion(support = DunderAllSupport, name = "dunder_all_supports", family = FactFamily::Exports, subjects(statement))]
 pub struct DunderAllObservation {
@@ -235,7 +235,7 @@ fn validate_dunder_all(row: &DunderAllObservation) -> Result<(), ModelError> {
 }
 /// A parameter as written: its function (a `def` or `lambda`), ordinal and kind, its default
 /// expression and, when that default is a literal, its value, and its annotation.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "parameter_syntax_observations", validate = validate_parameter)]
 #[assertion(support = ParameterSyntaxSupport, name = "parameter_syntax_supports", family = FactFamily::Signatures, subjects(function, parameter, default, annotation))]
 pub struct ParameterSyntaxObservation {
@@ -273,7 +273,7 @@ fn validate_parameter(row: &ParameterSyntaxObservation) -> Result<(), ModelError
     Ok(())
 }
 /// A class-body field as written: `name: annotation = value`, either part optional.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "class_field_syntax_observations", validate = validate_field)]
 #[assertion(support = ClassFieldSyntaxSupport, name = "class_field_syntax_supports", family = FactFamily::Syntax, subjects(class, target, annotation, value))]
 pub struct ClassFieldSyntaxObservation {

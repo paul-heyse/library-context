@@ -31,7 +31,7 @@ fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
     rows.get(id)
         .ok_or_else(|| invalid("Summary consequence premise absent"))
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "summary_claims")]
 pub enum SummaryClaim {
     #[model(code = 0)]

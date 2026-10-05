@@ -28,7 +28,7 @@ pub struct FlowDefinition {
     #[model(key)]
     pub place: Id<Place>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_use_observations")]
 #[assertion(support = FlowUseSupport, name = "flow_use_supports", family = FactFamily::Flow, subjects(use_, scope))]
 pub struct FlowUseObservation {
@@ -41,7 +41,7 @@ pub struct FlowUseObservation {
     #[model(key)]
     pub annotation: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_definition_observations")]
 #[assertion(support = FlowDefinitionSupport, name = "flow_definition_supports", family = FactFamily::Flow, subjects(definition, scope, value))]
 pub struct FlowDefinitionObservation {
@@ -70,7 +70,7 @@ pub enum ReachingDefinition {
     #[model(code = 2)]
     Nested,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_reaching_observations")]
 #[assertion(support = FlowReachingSupport, name = "flow_reaching_supports", family = FactFamily::Flow, subjects(use_, target))]
 pub struct FlowReachingObservation {
@@ -84,7 +84,7 @@ pub struct FlowReachingObservation {
     pub loop_carried: bool,
 }
 /// The provider's type-narrowing formula, never substituted for runtime reachability.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_narrowing_observations")]
 #[assertion(support = FlowNarrowingSupport, name = "flow_narrowing_supports", family = FactFamily::Flow, subjects(use_, target))]
 pub struct FlowNarrowingObservation {
@@ -98,7 +98,7 @@ pub struct FlowNarrowingObservation {
     pub precision_lost: bool,
 }
 /// Exact byte geometry does not make ty's transformed bytes the original source snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_source_view_observations", validate = validate_view, invariant_refs = view_invariants_refs)]
 #[assertion(support = FlowSourceViewSupport, name = "flow_source_view_supports", family = FactFamily::Flow, subjects(source))]
 pub struct FlowSourceViewObservation {
@@ -228,7 +228,7 @@ pub enum FlowSinkKind {
     Yield = 3,
     Raise = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_value_observations", validate = validate_value)]
 #[assertion(support = FlowValueSupport, name = "flow_value_supports", family = FactFamily::Flow, subjects(use_, sink))]
 pub struct FlowValueObservation {
@@ -255,7 +255,7 @@ fn validate_value(row: &FlowValueObservation) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_region_observations")]
 #[assertion(support = FlowRegionSupport, name = "flow_region_supports", family = FactFamily::Flow, subjects(statement, scope))]
 pub struct FlowRegionObservation {
@@ -498,7 +498,7 @@ impl InvariantCheck for FlowStructure {
 }
 
 /// Raw tests retain their source event and scope; P3 owns the leaf-to-type relation.
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_test_observations")]
 #[assertion(support = FlowTestSupport, name = "flow_test_supports", family = FactFamily::Flow, subjects(test, scope))]
 pub struct FlowTestObservation {
@@ -509,7 +509,7 @@ pub struct FlowTestObservation {
     #[model(key)]
     pub scope: Id<LexicalScope>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_test_leaf_observations")]
 #[assertion(support = FlowTestLeafSupport, name = "flow_test_leaf_supports", family = FactFamily::Flow, subjects(test, atom, operand))]
 pub struct FlowTestLeafObservation {
@@ -522,7 +522,7 @@ pub struct FlowTestLeafObservation {
     #[model(key)]
     pub operand: Option<Id<Occurrence>>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_attribute_load_observations", validate = validate_attribute)]
 #[assertion(support = FlowAttributeLoadSupport, name = "flow_attribute_load_supports", family = FactFamily::Flow, subjects(occurrence))]
 pub struct FlowAttributeLoadObservation {
@@ -565,7 +565,7 @@ pub struct FlowCallStep {
     #[model(key)]
     pub role: FlowCallOperandRole,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_value_path_observations")]
 #[assertion(support = FlowValuePathSupport, name = "flow_value_path_supports", family = FactFamily::Flow, subjects(value, path))]
 pub struct FlowValuePathObservation {

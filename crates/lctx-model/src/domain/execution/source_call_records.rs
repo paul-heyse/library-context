@@ -18,7 +18,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="source_call_headers",rule="fresh_source_binding",invariant_refs=source_call_invariants_refs)]
 pub struct SourceCallHeader {
     #[model(key, premise)]
@@ -108,7 +108,7 @@ pub struct SourceFrameArgument {
     #[model(premise)]
     pub evaluation: Id<super::records::ExpressionEvaluation>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="source_call_invocations",rule="source_call_invocation",invariant_refs=source_call_invariants_refs)]
 pub struct SourceInvocation {
     #[model(key, premise)]

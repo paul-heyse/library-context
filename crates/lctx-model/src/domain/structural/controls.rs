@@ -91,7 +91,7 @@ pub struct UnfollowedArgument {
     pub assessment: Option<Id<LocalAssessment>>,
     pub reason: obligation::ObligationKind,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "structural_control_traversals")]
 pub struct ControlTraversal {
     #[model(key)]
