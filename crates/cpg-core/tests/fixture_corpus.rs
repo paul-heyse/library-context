@@ -17,6 +17,7 @@ const CASES: &[&str] = &[
     "module_resolution",
     "native_callable_deprecation",
     "native_callable_variants",
+    "native_candidate_inventory",
     "native_class_traits",
     "native_diagnostics",
     "native_exports",
