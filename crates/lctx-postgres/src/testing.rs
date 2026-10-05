@@ -522,7 +522,7 @@ fn empty_conformance_configuration(
 }
 
 /// Shared lifecycle fixtures for tests of this and dependent crates: a two-relation model for
-/// fast lifecycle controls, and the facts frontier over the full model (the D1 stage table in
+/// fast lifecycle controls, and the facts frontier over the full model (five grouped producers in
 /// the catalog profile, one empty input, the Artifacts and Deployment coverage it requires).
 pub mod fixtures {
     use super::DisposableDatabase;
@@ -553,9 +553,6 @@ pub mod fixtures {
             let batch = Batch::<$ty>::new($model, $rows, &budget()).unwrap();
             $access.write::<$ty, _>(async |permit| $attempt.copy(permit, &batch).await).await.unwrap();
         } )* }};
-    }
-    macro_rules! empty {
-        ($access:expr, $attempt:expr, $model:expr; $($ty:ty),* $(,)?) => { rows!($access, $attempt, $model; $($ty => vec![]),*) };
     }
 
     pub async fn state(db: &DisposableDatabase, g: GenerationId) -> Option<String> {
@@ -661,8 +658,9 @@ pub mod fixtures {
         }
     }
 
-    /// The facts frontier over the full model: one empty input, the D1 stage table in the catalog
-    /// profile, and the two input-grained coverage rows (Artifacts, Deployment) it requires.
+    /// The facts frontier over the full model: one empty input and five catalog producers in
+    /// one Facts publication group, with every facts premise explicitly written. The provider
+    /// coverage preserves the lifecycle controls' input-grained admission semantics.
     pub struct Facts {
         pub model: Arc<ValidatedModel>,
         pub input: InputRevision,
@@ -736,12 +734,10 @@ pub mod fixtures {
                 };
             }
             lctx_model::native_analysis_pairs!(outputs);
-            Schedule::build(
-                &self.model,
-                vec![
+            let mut stages = vec![
                     stage(
                         "acquire",
-                        uses!(InputRevision, SourceArtifact),
+                        uses!(InputRevision, SourceArtifact, artifact::ArtifactChunk),
                         vec![Artifacts],
                         Some(&self.capture),
                     ),
@@ -800,11 +796,26 @@ pub mod fixtures {
                         vec![],
                         None,
                     ),
-                ],
-                &[],
-                Profile::Catalog,
-            )
-            .unwrap()
+                ];
+            // Every required premise has a declared producer. The canonical typed inventory
+            // supplies the empty facts not otherwise owned by these fixture producers.
+            let produced: std::collections::BTreeSet<_> = stages.iter()
+                .flat_map(|stage| stage.outputs.iter().map(RelationUse::name)).collect();
+            macro_rules! remaining_outputs {
+                ($($record:ty),* $(,)?) => {
+                    $(if !produced.contains(<$record as Record>::NAME) {
+                        stages.last_mut().expect("assemble stage").outputs.push(RelationUse::of::<$record>());
+                    })*
+                };
+            }
+            lctx_model::facts_records!(remaining_outputs);
+            // Source and publication checks span these producers. Their one explicit group
+            // closes only after all premises are durably written, including empty relations.
+            let members = stages.iter().map(|stage| stage.name).collect();
+            Schedule::build_with_publications(
+                &self.model, stages, &[], Profile::Catalog,
+                vec![PublicationGroup::new(PublicationBoundary::Facts, members)],
+            ).unwrap()
         }
         pub fn contract(&self) -> FrontierContract {
             FrontierContract::facts(&self.model, Profile::Catalog).unwrap()
@@ -868,42 +879,40 @@ pub mod fixtures {
                 coverage.push(row(&self.deploy, &deploy_run, FactFamily::Deployment));
             }
             for stage in schedule.stages() {
-                let mut access = execution.begin(stage.name).unwrap();
+                let mut output = StageOutput::new(
+                    execution.begin(stage.name).unwrap(), &attempt, model, budget(), Default::default(),
+                ).unwrap();
+                macro_rules! declare_premises {
+                    ($($record:ty),* $(,)?) => {
+                        $(if stage.outputs.iter().any(|relation| relation.name() == <$record as Record>::NAME) {
+                            output.declare::<$record>().unwrap();
+                        })*
+                    };
+                }
+                lctx_model::facts_records!(declare_premises);
                 match stage.name {
-                    "acquire" => {
-                        rows!(access, attempt, model; InputRevision => vec![self.input.clone()], SourceArtifact => vec![])
-                    }
-                    "pyrefly" => {
-                        macro_rules! native_empty {
-                            ($($code:literal: $variant:ident => $assertion:ty, $support:ty;)*) => {
-                                $(if NATIVE_FAMILIES.contains(&<$assertion as assertion::Assertion>::FAMILY) {
-                                    empty!(access, attempt, model; $assertion, $support);
-                                })*
-                            };
-                        }
-                        lctx_model::native_analysis_pairs!(native_empty);
-                        empty!(access, attempt, model; SignatureEnumerationMember)
-                    }
-                    "documents" => {
-                        empty!(access, attempt, model; DocumentObservation, DocumentSupport, PassageObservation, PassageSupport, CodeBlockObservation,
-                        CodeBlockSupport, DocumentLinkObservation, DocumentLinkSupport, DocumentMentionObservation, DocumentMentionSupport, DocumentComponentObservation,
-                        DocumentComponentSupport, DocumentAttributeObservation, DocumentAttributeSupport)
-                    }
-                    "deployment" => {
-                        empty!(access, attempt, model; TaskReportObservation, TaskReportSupport, DeploymentObservation, DeploymentSupport)
-                    }
+                    "acquire" => output.push(self.input.clone()).await.unwrap(),
+                    "pyrefly" | "documents" | "deployment" => {}
                     "assemble" => {
-                        empty!(access, attempt, model; assumptions::AssumptionSetMember, assumptions::Assumption, assumptions::AssumptionUniverse);
-                        rows!(access, attempt, model; assumptions::AssumptionSet => vec![assumptions::AssumptionSet::empty()], ProviderCoverage => coverage.clone(), CoverageScope => vec![scope.clone()],
-                        Provider => vec![self.capture.clone(), self.pyrefly.clone(),self.deploy.clone()], AnalysisContext => vec![self.context.clone()],
-                        ProviderRun => vec![capture_run.clone(),signature_run.clone(), deploy_run.clone()], RunFamily => capture_families.iter().chain(&signature_families).chain(&deploy_families).cloned().collect())
+                        output.push(assumptions::AssumptionSet::empty()).await.unwrap();
+                        for row in &coverage { output.push(row.clone()).await.unwrap(); }
+                        output.push(scope.clone()).await.unwrap();
+                        for provider in [&self.capture, &self.pyrefly, &self.deploy] {
+                            output.push(provider.clone()).await.unwrap();
+                        }
+                        output.push(self.context.clone()).await.unwrap();
+                        for run in [&capture_run, &signature_run, &deploy_run] {
+                            output.push(run.clone()).await.unwrap();
+                        }
+                        for family in capture_families.iter().chain(&signature_families).chain(&deploy_families) {
+                            output.push(family.clone()).await.unwrap();
+                        }
                     }
                     other => panic!("unscheduled stage {other}"),
                 }
-                access
-                    .complete(&attempt, ProviderOutcome::Complete)
-                    .await
-                    .unwrap();
+                // StageOutput emits a real typed empty write for every declared writer that
+                // received no rows; physical table existence is never a source premise.
+                output.finish(ProviderOutcome::Complete).await.unwrap();
             }
             (attempt, execution.finish().unwrap())
         }
