@@ -104,7 +104,7 @@ fn summary_dependencies_use_only_published_nominal_evidence_routes() {
                 "invocation membership cannot invent a generic proof producer: {name}"
             );
         }
-        // Exact consumed views retain both checkpoints; sufficient grants acknowledge Model.
+        // Native binding vocabulary uses Facts; cumulative summary evidence uses Model.
         let views = execution::summary_production::SummaryData::consumed_inputs(profile);
         for name in [
             conditions::Condition::NAME,
@@ -114,23 +114,14 @@ fn summary_dependencies_use_only_published_nominal_evidence_routes() {
         .into_iter()
         .filter(|_| profile == Profile::Behavioral)
         {
-            assert!(
-                views.iter().any(|input| input.name() == name
-                    && input.prefix() == Some(PublicationBoundary::Facts))
-            );
-            assert!(
-                views.iter().any(|input| input.name() == name
-                    && input.prefix() == Some(PublicationBoundary::Model))
-            );
-            assert_eq!(
-                summary
-                    .inputs
-                    .iter()
-                    .find(|input| input.name() == name)
-                    .unwrap()
-                    .prefix(),
-                Some(PublicationBoundary::Model)
-            );
+            let consumed = views.iter().filter(|input| input.name() == name)
+                .map(ValidationInput::prefix).collect::<std::collections::BTreeSet<_>>();
+            let scheduled = summary.inputs.iter().filter(|input| input.name() == name)
+                .map(|input| input.prefix()).collect::<std::collections::BTreeSet<_>>();
+            let expected = [Some(PublicationBoundary::Facts), Some(PublicationBoundary::Model)]
+                .into_iter().collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(consumed, expected, "consumed views for {name}");
+            assert_eq!(scheduled, expected, "scheduled views for {name}");
         }
         stages.push(summary);
         let schedule = Schedule::build_with_publications(

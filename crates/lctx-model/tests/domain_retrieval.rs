@@ -516,18 +516,42 @@ fn all_four_families_preserve_original_setup_execution_and_release_scope() {
     );
 }
 fn replay(d: &Data, out: &Output, b: &ResourceBudget) -> Result<(), ModelError> {
-    let mut check = (retrieval::build::invariants().remove(0).create)(b);
-    macro_rules! core {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.source.core.$f.iter().cloned().collect::<Vec<_>>())?).unwrap();)*};}
+    use stages::PublicationBoundary;
+    fn completed<R: Record>(
+        check: &mut dyn InvariantCheck,
+        inputs: &[ValidationInput],
+        rows: &Rows<R>,
+        view: Option<PublicationBoundary>,
+    ) -> Result<(), ModelError> {
+        let prefix = if stages::is_vocabulary(R::NAME) { view } else { None };
+        let input = inputs.iter().find(|input|
+            input.type_id() == std::any::TypeId::of::<R>() && input.prefix() == prefix
+        ).ok_or_else(|| ModelError::Invalid(format!(
+            "replay fixture has no declared source for {} at {prefix:?}", R::NAME
+        )))?;
+        check.visit_input(input, &R::encode(&rows.iter().cloned().collect::<Vec<_>>())?)
+    }
+    let invariant = retrieval::build::invariants().remove(0);
+    let mut check = (invariant.create)(b);
+    let inputs = Data::inputs();
+    let native = Some(PublicationBoundary::Facts);
+    macro_rules! core {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.source.core.$f,native)?;)*};}
     lctx_model::catalog_inputs!(core);
-    macro_rules! catalog {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.source.catalog.$f.iter().cloned().collect::<Vec<_>>())?).unwrap();)*};}
+    macro_rules! catalog {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.source.catalog.$f,native)?;)*};}
     lctx_model::catalog_outputs!(catalog);
-    macro_rules! facts {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.source.facts.$f.iter().cloned().collect::<Vec<_>>())?).unwrap();)*};}
+    macro_rules! facts {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.source.facts.$f,native)?;)*};}
     lctx_model::catalog_evidence_inputs!(facts);
-    macro_rules! evidence {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.evidence.$f.iter().cloned().collect::<Vec<_>>())?).unwrap();)*};}
+    macro_rules! runtime {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.source.runtime.$f,None)?;)*};}
+    lctx_model::catalog_runtime_inputs!(runtime);
+    completed(&mut *check, &inputs, &d.source.local_qualifications, Some(PublicationBoundary::Local))?;
+    macro_rules! evidence {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.evidence.$f,None)?;)*};}
     lctx_model::catalog_evidence_outputs!(evidence);
-    macro_rules! extra {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.facts.$f.iter().cloned().collect::<Vec<_>>())?).unwrap();)*};}
+    macro_rules! extra {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.facts.$f,native)?;)*};}
     lctx_model::retrieval_inputs!(extra);
-    macro_rules! output {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&out.$f.iter().cloned().collect::<Vec<_>>())?).unwrap();)*};}
+    macro_rules! synthesis {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.synthesis.$f,None)?;)*};}
+    lctx_model::retrieval_synthesis_inputs!(synthesis);
+    let outputs = Output::inputs();
+    macro_rules! output {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&outputs,&out.$f,None)?;)*};}
     lctx_model::retrieval_outputs!(output);
     check.finish()
 }
@@ -561,7 +585,7 @@ fn replay_refuses_forged_text_subjects_anchors_or_coupled_erasure() {
                 out.anchors = Rows::new(&b);
             }
         }
-        assert!(replay(&d, &out, &b).is_err());
+        assert!(replay(&d, &out, &b).is_err(), "rendering corruption case {case}");
     }
 }
 #[test]
@@ -667,13 +691,24 @@ fn final_stage_has_completed_named_owners_and_exact_immutable_effect() {
                     .iter()
                     .all(|i| i.transport() == stages::InputTransport::CompletedStore)
             );
-            assert!(
-                stage
-                    .inputs
-                    .iter()
-                    .filter(|i| stages::is_vocabulary(i.name()))
-                    .all(|i| i.prefix() == Some(stages::PublicationBoundary::Synthesis))
+            let expected = Data::inputs().iter()
+                .filter(|input| stages::is_vocabulary(input.name()))
+                .map(|input| (input.name(), input.prefix()))
+                .collect::<std::collections::BTreeSet<_>>();
+            let scheduled = stage.inputs.iter()
+                .filter(|input| stages::is_vocabulary(input.name()))
+                .map(|input| (input.name(), input.prefix()))
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(scheduled, expected);
+            let qualification = assertion::AssertionQualification::NAME;
+            assert_eq!(
+                expected.iter().filter(|(name, _)| *name == qualification)
+                    .map(|(_, prefix)| *prefix).collect::<std::collections::BTreeSet<_>>(),
+                [Some(stages::PublicationBoundary::Facts), Some(stages::PublicationBoundary::Local)]
+                    .into_iter().collect()
             );
+            assert!(expected.iter().filter(|(name, _)| *name != qualification)
+                .all(|(_, prefix)| *prefix == Some(stages::PublicationBoundary::Facts)));
         }
     }
 }

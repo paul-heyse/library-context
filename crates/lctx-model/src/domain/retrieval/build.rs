@@ -769,7 +769,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = Data::inputs();
     inputs.extend(Output::inputs());
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "retrieval_canonical_rendering",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -795,7 +795,7 @@ impl InvariantCheck for Check {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        self.out.verify_completion(&self.data, &self.budget)
+        self.out.matches(&build(&self.data, &self.budget)?)
     }
 }
 pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition) {
