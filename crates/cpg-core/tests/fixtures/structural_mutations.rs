@@ -96,7 +96,7 @@ pub async fn load_admission(
     session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
     let query = session
         .query(&format!(
-            "SELECT * FROM \"{}\" WHERE callable IS NOT NULL ORDER BY id LIMIT 1",
+            "SELECT * FROM \"{}\" ORDER BY id",
             normalized::entities::EntityRef::NAME,
         ))
         .await
@@ -105,8 +105,9 @@ pub async fn load_admission(
     let mut subject = None;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
         subject = normalized::entities::EntityRef::decode(&batch)?
-            .first()
-            .map(Record::id);
+            .into_iter()
+            .find(|row| matches!(row, normalized::entities::EntityRef::Callable { .. }))
+            .map(|row| row.id());
         if subject.is_some() {
             break;
         }
