@@ -606,5 +606,5 @@ pub fn compare(
 }
 
 pub fn definition() -> ContentHash {
-    ContentHash::of(include_bytes!("contract_comparison.rs"))
+    ContentHash::of(b"normalized/contract_comparison/semantic-policy/v1")
 }

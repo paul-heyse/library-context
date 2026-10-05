@@ -398,5 +398,5 @@ pub fn incoming(
 }
 
 pub fn definition() -> ContentHash {
-    ContentHash::of(include_bytes!("incoming_references.rs"))
+    ContentHash::of(b"normalized/incoming_references/semantic-policy/v1")
 }

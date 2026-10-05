@@ -53,7 +53,7 @@ pub enum AspectSource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="callable_aspects",invariant_refs=invariants_refs,semantic_source=include_bytes!("callable_aspects.rs"))]
+#[model(name="callable_aspects",invariant_refs=invariants_refs,semantic_source=b"callable-aspects-policy/v1")]
 pub struct CallableAspect {
     #[model(key)]
     pub assessment: Id<EffectiveCallableAssessment>,
@@ -1021,8 +1021,8 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         effect: stages::Effect::Pure,
         code: {
             let mut k = KeySink::new("callable-source-metadata-code");
-            ContentHash::of(include_bytes!("callable_aspects.rs")).encode(&mut k);
-            ContentHash::of(include_bytes!("symbolic_fields.rs")).encode(&mut k);
+            ContentHash::of(b"callable-aspects-policy/v1").encode(&mut k);
+            ContentHash::of(b"symbolic-fields-policy/v1").encode(&mut k);
             k.finish()
         },
         configuration: ContentHash::of(b"metadata-only/v1"),

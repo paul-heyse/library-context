@@ -230,5 +230,5 @@ pub fn explain(
 }
 
 pub fn definition() -> ContentHash {
-    ContentHash::of(include_bytes!("contextual.rs"))
+    ContentHash::of(b"types/contextual/semantic-policy/v1")
 }

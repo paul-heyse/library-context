@@ -251,7 +251,7 @@ pub fn associate(
     Ok(())
 }
 pub fn definition() -> ContentHash {
-    ContentHash::of(include_bytes!("overload_association.rs"))
+    ContentHash::of(b"normalized/overload_association/semantic-policy/v1")
 }
 
 #[cfg(test)]
