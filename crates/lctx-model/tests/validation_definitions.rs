@@ -2,7 +2,7 @@
 use lctx_model::{
     Domain,
     domain::{
-        execution::source_call_records::*, memory::MemoryGeneration, resources::ResourceBudget,
+        execution::source_call_records::*,  resources::ResourceBudget,
         stages::*, *,
     },
 };
@@ -238,21 +238,8 @@ fn two_references_execute_once_and_an_authored_negative_still_refuses() {
             shared(1, count.clone()),
         )
         .unwrap();
-        let memory = MemoryGeneration::conformance(&model, &budget());
-        memory
-            .put(
-                &Batch::new(
-                    &model,
-                    vec![Premise {
-                        ordinal: 0,
-                        accepted,
-                    }],
-                    &budget(),
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        assert_eq!(memory.validate(&model, &budget()).is_ok(), accepted);
+        let batch=Batch::new(&model,vec![Premise{ordinal:0,accepted}],&budget()).unwrap();
+        assert_eq!(validation::replay::replay(&model,&[(Premise::NAME,batch.arrow().clone())],&budget()).is_ok(),accepted);
         assert_eq!(count.load(Ordering::Relaxed), 1);
     }
 }
@@ -463,11 +450,11 @@ fn lower_scope_derivation_is_required_and_exactly_scoped_and_cycles_refuse() {
 
 #[test]
 fn source_snapshot_wire_is_auditable_metadata_and_rejects_unknown_fields() {
-    let wire = serde_json::json!({ "relation": Premise::NAME, "producer": "control", "model": ContentHash::of(b"model"), "schedule": ContentHash::of(b"schedule"), "content": ContentHash::of(b"content"), "rows": 0, "physical": "control_prefix", "prefix": "Facts" });
+    let wire = serde_json::json!({ "relation": Premise::NAME, "producer": "control", "model": ContentHash::of(b"model"), "implementation": ContentHash::of(b"implementation"), "content": ContentHash::of(b"content"), "rows": 0 });
     let snapshot: analysis::sources::SourceSnapshot = serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(snapshot.relation(), Premise::NAME);
     assert_eq!(snapshot.rows(), 0);
-    assert_eq!(snapshot.prefix(), Some("Facts"));
+    assert_eq!(snapshot.producer(),"control");
     assert_eq!(serde_json::to_value(&snapshot).unwrap(), wire);
     let mut malformed = wire;
     malformed

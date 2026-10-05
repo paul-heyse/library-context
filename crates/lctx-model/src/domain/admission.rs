@@ -1,20 +1,17 @@
 //! The facts frontier and its admission (DESIGN §15.8, §15.11; ADR-0087).
 //!
-//! A facts generation publishes only facts relations. For every family its profile requests, it
-//! states the coverage of every scope the family is stated over; for every other family it states
-//! `NotRequested`. Preflight refuses a schedule that cannot produce that frontier before any store
-//! effect. Admission reconciles the sealed coverage rows with the stage outcomes; it is the only
-//! way to obtain a [`FrontierAdmission`].
+//! Static frontier requirements independently derive exact expected scope/family/provider
+//! obligations. Completed-input availability reconciles those with provider domain outcomes.
 use super::{
     attribution::*,
-    charged::{ChargedMap, ChargedSet, ChargedVec, StateCharge},
+    charged::StateCharge,
     input::{
-        ArtifactOwnership, ArtifactUse, DerivedArtifact, InputRevision, SourceRole, UnownedArtifact,
+        ArtifactUse, InputRevision, SourceRole,
     },
     record::FieldValue,
     resources::ResourceBudget,
     source::{CoverageScope, SourceArtifact},
-    stages::{ExecutionReceipt, Profile, ProviderOutcome, Schedule},
+    stages::{Profile, ProviderOutcome, Schedule},
     *,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -549,9 +546,8 @@ impl FrontierContract {
         }
         Ok(Preflight {
             contract: self.clone(),
-            schedule: schedule.digest(),
+            schedule:schedule.digest(),
             coverers,
-            stages,
         })
     }
 }
@@ -560,9 +556,8 @@ impl FrontierContract {
 #[derive(Debug, Clone)]
 pub struct Preflight {
     contract: FrontierContract,
-    schedule: ContentHash,
+    schedule:ContentHash,
     coverers: BTreeMap<FactFamily, BTreeSet<Id<Provider>>>,
-    stages: BTreeMap<&'static str, BTreeSet<(FactFamily, Id<Provider>)>>,
 }
 /// One coverage row a facts generation must state: a requested family names its provider; an
 /// unrequested one is a single `NotRequested` row.
@@ -697,326 +692,5 @@ impl Availability {
     }
     pub fn from_code(code: i16) -> Option<Self> {
         Self::ALL.into_iter().find(|a| a.code() == code)
-    }
-}
-/// Proof that a sealed generation's coverage and stage outcomes meet its facts frontier. Only
-/// [`AdmissionCheck::finish`] constructs one.
-///
-/// ```compile_fail
-/// use lctx_model::domain::admission::FrontierAdmission;
-/// let forged = FrontierAdmission { contract: todo!(), model: todo!(), schedule: todo!(), coverage: todo!(),
-///     content: todo!(), profile: todo!(), availability: todo!() };
-/// ```
-///
-/// ```
-/// use lctx_model::domain::{ContentHash, admission::FrontierAdmission};
-/// fn recorded(admission: &FrontierAdmission) -> (ContentHash, ContentHash) { (admission.contract(), admission.coverage()) }
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FrontierAdmission {
-    frontier: Frontier,
-    contract: ContentHash,
-    model: ContentHash,
-    schedule: ContentHash,
-    coverage: ContentHash,
-    content: ContentHash,
-    profile: Profile,
-    availability: BTreeMap<FactFamily, Availability>,
-    scoped: std::sync::Arc<ScopedAvailability>,
-}
-impl FrontierAdmission {
-    pub fn frontier(&self) -> Frontier {
-        self.frontier
-    }
-    pub fn contract(&self) -> ContentHash {
-        self.contract
-    }
-    pub fn model(&self) -> ContentHash {
-        self.model
-    }
-    pub fn schedule(&self) -> ContentHash {
-        self.schedule
-    }
-    pub fn coverage(&self) -> ContentHash {
-        self.coverage
-    }
-    pub fn content(&self) -> ContentHash {
-        self.content
-    }
-    pub fn profile(&self) -> Profile {
-        self.profile
-    }
-    pub fn availability(&self) -> &BTreeMap<FactFamily, Availability> {
-        &self.availability
-    }
-    pub fn scoped(&self) -> &std::sync::Arc<ScopedAvailability> {
-        &self.scoped
-    }
-}
-
-/// Reads a sealed generation's inputs, artifacts, their classes and coverage, charged to the
-/// attempt budget.
-pub struct AdmissionCheck {
-    preflight: Preflight,
-    charge: StateCharge,
-    inputs: ChargedVec<InputRevision>,
-    artifacts: ChargedVec<SourceArtifact>,
-    uses: ChargedVec<ArtifactUse>,
-    classified: ChargedSet<Id<SourceArtifact>>,
-    scopes: ChargedMap<Id<CoverageScope>, CoverageScope>,
-    rows: ChargedVec<ProviderCoverage>,
-    normalized: super::normalized::coverage::CoverageOutput,
-}
-impl AdmissionCheck {
-    pub fn new(preflight: Preflight, budget: &ResourceBudget) -> Self {
-        Self {
-            preflight,
-            charge: StateCharge::new(budget, "facts_admission"),
-            inputs: ChargedVec::default(),
-            artifacts: ChargedVec::default(),
-            uses: ChargedVec::default(),
-            classified: ChargedSet::default(),
-            scopes: ChargedMap::default(),
-            rows: ChargedVec::default(),
-            normalized: super::normalized::coverage::CoverageOutput::new(budget),
-        }
-    }
-    /// The stored relations admission reads, in visiting order.
-    pub fn inputs(&self) -> Vec<ValidationInput> {
-        let mut inputs = vec![
-            ValidationInput::of::<InputRevision>(&["id"]),
-            ValidationInput::of::<SourceArtifact>(&["id"]),
-            ValidationInput::of::<ArtifactOwnership>(&["id"]),
-            ValidationInput::of::<UnownedArtifact>(&["id"]),
-            ValidationInput::of::<DerivedArtifact>(&["id"]),
-            ValidationInput::of::<ArtifactUse>(&["id"]),
-            ValidationInput::of::<CoverageScope>(&["id"]),
-            ValidationInput::of::<ProviderCoverage>(&["id"]),
-        ];
-        if matches!(
-            self.preflight.contract.frontier,
-            Frontier::Normalized | Frontier::Analysis | Frontier::Catalog
-        ) {
-            inputs.extend(super::normalized::coverage::CoverageOutput::validation_inputs());
-        }
-        inputs
-    }
-    pub fn visit(
-        &mut self,
-        relation: &str,
-        batch: &arrow_array::RecordBatch,
-    ) -> Result<(), ModelError> {
-        let c = &mut self.charge;
-        if relation == InputRevision::NAME {
-            for row in InputRevision::decode(batch)? {
-                self.inputs.push(c, row)?;
-            }
-        } else if relation == SourceArtifact::NAME {
-            for row in SourceArtifact::decode(batch)? {
-                self.artifacts.push(c, row)?;
-            }
-        } else if relation == ArtifactOwnership::NAME {
-            for row in ArtifactOwnership::decode(batch)? {
-                self.classified.insert(c, row.artifact)?;
-            }
-        } else if relation == UnownedArtifact::NAME {
-            for row in UnownedArtifact::decode(batch)? {
-                self.classified.insert(c, row.artifact)?;
-            }
-        } else if relation == DerivedArtifact::NAME {
-            for row in DerivedArtifact::decode(batch)? {
-                self.classified.insert(c, row.artifact())?;
-            }
-        } else if relation == ArtifactUse::NAME {
-            for row in ArtifactUse::decode(batch)? {
-                self.uses.push(c, row)?;
-            }
-        } else if relation == CoverageScope::NAME {
-            for row in CoverageScope::decode(batch)? {
-                self.scopes.insert(c, row.id(), row)?;
-            }
-        } else if relation == ProviderCoverage::NAME {
-            for row in ProviderCoverage::decode(batch)? {
-                self.rows.push(c, row)?;
-            }
-        } else if matches!(
-            self.preflight.contract.frontier,
-            Frontier::Normalized | Frontier::Analysis | Frontier::Catalog
-        ) && self.normalized.visit(relation, batch)?
-        {
-        } else {
-            return Err(ModelError::Invalid(format!(
-                "admission does not read {relation}"
-            )));
-        }
-        Ok(())
-    }
-    /// Admit the sealed generation whose validated content digest is `content`, produced by the
-    /// execution `receipt`.
-    pub fn finish(
-        self,
-        receipt: &ExecutionReceipt,
-        content: ContentHash,
-    ) -> Result<FrontierAdmission, ModelError> {
-        let contract = &self.preflight.contract;
-        if receipt.model() != contract.model || receipt.schedule() != self.preflight.schedule {
-            return Err(refuse(
-                "the execution receipt belongs to another model or schedule",
-            ));
-        }
-        // The captured closure is complete only when every artifact has its ownership class.
-        if let Some(artifact) = self
-            .artifacts
-            .iter()
-            .find(|a| !self.classified.contains(&a.id()))
-        {
-            return Err(refuse(format!(
-                "captured artifact {} has no ownership class",
-                artifact.path
-            )));
-        }
-        let expected =
-            self.preflight
-                .expected_coverage(&self.inputs, &self.artifacts, &self.uses)?;
-        let mut stated: BTreeMap<Expected, &ProviderCoverage> = BTreeMap::new();
-        for row in self.rows.iter() {
-            row.validate()?;
-            if !self.scopes.contains_key(&row.scope) {
-                return Err(refuse("a coverage row states an absent scope"));
-            }
-            let requested = contract.requested(row.family);
-            match (requested, row.status) {
-                (_, CoverageStatus::Failed) => {
-                    return Err(refuse(format!(
-                        "{:?} coverage failed; a failed provider aborts the attempt",
-                        row.family
-                    )));
-                }
-                (true, CoverageStatus::NotRequested) => {
-                    return Err(refuse(format!(
-                        "requested {:?} is stated NotRequested",
-                        row.family
-                    )));
-                }
-                (false, status) if status != CoverageStatus::NotRequested => {
-                    return Err(refuse(format!(
-                        "{:?} was attempted although the {} profile does not request it",
-                        row.family,
-                        contract.profile.name()
-                    )));
-                }
-                _ => {}
-            }
-            let key = Expected {
-                scope: row.scope,
-                family: row.family,
-                provider: row.provider,
-            };
-            if !expected.contains_key(&key) {
-                return Err(refuse(format!("unexpected {:?} coverage row", row.family)));
-            }
-            if stated.insert(key, row).is_some() {
-                return Err(refuse(format!(
-                    "duplicate {:?} coverage for one scope and provider",
-                    row.family
-                )));
-            }
-        }
-        if let Some(missing) = expected.keys().find(|key| !stated.contains_key(key)) {
-            return Err(refuse(format!(
-                "missing {:?} coverage for a scope",
-                missing.family
-            )));
-        }
-        for (stage, grants) in &self.preflight.stages {
-            let outcome = *receipt
-                .outcomes()
-                .get(stage)
-                .ok_or_else(|| refuse(format!("stage {stage} has no outcome")))?;
-            let rows: Vec<_> = stated
-                .values()
-                .copied()
-                .filter(|row| {
-                    row.provider
-                        .is_some_and(|provider| grants.contains(&(row.family, provider)))
-                })
-                .collect();
-            reconcile(outcome, &rows)?;
-        }
-        let mut availability = BTreeMap::new();
-        for requirement in &contract.requirements {
-            let statuses: Vec<_> = stated
-                .iter()
-                .filter(|(key, _)| key.family == requirement.family)
-                .map(|(_, row)| row.status)
-                .collect();
-            let family = if !contract.requested(requirement.family) {
-                Availability::NotRequested
-            } else if statuses.is_empty() {
-                Availability::NoScope
-            } else if statuses
-                .iter()
-                .all(|s| *s == CoverageStatus::CompleteUnderStatedModel)
-            {
-                Availability::Complete
-            } else if statuses.iter().all(|s| *s == CoverageStatus::Unavailable) {
-                Availability::Unavailable
-            } else {
-                Availability::Partial
-            };
-            if requirement.required && family == Availability::Unavailable {
-                return Err(refuse(format!(
-                    "required {:?} is entirely unavailable",
-                    requirement.family
-                )));
-            }
-            availability.insert(requirement.family, family);
-        }
-        let mut coverage = KeySink::new("facts-coverage");
-        for row in stated.values() {
-            row.id().encode(&mut coverage);
-        }
-        let scoped = std::sync::Arc::new(ScopedAvailability::validated(
-            &self.rows,
-            &self.scopes,
-            &availability,
-            self.charge.budget().expect("bound admission"),
-        )?);
-        if matches!(
-            contract.frontier,
-            Frontier::Normalized | Frontier::Analysis | Frontier::Catalog
-        ) {
-            let budget = self.charge.budget().expect("bound admission");
-            let mut artifacts = super::normalized::Rows::new(budget);
-            for row in self.artifacts.iter() {
-                artifacts.insert(row.clone())?;
-            }
-            let expected = super::normalized::coverage::assemble(
-                contract.profile,
-                &scoped,
-                &artifacts,
-                &receipt.sources().iter().map(|source| super::analysis::sources::SourceSnapshot {
-                    relation:source.relation().into(), producer:source.producer().into(),
-                    model:source.model(), implementation:super::implementation_digest(),
-                    content:source.receipt().content, rows:source.receipt().rows as i64,
-                }).collect::<Vec<_>>(),
-                budget,
-            )?;
-            super::normalized::coverage::validate(&expected, &self.normalized)?;
-            for row in self.normalized.outcomes.iter() {
-                row.id().encode(&mut coverage);
-            }
-        }
-        Ok(FrontierAdmission {
-            frontier: contract.frontier,
-            contract: contract.digest,
-            model: contract.model,
-            schedule: self.preflight.schedule,
-            coverage: coverage.finish(),
-            content,
-            profile: contract.profile,
-            scoped,
-            availability,
-        })
     }
 }

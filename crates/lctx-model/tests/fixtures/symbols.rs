@@ -15,7 +15,7 @@ use lctx_model::domain::{
     calls::*,
     conditions::*,
     input::*,
-    memory::MemoryGeneration,
+    
     source::*,
     symbols::*,
     syntax::{ImportAliasObservation, ImportAliasSupport},
@@ -828,10 +828,10 @@ impl Fixture {
     }
     /// Validate every stored relation and invariant, as the store would.
     pub fn validate(&self) -> Result<ContentHash, ModelError> {
-        let generation = MemoryGeneration::conformance(&self.model, &budget());
-        macro_rules! each { ($($ty:ty),+ $(,)?) => { $( generation.put(&Batch::new(&self.model, self.rows::<$ty>(), &budget()).unwrap())?; )+ }; }
+        let mut generation = Vec::new();
+        macro_rules! each { ($($ty:ty),+ $(,)?) => { $( generation.push((<$ty>::NAME,Batch::new(&self.model,self.rows::<$ty>(),&budget()).unwrap().arrow().clone())); )+ }; }
         symbol_relations!(each);
-        generation.validate(&self.model, &budget())
+        validation::replay::replay(&self.model,&generation,&budget())
     }
 }
 

@@ -35,7 +35,6 @@ pub mod local_fields;
 pub mod local_semantics;
 pub mod local_symbolic;
 pub mod local_theory;
-pub mod memory;
 pub(crate) mod model;
 pub mod models;
 pub mod normalized;

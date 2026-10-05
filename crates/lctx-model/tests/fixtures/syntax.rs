@@ -9,7 +9,7 @@
 use arrow_array::RecordBatch;
 use lctx_model::domain::{
     artifact::*, assertion::*, attribution::*, calls::ParameterKind, conditions::*, input::*,
-    lexical::SyntaxField, memory::MemoryGeneration, source::*, syntax::*, value::*, *,
+    lexical::SyntaxField,  source::*, syntax::*, value::*, *,
 };
 use std::collections::BTreeMap;
 
@@ -721,10 +721,10 @@ impl Fixture {
     }
     /// Validate every stored relation and invariant, as the store would.
     pub fn validate(&self) -> Result<ContentHash, ModelError> {
-        let generation = MemoryGeneration::conformance(&self.model, &budget());
-        macro_rules! each { ($($ty:ty),+ $(,)?) => { $( generation.put(&Batch::new(&self.model, self.rows::<$ty>(), &budget()).unwrap())?; )+ }; }
+        let mut generation = Vec::new();
+        macro_rules! each { ($($ty:ty),+ $(,)?) => { $( generation.push((<$ty>::NAME,Batch::new(&self.model,self.rows::<$ty>(),&budget()).unwrap().arrow().clone())); )+ }; }
         syntax_relations!(each);
-        generation.validate(&self.model, &budget())
+        validation::replay::replay(&self.model,&generation,&budget())
     }
 }
 

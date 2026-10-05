@@ -4,18 +4,13 @@ use lctx_model::{
         analysis::{
             self,
             local::{Invocation, SourceReceipt},
-            sources::CapturedSources,
+            sources::{CapturedSources,CompletedInput,SourceSnapshot},
         },
-        input::{Package, Release},
-        memory::MemoryGeneration,
+        input::Package,
         resources::ResourceBudget,
         stages::*,
         *,
     },
-};
-use std::{
-    future::Future,
-    task::{Context, Poll, Waker},
 };
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(32 << 20).unwrap()
@@ -27,51 +22,11 @@ fn nominal<T>(v: u8) -> Id<T> {
     >::new([v; 16].into_iter()))
     .unwrap()
 }
-fn ready<T>(future: impl Future<Output = T>) -> T {
-    match std::pin::pin!(future)
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("memory effect pending"),
-    }
-}
-fn stage(name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>) -> Stage {
-    Stage {
-        name,
-        inputs,
-        outputs,
-        contributes: vec![],
-        coverage: vec![],
-        profiles: vec![Profile::Catalog],
-        effect: Effect::Pure,
-        code: ContentHash::of(b"capture-control"),
-        configuration: ContentHash::of(b"capture-control"),
-    }
-}
-fn capture_attempt(
-    schedule: &Schedule,
-    model: &ValidatedModel,
-    budget: &ResourceBudget,
-) -> (CapturedSources, Vec<CompletedRelation>) {
-    let mut execution = schedule.execute();
-    let sink = MemoryGeneration::bind(model, budget, &mut execution).unwrap();
-    let mut producer = execution.begin("producer").unwrap();
-    let batch = Batch::new(model, vec![Package { name: "p".into() }], budget).unwrap();
-    ready(producer.write::<Package, _>(async |permit| sink.copy(permit, &batch).await)).unwrap();
-    ready(producer.complete(&sink, ProviderOutcome::Complete)).unwrap();
-    let consumer = execution.begin("consumer").unwrap();
-    let sources = consumer.completed_sources().unwrap();
-    let captured = CapturedSources::capture(&consumer, budget).unwrap();
-    let mut typed = CapturedSources::new(budget);
-    typed.include(&consumer.read::<Package>().unwrap()).unwrap();
-    assert_eq!(typed.digest(), captured.digest());
-    (captured, sources)
-}
+fn capture_inputs(model:&ValidatedModel,budget:&ResourceBudget)->(CapturedSources,Vec<SourceSnapshot>){let input=CompletedInput::<Package>::new("producer",model.digest(),ContentHash::of(b"fixture implementation"),ContentHash::of(b"package p"),1).unwrap();let sources=vec![input.snapshot()];let captured=CapturedSources::capture(Profile::Catalog,sources.clone(),budget).unwrap();let mut typed=CapturedSources::new(budget);typed.include(&input).unwrap();assert_eq!(typed.digest(),captured.digest());(captured,sources)}
 fn publication(
     inv: &Invocation,
     receipts: &[SourceReceipt],
-    sources: &[CompletedRelation],
+    sources: &[SourceSnapshot],
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let descriptor = lctx_model::domain::validation::publication_checks_for::<Invocation>()
@@ -84,31 +39,13 @@ fn publication(
         &Invocation::encode(std::slice::from_ref(inv))?,
     )?;
     check.visit(SourceReceipt::NAME, &SourceReceipt::encode(receipts)?)?;
-    let snapshots = sources
-        .iter()
-        .map(analysis::sources::SourceSnapshot::from_source)
-        .collect::<Result<Vec<_>, _>>()?;
-    check.finish(&snapshots, Profile::Catalog)
+    check.finish(sources, Profile::Catalog)
 }
 #[test]
-fn capture_binds_exact_sealed_sources_and_refuses_coupled_omission() {
+fn capture_binds_exact_completed_sources_and_refuses_coupled_omission() {
     let model = model().unwrap();
     let budget = budget();
-    let schedule = Schedule::build(
-        &model,
-        vec![
-            stage("producer", vec![], vec![RelationUse::of::<Package>()]),
-            stage(
-                "consumer",
-                vec![RelationUse::stored::<Package>()],
-                vec![RelationUse::of::<Release>()],
-            ),
-        ],
-        &[],
-        Profile::Catalog,
-    )
-    .unwrap();
-    let (captured, sources) = capture_attempt(&schedule, &model, &budget);
+    let (captured,sources)=capture_inputs(&model,&budget);
     let (inv, _, receipts, _) = Invocation::admitted(
         nominal(1),
         nominal(2),
@@ -122,12 +59,12 @@ fn capture_binds_exact_sealed_sources_and_refuses_coupled_omission() {
     .unwrap();
     assert_eq!(receipts[0].source().rows(), 1);
     publication(&inv, &receipts, &sources, &budget).unwrap();
-    // Decode must reject an unknown persisted boundary before receipts enter replay.
+    // Source observations reject malformed declared producer metadata.
     let encoded = SourceReceipt::encode(&receipts).unwrap();
     assert_eq!(SourceReceipt::decode(&encoded).unwrap(), receipts);
     let mut columns = encoded.columns().to_vec();
-    let prefix = encoded.schema().index_of("prefix").unwrap();
-    columns[prefix] = std::sync::Arc::new(arrow_array::StringArray::from(vec![Some("Unknown")]));
+    let prefix = encoded.schema().index_of("producer").unwrap();
+    columns[prefix] = std::sync::Arc::new(arrow_array::StringArray::from(vec![""]));
     let malformed = arrow_array::RecordBatch::try_new(encoded.schema(), columns).unwrap();
     assert!(
         matches!(SourceReceipt::decode(&malformed), Err(ModelError::Invalid(message))
@@ -148,7 +85,7 @@ fn capture_binds_exact_sealed_sources_and_refuses_coupled_omission() {
     .unwrap();
     assert!(publication(&forged, &no_receipts, &sources, &budget).is_err());
     assert!(publication(&inv, &receipts, &[], &budget).is_err());
-    let (retry, _) = capture_attempt(&schedule, &model, &budget);
+    let (retry, _) = capture_inputs(&model,&budget);
     assert_eq!(
         retry.digest(),
         captured.digest(),

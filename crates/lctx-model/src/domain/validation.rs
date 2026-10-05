@@ -1134,3 +1134,5 @@ pub fn publication_checks_for<R: Record>() -> Vec<PublicationInvariant> {
         .expect("declared canonical publication references")
         .publication_checks
 }
+
+pub mod replay;

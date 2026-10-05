@@ -121,21 +121,7 @@ fn attachment_buffers_share_budget_and_ambiguity_owns_its_reservation() {
 }
 
 mod batching {
-    use lctx_model::domain::{batching::*, input::*, resources::*, source::*, stages::*, *};
-    use std::{
-        future::Future,
-        sync::Mutex,
-        task::{Context, Poll, Waker},
-    };
-    fn ready<T>(future: impl Future<Output = T>) -> T {
-        match std::pin::pin!(future)
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop()))
-        {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("test sink unexpectedly pending"),
-        }
-    }
+    use lctx_model::domain::{batching::*, input::*, resources::*, source::*, *};
     fn sizes(
         writer: BatchWriter<Package>,
         model: &ValidatedModel,
@@ -320,126 +306,8 @@ mod batching {
         assert_eq!(short.reserved(), 0);
     }
 
-    struct Recorder(Mutex<Vec<(&'static str, usize)>>);
-    impl StageSink for Recorder {
-        async fn complete(
-            &self,
-            completion: lctx_model::domain::stages::StageCompletion,
-        ) -> Result<lctx_model::domain::stages::CompletedStage, ModelError> {
-            // This transport-only recorder has no persistence claim. Store controls use the real sink.
-            let outputs = completion
-                .outputs()
-                .iter()
-                .map(|name| {
-                    (
-                        *name,
-                        lctx_model::domain::stages::RelationReceipt {
-                            rows: 0,
-                            content: ContentHash::of(b"transport-recorder"),
-                        },
-                    )
-                })
-                .collect();
-            completion.acknowledge(outputs)
-        }
-        fn copy<R: Record>(
-            &self,
-            permit: WritePermit<'_, R>,
-            batch: &Batch<R>,
-        ) -> impl Future<Output = Result<(), ModelError>> + Send {
-            self.0
-                .lock()
-                .unwrap()
-                .push((permit.relation(), batch.rows().len()));
-            std::future::ready(Ok(()))
-        }
-    }
-    fn stage() -> Stage {
-        Stage {
-            name: "inputs",
-            inputs: vec![],
-            outputs: vec![RelationUse::of::<Package>(), RelationUse::of::<Release>()],
-            contributes: vec![],
-            coverage: vec![],
-            profiles: vec![Profile::Catalog],
-            effect: Effect::Extraction,
-            code: ContentHash::of(b"producer"),
-            configuration: ContentHash::of(b"config"),
-        }
-    }
-
     #[test]
-    fn stage_output_streams_declared_outputs_and_writes_empty_ones_explicitly() {
-        let model = model().unwrap();
-        let budget = ResourceBudget::fixed(1 << 30).unwrap();
-        let schedule = Schedule::build(&model, vec![stage()], &[], Profile::Catalog).unwrap();
-        let sink = Recorder(Mutex::new(Vec::new()));
-        let mut execution = schedule.execute();
-        let mut output = StageOutput::new(
-            execution.begin("inputs").unwrap(),
-            &sink,
-            &model,
-            budget.clone(),
-            TransferLimits::default(),
-        )
-        .unwrap();
-        output.declare::<Package>().unwrap();
-        assert!(
-            output.declare::<Package>().is_err(),
-            "an output is declared once"
-        );
-        assert!(
-            output.declare::<SourceArtifact>().is_err(),
-            "only stage outputs can be declared"
-        );
-        assert!(
-            ready(output.push(Release {
-                package: Package { name: "p".into() }.id(),
-                version: "1".into()
-            }))
-            .is_err(),
-            "undeclared output"
-        );
-        output.declare::<Release>().unwrap();
-        for n in 0..5000 {
-            ready(output.push(Package {
-                name: format!("p{n}"),
-            }))
-            .unwrap();
-        }
-        ready(output.finish(ProviderOutcome::Complete)).unwrap();
-        assert_eq!(
-            *sink.0.lock().unwrap(),
-            [("packages", 4096), ("packages", 904), ("releases", 0)]
-        );
-        assert_eq!(
-            execution.finish().unwrap().outcomes()["inputs"],
-            ProviderOutcome::Complete
-        );
-        assert_eq!(budget.reserved(), 0);
-
-        let mut execution = schedule.execute();
-        let mut output = StageOutput::new(
-            execution.begin("inputs").unwrap(),
-            &sink,
-            &model,
-            budget.clone(),
-            TransferLimits::default(),
-        )
-        .unwrap();
-        output.declare::<Package>().unwrap();
-        assert!(
-            ready(output.finish(ProviderOutcome::Complete)).is_err(),
-            "every stage output must be declared"
-        );
-        assert!(
-            execution.finish().is_err(),
-            "a refused stage output fails the attempt"
-        );
-    }
-
-    #[test]
-    fn a_writer_refusal_fails_the_writer_and_the_stage() {
+    fn a_writer_refusal_fails_the_writer() {
         let model = model().unwrap();
         let short = ResourceBudget::fixed(8 << 10).unwrap();
         let mut writer = BatchWriter::<Package>::new(
@@ -472,35 +340,6 @@ mod batching {
         assert!(
             writer.finish(&model).is_err(),
             "and never finishes as if complete"
-        );
-        assert_eq!(short.reserved(), 0);
-        // Through a stage: the attempt fails and cannot be receipted.
-        let schedule = Schedule::build(&model, vec![stage()], &[], Profile::Catalog).unwrap();
-        let sink = Recorder(Mutex::new(Vec::new()));
-        let mut execution = schedule.execute();
-        let mut output = StageOutput::new(
-            execution.begin("inputs").unwrap(),
-            &sink,
-            &model,
-            short.clone(),
-            TransferLimits {
-                rows: 4,
-                ..TransferLimits::default()
-            },
-        )
-        .unwrap();
-        output.declare::<Package>().unwrap();
-        output.declare::<Release>().unwrap();
-        let refused = (0..1000).try_for_each(|n| {
-            ready(output.push(Package {
-                name: format!("p{n}"),
-            }))
-        });
-        assert!(matches!(refused, Err(ModelError::Resource { .. })));
-        assert!(ready(output.finish(ProviderOutcome::Complete)).is_err());
-        assert!(
-            execution.finish().is_err(),
-            "a stage that lost rows fails the attempt"
         );
         assert_eq!(short.reserved(), 0);
     }

@@ -4,21 +4,7 @@ use lctx_model::domain::{
     admission::*, attribution::*, calls::*, deployment::*, documents::*, flow::*, input::*,
     resources::ResourceBudget, source::*, stages::*, transfer::local::TransferKey, *,
 };
-use std::{
-    collections::BTreeMap,
-    future::Future,
-    task::{Context, Poll, Waker},
-};
 
-fn ready<T>(future: impl Future<Output = T>) -> T {
-    match std::pin::pin!(future)
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("test effect unexpectedly pending"),
-    }
-}
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(64 << 20).unwrap()
 }
@@ -117,37 +103,7 @@ fn analyzed_roots_follow_selected_uses_and_keep_captured_dependencies_separate()
     );
 }
 
-/// Each stage writes every declared output, explicitly empty.
-type Writer = fn(&mut StageAccess<'_, '_>) -> Result<(), ModelError>;
-fn write_acquire(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
-    ready(access.write::<InputRevision, _>(async |_| Ok(())))?;
-    ready(access.write::<SourceArtifact, _>(async |_| Ok(())))
-}
-// This conformance fixture assigns every native assertion pair to its covered family owner.
-// The registry owns the changing pair inventory; empty writes here exercise admission only.
-fn pyrefly_family(family: FactFamily) -> bool {
-    matches!(
-        family,
-        FactFamily::Syntax
-            | FactFamily::Lexical
-            | FactFamily::Signatures
-            | FactFamily::Calls
-            | FactFamily::Types
-            | FactFamily::Exports
-    )
-}
-fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
-    ready(access.write::<Occurrence, _>(async |_| Ok(())))?;
-    ready(access.write::<SignatureEnumerationMember, _>(async |_| Ok(())))?;
-    macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
-        if pyrefly_family(<$assertion as lctx_model::domain::assertion::Assertion>::FAMILY) {
-            ready(access.write::<$assertion, _>(async |_| Ok(())))?;
-            ready(access.write::<$support, _>(async |_| Ok(())))?;
-        }
-    )*};}
-    lctx_model::native_analysis_pairs!(pairs);
-    Ok(())
-}
+fn pyrefly_family(family:FactFamily)->bool{matches!(family,FactFamily::Syntax|FactFamily::Lexical|FactFamily::Signatures|FactFamily::Calls|FactFamily::Types|FactFamily::Exports)}
 fn pyrefly_outputs() -> Vec<RelationUse> {
     let mut outputs = vec![
         RelationUse::of::<Occurrence>(),
@@ -161,16 +117,6 @@ fn pyrefly_outputs() -> Vec<RelationUse> {
     lctx_model::native_analysis_pairs!(pairs);
     outputs
 }
-fn write_flow(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
-    macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
-        if <$assertion as lctx_model::domain::assertion::Assertion>::FAMILY == FactFamily::Flow {
-            ready(access.write::<$assertion, _>(async |_| Ok(())))?;
-            ready(access.write::<$support, _>(async |_| Ok(())))?;
-        }
-    )*};}
-    lctx_model::native_analysis_pairs!(pairs);
-    Ok(())
-}
 fn flow_outputs() -> Vec<RelationUse> {
     let mut outputs = Vec::new();
     macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
@@ -180,26 +126,6 @@ fn flow_outputs() -> Vec<RelationUse> {
     )*};}
     lctx_model::native_analysis_pairs!(pairs);
     outputs
-}
-fn write_documents(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
-    macro_rules! all { ($($ty:ty),+) => { $( ready(access.write::<$ty, _>(async |_| Ok(())))?; )+ }; }
-    all!(
-        DocumentObservation,
-        DocumentSupport,
-        PassageObservation,
-        PassageSupport,
-        CodeBlockObservation,
-        CodeBlockSupport,
-        DocumentLinkObservation,
-        DocumentLinkSupport,
-        DocumentMentionObservation,
-        DocumentMentionSupport,
-        DocumentComponentObservation,
-        DocumentComponentSupport,
-        DocumentAttributeObservation,
-        DocumentAttributeSupport
-    );
-    Ok(())
 }
 fn document_outputs() -> Vec<RelationUse> {
     macro_rules! all { ($($ty:ty),+) => { vec![$(RelationUse::of::<$ty>()),+] }; }
@@ -220,17 +146,6 @@ fn document_outputs() -> Vec<RelationUse> {
         DocumentAttributeSupport
     )
 }
-fn write_deployment(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
-    ready(access.write::<TaskReportObservation, _>(async |_| Ok(())))?;
-    ready(access.write::<TaskReportSupport, _>(async |_| Ok(())))?;
-    ready(access.write::<DeploymentObservation, _>(async |_| Ok(())))?;
-    ready(access.write::<DeploymentSupport, _>(async |_| Ok(())))
-}
-fn write_assemble(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
-    ready(access.write::<ProviderCoverage, _>(async |_| Ok(())))?;
-    ready(access.write::<CoverageScope, _>(async |_| Ok(())))
-}
-
 struct World {
     model: ValidatedModel,
     input: InputRevision,
@@ -291,7 +206,7 @@ impl World {
             deploy: provider("deployment"),
         }
     }
-    fn stages(&self, flow_profiles: Vec<Profile>) -> Vec<(Stage, Writer)> {
+    fn stages(&self, flow_profiles: Vec<Profile>) -> Vec<(Stage, ())> {
         let both = || vec![Profile::Catalog, Profile::Behavioral];
         let stage =
             |name, outputs, coverage: Vec<FactFamily>, provider: Option<&Provider>, profiles| {
@@ -328,7 +243,7 @@ impl World {
                     Some(&self.capture),
                     both(),
                 ),
-                write_acquire as Writer,
+                (),
             ),
             (
                 stage(
@@ -338,7 +253,7 @@ impl World {
                     Some(&self.pyrefly),
                     both(),
                 ),
-                write_pyrefly,
+                (),
             ),
             (
                 stage(
@@ -348,7 +263,7 @@ impl World {
                     Some(&self.ty),
                     flow_profiles,
                 ),
-                write_flow,
+                (),
             ),
             (
                 stage(
@@ -358,7 +273,7 @@ impl World {
                     Some(&self.docs),
                     both(),
                 ),
-                write_documents,
+                (),
             ),
             (
                 stage(
@@ -373,7 +288,7 @@ impl World {
                     Some(&self.deploy),
                     both(),
                 ),
-                write_deployment,
+                (),
             ),
             (
                 stage(
@@ -386,11 +301,11 @@ impl World {
                     None,
                     both(),
                 ),
-                write_assemble,
+                (),
             ),
         ]
     }
-    fn schedule(&self, profile: Profile, stages: &[(Stage, Writer)]) -> Schedule {
+    fn schedule(&self, profile: Profile, stages: &[(Stage, ())]) -> Schedule {
         Schedule::build(
             &self.model,
             stages.iter().map(|(stage, _)| stage.clone()).collect(),
@@ -398,33 +313,6 @@ impl World {
             profile,
         )
         .unwrap()
-    }
-    /// Run every scheduled stage, writing its declared outputs, with the given outcomes.
-    fn run(
-        &self,
-        schedule: &Schedule,
-        stages: &[(Stage, Writer)],
-        outcomes: &BTreeMap<&str, ProviderOutcome>,
-    ) -> ExecutionReceipt {
-        let mut execution = schedule.execute();
-        for scheduled in schedule.stages() {
-            let writer = stages
-                .iter()
-                .find(|(stage, _)| stage.name == scheduled.name)
-                .unwrap()
-                .1;
-            let mut access = execution.begin(scheduled.name).unwrap();
-            writer(&mut access).unwrap();
-            access
-                .finish(
-                    outcomes
-                        .get(scheduled.name)
-                        .copied()
-                        .unwrap_or(ProviderOutcome::Complete),
-                )
-                .unwrap();
-        }
-        execution.finish().unwrap()
     }
     fn uses(&self) -> Vec<ArtifactUse> {
         self.artifacts
@@ -528,73 +416,8 @@ impl World {
         }
         (scopes, rows)
     }
-    fn admit(
-        &self,
-        preflight: &Preflight,
-        receipt: &ExecutionReceipt,
-        scopes: &[CoverageScope],
-        rows: &[ProviderCoverage],
-    ) -> Result<FrontierAdmission, ModelError> {
-        self.admit_classified(preflight, receipt, scopes, rows, &self.artifacts)
-    }
-    /// Admission with `unowned` stated as unowned artifacts; any other artifact has no class.
-    fn admit_classified(
-        &self,
-        preflight: &Preflight,
-        receipt: &ExecutionReceipt,
-        scopes: &[CoverageScope],
-        rows: &[ProviderCoverage],
-        unowned: &[SourceArtifact],
-    ) -> Result<FrontierAdmission, ModelError> {
-        let mut check = AdmissionCheck::new(preflight.clone(), &budget());
-        let acquisition = InputAcquisition {
-            input: self.input.id(),
-            origin: InputOrigin::Tree {
-                label: "admission".into(),
-            }
-            .id(),
-        };
-        let unowned = unowned
-            .iter()
-            .map(|artifact| UnownedArtifact {
-                artifact: artifact.id(),
-                acquisition: acquisition.id(),
-            })
-            .collect();
-        check.visit(
-            InputRevision::NAME,
-            Batch::new(&self.model, vec![self.input.clone()], &budget())?.arrow(),
-        )?;
-        check.visit(
-            SourceArtifact::NAME,
-            Batch::new(&self.model, self.artifacts.clone(), &budget())?.arrow(),
-        )?;
-        check.visit(
-            UnownedArtifact::NAME,
-            Batch::new(&self.model, unowned, &budget())?.arrow(),
-        )?;
-        check.visit(
-            ArtifactUse::NAME,
-            Batch::new(&self.model, self.uses(), &budget())?.arrow(),
-        )?;
-        check.visit(
-            CoverageScope::NAME,
-            Batch::new(&self.model, scopes.to_vec(), &budget())?.arrow(),
-        )?;
-        check.visit(
-            ProviderCoverage::NAME,
-            Batch::new(&self.model, rows.to_vec(), &budget())?.arrow(),
-        )?;
-        check.finish(receipt, ContentHash::of(b"content"))
-    }
 }
-const INPUT: &[&str] = &["a.py", "b.pyi", "_invalid/undecodable.py", "README.md"];
-fn partial() -> BTreeMap<&'static str, ProviderOutcome> {
-    BTreeMap::from([
-        ("pyrefly", ProviderOutcome::Partial),
-        ("ty_flow", ProviderOutcome::Partial),
-    ])
-}
+const INPUT:&[&str]=&["a.py","b.pyi","_invalid/undecodable.py","README.md"];
 fn frontier_refusal<T: std::fmt::Debug>(result: Result<T, ModelError>, expected: &str) {
     match result {
         Err(ModelError::Frontier(message)) => assert!(
@@ -634,335 +457,10 @@ fn each_profile_expects_exactly_its_rows() {
 }
 
 #[test]
-fn faithful_coverage_is_admitted_with_disclosed_availability() {
-    let w = World::new(INPUT);
-    let stages = w.stages(vec![Profile::Behavioral]);
-    for profile in [Profile::Catalog, Profile::Behavioral] {
-        let schedule = w.schedule(profile, &stages);
-        let preflight = FrontierContract::facts(&w.model, profile)
-            .unwrap()
-            .preflight(&schedule)
-            .unwrap();
-        let receipt = w.run(&schedule, &stages, &partial());
-        let (scopes, rows) = w.coverage(profile);
-        let admission = w.admit(&preflight, &receipt, &scopes, &rows).unwrap();
-        assert_eq!(
-            (
-                admission.frontier(),
-                admission.profile(),
-                admission.schedule(),
-                admission.model()
-            ),
-            (
-                Frontier::Facts,
-                profile,
-                schedule.digest(),
-                w.model.digest()
-            )
-        );
-        let availability = admission.availability();
-        let scoped = admission.scoped();
-        assert_eq!(scoped.evidence().len(), rows.len());
-        for row in &rows {
-            let evidence = scoped
-                .evidence()
-                .iter()
-                .find(|e| e.coverage == row.id())
-                .unwrap();
-            assert_eq!(
-                (evidence.scope, evidence.context, evidence.provider),
-                (row.scope, row.context, row.provider)
-            );
-            assert!(scoped.scope(evidence.scope).is_some());
-        }
-        assert!(
-            scoped
-                .admit(InputRequirement {
-                    group: FactFamily::Syntax,
-                    policy: AvailabilityPolicy::RequireComplete
-                })
-                .is_err()
-        );
-        assert!(
-            scoped
-                .admit(InputRequirement {
-                    group: FactFamily::Syntax,
-                    policy: AvailabilityPolicy::ObserveAvailability
-                })
-                .is_ok()
-        );
-        assert!(
-            scoped
-                .admit(InputRequirement {
-                    group: FactFamily::Docs,
-                    policy: AvailabilityPolicy::RequireComplete
-                })
-                .is_ok()
-        );
-        assert!(
-            scoped
-                .evidence()
-                .iter()
-                .any(|r| r.family == FactFamily::Syntax
-                    && r.availability == Availability::Unavailable)
-        );
-        assert!(scoped.evidence().iter().any(|r| r.family == FactFamily::Syntax && r.availability == Availability::Complete));
-        assert_eq!(
-            availability[&FactFamily::Syntax],
-            Availability::Partial,
-            "the undecodable module is disclosed, not dropped"
-        );
-        assert_eq!(availability[&FactFamily::Docs], Availability::Complete);
-        assert_eq!(
-            availability[&FactFamily::Flow],
-            if profile == Profile::Catalog {
-                Availability::NotRequested
-            } else {
-                Availability::Partial
-            }
-        );
-        // The same coverage in another order is the same admission.
-        let mut reversed = rows.clone();
-        reversed.reverse();
-        assert_eq!(
-            w.admit(&preflight, &receipt, &scopes, &reversed).unwrap(),
-            admission
-        );
-    }
-}
-
-/// Plan A1: the captured closure is complete only when every artifact has an ownership class.
-#[test]
-fn an_artifact_without_an_ownership_class_is_refused() {
-    let w = World::new(INPUT);
-    let stages = w.stages(vec![Profile::Behavioral]);
-    let schedule = w.schedule(Profile::Catalog, &stages);
-    let preflight = FrontierContract::facts(&w.model, Profile::Catalog)
-        .unwrap()
-        .preflight(&schedule)
-        .unwrap();
-    let receipt = w.run(&schedule, &stages, &partial());
-    let (scopes, rows) = w.coverage(Profile::Catalog);
-    frontier_refusal(
-        w.admit_classified(&preflight, &receipt, &scopes, &rows, &w.artifacts[1..]),
-        "has no ownership class",
-    );
-    assert!(
-        w.admit_classified(&preflight, &receipt, &scopes, &rows, &w.artifacts)
-            .is_ok(),
-        "the twin with every artifact classified is admitted"
-    );
-}
-
-#[test]
-fn an_input_without_a_family_scope_is_admitted_as_no_scope() {
-    let w = World::new(&["README.md"]);
-    let stages = w.stages(vec![Profile::Behavioral]);
-    let schedule = w.schedule(Profile::Catalog, &stages);
-    let preflight = FrontierContract::facts(&w.model, Profile::Catalog)
-        .unwrap()
-        .preflight(&schedule)
-        .unwrap();
-    let receipt = w.run(&schedule, &stages, &BTreeMap::new());
-    let (scopes, rows) = w.coverage(Profile::Catalog);
-    let admission = w.admit(&preflight, &receipt, &scopes, &rows).unwrap();
-    assert_eq!(
-        admission.availability()[&FactFamily::Syntax],
-        Availability::NoScope,
-        "no Python source: required Syntax has nothing to cover"
-    );
-    assert_eq!(
-        admission.availability()[&FactFamily::Deployment],
-        Availability::Complete,
-        "an empty but complete scope"
-    );
-}
-
-#[test]
-fn coverage_that_misstates_the_frontier_is_refused() {
-    let w = World::new(INPUT);
-    let stages = w.stages(vec![Profile::Behavioral]);
-    let schedule = w.schedule(Profile::Catalog, &stages);
-    let preflight = FrontierContract::facts(&w.model, Profile::Catalog)
-        .unwrap()
-        .preflight(&schedule)
-        .unwrap();
-    let receipt = w.run(&schedule, &stages, &partial());
-    let (scopes, rows) = w.coverage(Profile::Catalog);
-    let syntax_of = |path: &str| {
-        rows.iter()
-            .position(|r| {
-                r.family == FactFamily::Syntax
-                    && r.scope
-                        == CoverageScope::Artifact {
-                            artifact: w.artifact(path).id(),
-                        }
-                        .id()
-            })
-            .unwrap()
-    };
-    let mut missing = rows.clone();
-    missing.remove(syntax_of("a.py"));
-    frontier_refusal(
-        w.admit(&preflight, &receipt, &scopes, &missing),
-        "missing Syntax coverage",
-    );
-    // Supporting-definition coverage and root signature coverage are independent obligations.
-    for scope in [
-        CoverageScope::Input {
-            input: w.input.id(),
-        },
-        CoverageScope::Artifact {
-            artifact: w.artifact("a.py").id(),
-        },
-    ] {
-        let index = rows
-            .iter()
-            .position(|r| r.family == FactFamily::Signatures && r.scope == scope.id())
-            .unwrap();
-        let mut missing = rows.clone();
-        missing.remove(index);
-        frontier_refusal(
-            w.admit(&preflight, &receipt, &scopes, &missing),
-            "missing Signatures coverage",
-        );
-        let another = ProviderRun::new(
-            w.pyrefly.id(),
-            w.context.id(),
-            w.input.id(),
-            ContentHash::of(b"second signature configuration"),
-            [FactFamily::Signatures],
-        )
-        .unwrap()
-        .0;
-        let mut duplicate = rows.clone();
-        duplicate.push(ProviderCoverage {
-            run: Some(another.id()),
-            ..rows[index].clone()
-        });
-        frontier_refusal(
-            w.admit(&preflight, &receipt, &scopes, &duplicate),
-            "duplicate Signatures coverage",
-        );
-    }
-    let readme = CoverageScope::Artifact {
-        artifact: w.artifact("README.md").id(),
-    };
-    let mut extra = rows.clone();
-    extra.push(w.row(
-        &readme,
-        &w.pyrefly,
-        FactFamily::Syntax,
-        CoverageStatus::CompleteUnderStatedModel,
-    ));
-    frontier_refusal(
-        w.admit(&preflight, &receipt, &scopes, &extra),
-        "unexpected Syntax coverage row",
-    );
-    let mut duplicate = rows.clone();
-    let again = ProviderRun::new(
-        w.pyrefly.id(),
-        w.context.id(),
-        w.input.id(),
-        ContentHash::of(b"another configuration"),
-        [FactFamily::Syntax],
-    )
-    .unwrap()
-    .0;
-    duplicate.push(ProviderCoverage {
-        run: Some(again.id()),
-        ..rows[syntax_of("a.py")].clone()
-    });
-    frontier_refusal(
-        w.admit(&preflight, &receipt, &scopes, &duplicate),
-        "duplicate Syntax coverage",
-    );
-    let a = CoverageScope::Artifact {
-        artifact: w.artifact("a.py").id(),
-    };
-    let mut attempted = rows.clone();
-    let flow = attempted
-        .iter()
-        .position(|r| r.family == FactFamily::Flow && r.scope == a.id())
-        .unwrap();
-    attempted[flow] = w.row(
-        &a,
-        &w.ty,
-        FactFamily::Flow,
-        CoverageStatus::CompleteUnderStatedModel,
-    );
-    frontier_refusal(
-        w.admit(&preflight, &receipt, &scopes, &attempted),
-        "Flow was attempted",
-    );
-    let mut failed = rows.clone();
-    failed[syntax_of("a.py")].status = CoverageStatus::Failed;
-    failed[syntax_of("a.py")].reason = Some(ObligationKind::NativeUnavailable);
-    frontier_refusal(
-        w.admit(&preflight, &receipt, &scopes, &failed),
-        "failed provider aborts",
-    );
-    // A stage that reports Complete beside an Unavailable module it stated.
-    let complete = w.run(&schedule, &stages, &BTreeMap::new());
-    frontier_refusal(
-        w.admit(&preflight, &complete, &scopes, &rows),
-        "reported Complete",
-    );
-    // A receipt of another schedule.
-    let behavioral = w.schedule(Profile::Behavioral, &stages);
-    frontier_refusal(
-        w.admit(
-            &preflight,
-            &w.run(&behavioral, &stages, &partial()),
-            &scopes,
-            &rows,
-        ),
-        "another model or schedule",
-    );
-}
-
-#[test]
-fn a_required_family_entirely_unavailable_is_refused_and_one_partial_is_not() {
-    let w = World::new(INPUT);
-    let stages = w.stages(vec![Profile::Behavioral]);
-    let schedule = w.schedule(Profile::Catalog, &stages);
-    let preflight = FrontierContract::facts(&w.model, Profile::Catalog)
-        .unwrap()
-        .preflight(&schedule)
-        .unwrap();
-    let (scopes, mut rows) = w.coverage(Profile::Catalog);
-    for row in rows
-        .iter_mut()
-        .filter(|r| r.provider == Some(w.pyrefly.id()))
-    {
-        row.status = CoverageStatus::Unavailable;
-        row.reason = Some(ObligationKind::NativeUnavailable);
-    }
-    let receipt = w.run(
-        &schedule,
-        &stages,
-        &BTreeMap::from([("pyrefly", ProviderOutcome::Unavailable)]),
-    );
-    frontier_refusal(
-        w.admit(&preflight, &receipt, &scopes, &rows),
-        "required Syntax is entirely unavailable",
-    );
-    assert!(
-        w.admit(
-            &preflight,
-            &w.run(&schedule, &stages, &partial()),
-            &scopes,
-            &w.coverage(Profile::Catalog).1
-        )
-        .is_ok()
-    );
-}
-
-#[test]
 fn preflight_refuses_schedules_that_cannot_produce_the_frontier() {
     let w = World::new(INPUT);
     let contract = FrontierContract::facts(&w.model, Profile::Catalog).unwrap();
-    let catalog = |stages: Vec<(Stage, Writer)>| {
+    let catalog = |stages: Vec<(Stage, ())>| {
         Schedule::build(
             &w.model,
             stages.into_iter().map(|(s, _)| s).collect(),
@@ -1126,4 +624,13 @@ fn derived_flow_assertions_do_not_claim_native_provider_coverage() {
         <transfer::local::ControlInfluence as Assertion>::FAMILY,
         FactFamily::Flow
     );
+}
+
+#[test]
+fn completed_coverage_is_exact_and_discloses_unrequested_and_partial_domains(){
+ let w=World::new(INPUT);
+ for profile in Profile::ALL{let stages=w.stages(vec![Profile::Behavioral]);let preflight=FrontierContract::facts(&w.model,profile).unwrap().preflight(&w.schedule(profile,&stages)).unwrap();let expected=preflight.expected_coverage(std::slice::from_ref(&w.input),&w.artifacts,&w.uses()).unwrap().into_keys().collect();let (scopes,rows)=w.coverage(profile);let scopes=scopes.into_iter().map(|row|(row.id(),row)).collect();let available=ScopedAvailability::from_completed(profile,&expected,&rows,&scopes,&budget()).unwrap();assert_eq!(available.evidence().len(),rows.len());
+ assert!(available.evidence().iter().filter(|row|row.family==FactFamily::Flow).all(|row|if profile==Profile::Catalog{row.availability==Availability::NotRequested}else{matches!(row.availability,Availability::Complete|Availability::Unavailable)}));
+ assert!(ScopedAvailability::from_completed(profile,&expected,&rows[1..],&scopes,&budget()).is_err());let mut duplicate=rows.clone();duplicate.push(rows[0].clone());assert!(ScopedAvailability::from_completed(profile,&expected,&duplicate,&scopes,&budget()).is_err());let mut status=rows.clone();status[0].status=CoverageStatus::NotRequested;assert!(ScopedAvailability::from_completed(profile,&expected,&status,&scopes,&budget()).is_err());
+ }
 }

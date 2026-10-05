@@ -8,7 +8,7 @@
 use arrow_array::RecordBatch;
 use lctx_model::domain::{
     artifact::*, assertion::*, attribution::*, calls::*, conditions::*, declarations::*, input::*,
-    memory::MemoryGeneration, source::*, *,
+     source::*, *,
 };
 use std::collections::BTreeMap;
 
@@ -493,8 +493,8 @@ impl Fixture {
     }
     /// Validate every stored relation and invariant, as the store would.
     pub fn validate(&self) -> Result<ContentHash, ModelError> {
-        let generation = MemoryGeneration::conformance(&self.model, &budget());
-        macro_rules! each { ($($ty:ty),+ $(,)?) => { $( generation.put(&Batch::new(&self.model, self.rows::<$ty>(), &budget()).unwrap())?; )+ }; }
+        let mut generation = Vec::new();
+        macro_rules! each { ($($ty:ty),+ $(,)?) => { $( generation.push((<$ty>::NAME,Batch::new(&self.model,self.rows::<$ty>(),&budget()).unwrap().arrow().clone())); )+ }; }
         each!(
             InputRevision,
             InputOrigin,
@@ -528,7 +528,7 @@ impl Fixture {
             CallArgument,
             Evidence
         );
-        generation.validate(&self.model, &budget())
+        validation::replay::replay(&self.model,&generation,&budget())
     }
 }
 
