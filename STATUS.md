@@ -58,8 +58,8 @@ and adapter receipts retain their pre-Clippy artifact scope. Detailed failures, 
 | Hook refresh regression controls | **passed**, 11 including committed edits, generator rewrites and retry |
 | Shared analyzer skill maintenance / conditional mechanisms | **composite passed** maintenance10/10; bounded BDD768 and CPython policy8 controls passed. These are investigation decisions, not product acceptance |
 | Narrow IS2 and F3/F4/S3 independent reviews | **passed** static scope after identified P2 repairs; no whole-series or measurement claim |
-| Post-hook Named/candidate snapshot migration and native readiness | Reviewed 175-line snapshot diff and accepted the migration; final settled-lockfile digest assertion pending. `just native-adapter-ready` **passed**, both adapters rebuilt |
-| Coordinator `NEXTEST_TEST_THREADS=8 just test-all` | **running**, release CLI build before tests; receipt `q0-test-all.log`. This run combines remaining fixture journeys and foundation controls; prior bounded tests are retained |
+| Post-hook Named/candidate snapshot migration and native readiness | Reviewed and accepted the migration. Refreshed CLI description differs only by settled-lockfile digest; accepted `fcd1fe42…`; all relations/codebooks equal. `just native-adapter-ready` **passed**, both adapters rebuilt; snapshot assertion pending |
+| Coordinator `NEXTEST_TEST_THREADS=8 just test-all` | **not_run / cancelled by operator**, exit130 during workspace test compilation, before tests launched. Release CLI build **passed** in 15m41s; no test failures reported. Receipt `q0-test-all.log`; build cache preserved |
 | Full keep-going Clippy, hygiene and disposable-store acceptance | **not_run / pending** for Q0 |
 | Real-library reconstruction/activation, live vectors, PR6, confirmation and measurements | **not_run / stopped**; quality, speed and total RSS unmeasured |
 
@@ -69,10 +69,9 @@ their existing coordinators. Historical full gates do not qualify the current so
 
 ## Next — qualification boundary
 
-Finish the current `NEXTEST_TEST_THREADS=8 just test-all` receipt, repair failures and rerun
-affected controls. Minor dependency edits do not trigger a second focused foundation campaign:
-the full workspace run includes those controls and the remaining Q0/Q1 PG/native/MCP journeys.
-Reconcile the reviewed snapshot's final digest with the settled lockfile, then run full
+The operator cancelled the full test run during compilation; no replacement run is started.
+Q0 qualification remains open, with prior bounded receipts preserved. When qualification resumes,
+complete the snapshot assertion and remaining Q0/Q1 PG/native/MCP journeys, then run full
 `cargo clippy --release --workspace --all-targets --keep-going -- -D warnings` and `just hygiene`
 with a fresh **disposable** store scoped through `LCTX_DATABASE_CONFIG`. Model/native artifact
 agreement remains required; no operator-store reset or manual formatter/generator is implied.
