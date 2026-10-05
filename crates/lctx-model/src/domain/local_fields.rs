@@ -629,4 +629,6 @@ impl InvariantCheck for FieldCheck {
     }
 }
 
-pub(crate) fn field_invariants_refs() -> Vec<&'static str> { vec!["local_field_location_replay"] }
+pub(crate) fn field_invariants_refs() -> Vec<&'static str> {
+    vec!["local_field_location_replay"]
+}

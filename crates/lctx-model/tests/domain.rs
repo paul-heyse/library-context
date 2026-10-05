@@ -861,7 +861,8 @@ fn corpus_uses_and_distribution_verification_cannot_cross_undeclared_inputs() {
         check.visit(R::NAME, Batch::new(model, rows, &budget())?.arrow())
     }
     for linked in [false, true] {
-        let mut check = (lctx_model::domain::validation::invariants_for::<InputAcquisition>()[0].create)(&budget());
+        let mut check = (lctx_model::domain::validation::invariants_for::<InputAcquisition>()[0]
+            .create)(&budget());
         feed(
             &model,
             &mut *check,
@@ -897,7 +898,8 @@ fn corpus_uses_and_distribution_verification_cannot_cross_undeclared_inputs() {
         artifact_sha256: vec![],
     };
     for member in [false, true] {
-        let mut check = (lctx_model::domain::validation::invariants_for::<InputAcquisition>()[0].create)(&budget());
+        let mut check = (lctx_model::domain::validation::invariants_for::<InputAcquisition>()[0]
+            .create)(&budget());
         feed(&model, &mut *check, vec![origin.clone()]).unwrap();
         feed(&model, &mut *check, vec![acquired.clone()]).unwrap();
         if member {

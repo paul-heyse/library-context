@@ -165,7 +165,9 @@ impl Fixture {
             frame(&[condition]),
             frame(&nodes),
         ];
-        let invariant = lctx_model::domain::validation::invariants_for::<summary::DischargeEvidence>().remove(0);
+        let invariant =
+            lctx_model::domain::validation::invariants_for::<summary::DischargeEvidence>()
+                .remove(0);
         let mut check = (invariant.create)(&budget());
         for (name, batch) in frames {
             if !(omit_subject && name == local::ObligationSubject::NAME) {

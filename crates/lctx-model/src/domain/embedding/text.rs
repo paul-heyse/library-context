@@ -706,4 +706,6 @@ impl InvariantCheck for TextCheck {
     }
 }
 
-pub(crate) fn text_invariants_refs() -> Vec<&'static str> { vec!["analytic_text_replay"] }
+pub(crate) fn text_invariants_refs() -> Vec<&'static str> {
+    vec!["analytic_text_replay"]
+}

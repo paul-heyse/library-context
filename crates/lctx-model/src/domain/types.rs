@@ -1683,9 +1683,21 @@ type RecordFieldIndex =
 pub mod queries;
 pub use queries::{TypeQueryObservation, TypeQueryStatus, TypeQuerySupport};
 
-pub(crate) fn parameter_list_invariants_refs() -> Vec<&'static str> { vec!["callable_parameter_membership"] }
-pub(crate) fn dict_field_invariants_refs() -> Vec<&'static str> { vec!["typed_dictionary_membership"] }
-pub(crate) fn sequence_invariants_refs() -> Vec<&'static str> { vec!["type_sequence_membership"] }
-pub(crate) fn type_invariants_refs() -> Vec<&'static str> { vec!["structural_type_shapes"] }
-pub(crate) fn body_invariants_refs() -> Vec<&'static str> { vec!["function_body_declarations"] }
-pub(crate) fn record_invariants_refs() -> Vec<&'static str> { vec!["record_field_order"] }
+pub(crate) fn parameter_list_invariants_refs() -> Vec<&'static str> {
+    vec!["callable_parameter_membership"]
+}
+pub(crate) fn dict_field_invariants_refs() -> Vec<&'static str> {
+    vec!["typed_dictionary_membership"]
+}
+pub(crate) fn sequence_invariants_refs() -> Vec<&'static str> {
+    vec!["type_sequence_membership"]
+}
+pub(crate) fn type_invariants_refs() -> Vec<&'static str> {
+    vec!["structural_type_shapes"]
+}
+pub(crate) fn body_invariants_refs() -> Vec<&'static str> {
+    vec!["function_body_declarations"]
+}
+pub(crate) fn record_invariants_refs() -> Vec<&'static str> {
+    vec!["record_field_order"]
+}

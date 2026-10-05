@@ -24,8 +24,10 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
     // It establishes catalog/liveness states without pretending to produce full-model facts.
     let conformance_db = DisposableDatabase::start().await;
     let small = Small::new();
-    let conformance_store = GenerationStore::install(conformance_db.owner.clone(), small.model.clone())
-        .await.unwrap();
+    let conformance_store =
+        GenerationStore::install(conformance_db.owner.clone(), small.model.clone())
+            .await
+            .unwrap();
     let conformance_catalog = GenerationCatalog::new(conformance_db.reader.clone());
     // Live conformance attempts in each unpublished state.
     let staging_h = Harness::begin(
@@ -74,7 +76,12 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
             .is_err()
     );
     let mut rows = catalog.list(&ListFilter::default()).await.unwrap();
-    rows.extend(conformance_catalog.list(&ListFilter::default()).await.unwrap());
+    rows.extend(
+        conformance_catalog
+            .list(&ListFilter::default())
+            .await
+            .unwrap(),
+    );
     let row = |g| rows.iter().find(|r| r.id == g).unwrap();
     use GenerationState::*;
     let expected = [
@@ -225,7 +232,12 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
     lost.sort_by_key(|g| g.hex());
     assert_eq!(conformance_store.interrupted().await.unwrap(), lost);
     let mut all_rows = catalog.list(&ListFilter::default()).await.unwrap();
-    all_rows.extend(conformance_catalog.list(&ListFilter::default()).await.unwrap());
+    all_rows.extend(
+        conformance_catalog
+            .list(&ListFilter::default())
+            .await
+            .unwrap(),
+    );
     let listed: Vec<_> = all_rows
         .into_iter()
         .filter(|r| r.writer == Writer::Interrupted)

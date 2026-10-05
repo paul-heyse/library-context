@@ -925,5 +925,9 @@ pub fn stage(
     })
 }
 
-pub(crate) fn run_invariants_refs() -> Vec<&'static str> { vec!["model_inventory_replay"] }
-pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["model_profile"] }
+pub(crate) fn run_invariants_refs() -> Vec<&'static str> {
+    vec!["model_inventory_replay"]
+}
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
+    vec!["model_profile"]
+}

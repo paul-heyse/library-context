@@ -22,7 +22,10 @@ async fn call_site_caller_ownership_is_checked_in_persisted_content() {
             let fixture = caller_fixture::fixture(form, mismatch);
             assert_eq!(
                 fixture
-                    .check(&lctx_model::domain::validation::invariants_for::<ProviderCallSiteSupport>()[0])
+                    .check(
+                        &lctx_model::domain::validation::invariants_for::<ProviderCallSiteSupport>(
+                        )[0]
+                    )
                     .is_ok(),
                 mismatch == "none"
             );

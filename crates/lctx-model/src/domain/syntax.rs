@@ -777,5 +777,9 @@ impl InvariantCheck for BoundaryCheck {
 
 type IncompleteScopes = ChargedSet<(Id<CoverageScope>, Id<Provider>, Id<AnalysisContext>, i16)>;
 
-pub(crate) fn syntax_invariants_refs() -> Vec<&'static str> { vec!["syntax_geometry"] }
-pub(crate) fn boundary_invariants_refs() -> Vec<&'static str> { vec!["subject_boundaries"] }
+pub(crate) fn syntax_invariants_refs() -> Vec<&'static str> {
+    vec!["syntax_geometry"]
+}
+pub(crate) fn boundary_invariants_refs() -> Vec<&'static str> {
+    vec!["subject_boundaries"]
+}

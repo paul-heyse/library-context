@@ -1220,4 +1220,6 @@ pub(crate) fn region_for_access(
     Ok((row.id(), selected.ok_or(ObligationKind::MissingEvidence)?))
 }
 
-pub(crate) fn entry_invariants_refs() -> Vec<&'static str> { vec!["entry_value_witness_replay"] }
+pub(crate) fn entry_invariants_refs() -> Vec<&'static str> {
+    vec!["entry_value_witness_replay"]
+}

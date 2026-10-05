@@ -649,4 +649,3 @@ pub struct LayerNeighbour {
     pub target_use: Id<AnalysisEmbeddingUse>,
     pub score: FiniteF64,
 }
-

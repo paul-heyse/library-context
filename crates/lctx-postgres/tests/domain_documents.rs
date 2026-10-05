@@ -27,7 +27,10 @@ async fn document_nodes_and_optional_spans_survive_sealed_postgres_validation() 
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(
             fixture
-                .check(&lctx_model::domain::validation::invariants_for::<DocumentComponentSupport>()[0])
+                .check(
+                    &lctx_model::domain::validation::invariants_for::<DocumentComponentSupport>()
+                        [0]
+                )
                 .is_ok(),
             !foreign
         );

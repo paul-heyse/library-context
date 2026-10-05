@@ -58,8 +58,19 @@ async fn real_facts_publication_equals_memory_and_never_selects() {
         let detail = catalog.show(published.generation).await.unwrap().unwrap();
         assert_eq!(detail.summary.state, GenerationState::Published);
         assert!(!detail.summary.selected);
-        let audited = store.audit(published.generation, admission::Frontier::Facts, None, &resources).await.unwrap();
-        assert!(audited.relations > 0 && audited.semantic_checks > 0, "healthy narrower-frontier audit replays required semantics");
+        let audited = store
+            .audit(
+                published.generation,
+                admission::Frontier::Facts,
+                None,
+                &resources,
+            )
+            .await
+            .unwrap();
+        assert!(
+            audited.relations > 0 && audited.semantic_checks > 0,
+            "healthy narrower-frontier audit replays required semantics"
+        );
         store.retire(published.generation).await.unwrap();
     }
     assert!(

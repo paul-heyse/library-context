@@ -1093,7 +1093,9 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
     (parameters, definition)
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["catalog_contextual_evidence"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["catalog_contextual_evidence"]
+}
 pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> {
     let mut refs = vec!["catalog_evidence_invocation_closure"];
     refs.extend(super::frames::invariants_refs());

@@ -222,4 +222,3 @@ pub struct ConfiguredSeed {
     pub candidates: i64,
     pub in_subsystem: i64,
 }
-

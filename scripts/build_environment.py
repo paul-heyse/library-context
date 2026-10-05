@@ -50,7 +50,9 @@ def native_input_fingerprints(root: Path) -> dict[str, str]:
     return fingerprints
 
 
-def normalized_env(source: dict[str, str], root: Path = ROOT, *, native_inputs: bool = True) -> dict[str, str]:
+def normalized_env(
+    source: dict[str, str], root: Path = ROOT, *, native_inputs: bool = True
+) -> dict[str, str]:
     env = source.copy()
     root = root.resolve()
     for key in TARGET_KEYS:

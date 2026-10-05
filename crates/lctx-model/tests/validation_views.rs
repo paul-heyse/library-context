@@ -18,11 +18,14 @@ fn ready<T>(future: impl std::future::Future<Output = T>) -> T {
 #[test]
 fn memory_final_replay_keeps_both_vocabulary_frames_and_their_reservations() {
     ready(async {
-        let model = ValidatedModel::validate(vec![
-            Relation::of::<Literal>(),
-            Relation::of::<Probe>(),
-            Relation::of::<ReadProbe>(),
-        ], fixture::definitions())
+        let model = ValidatedModel::validate(
+            vec![
+                Relation::of::<Literal>(),
+                Relation::of::<Probe>(),
+                Relation::of::<ReadProbe>(),
+            ],
+            fixture::definitions(),
+        )
         .unwrap();
         let schedule = schedule(&model);
         let budget = ResourceBudget::fixed(1 << 24).unwrap();
@@ -118,15 +121,31 @@ impl InvariantCheck for Noop {
 #[test]
 fn malformed_frames_refuse_before_a_schedule_can_acquire_authority() {
     assert!(
-        ValidatedModel::validate(vec![
-            Relation::of::<Literal>(),
-            Relation::of::<DuplicateFrames>()
-        ], ValidationDefinitions { invariants: duplicate_frames(), publication_checks: vec![] })
+        ValidatedModel::validate(
+            vec![Relation::of::<Literal>(), Relation::of::<DuplicateFrames>()],
+            ValidationDefinitions {
+                invariants: duplicate_frames(),
+                publication_checks: vec![]
+            }
+        )
         .is_err()
     );
-    assert!(ValidatedModel::validate(vec![Relation::of::<OrdinaryFrame>()], ValidationDefinitions { invariants: ordinary_frame(), publication_checks: vec![] }).is_err());
+    assert!(
+        ValidatedModel::validate(
+            vec![Relation::of::<OrdinaryFrame>()],
+            ValidationDefinitions {
+                invariants: ordinary_frame(),
+                publication_checks: vec![]
+            }
+        )
+        .is_err()
+    );
 }
 
-fn duplicate_frames_refs() -> Vec<&'static str> {vec!["repeated_frame"]}
+fn duplicate_frames_refs() -> Vec<&'static str> {
+    vec!["repeated_frame"]
+}
 
-fn ordinary_frame_refs() -> Vec<&'static str> {vec!["ordinary_frame"]}
+fn ordinary_frame_refs() -> Vec<&'static str> {
+    vec!["ordinary_frame"]
+}

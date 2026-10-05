@@ -108,9 +108,9 @@ impl Fixture {
         }
     }
     pub fn check(&self) -> Result<(), ModelError> {
-        self.flow
-            .base
-            .check(&lctx_model::domain::validation::invariants_for::<FlowUseInventoryObservation>()[0])
+        self.flow.base.check(
+            &lctx_model::domain::validation::invariants_for::<FlowUseInventoryObservation>()[0],
+        )
     }
 }
 

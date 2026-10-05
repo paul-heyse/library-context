@@ -124,4 +124,6 @@ impl super::InvariantCheck for CatalogCheck {
     }
 }
 
-pub(crate) fn condition_invariants_refs() -> Vec<&'static str> { vec!["canonical_condition_catalog"] }
+pub(crate) fn condition_invariants_refs() -> Vec<&'static str> {
+    vec!["canonical_condition_catalog"]
+}

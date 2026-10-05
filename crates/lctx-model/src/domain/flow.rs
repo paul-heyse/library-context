@@ -839,6 +839,12 @@ impl InvariantCheck for PathCheck {
 type CallStepIndex =
     ChargedMap<Id<FlowCallPath>, Vec<(Id<Occurrence>, Id<Occurrence>, FlowCallOperandRole)>>;
 
-pub(crate) fn view_invariants_refs() -> Vec<&'static str> { vec!["flow_view_and_narrowing_precision"] }
-pub(crate) fn flow_invariants_refs() -> Vec<&'static str> { vec!["flow_reaching_places", "flow_source_structure"] }
-pub(crate) fn flow_path_invariants_refs() -> Vec<&'static str> { vec!["flow_call_path_structure"] }
+pub(crate) fn view_invariants_refs() -> Vec<&'static str> {
+    vec!["flow_view_and_narrowing_precision"]
+}
+pub(crate) fn flow_invariants_refs() -> Vec<&'static str> {
+    vec!["flow_reaching_places", "flow_source_structure"]
+}
+pub(crate) fn flow_path_invariants_refs() -> Vec<&'static str> {
+    vec!["flow_call_path_structure"]
+}

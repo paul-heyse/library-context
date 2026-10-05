@@ -1,10 +1,7 @@
 //! Actual source/effective signature packet closure, original nominal IDs, and indivisible limits.
 #[path = "fixtures/serving_support.rs"]
 mod support;
-use lctx_model::domain::{
-    Record,
-    serving::*,
-};
+use lctx_model::domain::{Record, serving::*};
 use lctx_postgres::generations::Error;
 use support::*;
 

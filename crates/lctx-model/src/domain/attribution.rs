@@ -499,5 +499,9 @@ impl super::InvariantCheck for CoverageOwnership {
     }
 }
 
-pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> { vec!["provider_invocation_membership"] }
-pub(crate) fn coverage_ownership_invariants_refs() -> Vec<&'static str> { vec!["coverage_scope_ownership"] }
+pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> {
+    vec!["provider_invocation_membership"]
+}
+pub(crate) fn coverage_ownership_invariants_refs() -> Vec<&'static str> {
+    vec!["coverage_scope_ownership"]
+}

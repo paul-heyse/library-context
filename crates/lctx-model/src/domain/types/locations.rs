@@ -132,4 +132,6 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["selected_type_location_shapes"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["selected_type_location_shapes"]
+}

@@ -570,5 +570,9 @@ impl InvariantCheck for StabilityCheck {
     }
 }
 
-pub(crate) fn stability_invariants_refs() -> Vec<&'static str> { vec!["entry_guard_stability_replay"] }
-pub(crate) fn guard_substitution_invariants_refs() -> Vec<&'static str> { vec!["guard_substitution_replay"] }
+pub(crate) fn stability_invariants_refs() -> Vec<&'static str> {
+    vec!["entry_guard_stability_replay"]
+}
+pub(crate) fn guard_substitution_invariants_refs() -> Vec<&'static str> {
+    vec!["guard_substitution_replay"]
+}

@@ -478,5 +478,9 @@ impl InvariantCheck for ReportShape {
     }
 }
 
-pub(crate) fn collection_invariants_refs() -> Vec<&'static str> { vec!["report_collection_membership"] }
-pub(crate) fn report_shape_invariants_refs() -> Vec<&'static str> { vec!["report_collection_roles"] }
+pub(crate) fn collection_invariants_refs() -> Vec<&'static str> {
+    vec!["report_collection_membership"]
+}
+pub(crate) fn report_shape_invariants_refs() -> Vec<&'static str> {
+    vec!["report_collection_roles"]
+}

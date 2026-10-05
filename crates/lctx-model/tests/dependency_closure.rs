@@ -141,11 +141,17 @@ impl InvariantCheck for EpochCheck {
 }
 #[test]
 fn extra_invariant_epoch_and_fact_premise_survive_grant_projection() {
-    let model = ValidatedModel::validate(vec![
-        Relation::of::<EpochProbe>(),
-        Relation::of::<Package>(),
-        Relation::of::<Literal>(),
-    ], ValidationDefinitions { invariants: epoch_checks(), publication_checks: vec![] })
+    let model = ValidatedModel::validate(
+        vec![
+            Relation::of::<EpochProbe>(),
+            Relation::of::<Package>(),
+            Relation::of::<Literal>(),
+        ],
+        ValidationDefinitions {
+            invariants: epoch_checks(),
+            publication_checks: vec![],
+        },
+    )
     .unwrap();
     let build = |direct| {
         DependencyClosure::build(
@@ -371,4 +377,6 @@ fn local_missing_predecessor_is_a_typed_rejection() {
     }
 }
 
-fn epoch_checks_refs() -> Vec<&'static str> {vec!["closure_extra_epoch_and_fact_premise"]}
+fn epoch_checks_refs() -> Vec<&'static str> {
+    vec!["closure_extra_epoch_and_fact_premise"]
+}

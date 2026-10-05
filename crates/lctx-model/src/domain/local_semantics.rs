@@ -1506,4 +1506,6 @@ fn produce_fields(
     Ok(())
 }
 
-pub(crate) fn local_invariants_refs() -> Vec<&'static str> { vec!["local_semantic_replay"] }
+pub(crate) fn local_invariants_refs() -> Vec<&'static str> {
+    vec!["local_semantic_replay"]
+}

@@ -72,8 +72,16 @@ impl GenerationStore {
         if let Some(completion) = completion {
             self.check_completed_output_references(tx, g, completion)
                 .await?;
-            self.check_publication_outputs_prepared(tx, g, outputs, completion.sources(), None, budget, &mut session)
-                .await?;
+            self.check_publication_outputs_prepared(
+                tx,
+                g,
+                outputs,
+                completion.sources(),
+                None,
+                budget,
+                &mut session,
+            )
+            .await?;
         }
         // The unscheduled, testing-only Harness has no declared source or StageCompletion
         // authority. It exercises schema/algebra conformance through the full ordinary model
@@ -244,15 +252,33 @@ impl GenerationStore {
             }
         }
         let digest = content.finish();
-        let _plan = budget.reserve("validation-input-plan", invariants.iter()
-            .map(|i| 128 + i.inputs.len().saturating_mul(512)).sum())?;
+        let _plan = budget.reserve(
+            "validation-input-plan",
+            invariants
+                .iter()
+                .map(|i| 128 + i.inputs.len().saturating_mul(512))
+                .sum(),
+        )?;
         let mut requests = Vec::new();
         for invariant in &invariants {
             let mut frames = Vec::new();
             for input in &invariant.inputs {
                 let relation = self.model.relation(input.name()).ok_or(Error::Contract)?;
-                frames.push(super::validation_views::physical(tx, g, input, relation, relation.name(),
-                    super::validation_views::Scope { upper: None, candidate: None }, budget).await?);
+                frames.push(
+                    super::validation_views::physical(
+                        tx,
+                        g,
+                        input,
+                        relation,
+                        relation.name(),
+                        super::validation_views::Scope {
+                            upper: None,
+                            candidate: None,
+                        },
+                        budget,
+                    )
+                    .await?,
+                );
             }
             requests.push((invariant, frames));
         }
@@ -279,24 +305,38 @@ impl GenerationStore {
         };
         if !persist {
             let checkpoint = admission.as_ref().ok_or(Error::Contract)?;
-            self.acknowledge_checkpoint_frames(tx, g, checkpoint, &relations, &mut session, budget).await?;
+            self.acknowledge_checkpoint_frames(tx, g, checkpoint, &relations, &mut session, budget)
+                .await?;
         }
         Ok((digest, admission))
     }
 
     /// Persist parent and ordinary frame conclusions only after every scoped checker and
     /// admission succeeds. The charged session retains receipts through these bounded inserts.
-    async fn acknowledge_checkpoint_frames(&self, tx: &mut PgConnection, g: GenerationId,
-        admission: &FrontierAdmission, relations: &[&lctx_model::domain::Relation],
-        session: &mut super::validation_session::Session<'_>, budget: &ResourceBudget) -> Result<(), Error> {
+    async fn acknowledge_checkpoint_frames(
+        &self,
+        tx: &mut PgConnection,
+        g: GenerationId,
+        admission: &FrontierAdmission,
+        relations: &[&lctx_model::domain::Relation],
+        session: &mut super::validation_session::Session<'_>,
+        budget: &ResourceBudget,
+    ) -> Result<(), Error> {
         let _wire = budget.reserve("checkpoint-receipt-wire", 1024)?;
         sqlx::query("INSERT INTO lctx_model_store.checkpoints VALUES($1,$2,$3,$4,$5,$6,$7)")
-            .bind(g.0.to_vec()).bind(admission.frontier().name()).bind(admission.contract().0.to_vec())
-            .bind(admission.model().0.to_vec()).bind(admission.schedule().0.to_vec())
-            .bind(admission.coverage().0.to_vec()).bind(admission.content().0.to_vec())
-            .execute(&mut *tx).await?;
-        for relation in relations.iter().filter(|relation|
-            !lctx_model::domain::stages::is_vocabulary(relation.name())) {
+            .bind(g.0.to_vec())
+            .bind(admission.frontier().name())
+            .bind(admission.contract().0.to_vec())
+            .bind(admission.model().0.to_vec())
+            .bind(admission.schedule().0.to_vec())
+            .bind(admission.coverage().0.to_vec())
+            .bind(admission.content().0.to_vec())
+            .execute(&mut *tx)
+            .await?;
+        for relation in relations
+            .iter()
+            .filter(|relation| !lctx_model::domain::stages::is_vocabulary(relation.name()))
+        {
             let input = lctx_model::domain::ValidationInput::of_relation(relation, &["id"]);
             let frozen = session.frame(tx, &input, relation.name(), false).await?;
             sqlx::query("INSERT INTO lctx_model_store.checkpoint_frame_receipts(generation_id,frontier,relation_name,physical_frame,row_count,content_digest) VALUES($1,$2,$3,$4,$5,$6)")
@@ -394,11 +434,35 @@ impl GenerationStore {
             let mut frames = Vec::new();
             for input in &invariant.inputs {
                 let relation = self.model.relation(input.name()).ok_or(Error::Contract)?;
-                frames.push(super::validation_views::physical(tx, g, input, relation, relation.name(),
-                    super::validation_views::Scope { upper: None, candidate: None }, budget).await?);
+                frames.push(
+                    super::validation_views::physical(
+                        tx,
+                        g,
+                        input,
+                        relation,
+                        relation.name(),
+                        super::validation_views::Scope {
+                            upper: None,
+                            candidate: None,
+                        },
+                        budget,
+                    )
+                    .await?,
+                );
             }
-            let binding = session.binding(tx, invariant.digest(), &invariant.inputs, &frames, false, None).await?;
-            if !session.has(tx, binding, invariant.digest()).await? { return Err(Error::Contract); }
+            let binding = session
+                .binding(
+                    tx,
+                    invariant.digest(),
+                    &invariant.inputs,
+                    &frames,
+                    false,
+                    None,
+                )
+                .await?;
+            if !session.has(tx, binding, invariant.digest()).await? {
+                return Err(Error::Contract);
+            }
         }
         let unplanned: i64 = sqlx::query_scalar("SELECT count(*) FROM (\
             (SELECT stage_name, relation_name FROM lctx_model_store.planned_outputs WHERE generation_id=$1 \

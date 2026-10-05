@@ -457,4 +457,6 @@ fn lookup<R: Record>(rows: &BTreeMap<Id<R>, R>, id: Id<R>) -> Result<&R, Obligat
     Ok(row)
 }
 
-pub(crate) fn guard_invariants_refs() -> Vec<&'static str> { vec!["invoked_guard_origins"] }
+pub(crate) fn guard_invariants_refs() -> Vec<&'static str> {
+    vec!["invoked_guard_origins"]
+}

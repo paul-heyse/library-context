@@ -2298,4 +2298,3 @@ mod assumption_controls {
         assert_eq!(progress.branches.len(), 2);
     }
 }
-

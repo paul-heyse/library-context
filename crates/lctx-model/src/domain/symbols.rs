@@ -921,6 +921,12 @@ impl InvariantCheck for SymbolCheck {
 type ObservedSymbolParents =
     ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>), Option<Id<ProviderSymbol>>>;
 
-pub(crate) fn export_enumeration_invariants_refs() -> Vec<&'static str> { vec!["export_enumeration_membership"] }
-pub(crate) fn sequence_invariants_refs() -> Vec<&'static str> { vec!["symbol_sequence_membership"] }
-pub(crate) fn symbol_invariants_refs() -> Vec<&'static str> { vec!["symbol_structure"] }
+pub(crate) fn export_enumeration_invariants_refs() -> Vec<&'static str> {
+    vec!["export_enumeration_membership"]
+}
+pub(crate) fn sequence_invariants_refs() -> Vec<&'static str> {
+    vec!["symbol_sequence_membership"]
+}
+pub(crate) fn symbol_invariants_refs() -> Vec<&'static str> {
+    vec!["symbol_structure"]
+}

@@ -58,14 +58,14 @@ pub mod syntax;
 pub mod synthesis;
 pub mod transfer;
 pub mod types;
-pub mod value;
 pub mod validation;
+pub mod value;
 
 pub use finite::FiniteF64;
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink, Utf8Text};
 pub use model::{
     Invariant, InvariantCheck, PublicationCheck, PublicationInvariant, Relation, RelationContent,
-    ValidatedModel, ValidationInput, ValidationDefinitions, ValidationIdentity, ValidationKind,
+    ValidatedModel, ValidationDefinitions, ValidationIdentity, ValidationInput, ValidationKind,
 };
 pub use record::{
     Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar, Sum,
@@ -545,4 +545,3 @@ pub mod serving;
 pub mod native_requests;
 
 pub mod dependency_closure;
-

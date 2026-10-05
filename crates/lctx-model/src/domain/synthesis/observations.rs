@@ -298,7 +298,9 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_observation_universe"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["synthesis_observation_universe"]
+}
 
 #[cfg(test)]
 mod tests {

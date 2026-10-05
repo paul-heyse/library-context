@@ -1064,7 +1064,9 @@ fn passage_outcomes(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<()
     Ok(())
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_documentary_replay"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["synthesis_documentary_replay"]
+}
 
 #[cfg(test)]
 pub(crate) mod tests {

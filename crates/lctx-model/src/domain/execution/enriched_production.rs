@@ -942,10 +942,24 @@ fn insert_body(output: &mut ExecutionRecords, records: BodyRecords) -> Result<()
     Ok(())
 }
 
-pub(crate) fn run_invariants_refs() -> Vec<&'static str> { vec!["enriched_execution_inventory"] }
-pub(crate) fn binding_invariants_refs() -> Vec<&'static str> { vec!["context_entry_binding_replay"] }
-pub(crate) fn context_invariants_refs() -> Vec<&'static str> { vec!["context_execution_replay"] }
-pub(crate) fn definition_invariants_refs() -> Vec<&'static str> { vec!["definition_evaluation_replay"] }
-pub(crate) fn modeled_invariants_refs() -> Vec<&'static str> { vec!["enriched_modeled_call_replay"] }
-pub(crate) fn statement_invariants_refs() -> Vec<&'static str> { vec!["enriched_statement_replay"] }
-pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["enriched_execution_profile"] }
+pub(crate) fn run_invariants_refs() -> Vec<&'static str> {
+    vec!["enriched_execution_inventory"]
+}
+pub(crate) fn binding_invariants_refs() -> Vec<&'static str> {
+    vec!["context_entry_binding_replay"]
+}
+pub(crate) fn context_invariants_refs() -> Vec<&'static str> {
+    vec!["context_execution_replay"]
+}
+pub(crate) fn definition_invariants_refs() -> Vec<&'static str> {
+    vec!["definition_evaluation_replay"]
+}
+pub(crate) fn modeled_invariants_refs() -> Vec<&'static str> {
+    vec!["enriched_modeled_call_replay"]
+}
+pub(crate) fn statement_invariants_refs() -> Vec<&'static str> {
+    vec!["enriched_statement_replay"]
+}
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
+    vec!["enriched_execution_profile"]
+}

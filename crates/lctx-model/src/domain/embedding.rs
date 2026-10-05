@@ -153,4 +153,3 @@ pub fn relations() -> Vec<Relation> {
     rows.extend(analytic::relations());
     rows
 }
-

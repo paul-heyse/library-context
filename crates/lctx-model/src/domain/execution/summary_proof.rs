@@ -227,4 +227,6 @@ impl InvariantCheck for CostCheck {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["finite_summary_cost_equations"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["finite_summary_cost_equations"]
+}

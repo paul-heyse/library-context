@@ -90,7 +90,8 @@ fn validate(
     premises: &[NativeAssertionPremise],
     qualifications: &[NativeQualification],
 ) -> Result<(), ModelError> {
-    let invariant = lctx_model::domain::validation::invariants_for::<NativeQualification>().remove(0);
+    let invariant =
+        lctx_model::domain::validation::invariants_for::<NativeQualification>().remove(0);
     let mut check = (invariant.create)(&budget());
     for (name, batch) in facts {
         check.visit(name, batch)?;

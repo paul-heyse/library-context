@@ -880,4 +880,6 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
     (parameters, definition)
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["catalog_selection_declaration_closure"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["catalog_selection_declaration_closure"]
+}

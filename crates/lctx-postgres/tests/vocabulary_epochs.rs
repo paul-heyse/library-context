@@ -1007,7 +1007,11 @@ async fn inserted_closes_use_registered_order_and_preserve_old_prefix_receipts()
         "SELECT encode(t.id,'hex'),to_jsonb(t)::text,c.introduced_epoch FROM {}.{} t JOIN {}.{} c USING(id) ORDER BY t.id",
         g.schema(), old.physical_relation(), g.schema(), Literal::NAME)))
         .fetch_all(&db.superuser).await.unwrap();
-    assert_eq!(after, old_body.unwrap(), "later legal appends preserve IDs, payloads and epoch membership");
+    assert_eq!(
+        after,
+        old_body.unwrap(),
+        "later legal appends preserve IDs, payloads and epoch membership"
+    );
     let acknowledged: Vec<u8> = sqlx::query_scalar("SELECT content_digest FROM lctx_model_store.epoch_receipts WHERE generation_id=decode($1,'hex') AND epoch=1 AND relation_name=$2")
         .bind(g.hex()).bind(Literal::NAME).fetch_one(&db.superuser).await.unwrap();
     assert_eq!(acknowledged, old_content.unwrap().0);
@@ -1306,55 +1310,124 @@ async fn ordinary_outputs_preserve_transitive_prefix_and_refuse_future_refs_with
 async fn delta_seal_drains_prior_writes_and_refuses_a_writer_queued_after_it() {
     use std::time::Duration;
     let db = DisposableDatabase::start().await;
-    let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()]).unwrap());
-    let schedule = Schedule::build_with_publications(&model, vec![
-        stage("seal_values", vec![], vec![RelationUse::of::<Literal>()]),
-        stage("close_group", vec![], vec![RelationUse::of::<Package>()]),
-    ], &[], Profile::Catalog, vec![PublicationGroup::new(PublicationBoundary::Facts, vec!["seal_values", "close_group"])]).unwrap();
-    let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
+    let model = Arc::new(
+        ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+            .unwrap(),
+    );
+    let schedule = Schedule::build_with_publications(
+        &model,
+        vec![
+            stage("seal_values", vec![], vec![RelationUse::of::<Literal>()]),
+            stage("close_group", vec![], vec![RelationUse::of::<Package>()]),
+        ],
+        &[],
+        Profile::Catalog,
+        vec![PublicationGroup::new(
+            PublicationBoundary::Facts,
+            vec!["seal_values", "close_group"],
+        )],
+    )
+    .unwrap();
+    let store = GenerationStore::install(db.owner.clone(), model.clone())
+        .await
+        .unwrap();
     let mut execution = schedule.execute();
     let budget = budget();
-    let attempt = store.begin_conformance(db.writer.clone(), &mut execution, budget.clone()).await.unwrap();
+    let attempt = store
+        .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+        .await
+        .unwrap();
     let generation = attempt.generation();
-    let delta = format!("{}.__delta_{}", generation.schema(), &ContentHash::of(b"seal_values/literal_values").hex()[..40]);
+    let delta = format!(
+        "{}.__delta_{}",
+        generation.schema(),
+        &ContentHash::of(b"seal_values/literal_values").hex()[..40]
+    );
     let literal = Literal::None;
     let relation = Relation::of::<Literal>();
     let tag = relation.sum().unwrap().tag;
-    let bool_column = relation.sum().unwrap().arms.iter().find(|arm| arm.code == 1).unwrap().fields[0].name;
+    let bool_column = relation
+        .sum()
+        .unwrap()
+        .arms
+        .iter()
+        .find(|arm| arm.code == 1)
+        .unwrap()
+        .fields[0]
+        .name;
     let insert = format!("INSERT INTO {delta}(id,\"{tag}\",\"{bool_column}\") VALUES($1,1,true)");
     let delayed = Literal::Bool { value: true };
     let mut source = execution.begin("seal_values").unwrap();
     let batch = Batch::new(&model, vec![literal.clone()], &budget).unwrap();
-    source.write::<Literal, _>(async |permit| attempt.copy(permit, &batch).await).await.unwrap();
+    source
+        .write::<Literal, _>(async |permit| attempt.copy(permit, &batch).await)
+        .await
+        .unwrap();
     let mut prior = db.writer.begin().await.unwrap();
-    sqlx::query(sqlx::AssertSqlSafe(insert.clone())).bind(delayed.id().bytes().to_vec())
-        .execute(&mut *prior).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(insert.clone()))
+        .bind(delayed.id().bytes().to_vec())
+        .execute(&mut *prior)
+        .await
+        .unwrap();
     {
         let completion = source.complete(&attempt, ProviderOutcome::Complete);
         tokio::pin!(completion);
-        assert!(tokio::time::timeout(Duration::from_millis(100), &mut completion).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut completion)
+                .await
+                .is_err()
+        );
         let sealing_waits: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE relation=to_regclass($1) AND mode='AccessExclusiveLock' AND NOT granted)")
             .bind(&delta).fetch_one(&db.superuser).await.unwrap();
         assert!(sealing_waits, "sealer must queue before the later writer");
         let writer = db.writer.clone();
         let bytes = delayed.id().bytes().to_vec();
         let mut queued = tokio::spawn(async move {
-            sqlx::query(sqlx::AssertSqlSafe(insert)).bind(bytes).execute(&writer).await
+            sqlx::query(sqlx::AssertSqlSafe(insert))
+                .bind(bytes)
+                .execute(&writer)
+                .await
         });
-        assert!(tokio::time::timeout(Duration::from_millis(100), &mut queued).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut queued)
+                .await
+                .is_err()
+        );
         prior.commit().await.unwrap();
         completion.await.unwrap();
-        assert!(queued.await.unwrap().is_err(), "queued INSERT must recheck revoked permission");
+        assert!(
+            queued.await.unwrap().is_err(),
+            "queued INSERT must recheck revoked permission"
+        );
     }
     let sealed_rows: i64 = sqlx::query_scalar("SELECT row_count FROM lctx_model_store.publication_outputs WHERE generation_id=decode($1,'hex') AND stage_name='seal_values' AND sealed")
         .bind(generation.hex()).fetch_one(&db.superuser).await.unwrap();
-    assert_eq!(sealed_rows, 2, "seal must acknowledge the prior committed row");
+    assert_eq!(
+        sealed_rows, 2,
+        "seal must acknowledge the prior committed row"
+    );
     let mut close = execution.begin("close_group").unwrap();
-    let package = Batch::new(&model, vec![Package { name: "close".into() }], &budget).unwrap();
-    close.write::<Package, _>(async |permit| attempt.copy(permit, &package).await).await.unwrap();
-    close.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+    let package = Batch::new(
+        &model,
+        vec![Package {
+            name: "close".into(),
+        }],
+        &budget,
+    )
+    .unwrap();
+    close
+        .write::<Package, _>(async |permit| attempt.copy(permit, &package).await)
+        .await
+        .unwrap();
+    close
+        .complete(&attempt, ProviderOutcome::Complete)
+        .await
+        .unwrap();
     let rows: i64 = sqlx::query_scalar("SELECT row_count FROM lctx_model_store.epoch_receipts WHERE generation_id=decode($1,'hex') AND relation_name='literal_values'")
         .bind(generation.hex()).fetch_one(&db.superuser).await.unwrap();
-    assert_eq!(rows, 2, "merged prefix includes the independently delayed value");
+    assert_eq!(
+        rows, 2,
+        "merged prefix includes the independently delayed value"
+    );
     attempt.abort().await.unwrap();
 }

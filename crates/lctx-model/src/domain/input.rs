@@ -818,7 +818,15 @@ impl InvariantCheck for AcquisitionBoundaries {
     }
 }
 
-pub(crate) fn input_invariants_refs() -> Vec<&'static str> { vec!["input_manifest_membership"] }
-pub(crate) fn class_invariants_refs() -> Vec<&'static str> { vec!["artifact_classes"] }
-pub(crate) fn ownership_invariants_refs() -> Vec<&'static str> { vec!["artifact_ownership_input"] }
-pub(crate) fn acquisition_invariants_refs() -> Vec<&'static str> { vec!["input_acquisition_boundaries"] }
+pub(crate) fn input_invariants_refs() -> Vec<&'static str> {
+    vec!["input_manifest_membership"]
+}
+pub(crate) fn class_invariants_refs() -> Vec<&'static str> {
+    vec!["artifact_classes"]
+}
+pub(crate) fn ownership_invariants_refs() -> Vec<&'static str> {
+    vec!["artifact_ownership_input"]
+}
+pub(crate) fn acquisition_invariants_refs() -> Vec<&'static str> {
+    vec!["input_acquisition_boundaries"]
+}

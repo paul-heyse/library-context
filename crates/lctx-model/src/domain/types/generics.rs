@@ -135,4 +135,6 @@ impl InvariantCheck for GenericCheck {
     }
 }
 
-pub(crate) fn generic_invariants_refs() -> Vec<&'static str> { vec!["generic_specialization_basis"] }
+pub(crate) fn generic_invariants_refs() -> Vec<&'static str> {
+    vec!["generic_specialization_basis"]
+}

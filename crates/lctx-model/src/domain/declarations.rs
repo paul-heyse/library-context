@@ -259,4 +259,6 @@ impl InvariantCheck for DeclarationCheck {
 type DeclarationIndex =
     ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>), Vec<Id<Occurrence>>>;
 
-pub(crate) fn declaration_invariants_refs() -> Vec<&'static str> { vec!["declaration_links"] }
+pub(crate) fn declaration_invariants_refs() -> Vec<&'static str> {
+    vec!["declaration_links"]
+}

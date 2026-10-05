@@ -2,52 +2,109 @@
 #[path = "fixtures/serving_support.rs"]
 mod support;
 use futures::FutureExt;
-use lctx_model::domain::{calls::ParameterKind, catalog::{CatalogDefault, CatalogMember, CatalogOption, CatalogOptionSubject}, selection::*, serving::ranking::{DocumentScore, Target}, serving::*, *};
+use lctx_model::domain::{
+    calls::ParameterKind,
+    catalog::{CatalogDefault, CatalogMember, CatalogOption, CatalogOptionSubject},
+    selection::*,
+    serving::ranking::{DocumentScore, Target},
+    serving::*,
+    *,
+};
 use lctx_postgres::generations::RetrievalService;
 use std::panic::AssertUnwindSafe;
 use support::*;
 
 #[tokio::test]
 async fn immutable_catalog_cohort() {
-    let fixture = match AssertUnwindSafe(ServingFixture::start(SOURCE)).catch_unwind().await {
+    let fixture = match AssertUnwindSafe(ServingFixture::start(SOURCE))
+        .catch_unwind()
+        .await
+    {
         Ok(fixture) => fixture,
         Err(cause) => {
-            for case in ["complete_find_cursors_selection_browse_counts_and_caller_order",
+            for case in [
+                "complete_find_cursors_selection_browse_counts_and_caller_order",
                 "canonical_search_filters_before_ranking_and_retains_original_contexts",
                 "mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration",
-                "explicit_audit_recomputes_the_catalog_without_changing_it"] {
+                "explicit_audit_recomputes_the_catalog_without_changing_it",
+            ] {
                 eprintln!("not_run: {case} (seed preparation failed)");
             }
             std::panic::resume_unwind(cause);
         }
     };
     let mut failed = Vec::new();
-    if AssertUnwindSafe(complete_find_cursors_selection_browse_counts_and_caller_order(&fixture)).catch_unwind().await.is_err() {
+    if AssertUnwindSafe(complete_find_cursors_selection_browse_counts_and_caller_order(&fixture))
+        .catch_unwind()
+        .await
+        .is_err()
+    {
         eprintln!("failed: complete_find_cursors_selection_browse_counts_and_caller_order");
         failed.push("complete_find_cursors_selection_browse_counts_and_caller_order");
-    } else { println!("passed: complete_find_cursors_selection_browse_counts_and_caller_order"); }
-    if AssertUnwindSafe(canonical_search_filters_before_ranking_and_retains_original_contexts(&fixture)).catch_unwind().await.is_err() {
+    } else {
+        println!("passed: complete_find_cursors_selection_browse_counts_and_caller_order");
+    }
+    if AssertUnwindSafe(
+        canonical_search_filters_before_ranking_and_retains_original_contexts(&fixture),
+    )
+    .catch_unwind()
+    .await
+    .is_err()
+    {
         eprintln!("failed: canonical_search_filters_before_ranking_and_retains_original_contexts");
         failed.push("canonical_search_filters_before_ranking_and_retains_original_contexts");
-    } else { println!("passed: canonical_search_filters_before_ranking_and_retains_original_contexts"); }
-    if AssertUnwindSafe(mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration(&fixture)).catch_unwind().await.is_err() {
+    } else {
+        println!("passed: canonical_search_filters_before_ranking_and_retains_original_contexts");
+    }
+    if AssertUnwindSafe(
+        mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration(&fixture),
+    )
+    .catch_unwind()
+    .await
+    .is_err()
+    {
         eprintln!("failed: mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration");
         failed.push("mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration");
-    } else { println!("passed: mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration"); }
-    if AssertUnwindSafe(explicit_audit_recomputes_the_catalog_without_changing_it(&fixture)).catch_unwind().await.is_err() {
+    } else {
+        println!("passed: mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration");
+    }
+    if AssertUnwindSafe(explicit_audit_recomputes_the_catalog_without_changing_it(
+        &fixture,
+    ))
+    .catch_unwind()
+    .await
+    .is_err()
+    {
         eprintln!("failed: explicit_audit_recomputes_the_catalog_without_changing_it");
         failed.push("explicit_audit_recomputes_the_catalog_without_changing_it");
-    } else { println!("passed: explicit_audit_recomputes_the_catalog_without_changing_it"); }
+    } else {
+        println!("passed: explicit_audit_recomputes_the_catalog_without_changing_it");
+    }
     fixture.finish().await;
-    assert!(failed.is_empty(), "failed immutable cohort cases: {failed:?}");
+    assert!(
+        failed.is_empty(),
+        "failed immutable cohort cases: {failed:?}"
+    );
 }
 
 async fn explicit_audit_recomputes_the_catalog_without_changing_it(fixture: &ServingFixture) {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_lctx"))
-        .arg("--database").arg(fixture.dir.path().join("postgres.json"))
-        .args(["generation", "audit", &fixture.generation.hex(), "--frontier", "catalog"])
-        .output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        .arg("--database")
+        .arg(fixture.dir.path().join("postgres.json"))
+        .args([
+            "generation",
+            "audit",
+            &fixture.generation.hex(),
+            "--frontier",
+            "catalog",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(report["relations"].as_u64().unwrap() > 0);
     assert!(report["semantic_checks"].as_u64().unwrap() > 0);
@@ -233,7 +290,9 @@ async fn complete_find_cursors_selection_browse_counts_and_caller_order(fixture:
     );
 }
 
-async fn canonical_search_filters_before_ranking_and_retains_original_contexts(fixture: &ServingFixture) {
+async fn canonical_search_filters_before_ranking_and_retains_original_contexts(
+    fixture: &ServingFixture,
+) {
     let retrieval = RetrievalService::prepare(fixture.catalog.clone(), false)
         .await
         .unwrap();
@@ -442,7 +501,9 @@ async fn canonical_search_filters_before_ranking_and_retains_original_contexts(f
     drop(retrieval);
 }
 
-async fn mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration(fixture: &ServingFixture) {
+async fn mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration(
+    fixture: &ServingFixture,
+) {
     let execution = fixture.service.execution().await.unwrap();
     let r = GetOperationRequest {
         library: Name::new("demo").unwrap(),

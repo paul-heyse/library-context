@@ -315,4 +315,6 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn trace_invariants_refs() -> Vec<&'static str> { vec!["native_overload_original_membership"] }
+pub(crate) fn trace_invariants_refs() -> Vec<&'static str> {
+    vec!["native_overload_original_membership"]
+}

@@ -399,14 +399,17 @@ async fn one_member_in_multiple_release_captures_is_ambiguous_in_get_and_compare
 #[tokio::test]
 async fn identity_views_and_declared_indexes_are_checked_under_the_original_lease() {
     let fixture = ServingFixture::start(b"__all__ = []\n").await;
-    let role = lctx_postgres::roles::RoleConfig::load(
-        &fixture.dir.path().join("postgres-serving.json"),
-    ).unwrap();
-    let reader = GenerationReader::connect(
-        std::sync::Arc::new(domain::model().unwrap()), &role,
-    ).await.unwrap();
+    let role =
+        lctx_postgres::roles::RoleConfig::load(&fixture.dir.path().join("postgres-serving.json"))
+            .unwrap();
+    let reader = GenerationReader::connect(std::sync::Arc::new(domain::model().unwrap()), &role)
+        .await
+        .unwrap();
     let budget = domain::resources::ResourceBudget::fixed(128 << 20).unwrap();
-    let guard = reader.guard(fixture.generation, budget.clone()).await.unwrap();
+    let guard = reader
+        .guard(fixture.generation, budget.clone())
+        .await
+        .unwrap();
     guard.release().await.unwrap();
     let view = format!("{}.serving_members", fixture.generation.schema());
     sqlx::query(sqlx::AssertSqlSafe(format!(

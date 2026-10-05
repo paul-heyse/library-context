@@ -279,4 +279,6 @@ impl ArtifactCapture {
     }
 }
 
-pub(crate) fn content_invariants_refs() -> Vec<&'static str> { vec!["artifact_chunk_content"] }
+pub(crate) fn content_invariants_refs() -> Vec<&'static str> {
+    vec!["artifact_chunk_content"]
+}

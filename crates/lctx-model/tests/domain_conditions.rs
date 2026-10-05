@@ -160,7 +160,8 @@ fn bdd_refusals_are_unknown_and_stored_nodes_must_be_reduced_and_ordered() {
         )
         .is_err()
     );
-    let mut check = (lctx_model::domain::validation::invariants_for::<Condition>()[0].create)(&budget());
+    let mut check =
+        (lctx_model::domain::validation::invariants_for::<Condition>()[0].create)(&budget());
     check
         .visit(
             ConditionNode::NAME,
@@ -223,7 +224,8 @@ fn literal_sets_and_structural_paths_preserve_semantic_distinctions() {
     assert_eq!(set, LiteralSet::of([bytes.id(), integer.id()]).0);
     assert_eq!(members.len(), 2);
     for omit in [false, true] {
-        let mut check = (lctx_model::domain::validation::invariants_for::<LiteralSet>()[0].create)(&budget());
+        let mut check =
+            (lctx_model::domain::validation::invariants_for::<LiteralSet>()[0].create)(&budget());
         check
             .visit(
                 LiteralSet::NAME,

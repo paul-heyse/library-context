@@ -28,11 +28,15 @@ async fn captured_reports_preserve_values_and_reject_incomplete_or_foreign_evide
         }
         let valid = !foreign && !missing;
         assert_eq!(
-            fixture.check(&lctx_model::domain::validation::invariants_for::<TaskReportSupport>()[0]).is_ok(),
+            fixture
+                .check(&lctx_model::domain::validation::invariants_for::<TaskReportSupport>()[0])
+                .is_ok(),
             !foreign
         );
         assert_eq!(
-            fixture.check(&lctx_model::domain::validation::invariants_for::<ReportCollection>()[0]).is_ok(),
+            fixture
+                .check(&lctx_model::domain::validation::invariants_for::<ReportCollection>()[0])
+                .is_ok(),
             !missing
         );
         let mut generation_h = Harness::begin(

@@ -224,10 +224,11 @@ fn shared_specialization_invariant_rejects_foreign_context_provider_and_noncalle
             row.site = f.base.foreign.id();
         }
         f.base.put(vec![row]);
-        let check = lctx_model::domain::validation::invariants_for::<GenericSpecializationObservation>()
-            .into_iter()
-            .find(|i| i.name == "generic_specialization_basis")
-            .unwrap();
+        let check =
+            lctx_model::domain::validation::invariants_for::<GenericSpecializationObservation>()
+                .into_iter()
+                .find(|i| i.name == "generic_specialization_basis")
+                .unwrap();
         assert_eq!(
             f.base.check(&check).is_ok(),
             mismatch == "none",

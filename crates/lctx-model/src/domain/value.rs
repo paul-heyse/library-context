@@ -345,4 +345,6 @@ impl super::InvariantCheck for SetCheck {
     }
 }
 
-pub(crate) fn literal_set_invariants_refs() -> Vec<&'static str> { vec!["literal_set_membership"] }
+pub(crate) fn literal_set_invariants_refs() -> Vec<&'static str> {
+    vec!["literal_set_membership"]
+}

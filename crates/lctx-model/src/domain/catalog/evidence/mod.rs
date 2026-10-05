@@ -277,4 +277,3 @@ pub fn relations() -> Vec<Relation> {
 }
 
 pub use runtime::{ConstructorCandidateLink, FieldLocationLink};
-

@@ -569,7 +569,8 @@ fn stored_membership_checks_refuse_missing_parameters_and_missing_call_alternati
     )
     .unwrap();
     for include in [true, false] {
-        let invariant = lctx_model::domain::validation::invariants_for::<CallResolution>().remove(0);
+        let invariant =
+            lctx_model::domain::validation::invariants_for::<CallResolution>().remove(0);
         let mut check = (invariant.create)(&budget());
         check
             .visit(
@@ -683,7 +684,8 @@ fn native_signature_and_call_support_cannot_switch_provider_namespace() {
     };
     for call_support in [false, true] {
         for wrong in [false, true] {
-            let invariant = lctx_model::domain::validation::invariants_for::<ProviderSymbol>().remove(0);
+            let invariant =
+                lctx_model::domain::validation::invariants_for::<ProviderSymbol>().remove(0);
             let mut check = (invariant.create)(&budget());
             let run = if wrong {
                 ProviderRun {
@@ -1562,7 +1564,9 @@ fn call_site_support_authenticates_implicit_and_symbolic_callers_transitively() 
     for form in ["module", "symbol", "class", "decorator"] {
         for mismatch in ["none", "provider", "context"] {
             let f = caller_fixture::fixture(form, mismatch);
-            let result = f.check(&lctx_model::domain::validation::invariants_for::<ProviderCallSiteSupport>()[0]);
+            let result = f.check(
+                &lctx_model::domain::validation::invariants_for::<ProviderCallSiteSupport>()[0],
+            );
             assert_eq!(
                 result.is_ok(),
                 mismatch == "none",

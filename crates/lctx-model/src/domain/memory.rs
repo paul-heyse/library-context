@@ -297,7 +297,10 @@ impl StageSink for MemoryGeneration {
         completion.seal(receipts)
     }
     async fn close_group(&self, group: GroupCompletion) -> Result<ClosedGroup, ModelError> {
-        let model = ValidatedModel::validate(self.relations.values().cloned().collect(), self.definitions.clone())?;
+        let model = ValidatedModel::validate(
+            self.relations.values().cloned().collect(),
+            self.definitions.clone(),
+        )?;
         let mut stored = self
             .stored
             .lock()
@@ -372,8 +375,7 @@ impl StageSink for MemoryGeneration {
         let mut charge = StateCharge::new(&self.budget, "memory-group-references");
         let keys = Keys::collect(&model, &sorted, &mut charge)?;
         keys.references(&model, &sorted)?;
-        for invariant in model.invariants_for_scope(&candidate.keys().copied().collect())?
-        {
+        for invariant in model.invariants_for_scope(&candidate.keys().copied().collect())? {
             let mut check = (invariant.create)(&self.budget);
             for input in &invariant.inputs {
                 let relation = &self.relations[input.name()];
@@ -698,4 +700,3 @@ fn unique(relation: &Relation, batch: &RecordBatch) -> Result<RecordBatch, Model
     arrow_select::take::take_record_batch(&sorted, &UInt32Array::from(indices))
         .map_err(ModelError::codec)
 }
-

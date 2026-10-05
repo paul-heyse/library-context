@@ -387,4 +387,6 @@ impl InvariantCheck for LexicalCheck {
     }
 }
 
-pub(crate) fn lexical_invariants_refs() -> Vec<&'static str> { vec!["lexical_source_structure"] }
+pub(crate) fn lexical_invariants_refs() -> Vec<&'static str> {
+    vec!["lexical_source_structure"]
+}

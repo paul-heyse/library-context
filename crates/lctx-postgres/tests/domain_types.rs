@@ -94,10 +94,16 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
         );
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(
-            fixture.base.check(&lctx_model::domain::validation::invariants_for::<TypeSupport>()[0]).is_ok()
+            fixture
+                .base
+                .check(&lctx_model::domain::validation::invariants_for::<TypeSupport>()[0])
+                .is_ok()
                 && fixture
                     .base
-                    .check(&lctx_model::domain::validation::invariants_for::<TypePresentationSupport>()[0])
+                    .check(
+                        &lctx_model::domain::validation::invariants_for::<TypePresentationSupport>(
+                        )[0]
+                    )
                     .is_ok(),
             valid
         );

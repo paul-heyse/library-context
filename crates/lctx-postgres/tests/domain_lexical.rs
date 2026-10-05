@@ -26,7 +26,9 @@ async fn lexical_support_and_optional_subjects_survive_sealed_postgres_validatio
         }
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(
-            fixture.check(&lctx_model::domain::validation::invariants_for::<BindingSupport>()[0]).is_ok(),
+            fixture
+                .check(&lctx_model::domain::validation::invariants_for::<BindingSupport>()[0])
+                .is_ok(),
             !foreign
         );
         let mut generation_h = Harness::begin(

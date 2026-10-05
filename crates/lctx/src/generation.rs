@@ -37,7 +37,9 @@ fn parse_frontier(s: &str) -> Result<Frontier, String> {
 
 fn parse_boundary(s: &str) -> Result<lctx_model::domain::stages::PublicationBoundary, String> {
     use lctx_model::domain::stages::PublicationBoundary;
-    PublicationBoundary::ALL.into_iter().find(|p| p.name() == s)
+    PublicationBoundary::ALL
+        .into_iter()
+        .find(|p| p.name() == s)
         .ok_or_else(|| format!("{s:?} is not a publication boundary"))
 }
 
@@ -153,11 +155,20 @@ pub async fn generation(command: GenerationCommand, database: &Database) -> anyh
         owner_command => {
             let store = GenerationStore::open(database.owner().await?, model()?).await?;
             match owner_command {
-                GenerationCommand::Audit { generation, frontier, prefix, memory_bytes } => {
-                    let budget = lctx_model::domain::resources::ResourceBudget::fixed(memory_bytes)?;
+                GenerationCommand::Audit {
+                    generation,
+                    frontier,
+                    prefix,
+                    memory_bytes,
+                } => {
+                    let budget =
+                        lctx_model::domain::resources::ResourceBudget::fixed(memory_bytes)?;
                     let report = store.audit(generation, frontier, prefix, &budget).await?;
-                    println!("{}", serde_json::to_string_pretty(&json!({"generation":generation.hex(),
-                        "relations":report.relations,"semantic_checks":report.semantic_checks}))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({"generation":generation.hex(),
+                        "relations":report.relations,"semantic_checks":report.semantic_checks}))?
+                    );
                 }
                 GenerationCommand::Select { generation } => {
                     store.select(generation).await?;

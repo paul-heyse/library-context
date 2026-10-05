@@ -997,7 +997,9 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["programmatic_assertion_replay"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["programmatic_assertion_replay"]
+}
 
 #[cfg(test)]
 mod tests {

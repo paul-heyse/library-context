@@ -297,4 +297,6 @@ impl super::InvariantCheck for OccurrenceBounds {
     }
 }
 
-pub(crate) fn occurrence_invariants_refs() -> Vec<&'static str> { vec!["occurrence_source_bounds"] }
+pub(crate) fn occurrence_invariants_refs() -> Vec<&'static str> {
+    vec!["occurrence_source_bounds"]
+}

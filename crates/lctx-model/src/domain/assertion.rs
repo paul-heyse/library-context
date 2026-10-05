@@ -1314,6 +1314,12 @@ impl<A: Assertion, S: Support<Assertion = A>> InvariantCheck for SupportCheck<A,
     }
 }
 
-pub(crate) fn qualification_invariants_refs() -> Vec<&'static str> { vec!["qualification_condition_context"] }
-pub(crate) fn evidence_invariants_refs() -> Vec<&'static str> { vec!["evidence_source_bounds"] }
-pub fn support_invariants_refs<A: Assertion, S: Support<Assertion = A>>() -> Vec<&'static str> { vec![S::NAME] }
+pub(crate) fn qualification_invariants_refs() -> Vec<&'static str> {
+    vec!["qualification_condition_context"]
+}
+pub(crate) fn evidence_invariants_refs() -> Vec<&'static str> {
+    vec!["evidence_source_bounds"]
+}
+pub fn support_invariants_refs<A: Assertion, S: Support<Assertion = A>>() -> Vec<&'static str> {
+    vec![S::NAME]
+}

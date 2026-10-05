@@ -211,4 +211,6 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["catalog_evidence_invocation_domain"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["catalog_evidence_invocation_domain"]
+}

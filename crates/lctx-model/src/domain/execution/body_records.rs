@@ -213,4 +213,6 @@ pub fn relations() -> Vec<Relation> {
     ]
 }
 
-pub(crate) fn body_invariants_refs() -> Vec<&'static str> { vec!["base_source_body_inventory"] }
+pub(crate) fn body_invariants_refs() -> Vec<&'static str> {
+    vec!["base_source_body_inventory"]
+}

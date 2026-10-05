@@ -112,7 +112,11 @@ impl PublicationCheck for Check {
     ) -> Result<(), ModelError> {
         self.input(input, batch)
     }
-    fn finish(self: Box<Self>, _: &[lctx_model::domain::analysis::sources::SourceSnapshot], _: Profile) -> Result<(), ModelError> {
+    fn finish(
+        self: Box<Self>,
+        _: &[lctx_model::domain::analysis::sources::SourceSnapshot],
+        _: Profile,
+    ) -> Result<(), ModelError> {
         self.finish_check()
     }
 }
@@ -159,8 +163,17 @@ pub fn schedule(model: &ValidatedModel) -> Schedule {
     .unwrap()
 }
 
-fn invariants_refs() -> Vec<&'static str> {vec!["frozen_and_current_vocabulary"]}
+fn invariants_refs() -> Vec<&'static str> {
+    vec!["frozen_and_current_vocabulary"]
+}
 
-fn publications_refs() -> Vec<&'static str> {vec!["published_frozen_and_current_vocabulary"]}
+fn publications_refs() -> Vec<&'static str> {
+    vec!["published_frozen_and_current_vocabulary"]
+}
 
-pub fn definitions() -> ValidationDefinitions { ValidationDefinitions { invariants: invariants(), publication_checks: publications() } }
+pub fn definitions() -> ValidationDefinitions {
+    ValidationDefinitions {
+        invariants: invariants(),
+        publication_checks: publications(),
+    }
+}

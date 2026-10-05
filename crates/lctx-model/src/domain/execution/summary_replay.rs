@@ -265,5 +265,9 @@ pub fn relations() -> Vec<Relation> {
     ]
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["finite_summary_inventory_replay"] }
-pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["summary_profile"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["finite_summary_inventory_replay"]
+}
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
+    vec!["summary_profile"]
+}

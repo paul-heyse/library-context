@@ -44,7 +44,9 @@ pub(super) async fn physical(
         let acknowledged: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.epoch_receipts WHERE generation_id=$1 AND epoch=$2 AND relation_name=$3)")
             .bind(g.0.to_vec()).bind(i16::try_from(prefix.ordinal()).map_err(|_|Error::Contract)?)
             .bind(input.name()).fetch_one(&mut *tx).await?;
-        if !acknowledged { return Err(Error::Contract); }
+        if !acknowledged {
+            return Err(Error::Contract);
+        }
     }
     Ok(physical)
 }

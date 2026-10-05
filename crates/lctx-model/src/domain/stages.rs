@@ -2362,4 +2362,3 @@ impl<R: Record, S: StageSink> PendingOutput<S> for Output<R> {
         })
     }
 }
-

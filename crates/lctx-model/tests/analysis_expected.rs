@@ -324,7 +324,10 @@ fn publication<R: Record>(
         });
         check.visit(input.name(), &batch)?;
     }
-    let snapshots = sources.iter().map(analysis::sources::SourceSnapshot::from_source).collect::<Result<Vec<_>, _>>()?;
+    let snapshots = sources
+        .iter()
+        .map(analysis::sources::SourceSnapshot::from_source)
+        .collect::<Result<Vec<_>, _>>()?;
     check.finish(&snapshots, profile)
 }
 #[test]

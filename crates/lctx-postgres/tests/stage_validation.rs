@@ -68,11 +68,17 @@ impl InvariantCheck for Check {
 async fn owned_invariants_and_nominal_closure_refuse_before_a_read_capability_exists() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
-            Relation::of::<Anchor>(),
-            Relation::of::<Checked>(),
-            Relation::of::<Package>(),
-        ], lctx_model::domain::ValidationDefinitions { invariants: checks(), publication_checks: vec![] })
+        ValidatedModel::validate(
+            vec![
+                Relation::of::<Anchor>(),
+                Relation::of::<Checked>(),
+                Relation::of::<Package>(),
+            ],
+            lctx_model::domain::ValidationDefinitions {
+                invariants: checks(),
+                publication_checks: vec![],
+            },
+        )
         .unwrap(),
     );
     let store = GenerationStore::install(db.owner.clone(), model.clone())
@@ -279,4 +285,6 @@ async fn inferred_fact_premise_requires_checkpoint_proof_or_an_explicit_source()
     }
 }
 
-fn checks_refs() -> Vec<&'static str> {vec!["checked_matches_anchor"]}
+fn checks_refs() -> Vec<&'static str> {
+    vec!["checked_matches_anchor"]
+}

@@ -847,4 +847,6 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_callable_closure"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["normalized_callable_closure"]
+}

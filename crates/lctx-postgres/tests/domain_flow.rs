@@ -36,7 +36,9 @@ async fn raw_flow_and_transitive_place_provenance_survive_sealed_validation() {
         assert_eq!(
             fixture
                 .base
-                .check(&lctx_model::domain::validation::invariants_for::<FlowDefinitionSupport>()[0])
+                .check(
+                    &lctx_model::domain::validation::invariants_for::<FlowDefinitionSupport>()[0]
+                )
                 .is_ok(),
             !foreign
         );

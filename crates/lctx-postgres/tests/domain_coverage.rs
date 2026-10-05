@@ -47,7 +47,9 @@ async fn coverage_cannot_claim_a_foreign_input_even_with_matching_provider_and_c
         }
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(
-            fixture.check(&lctx_model::domain::validation::invariants_for::<ProviderCoverage>()[0]).is_ok(),
+            fixture
+                .check(&lctx_model::domain::validation::invariants_for::<ProviderCoverage>()[0])
+                .is_ok(),
             !foreign
         );
         let mut generation_h = Harness::begin(

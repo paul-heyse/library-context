@@ -328,4 +328,6 @@ impl InvariantCheck for InventoryCheck {
     }
 }
 
-pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> { vec!["native_inventory_projection"] }
+pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> {
+    vec!["native_inventory_projection"]
+}

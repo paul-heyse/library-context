@@ -68,4 +68,3 @@ pub fn relations() -> Vec<Relation> {
     macro_rules! rows{($($field:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};}
     crate::structural_outputs!(rows)
 }
-

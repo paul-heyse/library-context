@@ -273,7 +273,8 @@ fn stored_replay_refuses_rewritten_text_missing_windows_and_foreign_contexts() {
     relations.extend(lctx_model::domain::embedding::text::relations());
     let model = ValidatedModel::declared(relations).unwrap();
     let check = |kind| {
-        let invariant = lctx_model::domain::validation::invariants_for::<TextAssessment>().remove(0);
+        let invariant =
+            lctx_model::domain::validation::invariants_for::<TextAssessment>().remove(0);
         let mut checker = (invariant.create)(&budget);
         macro_rules! input {($($field:ident:$ty:ty,)*)=>{$(let batch=Batch::new(&model,data.$field.iter().cloned().collect::<Vec<_>>(),&budget).unwrap();checker.visit(<$ty>::NAME,batch.arrow()).unwrap();)*};}
         lctx_model::analytic_text_inputs!(input);

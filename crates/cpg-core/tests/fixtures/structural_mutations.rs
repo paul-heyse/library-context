@@ -94,17 +94,28 @@ pub async fn load_admission(
     // relying on PublicCandidate COPY happening before Invocation COPY.
     let permit = access.read::<normalized::entities::EntityRef>()?;
     session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
-    let query = session.query(&format!(
-        "SELECT * FROM \"{}\" WHERE callable IS NOT NULL ORDER BY id LIMIT 1", normalized::entities::EntityRef::NAME,
-    )).await.map_err(ModelError::codec)?;
+    let query = session
+        .query(&format!(
+            "SELECT * FROM \"{}\" WHERE callable IS NOT NULL ORDER BY id LIMIT 1",
+            normalized::entities::EntityRef::NAME,
+        ))
+        .await
+        .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
     let mut subject = None;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        subject = normalized::entities::EntityRef::decode(&batch)?.first().map(Record::id);
-        if subject.is_some() { break; }
+        subject = normalized::entities::EntityRef::decode(&batch)?
+            .first()
+            .map(Record::id);
+        if subject.is_some() {
+            break;
+        }
     }
     drop(stream);
-    mutation.lock().map_err(|_| ModelError::Invalid("mutation observer poisoned".into()))?.subject = subject;
+    mutation
+        .lock()
+        .map_err(|_| ModelError::Invalid("mutation observer poisoned".into()))?
+        .subject = subject;
     drop(session);
     reader.close().await.map_err(ModelError::codec)
 }
@@ -197,7 +208,8 @@ impl StageSink for MutatingSink<'_, '_> {
                 if self.case == Case::Extra && state.extra.is_none() {
                     let mut extra = rows.first().expect("native frame has invocations").clone();
                     state.first = Some(extra.id());
-                    extra.subject = Some(state.subject.expect("completed normalized callable exists"));
+                    extra.subject =
+                        Some(state.subject.expect("completed normalized callable exists"));
                     state.extra = Some(extra.id());
                     rows.push(extra);
                 }

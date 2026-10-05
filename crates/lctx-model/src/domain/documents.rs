@@ -458,4 +458,6 @@ impl InvariantCheck for DocumentCheck {
     }
 }
 
-pub(crate) fn document_invariants_refs() -> Vec<&'static str> { vec!["document_structure"] }
+pub(crate) fn document_invariants_refs() -> Vec<&'static str> {
+    vec!["document_structure"]
+}

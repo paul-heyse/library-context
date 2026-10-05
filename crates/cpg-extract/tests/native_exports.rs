@@ -228,10 +228,11 @@ async fn public_aliases_and_wildcard_chains_share_exact_entities_while_cycles_an
 async fn enumeration_membership_and_qualification_invariant_reject_false_complete_and_foreign_source()
  {
     let (tables, data, _, budget) = fixture().await;
-    let invariant = lctx_model::domain::validation::invariants_for::<ExportEnumerationObservation>()
-        .into_iter()
-        .find(|i| i.name == "export_enumeration_membership")
-        .unwrap();
+    let invariant =
+        lctx_model::domain::validation::invariants_for::<ExportEnumerationObservation>()
+            .into_iter()
+            .find(|i| i.name == "export_enumeration_membership")
+            .unwrap();
     for fault in ["none", "names", "source"] {
         let mut check = (invariant.create)(&budget);
         for input in &invariant.inputs {

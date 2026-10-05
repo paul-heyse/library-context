@@ -126,7 +126,11 @@ async def test_real_mcp_listing_preserves_the_sole_native_inventory():
 
 
 def test_current_response_wraps_complete_dto_and_actual_generation_key():
-    response = {"generation": [5] * 16, "domains": [], "operation": {"resolution": "ambiguous", "candidates": []}}
+    response = {
+        "generation": [5] * 16,
+        "domains": [],
+        "operation": {"resolution": "ambiguous", "candidates": []},
+    }
     protocol = CallToolResult.model_validate_json(
         wire_tool_result("get_operation", json.dumps(response), False)
     )

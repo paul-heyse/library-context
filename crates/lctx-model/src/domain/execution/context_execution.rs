@@ -648,4 +648,3 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<ContextMember>(),
     ]
 }
-

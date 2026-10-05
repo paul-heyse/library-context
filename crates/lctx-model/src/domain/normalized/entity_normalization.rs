@@ -940,4 +940,6 @@ pub fn stage() -> stages::Stage {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_entity_closure"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["normalized_entity_closure"]
+}

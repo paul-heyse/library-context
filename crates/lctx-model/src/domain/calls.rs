@@ -2415,11 +2415,27 @@ type OriginMembers = Option<(Id<CallOrigin>, Vec<(OriginStep, Option<i64>)>)>;
 type NativeTargetIndex =
     ChargedMap<Id<CallTarget>, (Id<CallDestination>, Option<Id<ProviderSymbol>>)>;
 
-pub(crate) fn provider_module_invariants_refs() -> Vec<&'static str> { vec!["provider_module_owners"] }
-pub(crate) fn signature_invariants_refs() -> Vec<&'static str> { vec!["complete_signature_membership"] }
-pub(crate) fn origin_invariants_refs() -> Vec<&'static str> { vec!["call_origin_membership"] }
-pub(crate) fn provider_site_invariants_refs() -> Vec<&'static str> { vec!["provider_call_site_callers"] }
-pub(crate) fn call_syntax_invariants_refs() -> Vec<&'static str> { vec!["call_syntax_membership"] }
-pub(crate) fn resolution_invariants_refs() -> Vec<&'static str> { vec!["complete_call_alternatives"] }
-pub(crate) fn target_invariants_refs() -> Vec<&'static str> { vec!["call_target_ownership"] }
-pub(crate) fn native_support_invariants_refs() -> Vec<&'static str> { vec!["native_symbol_support_ownership"] }
+pub(crate) fn provider_module_invariants_refs() -> Vec<&'static str> {
+    vec!["provider_module_owners"]
+}
+pub(crate) fn signature_invariants_refs() -> Vec<&'static str> {
+    vec!["complete_signature_membership"]
+}
+pub(crate) fn origin_invariants_refs() -> Vec<&'static str> {
+    vec!["call_origin_membership"]
+}
+pub(crate) fn provider_site_invariants_refs() -> Vec<&'static str> {
+    vec!["provider_call_site_callers"]
+}
+pub(crate) fn call_syntax_invariants_refs() -> Vec<&'static str> {
+    vec!["call_syntax_membership"]
+}
+pub(crate) fn resolution_invariants_refs() -> Vec<&'static str> {
+    vec!["complete_call_alternatives"]
+}
+pub(crate) fn target_invariants_refs() -> Vec<&'static str> {
+    vec!["call_target_ownership"]
+}
+pub(crate) fn native_support_invariants_refs() -> Vec<&'static str> {
+    vec!["native_symbol_support_ownership"]
+}

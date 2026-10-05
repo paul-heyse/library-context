@@ -49,7 +49,9 @@ fn check(
     members: &[SignatureEnumerationMember],
 ) -> Result<(), ModelError> {
     let budget = ResourceBudget::fixed(1 << 20)?;
-    let invariant = lctx_model::domain::validation::invariants_for::<SignatureEnumerationObservation>().remove(0);
+    let invariant =
+        lctx_model::domain::validation::invariants_for::<SignatureEnumerationObservation>()
+            .remove(0);
     let mut check = (invariant.create)(&budget);
     for (name, batch) in [
         (

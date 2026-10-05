@@ -40,12 +40,18 @@ fn report_membership_requires_complete_unique_ordered_children_and_correct_roles
     let mut entries = f.rows::<ReportEntry>();
     entries.pop();
     f.put_entries(entries);
-    assert!(f.check(&lctx_model::domain::validation::invariants_for::<ReportCollection>()[0]).is_err());
+    assert!(
+        f.check(&lctx_model::domain::validation::invariants_for::<ReportCollection>()[0])
+            .is_err()
+    );
     let mut f = Fixture::new(false);
     let mut entries = f.rows::<ReportEntry>();
     entries[0].ordinal += 1;
     f.put_entries(entries);
-    assert!(f.check(&lctx_model::domain::validation::invariants_for::<ReportCollection>()[0]).is_err());
+    assert!(
+        f.check(&lctx_model::domain::validation::invariants_for::<ReportCollection>()[0])
+            .is_err()
+    );
     let mut f = Fixture::new(false);
     let invocation = f
         .rows::<ReportCollection>()
@@ -55,7 +61,10 @@ fn report_membership_requires_complete_unique_ordered_children_and_correct_roles
     let mut envs = f.rows::<ReportedEnvironment>();
     envs[0].metadata = invocation.id();
     f.put(envs);
-    assert!(f.check(&lctx_model::domain::validation::invariants_for::<ReportedEnvironment>()[0]).is_err());
+    assert!(
+        f.check(&lctx_model::domain::validation::invariants_for::<ReportedEnvironment>()[0])
+            .is_err()
+    );
     assert!(
         ReportCollection::new(
             ReportCollectionKind::Invocation,
@@ -88,12 +97,16 @@ fn report_membership_requires_complete_unique_ordered_children_and_correct_roles
     f.put(vec![empty]);
     f.put(values);
     f.put_entries(entries);
-    f.check(&lctx_model::domain::validation::invariants_for::<ReportCollection>()[0]).unwrap();
+    f.check(&lctx_model::domain::validation::invariants_for::<ReportCollection>()[0])
+        .unwrap();
 }
 #[test]
 fn report_association_requires_captured_input_ownership() {
     let f = Fixture::new(true);
-    assert!(f.check(&lctx_model::domain::validation::invariants_for::<TaskReportSupport>()[0]).is_err());
+    assert!(
+        f.check(&lctx_model::domain::validation::invariants_for::<TaskReportSupport>()[0])
+            .is_err()
+    );
     // A different reported path is retained as evidence text; it never silently redirects target.
     let mut f = Fixture::new(false);
     f.report.source_path = "/reported/foreign/environment.py".into();
@@ -102,7 +115,8 @@ fn report_association_requires_captured_input_ownership() {
     f.put(vec![f.report.clone()]);
     f.put(vec![f.observation.clone()]);
     f.put(vec![f.support.clone()]);
-    f.check(&lctx_model::domain::validation::invariants_for::<TaskReportSupport>()[0]).unwrap();
+    f.check(&lctx_model::domain::validation::invariants_for::<TaskReportSupport>()[0])
+        .unwrap();
 }
 
 /// A fresh attempt budget; these controls do not share reservations across batches.

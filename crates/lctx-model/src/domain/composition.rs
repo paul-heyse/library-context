@@ -2259,4 +2259,6 @@ impl InvariantCheck for CompositionCheck {
 
 type RestatementIndex = ChargedMap<(Id<Occurrence>, Id<EvaluationAtom>), Vec<Id<EvaluationAtom>>>;
 
-pub(crate) fn composition_invariants_refs() -> Vec<&'static str> { vec!["call_composition_frames"] }
+pub(crate) fn composition_invariants_refs() -> Vec<&'static str> {
+    vec!["call_composition_frames"]
+}

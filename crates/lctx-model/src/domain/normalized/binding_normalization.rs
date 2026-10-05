@@ -1332,7 +1332,11 @@ pub(crate) fn verify_enumerations(
 ) -> Result<(), ModelError> {
     let relation = Relation::of::<SignatureEnumerationObservation>();
     let definitions = crate::domain::validation::definitions();
-    let definition = definitions.invariants.iter().find(|check| relation.invariant_refs().contains(&check.name)).expect("canonical enumeration definition");
+    let definition = definitions
+        .invariants
+        .iter()
+        .find(|check| relation.invariant_refs().contains(&check.name))
+        .expect("canonical enumeration definition");
     let mut check = (definition.create)(budget);
     macro_rules! feed {
         ($field:ident,$ty:ty) => {{
@@ -1630,4 +1634,6 @@ fn verify_upstream(
     super::event_normalization::verify(&event_data, &event_output, budget)
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_binding_closure"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["normalized_binding_closure"]
+}

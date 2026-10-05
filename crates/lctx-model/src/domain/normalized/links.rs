@@ -241,4 +241,3 @@ pub struct DeclarationNativeCharacterization {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-

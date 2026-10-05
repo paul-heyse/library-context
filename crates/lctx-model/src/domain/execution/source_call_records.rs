@@ -860,5 +860,9 @@ pub fn stage(
     })
 }
 
-pub(crate) fn source_call_invariants_refs() -> Vec<&'static str> { vec!["source_call_replay"] }
-pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["source_call_profile"] }
+pub(crate) fn source_call_invariants_refs() -> Vec<&'static str> {
+    vec!["source_call_replay"]
+}
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
+    vec!["source_call_profile"]
+}

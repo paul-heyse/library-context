@@ -73,7 +73,10 @@ fn attempted_coverage_is_bound_to_the_invocation_input_for_every_scope_kind() {
                 f.put(vec![scope]);
                 let expected = owned && !(corpus && is_input);
                 assert_eq!(
-                    f.check(&lctx_model::domain::validation::invariants_for::<ProviderCoverage>()[0]).is_ok(),
+                    f.check(
+                        &lctx_model::domain::validation::invariants_for::<ProviderCoverage>()[0]
+                    )
+                    .is_ok(),
                     expected
                 );
             }
@@ -83,7 +86,8 @@ fn attempted_coverage_is_bound_to_the_invocation_input_for_every_scope_kind() {
                 run: Some(run.id()),
                 ..original
             }]);
-            f.check(&lctx_model::domain::validation::invariants_for::<ProviderCoverage>()[0]).unwrap();
+            f.check(&lctx_model::domain::validation::invariants_for::<ProviderCoverage>()[0])
+                .unwrap();
         }
     }
 }

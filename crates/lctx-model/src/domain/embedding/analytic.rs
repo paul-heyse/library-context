@@ -442,4 +442,6 @@ pub fn stage(
     })
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["analytic_embedding_consumption"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["analytic_embedding_consumption"]
+}

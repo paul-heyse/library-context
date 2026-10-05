@@ -108,7 +108,9 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["authored_model_catalog"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["authored_model_catalog"]
+}
 
 #[cfg(test)]
 mod tests {

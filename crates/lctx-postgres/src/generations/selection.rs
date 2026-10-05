@@ -254,9 +254,19 @@ impl GenerationLease {
         // Complete acknowledgements own immutability; corruption recomputation belongs to
         // explicit audit. Current lease, frontier, schema and memory admission remain fresh.
         u64::try_from(expected.0).map_err(|_| Error::Contract)?;
-        if expected.1.len() != 32 { return Err(Error::Contract); }
-        visit_named(&mut snapshot, self.contract.generation(), relation, &physical,
-            input.order(), &self.budget, &mut consume).await?;
+        if expected.1.len() != 32 {
+            return Err(Error::Contract);
+        }
+        visit_named(
+            &mut snapshot,
+            self.contract.generation(),
+            relation,
+            &physical,
+            input.order(),
+            &self.budget,
+            &mut consume,
+        )
+        .await?;
         snapshot.commit().await?;
         Ok(())
     }
@@ -277,18 +287,46 @@ impl GenerationLease {
         }
         let generation = self.contract.generation();
         let mut session = super::validation_session::Session::for_model(
-            &self.model, &mut self.connection, generation, &self.budget).await?;
+            &self.model,
+            &mut self.connection,
+            generation,
+            &self.budget,
+        )
+        .await?;
         for invariant in self.frontier.descriptor().invariants(&self.model)? {
             let mut frames = Vec::new();
             for input in &invariant.inputs {
                 let relation = self.model.relation(input.name()).ok_or(Error::Contract)?;
-                frames.push(validation_views::physical(&mut self.connection, generation,
-                    input, relation, relation.name(), validation_views::Scope { upper: None, candidate: None },
-                    &self.budget).await?);
+                frames.push(
+                    validation_views::physical(
+                        &mut self.connection,
+                        generation,
+                        input,
+                        relation,
+                        relation.name(),
+                        validation_views::Scope {
+                            upper: None,
+                            candidate: None,
+                        },
+                        &self.budget,
+                    )
+                    .await?,
+                );
             }
-            let binding = session.binding(&mut self.connection, invariant.digest(),
-                &invariant.inputs, &frames, false, None).await?;
-            if !session.has(&mut self.connection, binding, invariant.digest()).await? {
+            let binding = session
+                .binding(
+                    &mut self.connection,
+                    invariant.digest(),
+                    &invariant.inputs,
+                    &frames,
+                    false,
+                    None,
+                )
+                .await?;
+            if !session
+                .has(&mut self.connection, binding, invariant.digest())
+                .await?
+            {
                 return Err(Error::Contract);
             }
         }
@@ -424,7 +462,6 @@ impl GenerationLease {
                         return Err(Error::Contract);
                     }
                 }
-
             }
         }
         Ok(())

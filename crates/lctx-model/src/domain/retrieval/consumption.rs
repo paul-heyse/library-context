@@ -364,4 +364,6 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["retrieval_embedding_consumption_and_winners"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["retrieval_embedding_consumption_and_winners"]
+}

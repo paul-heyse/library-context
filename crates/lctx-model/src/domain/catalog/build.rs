@@ -915,5 +915,9 @@ impl InvariantCheck for InvocationCheck {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["catalog_core_closure"] }
-pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> { vec!["catalog_member_invocation_closure"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["catalog_core_closure"]
+}
+pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> {
+    vec!["catalog_member_invocation_closure"]
+}

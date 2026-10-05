@@ -713,7 +713,9 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_receiver_closure"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["normalized_receiver_closure"]
+}
 
 #[cfg(test)]
 mod tests {

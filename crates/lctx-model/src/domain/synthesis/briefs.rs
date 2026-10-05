@@ -508,7 +508,9 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["canonical_brief_replay"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["canonical_brief_replay"]
+}
 
 #[cfg(test)]
 mod tests {

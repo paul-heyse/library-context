@@ -36,11 +36,15 @@ async fn invoked_guards_retain_typed_origins_and_foreign_source_refusal() {
         let eligible = matches!(kind, "none" | "local");
         let valid = !foreign && eligible;
         assert_eq!(
-            fixture.check(&lctx_model::domain::validation::invariants_for::<SyntaxSupport>()[0]).is_ok(),
+            fixture
+                .check(&lctx_model::domain::validation::invariants_for::<SyntaxSupport>()[0])
+                .is_ok(),
             !foreign
         );
         assert_eq!(
-            fixture.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0]).is_ok(),
+            fixture
+                .check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0])
+                .is_ok(),
             eligible
         );
         assert_ne!(fixture.diagram.support()[0], fixture.origin.id());

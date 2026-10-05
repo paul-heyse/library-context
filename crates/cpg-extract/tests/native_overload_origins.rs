@@ -188,7 +188,8 @@ async fn native_origin_vectors_survive_canonical_attachment_and_replay() {
     let model = lctx_model::domain::model().unwrap();
     let budget = typed_driver::budget();
     let verify = |mutation: &str| {
-        let invariant = &lctx_model::domain::validation::invariants_for::<NativeOverloadObservation>()[0];
+        let invariant =
+            &lctx_model::domain::validation::invariants_for::<NativeOverloadObservation>()[0];
         let mut check = (invariant.create)(&budget);
         let source = tables.lock().unwrap();
         let mut traces = observations.clone();

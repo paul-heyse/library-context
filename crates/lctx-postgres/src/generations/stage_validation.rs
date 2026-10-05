@@ -173,74 +173,85 @@ impl GenerationStore {
         }
         let input_digest = digest.finish();
         let mut session = super::validation_session::Session::new(self, tx, g, budget).await?;
-        if let Some(checkpoint) = checkpoint { session.bind_checkpoint(self, checkpoint)?; }
+        if let Some(checkpoint) = checkpoint {
+            session.bind_checkpoint(self, checkpoint)?;
+        }
         let nominal_definition = ContentHash::of(b"model-owned-nominal-reference-closure/v1");
         let nominal_binding = session.metadata_binding(nominal_definition, input_digest);
         if !session.has(tx, nominal_binding, nominal_definition).await? {
-        for relation in self.model.relations().iter().filter(|r| {
-            declared.contains(r.name())
-                && (!validated.contains(r.name())
-                    || ordered.get(r.name()).is_some_and(|s| {
-                        s.prefix().is_some_and(|e| {
-                            e != lctx_model::domain::stages::PublicationBoundary::Facts
-                        })
-                    }))
-        }) {
-            for field in relation.fields() {
-                if let Some((_, target)) = field.target() {
-                    if !declared.contains(target) && !validated.contains(target) {
-                        return Err(Error::Contract);
-                    }
-                    let subtype = if let Some(code) = field.subtype() {
-                        let tag = self
-                            .model
-                            .relations()
-                            .iter()
-                            .find(|r| r.name() == target)
-                            .and_then(|r| r.sum())
-                            .ok_or(Error::Contract)?
-                            .tag;
-                        format!(" AND b.\"{tag}\"={code}")
-                    } else {
-                        String::new()
-                    };
-                    let sql = format!(
-                        "SELECT EXISTS(SELECT 1 FROM {} a WHERE a.\"{}\" IS NOT NULL AND NOT EXISTS(SELECT 1 FROM {} b WHERE b.id=a.\"{}\"{}))",
-                        qualified(g, &ordered[relation.name()].physical_relation()),
-                        field.name(),
-                        qualified(g, &{
-                            if lctx_model::domain::stages::is_vocabulary(target) {
-                                let target_prefix = ordered
-                                    .get(target)
-                                    .and_then(|s| s.prefix_ordinal())
-                                    .or(facts)
-                                    .ok_or(Error::Contract)?;
-                                let source_prefix = ordered[relation.name()]
-                                    .prefix_ordinal()
-                                    .or(facts)
-                                    .ok_or(Error::Contract)?;
-                                super::vocabulary::physical(
-                                    target,
-                                    target_prefix.earlier(source_prefix)?,
-                                )
-                            } else {
-                                input_physical(target)
-                            }
-                        }),
-                        field.name(),
-                        subtype
-                    );
-                    let invalid: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-                        .fetch_one(&mut *tx)
-                        .await?;
-                    if invalid {
-                        return Err(Error::Contract);
+            for relation in self.model.relations().iter().filter(|r| {
+                declared.contains(r.name())
+                    && (!validated.contains(r.name())
+                        || ordered.get(r.name()).is_some_and(|s| {
+                            s.prefix().is_some_and(|e| {
+                                e != lctx_model::domain::stages::PublicationBoundary::Facts
+                            })
+                        }))
+            }) {
+                for field in relation.fields() {
+                    if let Some((_, target)) = field.target() {
+                        if !declared.contains(target) && !validated.contains(target) {
+                            return Err(Error::Contract);
+                        }
+                        let subtype = if let Some(code) = field.subtype() {
+                            let tag = self
+                                .model
+                                .relations()
+                                .iter()
+                                .find(|r| r.name() == target)
+                                .and_then(|r| r.sum())
+                                .ok_or(Error::Contract)?
+                                .tag;
+                            format!(" AND b.\"{tag}\"={code}")
+                        } else {
+                            String::new()
+                        };
+                        let sql = format!(
+                            "SELECT EXISTS(SELECT 1 FROM {} a WHERE a.\"{}\" IS NOT NULL AND NOT EXISTS(SELECT 1 FROM {} b WHERE b.id=a.\"{}\"{}))",
+                            qualified(g, &ordered[relation.name()].physical_relation()),
+                            field.name(),
+                            qualified(g, &{
+                                if lctx_model::domain::stages::is_vocabulary(target) {
+                                    let target_prefix = ordered
+                                        .get(target)
+                                        .and_then(|s| s.prefix_ordinal())
+                                        .or(facts)
+                                        .ok_or(Error::Contract)?;
+                                    let source_prefix = ordered[relation.name()]
+                                        .prefix_ordinal()
+                                        .or(facts)
+                                        .ok_or(Error::Contract)?;
+                                    super::vocabulary::physical(
+                                        target,
+                                        target_prefix.earlier(source_prefix)?,
+                                    )
+                                } else {
+                                    input_physical(target)
+                                }
+                            }),
+                            field.name(),
+                            subtype
+                        );
+                        let invalid: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+                            .fetch_one(&mut *tx)
+                            .await?;
+                        if invalid {
+                            return Err(Error::Contract);
+                        }
                     }
                 }
             }
-        }
-            session.acknowledge(tx, "nominal_references", nominal_definition, nominal_binding,
-                &super::validation_session::ProofContext::Nominal { inputs: input_digest }).await?;
+            session
+                .acknowledge(
+                    tx,
+                    "nominal_references",
+                    nominal_definition,
+                    nominal_binding,
+                    &super::validation_session::ProofContext::Nominal {
+                        inputs: input_digest,
+                    },
+                )
+                .await?;
         }
         let mut checks = BTreeMap::from([("nominal_references", nominal_binding)]);
         for invariant in stage.read_invariants(&self.model)? {
@@ -254,12 +265,28 @@ impl GenerationStore {
             let mut frames = Vec::new();
             for input in &invariant.inputs {
                 let relation = self.model.relation(input.name()).ok_or(Error::Contract)?;
-                let inherited = ordered.get(input.name()).and_then(|source| source.prefix_ordinal())
+                let inherited = ordered
+                    .get(input.name())
+                    .and_then(|source| source.prefix_ordinal())
                     .or_else(|| validated.contains(input.name()).then_some(facts).flatten());
-                if input.prefix().is_some() && inherited.is_none() { return Err(Error::Contract); }
-                frames.push(super::validation_views::physical(tx, g, input, relation,
-                    &input_physical(input.name()), super::validation_views::Scope {
-                        upper: inherited, candidate: None }, budget).await?);
+                if input.prefix().is_some() && inherited.is_none() {
+                    return Err(Error::Contract);
+                }
+                frames.push(
+                    super::validation_views::physical(
+                        tx,
+                        g,
+                        input,
+                        relation,
+                        &input_physical(input.name()),
+                        super::validation_views::Scope {
+                            upper: inherited,
+                            candidate: None,
+                        },
+                        budget,
+                    )
+                    .await?,
+                );
             }
             let binding = session.invariant(tx, invariant, frames, false).await?;
             checks.insert(invariant.name, binding);

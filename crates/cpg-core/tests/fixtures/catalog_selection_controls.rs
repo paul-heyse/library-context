@@ -51,10 +51,12 @@ pub fn fixture_model() -> ValidatedModel {
             .iter()
             .filter_map(|field| field.target().map(|(_, name)| name));
         let resolved_invariants = relation.resolved_invariants(&canonical_model).unwrap();
-        let invariants = resolved_invariants.iter()
+        let invariants = resolved_invariants
+            .iter()
             .flat_map(|invariant| invariant.inputs.iter().map(ValidationInput::name));
         let resolved_publications = relation.resolved_publications(&canonical_model).unwrap();
-        let publications = resolved_publications.iter()
+        let publications = resolved_publications
+            .iter()
             .flat_map(|check| check.inputs.iter().map(ValidationInput::name));
         for required in references.chain(invariants).chain(publications) {
             if selected.insert(required) {

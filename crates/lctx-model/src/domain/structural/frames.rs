@@ -371,5 +371,9 @@ impl PublicationCheck for ProfileCheck {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["structural_replay"] }
-pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["structural_profile"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["structural_replay"]
+}
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
+    vec!["structural_profile"]
+}

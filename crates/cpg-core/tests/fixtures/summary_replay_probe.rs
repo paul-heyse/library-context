@@ -49,7 +49,9 @@ pub fn stage(model: &ValidatedModel, profile: Profile) -> Stage {
             .iter()
             .filter_map(|f| f.target().map(|(_, n)| n))
             .chain(
-                relation.resolved_invariants(&model).unwrap()
+                relation
+                    .resolved_invariants(&model)
+                    .unwrap()
                     .iter()
                     .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
             )

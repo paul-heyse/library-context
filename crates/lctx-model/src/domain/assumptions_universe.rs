@@ -144,4 +144,6 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["actual_pinned_assumption_universe"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["actual_pinned_assumption_universe"]
+}

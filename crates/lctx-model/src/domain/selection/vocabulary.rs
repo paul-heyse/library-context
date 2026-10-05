@@ -741,4 +741,3 @@ impl Default for Selection {
         }
     }
 }
-

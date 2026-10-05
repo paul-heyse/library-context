@@ -118,5 +118,3 @@ impl AdmissionData {
         Ok(())
     }
 }
-
-

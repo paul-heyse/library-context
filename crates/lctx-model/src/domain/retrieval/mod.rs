@@ -203,4 +203,3 @@ pub fn relations() -> Vec<Relation> {
 }
 
 pub type Definition = RetrievalDefinition;
-

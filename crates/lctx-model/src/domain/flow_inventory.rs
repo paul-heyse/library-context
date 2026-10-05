@@ -930,4 +930,6 @@ pub fn complete_native_singleton<'a>(
     Ok(Some((inventory, inventory_support)))
 }
 
-pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> { vec!["flow_use_inventory_replay"] }
+pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> {
+    vec!["flow_use_inventory_replay"]
+}

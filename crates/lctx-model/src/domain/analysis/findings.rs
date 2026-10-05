@@ -426,4 +426,6 @@ pub fn relations() -> Vec<Relation> {
     ]
 }
 
-pub(crate) fn finding_invariants_refs() -> Vec<&'static str> { vec!["finding_emitter"] }
+pub(crate) fn finding_invariants_refs() -> Vec<&'static str> {
+    vec!["finding_emitter"]
+}

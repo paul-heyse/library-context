@@ -1,4 +1,5 @@
 """Launcher behavior, distinct from real family qualification."""
+
 from verify import FAMILIES, environment_owner, execute, prepare, prerequisites
 
 
@@ -40,7 +41,9 @@ def test_pure_preparation_invokes_no_environment_or_store_setup(monkeypatch):
 
 def test_inexact_union_preparation_never_syncs_during_assertions():
     commands = []
-    ready = prepare({"tools", "mcp", "semantics", "storage"}, lambda command: commands.append(command) or 0)
+    ready = prepare(
+        {"tools", "mcp", "semantics", "storage"}, lambda command: commands.append(command) or 0
+    )
     sync = [c for c in commands if c[:2] == ("uv", "sync")]
     assert len(sync) == 2  # Root tools and MCP's actual native dependency closure.
     assert all("--locked" in c and "--inexact" in c for c in sync)
@@ -72,8 +75,13 @@ def test_boundary_filter_scopes_real_prerequisites_and_preserves_ordinary_filter
     commands = []
     assert prerequisites("providers", "flow") == frozenset()
     assert prerequisites("serving", "producer") == frozenset({"postgres"})
-    result = execute(["providers"], {}, lambda command: commands.append(command) or 0,
-                     ("-E", "test(capture)"), "flow")
+    result = execute(
+        ["providers"],
+        {},
+        lambda command: commands.append(command) or 0,
+        ("-E", "test(capture)"),
+        "flow",
+    )
     assert result == {"providers": "passed"}
     assert len(commands) == 1 and "cpg-flow" in commands[0]
     assert commands[0][-2:] == ("-E", "test(capture)")
@@ -98,12 +106,19 @@ def test_missing_executable_is_reported_and_other_families_continue(monkeypatch)
     monkeypatch.setattr(verify.subprocess, "run", missing)
     assert verify.launch(("absent-contract-tool",), {}) == 127
     commands = []
-    result = execute(["model", "analytics"], {}, lambda c: commands.append(c) or (127 if "lctx-model" in c else 0))
+    result = execute(
+        ["model", "analytics"],
+        {},
+        lambda c: commands.append(c) or (127 if "lctx-model" in c else 0),
+    )
     assert result == {"model": "blocked", "analytics": "passed"}
     assert len(commands) == 2
 
 
 def test_disposable_pg_check_belongs_only_to_the_store_boundary():
     assert prerequisites("store", "python") == frozenset({"postgres", "cli", "tools"})
-    assert any("tests/scripts/test_postgres_serving.py" in command for command in FAMILIES["store"].commands)
+    assert any(
+        "tests/scripts/test_postgres_serving.py" in command
+        for command in FAMILIES["store"].commands
+    )
     assert "--ignore=tests/scripts/test_postgres_serving.py" in FAMILIES["tooling"].commands[0]

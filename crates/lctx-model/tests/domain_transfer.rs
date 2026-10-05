@@ -382,7 +382,11 @@ fn records(f: &Fixture) -> BTreeMap<&'static str, arrow_array::RecordBatch> {
 fn transfer_support_validates_both_place_sources_and_keeps_ordinary_subject_inputs_local() {
     let f = Fixture::new();
     let base = records(&f);
-    check(lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0), &base).unwrap();
+    check(
+        lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0),
+        &base,
+    )
+    .unwrap();
     assert!(
         !lctx_model::domain::validation::invariants_for::<SyntaxSupport>()[0]
             .inputs
@@ -465,7 +469,11 @@ fn transfer_support_validates_both_place_sources_and_keeps_ordinary_subject_inpu
         insert(&f, &mut data, vec![alternative]);
         insert(&f, &mut data, vec![support]);
         assert!(
-            check(lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0), &data).is_err(),
+            check(
+                lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0),
+                &data
+            )
+            .is_err(),
             "foreign input/output place cannot enter scoped transfer"
         );
     }
@@ -487,7 +495,11 @@ fn stored_selection_checks_typed_premises_guard_membership_and_qualification() {
         .unwrap();
     insert(&f, &mut base, vec![influence]);
     insert(&f, &mut base, vec![selection.clone()]);
-    check(lctx_model::domain::validation::invariants_for::<Selection>().remove(0), &base).unwrap();
+    check(
+        lctx_model::domain::validation::invariants_for::<Selection>().remove(0),
+        &base,
+    )
+    .unwrap();
     let wrong_atom = EvaluationAtom {
         evaluation: f.occurrences[2].id(),
         ..f.atom.clone()
@@ -508,7 +520,13 @@ fn stored_selection_checks_typed_premises_guard_membership_and_qualification() {
     ] {
         let mut data = base.clone();
         insert(&f, &mut data, vec![wrong]);
-        assert!(check(lctx_model::domain::validation::invariants_for::<Selection>().remove(0), &data).is_err());
+        assert!(
+            check(
+                lctx_model::domain::validation::invariants_for::<Selection>().remove(0),
+                &data
+            )
+            .is_err()
+        );
     }
 }
 
@@ -600,7 +618,11 @@ fn transfer_call_site_must_belong_to_both_scope_and_acquired_inputs() {
             );
         }
         assert_eq!(
-            check(lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0), &data).is_ok(),
+            check(
+                lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0),
+                &data
+            )
+            .is_ok(),
             expected
         );
     }
@@ -708,7 +730,11 @@ fn ordinary_assertions_validate_guard_operand_sources_even_when_evaluation_is_lo
             );
         }
         assert_eq!(
-            check(lctx_model::domain::validation::invariants_for::<SyntaxSupport>().remove(0), &data).is_ok(),
+            check(
+                lctx_model::domain::validation::invariants_for::<SyntaxSupport>().remove(0),
+                &data
+            )
+            .is_ok(),
             expected
         );
     }
@@ -764,7 +790,11 @@ fn shared_derived_flow_support_refuses_prose_and_heuristic_lineage() {
     use lctx_model::domain::analysis::{local::Derivation, policy::EvidenceStatus};
     let fixture = Fixture::new();
     let base = records(&fixture);
-    check(lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0), &base).unwrap();
+    check(
+        lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0),
+        &base,
+    )
+    .unwrap();
     let derivation = Derivation::decode(&base[Derivation::NAME])
         .unwrap()
         .remove(0);
@@ -783,7 +813,13 @@ fn shared_derived_flow_support_refuses_prose_and_heuristic_lineage() {
                 ..derivation.clone()
             }],
         );
-        assert!(check(lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0), &changed).is_err());
+        assert!(
+            check(
+                lctx_model::domain::validation::invariants_for::<TransferSupport>().remove(0),
+                &changed
+            )
+            .is_err()
+        );
     }
     // Qualification still carries candidate/partial uncertainty; evidence interpretation does not
     // turn an alternative into a proved behavior.
@@ -857,7 +893,11 @@ fn owner_instances_preserve_nominal_identity_and_early_local_closure() {
     for input in lctx_model::domain::validation::invariants_for::<TransferSupport>()[0]
         .inputs
         .iter()
-        .chain(lctx_model::domain::validation::invariants_for::<TransferKey>()[0].inputs.iter())
+        .chain(
+            lctx_model::domain::validation::invariants_for::<TransferKey>()[0]
+                .inputs
+                .iter(),
+        )
     {
         assert!(
             !input.name().starts_with("model_") && !input.name().starts_with("summary_"),

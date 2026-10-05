@@ -257,4 +257,6 @@ impl InvariantCheck for InventoryCheck {
     }
 }
 
-pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> { vec!["flow_capture_inventory"] }
+pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> {
+    vec!["flow_capture_inventory"]
+}

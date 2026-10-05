@@ -10,7 +10,9 @@ use lctx_model::domain::{
     lexical::*, *,
 };
 fn check(f: &fixture::Fixture) -> Result<(), ModelError> {
-    let invariant = lctx_model::domain::validation::invariants_for::<FlowCaptureInventory>().pop().unwrap();
+    let invariant = lctx_model::domain::validation::invariants_for::<FlowCaptureInventory>()
+        .pop()
+        .unwrap();
     f.base.check(&invariant)
 }
 #[test]

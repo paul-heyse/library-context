@@ -735,84 +735,99 @@ pub mod fixtures {
             }
             lctx_model::native_analysis_pairs!(outputs);
             let mut stages = vec![
-                    stage(
-                        "acquire",
-                        uses!(InputRevision, SourceArtifact, artifact::ArtifactChunk),
-                        vec![Artifacts],
-                        Some(&self.capture),
+                stage(
+                    "acquire",
+                    uses!(InputRevision, SourceArtifact, artifact::ArtifactChunk),
+                    vec![Artifacts],
+                    Some(&self.capture),
+                ),
+                stage(
+                    "pyrefly",
+                    native_outputs,
+                    NATIVE_FAMILIES.to_vec(),
+                    Some(&self.pyrefly),
+                ),
+                stage(
+                    "documents",
+                    uses!(
+                        DocumentObservation,
+                        DocumentSupport,
+                        PassageObservation,
+                        PassageSupport,
+                        CodeBlockObservation,
+                        CodeBlockSupport,
+                        DocumentLinkObservation,
+                        DocumentLinkSupport,
+                        DocumentMentionObservation,
+                        DocumentMentionSupport,
+                        DocumentComponentObservation,
+                        DocumentComponentSupport,
+                        DocumentAttributeObservation,
+                        DocumentAttributeSupport
                     ),
-                    stage(
-                        "pyrefly",
-                        native_outputs,
-                        NATIVE_FAMILIES.to_vec(),
-                        Some(&self.pyrefly),
+                    vec![Docs],
+                    Some(&self.docs),
+                ),
+                stage(
+                    "deployment",
+                    uses!(
+                        TaskReportObservation,
+                        TaskReportSupport,
+                        DeploymentObservation,
+                        DeploymentSupport
                     ),
-                    stage(
-                        "documents",
-                        uses!(
-                            DocumentObservation,
-                            DocumentSupport,
-                            PassageObservation,
-                            PassageSupport,
-                            CodeBlockObservation,
-                            CodeBlockSupport,
-                            DocumentLinkObservation,
-                            DocumentLinkSupport,
-                            DocumentMentionObservation,
-                            DocumentMentionSupport,
-                            DocumentComponentObservation,
-                            DocumentComponentSupport,
-                            DocumentAttributeObservation,
-                            DocumentAttributeSupport
-                        ),
-                        vec![Docs],
-                        Some(&self.docs),
+                    vec![Deployment],
+                    Some(&self.deploy),
+                ),
+                stage(
+                    "assemble",
+                    uses!(
+                        assumptions::AssumptionSet,
+                        assumptions::AssumptionSetMember,
+                        assumptions::Assumption,
+                        assumptions::AssumptionUniverse,
+                        ProviderCoverage,
+                        CoverageScope,
+                        Provider,
+                        AnalysisContext,
+                        ProviderRun,
+                        RunFamily
                     ),
-                    stage(
-                        "deployment",
-                        uses!(
-                            TaskReportObservation,
-                            TaskReportSupport,
-                            DeploymentObservation,
-                            DeploymentSupport
-                        ),
-                        vec![Deployment],
-                        Some(&self.deploy),
-                    ),
-                    stage(
-                        "assemble",
-                        uses!(
-                            assumptions::AssumptionSet,
-                            assumptions::AssumptionSetMember,
-                            assumptions::Assumption,
-                            assumptions::AssumptionUniverse,
-                            ProviderCoverage,
-                            CoverageScope,
-                            Provider,
-                            AnalysisContext,
-                            ProviderRun,
-                            RunFamily
-                        ),
-                        vec![],
-                        None,
-                    ),
-                ];
+                    vec![],
+                    None,
+                ),
+            ];
             // Resolve exactly the premises of the requested Catalog outputs. The physical
             // Facts inventory also contains Flow assertions, whose writers are prohibited by
             // this profile; table existence never makes those assertions requested outputs.
             let contract = self.contract();
-            let produced: std::collections::BTreeSet<_> = stages.iter()
-                .flat_map(|stage| stage.outputs.iter().map(|output| output.name())).collect();
-            let uses: Vec<_> = stages.iter().flat_map(|stage| stage.outputs.iter().copied()).collect();
+            let produced: std::collections::BTreeSet<_> = stages
+                .iter()
+                .flat_map(|stage| stage.outputs.iter().map(|output| output.name()))
+                .collect();
+            let uses: Vec<_> = stages
+                .iter()
+                .flat_map(|stage| stage.outputs.iter().copied())
+                .collect();
             let members: Vec<_> = stages.iter().map(|stage| stage.name).collect();
             let group = PublicationGroup::new(PublicationBoundary::Facts, members);
             let order = PublicationOrder::planning(std::slice::from_ref(&group)).unwrap();
-            let required: std::collections::BTreeSet<_> = dependency_closure::DependencyClosure::build(
-                &self.model,
-                dependency_closure::DependencyClosure::roots_from_uses(&self.model, &uses).unwrap(),
-                vec![], &[], PublicationBoundary::Facts,
-                dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts, &order,
-            ).unwrap().requirements.into_iter().map(|input| input.name()).collect();
+            let required: std::collections::BTreeSet<_> =
+                dependency_closure::DependencyClosure::build(
+                    &self.model,
+                    dependency_closure::DependencyClosure::roots_from_uses(&self.model, &uses)
+                        .unwrap(),
+                    vec![],
+                    &[],
+                    PublicationBoundary::Facts,
+                    dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts,
+                    &order,
+                )
+                .unwrap()
+                .requirements
+                .into_iter()
+                .map(|input| input.name())
+                .collect();
             macro_rules! remaining_outputs {
                 ($($record:ty),* $(,)?) => {
                     $(if required.contains(<$record as Record>::NAME) && !produced.contains(<$record as Record>::NAME) {
@@ -831,9 +846,13 @@ pub mod fixtures {
             lctx_model::facts_records!(remaining_outputs);
             // Cross-producer checks execute only after every exact premise is written.
             Schedule::build_with_publications(
-                &self.model, stages, &[], Profile::Catalog,
+                &self.model,
+                stages,
+                &[],
+                Profile::Catalog,
                 vec![group],
-            ).unwrap()
+            )
+            .unwrap()
         }
         pub fn contract(&self) -> FrontierContract {
             FrontierContract::facts(&self.model, Profile::Catalog).unwrap()
@@ -898,8 +917,13 @@ pub mod fixtures {
             }
             for stage in schedule.stages() {
                 let mut output = StageOutput::new(
-                    execution.begin(stage.name).unwrap(), &attempt, model, budget(), Default::default(),
-                ).unwrap();
+                    execution.begin(stage.name).unwrap(),
+                    &attempt,
+                    model,
+                    budget(),
+                    Default::default(),
+                )
+                .unwrap();
                 macro_rules! declare_premises {
                     ($($record:ty),* $(,)?) => {
                         $(if stage.outputs.iter().any(|relation| relation.name() == <$record as Record>::NAME) {
@@ -912,8 +936,13 @@ pub mod fixtures {
                     "acquire" => output.push(self.input.clone()).await.unwrap(),
                     "pyrefly" | "documents" | "deployment" => {}
                     "assemble" => {
-                        output.push(assumptions::AssumptionSet::empty()).await.unwrap();
-                        for row in &coverage { output.push(row.clone()).await.unwrap(); }
+                        output
+                            .push(assumptions::AssumptionSet::empty())
+                            .await
+                            .unwrap();
+                        for row in &coverage {
+                            output.push(row.clone()).await.unwrap();
+                        }
                         output.push(scope.clone()).await.unwrap();
                         for provider in [&self.capture, &self.pyrefly, &self.deploy] {
                             output.push(provider.clone()).await.unwrap();
@@ -922,7 +951,11 @@ pub mod fixtures {
                         for run in [&capture_run, &signature_run, &deploy_run] {
                             output.push(run.clone()).await.unwrap();
                         }
-                        for family in capture_families.iter().chain(&signature_families).chain(&deploy_families) {
+                        for family in capture_families
+                            .iter()
+                            .chain(&signature_families)
+                            .chain(&deploy_families)
+                        {
                             output.push(family.clone()).await.unwrap();
                         }
                     }

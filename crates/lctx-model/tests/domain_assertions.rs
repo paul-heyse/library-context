@@ -415,7 +415,11 @@ fn assertion_condition_context_and_evidence_bounds_are_stored_invariants() {
             }],
         );
         assert_eq!(
-            check(&lctx_model::domain::validation::invariants_for::<AssertionQualification>()[0], &batches).is_ok(),
+            check(
+                &lctx_model::domain::validation::invariants_for::<AssertionQualification>()[0],
+                &batches
+            )
+            .is_ok(),
             context == ctx.id()
         );
     }
@@ -431,7 +435,11 @@ fn assertion_condition_context_and_evidence_bounds_are_stored_invariants() {
             }],
         );
         assert_eq!(
-            check(&lctx_model::domain::validation::invariants_for::<Evidence>()[0], &batches).is_ok(),
+            check(
+                &lctx_model::domain::validation::invariants_for::<Evidence>()[0],
+                &batches
+            )
+            .is_ok(),
             end == 1
         );
     }

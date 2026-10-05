@@ -1646,4 +1646,6 @@ impl InvariantCheck for TheoryCheck {
     }
 }
 
-pub(crate) fn theory_invariants_refs() -> Vec<&'static str> { vec!["local_structural_theory_replay"] }
+pub(crate) fn theory_invariants_refs() -> Vec<&'static str> {
+    vec!["local_structural_theory_replay"]
+}

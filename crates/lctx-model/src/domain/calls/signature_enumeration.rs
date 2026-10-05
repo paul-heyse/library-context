@@ -237,4 +237,6 @@ impl InvariantCheck for EnumerationCheck {
     }
 }
 
-pub(crate) fn enumeration_invariants_refs() -> Vec<&'static str> { vec!["native_signature_enumeration"] }
+pub(crate) fn enumeration_invariants_refs() -> Vec<&'static str> {
+    vec!["native_signature_enumeration"]
+}

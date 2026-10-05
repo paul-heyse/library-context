@@ -225,4 +225,6 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["analytic_replay"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["analytic_replay"]
+}

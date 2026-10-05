@@ -1,7 +1,12 @@
 //! Generated install, `store check` and `store reset` against a disposable real PostgreSQL 18
 //! (cutover plan P1.6). Every drift is a pre-written mutation with the finding it must produce.
 use lctx_model::domain::resources::ResourceBudget;
-use lctx_model::domain::{ContentHash, ModelError, input::{Package, Release}, stages::*, value::Literal};
+use lctx_model::domain::{
+    ContentHash, ModelError,
+    input::{Package, Release},
+    stages::*,
+    value::Literal,
+};
 use lctx_model::{
     Domain,
     domain::{Relation, ValidatedModel},
@@ -25,9 +30,14 @@ fn budget() -> ResourceBudget {
 }
 /// Complete mechanics model: an FK, a sum-tag index and publishable vocabulary.
 fn fixture_model() -> Arc<ValidatedModel> {
-    Arc::new(ValidatedModel::declared(vec![
-        Relation::of::<Package>(), Relation::of::<Release>(), Relation::of::<Literal>(),
-    ]).unwrap())
+    Arc::new(
+        ValidatedModel::declared(vec![
+            Relation::of::<Package>(),
+            Relation::of::<Release>(),
+            Relation::of::<Literal>(),
+        ])
+        .unwrap(),
+    )
 }
 fn extended() -> Arc<ValidatedModel> {
     let mut relations = fixture_model().relations().to_vec();
@@ -61,17 +71,49 @@ async fn harness(store: &GenerationStore, db: &DisposableDatabase) -> Harness {
         .unwrap()
 }
 /// A real typed producer closes the immutable prefix used by the ACL reconstruction control.
-async fn sealed_prefix(store: &GenerationStore, db: &DisposableDatabase) -> lctx_postgres::generations::SealedAttempt {
+async fn sealed_prefix(
+    store: &GenerationStore,
+    db: &DisposableDatabase,
+) -> lctx_postgres::generations::SealedAttempt {
     let model = fixture_model();
-    let schedule = Schedule::build_with_publications(&model, vec![Stage {
-        name: "installation_prefix", inputs: vec![],
-        outputs: vec![RelationUse::of::<Package>(), RelationUse::of::<Release>(), RelationUse::of::<Literal>()],
-        contributes: vec![], coverage: vec![], profiles: vec![Profile::Behavioral], effect: Effect::Pure,
-        code: ContentHash::of(b"installation-prefix/v1"), configuration: ContentHash::of(b"empty"),
-    }], &[], Profile::Behavioral, vec![PublicationGroup::new(PublicationBoundary::Facts, vec!["installation_prefix"])]).unwrap();
+    let schedule = Schedule::build_with_publications(
+        &model,
+        vec![Stage {
+            name: "installation_prefix",
+            inputs: vec![],
+            outputs: vec![
+                RelationUse::of::<Package>(),
+                RelationUse::of::<Release>(),
+                RelationUse::of::<Literal>(),
+            ],
+            contributes: vec![],
+            coverage: vec![],
+            profiles: vec![Profile::Behavioral],
+            effect: Effect::Pure,
+            code: ContentHash::of(b"installation-prefix/v1"),
+            configuration: ContentHash::of(b"empty"),
+        }],
+        &[],
+        Profile::Behavioral,
+        vec![PublicationGroup::new(
+            PublicationBoundary::Facts,
+            vec!["installation_prefix"],
+        )],
+    )
+    .unwrap();
     let mut execution = schedule.execute();
-    let attempt = store.begin_conformance(db.writer.clone(), &mut execution, budget()).await.unwrap();
-    let mut output = StageOutput::new(execution.begin("installation_prefix").unwrap(), &attempt, &model, budget(), Default::default()).unwrap();
+    let attempt = store
+        .begin_conformance(db.writer.clone(), &mut execution, budget())
+        .await
+        .unwrap();
+    let mut output = StageOutput::new(
+        execution.begin("installation_prefix").unwrap(),
+        &attempt,
+        &model,
+        budget(),
+        Default::default(),
+    )
+    .unwrap();
     output.declare::<Package>().unwrap();
     output.declare::<Release>().unwrap();
     output.declare::<Literal>().unwrap();

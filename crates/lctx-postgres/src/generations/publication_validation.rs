@@ -8,26 +8,50 @@ use sqlx::PgConnection;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl GenerationStore {
-    #[allow(clippy::too_many_arguments, reason = "Publication carries explicit frozen sources, prefix and charged session")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Publication carries explicit frozen sources, prefix and charged session"
+    )]
     pub(super) async fn check_publication_outputs_prepared(
-        &self, tx: &mut PgConnection, generation: GenerationId,
-        outputs: &BTreeSet<&'static str>, sources: &[CompletedRelation],
-        candidate_prefix: Option<PrefixOrdinal>, budget: &ResourceBudget,
+        &self,
+        tx: &mut PgConnection,
+        generation: GenerationId,
+        outputs: &BTreeSet<&'static str>,
+        sources: &[CompletedRelation],
+        candidate_prefix: Option<PrefixOrdinal>,
+        budget: &ResourceBudget,
         session: &mut super::validation_session::Session<'_>,
     ) -> Result<(), Error> {
-        let _references = budget.reserve("publication-definition-refs", self.model.relations().iter()
+        let _references = budget.reserve(
+            "publication-definition-refs",
+            self.model
+                .relations()
+                .iter()
+                .filter(|relation| outputs.contains(relation.name()))
+                .map(|relation| relation.publication_refs().len().saturating_mul(128))
+                .sum(),
+        )?;
+        let ids: BTreeSet<_> = self
+            .model
+            .relations()
+            .iter()
             .filter(|relation| outputs.contains(relation.name()))
-            .map(|relation| relation.publication_refs().len().saturating_mul(128)).sum())?;
-        let ids: BTreeSet<_> = self.model.relations().iter()
-            .filter(|relation| outputs.contains(relation.name()))
-            .flat_map(|relation| relation.publication_refs().iter().copied()).collect();
-        let checks: Vec<_> = ids.into_iter().map(|id| self.model.publication_check(id))
+            .flat_map(|relation| relation.publication_refs().iter().copied())
+            .collect();
+        let checks: Vec<_> = ids
+            .into_iter()
+            .map(|id| self.model.publication_check(id))
             .collect::<Result<_, _>>()?;
         if checks.is_empty() {
             return Ok(());
         }
-        let _plan = budget.reserve("publication-input-plan", checks.iter()
-            .map(|i| 128 + i.inputs.len().saturating_mul(512)).sum())?;
+        let _plan = budget.reserve(
+            "publication-input-plan",
+            checks
+                .iter()
+                .map(|i| 128 + i.inputs.len().saturating_mul(512))
+                .sum(),
+        )?;
         // The registry captured this profile when the execution schedule was registered.
         // Test harnesses also register an explicit profile; neither path trusts output metadata.
         let profile: String =
@@ -40,8 +64,10 @@ impl GenerationStore {
             .find(|candidate| candidate.name() == profile)
             .ok_or(Error::Contract)?;
         let order = super::vocabulary::publication_order(tx, generation).await?;
-        let _sources = budget.reserve("publication-source-refs",
-            sources.len().checked_mul(128).ok_or(Error::Contract)?)?;
+        let _sources = budget.reserve(
+            "publication-source-refs",
+            sources.len().checked_mul(128).ok_or(Error::Contract)?,
+        )?;
         let mut inputs = BTreeMap::new();
         for source in sources {
             if source.model() != self.model.digest() {
@@ -72,7 +98,6 @@ impl GenerationStore {
             }) {
                 return Err(Error::Contract);
             }
-
         }
         let mut requests = Vec::with_capacity(checks.len());
         for invariant in checks {

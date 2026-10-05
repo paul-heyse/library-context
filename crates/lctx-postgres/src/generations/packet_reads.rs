@@ -416,12 +416,15 @@ mod tests {
         db.migrate().await;
         // Fragment is present and canonically readable, with its complete nominal inputs.
         // This fixture asks only about packet scope, so it needs no full-model claim basis.
-        let model = Arc::new(ValidatedModel::declared(vec![
-            Relation::of::<input::Package>(),
-            Relation::of::<retrieval::Fragment>(),
-            Relation::of::<retrieval::Definition>(),
-            Relation::of::<retrieval::CorpusText>(),
-        ]).unwrap());
+        let model = Arc::new(
+            ValidatedModel::declared(vec![
+                Relation::of::<input::Package>(),
+                Relation::of::<retrieval::Fragment>(),
+                Relation::of::<retrieval::Definition>(),
+                Relation::of::<retrieval::CorpusText>(),
+            ])
+            .unwrap(),
+        );
         let store = GenerationStore::install(db.owner.clone(), model.clone())
             .await
             .unwrap();
@@ -436,8 +439,13 @@ mod tests {
         .unwrap();
         macro_rules! empty {
             ($ty:ty) => {
-                attempt.copy(&Batch::<$ty>::new(&model, vec![], &budget).unwrap(), &budget)
-                    .await.unwrap();
+                attempt
+                    .copy(
+                        &Batch::<$ty>::new(&model, vec![], &budget).unwrap(),
+                        &budget,
+                    )
+                    .await
+                    .unwrap();
             };
         }
         empty!(input::Package);
@@ -456,8 +464,15 @@ mod tests {
         {
             let mut locked = guard.state.lease.lock().await;
             let lease = locked.as_mut().unwrap();
-            assert!(lease.read_ids::<retrieval::Fragment>(&[]).await.unwrap().rows().is_empty(),
-                "canonical hydration succeeds, so the following refusal must come from packet scope");
+            assert!(
+                lease
+                    .read_ids::<retrieval::Fragment>(&[])
+                    .await
+                    .unwrap()
+                    .rows()
+                    .is_empty(),
+                "canonical hydration succeeds, so the following refusal must come from packet scope"
+            );
             let mut scoped = PacketLease::new::<serving::OperationCore>(lease);
             assert!(
                 matches!(

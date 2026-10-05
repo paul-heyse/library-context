@@ -164,4 +164,6 @@ impl InvariantCheck for PortCheck {
     }
 }
 
-pub(crate) fn signature_port_invariants_refs() -> Vec<&'static str> { vec!["native_signature_ports"] }
+pub(crate) fn signature_port_invariants_refs() -> Vec<&'static str> {
+    vec!["native_signature_ports"]
+}

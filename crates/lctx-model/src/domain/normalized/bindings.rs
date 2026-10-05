@@ -123,4 +123,3 @@ pub fn relations() -> Vec<Relation> {
     macro_rules! declare { ($($field:ident: $ty:ty,)*) => { vec![$(Relation::of::<$ty>()),*] }; }
     crate::normalized_binding_outputs!(declare)
 }
-

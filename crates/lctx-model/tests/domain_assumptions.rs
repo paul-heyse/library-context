@@ -360,7 +360,9 @@ fn universe_identity_changes_with_actual_pinned_definition_and_refuses_arbitrary
     f.base.put(vec![bad, support]);
     assert!(
         f.base
-            .check(&lctx_model::domain::validation::invariants_for::<AssumptionUniverseSupport>()[0])
+            .check(
+                &lctx_model::domain::validation::invariants_for::<AssumptionUniverseSupport>()[0]
+            )
             .unwrap_err()
             .to_string()
             .contains("actual pinned definition")

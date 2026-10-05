@@ -481,4 +481,6 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["located_atom_restriction_replay"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["located_atom_restriction_replay"]
+}

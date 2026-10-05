@@ -710,5 +710,9 @@ pub fn stage(
     })
 }
 
-pub(crate) fn run_invariants_refs() -> Vec<&'static str> { vec!["base_completion_inventory"] }
-pub(crate) fn run_publication_checks_refs() -> Vec<&'static str> { vec!["base_completion_request_profile"] }
+pub(crate) fn run_invariants_refs() -> Vec<&'static str> {
+    vec!["base_completion_inventory"]
+}
+pub(crate) fn run_publication_checks_refs() -> Vec<&'static str> {
+    vec!["base_completion_request_profile"]
+}

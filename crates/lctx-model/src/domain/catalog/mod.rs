@@ -311,4 +311,3 @@ pub fn relations() -> Vec<Relation> {
     rows.extend(evidence::relations());
     rows
 }
-

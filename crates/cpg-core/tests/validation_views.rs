@@ -27,7 +27,11 @@ impl PublicationCheck for Noop {
     fn visit(&mut self, _: &str, _: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         Ok(())
     }
-    fn finish(self: Box<Self>, _: &[lctx_model::domain::analysis::sources::SourceSnapshot], _: Profile) -> Result<(), ModelError> {
+    fn finish(
+        self: Box<Self>,
+        _: &[lctx_model::domain::analysis::sources::SourceSnapshot],
+        _: Profile,
+    ) -> Result<(), ModelError> {
         Ok(())
     }
 }
@@ -36,10 +40,13 @@ impl PublicationCheck for Noop {
 async fn validation_cannot_widen_a_facts_grant_to_later_vocabulary_even_after_it_closes() {
     for close_later in [false, true] {
         let model = Arc::new(
-            ValidatedModel::validate(vec![
-                Relation::of::<Literal>(),
-                Relation::of::<FutureProbe>(),
-            ], ValidationDefinitions { invariants: vec![], publication_checks: future_check() })
+            ValidatedModel::validate(
+                vec![Relation::of::<Literal>(), Relation::of::<FutureProbe>()],
+                ValidationDefinitions {
+                    invariants: vec![],
+                    publication_checks: future_check(),
+                },
+            )
             .unwrap(),
         );
         let schedule = Schedule::build_with_publications(
@@ -117,11 +124,14 @@ async fn validation_cannot_widen_a_facts_grant_to_later_vocabulary_even_after_it
 #[tokio::test]
 async fn real_publication_and_final_replay_route_facts_and_current_views_independently() {
     let model = Arc::new(
-        ValidatedModel::validate(vec![
-            Relation::of::<Literal>(),
-            Relation::of::<Probe>(),
-            Relation::of::<ReadProbe>(),
-        ], fixture::definitions())
+        ValidatedModel::validate(
+            vec![
+                Relation::of::<Literal>(),
+                Relation::of::<Probe>(),
+                Relation::of::<ReadProbe>(),
+            ],
+            fixture::definitions(),
+        )
         .unwrap(),
     );
     let schedule = schedule(&model);
@@ -318,4 +328,6 @@ async fn inactive_nullable_target_is_allowed_but_a_physical_future_target_is_not
     }
 }
 
-fn future_check_refs() -> Vec<&'static str> {vec!["future_view_refusal_control"]}
+fn future_check_refs() -> Vec<&'static str> {
+    vec!["future_view_refusal_control"]
+}

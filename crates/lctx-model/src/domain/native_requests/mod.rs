@@ -131,4 +131,3 @@ pub struct Assessment {
     pub proof_truncated: bool,
     _charge: Option<Box<dyn crate::domain::resources::Reservation>>,
 }
-

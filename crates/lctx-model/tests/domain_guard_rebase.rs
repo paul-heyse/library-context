@@ -12,8 +12,10 @@ use std::collections::BTreeMap;
 #[test]
 fn call_site_rebasing_preserves_truth_tables_and_nested_guard_origins() {
     let f = Fixture::new(false);
-    f.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0]).unwrap();
-    f.check(&lctx_model::domain::validation::invariants_for::<SyntaxSupport>()[0]).unwrap();
+    f.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0])
+        .unwrap();
+    f.check(&lctx_model::domain::validation::invariants_for::<SyntaxSupport>()[0])
+        .unwrap();
     let mut atoms: BTreeMap<_, _> = f
         .rows::<EvaluationAtom>()
         .into_iter()
@@ -146,14 +148,22 @@ fn local_rebasing_refuses_formal_operands_forged_records_and_missing_origins() {
             .filter(|a| a.id() != missing.origin.id())
             .collect(),
     );
-    assert!(missing.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0]).is_err());
+    assert!(
+        missing
+            .check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0])
+            .is_err()
+    );
 }
 #[test]
 fn invoked_guards_preserve_source_authorization_and_reject_context_or_site_substitution() {
     let foreign = Fixture::new(true);
-    foreign.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0]).unwrap();
+    foreign
+        .check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0])
+        .unwrap();
     assert!(
-        foreign.check(&lctx_model::domain::validation::invariants_for::<SyntaxSupport>()[0]).is_err(),
+        foreign
+            .check(&lctx_model::domain::validation::invariants_for::<SyntaxSupport>()[0])
+            .is_err(),
         "a local call site cannot authorize a foreign origin"
     );
     for case in ["context", "site", "operand"] {
@@ -183,7 +193,11 @@ fn invoked_guards_preserve_source_authorization_and_reject_context_or_site_subst
             }
         }
         f.put(atoms);
-        assert!(f.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0]).is_err(), "{case}");
+        assert!(
+            f.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0])
+                .is_err(),
+            "{case}"
+        );
     }
 }
 
@@ -271,13 +285,15 @@ fn stored_invoked_guards_enforce_the_same_local_operand_boundary() {
             let mut f = Fixture::new(false);
             f.operand_origin(kind, nested);
             assert_eq!(
-                f.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0]).is_ok(),
+                f.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0])
+                    .is_ok(),
                 kind == "local",
                 "{kind}/{nested}"
             );
             // Ordinary, unrebased formal/receiver predicates remain legitimate native facts.
             f.put(vec![f.origin.clone()]);
-            f.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0]).unwrap();
+            f.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0])
+                .unwrap();
         }
     }
 }

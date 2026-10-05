@@ -84,7 +84,10 @@ fn publication(
         &Invocation::encode(std::slice::from_ref(inv))?,
     )?;
     check.visit(SourceReceipt::NAME, &SourceReceipt::encode(receipts)?)?;
-    let snapshots = sources.iter().map(analysis::sources::SourceSnapshot::from_source).collect::<Result<Vec<_>, _>>()?;
+    let snapshots = sources
+        .iter()
+        .map(analysis::sources::SourceSnapshot::from_source)
+        .collect::<Result<Vec<_>, _>>()?;
     check.finish(&snapshots, Profile::Catalog)
 }
 #[test]
@@ -245,7 +248,18 @@ fn invalid_inventory() -> Vec<PublicationInvariant> {
 }
 #[test]
 fn model_refuses_unknown_publication_input_before_activation() {
-    assert!(ValidatedModel::validate(vec![Relation::of::<InventoryControl>()], ValidationDefinitions { invariants: vec![], publication_checks: invalid_inventory() }).is_err());
+    assert!(
+        ValidatedModel::validate(
+            vec![Relation::of::<InventoryControl>()],
+            ValidationDefinitions {
+                invariants: vec![],
+                publication_checks: invalid_inventory()
+            }
+        )
+        .is_err()
+    );
 }
 
-fn invalid_inventory_refs() -> Vec<&'static str> {vec!["unknown_source_control"]}
+fn invalid_inventory_refs() -> Vec<&'static str> {
+    vec!["unknown_source_control"]
+}

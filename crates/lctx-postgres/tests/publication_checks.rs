@@ -97,10 +97,13 @@ async fn publication_callbacks_bind_old_sources_and_refuse_raw_forgery_before_ac
                 let wrong_profile = case == 3;
                 let db = DisposableDatabase::start().await;
                 let model = Arc::new(
-                    ValidatedModel::validate(vec![
-                        Relation::of::<Literal>(),
-                        Relation::of::<Audit>(),
-                    ], lctx_model::domain::ValidationDefinitions { invariants: vec![], publication_checks: checks() })
+                    ValidatedModel::validate(
+                        vec![Relation::of::<Literal>(), Relation::of::<Audit>()],
+                        lctx_model::domain::ValidationDefinitions {
+                            invariants: vec![],
+                            publication_checks: checks(),
+                        },
+                    )
                     .unwrap(),
                 );
                 let store = GenerationStore::install(db.owner.clone(), model.clone())
@@ -263,4 +266,6 @@ async fn publication_callbacks_bind_old_sources_and_refuse_raw_forgery_before_ac
     }
 }
 
-fn checks_refs() -> Vec<&'static str> {vec!["publication_audit_sources"]}
+fn checks_refs() -> Vec<&'static str> {
+    vec!["publication_audit_sources"]
+}

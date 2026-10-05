@@ -614,4 +614,3 @@ pub fn methods() -> [analysis::AnalysisMethod; 4] {
         analysis::AnalysisMethod::Controls,
     ]
 }
-

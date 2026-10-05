@@ -527,4 +527,6 @@ impl AssumptionResolver for AssumptionIndex {
     }
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["claim_assumption_basis"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["claim_assumption_basis"]
+}

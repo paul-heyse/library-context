@@ -334,9 +334,16 @@ impl GenerationStore {
             }
         }
         let mut session = super::validation_session::Session::new(self, tx, g, budget).await?;
-        let invariants = self.model.invariants_for_scope(&available.iter().map(String::as_str).collect())?;
-        let _plan = budget.reserve("validation-input-plan", invariants.iter()
-            .map(|i| 128 + i.inputs.len().saturating_mul(512)).sum())?;
+        let invariants = self
+            .model
+            .invariants_for_scope(&available.iter().map(String::as_str).collect())?;
+        let _plan = budget.reserve(
+            "validation-input-plan",
+            invariants
+                .iter()
+                .map(|i| 128 + i.inputs.len().saturating_mul(512))
+                .sum(),
+        )?;
         let mut requests = Vec::new();
         for invariant in &invariants {
             let mut frames = Vec::new();
@@ -363,7 +370,6 @@ impl GenerationStore {
                 frames.push(view);
             }
             requests.push((invariant, frames));
-
         }
         session.invariants(tx, &requests, true).await?;
         let mut outputs = BTreeMap::new();
@@ -389,7 +395,9 @@ impl GenerationStore {
                     .find(|r| r.name() == *name)
                     .ok_or(Error::Contract)?;
                 let input = lctx_model::domain::ValidationInput::of_relation(relation, &["id"]);
-                let frozen = session.frame(tx, &input, &physical(name, group.prefix()), true).await?;
+                let frozen = session
+                    .frame(tx, &input, &physical(name, group.prefix()), true)
+                    .await?;
                 sqlx::query(
                     "INSERT INTO lctx_model_store.stage_receipts VALUES($1,$2,$3,$4,$5,$6)",
                 )
@@ -426,7 +434,9 @@ impl GenerationStore {
             .filter(|r| available.contains(r.name()) && is_vocabulary(r.name()))
         {
             let input = lctx_model::domain::ValidationInput::of_relation(relation, &["id"]);
-            let frozen = session.frame(tx, &input, &physical(relation.name(), group.prefix()), true).await?;
+            let frozen = session
+                .frame(tx, &input, &physical(relation.name(), group.prefix()), true)
+                .await?;
             vocabulary.insert(relation.name(), frozen);
             sqlx::query("INSERT INTO lctx_model_store.epoch_receipts VALUES($1,$2,$3,$4,$5)")
                 .bind(g.0.to_vec())

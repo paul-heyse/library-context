@@ -1232,7 +1232,9 @@ impl InvariantCheck for RefutationCheck {
     }
 }
 
-pub(crate) fn refutation_invariants_refs() -> Vec<&'static str> { vec!["checked_finite_refutation_membership"] }
+pub(crate) fn refutation_invariants_refs() -> Vec<&'static str> {
+    vec!["checked_finite_refutation_membership"]
+}
 
 #[cfg(test)]
 mod tests {

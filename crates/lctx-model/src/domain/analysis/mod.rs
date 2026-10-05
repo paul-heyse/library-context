@@ -107,4 +107,3 @@ pub fn catalog_publication_relations() -> Vec<Relation> {
 fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
-

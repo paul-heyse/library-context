@@ -974,7 +974,9 @@ pub fn stage(
     })
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["retrieval_canonical_rendering"] }
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    vec!["retrieval_canonical_rendering"]
+}
 
 #[cfg(test)]
 mod tests {

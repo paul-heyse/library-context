@@ -57,7 +57,9 @@ fn owners_are_distinct_and_early_manifest_excludes_future_results() {
         local::SupportSource::NAME,
         analysis::synthesis::SupportSource::NAME
     );
-    let inputs = lctx_model::domain::validation::invariants_for::<local::Invocation>().remove(0).inputs;
+    let inputs = lctx_model::domain::validation::invariants_for::<local::Invocation>()
+        .remove(0)
+        .inputs;
     assert!(
         !inputs
             .iter()
