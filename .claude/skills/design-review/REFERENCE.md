@@ -202,6 +202,10 @@ DP-07, DP-12, G6."
 
 ### G — Execution fit without a benchmark claim
 
+This is qualitative assessment from the operation and its dependencies, not a request for
+numerical estimates, runtime cost accounting or formal cost proofs. Additional mechanisms need
+a separate functional or operational requirement; quantitative claims still require measurement.
+
 **Inadequate.** "The implementation uses a database and bounds every response, so performance
 is outside this review until benchmarks exist."
 

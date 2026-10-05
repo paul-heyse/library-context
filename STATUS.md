@@ -2,6 +2,12 @@
 
 _Updated 2026-10-05 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+**Qualitative execution-fit clarification (Implemented guidance, 2026-10-05).**
+Core, review/planning skills and agent instructions assess tradeoffs in plain language; no implied
+cost models, runtime accounting or extra proof machinery. Quantitative claims still need measurement.
+`just docs-check` **passed** (315 pages, zero link errors); `just lint-agents` **passed**.
+Product qualification **not_run** for this documentation change; heuristic adoption is separate.
+
 **Execution-fit principles adopted (Implemented / Accept scoped, 2026-10-05; ADR-0127).**
 Core/template 3.3 and CI 1.4 add FP-07/A4 with twelve architectural lenses; independent semantic
 and evidence gates remain. The [adoption assessment](docs/design_review/reviews/design_review_architectural-criteria_2026-10-05.md#10-standard-adoption-and-independent-assessment--2026-10-05)

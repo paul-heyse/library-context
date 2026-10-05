@@ -129,7 +129,7 @@ refuted-under-model answer be read as proof of absence outside the model?
 **SHOULD · G8 · refines DP-13.** Place each analysis where its semantic operations and physical
 access pattern fit. Set processing, topology algorithms and program-analysis transfer/fixpoint
 operations remain distinct, but may be implemented by a suitable query engine, graph library,
-columnar runtime or shared kernel. Account for data movement, preparation, optimizer support,
+columnar runtime or shared kernel. Qualitatively assess data movement, preparation, optimizer support,
 resource behavior and reuse across the complete operation. Plain reachability does not establish
 a dataflow result; moving execution does not move semantic authority or relax its contract.
 

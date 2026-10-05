@@ -222,11 +222,14 @@ that process without imposing a standing modeling mandate. Investigation depth f
 scoped question; flow tracing is optional where it resolves a concrete uncertainty.
 A2 retains model adequacy and authoritative behavior as acceptance criteria. A1–A4 judge architecture
 independently of correctness and domain-fidelity gates. Supporting DP/CI IDs retain their
-historical meaning at the version cited by each review. FP-07/A4 assess access paths, necessary
+historical meaning at the version cited by each review. FP-07/A4 qualitatively assess access paths, necessary
 versus repeated work, library composition, locality, working sets, reuse, assurance and lifecycle
 scope against the intended workload. Semantic authority does not prescribe physical decomposition.
 Static evidence can establish unjustified amplification; speed/capacity claims need measurement.
-No mandatory benchmark, extra checklist or standing implementation review is introduced.
+Explain material tradeoffs in plain language. This assessment does not require numerical estimates,
+cost models, runtime accounting, execution-planning machinery, instrumentation or formal cost proofs;
+such mechanisms need a separate concrete functional or operational requirement. No additional proof
+artifact, mandatory benchmark, extra checklist or standing implementation review is introduced.
 
 The library-context binding maps §B decisions to the standard and owns review cadence and
 finding disposition. Changing a §B decision needs an ADR and a design/target review. Library

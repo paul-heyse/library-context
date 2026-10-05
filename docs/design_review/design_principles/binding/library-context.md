@@ -22,9 +22,11 @@ FP-01–FP-07 and A1–A4 supply the architecture structure. FP-04/A2 assess whe
 explicit domain model governs behavior, independently of other architectural and fidelity judgments.
 This assessment belongs to the bounded reviews below. Ordinary implementation work does not
 itself trigger a domain-model review; investigation depth and optional flow tracing follow the
-concrete question being assessed. FP-07/A4 assess physical work for the functional workload,
+concrete question being assessed. FP-07/A4 qualitatively assess physical work for the functional workload,
 independently of correctness gates: semantic declarations do not prescribe physical objects,
-execution hops or enforcement frequency. This policy does not itself adopt the proposed graph-store
+execution hops or enforcement frequency. This assessment does not require numerical cost models,
+runtime accounting or additional proof machinery; those need a separate functional or operational
+requirement. Quantitative performance claims still need measurement. This policy does not itself adopt the proposed graph-store
 replacement; existing product decisions remain in force until their separate decision route.
 
 ## Reviews in this repository
@@ -114,7 +116,7 @@ concrete change-propagation, testability or execution-fit defect can require rev
 | 14 | Does a read, validation or inspection path mutate, fetch, build, or read ambient state, including analyzer config discovery? | G4 | DP-18, CI-10 |
 | 15 | Can anything under `.claude/skills/` (the gold reference) reach the compiler's inputs, or can analytics parameters be tuned on the gold? | CI-G3 | CI-12 |
 | 16 | Which phenomena and owned operations govern this feature, and do consumers reuse their meaning? Distinguish instances, bindings, compositions, policies, concepts and mechanisms when assessing change. | A1, A2, A3 | FP-01–06, DP-08, DP-16, core §E |
-| 17 | Does a complete compile or evidence request have a credible physical route as fact volume, semantic kinds or degree grow? Account for examined work, crossings, immutable reuse, assurance and publication scope. | A4 | FP-07, DP-03, DP-10, DP-19, DP-20, DP-23 |
+| 17 | Does a complete compile or evidence request have a credible physical route as fact volume, semantic kinds or degree grow? Qualitatively assess examined work, crossings, immutable reuse, assurance and publication scope. | A4 | FP-07, DP-03, DP-10, DP-19, DP-20, DP-23 |
 | 18 | Does each added layer or technique have a named consumer in the served model (a tool's output or a brief), and does its ablation change published output (§9.8)? | — | DP-16 |
 
 ## 3. Vocabulary and scenario authorities

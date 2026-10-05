@@ -24,8 +24,8 @@ new semantic category can require a contract migration; an additional instance o
 binding should reuse its definition. Assess the meanings and governing operations behind the
 fact and fidelity table; common output columns alone do not establish a common meaning.
 Assess model adequacy and authoritative behavior under A2, separately from CI-G1–CI-G3.
-Assess A4 against real extraction volumes, semantic-kind counts, evidence journeys and skew where
-relevant, without introducing numerical SLAs. Investigate only as far as needed for the scoped
+Assess A4 qualitatively against intended extraction volumes, semantic-kind growth, evidence
+journeys and skew where relevant. No numerical SLA, cost model or additional cost proof is implied. Investigate only as far as needed for the scoped
 judgment; journeys do not require complete traces or a benchmark campaign.
 
 ## Fact and fidelity table (slot 2)

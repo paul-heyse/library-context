@@ -95,7 +95,7 @@ question about ownership, behavior or change remains unresolved; no complete flo
 
 5. **Independent judgments.** Settle A1–A4 from scenario evidence, G1–G8 and profile gates from
    their own evidence, and applicable foundation/supporting-rule verdicts. A2 requires both an
-   adequate domain model and behavior governed by its authorities. A4 needs a credible execution
+   adequate domain model and behavior governed by its authorities. A4 needs a qualitative assessment of a credible execution
    route for a workload premise drawn from functional intent: relevant operations, input size/skew,
    growth, concurrency/deployment and resource envelope. Use relevant growth/failure scenarios;
    safe refusal or bounded output alone does not establish fit. Unresolved stays unresolved.
@@ -114,7 +114,13 @@ revision even when outputs are currently correct. A deferral alone is not confor
 Read every citation at the grain used. Proposals remain Proposed; interface inspection is
 Interface-checked; code existence is Implemented. Tested/Measured claims name commands, cases,
 conditions and dates. Attribute historical receipts rather than reporting them as current runs.
-Structural cost evidence can establish avoidable amplification before measurement. No speed claim
+Assess execution fit qualitatively from relevant operations and growth/failure scenarios.
+Explain material tradeoffs in plain language. This design/review consideration does not require
+numerical estimates, cost models, estimators, runtime cost accounting, execution-planning
+machinery, instrumentation, formal cost proofs or additional proof artifacts. Introduce such
+mechanisms only for a separate concrete functional or operational requirement. Quantitative
+performance/capacity claims still require measurements; semantic correctness obligations remain.
+Qualitative assessment of execution structure can establish avoidable amplification before measurement. No speed claim
 is needed for an A4 defect; quantitative speed/capacity claims still require measurements. Do not
 narrow the workload to convenient fixtures or turn these lenses into a standing audit/checklist.
 Static review of documentation, source and types can be sufficient, including for library
@@ -174,7 +180,7 @@ scores or a second status system.
 Challenge a consequential remedy with a revealing legitimate case: could it reject valid work,
 erase a distinction, weaken a guarantee or transfer policy to the wrong owner? Reasoning may
 settle the question; probes remain discretionary. Relate claimed benefits to the mechanism and
-conditions that would produce them, including material integration and ownership costs.
+conditions that would produce them, including a qualitative assessment of material integration and ownership burdens.
 
 Separate consequence-based priority from prerequisite order. A lower-priority contract correction
 can enable a more urgent consumer fix. Explain the dependency through the capability or meaning

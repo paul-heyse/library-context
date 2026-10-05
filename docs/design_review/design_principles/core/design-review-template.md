@@ -70,8 +70,8 @@ incorrect output occurs; semantic failure is not a prerequisite.
 ### Priority and decisions
 
 Prioritize correctness/fidelity failures and architectural choices that make a supported workload
-infeasible, unstable or operationally disproportionate. Structural cost evidence can establish
-such a failure before measurement. Assess change barriers, repeated semantic ownership and other
+infeasible, unstable or operationally disproportionate. Qualitative assessment of execution
+structure can establish such a failure before measurement. Assess change barriers, repeated semantic ownership and other
 material complexity in the same functional context; prioritize by consequence rather than by
 whether the evidence is a benchmark. Resolving a defect may require changing a boundary.
 Library adoption and bespoke code both carry complexity. A concrete architectural violation is
@@ -177,9 +177,16 @@ from independent definitions. Ordinary domain functions can supply these contrac
 |---|---|---|---|---|---|---|
 
 Assess how primitives compose. Identify rules that orchestration reimplements, implicit
-ordering and special cases. Include cardinality/cost, identity mappings, representation loss and
-resource budgets where material. A graph projection states its universe and relationship semantics.
-Assess the complete physical operation: access paths, repeated work, crossings and intermediates,
+ordering and special cases. Qualitatively assess work growth, identity mappings, representation loss and
+resource constraints where material. A graph projection states its universe and relationship semantics.
+Assess execution fit qualitatively from relevant operations and growth/failure scenarios.
+Explain material tradeoffs in plain language. This design/review consideration does not require
+numerical estimates, cost models, estimators, runtime cost accounting, execution-planning
+machinery, instrumentation, formal cost proofs or additional proof artifacts. Introduce such
+mechanisms only for a separate concrete functional or operational requirement. Quantitative
+performance/capacity claims still require measurements; semantic correctness obligations remain.
+
+Qualitatively assess the complete physical operation: access paths, repeated work, crossings and intermediates,
 optimizer visibility, reuse, enforcement frequency, transaction and recovery scope. Semantic
 composition need not create physical stages or materializations. Distinguish examined-work and
 output limits; safe refusal alone does not establish fitness for the workload.
@@ -201,7 +208,7 @@ credible; give a scope reason when either does not apply. A bounded review still
 relevant scenario. Assess semantic ownership and propagation, not a promise of inexpensive replacement.
 Select relevant growth, high-degree/skew, concurrency or failure cases as well. Explain why the
 physical route remains credible for the intended use; tiny fixtures cannot silently replace the
-product's workload premise. Static reasoning may settle structural cost; measured claims require
+product's workload premise. Static reasoning may settle execution fit; measured claims require
 measurements. These are lenses within existing slots, not a new campaign or checklist.
 
 ### 6. Correctness and fidelity gates
@@ -255,7 +262,7 @@ Inspect the resolved version's interfaces when making an API claim. A library's 
 agreed capability; availability alone is not a requirement. An intentional shared library data
 contract can be preferable to a forwarding abstraction. Compare composed capabilities, including
 optimizer/bulk interfaces, physical access, locality, preparation/reuse, working set and recovery.
-Account for generated objects and operator/developer obligations as well as handwritten code.
+Qualitatively assess generated objects and operator/developer obligations alongside handwritten code.
 A built-in must fit the semantic contract and total integration. This is a focused comparison,
 not a catalog.
 
@@ -271,7 +278,8 @@ not a catalog.
 Rows can coincide or be out of scope with a reason. Explain what becomes easier and harder.
 Preserve independent semantic controls when removing obsolete implementation-specific tests.
 
-Relate expected benefits to their mechanism, relevant conditions and material ownership costs.
+Relate expected benefits to their mechanism and relevant conditions; assess material ownership
+burdens qualitatively.
 Explain which premise would change the recommendation and how it could be settled. Consider
 external consumers, preserved meaning and intermediate states when transition feasibility affects
 the choice. Detailed migration procedures and execution packages belong to subsequent planning
@@ -315,9 +323,10 @@ there. Preserve original findings and versioned evidence rather than rewriting h
 **Bounded change decision:** Accept / Accept scoped / Revise / Reject, with reason.
 **Enclosing architecture:** accepted for named scenarios / needs revision / unresolved / not
 assessed (scope reason). State the evidence strength; a passing local slice does not certify it.
-A4 needs a credible physical route for the workload premise. Material unresolved execution fit
-prevents acceptance of that use; "performance unmeasured" does not excuse known amplification.
-A documented cost is justified only by its retained benefit against a conforming alternative.
+A4 needs a qualitative assessment of a credible physical route for the workload premise. Material
+unresolved execution fit prevents acceptance of that use; "performance unmeasured" does not excuse known amplification.
+Explain why the retained benefit warrants the tradeoff against a conforming alternative; no
+numerical cost comparison or additional proof artifact is required.
 
 | Priority | Change and responsible component | Source findings | Closure evidence or revisit trigger |
 |---|---|---|---|

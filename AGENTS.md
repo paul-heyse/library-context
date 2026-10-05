@@ -273,6 +273,9 @@ capability is absent.
   `design-reviewer` subagent. The binding's **Reviews in this repository** section owns cadence
   and tier/purpose selection (ADR-0040/0093). Apply the principles and review skill within
   those bounded review periods. Review depth follows impact and uncertainty.
+  Execution fit is a qualitative assessment of material tradeoffs. It does not require numerical
+  cost models, runtime accounting or additional proof machinery; those need a separate concrete
+  functional or operational requirement. Quantitative performance claims still need measurement.
 - **Review evidence:** static review of documentation, source and types can be sufficient,
   including for library features and fit. The reviewing agent judges whether complexity,
   criticality or unresolved uncertainty warrants creating and running probes. No review tier

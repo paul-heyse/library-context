@@ -58,16 +58,19 @@ Explain consequential decisions through their benefits, costs and assumptions. C
 capabilities and alternatives where they affect the design, using the repository's capability
 skills and documentation routes. Preserve enough rationale for an implementer to recognize
 evidence that would reopen a decision. Relate an expected benefit to its mechanism and workload
-or conditions, and account for material integration, lifecycle and maintenance obligations.
+or conditions, and qualitatively assess material integration, lifecycle and maintenance obligations.
 Quantitative benefits need a baseline and measurement route; unmeasured benefits remain hypotheses.
 
-For material execution choices, state a workload premise grounded in functional intent and a
-credible physical route: access paths, necessary/repeated work, crossings/intermediates, locality,
+For material execution choices, state a workload premise grounded in functional intent and
+qualitatively assess a credible physical route: access paths, necessary/repeated work, crossings/intermediates, locality,
 preparation/reuse, admission/contention, assurance and transaction/recovery scope. Compare composed
 library capabilities and total runtime/operator machinery. Semantic ownership need not dictate
 layout or execution granularity. Carry known amplification corrections into the target and its
 dependencies; "performance unmeasured" does not justify an unsuitable route. Select relevant
-growth/failure scenarios without adding a mandatory cost model, artifact or measurement campaign.
+growth/failure scenarios. Explain tradeoffs in plain language; do not turn this assessment into
+cost-estimation code, runtime accounting, execution-planning machinery, instrumentation or formal
+cost proofs. Such mechanisms need a separate concrete functional or operational requirement. No
+numerical estimates, additional proof artifacts or measurement campaign are required by this guidance.
 
 Resolve choices that materially shape responsibilities, semantics, sequencing or acceptance.
 If uncertainty remains, state the question, the evidence needed and the dependent work it

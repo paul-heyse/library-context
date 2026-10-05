@@ -133,7 +133,9 @@ Separate future acceptance requirements from actual evidence. Identify local che
 journeys and measurements by what they establish and when they are needed. Follow repository
 policy for execution timing and evidence reporting. Optional or deferred measurements should have
 a clear purpose and trigger, without obscuring required completion evidence. Relevant growth,
-skew, concurrency and failure scenarios can establish execution fit by inspection. Bounded output
+skew, concurrency and failure scenarios can establish execution fit through qualitative assessment.
+This assessment does not require numerical estimates, cost models, runtime accounting or extra
+proof artifacts; implementing such mechanisms needs a separate functional or operational requirement. Bounded output
 or honest refusal does not settle whether the intended workload has a credible physical route;
 quantitative performance/capacity claims still require measurement.
 
