@@ -983,12 +983,12 @@ mod encoding_controls {
         frame(b"dependency", b"packages");
         frame(b"output", b"packages");
         assert_eq!(
-            identity_for(&[mapping.clone()]).0.0,
+            identity_for(std::slice::from_ref(&mapping)).0.0,
             *raw.finalize().as_bytes()
         );
         let mut revision = mapping.clone();
         revision.revision = 2;
-        assert_ne!(identity_for(&[mapping.clone()]), identity_for(&[revision]));
+        assert_ne!(identity_for(std::slice::from_ref(&mapping)), identity_for(&[revision]));
         let mut other = mapping.clone();
         other.name = "other";
         assert_eq!(

@@ -136,7 +136,7 @@ impl FrontierDescriptor {
             None => model.relations().iter().map(Relation::name).collect(),
         };
         for name in &relations {
-            let relation = model.relation(*name).ok_or_else(|| {
+            let relation = model.relation(name).ok_or_else(|| {
                 refuse(format!(
                     "the model lacks {} relation {name}",
                     self.frontier.name()
@@ -328,7 +328,7 @@ impl FrontierContract {
         let mut families = BTreeMap::new();
         for name in &relations {
             let relation = model
-                .relation(*name)
+                .relation(name)
                 .ok_or_else(|| refuse(format!("the model lacks facts relation {name}")))?;
             if let Some(family) = relation.family() {
                 families.insert(*name, family);

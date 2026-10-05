@@ -19,7 +19,7 @@ macro_rules! analysis_publication {
 }
 #[doc(hidden)]
 #[macro_export]
-macro_rules! analysis_publication_relations {($($record:ident,)*)=>{vec![$(crate::domain::Relation::of::<$record>(),)*]};}
+macro_rules! analysis_publication_relations {($($record:ident,)*)=>{vec![$($crate::domain::Relation::of::<$record>(),)*]};}
 macro_rules! analysis_family {
     ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?],[$($transfer:ty)? $(;$transfer_variant:ident:$transfer_code:literal=>$transfer_type:ty)*],[$($normalized:ty)?],[$($proof_variant:ident:$proof_code:literal=>$proof_type:ty),* $(,)?]) => { analysis_family!(@impl $owner,$prefix,[$($variant:$code=>$predecessor),*],[$($transfer)? $(;$transfer_variant:$transfer_code=>$transfer_type)*],[$($normalized)?],[$($proof_variant:$proof_code=>$proof_type),*],[$($variant:$code=>$predecessor),*],[$($variant:$code=>$predecessor),*]); };
     ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?],[$($transfer:ty)? $(;$transfer_variant:ident:$transfer_code:literal=>$transfer_type:ty)*],[$($normalized:ty)?],[$($proof_variant:ident:$proof_code:literal=>$proof_type:ty),* $(,)?],support[$($support_variant:ident:$support_code:literal=>$support_predecessor:ident),* $(,)?],obligations[$($obligation_variant:ident:$obligation_code:literal=>$obligation_predecessor:ident),* $(,)?]) => { analysis_family!(@impl $owner,$prefix,[$($variant:$code=>$predecessor),*],[$($transfer)? $(;$transfer_variant:$transfer_code=>$transfer_type)*],[$($normalized)?],[$($proof_variant:$proof_code=>$proof_type),*],[$($support_variant:$support_code=>$support_predecessor),*],[$($obligation_variant:$obligation_code=>$obligation_predecessor),*]); };

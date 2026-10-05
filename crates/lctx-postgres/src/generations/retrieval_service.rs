@@ -154,7 +154,7 @@ impl RetrievalService {
                         &[channel],
                         &units,
                         &unit_occurrences,
-                        &budget,
+                        budget,
                     )?;
                     let unit_corpus = Arc::new(unit_preparation.prepare_lexical(&text)?);
                     drop(text);
@@ -171,7 +171,7 @@ impl RetrievalService {
                         &[channel],
                         &members,
                         &member_occurrences,
-                        &budget,
+                        budget,
                     )?;
                     let member_corpus =
                         member_preparation.project_member_lexical(unit_corpus.clone())?;

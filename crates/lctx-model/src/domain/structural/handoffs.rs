@@ -158,11 +158,12 @@ fn condition_error(error: conditions::DiagramAdmissionError) -> ModelError {
         }
     }
 }
+type RegionPair = (Id<FlowRegionObservation>, Id<FlowRegionSupport>);
 fn read_region(
     d: &Data,
     observation: &FlowUseObservation,
     support: &FlowUseSupport,
-) -> Result<Option<(Id<FlowRegionObservation>, Id<FlowRegionSupport>)>, ModelError> {
+) -> Result<Option<RegionPair>, ModelError> {
     let use_ = need(&d.entry.uses, observation.use_)?;
     let lexical = need(&d.entry.lexical_scopes, observation.scope)?;
     let q = need(&d.entry.qualifications, observation.qualification)?;

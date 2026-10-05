@@ -911,7 +911,7 @@ pub fn stage(
     definition.id().encode(&mut key);
     Ok(Stage {
         name: "apply_models",
-        inputs: inputs,
+        inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],
         coverage: vec![],
