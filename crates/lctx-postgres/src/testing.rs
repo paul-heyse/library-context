@@ -659,7 +659,7 @@ pub mod fixtures {
     }
 
     /// The facts frontier over the full model: one empty input and five catalog producers in
-    /// one Facts publication group, with every facts premise explicitly written. The provider
+    /// one Facts publication group, with every requested Catalog premise explicitly written. The provider
     /// coverage preserves the lifecycle controls' input-grained admission semantics.
     pub struct Facts {
         pub model: Arc<ValidatedModel>,
@@ -797,24 +797,42 @@ pub mod fixtures {
                         None,
                     ),
                 ];
-            // Every required premise has a declared producer. The canonical typed inventory
-            // supplies the empty facts not otherwise owned by these fixture producers.
+            // Resolve exactly the premises of the requested Catalog outputs. The physical
+            // Facts inventory also contains Flow assertions, whose writers are prohibited by
+            // this profile; table existence never makes those assertions requested outputs.
+            let contract = self.contract();
             let produced: std::collections::BTreeSet<_> = stages.iter()
                 .flat_map(|stage| stage.outputs.iter().map(|output| output.name())).collect();
+            let uses: Vec<_> = stages.iter().flat_map(|stage| stage.outputs.iter().copied()).collect();
+            let members: Vec<_> = stages.iter().map(|stage| stage.name).collect();
+            let group = PublicationGroup::new(PublicationBoundary::Facts, members);
+            let order = PublicationOrder::planning(std::slice::from_ref(&group)).unwrap();
+            let required: std::collections::BTreeSet<_> = dependency_closure::DependencyClosure::build(
+                &self.model,
+                dependency_closure::DependencyClosure::roots_from_uses(&self.model, &uses).unwrap(),
+                vec![], &[], PublicationBoundary::Facts,
+                dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts, &order,
+            ).unwrap().requirements.into_iter().map(|input| input.name()).collect();
             macro_rules! remaining_outputs {
                 ($($record:ty),* $(,)?) => {
-                    $(if !produced.contains(<$record as Record>::NAME) {
-                        stages.last_mut().expect("assemble stage").outputs.push(RelationUse::of::<$record>());
+                    $(if required.contains(<$record as Record>::NAME) && !produced.contains(<$record as Record>::NAME) {
+                        let relation = self.model.require::<$record>().unwrap();
+                        let writer = if let Some(family) = relation.family() {
+                            assert!(contract.requested(family), "fixture premise {} belongs to unrequested {family:?}", relation.name());
+                            stages.iter_mut().find(|stage| stage.coverage.iter().any(|grant| grant.family == family))
+                                .expect("required assertion has a covering fixture producer")
+                        } else {
+                            stages.last_mut().expect("assemble stage")
+                        };
+                        writer.outputs.push(RelationUse::of::<$record>());
                     })*
                 };
             }
             lctx_model::facts_records!(remaining_outputs);
-            // Source and publication checks span these producers. Their one explicit group
-            // closes only after all premises are durably written, including empty relations.
-            let members = stages.iter().map(|stage| stage.name).collect();
+            // Cross-producer checks execute only after every exact premise is written.
             Schedule::build_with_publications(
                 &self.model, stages, &[], Profile::Catalog,
-                vec![PublicationGroup::new(PublicationBoundary::Facts, members)],
+                vec![group],
             ).unwrap()
         }
         pub fn contract(&self) -> FrontierContract {

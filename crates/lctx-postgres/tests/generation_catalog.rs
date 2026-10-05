@@ -20,34 +20,38 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
         .await
         .unwrap();
     let catalog = GenerationCatalog::new(db.reader.clone());
+    // State-only conformance uses the complete two-relation fixture in its own database.
+    // It establishes catalog/liveness states without pretending to produce full-model facts.
+    let conformance_db = DisposableDatabase::start().await;
+    let small = Small::new();
+    let conformance_store = GenerationStore::install(conformance_db.owner.clone(), small.model.clone())
+        .await.unwrap();
+    let conformance_catalog = GenerationCatalog::new(conformance_db.reader.clone());
     // Live conformance attempts in each unpublished state.
-    let staging_h = Harness::begin_empty_conformance(
-        &store,
-        db.writer.clone(),
+    let staging_h = Harness::begin(
+        &conformance_store,
+        conformance_db.writer.clone(),
         Profile::Behavioral,
         budget(),
-        vec![],
     )
     .await
     .unwrap();
     let staging = staging_h.generation();
-    let mut sealed_h = Harness::begin_empty_conformance(
-        &store,
-        db.writer.clone(),
+    let mut sealed_h = Harness::begin(
+        &conformance_store,
+        conformance_db.writer.clone(),
         Profile::Catalog,
         budget(),
-        vec![],
     )
     .await
     .unwrap();
     let sealed = sealed_h.generation();
     sealed_h.seal().await.unwrap();
-    let mut validated_h = Harness::begin_empty_conformance(
-        &store,
-        db.writer.clone(),
+    let mut validated_h = Harness::begin(
+        &conformance_store,
+        conformance_db.writer.clone(),
         Profile::Catalog,
         budget(),
-        vec![],
     )
     .await
     .unwrap();
@@ -69,7 +73,8 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
             .await
             .is_err()
     );
-    let rows = catalog.list(&ListFilter::default()).await.unwrap();
+    let mut rows = catalog.list(&ListFilter::default()).await.unwrap();
+    rows.extend(conformance_catalog.list(&ListFilter::default()).await.unwrap());
     let row = |g| rows.iter().find(|r| r.id == g).unwrap();
     use GenerationState::*;
     let expected = [
@@ -162,7 +167,7 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
             .map(|(_, n)| *n),
         Some(3)
     );
-    let detail = catalog.show(sealed).await.unwrap().unwrap();
+    let detail = conformance_catalog.show(sealed).await.unwrap().unwrap();
     assert!(detail.content.is_none() && detail.relations.is_empty() && detail.admission.is_none());
     let detail = catalog.show(failed).await.unwrap().unwrap();
     let (from, class, message) = detail
@@ -188,6 +193,8 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
     // The attempt is lost: its generation is interrupted, not live.
     sqlx::query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'lctx_migrator' AND pid <> pg_backend_pid()")
         .execute(&db.superuser).await.unwrap();
+    sqlx::query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'lctx_migrator' AND pid <> pg_backend_pid()")
+        .execute(&conformance_db.superuser).await.unwrap();
     for _ in 0..50 {
         if catalog
             .show(live.generation())
@@ -213,13 +220,13 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
         Writer::Interrupted
     );
     // Every attempt lost its connection; the catalog and the store agree on which are interrupted.
-    let mut lost = vec![staging, sealed, validated, live.generation()];
+    assert_eq!(store.interrupted().await.unwrap(), [live.generation()]);
+    let mut lost = vec![staging, sealed, validated];
     lost.sort_by_key(|g| g.hex());
-    assert_eq!(store.interrupted().await.unwrap(), lost);
-    let listed: Vec<_> = catalog
-        .list(&ListFilter::default())
-        .await
-        .unwrap()
+    assert_eq!(conformance_store.interrupted().await.unwrap(), lost);
+    let mut all_rows = catalog.list(&ListFilter::default()).await.unwrap();
+    all_rows.extend(conformance_catalog.list(&ListFilter::default()).await.unwrap());
+    let listed: Vec<_> = all_rows
         .into_iter()
         .filter(|r| r.writer == Writer::Interrupted)
         .map(|r| r.id)
