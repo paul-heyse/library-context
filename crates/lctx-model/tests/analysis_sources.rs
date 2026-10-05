@@ -200,3 +200,24 @@ fn model_refuses_unknown_publication_input_before_activation() {
 fn invalid_inventory_refs() -> Vec<&'static str> {
     vec!["unknown_source_control"]
 }
+
+#[test]
+fn source_receipts_capture_both_views_of_one_relation_exactly() {
+    let model=model().unwrap();let budget=budget();
+    let first=CompletedInput::<Package>::new("facts",model.digest(),ContentHash::of(b"facts code"),ContentHash::of(b"facts"),1).unwrap();
+    let later=CompletedInput::<Package>::new("model",model.digest(),ContentHash::of(b"model code"),ContentHash::of(b"model"),2).unwrap();
+    let sources=vec![first.snapshot(),later.snapshot()];
+    let captured=CapturedSources::capture(Profile::Catalog,sources.clone(),&budget).unwrap();
+    assert_eq!(captured.iter().count(),2);
+    let duplicated=CapturedSources::capture(Profile::Catalog,[first.snapshot(),later.snapshot(),first.snapshot()],&budget).unwrap();
+    assert_eq!(duplicated.digest(),captured.digest());
+    let reordered=CapturedSources::capture(Profile::Catalog,[later.snapshot(),first.snapshot()],&budget).unwrap();
+    assert_eq!(reordered.digest(),captured.digest());
+    let (inv,_,receipts,_)=Invocation::admitted(nominal(1),nominal(2),nominal(3),None,[],&captured,[],&budget).unwrap();
+    assert_eq!(receipts.len(),2);
+    publication(&inv,&receipts,&sources,&budget).unwrap();
+    assert!(publication(&inv,&receipts[..1],&sources,&budget).is_err());
+    assert!(publication(&inv,&receipts,&sources[..1],&budget).is_err());
+    let forged=CompletedInput::<Package>::new("model",model.digest(),ContentHash::of(b"model code"),ContentHash::of(b"different model"),2).unwrap();
+    assert!(publication(&inv,&receipts,&[first.snapshot(),forged.snapshot()],&budget).is_err());
+}

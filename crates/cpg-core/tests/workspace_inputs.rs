@@ -85,3 +85,28 @@ async fn missing_relation_at_a_frozen_boundary_cannot_fall_back_to_latest() {
     assert_eq!(workspace.stage_inputs(&consumer(None), Profile::Catalog).unwrap().relation::<Place>().unwrap().rows(), 1);
     assert!(workspace.stage_inputs(&consumer(Some(PublicationBoundary::Facts)), Profile::Catalog).is_err());
 }
+
+#[tokio::test]
+async fn distinct_completed_views_remain_selectable_together() {
+    let workspace = Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default()).unwrap();
+    contribute(&workspace,"native_places",place("native")).await;
+    workspace.freeze_inputs(PublicationBoundary::Facts).unwrap();
+    contribute(&workspace,"model_places",place("model")).await;
+    workspace.freeze_inputs(PublicationBoundary::Model).unwrap();
+    let mut declaration=consumer(Some(PublicationBoundary::Facts));
+    declaration.inputs.push(RelationUse::stored::<Place>().at_epoch(PublicationBoundary::Model));
+    let inputs=workspace.stage_inputs(&declaration,Profile::Catalog).unwrap();
+    assert!(inputs.read::<Place>().is_err(),"an unqualified read must not blend different views");
+    let facts=inputs.read_at::<Place>(Some(PublicationBoundary::Facts)).unwrap();
+    let model=inputs.read_at::<Place>(Some(PublicationBoundary::Model)).unwrap();
+    assert_eq!(facts.source().rows(),1);
+    assert_eq!(model.source().rows(),2);
+    assert_ne!(facts.source().content(),model.source().content());
+    let session=inputs.session(&workspace).await.unwrap();
+    for (boundary,expected) in [(PublicationBoundary::Facts,1),(PublicationBoundary::Model,2)] {
+        let table=inputs.table_at::<Place>(Some(boundary)).unwrap();
+        let batches=session.sql(&format!("SELECT * FROM {table}")).await.unwrap().collect().await.unwrap();
+        assert_eq!(batches.iter().map(|batch|batch.num_rows()).sum::<usize>(),expected);
+    }
+    assert!(session.sql("SELECT * FROM places").await.is_err());
+}
