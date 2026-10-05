@@ -9,7 +9,18 @@ use support::*;
 
 #[tokio::test]
 async fn immutable_catalog_cohort() {
-    let fixture = ServingFixture::start(SOURCE).await;
+    let fixture = match AssertUnwindSafe(ServingFixture::start(SOURCE)).catch_unwind().await {
+        Ok(fixture) => fixture,
+        Err(cause) => {
+            for case in ["complete_find_cursors_selection_browse_counts_and_caller_order",
+                "canonical_search_filters_before_ranking_and_retains_original_contexts",
+                "mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration",
+                "explicit_audit_recomputes_the_catalog_without_changing_it"] {
+                eprintln!("not_run: {case} (seed preparation failed)");
+            }
+            std::panic::resume_unwind(cause);
+        }
+    };
     let mut failed = Vec::new();
     if AssertUnwindSafe(complete_find_cursors_selection_browse_counts_and_caller_order(&fixture)).catch_unwind().await.is_err() {
         eprintln!("failed: complete_find_cursors_selection_browse_counts_and_caller_order");
