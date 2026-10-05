@@ -63,7 +63,7 @@ preservation and testing rules still apply.
    (`docs/plans/behavioral-model-forward-plan_2026-09-24.md`): §1 current state and qualification
    boundary, §3.0 product PR0–PR6 queue and §6 findings. The retained Stage 3–5 sequence is a
    research backlog, activated only by a product task or an exposed-claim defect. It coordinates product sequencing and owns
-   finding disposition. For PostgreSQL work, §3.4 owns integration, §6.1 finding status and §7 conditional adoption.
+   finding disposition. The graph-native coordinator owns the storage replacement and compiler acceptance.
 4. For design questions, follow **owner → decision → open work**:
    - start at the architecture map `docs/design/README.md` and read the owning section in
      `docs/design/DESIGN.md` (scope, §B1–§B14) or `docs/design/sections/` plus adjacent consumers;

@@ -11,11 +11,13 @@ correspondence, five-way verdicts, conditions, typed catalog/selection, projecti
 wire contracts. Keep these meanings and useful pure kernels. They are foundations to reshape,
 not a requirement to preserve every declaration, relation, stage, epoch or validator attachment.
 
-Current `cpg-core::compilation::publish` takes `GenerationStore`, importer roles and a SQL writer;
-facts/normalization and upper adapters use persisted checkpoints and completed-store reads.
-`domain::memory::MemoryGeneration` concatenates/sorts full relations and collects keys, with
-multiple resident copies. `lctx-model/build.rs` folds model/macro sources, manifests and Cargo.lock
-into installation compatibility. These are source-inspected replacement boundaries, 2026-10-05.
+**Implemented; integrated functional acceptance pending, 2026-10-05:**
+`cpg-core::compilation::compile` builds immutable completed Arrow IPC streams in a private,
+spillable workspace. Explicit semantic predecessor selectors keep native Facts separate from
+Local, Model and Analytic vocabulary. Typed graph lowering and artifact admission/export are
+separate from publication. The PostgreSQL compiler, runtime grants and `MemoryGeneration` are
+retired; canonical declarations and semantic policy revisions own model compatibility.
+The coordinator's current checkpoint owns actual verification outcomes.
 
 The compiler instead receives explicit captured inputs, profile/method settings, semantic
 definitions, resource/runtime services and optional embedder/cache effects. It owns a private
