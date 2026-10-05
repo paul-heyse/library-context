@@ -46,6 +46,7 @@ pub struct Workspace {
     completed: Mutex<BTreeMap<&'static str, Arc<CompletedRelation>>>,
     next: AtomicU64,
     cancellation: Cancellation,
+    completion_gate: tokio::sync::Mutex<()>,
 }
 impl Workspace {
     pub fn new(model: Arc<ValidatedModel>, options: WorkspaceOptions) -> Result<Arc<Self>, ModelError> {
@@ -69,6 +70,7 @@ impl Workspace {
             completed: Mutex::default(),
             next: AtomicU64::new(0),
             cancellation: Cancellation::default(),
+            completion_gate: tokio::sync::Mutex::new(()),
         }))
     }
     /// Reuse a captured native configuration's pool. DataFusion allocations and typed retained
@@ -115,20 +117,7 @@ impl Workspace {
         let names=relations.iter().map(|r|r.name()).collect::<std::collections::BTreeSet<_>>();
         let inputs=self.inputs("artifact-admission",Profile::Catalog,names.iter().copied())?;
         let session=inputs.session(self).await?;
-        for source in &relations {
-            for field in source.relation.fields() {
-                let Some((_,target))=field.target() else {continue;};
-                let sql=if names.contains(target) {
-                    format!("SELECT s.\"{}\" FROM \"{}\" s LEFT JOIN \"{target}\" t ON s.\"{}\"=t.id WHERE s.\"{}\" IS NOT NULL AND t.id IS NULL LIMIT 1",field.name(),source.name(),field.name(),field.name())
-                } else {
-                    format!("SELECT \"{}\" FROM \"{}\" WHERE \"{}\" IS NOT NULL LIMIT 1",field.name(),source.name(),field.name())
-                };
-                let mut stream=session.sql(&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-                while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
-                    if batch.num_rows()>0 {return Err(ModelError::Invalid(format!("{}.{} references missing {target}",source.name(),field.name())));}
-                }
-            }
-        }
+        self.validate_references(&session,&relations).await?;
         for invariant in self.model.invariants_for_scope(&names)? {
             let mut check=(invariant.create)(self.budget());
             for input in &invariant.inputs {
@@ -140,6 +129,87 @@ impl Workspace {
             check.finish()?;
         }
         self.content()
+    }
+    /// Explicit fixture replay for selected owner source/coverage contracts. Artifact admission
+    /// does not automatically recompute every compiler algorithm.
+    pub async fn validate_publications(&self,ids:&[&str])->Result<(),ModelError> {
+        let relations=self.completed_relations()?;
+        let inputs=self.inputs("selected-publication-controls",Profile::Catalog,relations.iter().map(|r|r.name()))?;
+        let session=inputs.session(self).await?;
+        let mut checks=BTreeMap::new();
+        for source in &relations {
+            for id in source.relation.publication_refs().iter().filter(|id|ids.contains(id)) {
+                if let Some(previous)=checks.insert(*id,source.clone()) {
+                    if previous.producer!=source.producer || previous.inputs!=source.inputs {
+                        return Err(ModelError::Invalid("publication invariant spans incompatible producer inputs".into()));
+                    }
+                }
+            }
+        }
+        if ids.iter().any(|id|!checks.contains_key(id)) {return Err(ModelError::Invalid("selected publication control is absent".into()));}
+        for (id,source) in checks {
+            let invariant=self.model.publication_check(id)?;
+            let mut check=(invariant.create)(self.budget());
+            for input in &invariant.inputs {
+                let order=input.order().iter().map(|name|format!("\"{name}\"")).collect::<Vec<_>>().join(",");
+                let sql=format!("SELECT * FROM \"{}\"{}",input.name(),if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")});
+                let mut stream=session.sql(&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {self.cancellation.check()?;check.visit_input(input,&batch)?;}
+            }
+            check.finish(&source.inputs,source.profile)?;
+        }
+        Ok(())
+    }
+    async fn validate_references(&self,session:&SessionContext,relations:&[Arc<CompletedRelation>])->Result<(),ModelError> {
+        use arrow_array::{builder::{StringBuilder,FixedSizeBinaryBuilder,Int16Builder},Int16Array};
+        use arrow_schema::{Schema,Field,DataType};
+        let target_schema=Arc::new(Schema::new(vec![Field::new("relation",DataType::Utf8,false),Field::new("id",DataType::FixedSizeBinary(16),false),Field::new("subtype",DataType::Int16,true)]));
+        let refs_schema=Arc::new(Schema::new(vec![Field::new("source",DataType::Utf8,false),Field::new("field",DataType::Utf8,false),Field::new("target",DataType::Utf8,false),Field::new("id",DataType::FixedSizeBinary(16),false),Field::new("subtype",DataType::Int16,true)]));
+        let target_path=self.path("nominal-keys","validation");
+        let refs_path=self.path("nominal-references","validation");
+        let mut targets=FileWriter::try_new(File::create(&target_path).map_err(ModelError::codec)?,&target_schema).map_err(ModelError::codec)?;
+        let mut references=FileWriter::try_new(File::create(&refs_path).map_err(ModelError::codec)?,&refs_schema).map_err(ModelError::codec)?;
+        let mut source_names=StringBuilder::new();let mut fields=StringBuilder::new();let mut target_names=StringBuilder::new();
+        let mut ids=FixedSizeBinaryBuilder::new(16);let mut tags=Int16Builder::new();let mut count=0;
+        let _buffer=self.budget.reserve("nominal-reference-transfer",self.options.batch_rows.saturating_mul(1024))?;
+        macro_rules! flush_refs {()=>{{
+            if count>0 {
+                let batch=RecordBatch::try_new(refs_schema.clone(),vec![Arc::new(source_names.finish()),Arc::new(fields.finish()),Arc::new(target_names.finish()),Arc::new(ids.finish()),Arc::new(tags.finish())]).map_err(ModelError::codec)?;
+                references.write(&batch).map_err(ModelError::codec)?;count=0;
+            }
+        }};}
+        // Each completed batch is decoded once for its namespace keys and declared nominal fields.
+        for source in relations {
+            for batch in source.batches()? {
+                self.cancellation.check()?;
+                let batch=batch.map_err(ModelError::codec)?;
+                let _input=self.budget.reserve("nominal-reference-input",batch.get_array_memory_size())?;
+                let row_ids=batch.column_by_name("id").and_then(|c|c.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema(source.name()))?;
+                let subtype=source.relation.sum().map(|sum|batch.column_by_name(sum.tag).and_then(|c|c.as_any().downcast_ref::<Int16Array>()).ok_or(ModelError::Schema(source.name()))).transpose()?;
+                let mut names=StringBuilder::new();let mut key_ids=FixedSizeBinaryBuilder::new(16);let mut key_tags=Int16Builder::new();
+                for row in 0..batch.num_rows() {names.append_value(source.name());key_ids.append_value(row_ids.value(row)).map_err(ModelError::codec)?;if let Some(tags)=subtype {key_tags.append_value(tags.value(row));}else{key_tags.append_null();}}
+                targets.write(&RecordBatch::try_new(target_schema.clone(),vec![Arc::new(names.finish()),Arc::new(key_ids.finish()),Arc::new(key_tags.finish())]).map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+                for field in source.relation.fields().iter().filter(|f|!f.list()) {
+                    let Some((_,target))=field.target() else {continue;};
+                    let column=batch.column_by_name(field.name()).and_then(|c|c.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema(source.name()))?;
+                    for row in 0..batch.num_rows() {
+                        if column.is_null(row) {continue;}
+                        source_names.append_value(source.name());fields.append_value(field.name());target_names.append_value(target);ids.append_value(column.value(row)).map_err(ModelError::codec)?;
+                        if let Some(tag)=field.subtype(){tags.append_value(tag);}else{tags.append_null();}count+=1;
+                        if count>=self.options.batch_rows {flush_refs!();}
+                    }
+                }
+            }
+        }
+        flush_refs!();debug_assert_eq!(count,0);targets.finish().map_err(ModelError::codec)?;references.finish().map_err(ModelError::codec)?;
+        drop(targets);drop(references);drop(_buffer);
+        session.register_arrow("_nominal_targets",target_path.to_string_lossy(),ArrowReadOptions::default().schema(&target_schema)).await.map_err(ModelError::codec)?;
+        session.register_arrow("_nominal_references",refs_path.to_string_lossy(),ArrowReadOptions::default().schema(&refs_schema)).await.map_err(ModelError::codec)?;
+        let mut stream=session.sql("SELECT r.source,r.field,r.target FROM _nominal_references r LEFT JOIN _nominal_targets t ON r.target=t.relation AND r.id=t.id WHERE t.id IS NULL OR (r.subtype IS NOT NULL AND (t.subtype IS NULL OR r.subtype<>t.subtype)) LIMIT 1").await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
+            if batch.num_rows()>0 {return Err(ModelError::Invalid(format!("missing or wrong-subtype nominal reference: {batch:?}")));}
+        }
+        Ok(())
     }
     pub fn budget(&self) -> &ResourceBudget { &self.budget }
     pub fn model(&self) -> &Arc<ValidatedModel> { &self.model }
@@ -165,9 +235,15 @@ impl Workspace {
     }
     pub fn output(self: &Arc<Self>, name: &'static str, profile: Profile, implementation: ContentHash, inputs: CompletedInputs) -> ProducerOutput {
         ProducerOutput { workspace: self.clone(), name, profile, implementation, inputs,
-            writers: Mutex::default(), outcome: Mutex::new(None), failed: AtomicBool::new(false) }
+            expected: None, allowed: None, writers: Mutex::default(), outcome: Mutex::new(None), failed: AtomicBool::new(false) }
     }
-    async fn order(&self, producer: &'static str, implementation: ContentHash, pending: PendingRelation) -> Result<Arc<CompletedRelation>, ModelError> {
+    pub fn producer(self:&Arc<Self>,declaration:&lctx_model::domain::stages::Stage,profile:Profile,inputs:CompletedInputs)->ProducerOutput {
+        let mut output=self.output(declaration.name,profile,declaration.code,inputs);
+        output.expected=Some(declaration.outputs.iter().map(|r|r.name()).collect());
+        output.allowed=Some(declaration.outputs.iter().chain(&declaration.contributes).map(|r|r.name()).collect());
+        output
+    }
+    async fn order(&self, producer: &'static str, implementation: ContentHash, pending: PendingRelation, inputs: Arc<[lctx_model::domain::analysis::sources::SourceSnapshot]>, profile: Profile) -> Result<Arc<CompletedRelation>, ModelError> {
         self.cancellation.check()?;
         let name = pending.relation.name();
         let path = self.path(name, "complete");
@@ -219,7 +295,7 @@ impl Workspace {
             self.cancellation.check()?;
             let (rows, content) = content.finish();
             Ok(Arc::new(CompletedRelation { relation: pending.relation, producer, implementation,
-                contract: self.model.digest(), content, rows, snapshot: (pending.snapshot)(producer, self.model.digest(), implementation, content, rows)?, path, _files: self.files.clone() }))
+                contract: self.model.digest(), content, rows, inputs, profile, snapshot: (pending.snapshot)(producer, self.model.digest(), implementation, content, rows)?, path, _files: self.files.clone() }))
         }.await;
         self.context.deregister_table(&table).map_err(ModelError::codec)?;
         result
@@ -236,6 +312,8 @@ pub struct CompletedRelation {
     content: ContentHash,
     rows: u64,
     path: PathBuf,
+    inputs: Arc<[lctx_model::domain::analysis::sources::SourceSnapshot]>,
+    profile: Profile,
     snapshot: lctx_model::domain::analysis::sources::SourceSnapshot,
     _files: Arc<WorkspaceFiles>,
 }
@@ -327,7 +405,7 @@ impl<R: Record> ErasedWriter for Writer<R> {
 /// One producer owns pending streams; completion makes its whole output set visible atomically.
 pub struct ProducerOutput {
     workspace: Arc<Workspace>, name: &'static str, profile: Profile, implementation: ContentHash,
-    inputs: CompletedInputs, writers: Mutex<BTreeMap<&'static str, Box<dyn ErasedWriter>>>,
+    inputs: CompletedInputs, expected: Option<std::collections::BTreeSet<&'static str>>, allowed: Option<std::collections::BTreeSet<&'static str>>, writers: Mutex<BTreeMap<&'static str, Box<dyn ErasedWriter>>>,
     outcome: Mutex<Option<ProviderOutcome>>, failed: AtomicBool,
 }
 impl ProducerOutput {
@@ -344,6 +422,7 @@ impl ProducerOutput {
     pub fn declare<R: Record>(&self) -> Result<(), ModelError> { self.declare_kind::<R>(lctx_model::domain::stages::is_vocabulary(R::NAME)) }
     fn declare_kind<R: Record>(&self, contribution: bool) -> Result<(), ModelError> {
         self.check()?;
+        if self.allowed.as_ref().is_some_and(|names|!names.contains(R::NAME)) {self.failed.store(true,Ordering::Release);return Err(ModelError::Invalid(format!("{} did not declare {}",self.name,R::NAME)));}
         self.workspace.model.require::<R>()?;
         let mut writers = self.writers.lock().map_err(|_| poisoned())?;
         if writers.contains_key(R::NAME) { return Err(ModelError::Invalid(format!("output {} declared twice", R::NAME))); }
@@ -370,6 +449,7 @@ impl ProducerOutput {
         self.push_sync(row)
     }
     pub fn push_sync<R: Record>(&self, row: R) -> Result<(), ModelError> {
+        let result=(|| {
         self.check()?;
         row.validate()?;
         let mut writers = self.writers.lock().map_err(|_| poisoned())?;
@@ -381,6 +461,9 @@ impl ProducerOutput {
         writer.pending.push(row);
         writer.bytes += bytes;
         Ok(())
+        })();
+        if result.is_err() {self.failed.store(true,Ordering::Release);}
+        result
     }
     pub fn mark_finished(&self, outcome: ProviderOutcome) -> Result<(), ModelError> {
         self.check()?;
@@ -395,11 +478,16 @@ impl ProducerOutput {
     pub async fn complete(self) -> Result<(), ModelError> {
         self.workspace.cancellation.check()?;
         if self.failed.load(Ordering::Acquire) || self.outcome.lock().map_err(|_| poisoned())?.is_none() { return Err(ModelError::Invalid("producer did not complete successfully".into())); }
+        let _completion=self.workspace.completion_gate.lock().await;
         let writers = self.writers.into_inner().map_err(|_| poisoned())?;
+        if let Some(expected)=&self.expected {
+            if let Some(name)=expected.iter().find(|name|!writers.contains_key(**name)) {return Err(ModelError::Invalid(format!("{} omitted completed output {name}",self.name)));}
+        }
+        let input_snapshots:Arc<[_]>=self.inputs.snapshots().collect::<Vec<_>>().into();
         let mut completed = Vec::new();
         for (_, writer) in writers {
             let pending = writer.close(&self.workspace.model, self.workspace.budget())?;
-            completed.push(self.workspace.order(self.name, self.implementation, pending).await?);
+            completed.push(self.workspace.order(self.name, self.implementation, pending, input_snapshots.clone(), self.profile).await?);
         }
         self.workspace.cancellation.check()?;
         let mut visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
@@ -485,6 +573,55 @@ mod tests {
         workspace.cancellation().cancel();
         assert!(output.finish(ProviderOutcome::Complete).await.is_err());
         assert!(workspace.completed::<Package>().is_err());
+    }
+    #[tokio::test]
+    async fn omitted_declared_outputs_and_ignored_row_refusals_never_complete() {
+        use lctx_model::domain::stages::{Stage,RelationUse,Effect};
+        let workspace=Workspace::new(model(),WorkspaceOptions::default()).unwrap();
+        let declaration=Stage {name:"packages",inputs:vec![],outputs:vec![RelationUse::of::<Package>()],contributes:vec![],coverage:vec![],profiles:vec![Profile::Catalog],effect:Effect::Pure,code:ContentHash::of(b"fixture"),configuration:ContentHash::of(b"fixture")};
+        let output=workspace.producer(&declaration,Profile::Catalog,workspace.inputs("packages",Profile::Catalog,[]).unwrap());
+        assert!(output.finish(ProviderOutcome::Complete).await.is_err());
+        assert!(workspace.completed::<Package>().is_err());
+        let budget=ResourceBudget::fixed(4096).unwrap();
+        let constrained=Workspace::with_budget(model(),WorkspaceOptions {memory_bytes:4096,..Default::default()},budget).unwrap();
+        let output=constrained.output("packages",Profile::Catalog,ContentHash::of(b"fixture"),constrained.inputs("packages",Profile::Catalog,[]).unwrap());
+        output.declare::<Package>().unwrap();
+        assert!(output.push(Package {name:"x".repeat(5000)}).await.is_err());
+        assert!(output.finish(ProviderOutcome::Complete).await.is_err());
+        assert!(constrained.completed::<Package>().is_err());
+    }
+    #[tokio::test]
+    async fn conflicting_payload_refuses_the_whole_output_set() {
+        use lctx_model::domain::{input::InputRevision,source::SourceArtifact};
+        let workspace=Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),WorkspaceOptions::default()).unwrap();
+        let output=workspace.output("source",Profile::Catalog,ContentHash::of(b"fixture"),workspace.inputs("source",Profile::Catalog,[]).unwrap());
+        output.declare::<Package>().unwrap();
+        output.declare::<SourceArtifact>().unwrap();
+        output.push(Package {name:"private".into()}).await.unwrap();
+        let first=SourceArtifact {input:InputRevision {manifest:ContentHash::of(b"manifest")}.id(),path:"module.py".into(),content:ContentHash::of(b"x"),byte_len:1};
+        let mut second=first.clone();second.byte_len=2;
+        output.push(first).await.unwrap();output.push(second).await.unwrap();
+        assert!(matches!(output.finish(ProviderOutcome::Complete).await,Err(ModelError::Conflict(_))));
+        assert!(workspace.completed::<Package>().is_err());
+        assert!(workspace.completed::<SourceArtifact>().is_err());
+    }
+    #[tokio::test]
+    async fn nominal_reference_closure_reuses_completed_streams_and_refuses_missing_targets() {
+        use lctx_model::domain::input::Release;
+        let model=Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>(),Relation::of::<Release>()]).unwrap());
+        for valid in [true,false] {
+            let workspace=Workspace::new(model.clone(),WorkspaceOptions::default()).unwrap();
+            let output=workspace.output("release",Profile::Catalog,ContentHash::of(b"fixture"),workspace.inputs("release",Profile::Catalog,[]).unwrap());
+            output.declare::<Package>().unwrap();output.declare::<Release>().unwrap();
+            let package=Package {name:"package".into()};
+            let reference=if valid {package.id()} else {Package {name:"absent".into()}.id()};
+            output.push(package).await.unwrap();
+            output.push(Release {package:reference,version:"1.0".into()}).await.unwrap();
+            output.finish(ProviderOutcome::Complete).await.unwrap();
+            let content=workspace.content().unwrap();
+            let admitted=workspace.validate().await;
+            if valid {assert_eq!(admitted.unwrap(),content);}else{assert!(admitted.is_err());}
+        }
     }
     #[tokio::test]
     async fn completed_input_keeps_files_alive_and_later_contributions_do_not_change_it() {

@@ -452,16 +452,20 @@ pub async fn compile(
     let fact_names:std::collections::BTreeSet<_>=providers.iter().map(|p|p.declaration(profile).name).collect();
     facts::compile_facts(workspace,&captured,profile,providers,Default::default()).await?;
     drop(captured);
+    workspace.facts_availability(profile)?;
+    for declaration in schedule.stages() {
+        let Some(normalization)=Normalization::ALL.into_iter().find(|n|n.declaration(profile).name==declaration.name) else {continue;};
+        let access=workspace.inputs(declaration.name,profile,declaration.inputs.iter().map(|i|i.name()))?;
+        let output=workspace.producer(declaration,profile,access.clone());
+        normalization.run(access,output,workspace,model).await?;
+    }
     let graph_needs=schedule.stages().iter().filter_map(|s|UpperStage::resolve(s.name).ok()).flat_map(|s|s.graphs().iter().copied()).collect();
     let mut graphs=None;
     for declaration in schedule.stages() {
         if fact_names.contains(declaration.name) {continue;}
+        if Normalization::ALL.into_iter().any(|n|n.declaration(profile).name==declaration.name) {continue;}
         let access=workspace.inputs(declaration.name,profile,declaration.inputs.iter().map(|i|i.name()))?;
-        let output=workspace.output(declaration.name,profile,declaration.code,access.clone());
-        if let Some(normalization)=Normalization::ALL.into_iter().find(|n|n.declaration(profile).name==declaration.name) {
-            normalization.run(access,output,workspace,model).await?;
-            continue;
-        }
+        let output=workspace.producer(declaration,profile,access.clone());
         let binding=UpperStage::resolve(declaration.name)?;
         let prepared=prepared.ok_or_else(||ModelError::Invalid("missing upper configuration".into()))?;
         if !binding.graphs().is_empty() && graphs.is_none() {

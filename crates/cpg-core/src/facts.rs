@@ -25,7 +25,7 @@ pub async fn compile_facts(
             .ok_or_else(||ModelError::Invalid(format!("missing facts provider {}",declaration.name)))?;
         let provider = offered.swap_remove(position);
         let inputs = workspace.inputs(declaration.name, profile, declaration.inputs.iter().map(|r|r.name()))?;
-        let output = Arc::new(workspace.output(declaration.name,profile,declaration.code,inputs));
+        let output = Arc::new(workspace.producer(declaration,profile,inputs));
         bundle::run_provider(provider,profile,output.clone(),workspace.model().clone(),captured.clone(),workspace.budget().clone(),limits).await?;
         Arc::try_unwrap(output).map_err(|_|ModelError::Invalid("native provider retained output ownership".into()))?.complete().await?;
     }
