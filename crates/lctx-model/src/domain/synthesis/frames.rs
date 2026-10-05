@@ -6,7 +6,7 @@ use crate::domain::{
     resources::ResourceBudget,
     *,
 };
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="synthesis_frames",invariant_refs=invariants_refs,semantic_source=include_bytes!("frames.rs"))]
 pub struct Frame {
     #[model(key)]

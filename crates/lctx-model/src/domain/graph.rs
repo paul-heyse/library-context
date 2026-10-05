@@ -23,7 +23,7 @@ nominal_id!(EntityId);
 nominal_id!(AssertionId);
 #[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Serialize,Deserialize)]
 #[repr(u16)]
-pub enum EntityKind {Release=0,Capture=1,Source=2,Module=3,Occurrence=4,Provider=5,Context=6,Run=7,Declaration=8,Exposure=9,InvocationVariant=10,Scope=11,Parameter=12,Field=13,NativeSymbol=14,Type=15,Literal=16,Place=17,Predicate=18,EvaluationAtom=19,Condition=20,AssumptionUniverse=21,Assumption=22,CatalogOption=23,Scenario=24,RetrievalText=25,RetrievalUnit=26,AnalysisDefinition=27,EmbeddingSpecification=28,Package=29,AcquisitionOrigin=30,NativeModule=31,NativeCallable=32,ParameterShape=33,TypeVariable=34,TypeSequence=35,CallableParameterList=36,CallableParameter=37,TypedDictFieldList=38,TypedDictField=39,PlaceRoot=40,PathSegment=41,AccessPath=42,LiteralSet=43,ConditionNode=44,AssumptionSet=45,Qualification=46,Evidence=47,EvidenceSpan=48,CatalogMember=49,Original=50,RetrievalOrigin=51,SymbolSequence=101,EntityReference=102,Argument=103,AnalysisRun=104,AnalysisParent=105,AnalysisPremise=106,CoverageSource=107,ProviderSurface=100,MethodParameters=52,Subject=108,AnalyticFrame=109,AnchorSource=110,AssertionTemplate=111,BindingEvent=112,CallChannel=113,CallDestination=114,CallOrigin=115,CallReceiver=116,CatalogCallable=117,CatalogCandidate=118,CatalogClass=119,CatalogDefault=120,CatalogExposure=121,CatalogOptionEvidence=122,CatalogOptionSubject=123,ConceptScope=124,DocumentAttributeValue=125,DocumentNode=126,ExportOrigin=127,FlowCallPath=128,FlowCaptureInventory=129,FlowDefinition=130,FlowReachingTarget=131,FlowUse=132,LexicalScope=133,LexicalTarget=134,RecordOptions=135,RecordTransformDefaults=136,RetrievalSubject=137,ScenarioSource=138,SignatureSlot=139,SignatureTypeSubject=140,StructuralFrame=141,SyntaxDetail=142,TaskReport=143,Transfer=144,TypeDomain=145,AuthoredModel=146,ModelCatalog=147,ModeledOperation=148,Outcome=149}
+pub enum EntityKind {Release=0,Capture=1,Source=2,Module=3,Occurrence=4,Provider=5,Context=6,Run=7,Declaration=8,Exposure=9,InvocationVariant=10,Scope=11,Parameter=12,Field=13,NativeSymbol=14,Type=15,Literal=16,Place=17,Predicate=18,EvaluationAtom=19,Condition=20,AssumptionUniverse=21,Assumption=22,CatalogOption=23,Scenario=24,RetrievalText=25,RetrievalUnit=26,AnalysisDefinition=27,EmbeddingSpecification=28,Package=29,AcquisitionOrigin=30,NativeModule=31,NativeCallable=32,ParameterShape=33,TypeVariable=34,TypeSequence=35,CallableParameterList=36,CallableParameter=37,TypedDictFieldList=38,TypedDictField=39,PlaceRoot=40,PathSegment=41,AccessPath=42,LiteralSet=43,ConditionNode=44,AssumptionSet=45,Qualification=46,Evidence=47,EvidenceSpan=48,CatalogMember=49,Original=50,RetrievalOrigin=51,SymbolSequence=101,EntityReference=102,Argument=103,AnalysisRun=104,AnalysisParent=105,AnalysisPremise=106,CoverageSource=107,ProviderSurface=100,MethodParameters=52,Subject=108,AnalyticFrame=109,AnchorSource=110,AssertionTemplate=111,BindingEvent=112,CallChannel=113,CallDestination=114,CallOrigin=115,CallReceiver=116,CatalogCallable=117,CatalogCandidate=118,CatalogClass=119,CatalogDefault=120,CatalogExposure=121,CatalogOptionEvidence=122,CatalogOptionSubject=123,ConceptScope=124,DocumentAttributeValue=125,DocumentNode=126,ExportOrigin=127,FlowCallPath=128,FlowCaptureInventory=129,FlowDefinition=130,FlowReachingTarget=131,FlowUse=132,LexicalScope=133,LexicalTarget=134,RecordOptions=135,RecordTransformDefaults=136,RetrievalSubject=137,ScenarioSource=138,SignatureSlot=139,SignatureTypeSubject=140,StructuralFrame=141,SyntaxDetail=142,TaskReport=143,Transfer=144,TypeDomain=145,AuthoredModel=146,ModelCatalog=147,ModeledOperation=148,Outcome=149,Definition=150,SynthesisFrame=151,}
 /// A nominal current semantic key, independent of physical family names or Arrow layout.
 fn entity_key(kind:EntityKind,domain:&str,key:&[u8;16])->EntityId{
     let mut sink=KeySink::new("graph-entity-key/v1");sink.part(b"kind",&(kind as u16).to_le_bytes());sink.part(b"semantic-type",domain.as_bytes());sink.part(b"key",key);EntityId(sink.finish())
@@ -38,6 +38,16 @@ pub trait GraphEntityRecord:Record {const GRAPH_KIND:EntityKind;fn into_graph(se
 #[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Entity {
+
+
+    AuthoredModelTargets(super::models::AuthoredTarget),
+    AnalyticTextDefinitions(super::embedding::text::TextDefinition),
+    AnalyticTextSubjects(super::embedding::text::TextSubject),
+    SynthesisFrames(super::synthesis::frames::Frame),
+    ContextExecutionItems(super::execution::context_execution::ContextItem),
+    CapturedValueSources(super::execution::capture_bridge::CapturedValueSource),
+    ClassFieldDefaults(super::normalized::callable_aspects::FieldDefault),
+
     LocalTypeDomainValues(super::local_theory::DomainValue),
     ReportValues(super::deployment::ReportValue),
     ReportCollections(super::deployment::ReportCollection),
@@ -260,6 +270,16 @@ macro_rules! graph_entities {($($variant:ident:$kind:ident=>$ty:ty,)*)=>{
     }
 };}
 graph_entities! {
+
+
+    AuthoredModelTargets:Subject=>super::models::AuthoredTarget,
+    AnalyticTextDefinitions:Definition=>super::embedding::text::TextDefinition,
+    AnalyticTextSubjects:Subject=>super::embedding::text::TextSubject,
+    SynthesisFrames:SynthesisFrame=>super::synthesis::frames::Frame,
+    ContextExecutionItems:Subject=>super::execution::context_execution::ContextItem,
+    CapturedValueSources:Subject=>super::execution::capture_bridge::CapturedValueSource,
+    ClassFieldDefaults:Literal=>super::normalized::callable_aspects::FieldDefault,
+
     LocalTypeDomainValues:Literal=>super::local_theory::DomainValue,
     ReportValues:Literal=>super::deployment::ReportValue,
     ReportCollections:TaskReport=>super::deployment::ReportCollection,
@@ -475,6 +495,42 @@ pub struct ReferenceRequirement {pub target:Target,pub kind:Option<EntityKind>,p
 fn reference_requirement(reference:&super::SemanticReference)->Result<ReferenceRequirement,ModelError>{let (target,kind)=reference_target(reference)?;Ok(ReferenceRequirement{target,kind,subtype:reference.subtype})}
 pub fn reference_target(reference:&super::SemanticReference)->Result<(Target,Option<EntityKind>),ModelError>{
     match reference.target {
+    <super::transfer::local::ControlSupport as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::transfer::local::Selection as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+
+    <super::calls::CallResolutionMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::calls::SignatureEnumerationMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::CommunityLabelMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::bindings::BindingSetMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::bindings::BindingSetCoverage as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::dispatch::DispatchPremise as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::dispatch::DispatchEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::transfer::summary::ControlInfluence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::transfer::summary::ControlSupport as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::transfer::summary::Selection as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+
+    <super::models::AuthoredTarget as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Subject,reference.target,&reference.key)),Some(EntityKind::Subject))),
+    <super::embedding::text::TextDefinition as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Definition,reference.target,&reference.key)),Some(EntityKind::Definition))),
+    <super::embedding::text::TextSubject as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Subject,reference.target,&reference.key)),Some(EntityKind::Subject))),
+    <super::synthesis::frames::Frame as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::SynthesisFrame,reference.target,&reference.key)),Some(EntityKind::SynthesisFrame))),
+    <super::execution::context_execution::ContextItem as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Subject,reference.target,&reference.key)),Some(EntityKind::Subject))),
+    <super::execution::capture_bridge::CapturedValueSource as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Subject,reference.target,&reference.key)),Some(EntityKind::Subject))),
+    <super::normalized::callable_aspects::FieldDefault as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Literal,reference.target,&reference.key)),Some(EntityKind::Literal))),
+    <super::assumptions_universe::AssumptionUniverseSupport as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::embedding::text::TextAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::synthesis::seeds::ConfiguredSeedDecision as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::synthesis::automatic::Decision as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::structural::Reach as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::structural::controls::UnfollowedArgument as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::structural::handoffs::ValueSource as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::structural::handoffs::Handoff as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::execution::summary_consequences::ClaimConclusion as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::symbolic_fields::SourceFieldClass as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::symbolic_fields::SourceFieldStore as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::symbolic_fields::SourceFieldReader as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::symbolic_fields::SourceFieldAssociation as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::events::EventAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+
     <super::local_theory::DomainValue as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Literal,reference.target,&reference.key)),Some(EntityKind::Literal))),
     <super::deployment::ReportValue as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Literal,reference.target,&reference.key)),Some(EntityKind::Literal))),
     <super::deployment::ReportCollection as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::TaskReport,reference.target,&reference.key)),Some(EntityKind::TaskReport))),
@@ -1614,6 +1670,16 @@ impl From<super::symbols::ModuleResolutionSupport> for SupportValue{fn from(row:
 
 #[macro_export]
 macro_rules! graph_entity_records{($apply:ident)=>{$apply!{
+
+
+    AuthoredModelTargets:$crate::domain::models::AuthoredTarget,
+    AnalyticTextDefinitions:$crate::domain::embedding::text::TextDefinition,
+    AnalyticTextSubjects:$crate::domain::embedding::text::TextSubject,
+    SynthesisFrames:$crate::domain::synthesis::frames::Frame,
+    ContextExecutionItems:$crate::domain::execution::context_execution::ContextItem,
+    CapturedValueSources:$crate::domain::execution::capture_bridge::CapturedValueSource,
+    ClassFieldDefaults:$crate::domain::normalized::callable_aspects::FieldDefault,
+
     LocalTypeDomainValues:$crate::domain::local_theory::DomainValue,
     ReportValues:$crate::domain::deployment::ReportValue,
     ReportCollections:$crate::domain::deployment::ReportCollection,
@@ -2013,6 +2079,35 @@ impl GraphAssertionRecord for super::symbols::ModuleResolutionSupport{const GRAP
 
 #[macro_export]
 macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
+    LocalControlSupports:$crate::domain::transfer::local::ControlSupport,
+    LocalTransferSelections:$crate::domain::transfer::local::Selection,
+
+    CallResolutionMembers:$crate::domain::calls::CallResolutionMember,
+    SignatureEnumerationMembers:$crate::domain::calls::SignatureEnumerationMember,
+    AnalyticCommunityLabelMembers:$crate::domain::analytics::CommunityLabelMember,
+    BindingSetMembers:$crate::domain::normalized::bindings::BindingSetMember,
+    BindingSetCoverage:$crate::domain::normalized::bindings::BindingSetCoverage,
+    NormalizedDispatchPremises:$crate::domain::normalized::dispatch::DispatchPremise,
+    NormalizedDispatchEvidence:$crate::domain::normalized::dispatch::DispatchEvidence,
+    SummaryControlInfluences:$crate::domain::transfer::summary::ControlInfluence,
+    SummaryControlSupports:$crate::domain::transfer::summary::ControlSupport,
+    SummaryTransferSelections:$crate::domain::transfer::summary::Selection,
+
+    AssumptionUniverseSupports:$crate::domain::assumptions_universe::AssumptionUniverseSupport,
+    AnalyticTextAssessments:$crate::domain::embedding::text::TextAssessment,
+    SynthesisConfiguredSeedDecisions:$crate::domain::synthesis::seeds::ConfiguredSeedDecision,
+    SynthesisAutomaticSeedDecisions:$crate::domain::synthesis::automatic::Decision,
+    StructuralReaches:$crate::domain::structural::Reach,
+    StructuralUnfollowedArguments:$crate::domain::structural::controls::UnfollowedArgument,
+    StructuralHandoffValues:$crate::domain::structural::handoffs::ValueSource,
+    StructuralHandoffOccurrences:$crate::domain::structural::handoffs::Handoff,
+    SummaryBehavioralConclusions:$crate::domain::execution::summary_consequences::ClaimConclusion,
+    SourceFieldClassAssessments:$crate::domain::normalized::symbolic_fields::SourceFieldClass,
+    SourceFieldStores:$crate::domain::normalized::symbolic_fields::SourceFieldStore,
+    SourceFieldReaders:$crate::domain::normalized::symbolic_fields::SourceFieldReader,
+    SourceFieldAssociations:$crate::domain::normalized::symbolic_fields::SourceFieldAssociation,
+    CallEventAssessments:$crate::domain::normalized::events::EventAssessment,
+
     LocalTypeDomains:$crate::domain::local_theory::TypeDomain,
     LocalTypeDomainAssessments:$crate::domain::local_theory::TypeDomainAssessment,
     LocalTypeDomainMembers:$crate::domain::local_theory::TypeDomainMember,
@@ -3037,3 +3132,58 @@ impl GraphAssertionRecord for super::transfer::summary::TransferSupport{const GR
 
 impl From<super::local_theory::TypeDomain> for ClaimValue{fn from(row:super::local_theory::TypeDomain)->Self{Self::LocalTypeDomains(row)}}
 impl GraphAssertionRecord for super::local_theory::TypeDomain{const GRAPH_KIND:AssertionKind=AssertionKind::PredicateDomain;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::PredicateDomain,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+
+impl From<super::assumptions_universe::AssumptionUniverseSupport> for ClaimValue{fn from(row:super::assumptions_universe::AssumptionUniverseSupport)->Self{Self::AssumptionUniverseSupports(row)}}
+impl GraphAssertionRecord for super::assumptions_universe::AssumptionUniverseSupport{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::embedding::text::TextAssessment> for ClaimValue{fn from(row:super::embedding::text::TextAssessment)->Self{Self::AnalyticTextAssessments(row)}}
+impl GraphAssertionRecord for super::embedding::text::TextAssessment{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::synthesis::seeds::ConfiguredSeedDecision> for ClaimValue{fn from(row:super::synthesis::seeds::ConfiguredSeedDecision)->Self{Self::SynthesisConfiguredSeedDecisions(row)}}
+impl GraphAssertionRecord for super::synthesis::seeds::ConfiguredSeedDecision{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::synthesis::automatic::Decision> for ClaimValue{fn from(row:super::synthesis::automatic::Decision)->Self{Self::SynthesisAutomaticSeedDecisions(row)}}
+impl GraphAssertionRecord for super::synthesis::automatic::Decision{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::structural::Reach> for ClaimValue{fn from(row:super::structural::Reach)->Self{Self::StructuralReaches(row)}}
+impl GraphAssertionRecord for super::structural::Reach{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::structural::controls::UnfollowedArgument> for ClaimValue{fn from(row:super::structural::controls::UnfollowedArgument)->Self{Self::StructuralUnfollowedArguments(row)}}
+impl GraphAssertionRecord for super::structural::controls::UnfollowedArgument{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::structural::handoffs::ValueSource> for ClaimValue{fn from(row:super::structural::handoffs::ValueSource)->Self{Self::StructuralHandoffValues(row)}}
+impl GraphAssertionRecord for super::structural::handoffs::ValueSource{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::structural::handoffs::Handoff> for ClaimValue{fn from(row:super::structural::handoffs::Handoff)->Self{Self::StructuralHandoffOccurrences(row)}}
+impl GraphAssertionRecord for super::structural::handoffs::Handoff{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::execution::summary_consequences::ClaimConclusion> for ClaimValue{fn from(row:super::execution::summary_consequences::ClaimConclusion)->Self{Self::SummaryBehavioralConclusions(row)}}
+impl GraphAssertionRecord for super::execution::summary_consequences::ClaimConclusion{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::normalized::symbolic_fields::SourceFieldClass> for ClaimValue{fn from(row:super::normalized::symbolic_fields::SourceFieldClass)->Self{Self::SourceFieldClassAssessments(row)}}
+impl GraphAssertionRecord for super::normalized::symbolic_fields::SourceFieldClass{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::normalized::symbolic_fields::SourceFieldStore> for ClaimValue{fn from(row:super::normalized::symbolic_fields::SourceFieldStore)->Self{Self::SourceFieldStores(row)}}
+impl GraphAssertionRecord for super::normalized::symbolic_fields::SourceFieldStore{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::normalized::symbolic_fields::SourceFieldReader> for ClaimValue{fn from(row:super::normalized::symbolic_fields::SourceFieldReader)->Self{Self::SourceFieldReaders(row)}}
+impl GraphAssertionRecord for super::normalized::symbolic_fields::SourceFieldReader{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::normalized::symbolic_fields::SourceFieldAssociation> for ClaimValue{fn from(row:super::normalized::symbolic_fields::SourceFieldAssociation)->Self{Self::SourceFieldAssociations(row)}}
+impl GraphAssertionRecord for super::normalized::symbolic_fields::SourceFieldAssociation{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::normalized::events::EventAssessment> for ClaimValue{fn from(row:super::normalized::events::EventAssessment)->Self{Self::CallEventAssessments(row)}}
+impl GraphAssertionRecord for super::normalized::events::EventAssessment{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+
+impl From<super::calls::CallResolutionMember> for ClaimValue{fn from(row:super::calls::CallResolutionMember)->Self{Self::CallResolutionMembers(row)}}
+impl GraphAssertionRecord for super::calls::CallResolutionMember{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::calls::SignatureEnumerationMember> for ClaimValue{fn from(row:super::calls::SignatureEnumerationMember)->Self{Self::SignatureEnumerationMembers(row)}}
+impl GraphAssertionRecord for super::calls::SignatureEnumerationMember{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::analytics::CommunityLabelMember> for ClaimValue{fn from(row:super::analytics::CommunityLabelMember)->Self{Self::AnalyticCommunityLabelMembers(row)}}
+impl GraphAssertionRecord for super::analytics::CommunityLabelMember{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::normalized::bindings::BindingSetMember> for ClaimValue{fn from(row:super::normalized::bindings::BindingSetMember)->Self{Self::BindingSetMembers(row)}}
+impl GraphAssertionRecord for super::normalized::bindings::BindingSetMember{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::normalized::bindings::BindingSetCoverage> for ClaimValue{fn from(row:super::normalized::bindings::BindingSetCoverage)->Self{Self::BindingSetCoverage(row)}}
+impl GraphAssertionRecord for super::normalized::bindings::BindingSetCoverage{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::normalized::dispatch::DispatchPremise> for ClaimValue{fn from(row:super::normalized::dispatch::DispatchPremise)->Self{Self::NormalizedDispatchPremises(row)}}
+impl GraphAssertionRecord for super::normalized::dispatch::DispatchPremise{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::normalized::dispatch::DispatchEvidence> for ClaimValue{fn from(row:super::normalized::dispatch::DispatchEvidence)->Self{Self::NormalizedDispatchEvidence(row)}}
+impl GraphAssertionRecord for super::normalized::dispatch::DispatchEvidence{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::transfer::summary::ControlInfluence> for ClaimValue{fn from(row:super::transfer::summary::ControlInfluence)->Self{Self::SummaryControlInfluences(row)}}
+impl GraphAssertionRecord for super::transfer::summary::ControlInfluence{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::transfer::summary::ControlSupport> for ClaimValue{fn from(row:super::transfer::summary::ControlSupport)->Self{Self::SummaryControlSupports(row)}}
+impl GraphAssertionRecord for super::transfer::summary::ControlSupport{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::transfer::summary::Selection> for ClaimValue{fn from(row:super::transfer::summary::Selection)->Self{Self::SummaryTransferSelections(row)}}
+impl GraphAssertionRecord for super::transfer::summary::Selection{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+
+impl From<super::transfer::local::ControlSupport> for ClaimValue{fn from(row:super::transfer::local::ControlSupport)->Self{Self::LocalControlSupports(row)}}
+impl GraphAssertionRecord for super::transfer::local::ControlSupport{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+impl From<super::transfer::local::Selection> for ClaimValue{fn from(row:super::transfer::local::Selection)->Self{Self::LocalTransferSelections(row)}}
+impl GraphAssertionRecord for super::transfer::local::Selection{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}

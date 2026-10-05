@@ -17,7 +17,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainCode, DomainSum};
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="analytic_text_definitions",validate=validate_definition)]
 pub struct TextDefinition {
     #[model(key)]
@@ -45,7 +45,7 @@ fn validate_definition(row: &TextDefinition) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "analytic_text_subjects")]
 pub enum TextSubject {
     #[model(code = 0)]
@@ -71,7 +71,7 @@ pub enum TextBoundary {
     MissingDocstring = 4,
     UnsupportedEncoding = 5,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="analytic_text_assessments",validate=validate_assessment,invariant_refs=text_invariants_refs)]
 pub struct TextAssessment {
     #[model(key)]

@@ -27,7 +27,7 @@ pub enum RankBasis {
     SelectedPageRank = 1,
     PageRankUnavailable = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="synthesis_automatic_seed_decisions",semantic_source=include_bytes!("automatic.rs"))]
 pub struct Decision {
     #[model(key)]

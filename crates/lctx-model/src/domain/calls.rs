@@ -1819,7 +1819,7 @@ pub struct CallResolution {
     #[model(key)]
     pub complete: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "call_resolution_members")]
 pub struct CallResolutionMember {
     #[model(key)]

@@ -33,7 +33,7 @@ pub struct ContextExecution {
     pub items: ContentHash,
     pub sources: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="context_execution_items",rule="context_execution_item",conclusion=execution)]
 pub struct ContextItem {
     #[model(key)]

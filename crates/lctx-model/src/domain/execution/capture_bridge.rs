@@ -33,7 +33,7 @@ fn include<R: Record>(
     Ok(())
 }
 /// The value source is explicit; it does not change the nested callable's signature.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, crate::DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, crate::DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "captured_value_sources")]
 pub enum CapturedValueSource {
     #[model(code = 0)]

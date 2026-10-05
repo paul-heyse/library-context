@@ -52,7 +52,7 @@ pub struct DispatchMember {
     pub named: bool,
     pub members: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "normalized_dispatch_premises")]
 pub enum DispatchPremise {
     #[model(code = 0)]
@@ -78,7 +78,7 @@ pub enum DispatchPremise {
         resolution: Id<SymbolEntityResolution>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "normalized_dispatch_evidence")]
 pub struct DispatchEvidence {
     #[model(key)]

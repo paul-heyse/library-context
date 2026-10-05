@@ -180,7 +180,7 @@ pub struct CallAlternativeEvidence {
     #[model(key)]
     pub support: Id<CallTargetSupport>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "call_event_assessments")]
 pub struct EventAssessment {
     #[model(key)]

@@ -604,7 +604,7 @@ pub struct CommunityLabel {
     pub members: ContentHash,
     pub score: FiniteF64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "analytic_community_label_members")]
 pub struct CommunityLabelMember {
     #[model(key)]

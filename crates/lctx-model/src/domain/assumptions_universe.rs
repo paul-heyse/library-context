@@ -7,7 +7,7 @@ use super::{
     *,
 };
 use crate::Domain;
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "assumption_universe_supports", rule = "pinned_assumption_universe", conclusion = universe, invariant_refs = invariants_refs)]
 pub struct AssumptionUniverseSupport {
     #[model(key)]

@@ -31,7 +31,7 @@ pub enum ScopeApplicability {
     Outside = 1,
     Unresolved = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "synthesis_configured_seed_decisions")]
 pub struct ConfiguredSeedDecision {
     #[model(key)]

@@ -633,7 +633,7 @@ fn validate_catalog(row: &ModelCatalog) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "authored_model_targets")]
 pub enum AuthoredTarget {
     #[model(code = 0)]

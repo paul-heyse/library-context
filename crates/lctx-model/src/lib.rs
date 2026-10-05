@@ -1,9 +1,11 @@
-//! The declared semantic relation model (DESIGN §15, ADR-0082).
+//! Store-free typed semantic authority for compiler graph artifacts.
 //!
-//! `domain` is the typed semantic authority (ADR-0085): relations, identity, vocabulary, the named
-//! policies, the transfer algebra and composition, the condition kernel, obligations and verdicts,
-//! derivations, stages and generations. It performs no I/O and depends on neither `cpg-schema` nor
-//! `cpg-core`; `lctx-postgres` stores its generations and `cpg-core` runs its stages.
+//! `domain` owns semantic entities, role-labelled attributed assertions, identity recipes,
+//! named policies, the transfer algebra, condition kernel, obligations and derivations.
+//! Completed relation streams are compiler inputs; finite semantic graph mappings and admission
+//! requirements define the published contract. Static stage declarations describe producers and
+//! semantic predecessor selection. `cpg-core` executes producers and emits immutable artifacts;
+//! database publication and physical realization are separate owners.
 //!
 extern crate self as lctx_model;
 pub mod domain;

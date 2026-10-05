@@ -46,9 +46,7 @@ macro_rules! native_pairs {
                 inputs
             }
             pub fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-                let allowance = batch.get_array_memory_size().checked_mul(4)
-                    .and_then(|n| n.checked_add(batch.num_rows().saturating_mul(512)))
-                    .ok_or_else(|| invalid("native inventory decode allowance overflow"))?;
+                let allowance = logical_batch_bytes(batch)?.checked_mul(4).and_then(|n| n.checked_add(batch.num_rows().saturating_mul(512))).ok_or_else(||invalid("native inventory decode allowance overflow"))?;
                 let _decode = self.budget.reserve("native-inventory-decode", allowance)?;
                 if name == AssertionQualification::NAME {
                     for row in AssertionQualification::decode(batch)? {

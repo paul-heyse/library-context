@@ -64,7 +64,7 @@ pub struct CallableAspect {
     pub admission: AspectAdmission,
     pub related: Option<Id<EntityRef>>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "class_field_defaults")]
 pub enum FieldDefault {
     #[model(code = 0)]

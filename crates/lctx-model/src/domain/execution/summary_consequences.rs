@@ -191,7 +191,7 @@ pub struct ClaimRefutationCoverage {
     #[model(premise)]
     pub coverage: Id<ProviderCoverage>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "summary_behavioral_conclusions",
     rule = "summary_behavioral_conclusion"

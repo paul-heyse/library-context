@@ -74,7 +74,7 @@ pub struct LiteralArgument {
     pub callee: Id<EntityRef>,
     pub literal: Id<Literal>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_unfollowed_arguments")]
 pub struct UnfollowedArgument {
     #[model(key)]

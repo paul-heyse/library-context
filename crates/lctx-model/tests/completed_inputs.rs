@@ -50,12 +50,15 @@ fn completed_input_rejects_invalid_metadata() {
 }
 
 #[test]
-fn actual_upper_inputs_do_not_require_publication_epochs() {
+fn semantic_predecessor_selection_uses_declared_sources_without_runtime_metadata() {
+    let model=lctx_model::domain::model().unwrap();
+    let mut selectors=0;
     for profile in Profile::ALL {
         let mut inputs=local_semantics::LocalData::consumed_inputs(profile);
         inputs.extend(execution::summary_production::SummaryData::consumed_inputs(profile));
         inputs.extend(analytics::build::Data::consumed_inputs(profile));
         inputs.extend(synthesis::production::Data::consumed_inputs(profile));
-        assert!(inputs.iter().all(|input|input.prefix().is_none()));
+        for input in inputs {assert!(model.relation(input.name()).is_some());selectors+=usize::from(input.prefix().is_some());}
     }
+    assert!(selectors>0,"earlier semantic vocabulary must be selected explicitly");
 }

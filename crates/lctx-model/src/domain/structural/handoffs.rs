@@ -36,7 +36,7 @@ macro_rules! inputs {($($f:ident:$ty:ty,)*)=>{
  impl Data {pub fn new(b:&resources::ResourceBudget)->Self{Self{entry:EntryData::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{let e=self.entry.visit(n,b)?;$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(e)}pub fn inputs()->Vec<ValidationInput>{let mut v=EntryData::validation_inputs();v.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);v}}
 };}
 crate::structural_handoff_inputs!(inputs);
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_handoff_values")]
 pub enum ValueSource {
     #[model(code = 0)]
@@ -67,7 +67,7 @@ pub struct Assessment {
     pub value: Option<Id<ValueSource>>,
     pub reason: Option<obligation::ObligationKind>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_handoff_occurrences")]
 pub struct Handoff {
     #[model(key)]
