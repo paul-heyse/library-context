@@ -131,7 +131,7 @@ alone owns current status. `AP/Fxx` identifies this review; R01–R08 remain ext
 
 Source owners:
 attempt (`f6562d3^:crates/cpg-core/src/attempt.rs`, recover through Git),
-[generation](../../../python/lctx_mcp/src/lctx_mcp/generation.py),
+[generation](https://github.com/paul-heyse/library-context/blob/739f9dfbfa2fb3acb52574e8bf894599b5d34af7/python/lctx_mcp/src/lctx_mcp/generation.py),
 [projection](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/serving_projection.rs),
 [hydration](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/hydration.rs),
 synthesis (`crates/cpg-core/src/synth.rs`),

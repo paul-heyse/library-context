@@ -30,7 +30,7 @@ Decisive source routes:
 - [inventory.rs:79](../../crates/lctx-model/src/domain/native_requests/inventory.rs#L79)
   and [ingress.rs:37](../../crates/lctx-model/src/domain/native_requests/ingress.rs#L37)
   establish exact context refusal causes.
-- [native_service.rs:130](../../crates/lctx-postgres/src/generations/native_service.rs#L130)
+- [native_service.rs:130](https://github.com/paul-heyse/library-context/blob/42551010c579c2f7c9ccd1f7449d36911917ee99/crates/lctx-postgres/src/generations/native_service.rs#L130)
   and lines 260–752 perform correspondence, replay and path assembly; lines 826–875
   reconstruct the public member/analysis/formal domain on each request.
 - [evaluate.rs:14](../../crates/lctx-model/src/domain/native_requests/evaluate.rs#L14)

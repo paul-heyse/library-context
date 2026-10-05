@@ -16,7 +16,7 @@ Authority: [ADR-0085](../../adr/0085-typed-semantic-domain.md),
 [`qualification/support validation`](../../../crates/lctx-model/src/domain/assertion.rs),
 [`shared fixture`](../../../crates/lctx-model/tests/fixtures/guards.rs),
 [`model tests`](../../../crates/lctx-model/tests/domain_guard_rebase.rs) and
-[`PG test`](../../../crates/lctx-postgres/tests/domain_guard_rebase.rs).
+[`PG test` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/tests/domain_guard_rebase.rs).
 Adjacent inspection covered the existing simultaneous-substitution implementation, occurrence
 roles and shared scope ownership. Line references describe the inspected working tree.
 

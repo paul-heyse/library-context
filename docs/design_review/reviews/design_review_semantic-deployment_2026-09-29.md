@@ -16,8 +16,8 @@ correction, not assembled P1 lifecycle qualification.
 [`root membership`](../../../crates/lctx-model/src/domain/mod.rs),
 [`shared fixture`](../../../crates/lctx-model/tests/fixtures/deployment.rs),
 [`model tests`](../../../crates/lctx-model/tests/domain_deployment.rs),
-[`PG test`](../../../crates/lctx-postgres/tests/domain_deployment.rs) and
-[`GenerationLease::release`](../../../crates/lctx-postgres/src/generations/mod.rs).
+[`PG test` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/tests/domain_deployment.rs) and
+[`GenerationLease::release` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/src/generations/mod.rs).
 Adjacent inspection covered shared assertion/ownership validation, generated codec validation,
 old `cpg-schema/src/evidence.rs` and `cpg-extract/src/observations.rs`, and pinned SQLx 0.9.0
 pool/PostgreSQL connection source. Line references describe the inspected working tree.

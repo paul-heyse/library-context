@@ -18,7 +18,7 @@ Reviewed [`ownership.rs`](../../../crates/lctx-model/src/domain/ownership.rs),
 [`assertion.rs`](../../../crates/lctx-model/src/domain/assertion.rs), root membership in
 [`mod.rs`](../../../crates/lctx-model/src/domain/mod.rs), and the
 [`model`](../../../crates/lctx-model/tests/domain_coverage.rs) and
-[`PostgreSQL`](../../../crates/lctx-postgres/tests/domain_coverage.rs) coverage tests.
+[`PostgreSQL` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/tests/domain_coverage.rs) coverage tests.
 Adjacent inspection covered acquisition boundaries and sealed-generation validation. Source line
 references below describe the inspected snapshot; concurrent work can move them.
 

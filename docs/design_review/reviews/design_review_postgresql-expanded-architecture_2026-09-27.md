@@ -114,9 +114,9 @@ events still require their own protected backup.
 
 ### 4.1 Serving without whole-corpus relational hydration
 
-**Implemented:** [`generation.load`](../../../python/lctx_mcp/src/lctx_mcp/generation.py) validates
+**Implemented:** [`generation.load`](https://github.com/paul-heyse/library-context/blob/219070e456524be402e1571d9e634275206fae92/python/lctx_mcp/src/lctx_mcp/generation.py) validates
 the entire file generation, constructs dense vector matrices and materializes tables as Python
-dictionaries. [`server.py`](../../../python/lctx_mcp/src/lctx_mcp/server.py) builds additional
+dictionaries. [`server.py`](https://github.com/paul-heyse/library-context/blob/219070e456524be402e1571d9e634275206fae92/python/lctx_mcp/src/lctx_mcp/server.py) builds additional
 support/evidence indexes. Replacing only the cosine calculation would leave these costs and their
 representation coupling intact.
 

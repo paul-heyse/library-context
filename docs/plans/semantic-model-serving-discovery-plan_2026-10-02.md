@@ -25,9 +25,9 @@ transport implementation, retrieval feature or new protocol version.
 
 Source routes are [schema.rs](../../crates/lctx-model/src/domain/serving/schema.rs),
 [mappings.rs](../../crates/lctx-model/src/domain/serving/mappings.rs),
-[catalog_service.rs](../../crates/lctx-postgres/src/generations/catalog_service.rs),
-[bridge serving.rs](../../python/lctx_storage/src/serving.rs) and
-[Python server](../../python/lctx_mcp/src/lctx_mcp/server.py) and
+[catalog_service.rs](https://github.com/paul-heyse/library-context/blob/42551010c579c2f7c9ccd1f7449d36911917ee99/crates/lctx-postgres/src/generations/catalog_service.rs),
+[bridge serving.rs](https://github.com/paul-heyse/library-context/blob/42551010c579c2f7c9ccd1f7449d36911917ee99/python/lctx_storage/src/serving.rs) and
+[Python server](https://github.com/paul-heyse/library-context/blob/42551010c579c2f7c9ccd1f7449d36911917ee99/python/lctx_mcp/src/lctx_mcp/server.py) and
 [wire adapter](../../python/lctx_mcp/src/lctx_mcp/wire.py).
 Current packet mappings name an output type as a string separately from hydrators.
 No concrete missing packet dependency or current wire identity collision was established.

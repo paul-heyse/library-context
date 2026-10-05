@@ -20,7 +20,7 @@ generation in [`lctx-model-macros/src/lib.rs`](../../../crates/lctx-model-macros
 Controls comprise the shared
 [`lexical fixture`](../../../crates/lctx-model/tests/fixtures/lexical.rs),
 [`model tests`](../../../crates/lctx-model/tests/domain_lexical.rs),
-[`PostgreSQL tests`](../../../crates/lctx-postgres/tests/domain_lexical.rs), and
+[`PostgreSQL tests` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/tests/domain_lexical.rs), and
 [`source fixture`](../../../fixtures/python/semantic_lexical/example.py).
 
 Adjacent inspection covered source occurrences and qualification/support validation, plus the old

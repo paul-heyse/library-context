@@ -17,12 +17,12 @@ The inspected change scope is
 [`stages.rs`](../../../crates/lctx-model/src/domain/stages.rs), its changed
 [`domain.rs`](../../../crates/lctx-model/tests/domain.rs) and
 [`domain_stages.rs`](../../../crates/lctx-model/tests/domain_stages.rs) controls,
-[`generations/mod.rs`](../../../crates/lctx-postgres/src/generations/mod.rs),
-[`control.sql`](../../../crates/lctx-postgres/src/generations/control.sql),
-[`generation_stages.rs`](../../../crates/lctx-postgres/tests/generation_stages.rs), and
+[`generations/mod.rs`](https://github.com/paul-heyse/library-context/blob/5b46881e9e30115b19a7a8ac4107690a454c83c7/crates/lctx-postgres/src/generations/mod.rs),
+[`control.sql`](https://github.com/paul-heyse/library-context/blob/5b46881e9e30115b19a7a8ac4107690a454c83c7/crates/lctx-postgres/src/generations/control.sql),
+[`generation_stages.rs` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/tests/generation_stages.rs), and
 [`model_runtime.rs` tests](../../../crates/cpg-core/tests/model_runtime.rs).
 Adjacent inspection covered the
-[`model_runtime` consumer](../../../crates/cpg-core/src/model_runtime.rs), generation cleanup,
+[`model_runtime` consumer](https://github.com/paul-heyse/library-context/blob/5b46881e9e30115b19a7a8ac4107690a454c83c7/crates/cpg-core/src/model_runtime.rs), generation cleanup,
 physical digest construction, existing lifecycle controls, shared resource-budget contract and
 the pinned pgpq/SQLx source needed to assess COPY allocation and sending. This is a dated review
 of those paths, not of every dirty file in the shared tree.

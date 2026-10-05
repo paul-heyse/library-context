@@ -10,9 +10,9 @@ Authority: [ADR-0086](../../adr/0086-immutable-postgresql-generations.md) and
 This reviews the actual refusal/cleanup race and its transaction/COPY correction, not full P1.
 
 **Implemented / Interface-checked, 2026-09-29:** inspected
-[`generations/mod.rs`](../../../crates/lctx-postgres/src/generations/mod.rs), including common
+[`generations/mod.rs` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/src/generations/mod.rs), including common
 transaction finalization, pin lock ordering and explicit COPY abort;
-[`generation_stages.rs`](../../../crates/lctx-postgres/tests/generation_stages.rs), including the
+[`generation_stages.rs` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/tests/generation_stages.rs), including the
 paired wire-budget control; adjacent guard/transfer/generation tests; and six deterministic cleanup
 consumers changed from lease drop to explicit release (coverage, documents, flow, lexical, types,
 generation_stages). The dedicated Drop fallback in `tests/generations.rs:136–143` remains.

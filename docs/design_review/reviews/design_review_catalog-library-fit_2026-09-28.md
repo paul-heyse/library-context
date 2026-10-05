@@ -40,7 +40,7 @@ retains its original evidence strength; design adoption is not finding closure.
   [PR4 evidence](../evidence/2026-09-28_pr4/README.md) owns current qualification. This review does not reopen the repaired profile, constructor or singleton findings.
 - MCP already publishes machine-readable schemas, including the operation/ambiguity result union.
   Schemars would remove independent contract definitions, not introduce schema discovery for the
-  first time. See [server.py](../../../python/lctx_mcp/src/lctx_mcp/server.py), `get_operation`.
+  first time. See [server.py](https://github.com/paul-heyse/library-context/blob/3076848a35b462c11ea22e67107d570e62e5e54f/python/lctx_mcp/src/lctx_mcp/server.py), `get_operation`.
 - Schemars 0.9.0/1.2.2, Moka 0.12.16, Roaring 0.11.5 and SeaQuery are already present transitively
   in `Cargo.lock`. A direct catalog dependency is still a new use requiring qualification.
 - Pinned **Salsa 0.28.2 has optional persistence**, currently disabled in the workspace. A useful

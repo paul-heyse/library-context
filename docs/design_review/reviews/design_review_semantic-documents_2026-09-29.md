@@ -18,7 +18,7 @@ support in [`assertion.rs`](../../../crates/lctx-model/src/domain/assertion.rs),
 [`mod.rs`](../../../crates/lctx-model/src/domain/mod.rs), the
 [`model tests`](../../../crates/lctx-model/tests/domain_documents.rs),
 [`shared fixture`](../../../crates/lctx-model/tests/fixtures/documents.rs),
-[`PG tests`](../../../crates/lctx-postgres/tests/domain_documents.rs) and
+[`PG tests` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/tests/domain_documents.rs) and
 `fixtures/python/semantic_documents/guide.mdx`.
 Adjacent evidence was the old document producer (`9efce30:crates/cpg-extract/src/docs.rs`, recover through Git)
 and [`tables`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/tables.rs), plus existing source/evidence validation.

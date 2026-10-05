@@ -54,7 +54,7 @@ resolve the remaining semantic summaries, models or unknown-answer obligations.
 | `cpg-core::embed` | Token admission, batching, vector validation, shared cache admission and committed readback | `crates/cpg-core/src/embed.rs`, lines 240–432; both entry points now use one `fill_cache` |
 | `lctx-analytics` | Graph/program analysis over declared Arrow input and output | [analytics owner](../../design/sections/analytics.md); no PostgreSQL dependency belongs in these kernels |
 | `cpg-core::bundle` | Derive normalized IPC files and manifest from one published snapshot | [bundle.rs](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-core/src/bundle.rs), lines 1015–1048; rebuildability, not another writable fact source |
-| `lctx_mcp` | Validate/load one generation, retrieve and render typed answers | [generation.py](../../../python/lctx_mcp/src/lctx_mcp/generation.py), lines 932–989; [server.py](../../../python/lctx_mcp/src/lctx_mcp/server.py), lines 522–528 |
+| `lctx_mcp` | Validate/load one generation, retrieve and render typed answers | [generation.py](https://github.com/paul-heyse/library-context/blob/0359548bc3eb768ce0836827212b38aa239ca6e0/python/lctx_mcp/src/lctx_mcp/generation.py), lines 932–989; [server.py](https://github.com/paul-heyse/library-context/blob/0359548bc3eb768ce0836827212b38aa239ca6e0/python/lctx_mcp/src/lctx_mcp/server.py), lines 522–528 |
 | `lctx_semantics` | Bounded native semantic interpretation of the pinned generation | [native executor](../../../python/lctx_semantics/src/lib.rs); database selection does not replace its condition/model semantics |
 
 The current server loads an explicit generation directory once in its lifespan. Its retrieval

@@ -325,7 +325,7 @@ budget checks could consume substantial work before refusal.
 [`serving.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/serving.rs), lines 284–288, owns two-slot CPU
 admission retained until the blocking job ends. Preparation/final assembly use that owner at
 [`selection.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/lctx-postgres/src/selection.rs), lines 71–73, 105 and 130.
-[`lctx_storage/src/lib.rs`](../../../python/lctx_storage/src/lib.rs), lines 381–398, detaches
+[`lctx_storage/src/lib.rs`](https://github.com/paul-heyse/library-context/blob/cc6e581ab5e8c9eb8efad29fc437030ca1ad88ee/python/lctx_storage/src/lib.rs), lines 381–398, detaches
 prepared scope/page work and admits ranked parsing. The schema catalog adapter constructs indexes,
 preflights input size and charges indexed visits before evaluation at
 [`selection/catalog.rs`](https://github.com/paul-heyse/library-context/blob/0bc8ea11171d6fd96827a8e250964d3de5b3b4ce/crates/cpg-schema/src/selection/catalog.rs), lines 67–159.
@@ -659,7 +659,7 @@ one config. The current importer/serving roles, split configs and pgvector setup
 historical path without moving the surviving installation contract would strand a fresh deployment.
 
 **Correction inspected — Implemented:**
-[`postgres_bootstrap.py`](../../../scripts/postgres_bootstrap.py), lines 24–182, now owns the shared
+[`postgres_bootstrap.py`](https://github.com/paul-heyse/library-context/blob/cc6e581ab5e8c9eb8efad29fc437030ca1ad88ee/scripts/postgres_bootstrap.py), lines 24–182, now owns the shared
 current provisioning SQL and protected config writer. Its CLI checks all four role names and the
 application database before creating server objects, verifies pgvector 0.8.6 availability, provisions
 the fixed extension schema and four limited roles, and writes four exclusive mode-0600 credential
@@ -669,7 +669,7 @@ credentials for diagnosis without automatic rotation or historical recovery. The
 CLI is deleted; inspected active helper consumers import the bootstrap owner.
 
 The shared disposable-PG fixture uses this same SQL against the current pinned image.
-[`test_current_bootstrap_split_credentials_and_existing_database_refusal`](../../../tests/scripts/test_postgres_serving.py)
+[`test_current_bootstrap_split_credentials_and_existing_database_refusal`](https://github.com/paul-heyse/library-context/blob/cc6e581ab5e8c9eb8efad29fc437030ca1ad88ee/tests/scripts/test_postgres_serving.py)
 authenticates each generated config, checks file modes and current schema, and verifies existing
 deployment refusal with no elevated roles. Together with the two existing async lifetime/cancellation
 controls, `LCTX_POSTGRES_TEST=1 uv run --no-sync pytest tests/scripts/test_postgres_serving.py`

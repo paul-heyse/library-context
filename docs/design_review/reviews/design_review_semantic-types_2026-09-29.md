@@ -15,7 +15,7 @@ in [`assertion.rs`](../../../crates/lctx-model/src/domain/assertion.rs), root me
 generated fidelity forwarding in [`macros`](../../../crates/lctx-model-macros/src/lib.rs),
 [`shared fixture`](../../../crates/lctx-model/tests/fixtures/types.rs),
 [`model tests`](../../../crates/lctx-model/tests/domain_types.rs) and
-[`PG test`](../../../crates/lctx-postgres/tests/domain_types.rs). References describe the inspected
+[`PG test` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/tests/domain_types.rs). References describe the inspected
 working tree. Adjacent evidence: old `cpg-extract/src/types.rs`, `cpg-schema/src/codebook.rs`,
 shared qualification/ownership and local Pyrefly `quantified.rs` at pinned commit
 `a07b7baead9e0c7b496346d879b88e2fff9cbda7`.

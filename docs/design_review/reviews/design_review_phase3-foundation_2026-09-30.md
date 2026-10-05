@@ -134,8 +134,8 @@ remains excluded.
 
 **Priority: high. Principles: FP-02/04/05, DP-03/08, A2/A3, G3.**
 
-Initially, [`complete_stage_step`](../../../crates/lctx-postgres/src/generations/receipts.rs)
-hashes and freezes outputs, while [`read_contract`](../../../crates/lctx-postgres/src/generations/lifecycle.rs)
+Initially, [`complete_stage_step`](https://github.com/paul-heyse/library-context/blob/7d8cfc1adef15e1a1b3ecd09053ad2bcf0c17647/crates/lctx-postgres/src/generations/receipts.rs)
+hashes and freezes outputs, while [`read_contract`](https://github.com/paul-heyse/library-context/blob/7d8cfc1adef15e1a1b3ecd09053ad2bcf0c17647/crates/lctx-postgres/src/generations/lifecycle.rs)
 checks source receipt identity and the L0 checkpoint. It does not check the shared invariants
 required by a later normalized consumer. Shared model invariants run in `validate_scope` only
 at a facts checkpoint or final validation. `Stage` initially has no input-invariant declaration.
@@ -162,14 +162,14 @@ that proposal alone was not closure.
 [`Stage::read_invariants`](../../../crates/lctx-model/src/domain/stages.rs) derives non-optional
 relation-owned checks and adds named consumer requirements. Those requirements enter the stage
 digest and schedule dependencies. The asynchronous `GenerationAttempt::read_contract` invokes
-[`check_stage_inputs`](../../../crates/lctx-postgres/src/generations/stage_validation.rs) before
+[`check_stage_inputs` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/src/generations/stage_validation.rs) before
 minting the capability. It requires every premise to be a declared frozen input or a validated
 checkpoint relation, checks nominal/subtype references, and runs the model's invariant instances.
 The acknowledged read-check set binds the full ordered source receipt vector, model, schedule,
 stage digest and checkpoint content/coverage. Each provider connection rechecks those durable
 receipts in the lease binder. Failure/cancellation poisons the attempt.
 
-The inspected [real-store control](../../../crates/lctx-postgres/tests/stage_validation.rs) has
+The inspected [real-store control (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/lctx-postgres/tests/stage_validation.rs) has
 an agreeing positive case, a locally valid value mismatch, and a missing nominal target.
 Only the positive mints a capability; negative cases leave no partial read-check receipts.
 The primary implementer's named focused command passed all three cases. This establishes the
@@ -192,8 +192,8 @@ execution's final handoff. The plan still retains the Arrow buffers, while the b
 is dropped. This undercounts live retained state and defeats the shared attempt bound.
 
 **Correction inspected during review (Implemented, 2026-09-30):**
-[`StageSession::sql`](../../../crates/cpg-core/src/model_runtime.rs) now transfers retained
-provider Arcs into [`PreparedQuery`](../../../crates/cpg-core/src/model_runtime/prepared.rs),
+[`StageSession::sql`](https://github.com/paul-heyse/library-context/blob/7d8cfc1adef15e1a1b3ecd09053ad2bcf0c17647/crates/cpg-core/src/model_runtime.rs) now transfers retained
+provider Arcs into [`PreparedQuery` (pre-pivot source)](https://github.com/paul-heyse/library-context/blob/6f1a7e98ebad029e7e38876cede4d7726a33eb4d/crates/cpg-core/src/model_runtime/prepared.rs),
 which carries them into `QueryStream`. This preserves the HandoffTable and its Batch reservation
 across plan execution. Collected output acquires its own retained-output reservation.
 

@@ -85,12 +85,12 @@ unique applicability. Preconditions belong in private model construction, not P4
 
 The runtime plan addresses the inspected baseline defects rather than assuming new transport is
 equivalent to existing handoffs. [Stage retention](../../../crates/lctx-model/src/domain/stages.rs)
-currently follows every declared reader; [registration](../../../crates/cpg-core/src/model_runtime.rs)
+currently follows every declared reader; [registration](https://github.com/paul-heyse/library-context/blob/e4ab3eae7d42fad95564dae317496bc03d67f14a/crates/cpg-core/src/model_runtime.rs)
 accepts an arbitrary provider after schema/permit checks and returns an unrestricted DataFrame.
 The proposal changes both boundaries explicitly.
 
 Generation shared leases conflict with exclusive transitions under the actual
-[lock contract](../../../crates/lctx-postgres/src/generations/locks.rs). Closing stage inputs before
+[lock contract](https://github.com/paul-heyse/library-context/blob/e4ab3eae7d42fad95564dae317496bc03d67f14a/crates/lctx-postgres/src/generations/locks.rs). Closing stage inputs before
 freeze is therefore necessary. The revised plan also keeps reservations through cancellation/drain,
 closes clone-shared pools terminally, and admits all remote scans before execution rather than
 letting partially started joins compete for insufficient connections.
