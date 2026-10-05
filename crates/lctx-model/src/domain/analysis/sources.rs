@@ -37,7 +37,7 @@ impl SourceSnapshot {
                 .try_into()
                 .map_err(|_| invalid("source row count exceeds signed store representation"))?,
             physical: source.physical_relation(),
-            prefix: source.prefix().map(|prefix| format!("{prefix:?}")),
+            prefix: source.prefix().map(|prefix| prefix.name().to_owned()),
         })
     }
     pub fn producer(&self) -> &str {
@@ -76,7 +76,7 @@ impl SourceSnapshot {
     }
 }
 pub(crate) fn digest(sources: &std::collections::BTreeMap<String, SourceSnapshot>) -> ContentHash {
-    let mut sink = KeySink::new("analysis-completed-inputs");
+    let mut sink = KeySink::new("analysis-completed-inputs/v2");
     for source in sources.values() {
         source.encode(&mut sink);
     }
@@ -212,4 +212,60 @@ pub(crate) fn verify(
 
 pub(crate) fn empty_digest() -> ContentHash {
     digest(&std::collections::BTreeMap::new())
+}
+
+#[cfg(test)]
+mod boundary_encoding_controls {
+    use super::*;
+    use crate::domain::stages::PublicationBoundary;
+
+    #[test]
+    fn source_boundary_bytes_are_explicit_and_versioned() {
+        let names = ["Facts", "Dispatch", "BaseSemantic", "ExecutionModel", "Summary",
+            "CatalogSynthesis", "Local", "BaseEvaluation", "BaseCompletion", "SourceCall",
+            "EnrichedExecution", "Model", "Structural", "Analytic", "CatalogCore",
+            "CatalogEvidence", "Selection", "Synthesis", "Retrieval", "AnalyticEmbedding"];
+        assert_eq!(PublicationBoundary::ALL.len(), names.len());
+        let mut source = SourceSnapshot {
+            relation: "relation".into(), producer: "producer".into(),
+            model: ContentHash([1; 32]), schedule: ContentHash([2; 32]),
+            content: ContentHash([3; 32]), rows: 7, physical: "physical".into(), prefix: None,
+        };
+        let hash = |source: &SourceSnapshot| {
+            digest(&[(source.relation.clone(), source.clone())].into_iter().collect())
+        };
+        let independent = |name: Option<&str>| {
+            let mut hasher = blake3::Hasher::new();
+            let mut frame = |tag: &[u8], value: &[u8]| {
+                hasher.update(&(tag.len() as u64).to_le_bytes());
+                hasher.update(tag);
+                hasher.update(&(value.len() as u64).to_le_bytes());
+                hasher.update(value);
+            };
+            frame(b"domain", b"lctx-semantic/v3");
+            frame(b"type", b"analysis-completed-inputs/v2");
+            frame(b"text", b"relation"); frame(b"text", b"producer");
+            frame(b"digest", &[1; 32]); frame(b"digest", &[2; 32]); frame(b"digest", &[3; 32]);
+            frame(b"i64", &7i64.to_le_bytes()); frame(b"text", b"physical");
+            frame(b"option", &[u8::from(name.is_some())]);
+            if let Some(name) = name { frame(b"text", name.as_bytes()); }
+            ContentHash(*hasher.finalize().as_bytes())
+        };
+        assert_eq!(hash(&source), independent(None));
+        let mut seen = std::collections::BTreeSet::new();
+        seen.insert(hash(&source));
+        for (code, name) in names.into_iter().enumerate() {
+            let boundary = PublicationBoundary::from_code(code as u8).unwrap();
+            assert_eq!(boundary.name(), name);
+            assert_eq!(PublicationBoundary::from_name(name), Some(boundary));
+            source.prefix = Some(boundary.name().to_owned());
+            let value = hash(&source);
+            assert_eq!(value, independent(Some(name)));
+            assert!(seen.insert(value), "boundary mutation must change identity");
+            assert_eq!(hash(&source.clone()), value, "retry keeps exact metadata identity");
+        }
+        for unknown in ["", "facts", "Unknown", "PublicationBoundary::Facts"] {
+            assert!(PublicationBoundary::from_name(unknown).is_none());
+        }
+    }
 }

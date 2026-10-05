@@ -115,6 +115,15 @@ fn capture_binds_exact_sealed_sources_and_refuses_coupled_omission() {
     .unwrap();
     assert_eq!(receipts[0].source().rows(), 1);
     publication(&inv, &receipts, &sources, &budget).unwrap();
+    // Decode must reject an unknown persisted boundary before receipts enter replay.
+    let encoded = SourceReceipt::encode(&receipts).unwrap();
+    assert_eq!(SourceReceipt::decode(&encoded).unwrap(), receipts);
+    let mut columns = encoded.columns().to_vec();
+    let prefix = encoded.schema().index_of("prefix").unwrap();
+    columns[prefix] = std::sync::Arc::new(arrow_array::StringArray::from(vec![Some("Unknown")]));
+    let malformed = arrow_array::RecordBatch::try_new(encoded.schema(), columns).unwrap();
+    assert!(matches!(SourceReceipt::decode(&malformed), Err(ModelError::Invalid(message))
+        if message.contains("source receipt has invalid metadata")));
     assert!(publication(&inv, &[], &sources, &budget).is_err());
     let empty = CapturedSources::new(&budget);
     let (forged, _, no_receipts, _) = Invocation::admitted(

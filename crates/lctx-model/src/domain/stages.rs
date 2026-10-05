@@ -328,6 +328,34 @@ impl PublicationBoundary {
         Self::Retrieval,
         Self::AnalyticEmbedding,
     ];
+    /// Stable persisted boundary names; Rust Debug output is never an identity contract.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Facts => "Facts",
+            Self::Dispatch => "Dispatch",
+            Self::BaseSemantic => "BaseSemantic",
+            Self::ExecutionModel => "ExecutionModel",
+            Self::Summary => "Summary",
+            Self::CatalogSynthesis => "CatalogSynthesis",
+            Self::Local => "Local",
+            Self::BaseEvaluation => "BaseEvaluation",
+            Self::BaseCompletion => "BaseCompletion",
+            Self::SourceCall => "SourceCall",
+            Self::EnrichedExecution => "EnrichedExecution",
+            Self::Model => "Model",
+            Self::Structural => "Structural",
+            Self::Analytic => "Analytic",
+            Self::CatalogCore => "CatalogCore",
+            Self::CatalogEvidence => "CatalogEvidence",
+            Self::Selection => "Selection",
+            Self::Synthesis => "Synthesis",
+            Self::Retrieval => "Retrieval",
+            Self::AnalyticEmbedding => "AnalyticEmbedding",
+        }
+    }
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|boundary| boundary.name() == name)
+    }
     pub fn code(self) -> u8 {
         self as u8
     }

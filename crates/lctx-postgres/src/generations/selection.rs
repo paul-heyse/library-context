@@ -418,16 +418,14 @@ impl GenerationLease {
                         stored
                             .prefix()
                             .map(|name| {
-                                let boundary = stages::PublicationBoundary::ALL
-                                    .into_iter()
-                                    .find(|b| format!("{b:?}") == name)
+                                let boundary = stages::PublicationBoundary::from_name(name)
                                     .ok_or(Error::Contract)?;
                                 Ok::<_, Error>(order.resolve(boundary)?)
                             })
                             .transpose()?
                     }
                 };
-                let expected_prefix = prefix.map(|p| format!("{:?}", p.boundary()));
+                let expected_prefix = prefix.map(|p| p.boundary().name());
                 let physical = if is_vocabulary(stored.relation()) {
                     prefix.map_or_else(
                         || stored.relation().to_owned(),
@@ -436,7 +434,7 @@ impl GenerationLease {
                 } else {
                     stored.relation().to_owned()
                 };
-                if stored.prefix() != expected_prefix.as_deref() || stored.physical() != physical {
+                if stored.prefix() != expected_prefix || stored.physical() != physical {
                     return Err(Error::Contract);
                 }
                 if let Some(prefix) = prefix {

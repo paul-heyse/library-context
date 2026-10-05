@@ -19,7 +19,7 @@ impl SourceReceipt {
     fn snapshot(&self)->SourceSnapshot {SourceSnapshot {relation:self.relation.clone(),producer:self.producer.clone(),model:self.model,schedule:self.schedule,content:self.content,rows:self.rows,physical:self.physical.clone(),prefix:self.prefix.clone()}}
     pub fn source(&self)->SourceSnapshot {self.snapshot()}
 }
-fn validate_source_receipt(row:&SourceReceipt)->Result<(),ModelError> {if row.relation.is_empty() || row.producer.is_empty() || row.physical.is_empty() || row.rows<0 {return Err(invalid("source receipt has invalid metadata"));}Ok(())}
+fn validate_source_receipt(row:&SourceReceipt)->Result<(),ModelError> {if row.relation.is_empty() || row.producer.is_empty() || row.physical.is_empty() || row.rows<0 || row.prefix.as_deref().is_some_and(|name|stages::PublicationBoundary::from_name(name).is_none()) {return Err(invalid("source receipt has invalid metadata"));}Ok(())}
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name=owner_table!("projection_inputs"),rule="analysis_projection_input",conclusion=invocation)]
 pub struct ProjectionInput {#[model(key)] pub invocation:Id<AnalysisInvocation>,#[model(key,premise)] pub projection:Id<ProjectionDefinition>}
