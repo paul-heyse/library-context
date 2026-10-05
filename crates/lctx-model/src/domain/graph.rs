@@ -23,7 +23,7 @@ nominal_id!(EntityId);
 nominal_id!(AssertionId);
 #[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Serialize,Deserialize)]
 #[repr(u16)]
-pub enum EntityKind {Release=0,Capture=1,Source=2,Module=3,Occurrence=4,Provider=5,Context=6,Run=7,Declaration=8,Exposure=9,InvocationVariant=10,Scope=11,Parameter=12,Field=13,NativeSymbol=14,Type=15,Literal=16,Place=17,Predicate=18,EvaluationAtom=19,Condition=20,AssumptionUniverse=21,Assumption=22,CatalogOption=23,Scenario=24,RetrievalText=25,RetrievalUnit=26,AnalysisDefinition=27,EmbeddingSpecification=28,Package=29,AcquisitionOrigin=30,NativeModule=31,NativeCallable=32,ParameterShape=33,TypeVariable=34,TypeSequence=35,CallableParameterList=36,CallableParameter=37,TypedDictFieldList=38,TypedDictField=39,PlaceRoot=40,PathSegment=41,AccessPath=42,LiteralSet=43,ConditionNode=44,AssumptionSet=45,Qualification=46,Evidence=47,EvidenceSpan=48,CatalogMember=49,Original=50,RetrievalOrigin=51,SymbolSequence=101,EntityReference=102,Argument=103,AnalysisRun=104,AnalysisParent=105,AnalysisPremise=106,CoverageSource=107,ProviderSurface=100,MethodParameters=52,Subject=108,AnalyticFrame=109,AnchorSource=110,AssertionTemplate=111,BindingEvent=112,CallChannel=113,CallDestination=114,CallOrigin=115,CallReceiver=116,CatalogCallable=117,CatalogCandidate=118,CatalogClass=119,CatalogDefault=120,CatalogExposure=121,CatalogOptionEvidence=122,CatalogOptionSubject=123,ConceptScope=124,DocumentAttributeValue=125,DocumentNode=126,ExportOrigin=127,FlowCallPath=128,FlowCaptureInventory=129,FlowDefinition=130,FlowReachingTarget=131,FlowUse=132,LexicalScope=133,LexicalTarget=134,RecordOptions=135,RecordTransformDefaults=136,RetrievalSubject=137,ScenarioSource=138,SignatureSlot=139,SignatureTypeSubject=140,StructuralFrame=141,SyntaxDetail=142,TaskReport=143,Transfer=144,TypeDomain=145,AuthoredModel=146,ModelCatalog=147,ModeledOperation=148,Outcome=149,Definition=150,SynthesisFrame=151,}
+pub enum EntityKind {Release=0,Capture=1,Source=2,Module=3,Occurrence=4,Provider=5,Context=6,Run=7,Declaration=8,Exposure=9,InvocationVariant=10,Scope=11,Parameter=12,Field=13,NativeSymbol=14,Type=15,Literal=16,Place=17,Predicate=18,EvaluationAtom=19,Condition=20,AssumptionUniverse=21,Assumption=22,CatalogOption=23,Scenario=24,RetrievalText=25,RetrievalUnit=26,AnalysisDefinition=27,EmbeddingSpecification=28,Package=29,AcquisitionOrigin=30,NativeModule=31,NativeCallable=32,ParameterShape=33,TypeVariable=34,TypeSequence=35,CallableParameterList=36,CallableParameter=37,TypedDictFieldList=38,TypedDictField=39,PlaceRoot=40,PathSegment=41,AccessPath=42,LiteralSet=43,ConditionNode=44,AssumptionSet=45,Qualification=46,Evidence=47,EvidenceSpan=48,CatalogMember=49,Original=50,RetrievalOrigin=51,SymbolSequence=101,EntityReference=102,Argument=103,AnalysisRun=104,AnalysisParent=105,AnalysisPremise=106,CoverageSource=107,ProviderSurface=100,MethodParameters=52,Subject=108,AnalyticFrame=109,AnchorSource=110,AssertionTemplate=111,BindingEvent=112,CallChannel=113,CallDestination=114,CallOrigin=115,CallReceiver=116,CatalogCallable=117,CatalogCandidate=118,CatalogClass=119,CatalogDefault=120,CatalogExposure=121,CatalogOptionEvidence=122,CatalogOptionSubject=123,ConceptScope=124,DocumentAttributeValue=125,DocumentNode=126,ExportOrigin=127,FlowCallPath=128,FlowCaptureInventory=129,FlowDefinition=130,FlowReachingTarget=131,FlowUse=132,LexicalScope=133,LexicalTarget=134,RecordOptions=135,RecordTransformDefaults=136,RetrievalSubject=137,ScenarioSource=138,SignatureSlot=139,SignatureTypeSubject=140,StructuralFrame=141,SyntaxDetail=142,TaskReport=143,Transfer=144,TypeDomain=145,AuthoredModel=146,ModelCatalog=147,ModeledOperation=148,Outcome=149,Definition=150,SynthesisFrame=151,AnalyticAttribute=152,}
 /// A nominal current semantic key, independent of physical family names or Arrow layout.
 fn entity_key(kind:EntityKind,domain:&str,key:&[u8;16])->EntityId{
     let mut sink=KeySink::new("graph-entity-key/v1");sink.part(b"kind",&(kind as u16).to_le_bytes());sink.part(b"semantic-type",domain.as_bytes());sink.part(b"key",key);EntityId(sink.finish())
@@ -38,6 +38,7 @@ pub trait GraphEntityRecord:Record {const GRAPH_KIND:EntityKind;fn into_graph(se
 #[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Entity {
+    AnalyticAttribute(super::analytics::Attribute),
 
 
     AuthoredModelTargets(super::models::AuthoredTarget),
@@ -274,6 +275,7 @@ macro_rules! graph_entities {($consumer:ident;$($variant:ident:$kind:ident=>$ty:
 #[doc(hidden)]
 #[macro_export]
 macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{$consumer;
+    AnalyticAttribute:AnalyticAttribute=>$crate::domain::analytics::Attribute,
 
 
     AuthoredModelTargets:Subject=>$crate::domain::models::AuthoredTarget,
@@ -891,10 +893,34 @@ pub fn reference_target(reference:&super::SemanticReference)->Result<(Target,Opt
     <super::analysis::AnalysisDefinition as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::AnalysisDefinition,reference.target,&reference.key)),Some(EntityKind::AnalysisDefinition))),
     <super::analysis::MethodParameters as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::MethodParameters,reference.target,&reference.key)),Some(EntityKind::MethodParameters))),
     <super::embedding::EmbeddingSpec as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::EmbeddingSpecification,reference.target,&reference.key)),Some(EntityKind::EmbeddingSpecification))),
+    <super::analytics::Attribute as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::AnalyticAttribute,reference.target,&reference.key)),Some(EntityKind::AnalyticAttribute))),
     _=>assertion_reference_target(reference),
     }
 }
 fn assertion_reference_target(reference:&super::SemanticReference)->Result<(Target,Option<EntityKind>),ModelError>{match reference.target{
+    <super::analytics::UniverseMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::PublicSelector as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::PartitionMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::CommunityMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::ConceptObject as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::ConceptExtent as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::ConceptIntent as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::ImplicationMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::LayerPair as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::CombinedPair as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::CommunityRun as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::CommunityProfile as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::VectorSelection as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::CommunityLabelAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::LayerResult as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::LayerNeighbour as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::GraphArc as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::PairSource as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::PairContribution as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::IncidenceSource as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::Incidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::TypeMetadataSelection as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analytics::DecoratorSelection as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::flow::FlowUseObservation as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::flow::FlowDefinitionObservation as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::flow::FlowReachingObservation as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
@@ -1338,7 +1364,7 @@ impl Key for Target {
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize)]
 #[repr(u16)]
-pub enum ParticipantRole {Subject=0,Object=1,Caller=2,Callee=3,Argument=4,Parameter=5,Exposure=6,Declaration=7,Evidence=8,Context=9,Qualification=10,Provider=11,Scope=12,Condition=13,Assumption=14,Run=15,Source=16,Parent=17,Premise=18,Member=19,Owner=20,Invocation=21,Definition=22,Variant=23,Type=24,Literal=25,Place=26,Claim=27,Field=28}
+pub enum ParticipantRole {Subject=0,Object=1,Caller=2,Callee=3,Argument=4,Parameter=5,Exposure=6,Declaration=7,Evidence=8,Context=9,Qualification=10,Provider=11,Scope=12,Condition=13,Assumption=14,Run=15,Source=16,Parent=17,Premise=18,Member=19,Owner=20,Invocation=21,Definition=22,Variant=23,Type=24,Literal=25,Place=26,Claim=27,Field=28,Attribute=29,Left=30,Right=31,Result=32}
 #[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Participant {pub role:ParticipantRole,pub field:Option<String>,pub position:Option<u32>,pub target:Target}
@@ -1404,8 +1430,9 @@ fn participant_role(field:&str)->ParticipantRole {
  "type"|"ty"|"returns"=>R::Type,"literal"=>R::Literal,"place"=>R::Place,
  "assertion"|"proposition"|"derivation"|"conclusion"=>R::Claim,
  "caller"=>R::Caller,"callee"|"target"=>R::Callee,"argument"=>R::Argument,
- "parameter"=>R::Parameter,"exposure"=>R::Exposure,"declaration"=>R::Declaration,
- "evidence"=>R::Evidence,"field"=>R::Field,"subject"|"occurrence"=>R::Subject,
+ "parameter"|"formal"|"slot"=>R::Parameter,"exposure"=>R::Exposure,"declaration"=>R::Declaration,
+ "evidence"|"observation"=>R::Evidence,"field"=>R::Field,"subject"|"occurrence"|"entity"|"representative"=>R::Subject,
+ "attribute"=>R::Attribute,"left"=>R::Left,"right"=>R::Right,"result"=>R::Result,
  _=>R::Object,
  }
 }
@@ -1872,7 +1899,32 @@ impl GraphAssertionRecord for super::types::NativeOverloadCandidateSupport{const
 impl GraphAssertionRecord for super::symbols::ModuleResolutionSupport{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());let qualification=row.references().into_iter().find(|reference|reference.target==super::assertion::AssertionQualification::NAME).map(|reference|Qualification::Ref(entity_key(EntityKind::Qualification,reference.target,&reference.key))).unwrap_or(Qualification::Payload);Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification,run:None,evidence:vec![],value:AssertionValue::Support(row.into()),derivation:None}}}
 
 #[macro_export]
+// Selected analytics retain their computation universe, weights, memberships, availability and
+// provenance. QualityStep iteration traces have no semantic/serving consumer and remain private.
 macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
+    AnalyticUniverseMember:$crate::domain::analytics::UniverseMember,
+    AnalyticPublicSelector:$crate::domain::analytics::PublicSelector,
+    AnalyticPartitionMember:$crate::domain::analytics::PartitionMember,
+    AnalyticCommunityMember:$crate::domain::analytics::CommunityMember,
+    AnalyticConceptObject:$crate::domain::analytics::ConceptObject,
+    AnalyticConceptExtent:$crate::domain::analytics::ConceptExtent,
+    AnalyticConceptIntent:$crate::domain::analytics::ConceptIntent,
+    AnalyticImplicationMember:$crate::domain::analytics::ImplicationMember,
+    AnalyticLayerPair:$crate::domain::analytics::LayerPair,
+    AnalyticCombinedPair:$crate::domain::analytics::CombinedPair,
+    AnalyticCommunityRun:$crate::domain::analytics::CommunityRun,
+    AnalyticCommunityProfile:$crate::domain::analytics::CommunityProfile,
+    AnalyticVectorSelection:$crate::domain::analytics::VectorSelection,
+    AnalyticCommunityLabelAssessment:$crate::domain::analytics::CommunityLabelAssessment,
+    AnalyticLayerResult:$crate::domain::analytics::LayerResult,
+    AnalyticLayerNeighbour:$crate::domain::analytics::LayerNeighbour,
+    AnalyticGraphArc:$crate::domain::analytics::GraphArc,
+    AnalyticPairSource:$crate::domain::analytics::PairSource,
+    AnalyticPairContribution:$crate::domain::analytics::PairContribution,
+    AnalyticIncidenceSource:$crate::domain::analytics::IncidenceSource,
+    AnalyticIncidence:$crate::domain::analytics::Incidence,
+    AnalyticTypeMetadataSelection:$crate::domain::analytics::TypeMetadataSelection,
+    AnalyticDecoratorSelection:$crate::domain::analytics::DecoratorSelection,
     LocalControlSupports:$crate::domain::transfer::local::ControlSupport,
     LocalTransferSelections:$crate::domain::transfer::local::Selection,
 
@@ -2700,7 +2752,7 @@ impl GraphAssertionRecord for super::analysis::retrieval::CoverageRequiredSource
 
 /// Explicit semantic graph policies. A change in role mapping or declared derivation meaning
 /// revises these constants; implementation source and artifact codec versions are independent.
-pub const GRAPH_ROLE_POLICY_REVISION:u32=2;
+pub const GRAPH_ROLE_POLICY_REVISION:u32=3;
 pub const GRAPH_DERIVATION_POLICY_REVISION:u32=1;
 pub fn semantic_contract(model:&super::ValidatedModel)->ContentHash{
  semantic_contract_with_policy(model,GRAPH_ROLE_POLICY_REVISION,GRAPH_DERIVATION_POLICY_REVISION)
@@ -2981,3 +3033,72 @@ impl From<super::transfer::local::ControlSupport> for ClaimValue{fn from(row:sup
 impl GraphAssertionRecord for super::transfer::local::ControlSupport{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
 impl From<super::transfer::local::Selection> for ClaimValue{fn from(row:super::transfer::local::Selection)->Self{Self::LocalTransferSelections(row)}}
 impl GraphAssertionRecord for super::transfer::local::Selection{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Claim(row.into()),derivation:None}}}
+
+impl From<super::analytics::UniverseMember> for MembershipValue{fn from(row:super::analytics::UniverseMember)->Self{Self::AnalyticUniverseMember(row)}}
+impl GraphAssertionRecord for super::analytics::UniverseMember{const GRAPH_KIND:AssertionKind=AssertionKind::StructuralMembership;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::StructuralMembership,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Membership(row.into()),derivation:None}}}
+
+impl From<super::analytics::PublicSelector> for MembershipValue{fn from(row:super::analytics::PublicSelector)->Self{Self::AnalyticPublicSelector(row)}}
+impl GraphAssertionRecord for super::analytics::PublicSelector{const GRAPH_KIND:AssertionKind=AssertionKind::StructuralMembership;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::StructuralMembership,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Membership(row.into()),derivation:None}}}
+
+impl From<super::analytics::PartitionMember> for MembershipValue{fn from(row:super::analytics::PartitionMember)->Self{Self::AnalyticPartitionMember(row)}}
+impl GraphAssertionRecord for super::analytics::PartitionMember{const GRAPH_KIND:AssertionKind=AssertionKind::StructuralMembership;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::StructuralMembership,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Membership(row.into()),derivation:None}}}
+
+impl From<super::analytics::CommunityMember> for MembershipValue{fn from(row:super::analytics::CommunityMember)->Self{Self::AnalyticCommunityMember(row)}}
+impl GraphAssertionRecord for super::analytics::CommunityMember{const GRAPH_KIND:AssertionKind=AssertionKind::StructuralMembership;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::StructuralMembership,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Membership(row.into()),derivation:None}}}
+
+impl From<super::analytics::ConceptObject> for MembershipValue{fn from(row:super::analytics::ConceptObject)->Self{Self::AnalyticConceptObject(row)}}
+impl GraphAssertionRecord for super::analytics::ConceptObject{const GRAPH_KIND:AssertionKind=AssertionKind::StructuralMembership;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::StructuralMembership,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Membership(row.into()),derivation:None}}}
+
+impl From<super::analytics::ConceptExtent> for MembershipValue{fn from(row:super::analytics::ConceptExtent)->Self{Self::AnalyticConceptExtent(row)}}
+impl GraphAssertionRecord for super::analytics::ConceptExtent{const GRAPH_KIND:AssertionKind=AssertionKind::StructuralMembership;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::StructuralMembership,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Membership(row.into()),derivation:None}}}
+
+impl From<super::analytics::ConceptIntent> for MembershipValue{fn from(row:super::analytics::ConceptIntent)->Self{Self::AnalyticConceptIntent(row)}}
+impl GraphAssertionRecord for super::analytics::ConceptIntent{const GRAPH_KIND:AssertionKind=AssertionKind::StructuralMembership;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::StructuralMembership,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Membership(row.into()),derivation:None}}}
+
+impl From<super::analytics::ImplicationMember> for MembershipValue{fn from(row:super::analytics::ImplicationMember)->Self{Self::AnalyticImplicationMember(row)}}
+impl GraphAssertionRecord for super::analytics::ImplicationMember{const GRAPH_KIND:AssertionKind=AssertionKind::StructuralMembership;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::StructuralMembership,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Membership(row.into()),derivation:None}}}
+
+impl From<super::analytics::LayerPair> for AnalysisValue{fn from(row:super::analytics::LayerPair)->Self{Self::AnalyticLayerPair(row)}}
+impl GraphAssertionRecord for super::analytics::LayerPair{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Analysis(row.into()),derivation:None}}}
+
+impl From<super::analytics::CombinedPair> for AnalysisValue{fn from(row:super::analytics::CombinedPair)->Self{Self::AnalyticCombinedPair(row)}}
+impl GraphAssertionRecord for super::analytics::CombinedPair{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Analysis(row.into()),derivation:None}}}
+
+impl From<super::analytics::CommunityRun> for AnalysisValue{fn from(row:super::analytics::CommunityRun)->Self{Self::AnalyticCommunityRun(row)}}
+impl GraphAssertionRecord for super::analytics::CommunityRun{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Analysis(row.into()),derivation:None}}}
+
+impl From<super::analytics::CommunityProfile> for AnalysisValue{fn from(row:super::analytics::CommunityProfile)->Self{Self::AnalyticCommunityProfile(row)}}
+impl GraphAssertionRecord for super::analytics::CommunityProfile{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Analysis(row.into()),derivation:None}}}
+
+impl From<super::analytics::VectorSelection> for AnalysisValue{fn from(row:super::analytics::VectorSelection)->Self{Self::AnalyticVectorSelection(row)}}
+impl GraphAssertionRecord for super::analytics::VectorSelection{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Analysis(row.into()),derivation:None}}}
+
+impl From<super::analytics::CommunityLabelAssessment> for AnalysisValue{fn from(row:super::analytics::CommunityLabelAssessment)->Self{Self::AnalyticCommunityLabelAssessment(row)}}
+impl GraphAssertionRecord for super::analytics::CommunityLabelAssessment{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Analysis(row.into()),derivation:None}}}
+
+impl From<super::analytics::LayerResult> for AnalysisValue{fn from(row:super::analytics::LayerResult)->Self{Self::AnalyticLayerResult(row)}}
+impl GraphAssertionRecord for super::analytics::LayerResult{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Analysis(row.into()),derivation:None}}}
+
+impl From<super::analytics::LayerNeighbour> for AnalysisValue{fn from(row:super::analytics::LayerNeighbour)->Self{Self::AnalyticLayerNeighbour(row)}}
+impl GraphAssertionRecord for super::analytics::LayerNeighbour{const GRAPH_KIND:AssertionKind=AssertionKind::DerivedConclusion;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::DerivedConclusion,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Analysis(row.into()),derivation:None}}}
+
+impl From<super::analytics::GraphArc> for ProvenanceValue{fn from(row:super::analytics::GraphArc)->Self{Self::AnalyticGraphArc(row)}}
+impl GraphAssertionRecord for super::analytics::GraphArc{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+impl From<super::analytics::PairSource> for ProvenanceValue{fn from(row:super::analytics::PairSource)->Self{Self::AnalyticPairSource(row)}}
+impl GraphAssertionRecord for super::analytics::PairSource{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+impl From<super::analytics::PairContribution> for ProvenanceValue{fn from(row:super::analytics::PairContribution)->Self{Self::AnalyticPairContribution(row)}}
+impl GraphAssertionRecord for super::analytics::PairContribution{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+impl From<super::analytics::IncidenceSource> for ProvenanceValue{fn from(row:super::analytics::IncidenceSource)->Self{Self::AnalyticIncidenceSource(row)}}
+impl GraphAssertionRecord for super::analytics::IncidenceSource{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+impl From<super::analytics::Incidence> for ProvenanceValue{fn from(row:super::analytics::Incidence)->Self{Self::AnalyticIncidence(row)}}
+impl GraphAssertionRecord for super::analytics::Incidence{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+impl From<super::analytics::TypeMetadataSelection> for ProvenanceValue{fn from(row:super::analytics::TypeMetadataSelection)->Self{Self::AnalyticTypeMetadataSelection(row)}}
+impl GraphAssertionRecord for super::analytics::TypeMetadataSelection{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}
+
+impl From<super::analytics::DecoratorSelection> for ProvenanceValue{fn from(row:super::analytics::DecoratorSelection)->Self{Self::AnalyticDecoratorSelection(row)}}
+impl GraphAssertionRecord for super::analytics::DecoratorSelection{const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;fn graph_payload(row:Self)->Assertion{let source=SemanticKey::of(row.id());Assertion{source:Some(source),kind:AssertionKind::EvidenceAssociation,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}}}

@@ -153,3 +153,60 @@ fn intrinsic_lowering_and_emission_share_the_typed_declaration(){
  // Regression for the concrete missing method-parameter owner found by artifact admission.
  assert!(emitted.contains(<d::analysis::MethodParameters as Record>::NAME));
 }
+
+#[test]
+fn typed_binding_membership_and_source_call_roles_survive_transport() {
+    let binding=d::normalized::bindings::CallBinding {attempt:id(1),ordinal:2,slot:id(3),source:id(4),kind:d::calls::BindingKind::Positional,projection:id(5)};
+    let mapped=Assertion::from_record(binding.clone()).unwrap();
+    let expected=[
+        (ParticipantRole::Object,"attempt",Target::Assertion(AssertionId::of(binding.attempt))),
+        (ParticipantRole::Parameter,"slot",Target::Entity(EntityId::of(binding.slot))),
+        (ParticipantRole::Source,"source",Target::Assertion(AssertionId::of(binding.source))),
+        (ParticipantRole::Object,"projection",Target::Assertion(AssertionId::of(binding.projection))),
+    ];
+    assert_eq!(mapped.participants,expected.into_iter().enumerate().map(|(position,(role,field,target))|Participant {role,field:Some(field.into()),position:Some(position as u32),target}).collect::<Vec<_>>());
+    assert!(matches!(&mapped.value,AssertionValue::Analysis(AnalysisValue::Binding(row)) if row.ordinal==2 && row==&binding));
+    let mut changed=binding;changed.ordinal=3;
+    assert_ne!(mapped.id(),Assertion::from_record(changed).unwrap().id());
+
+    let member=d::types::TypeSequenceMember {sequence:id(6),ordinal:1,role:d::types::TypeChildRole::Element,child:id(7)};
+    let mapped_member=Assertion::from_record(member.clone()).unwrap();
+    let restored:Assertion=serde_json::from_slice(&serde_json::to_vec(&mapped_member).unwrap()).unwrap();
+    restored.validate().unwrap();assert_eq!(mapped_member,restored);
+    assert!(matches!(&restored.value,AssertionValue::Membership(MembershipValue::TypeSequenceMember(row)) if row==&member));
+
+    let header=d::execution::source_call_records::SourceCallHeader {invocation:id(8),event:id(9),attempt:id(10),owner:id(11),callee:id(12),declaration:id(13),qualification:id(14),status:d::analysis::policy::EvidenceStatus::StructurallyObserved,premises:hash(15)};
+    let mapped=Assertion::from_record(header.clone()).unwrap();
+    let roles=[(ParticipantRole::Invocation,"invocation"),(ParticipantRole::Object,"event"),(ParticipantRole::Object,"attempt"),(ParticipantRole::Owner,"owner"),(ParticipantRole::Callee,"callee"),(ParticipantRole::Declaration,"declaration"),(ParticipantRole::Qualification,"qualification")];
+    assert_eq!(mapped.participants.iter().map(|p|(p.role,p.field.as_deref().unwrap(),p.position.unwrap())).collect::<Vec<_>>(),roles.into_iter().enumerate().map(|(i,(role,field))|(role,field,i as u32)).collect::<Vec<_>>());
+    let derivation=mapped.derivation.as_ref().unwrap();
+    assert_eq!(derivation.rule,"fresh_source_binding");
+    assert_eq!(derivation.premises,vec![Target::Entity(EntityId::of(header.invocation)),Target::Assertion(AssertionId::of(header.attempt))]);
+    assert_eq!(derivation.revision,1);assert_eq!(derivation.outcome,OutcomeKind::Complete);
+    let restored:Assertion=serde_json::from_slice(&serde_json::to_vec(&mapped).unwrap()).unwrap();
+    restored.validate().unwrap();assert_eq!(mapped,restored);
+    let mut swapped=mapped.clone();swapped.participants.swap(3,4);assert!(swapped.validate().is_err());
+    let mut wrong_role=mapped;wrong_role.participants[4].role=ParticipantRole::Caller;assert!(wrong_role.validate().is_err());
+}
+
+#[test]
+fn analytic_semantic_output_inventory_is_retained_without_iteration_history() {
+    let mut selected=BTreeSet::new();
+    macro_rules! selected {($($variant:ident:$record:ty,)*)=>{$(selected.insert(<$record as Record>::NAME);)*};}
+    lctx_model::graph_entity_records!(selected);lctx_model::graph_assertion_records!(selected);
+    // The only omitted output is an incidental quality trace; result, universe, parameters,
+    // memberships, weights, availability and provenance each have an explicit semantic owner.
+    macro_rules! outputs {($($field:ident:$record:ty,)*)=>{$(if <$record as Record>::NAME!=d::analytics::QualityStep::NAME {assert!(selected.contains(<$record as Record>::NAME),"missing analytic semantic owner {}",<$record as Record>::NAME);})*};}
+    lctx_model::analytic_outputs!(outputs);
+    let row=d::analytics::Incidence {scope:id(1),entity:id(2),attribute:id(3),source:id(4)};
+    let mapped=Assertion::from_record(row.clone()).unwrap();
+    assert_eq!(mapped.participants,vec![
+        Participant {role:ParticipantRole::Scope,field:Some("scope".into()),position:Some(0),target:Target::Entity(EntityId::of(row.scope))},
+        Participant {role:ParticipantRole::Subject,field:Some("entity".into()),position:Some(1),target:Target::Entity(EntityId::of(row.entity))},
+        Participant {role:ParticipantRole::Attribute,field:Some("attribute".into()),position:Some(2),target:Target::Entity(EntityId::of(row.attribute))},
+        Participant {role:ParticipantRole::Source,field:Some("source".into()),position:Some(3),target:Target::Assertion(AssertionId::of(row.source))},
+    ]);
+    let restored:Assertion=serde_json::from_slice(&serde_json::to_vec(&mapped).unwrap()).unwrap();
+    restored.validate().unwrap();assert_eq!(mapped,restored);
+    assert!(matches!(restored.value,AssertionValue::Provenance(ProvenanceValue::AnalyticIncidence(value)) if value==row));
+}

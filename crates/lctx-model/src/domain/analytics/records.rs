@@ -45,7 +45,7 @@ pub struct TechniqueResult {
     pub input_partial: bool,
 }
 /// The complete stored graph domain is separate from the release scope and public output selector.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_universe_members")]
 pub struct UniverseMember {
     #[model(key)]
@@ -58,7 +58,7 @@ pub struct UniverseMember {
     pub community_touched: bool,
     pub excluded_isolate: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_public_selectors")]
 pub struct PublicSelector {
     #[model(key)]
@@ -66,7 +66,7 @@ pub struct PublicSelector {
     #[model(key)]
     pub candidate: Id<PublicCandidate>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_graph_arcs")]
 pub struct GraphArc {
     #[model(key)]
@@ -85,7 +85,7 @@ pub enum Layer {
     Mention = 3,
     Nearest = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_pair_sources")]
 pub enum PairSource {
     #[model(code = 0)]
@@ -112,7 +112,7 @@ pub enum PairSource {
     #[model(code = 5)]
     NearestLayer { neighbour: Id<LayerNeighbour> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_pair_contributions")]
 pub struct PairContribution {
     #[model(key)]
@@ -124,7 +124,7 @@ pub struct PairContribution {
     pub left: Id<EntityRef>,
     pub right: Id<EntityRef>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_layer_pairs")]
 pub struct LayerPair {
     #[model(key)]
@@ -138,7 +138,7 @@ pub struct LayerPair {
     pub count: i64,
     pub normalized_weight: FiniteF64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_combined_pairs")]
 pub struct CombinedPair {
     #[model(key)]
@@ -158,7 +158,7 @@ pub struct RankScore {
     pub target: Id<EntityRef>,
     pub score: FiniteF64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_community_runs")]
 pub struct CommunityRun {
     #[model(key)]
@@ -171,7 +171,7 @@ pub struct CommunityRun {
     pub converged: bool,
     pub history: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_partition_members")]
 pub struct PartitionMember {
     #[model(key)]
@@ -180,7 +180,7 @@ pub struct PartitionMember {
     pub entity: Id<EntityRef>,
     pub representative: Id<EntityRef>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_community_profiles")]
 pub struct CommunityProfile {
     #[model(key)]
@@ -204,7 +204,7 @@ pub struct Community {
     pub representative: Id<EntityRef>,
     pub agreement: FiniteF64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_community_members")]
 pub struct CommunityMember {
     #[model(key)]
@@ -225,7 +225,7 @@ pub struct Neighbour {
     pub target_use: Id<AnalysisEmbeddingUse>,
     pub score: FiniteF64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_vector_selections")]
 pub struct VectorSelection {
     #[model(key)]
@@ -250,7 +250,7 @@ pub struct ConceptScope {
     pub examined: i64,
     pub partial: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_concept_objects")]
 pub struct ConceptObject {
     #[model(key)]
@@ -260,7 +260,7 @@ pub struct ConceptObject {
     #[model(key)]
     pub candidate: Id<PublicCandidate>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_attributes")]
 pub enum Attribute {
     #[model(code = 0)]
@@ -411,7 +411,7 @@ pub enum MetadataSelectionStatus {
     MissingSupport = 3,
 }
 /// Missing metadata is retained separately from Boolean incidence; absence supplies no negation.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_type_metadata_selections")]
 pub struct TypeMetadataSelection {
     #[model(key)]
@@ -431,7 +431,7 @@ pub struct TypeMetadataSelection {
 }
 pub use crate::domain::normalized::decorator_identity::DecoratorSelectionStatus;
 /// A decorator's missing or uncertain identity is independent of Boolean incidence.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_decorator_selections")]
 pub struct DecoratorSelection {
     #[model(key)]
@@ -444,7 +444,7 @@ pub struct DecoratorSelection {
     pub assessment: Option<Id<normalized::links::ReferenceEntityAssessment>>,
     pub status: DecoratorSelectionStatus,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_incidence_sources")]
 pub enum IncidenceSource {
     #[model(code = 0)]
@@ -511,7 +511,7 @@ pub enum IncidenceSource {
         support: Id<protocols::NativeTerminalSupport>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_incidences")]
 pub struct Incidence {
     #[model(key)]
@@ -554,7 +554,7 @@ pub struct QualityStep {
     pub ordinal: i64,
     pub value: FiniteF64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_concept_extents")]
 pub struct ConceptExtent {
     #[model(key)]
@@ -562,7 +562,7 @@ pub struct ConceptExtent {
     #[model(key)]
     pub entity: Id<EntityRef>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_concept_intents")]
 pub struct ConceptIntent {
     #[model(key)]
@@ -570,7 +570,7 @@ pub struct ConceptIntent {
     #[model(key)]
     pub attribute: Id<Attribute>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_implication_members")]
 pub struct ImplicationMember {
     #[model(key)]
@@ -613,7 +613,7 @@ pub struct CommunityLabelMember {
     pub use_: Id<AnalysisEmbeddingUse>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_community_label_assessments")]
 pub struct CommunityLabelAssessment {
     #[model(key)]
@@ -624,7 +624,7 @@ pub struct CommunityLabelAssessment {
 
 /// Community layer availability belongs to its actual Communities invocation. It does not
 /// activate the separately optional public nearest-neighbour/doc-link technique.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_layer_results")]
 pub struct LayerResult {
     #[model(key)]
@@ -636,7 +636,7 @@ pub struct LayerResult {
     pub stop: Stop,
     pub examined: i64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_layer_neighbours")]
 pub struct LayerNeighbour {
     #[model(key)]

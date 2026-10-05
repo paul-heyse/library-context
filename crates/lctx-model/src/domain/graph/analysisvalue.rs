@@ -45,6 +45,14 @@ pub enum AnalysisValue {
     Brief(crate::domain::synthesis::briefs::Brief),
     RetrievalAnchor(crate::domain::retrieval::OriginalAnchor),
     RetrievalOccurrence(crate::domain::retrieval::UnitSubject),
+    AnalyticLayerPair(crate::domain::analytics::LayerPair),
+    AnalyticCombinedPair(crate::domain::analytics::CombinedPair),
+    AnalyticCommunityRun(crate::domain::analytics::CommunityRun),
+    AnalyticCommunityProfile(crate::domain::analytics::CommunityProfile),
+    AnalyticVectorSelection(crate::domain::analytics::VectorSelection),
+    AnalyticCommunityLabelAssessment(crate::domain::analytics::CommunityLabelAssessment),
+    AnalyticLayerResult(crate::domain::analytics::LayerResult),
+    AnalyticLayerNeighbour(crate::domain::analytics::LayerNeighbour),
 }
 impl Key for AnalysisValue {fn encode(&self,sink:&mut KeySink){match self {
     Self::LocalAssessment(row)=>{sink.part(b"variant", &(0u16).to_le_bytes());row.content_digest().encode(sink);},
@@ -87,6 +95,15 @@ impl Key for AnalysisValue {fn encode(&self,sink:&mut KeySink){match self {
     Self::Brief(row)=>{sink.part(b"variant", &(42u16).to_le_bytes());row.content_digest().encode(sink);},
     Self::RetrievalAnchor(row)=>{sink.part(b"variant", &(44u16).to_le_bytes());row.content_digest().encode(sink);},
     Self::RetrievalOccurrence(row)=>{sink.part(b"variant", &(45u16).to_le_bytes());row.content_digest().encode(sink);},
+
+    Self::AnalyticLayerPair(row)=>{sink.part(b"variant",&(46u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticCombinedPair(row)=>{sink.part(b"variant",&(47u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticCommunityRun(row)=>{sink.part(b"variant",&(48u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticCommunityProfile(row)=>{sink.part(b"variant",&(49u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticVectorSelection(row)=>{sink.part(b"variant",&(50u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticCommunityLabelAssessment(row)=>{sink.part(b"variant",&(51u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticLayerResult(row)=>{sink.part(b"variant",&(52u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticLayerNeighbour(row)=>{sink.part(b"variant",&(53u16).to_le_bytes());row.content_digest().encode(sink);},
 }}}
 impl AnalysisValue {pub fn validate(&self)->Result<(),ModelError>{match self {
     Self::LocalAssessment(row)=>row.validate(),
@@ -129,6 +146,15 @@ impl AnalysisValue {pub fn validate(&self)->Result<(),ModelError>{match self {
     Self::Brief(row)=>row.validate(),
     Self::RetrievalAnchor(row)=>row.validate(),
     Self::RetrievalOccurrence(row)=>row.validate(),
+
+    Self::AnalyticLayerPair(row)=>row.validate(),
+    Self::AnalyticCombinedPair(row)=>row.validate(),
+    Self::AnalyticCommunityRun(row)=>row.validate(),
+    Self::AnalyticCommunityProfile(row)=>row.validate(),
+    Self::AnalyticVectorSelection(row)=>row.validate(),
+    Self::AnalyticCommunityLabelAssessment(row)=>row.validate(),
+    Self::AnalyticLayerResult(row)=>row.validate(),
+    Self::AnalyticLayerNeighbour(row)=>row.validate(),
 }}}
 
 impl AnalysisValue{pub fn references(&self)->Vec<super::super::SemanticReference>{match self{
@@ -172,6 +198,15 @@ impl AnalysisValue{pub fn references(&self)->Vec<super::super::SemanticReference
     Self::Brief(row)=>row.references(),
     Self::RetrievalAnchor(row)=>row.references(),
     Self::RetrievalOccurrence(row)=>row.references(),
+
+    Self::AnalyticLayerPair(row)=>row.references(),
+    Self::AnalyticCombinedPair(row)=>row.references(),
+    Self::AnalyticCommunityRun(row)=>row.references(),
+    Self::AnalyticCommunityProfile(row)=>row.references(),
+    Self::AnalyticVectorSelection(row)=>row.references(),
+    Self::AnalyticCommunityLabelAssessment(row)=>row.references(),
+    Self::AnalyticLayerResult(row)=>row.references(),
+    Self::AnalyticLayerNeighbour(row)=>row.references(),
 }}}
 
 impl AnalysisValue{pub fn semantic_key(&self)->super::SemanticKey{match self{
@@ -215,4 +250,13 @@ impl AnalysisValue{pub fn semantic_key(&self)->super::SemanticKey{match self{
     Self::Brief(row)=>super::SemanticKey::of(row.id()),
     Self::RetrievalAnchor(row)=>super::SemanticKey::of(row.id()),
     Self::RetrievalOccurrence(row)=>super::SemanticKey::of(row.id()),
+
+    Self::AnalyticLayerPair(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticCombinedPair(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticCommunityRun(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticCommunityProfile(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticVectorSelection(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticCommunityLabelAssessment(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticLayerResult(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticLayerNeighbour(row)=>SemanticKey::of(row.id()),
 }}}

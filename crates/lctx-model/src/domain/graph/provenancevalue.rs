@@ -165,6 +165,13 @@ pub enum ProvenanceValue{
     RetrievalAnalysisProposition(crate::domain::analysis::retrieval::AnalysisProposition),
     RetrievalAnalysisDerivation(crate::domain::analysis::retrieval::AnalysisDerivation),
     RetrievalAnalysisDerivationPremise(crate::domain::analysis::retrieval::AnalysisDerivationPremise),
+    AnalyticGraphArc(crate::domain::analytics::GraphArc),
+    AnalyticPairSource(crate::domain::analytics::PairSource),
+    AnalyticPairContribution(crate::domain::analytics::PairContribution),
+    AnalyticIncidenceSource(crate::domain::analytics::IncidenceSource),
+    AnalyticIncidence(crate::domain::analytics::Incidence),
+    AnalyticTypeMetadataSelection(crate::domain::analytics::TypeMetadataSelection),
+    AnalyticDecoratorSelection(crate::domain::analytics::DecoratorSelection),
 }
 impl Key for ProvenanceValue{fn encode(&self,sink:&mut KeySink){match self{
     Self::NativeQualification(row)=>{sink.part(b"semantic-type",<crate::domain::analysis::native::NativeQualification as Record>::NAME.as_bytes());row.content_digest().encode(sink);},
@@ -330,6 +337,14 @@ impl Key for ProvenanceValue{fn encode(&self,sink:&mut KeySink){match self{
     Self::RetrievalAnalysisProposition(row)=>{sink.part(b"variant",&(113u16).to_le_bytes());row.content_digest().encode(sink);},
     Self::RetrievalAnalysisDerivation(row)=>{sink.part(b"variant",&(114u16).to_le_bytes());row.content_digest().encode(sink);},
     Self::RetrievalAnalysisDerivationPremise(row)=>{sink.part(b"variant",&(115u16).to_le_bytes());row.content_digest().encode(sink);},
+
+    Self::AnalyticGraphArc(row)=>{sink.part(b"variant",&(116u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticPairSource(row)=>{sink.part(b"variant",&(117u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticPairContribution(row)=>{sink.part(b"variant",&(118u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticIncidenceSource(row)=>{sink.part(b"variant",&(119u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticIncidence(row)=>{sink.part(b"variant",&(120u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticTypeMetadataSelection(row)=>{sink.part(b"variant",&(121u16).to_le_bytes());row.content_digest().encode(sink);},
+    Self::AnalyticDecoratorSelection(row)=>{sink.part(b"variant",&(122u16).to_le_bytes());row.content_digest().encode(sink);},
 }}}
 impl ProvenanceValue{pub fn validate(&self)->Result<(),ModelError>{match self{
     Self::NativeQualification(row)=>row.validate(),
@@ -495,6 +510,14 @@ impl ProvenanceValue{pub fn validate(&self)->Result<(),ModelError>{match self{
     Self::RetrievalAnalysisProposition(row)=>row.validate(),
     Self::RetrievalAnalysisDerivation(row)=>row.validate(),
     Self::RetrievalAnalysisDerivationPremise(row)=>row.validate(),
+
+    Self::AnalyticGraphArc(row)=>row.validate(),
+    Self::AnalyticPairSource(row)=>row.validate(),
+    Self::AnalyticPairContribution(row)=>row.validate(),
+    Self::AnalyticIncidenceSource(row)=>row.validate(),
+    Self::AnalyticIncidence(row)=>row.validate(),
+    Self::AnalyticTypeMetadataSelection(row)=>row.validate(),
+    Self::AnalyticDecoratorSelection(row)=>row.validate(),
 }}pub fn references(&self)->Vec<super::super::SemanticReference>{match self{
     Self::NativeQualification(row)=>row.references(),
     Self::LocalAnalysisObligation(row)=>row.references(),
@@ -659,6 +682,14 @@ impl ProvenanceValue{pub fn validate(&self)->Result<(),ModelError>{match self{
     Self::RetrievalAnalysisProposition(row)=>row.references(),
     Self::RetrievalAnalysisDerivation(row)=>row.references(),
     Self::RetrievalAnalysisDerivationPremise(row)=>row.references(),
+
+    Self::AnalyticGraphArc(row)=>row.references(),
+    Self::AnalyticPairSource(row)=>row.references(),
+    Self::AnalyticPairContribution(row)=>row.references(),
+    Self::AnalyticIncidenceSource(row)=>row.references(),
+    Self::AnalyticIncidence(row)=>row.references(),
+    Self::AnalyticTypeMetadataSelection(row)=>row.references(),
+    Self::AnalyticDecoratorSelection(row)=>row.references(),
 }}pub fn semantic_key(&self)->SemanticKey{match self{
     Self::NativeQualification(row)=>SemanticKey::of(row.id()),
     Self::LocalAnalysisObligation(row)=>SemanticKey::of(row.id()),
@@ -823,4 +854,12 @@ impl ProvenanceValue{pub fn validate(&self)->Result<(),ModelError>{match self{
     Self::RetrievalAnalysisProposition(row)=>SemanticKey::of(row.id()),
     Self::RetrievalAnalysisDerivation(row)=>SemanticKey::of(row.id()),
     Self::RetrievalAnalysisDerivationPremise(row)=>SemanticKey::of(row.id()),
+
+    Self::AnalyticGraphArc(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticPairSource(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticPairContribution(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticIncidenceSource(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticIncidence(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticTypeMetadataSelection(row)=>SemanticKey::of(row.id()),
+    Self::AnalyticDecoratorSelection(row)=>SemanticKey::of(row.id()),
 }}}
