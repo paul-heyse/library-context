@@ -345,6 +345,11 @@ fn init(
     Ok(())
 }
 
+fn flow_workspace_options(budget: &lctx_model::domain::resources::ResourceBudget)
+    -> cpg_core::workspace::WorkspaceOptions {
+    cpg_core::workspace::WorkspaceOptions { memory_bytes: budget.limit(), ..Default::default() }
+}
+
 fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
     if python != "3.14.7" || platform != "linux" {
         return Err(anyhow::anyhow!(
@@ -376,7 +381,7 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
         cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral, &budget)?,
     ));
     let (model, workspace) = tokio::runtime::Runtime::new()?.block_on(
-        cpg_core::facts::inspect(captured, cpg_core::workspace::WorkspaceOptions::default(), Profile::Behavioral),
+        cpg_core::facts::inspect(captured, flow_workspace_options(&budget), Profile::Behavioral),
     )?;
     let digest = workspace.content()?;
     fn read<R: Record>(workspace: &cpg_core::workspace::Workspace, budget: &ResourceBudget) -> Result<Batch<R>, ModelError> {
@@ -664,6 +669,21 @@ mod tests {
     fn parse(args: &[&str]) -> Result<Cli, String> {
         Cli::try_parse_from(std::iter::once("lctx").chain(args.iter().copied()))
             .map_err(|e| e.to_string())
+    }
+
+    #[tokio::test]
+    async fn flow_workspace_shares_the_capture_budget() {
+        use lctx_model::domain::resources::ResourceBudget;
+        let budget = ResourceBudget::fixed(32 << 20).unwrap();
+        let workspace = cpg_core::workspace::Workspace::with_budget(
+            std::sync::Arc::new(lctx_model::domain::model().unwrap()),
+            super::flow_workspace_options(&budget), budget.clone(),
+        ).unwrap();
+        let before = budget.reserved();
+        let held = workspace.budget().reserve("flow-probe-retained-input", 1024).unwrap();
+        assert_eq!(budget.reserved(), before + 1024);
+        drop(held);
+        assert_eq!(budget.reserved(), before);
     }
 
     #[test]
