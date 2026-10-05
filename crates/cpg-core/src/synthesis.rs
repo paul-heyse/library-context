@@ -1,7 +1,7 @@
 //! Single S0 writer; rendering never reconstructs graphs or invents completed parents.
+use datafusion::execution::context::SessionContext;
 use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::AttemptRuntime,
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
     synthesis_preparation,
 };
 use lctx_model::domain::{
@@ -11,7 +11,6 @@ use lctx_model::domain::{
     synthesis::{self, production::Data},
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 // Decoder reachability is separate from the model-owned consumed source inventory.
 macro_rules! decoder_inputs {
@@ -32,46 +31,30 @@ macro_rules! decoder_inputs {
     };
 }
 pub async fn produce(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    roles: &RoleConfig,
-    runtime: &AttemptRuntime,
+    access: CompletedInputs,
+    mut output: ProducerOutput,
+    runtime: &Workspace,
     model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let captured = analysis::sources::CapturedSources::capture(&access, runtime.budget())?;
+    let captured = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&captured, runtime.budget())?;
-    let reader = AttemptSession::open(
-        roles,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
     let mut data = Data::new(runtime.budget());
+    let session = access.session(runtime).await?;
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
         Data::consumed_inputs(access.profile()),
         runtime.budget(),
     )?;
     macro_rules! read{($($f:ident:$ty:ty,)*)=>{$(while let Some((_input,permit))=consumed.next::<$ty>(&access)? {
-        let session=runtime.session(&access);
-        crate::consumed_rows::stream(&permit,&reader,&session,|permit,batch| {
+        crate::consumed_rows::stream(&permit,&session,|permit,batch| {
             admission.visit_if_expected(permit,batch)?;
             data.visit(<$ty>::NAME,batch)?;
             Ok(())
         }).await?;
     })*};}
     decoder_inputs!(read);
-    consumed.finish(access.stage().name)?;
-    reader.close().await.map_err(ModelError::codec)?;
+    consumed.finish(access.name())?;
     let (_, definition) = synthesis::build::definition();
     let settings = data.frames.configuration()?;
-    if access.stage().configuration != ContentHash::of(settings.id().bytes()) {
-        return Err(ModelError::Invalid(
-            "S0 selected configuration differs from completed settings".into(),
-        ));
-    }
     let parents = synthesis::frames::parents(&data.frames, runtime.budget())?;
     let docs = synthesis::documentary::build(&data.documentary, runtime.budget())?;
     let mut invocations = Rows::new(runtime.budget());
@@ -208,13 +191,6 @@ pub async fn produce(
         &frames,
         &patterns,
         runtime.budget(),
-    )?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
     )?;
     synthesis_preparation::publish_documentary(&mut output, &docs).await?;
     macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<analysis::synthesis::$record>())*} $(output.declare::<analysis::synthesis::$record>()?;)*};}

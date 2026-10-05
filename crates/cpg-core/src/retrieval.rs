@@ -1,9 +1,9 @@
 //! Final E0: completed canonical catalog/S0 text, one nominal owner and immutable vector uses.
+use datafusion::execution::context::SessionContext;
 use crate::{
     embedding_realization,
     embedding_service::Embedder,
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
     retrieval_preparation,
 };
 use futures::TryStreamExt;
@@ -18,16 +18,15 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{Store, generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 async fn load<R: Record>(
-    session: &StageSession,
+    session: &SessionContext,
     rows: &mut Rows<R>,
-    permit: &ReadPermit<'_, R>,
+    permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -39,40 +38,30 @@ async fn load<R: Record>(
 }
 /// Rendering, optional brief inclusion and vector realization share this sole stage writer.
 pub async fn produce(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    roles: &RoleConfig,
-    runtime: &AttemptRuntime,
+    access: CompletedInputs,
+    mut output: ProducerOutput,
+    runtime: &Workspace,
     model: &Arc<ValidatedModel>,
     embedder: Option<&dyn Embedder>,
-    cache: Option<Store>,
+    cache: Option<std::sync::Arc<dyn embedding_realization::EmbeddingCache>>,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(&access, runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let (render, mandatory) =
-        retrieval_preparation::mandatory(&access, attempt, roles, runtime, model).await?;
+        retrieval_preparation::mandatory(&access, runtime, model).await?;
     drop(mandatory);
     let mut data = ConsumptionData::new(runtime.budget());
     data.render = render;
-    let reader = AttemptSession::open(
-        roles,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut registered = charged::ChargedSet::default();
     let mut registration =
         charged::StateCharge::new(runtime.budget(), "expected-input-registration");
-    macro_rules! synthesis{($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.render.synthesis.$f,&permit,&mut admission).await?;)*};}
+    macro_rules! synthesis{($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.render.synthesis.$f,&permit,&mut admission).await?;)*};}
     lctx_model::retrieval_synthesis_inputs!(synthesis);
     macro_rules! meta {
         ($ty:ty,$rows:expr,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
-            session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            
             registered.insert(&mut registration, <$ty>::NAME)?;
             load(&session, $rows, &permit, $admit).await?;
         }};
@@ -97,27 +86,17 @@ pub async fn produce(
         &mut data.windows,
         &mut admission
     );
-    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,&mut rows,&mut admission);}})*};}
+    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$({if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,&mut rows,&mut admission);}})*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     data.output = build::build(&data.render, runtime.budget())?;
     let selected = data.render.selected()?.embedding_requested;
-    if access.stage().configuration != ContentHash::of(data.render.selected()?.id().bytes())
-        || selected != (access.stage().effect == Effect::Embedding)
-    {
-        return Err(build::invalid(
-            "retrieval effect differs from authored selection",
-        ));
-    }
     let (_, definition) = build::definition();
     let mut service = if selected {
         data.selected_spec()?;
         Some(
             embedding_realization::Session::open(
                 &access,
-                attempt,
-                roles,
                 runtime,
                 model,
                 embedder.ok_or_else(|| {
@@ -232,13 +211,6 @@ pub async fn produce(
     }
     drop(service);
     data.verify(&invocations, &outcomes, &uses, runtime.budget())?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     retrieval_preparation::publish_mandatory(&mut output, &data.output).await?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::retrieval::$record>()?;)*};}

@@ -1,7 +1,7 @@
 //! Analytic source text is a pure, single-owner publication before vector consumption.
+use datafusion::execution::context::SessionContext;
 use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -10,12 +10,11 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 
-async fn load<R: Record>(session: &StageSession, rows: &mut Rows<R>) -> Result<(), ModelError> {
+async fn load<R: Record>(session: &SessionContext, rows: &mut Rows<R>) -> Result<(), ModelError> {
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -25,56 +24,23 @@ async fn load<R: Record>(session: &StageSession, rows: &mut Rows<R>) -> Result<(
     Ok(())
 }
 pub async fn publish(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
+    access: CompletedInputs,
+    mut output: ProducerOutput,
+    runtime: &Workspace,
     model: &Arc<ValidatedModel>,
     definition: TextDefinition,
 ) -> Result<(), ModelError> {
-    let declared = text::stage(
-        access.profile(),
-        &definition,
-        model,
-        access.publication_order(),
-    )?;
-    if access.stage().name != declared.name
-        || access.stage().configuration != declared.configuration
-        || access.stage().code != declared.code
-    {
-        return Err(ModelError::Invalid(
-            "analytic text configuration differs from preflight".into(),
-        ));
-    }
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = TextData::new(runtime.budget());
     macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(
-        let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;
         load(&session,&mut data.$field).await?;
     )*};}
     lctx_model::analytic_text_inputs!(read);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let budget = runtime.budget().clone();
     let rows = tokio::task::spawn_blocking(move || text::prepare(&data, &definition, &budget))
         .await
         .map_err(ModelError::codec)??;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write {
         ($ty:ty,$field:ident) => {
             output.declare::<$ty>()?;

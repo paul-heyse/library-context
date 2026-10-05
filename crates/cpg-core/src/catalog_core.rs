@@ -1,7 +1,7 @@
 //! C0 execution consumes completed native/normalized authorities. No flow or brief producer.
+use datafusion::execution::context::SessionContext;
 use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -14,16 +14,15 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 async fn load<R: Record>(
-    session: &StageSession,
+    session: &SessionContext,
     rows: &mut Rows<R>,
-    permit: &ReadPermit<'_, R>,
+    permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -35,31 +34,21 @@ async fn load<R: Record>(
 }
 /// Internal stage entry; public catalog frontiers are assembled separately by F0.
 pub async fn produce(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
+    access: CompletedInputs,
+    mut output: ProducerOutput,
+    runtime: &Workspace,
     model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(&access, runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut registered = charged::ChargedSet::default();
     let mut registration =
         charged::StateCharge::new(runtime.budget(), "expected-input-registration");
     let mut data = CatalogData::new(runtime.budget());
     macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(
         let permit=access.read::<$ty>()?;
-        session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;
+        registered.insert(&mut registration,<$ty>::NAME)?;
         load(&session,&mut data.$field,&permit,&mut admission).await?;
     )*};}
     lctx_model::catalog_inputs!(read);
@@ -69,7 +58,7 @@ pub async fn produce(
     macro_rules! meta {
         ($ty:ty,$rows:ident,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
-            session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            
             registered.insert(&mut registration, <$ty>::NAME)?;
             load(&session, &mut $rows, &permit, $admit).await?;
         }};
@@ -77,10 +66,9 @@ pub async fn produce(
     meta!(analysis::AnalysisDefinition, definitions, &mut admission);
     meta!(analysis::MethodParameters, parameters, &mut admission);
     meta!(attribution::ProviderRun, runs, &mut admission);
-    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,&mut admission);}})*};}
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,&mut admission);}})*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let budget = runtime.budget().clone();
     let (data, rows) = tokio::task::spawn_blocking(move || {
         let rows = build::build(&data, &budget)?;
@@ -96,13 +84,6 @@ pub async fn produce(
             "catalog requires its completed authored definition".into(),
         ));
     }
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;for row in rows.$field.iter() {output.push(row.clone()).await?;})*};}
     lctx_model::catalog_outputs!(write);
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
@@ -188,39 +169,21 @@ pub async fn produce(
 
 /// Retained callable/field metadata completed under the normalized authority before C0.
 pub async fn aspects(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
+    access: CompletedInputs,
+    mut output: ProducerOutput,
+    runtime: &Workspace,
     model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use normalized::callable_aspects::{self, AspectData};
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = AspectData::new(runtime.budget());
-    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.$field.decode(&batch)?;}})*};}
+    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;let query=session.sql(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.$field.decode(&batch)?;}})*};}
     lctx_model::callable_aspect_inputs!(read);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let budget = runtime.budget().clone();
     let rows = tokio::task::spawn_blocking(move || callable_aspects::normalize(&data, &budget))
         .await
         .map_err(ModelError::codec)??;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;for row in rows.$field.iter() {output.push(row.clone()).await?;})*};}
     lctx_model::callable_aspect_outputs!(write);
     drop(rows);

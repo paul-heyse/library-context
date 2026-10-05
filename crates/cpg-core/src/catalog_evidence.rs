@@ -1,7 +1,7 @@
 //! C1 contextual evidence consumes completed C0 and typed original facts, independently of brief seeds.
+use datafusion::execution::context::SessionContext;
 use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -14,16 +14,15 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 async fn load<R: Record>(
-    session: &StageSession,
+    session: &SessionContext,
     rows: &mut Rows<R>,
-    permit: &ReadPermit<'_, R>,
+    permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -34,52 +33,41 @@ async fn load<R: Record>(
     Ok(())
 }
 pub async fn produce(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
+    access: CompletedInputs,
+    mut output: ProducerOutput,
+    runtime: &Workspace,
     model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(&access, runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut registered = charged::ChargedSet::default();
     let mut registration =
         charged::StateCharge::new(runtime.budget(), "expected-input-registration");
     let mut data = EvidenceData::new(runtime.budget());
-    macro_rules! core {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.core.$f,&permit,&mut admission).await?;)*};}
+    macro_rules! core {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.core.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_inputs!(core);
-    macro_rules! catalog {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.catalog.$f,&permit,&mut admission).await?;)*};}
+    macro_rules! catalog {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.catalog.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_outputs!(catalog);
-    macro_rules! facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.facts.$f,&permit,&mut admission).await?;)*};}
+    macro_rules! facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.facts.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_evidence_inputs!(facts);
-    macro_rules! lower {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.runtime.$f,&permit,&mut admission).await?;)*};}
+    macro_rules! lower {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.runtime.$f,&permit,&mut admission).await?;)*};}
     lctx_model::catalog_runtime_inputs!(lower);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
     let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());
     macro_rules! meta {
         ($ty:ty,$rows:ident,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
-            session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            
             registered.insert(&mut registration, <$ty>::NAME)?;
             load(&session, &mut $rows, &permit, $admit).await?;
         }};
     }
     meta!(analysis::AnalysisDefinition, definitions, &mut admission);
     meta!(analysis::MethodParameters, parameters, &mut admission);
-    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,&mut admission);}})*};}
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,&mut admission);}})*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let budget = runtime.budget().clone();
     let (data, rows) = tokio::task::spawn_blocking(move || {
         let rows = build::build(&data, &budget)?;
@@ -95,13 +83,6 @@ pub async fn produce(
             "C1 requires its completed authored definition".into(),
         ));
     }
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write {($($f:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;for row in rows.$f.iter() {output.push(row.clone()).await?;})*};}
     lctx_model::catalog_evidence_outputs!(write);
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
