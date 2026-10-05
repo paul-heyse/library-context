@@ -3,35 +3,70 @@ use crate::{
     analysis_graphs::PreparedGraphs,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{self, structural as owner},
     stages::*,
     structural::{self as semantic, build, frames},
     *,
 };
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
+// These types provide decoder reachability; the semantic owner selects their exact input views.
+macro_rules! decoder_inputs {
+    ($apply:ident, $profile:expr) => {
+        lctx_model::projection_inputs!($apply);
+        lctx_model::structural_handoff_inputs!($apply);
+        if $profile == Profile::Behavioral {
+            lctx_model::entry_value_inputs!($apply);
+            lctx_model::structural_control_inputs!($apply);
+        }
+        lctx_model::normalized_event_outputs!($apply);
+        // PreparedGraphs retains topology; frame metadata needs assessment IDs only.
+        $apply! {
+            projection_assessments:projection::ProjectionSourceAssessment,
+            uses:input::ArtifactUse,
+            members:catalog::CatalogMember,
+            callables:catalog::CatalogCallable,
+            core_links:catalog::CatalogMemberInvocation,
+            core_invocations:analysis::catalog_core::Invocation,
+            callable_assessments:normalized::callables::EffectiveCallableAssessment,
+            settings:analysis::settings::AnalyticsConfiguration,
+            definitions:analysis::AnalysisDefinition,
+            parameters:analysis::MethodParameters,
+            local:analysis::local::Invocation,
+            local_outcomes:analysis::local::AnalysisOutcome,
+            local_coverage:analysis::local::AnalysisCoverage,
+            assumption_sets:assumptions::AssumptionSet,
+            assumption_members:assumptions::AssumptionSetMember,
+            assumptions:assumptions::Assumption,
+            universes:assumptions::AssumptionUniverse,
+            libraries:input::CorpusLibrary,
+            distributions:input::InputDistribution,
+        }
+        lctx_model::expected_domain_inputs!($apply);
+    };
+}
+fn consumed_inputs(profile: Profile) -> Vec<ValidationInput> {
+    let mut declarations = build::Data::consumed_inputs(profile);
+    for method in build::methods() {
+        declarations.extend(analysis::expected::inputs(method));
+    }
+    declarations
+}
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
     data: &mut build::Data,
     context: &mut frames::Context,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
-    seen: &mut BTreeSet<&'static str>,
+    consumed: &mut crate::consumed_rows::ConsumedInputs,
 ) -> Result<(), ModelError> {
-    if !seen.insert(R::NAME) {
-        return Ok(());
-    }
-    let permit = access.read::<R>()?;
-    
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        data.visit(R::NAME, &batch)?;
-        context.visit(R::NAME, &batch)?;
-        admission.visit_if_expected(&permit, &batch)?;
+    while let Some((input, permit)) = consumed.next::<R>(access)? {
+        crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+            data.visit_input(&input, batch)?;
+            context.visit(input.name(), batch)?;
+            admission.visit_if_expected(permit, batch)?;
+            Ok(())
+        }).await?;
     }
     Ok(())
 }
@@ -47,40 +82,10 @@ pub async fn produce(
     let session = access.session(runtime).await?;
     let mut data = build::Data::new(runtime.budget());
     let mut context = frames::Context::new(runtime.budget());
-    let mut seen = BTreeSet::new();
-    macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut data,&mut context,&mut admission,&mut seen).await?;)*};}
-    macro_rules! inventory {($($f:ident:$ty:ty,)*)=>{read!($($ty),*);};}
-    lctx_model::projection_inputs!(inventory);
-    lctx_model::structural_handoff_inputs!(inventory);
-    if access.profile() == Profile::Behavioral {
-        lctx_model::entry_value_inputs!(inventory);
-        lctx_model::structural_control_inputs!(inventory);
-    }
-    lctx_model::normalized_event_outputs!(inventory);
-    // The runtime graph owner retains snapshots; this context needs assessment IDs only.
-    read!(
-        projection::ProjectionSourceAssessment,
-        input::ArtifactUse,
-        catalog::CatalogMember,
-        catalog::CatalogCallable,
-        catalog::CatalogMemberInvocation,
-        analysis::catalog_core::Invocation,
-        normalized::callables::EffectiveCallableAssessment,
-        analysis::settings::AnalyticsConfiguration,
-        analysis::AnalysisDefinition,
-        analysis::MethodParameters,
-        analysis::local::Invocation,
-        analysis::local::AnalysisOutcome,
-        analysis::local::AnalysisCoverage,
-        assumptions::AssumptionSet,
-        assumptions::AssumptionSetMember,
-        assumptions::Assumption,
-        assumptions::AssumptionUniverse,
-        input::CorpusLibrary,
-        input::InputDistribution
-    );
-    macro_rules! expected_inputs {($($field:ident:$ty:ty,)*)=>{$(if access.contains::<$ty>(){read!($ty);})*};}
-    lctx_model::expected_domain_inputs!(expected_inputs);
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(consumed_inputs(access.profile()), runtime.budget())?;
+    macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut data,&mut context,&mut admission,&mut consumed).await?;)*};}
+    decoder_inputs!(inventory, access.profile());
+    consumed.finish(access.name())?;
     drop(session);
     let settings = context.configuration()?.clone();
     let parents = frames::parents(&data, runtime.budget())?;
@@ -258,4 +263,18 @@ pub async fn produce(
     drop(admission);
     drop(sources);
     output.finish(ProviderOutcome::Complete).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn structural_declared_views_have_profile_decoder_reachability() {
+        for profile in [Profile::Catalog, Profile::Behavioral] {
+            let mut decoders = std::collections::BTreeSet::new();
+            macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
+            decoder_inputs!(inventory, profile);
+            crate::consumed_rows::assert_decoder_reachability(consumed_inputs(profile), &decoders);
+        }
+    }
 }
