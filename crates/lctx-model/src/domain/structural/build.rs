@@ -519,9 +519,6 @@ pub(super) fn hydrate(
     projection::snapshot::hydrate(header, assessment, &graphs.chunks, budget)
 }
 
-pub fn invariants() -> Vec<Invariant> {
-    super::frames::invariants()
-}
 /// Declare only the operational structural owner. Unused generic proof-sum arms do not invent
 /// producers; concrete replay and source/publication checks declare every consumed predecessor.
 pub fn stage(
@@ -618,4 +615,3 @@ pub fn methods() -> [analysis::AnalysisMethod; 4] {
     ]
 }
 
-pub(crate) fn invariants_refs() -> Vec<&'static str> { super::frames::invariants_refs() }

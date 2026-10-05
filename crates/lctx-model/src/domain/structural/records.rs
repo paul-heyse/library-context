@@ -13,7 +13,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainCode, DomainSum};
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="structural_frames",invariant_refs=super::build::invariants_refs,publication_refs=super::frames::profile_checks_refs)]
+#[model(name="structural_frames",invariant_refs=super::frames::invariants_refs,publication_refs=super::frames::profile_checks_refs)]
 pub struct StructuralFrame {
     #[model(key)]
     pub invocation: Id<publication::AnalysisInvocation>,

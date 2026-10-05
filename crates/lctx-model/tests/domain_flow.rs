@@ -110,7 +110,7 @@ fn broad_input_coverage_does_not_authorize_cross_file_flow_structure() {
                 f.base.put(vec![row]);
                 f.base.put(vec![support]);
                 // Every source is acquired by this input: authorization alone cannot detect F01.
-                f.base.check(&<$support>::invariants()[0]).unwrap();
+                f.base.check(&lctx_model::domain::validation::invariants_for::<$support>()[0]).unwrap();
             }};
         }
         match case {
