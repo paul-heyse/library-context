@@ -391,7 +391,7 @@ fn operation_response(parameters: usize) -> Value {
     let absent =
         json!({"availability":{"status":"not_requested"},"items":[],"omitted":0,"truncated":false});
     let parameter = json!({"parameter":id,"slot":null,"formals":[],"ordinal":0,"name":"x".repeat(500),"kind":1,"required":true,"types":[],"type_evidence":[],"default":{"kind":"absent"}});
-    json!({"generation":vec![1u8;16],"operation":{"resolution":"unique","packet":{
+    json!({"generation":vec![1u8;16],"domains":[],"operation":{"resolution":"unique","packet":{
         "core":{"member":id,"name":"FastMCP.run",
             "release":{"input":id,"release":id,"distribution":"fastmcp","version":"4.0.5"},
             "access":{"module":id,"path":["FastMCP","run"],"exposures":[id],"candidates":[id],"basis":null},
@@ -405,6 +405,9 @@ fn signature_is_mandatory_and_optional_sections_have_explicit_status() {
     let limits = ResourceLimits::default();
     let packet = operation_response(1);
     decode_response("get_operation", &packet.to_string(), false, &limits).unwrap();
+    let mut missing_domains = packet.clone();
+    missing_domains.as_object_mut().unwrap().remove("domains");
+    assert!(decode_response("get_operation", &missing_domains.to_string(), false, &limits).is_err());
     let mut missing = packet.clone();
     missing["operation"]["packet"]["core"]
         .as_object_mut()
