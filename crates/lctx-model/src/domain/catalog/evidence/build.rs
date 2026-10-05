@@ -17,6 +17,8 @@ pub struct EvidenceData {
     pub catalog: catalog::build::CatalogOutput,
     pub facts: EvidenceFacts,
     pub runtime: super::runtime::RuntimeData,
+    /// Cumulative Local qualifications belong to derived location provenance, not native C0.
+    pub local_qualifications:Rows<assertion::AssertionQualification>,
 }
 impl EvidenceData {
     pub fn new(b: &ResourceBudget) -> Self {
@@ -25,6 +27,7 @@ impl EvidenceData {
             catalog: catalog::build::CatalogOutput::new(b),
             facts: EvidenceFacts::new(b),
             runtime: super::runtime::RuntimeData::new(b),
+            local_qualifications:Rows::new(b),
         }
     }
     pub fn visit(
@@ -38,13 +41,24 @@ impl EvidenceData {
         let runtime = self.runtime.visit(name, batch)?;
         Ok(core || catalog || facts || runtime)
     }
+    pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
+        let name=input.name();
+        if !is_vocabulary(name){return self.visit(name,batch);}
+        match input.prefix(){
+            Some(PublicationBoundary::Facts)=>{let core=self.core.visit(name,batch)?;let facts=self.facts.visit(name,batch)?;Ok(core||facts)},
+            Some(PublicationBoundary::Local) if name==assertion::AssertionQualification::NAME=>{self.local_qualifications.decode(batch)?;Ok(true)},
+            _=>Err(invalid(format!("catalog evidence input {name} changes its completed vocabulary view")))
+        }
+    }
+    pub fn consumed_inputs(_profile:Profile)->Vec<ValidationInput>{Self::inputs()}
     pub fn inputs() -> Vec<ValidationInput> {
-        let mut rows = catalog::build::CatalogData::validation_inputs();
+        let mut rows = crate::domain::normalized::facts_inputs(catalog::build::CatalogData::validation_inputs());
         rows.extend(catalog::build::CatalogOutput::validation_inputs());
-        rows.extend(EvidenceFacts::inputs());
+        rows.extend(crate::domain::normalized::facts_inputs(EvidenceFacts::inputs()));
         rows.extend(super::runtime::RuntimeData::inputs());
-        rows.sort_by_key(|r| r.name());
-        rows.dedup_by_key(|r| r.name());
+        rows.push(ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(PublicationBoundary::Local));
+        rows.sort_by_key(|r| (r.name(),r.prefix()));
+        rows.dedup_by_key(|r| (r.name(),r.prefix()));
         rows
     }
 }
@@ -940,6 +954,9 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+        if is_vocabulary(input.name()){if !self.data.visit_input(input,batch)?{return Err(invalid("undeclared catalog evidence view"));}Ok(())}else{self.visit(input.name(),batch)}
+    }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if !self.data.visit(name, batch)? && !self.out.visit(name, batch)? {
             return Err(invalid("undeclared catalog evidence input"));
@@ -1047,7 +1064,8 @@ pub fn stage(
             .iter()
             .map(stages::RelationUse::of_relation),
     );
-    let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &inputs)?;
+    let mut roots = dependency_closure::DependencyClosure::roots_from_uses(model, &inputs)?;
+    roots.extend(EvidenceData::inputs());
     let inputs = dependency_closure::DependencyClosure::grants(
         model,
         roots,

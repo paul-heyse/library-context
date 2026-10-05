@@ -68,7 +68,7 @@ impl Data {
     }
     pub fn inputs(profile: Profile) -> Vec<ValidationInput> {
         let mut rows = frames::Data::inputs();
-        rows.extend(documentary::Data::validation_inputs().into_iter().map(|i|if is_vocabulary(i.name()){i.at_epoch(PublicationBoundary::Facts)}else{i}));
+        rows.extend(documentary::Data::facts_inputs());
         rows.extend(automatic::Data::inputs());
         rows.extend(frames::AnalyticParents::inputs());
         rows.extend(super::observations::Data::inputs().into_iter().map(|i|if is_vocabulary(i.name()){i.at_epoch(PublicationBoundary::Analytic)}else{i}));

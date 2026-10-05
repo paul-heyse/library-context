@@ -71,7 +71,7 @@ pub(super) fn derive(d: &EvidenceData, out: &mut EvidenceOutput) -> Result<(), M
         let Some(attribute) = placement.parent else {
             return Err(invalid("C1 receiver location has no attribute parent"));
         };
-        let q = qualification(d, location.qualification)?;
+        let q = need(&d.local_qualifications, location.qualification)?;
         if q.context != invocation.context {
             return Err(invalid("C1 receiver location has a foreign qualification"));
         }

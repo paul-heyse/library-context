@@ -18,7 +18,7 @@ pub fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
     rows.get(id)
         .ok_or_else(|| invalid(format!("selection premise absent: {}", R::NAME)))
 }
-macro_rules! facts {($($f:ident:$ty:ty,)*)=>{pub struct Facts {$(pub $f:Rows<$ty>,)*}impl Facts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}fn uses()->Vec<RelationUse> {vec![$(RelationUse::stored::<$ty>()),*]}}};}
+macro_rules! facts {($($f:ident:$ty:ty,)*)=>{pub struct Facts {$(pub $f:Rows<$ty>,)*}impl Facts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}fn uses()->Vec<RelationUse> {crate::domain::normalized::facts_stage_inputs(vec![$(RelationUse::stored::<$ty>()),*])}}};}
 crate::catalog_selection_inputs!(facts);
 pub struct Data {
     pub source: EvidenceData,
@@ -41,12 +41,19 @@ impl Data {
         let facts = self.facts.visit(n, b)?;
         Ok(source || evidence || facts)
     }
+    pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{
+        let n=input.name();
+        if !is_vocabulary(n){return self.visit(n,b);}
+        if input.prefix()==Some(PublicationBoundary::Facts){let source=self.source.visit_input(input,b)?;let facts=self.facts.visit(n,b)?;return Ok(source||facts);}
+        self.source.visit_input(input,b)
+    }
+    pub fn consumed_inputs(_profile:Profile)->Vec<ValidationInput>{Self::inputs()}
     pub fn inputs() -> Vec<ValidationInput> {
         let mut r = EvidenceData::inputs();
         r.extend(c1::build::EvidenceOutput::inputs());
-        r.extend(Facts::inputs());
-        r.sort_by_key(|r| r.name());
-        r.dedup_by_key(|r| r.name());
+        r.extend(crate::domain::normalized::facts_inputs(Facts::inputs()));
+        r.sort_by_key(|r| (r.name(),r.prefix()));
+        r.dedup_by_key(|r| (r.name(),r.prefix()));
         r
     }
 }
@@ -802,6 +809,7 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{if is_vocabulary(input.name()){if !self.data.visit_input(input,b)?{return Err(invalid("undeclared completed rendering/source view"));}Ok(())}else{self.visit(input.name(),b)}}
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if !self.data.visit(n, b)? && !self.out.visit(n, b)? {
             return Err(invalid("undeclared selection replay input"));

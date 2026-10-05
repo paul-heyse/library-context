@@ -167,3 +167,35 @@ fn structural_native_entry_and_local_conclusion_vocabulary_are_isolated(){
  assert_eq!(selected,[Some(View::Facts),Some(View::Local)].into_iter().collect());
  assert!(data.visit(conditions::Condition::NAME,&conditions::Condition::encode(&[derived]).unwrap()).is_err());
 }
+
+#[test]
+fn catalog_evidence_native_and_local_qualification_views_survive_reuse(){
+ use stages::PublicationBoundary as View;
+ let budget=budget();
+ fn nominal<R>(n:u8)->Id<R>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+ let native=assertion::AssertionQualification{context:nominal(1),scope:nominal(2),condition:conditions::Diagram::always().id(),modality:attribution::Modality::Definite,approximation:assertion::Approximation::Exact,assumptions:assumptions::AssumptionSet::empty_id()};
+ let local=assertion::AssertionQualification{modality:attribution::Modality::Candidate,..native.clone()};
+ let facts=ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Facts);
+ let predecessor=ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Local);
+ let native_batch=assertion::AssertionQualification::encode(std::slice::from_ref(&native)).unwrap();
+ let later_batch=assertion::AssertionQualification::encode(&[native.clone(),local.clone()]).unwrap();
+ let mut evidence=catalog::evidence::build::EvidenceData::new(&budget);
+ evidence.visit_input(&facts,&native_batch).unwrap();evidence.visit_input(&predecessor,&later_batch).unwrap();
+ assert_eq!(evidence.core.qualifications.len(),1);assert_eq!(evidence.local_qualifications.len(),2);
+ assert!(evidence.core.qualifications.get(local.id()).is_none());
+ let mut selection=selection::build::Data::new(&budget);
+ selection.visit_input(&facts,&native_batch).unwrap();selection.visit_input(&predecessor,&later_batch).unwrap();
+ assert_eq!(selection.source.core.qualifications.len(),1);assert_eq!(selection.source.local_qualifications.len(),2);
+ let mut retrieval=retrieval::build::Data::new(&budget);
+ retrieval.visit_input(&facts,&native_batch).unwrap();retrieval.visit_input(&predecessor,&later_batch).unwrap();
+ assert_eq!(retrieval.source.core.qualifications.len(),1);assert_eq!(retrieval.source.local_qualifications.len(),2);
+ let literal=ValidationInput::of::<value::Literal>(&["id"]).at_epoch(View::Facts);
+ retrieval.visit_input(&literal,&<value::Literal as Record>::encode(&[value::Literal::None]).unwrap()).unwrap();
+ assert_eq!(retrieval.facts.literals.len(),1);
+ for inputs in [catalog::evidence::build::EvidenceData::consumed_inputs(Profile::Behavioral),selection::build::Data::consumed_inputs(Profile::Behavioral),retrieval::build::Data::mandatory_consumed_inputs(Profile::Behavioral)]{
+  let views=inputs.into_iter().filter(|i|i.name()==assertion::AssertionQualification::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
+  assert_eq!(views,[Some(View::Facts),Some(View::Local)].into_iter().collect());
+ }
+ assert!(evidence.visit_input(&ValidationInput::of::<assertion::AssertionQualification>(&["id"]),&later_batch).is_err());
+ assert!(synthesis::documentary::Data::facts_inputs().iter().filter(|i|stages::is_vocabulary(i.name())).all(|i|i.prefix()==Some(View::Facts)));
+}

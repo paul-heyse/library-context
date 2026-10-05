@@ -134,6 +134,7 @@ impl ConsumptionData {
         row!(specifications:EmbeddingSpec,services:ServiceConfiguration,analytic_uses:AnalysisEmbeddingUse,windows:TextWindow,sources:crate::domain::analysis::retrieval::InvocationSource,parents:crate::domain::analysis::retrieval::AnalysisInput);
         Ok(false)
     }
+    pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{if crate::domain::stages::is_vocabulary(input.name()){self.render.visit_input(input,b)}else{self.visit(input.name(),b)}}
     pub fn selected_spec(&self) -> Result<&EmbeddingSpec, ModelError> {
         if self.specifications.len() != 1 || self.services.len() != 1 {
             return Err(invalid(

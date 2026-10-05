@@ -496,6 +496,7 @@ fn two_fields_do_not_share_unrelated_readers_and_source_links_remain_unknown() {
         ordinal: 0,
     };
     d.core.placements.insert(value.clone()).unwrap();
+    d.local_qualifications.insert(q.clone()).unwrap();
     let location = local_fields::FieldLocation {
         invocation: local.id(),
         load: nominal(110),
