@@ -62,3 +62,26 @@ fn semantic_predecessor_selection_uses_declared_sources_without_runtime_metadata
     }
     assert!(selectors>0,"earlier semantic vocabulary must be selected explicitly");
 }
+
+#[test]
+fn normalized_replay_and_production_select_the_same_native_vocabulary(){
+ use normalized::*;
+ let profile=Profile::Behavioral;
+ let owners=[
+  (entity_normalization::stage(),entity_normalization::EntityData::validation_inputs()),
+  (relation_normalization::stage(profile),relation_normalization::RelationData::validation_inputs()),
+  (callable_normalization::stage(profile),callable_normalization::CallableData::validation_inputs()),
+  (event_normalization::stage(profile),event_normalization::EventData::validation_inputs()),
+  (binding_normalization::stage(profile),binding_normalization::BindingData::validation_inputs()),
+ ];
+ let mut selected=0;
+ for (stage,inputs) in owners {
+  for input in inputs.into_iter().filter(|input|stages::is_vocabulary(input.name())){
+   let producer=stage.inputs.iter().find(|producer|producer.name()==input.name()).expect("replayed producer source");
+   assert_eq!(input.prefix(),Some(stages::PublicationBoundary::Facts),"{} {}",stage.name,input.name());
+   assert_eq!(input.prefix(),producer.prefix(),"{} {}",stage.name,input.name());
+   selected+=1;
+  }
+ }
+ assert!(selected>0);
+}

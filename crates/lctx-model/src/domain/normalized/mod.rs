@@ -30,7 +30,8 @@ use super::*;
 pub use rows::Rows;
 
 /// Normalized owners reconstruct the captured facts universe. Later vocabulary cannot enlarge it.
-pub(crate) fn facts_inputs(mut inputs:Vec<ValidationInput>)->Vec<ValidationInput>{
+pub(crate) fn facts_inputs(inputs:Vec<ValidationInput>)->Vec<ValidationInput>{
+    let mut inputs=inputs.into_iter().map(|input|if stages::is_vocabulary(input.name()){input.at_epoch(stages::PublicationBoundary::Facts)}else{input}).collect::<Vec<_>>();
     inputs.sort_by_key(ValidationInput::name);inputs.dedup_by_key(|input|input.name());inputs
 }
 
