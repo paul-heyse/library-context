@@ -7,6 +7,7 @@ use lctx_model::domain::{
     resources::{Reservation, ResourceBudget},
     stages::{CompletedRelation, Profile, RelationReceipt},
 };
+use futures::TryStreamExt;
 use sqlx::PgConnection;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -144,6 +145,55 @@ impl<'s> Session<'s> {
         Ok(())
     }
 
+    /// Additional binding premises are exact acknowledged ordinary frames, never referrers
+    /// that select new definitions or completed-source capabilities.
+    pub async fn checkpoint_premises(
+        &mut self,
+        tx: &mut PgConnection,
+    ) -> Result<BTreeSet<&'static str>, Error> {
+        let Some(checkpoint) = &self.checkpoint else {
+            return Ok(BTreeSet::new());
+        };
+        let bytes = checkpoint.covered.len().checked_mul(128).ok_or(Error::Contract)?;
+        self.charge.try_resize(self.charge.size().checked_add(bytes).ok_or(Error::Contract)?)?;
+        let _lookup = self.budget.reserve("checkpoint-premise-read", 512)?;
+        let mut premises = BTreeSet::new();
+        let mut rows = sqlx::query_scalar::<_, String>("SELECT r.relation_name FROM lctx_model_store.checkpoint_frame_receipts r JOIN lctx_model_store.checkpoints c USING(generation_id,frontier) JOIN lctx_model_store.generations g ON g.id=r.generation_id WHERE r.generation_id=$1 AND r.frontier=$2 AND r.physical_frame=r.relation_name AND c.contract_digest=$3 AND c.model_digest=$4 AND c.schedule_digest=$5 AND c.coverage_digest=$6 AND c.content_digest=$7 AND g.state='staging' AND g.model_digest=c.model_digest AND g.schedule_digest=c.schedule_digest AND g.physical_digest=$8 AND g.profile=$9 ORDER BY r.relation_name COLLATE \"C\"")
+            .bind(self.generation.0.to_vec()).bind(checkpoint.frontier)
+            .bind(checkpoint.contract.0.to_vec()).bind(checkpoint.model.0.to_vec()).bind(checkpoint.schedule.0.to_vec())
+            .bind(checkpoint.coverage.0.to_vec()).bind(checkpoint.content.0.to_vec()).bind(self.physical.0.to_vec())
+            .bind(checkpoint.profile.name()).fetch(&mut *tx);
+        while let Some(name) = rows.try_next().await? {
+            let relation = self.model.relation(&name).ok_or(Error::Contract)?;
+            if !checkpoint.covered.contains(relation.name()) {
+                return Err(Error::Contract);
+            }
+            if !lctx_model::domain::stages::is_vocabulary(relation.name()) {
+                premises.insert(relation.name());
+            }
+        }
+        Ok(premises)
+    }
+
+    async fn checkpoint_frame(
+        &self,
+        tx: &mut PgConnection,
+        relation: &str,
+        physical: &str,
+    ) -> Result<Option<(i64, Vec<u8>)>, Error> {
+        let Some(checkpoint) = &self.checkpoint else { return Ok(None); };
+        if physical != relation || lctx_model::domain::stages::is_vocabulary(relation)
+            || !checkpoint.covered.contains(relation) {
+            return Ok(None);
+        }
+        let _lookup = self.budget.reserve("checkpoint-frame-read", 512)?;
+        Ok(sqlx::query_as("SELECT r.row_count,r.content_digest FROM lctx_model_store.checkpoint_frame_receipts r JOIN lctx_model_store.checkpoints c USING(generation_id,frontier) JOIN lctx_model_store.generations g ON g.id=r.generation_id WHERE r.generation_id=$1 AND r.frontier=$2 AND r.relation_name=$3 AND r.physical_frame=$4 AND c.contract_digest=$5 AND c.model_digest=$6 AND c.schedule_digest=$7 AND c.coverage_digest=$8 AND c.content_digest=$9 AND g.state='staging' AND g.model_digest=c.model_digest AND g.schedule_digest=c.schedule_digest AND g.physical_digest=$10 AND g.profile=$11")
+            .bind(self.generation.0.to_vec()).bind(checkpoint.frontier).bind(relation).bind(physical)
+            .bind(checkpoint.contract.0.to_vec()).bind(checkpoint.model.0.to_vec()).bind(checkpoint.schedule.0.to_vec())
+            .bind(checkpoint.coverage.0.to_vec()).bind(checkpoint.content.0.to_vec()).bind(self.physical.0.to_vec())
+            .bind(checkpoint.profile.name()).fetch_optional(&mut *tx).await?)
+    }
+
     /// The caller holds installation/generation authority and mutation-excluding candidate
     /// locks. An absent acknowledgement is allowed only for the final candidate being closed.
     pub async fn frame(
@@ -209,18 +259,8 @@ impl<'s> Session<'s> {
             expected = sqlx::query_as("SELECT r.row_count,r.content_digest FROM lctx_model_store.receipts r JOIN lctx_model_store.generations g ON g.id=r.generation_id WHERE r.generation_id=$1 AND r.relation_name=$2 AND g.state IN ('validated','published')")
                 .bind(self.generation.0.to_vec()).bind(input.name()).fetch_optional(&mut *tx).await?;
         }
-        if expected.is_none()
-            && physical == input.name()
-            && !lctx_model::domain::stages::is_vocabulary(input.name())
-            && let Some(checkpoint) = &self.checkpoint
-            && checkpoint.covered.contains(input.name())
-        {
-            let _lookup = self.budget.reserve("checkpoint-frame-read", 512)?;
-            expected = sqlx::query_as("SELECT r.row_count,r.content_digest FROM lctx_model_store.checkpoint_frame_receipts r JOIN lctx_model_store.checkpoints c USING(generation_id,frontier) JOIN lctx_model_store.generations g ON g.id=r.generation_id WHERE r.generation_id=$1 AND r.frontier=$2 AND r.relation_name=$3 AND r.physical_frame=$4 AND c.contract_digest=$5 AND c.model_digest=$6 AND c.schedule_digest=$7 AND c.coverage_digest=$8 AND c.content_digest=$9 AND g.state='staging' AND g.model_digest=c.model_digest AND g.schedule_digest=c.schedule_digest AND g.physical_digest=$10 AND g.profile=$11")
-                .bind(self.generation.0.to_vec()).bind(checkpoint.frontier).bind(input.name()).bind(physical)
-                .bind(checkpoint.contract.0.to_vec()).bind(checkpoint.model.0.to_vec()).bind(checkpoint.schedule.0.to_vec())
-                .bind(checkpoint.coverage.0.to_vec()).bind(checkpoint.content.0.to_vec()).bind(self.physical.0.to_vec())
-                .bind(checkpoint.profile.name()).fetch_optional(&mut *tx).await?;
+        if expected.is_none() {
+            expected = self.checkpoint_frame(tx, input.name(), physical).await?;
         }
         let receipt = match expected {
             Some((rows, content)) => RelationReceipt {
@@ -1243,6 +1283,7 @@ mod tests {
         super::super::transaction(&store.owner, async |tx| {
             let mut session = Session::new(&store, tx, generation, &budget).await?;
             session.bind_checkpoint(&store, &rolled_back)?;
+            assert!(session.checkpoint_premises(tx).await?.is_empty(), "rolled-back checkpoint adds no binding premises");
             assert!(matches!(session.frame(tx, &input, input.name(), false).await, Err(Error::Contract)));
             let count: i64 = sqlx::query_scalar("SELECT count(*) FROM lctx_model_store.checkpoint_frame_receipts WHERE generation_id=$1")
                 .bind(generation.0.to_vec()).fetch_one(&mut *tx).await?;
@@ -1325,6 +1366,7 @@ mod tests {
         );
         let expected = super::super::transaction(&store.owner, async |tx| {
             let mut unbound = Session::new(&store, tx, generation, &budget).await?;
+            assert!(unbound.checkpoint_premises(tx).await?.is_empty(), "receipt rows without admitted authority add no premises");
             assert!(
                 unbound
                     .frame(tx, &input, input.name(), false)
@@ -1334,6 +1376,10 @@ mod tests {
             );
             let mut session = Session::new(&store, tx, generation, &budget).await?;
             session.bind_checkpoint(&store, &admission)?;
+            let premises = session.checkpoint_premises(tx).await?;
+            assert!(premises.contains(input.name()), "held empty Flow is a real checkpoint premise");
+            assert!(!premises.contains(Literal::NAME), "checkpoint premises never authorize a vocabulary prefix");
+            assert!(premises.iter().all(|name| store.scope(Frontier::Facts).unwrap().relations.contains(name)));
             let binding = session
                 .binding(
                     tx,
@@ -1373,10 +1419,19 @@ mod tests {
                     .bind(generation.0.to_vec()).execute(&mut *tx).await?;
                 let mut mismatched = Session::new(&store, tx, generation, &budget).await?;
                 mismatched.bind_checkpoint(&store, &admission)?;
+                assert!(mismatched.checkpoint_premises(tx).await?.is_empty(), "{column} mismatch adds no premises");
                 assert!(matches!(mismatched.frame(tx, &input, input.name(), false).await, Err(Error::Contract)),
                     "{column} mismatch cannot authorize a checkpoint frame");
                 sqlx::query("ROLLBACK TO SAVEPOINT mismatched_checkpoint").execute(&mut *tx).await?;
             }
+            sqlx::query("SAVEPOINT missing_checkpoint_frame").execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM lctx_model_store.checkpoint_frame_receipts WHERE generation_id=$1 AND frontier='facts' AND relation_name=$2")
+                .bind(generation.0.to_vec()).bind(input.name()).execute(&mut *tx).await?;
+            let mut missing = Session::new(&store, tx, generation, &budget).await?;
+            missing.bind_checkpoint(&store, &admission)?;
+            assert!(!missing.checkpoint_premises(tx).await?.contains(input.name()), "a missing child receipt cannot enter the binding scope");
+            assert!(matches!(missing.frame(tx, &input, input.name(), false).await, Err(Error::Contract)), "checkpoint-only input must resolve before candidate execution");
+            sqlx::query("ROLLBACK TO SAVEPOINT missing_checkpoint_frame").execute(&mut *tx).await?;
             let mut outside = Session::new(&store, tx, generation, &budget).await?;
             outside.bind_checkpoint(&store, &admission)?;
             assert!(outside.frame(tx, &input, "__v0_flow_test_leaf_observations", false).await.is_err(),

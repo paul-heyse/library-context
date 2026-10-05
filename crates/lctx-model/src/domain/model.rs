@@ -588,8 +588,23 @@ impl ValidatedModel {
         &self,
         names: &std::collections::BTreeSet<&str>,
     ) -> Result<Vec<Invariant>, ModelError> {
+        self.invariants_for_scope_with_premises(names, &std::collections::BTreeSet::new())
+    }
+    /// Referrers select required checks; separately acknowledged premises only complete inputs.
+    /// The effect owner must bind those premises to actual acknowledgement receipts. Naming a
+    /// premise here creates no read authority and does not select its own validation references.
+    pub fn invariants_for_scope_with_premises(
+        &self,
+        referrers: &std::collections::BTreeSet<&str>,
+        acknowledged_premises: &std::collections::BTreeSet<&str>,
+    ) -> Result<Vec<Invariant>, ModelError> {
+        for name in acknowledged_premises {
+            self.relation(name).ok_or_else(|| {
+                ModelError::Invalid(format!("unknown validation premise relation {name}"))
+            })?;
+        }
         let mut ids = std::collections::BTreeSet::new();
-        for name in names {
+        for name in referrers {
             let relation = self.relation(name).ok_or_else(|| {
                 ModelError::Invalid(format!("unknown validation scope relation {name}"))
             })?;
@@ -597,21 +612,26 @@ impl ValidatedModel {
         }
         let mut checks = Vec::new();
         for id in ids {
-            let check = self.invariant(id)?;
+            checks.push(self.invariant(id)?.clone());
+        }
+        if let Some(check) = self.generated_invariant_for_scope(referrers)? {
+            checks.push(check);
+        }
+        for check in &checks {
             if let Some(input) = check
                 .inputs
                 .iter()
-                .find(|input| !names.contains(input.name()))
+                .find(|input| {
+                    !referrers.contains(input.name())
+                        && !acknowledged_premises.contains(input.name())
+                })
             {
                 return Err(ModelError::Invalid(format!(
-                    "{id} requires validation premise {} outside scope",
+                    "{} requires validation premise {} outside scope",
+                    check.name,
                     input.name()
                 )));
             }
-            checks.push(check.clone());
-        }
-        if let Some(check) = self.generated_invariant_for_scope(names)? {
-            checks.push(check);
         }
         Ok(checks)
     }

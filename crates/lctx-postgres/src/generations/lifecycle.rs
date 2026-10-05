@@ -547,10 +547,15 @@ impl StageSink for GenerationAttempt {
                 "foreign or poisoned publication".into(),
             ));
         }
+        let checkpoint = self
+            .checkpoint
+            .lock()
+            .map_err(|_| ModelError::Invalid("checkpoint state poisoned".into()))?
+            .clone();
         let mut lifecycle = self.lifecycle.lock().await;
         let receipts = transaction_on(&mut lifecycle.connection, async |tx| {
             self.store
-                .close_vocabulary_step(tx, self.generation, &group, &self.budget)
+                .close_vocabulary_step(tx, self.generation, &group, checkpoint.as_ref(), &self.budget)
                 .await
         })
         .await

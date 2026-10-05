@@ -2,6 +2,7 @@
 use super::{Error, GenerationId, GenerationStore, ddl, execute, qualified, quoted, visit_named};
 use lctx_model::domain::{
     Record, Relation,
+    admission::FrontierAdmission,
     resources::ResourceBudget,
     stages::{
         GroupCompletion, PrefixOrdinal, PublicationBoundary, PublicationOrder, RelationReceipt,
@@ -132,6 +133,7 @@ impl GenerationStore {
         tx: &mut PgConnection,
         g: GenerationId,
         group: &GroupCompletion,
+        checkpoint: Option<&FrontierAdmission>,
         budget: &ResourceBudget,
     ) -> Result<
         (
@@ -182,8 +184,16 @@ impl GenerationStore {
         .into_iter()
         .collect();
         available.extend(actual.iter().map(|(_, r)| r.to_string()));
+        let mut session = super::validation_session::Session::new(self, tx, g, budget).await?;
+        if let Some(checkpoint) = checkpoint {
+            session.bind_checkpoint(self, checkpoint)?;
+        }
+        let premises = session.checkpoint_premises(tx).await?;
+        let _scope = budget.reserve("publication-validation-scope", available.len().checked_add(premises.len()).and_then(|names| names.checked_mul(256)).ok_or(Error::Contract)?)?;
+        let referrers: BTreeSet<_> = available.iter().map(String::as_str).collect();
+        let locked: BTreeSet<_> = referrers.union(&premises).copied().collect();
         // Deterministic canonical relation locks precede deterministic private delta locks.
-        for name in &available {
+        for name in &locked {
             sqlx::query(sqlx::AssertSqlSafe(format!(
                 "LOCK TABLE {} IN ACCESS EXCLUSIVE MODE",
                 qualified(g, name)
@@ -333,10 +343,9 @@ impl GenerationStore {
                 }
             }
         }
-        let mut session = super::validation_session::Session::new(self, tx, g, budget).await?;
         let invariants = self
             .model
-            .invariants_for_scope(&available.iter().map(String::as_str).collect())?;
+            .invariants_for_scope_with_premises(&referrers, &premises)?;
         let _plan = budget.reserve(
             "validation-input-plan",
             invariants
@@ -354,6 +363,10 @@ impl GenerationStore {
                     .iter()
                     .find(|r| r.name() == input.name())
                     .ok_or(Error::Contract)?;
+                // Candidate hashing cannot substitute for a checkpoint-only premise.
+                if premises.contains(input.name()) && !referrers.contains(input.name()) {
+                    session.frame(tx, input, input.name(), false).await?;
+                }
                 let view = super::validation_views::physical(
                     tx,
                     g,

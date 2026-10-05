@@ -30,6 +30,15 @@ struct Right {
     #[model(key)]
     ordinal: i64,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name="validation_checkpoint_only", invariant_refs=checkpoint_only_refs, semantic_source=include_bytes!("validation_definitions.rs"))]
+struct CheckpointOnly {
+    #[model(key)]
+    ordinal: i64,
+}
+fn checkpoint_only_refs() -> Vec<&'static str> {
+    vec!["checkpoint_only_rule"]
+}
 fn shared_refs() -> Vec<&'static str> {
     vec!["accepted_validation_premise"]
 }
@@ -111,6 +120,97 @@ fn any_referrer_retains_the_check_and_missing_definition_or_premise_refuses() {
         count.load(Ordering::Relaxed),
         0,
         "model admission must never execute semantic callbacks"
+    );
+}
+#[test]
+fn acknowledged_premises_complete_inputs_without_selecting_their_checks() {
+    let count = Arc::new(AtomicUsize::new(0));
+    let mut definitions = shared(1, count.clone());
+    let mut checkpoint_only = definitions.invariants[0].clone();
+    checkpoint_only.name = "checkpoint_only_rule";
+    definitions.invariants.push(checkpoint_only);
+    let model = ValidatedModel::validate(
+        vec![
+            Relation::of::<Left>(),
+            Relation::of::<Premise>(),
+            Relation::of::<CheckpointOnly>(),
+        ],
+        definitions,
+    )
+    .unwrap();
+    let referrers = [Left::NAME].into_iter().collect();
+    let premises = [Premise::NAME, CheckpointOnly::NAME].into_iter().collect();
+    assert!(model.invariants_for_scope(&referrers).is_err());
+    assert!(
+        model
+            .invariants_for_scope_with_premises(
+                &referrers,
+                &[CheckpointOnly::NAME].into_iter().collect(),
+            )
+            .is_err()
+    );
+    let checks = model
+        .invariants_for_scope_with_premises(&referrers, &premises)
+        .unwrap();
+    assert_eq!(checks.len(), 1);
+    assert_eq!(checks[0].name, "accepted_validation_premise");
+    assert_eq!(
+        checks[0].digest(),
+        model.invariant(checks[0].name).unwrap().digest()
+    );
+    assert!(
+        model
+            .invariants_for_scope_with_premises(
+                &referrers,
+                &[Premise::NAME, "undeclared_relation"].into_iter().collect(),
+            )
+            .is_err()
+    );
+    assert!(
+        model
+            .invariants_for_scope_with_premises(
+                &["undeclared_relation"].into_iter().collect(),
+                &premises,
+            )
+            .is_err()
+    );
+    assert!(
+        model
+            .invariants_for_scope_with_premises(&Default::default(), &premises)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(count.load(Ordering::Relaxed), 0);
+}
+#[test]
+fn local_stability_scope_requires_the_complete_acknowledged_normalized_premises() {
+    use conditions::{entry::{EntryAccessSource, EntryValueWitness}, stability::StabilityWitness};
+    let model = model().unwrap();
+    let referrers = [StabilityWitness::NAME, EntryValueWitness::NAME, EntryAccessSource::NAME]
+        .into_iter()
+        .collect();
+    let normalized = normalized_relations();
+    let mut premises: std::collections::BTreeSet<_> =
+        normalized.iter().map(Relation::name).collect();
+    assert!(model.invariants_for_scope(&referrers).is_err());
+    let checks = model
+        .invariants_for_scope_with_premises(&referrers, &premises)
+        .unwrap();
+    let stability = checks.iter().find(|check| check.name == "entry_guard_stability_replay").unwrap();
+    assert_eq!(
+        stability.digest(),
+        model.invariant(stability.name).unwrap().digest()
+    );
+    for check in &checks {
+        assert!(check.inputs.iter().all(|input| {
+            referrers.contains(input.name()) || premises.contains(input.name())
+        }));
+    }
+    assert!(premises.remove(flow_inventory::FlowUseInventoryObservation::NAME));
+    assert!(
+        model
+            .invariants_for_scope_with_premises(&referrers, &premises)
+            .is_err()
     );
 }
 #[test]
@@ -297,6 +397,14 @@ fn lower_scope_derivation_is_required_and_exactly_scoped_and_cycles_refuse() {
     .unwrap();
     let scope = [Proof::NAME].into_iter().collect();
     let checks = model.invariants_for_scope(&scope).unwrap();
+    let with_upper_premise = model
+        .invariants_for_scope_with_premises(
+            &scope,
+            &[OtherProof::NAME].into_iter().collect(),
+        )
+        .unwrap();
+    assert_eq!(with_upper_premise.len(), 1);
+    assert_eq!(with_upper_premise[0].digest(), checks[0].digest());
     assert_eq!(checks.len(), 1);
     assert_eq!(checks[0].name, "derivation_acyclic");
     assert_eq!(
