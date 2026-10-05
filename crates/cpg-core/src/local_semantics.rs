@@ -1,7 +1,6 @@
 //! Local analysis uses confirmed inputs, one attempt budget and the domain's shared replay.
 use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::AttemptRuntime,
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, local as publication, sources::CapturedSources},
@@ -10,7 +9,6 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 // Decoder reachability is separate from the model-owned consumed source inventory.
 macro_rules! decoder_inputs {
@@ -24,35 +22,25 @@ macro_rules! decoder_inputs {
     };
 }
 pub async fn run(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
 ) -> Result<(), ModelError> {
     local_semantics::check_definition(definition)?;
     let profile = access.profile();
     let budget = runtime.budget();
-    let sources = CapturedSources::capture(&access, budget)?;
+    let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
     let mut consumed =
         crate::consumed_rows::ConsumedInputs::new(LocalData::consumed_inputs(profile), budget)?;
     let mut data = LocalData::new(budget);
     let mut inputs = normalized::Rows::<input::InputRevision>::new(budget);
     let mut definitions = normalized::Rows::<analysis::AnalysisDefinition>::new(budget);
     macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(while let Some((_,permit))=consumed.next::<$ty>(&access)?{
-        let session=runtime.session(&access);
-        crate::consumed_rows::stream(&permit,&reader,&session,|permit,batch|{
+        let session=access.session(runtime).await?;
+        crate::consumed_rows::stream(&permit,&session,|permit,batch|{
             admission.visit_if_expected(permit,batch)?;
             data.visit_consumed(profile,<$ty>::NAME,batch)?;
             if <$ty>::NAME==input::InputRevision::NAME{inputs.decode(batch)?;}
@@ -61,15 +49,13 @@ pub async fn run(
         }).await?;
     })*};}
     decoder_inputs!(load);
-    consumed.finish(access.stage().name)?;
+    consumed.finish(access.name())?;
     if definitions.get(definition.id()) != Some(definition) {
         return Err(ModelError::Invalid(
             "Local selected definition is absent from confirmed configuration".into(),
         ));
     }
     drop(definitions);
-    reader.close().await.map_err(ModelError::codec)?;
-    let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! declare_publication {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<publication::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);

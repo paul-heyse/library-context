@@ -1,8 +1,7 @@
 //! A0 persists C0-owned public candidates, canonical graph witnesses and exact official usage.
 use crate::{
     analysis_graphs::PreparedGraphs,
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -11,12 +10,10 @@ use lctx_model::domain::{
     structural::{self as semantic, build, frames},
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::{collections::BTreeSet, sync::Arc};
 async fn load<R: Record>(
-    access: &StageAccess<'_, '_>,
-    reader: &AttemptSession,
-    session: &StageSession,
+    access: &CompletedInputs,
+    session: &datafusion::prelude::SessionContext,
     data: &mut build::Data,
     context: &mut frames::Context,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
@@ -26,9 +23,9 @@ async fn load<R: Record>(
         return Ok(());
     }
     let permit = access.read::<R>()?;
-    session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+    
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -40,42 +37,19 @@ async fn load<R: Record>(
     Ok(())
 }
 pub async fn produce(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
     graphs: &PreparedGraphs,
 ) -> Result<(), ModelError> {
-    produce_with_sink(access, attempt, config, runtime, model, graphs, attempt).await
-}
-/// Run the same native preparation and write it through the scheduled sink. Source reads remain
-/// bound to `attempt`; the sink acknowledges the production stage protocol and owns its effects.
-pub async fn produce_with_sink<S: StageSink>(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
-    graphs: &PreparedGraphs,
-    sink: &S,
-) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(&access, runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = build::Data::new(runtime.budget());
     let mut context = frames::Context::new(runtime.budget());
     let mut seen = BTreeSet::new();
-    macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut data,&mut context,&mut admission,&mut seen).await?;)*};}
+    macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut data,&mut context,&mut admission,&mut seen).await?;)*};}
     macro_rules! inventory {($($f:ident:$ty:ty,)*)=>{read!($($ty),*);};}
     lctx_model::projection_inputs!(inventory);
     lctx_model::structural_handoff_inputs!(inventory);
@@ -106,25 +80,10 @@ pub async fn produce_with_sink<S: StageSink>(
         input::CorpusLibrary,
         input::InputDistribution
     );
-    macro_rules! expected_inputs {($($field:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>(){read!($ty);})*};}
+    macro_rules! expected_inputs {($($field:ident:$ty:ty,)*)=>{$(if access.contains::<$ty>(){read!($ty);})*};}
     lctx_model::expected_domain_inputs!(expected_inputs);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let settings = context.configuration()?.clone();
-    let declaration = build::stage(
-        access.profile(),
-        &settings,
-        model,
-        access.publication_order(),
-    )?;
-    if declaration.configuration != access.stage().configuration
-        || declaration.code != access.stage().code
-        || declaration.name != access.stage().name
-    {
-        return Err(ModelError::Invalid(
-            "structural stage differs from selected settings/rules".into(),
-        ));
-    }
     let parents = frames::parents(&data, runtime.budget())?;
     let mut results = semantic::Output::new(runtime.budget());
     let mut receipts = normalized::Rows::new(runtime.budget());
@@ -197,7 +156,7 @@ pub async fn produce_with_sink<S: StageSink>(
             key(projection::ProjectionName::DefinitionContainment),
         )?;
         results.extend(crate::stage_runtime::borrowed_cpu(
-            access.stage().name,
+            access.name(),
             || {
                 build::produce(
                     &data,
@@ -217,13 +176,6 @@ pub async fn produce_with_sink<S: StageSink>(
     for node in nodes {
         results.flow_condition_nodes.insert(node)?;
     }
-    let mut output = StageOutput::new(
-        access,
-        sink,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
     macro_rules! write {

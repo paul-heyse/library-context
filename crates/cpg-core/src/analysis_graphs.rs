@@ -2,10 +2,7 @@
 //!
 //! Each borrowing consumer still needs its own declared completed-input permits. Stored snapshots
 //! supply topology; neither preparation nor repeated algorithms rebuild edges from semantic rows.
-use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
-};
+use crate::workspace::{CompletedInputs, Workspace};
 use futures::TryStreamExt;
 use lctx_model::domain::{
     charged::StateCharge,
@@ -15,10 +12,8 @@ use lctx_model::domain::{
         snapshot::{self, MaterializedGraph},
         *,
     },
-    stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::{collections::BTreeSet, sync::Arc};
 
 struct PreparedProjection {
@@ -32,14 +27,15 @@ struct PreparedProjection {
 /// ```compile_fail
 /// use cpg_core::analysis_graphs::PreparedGraphs;
 /// use lctx_model::domain::{projection::{normalization::ProjectionKey, snapshot::MaterializedGraph},
-///     resources::ResourceBudget, stages::StageAccess};
-/// fn escape<'a>(graphs: &'a PreparedGraphs, access: StageAccess<'_, '_>,
+///     resources::ResourceBudget};
+/// use cpg_core::workspace::CompletedInputs;
+/// fn escape<'a>(graphs: &'a PreparedGraphs, access: CompletedInputs,
 ///     budget: &ResourceBudget, key: ProjectionKey) -> &'a MaterializedGraph {
 ///     graphs.graph(&access, budget, key).unwrap()
 /// }
 /// ```
 pub struct PreparedGraphs {
-    sources: [CompletedRelation; 3],
+    sources: [analysis::sources::SourceSnapshot; 3],
     graphs: Vec<PreparedProjection>,
     budget: resources::ResourceBudget,
     _charge: StateCharge,
@@ -47,13 +43,9 @@ pub struct PreparedGraphs {
 fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
-fn sources(access: &StageAccess<'_, '_>) -> Result<[CompletedRelation; 3], ModelError> {
-    fn source<R: Record>(access: &StageAccess<'_, '_>) -> Result<CompletedRelation, ModelError> {
-        access
-            .read::<R>()?
-            .source()
-            .cloned()
-            .ok_or_else(|| invalid("graph preparation requires completed stored sources"))
+fn sources(access: &CompletedInputs) -> Result<[analysis::sources::SourceSnapshot; 3], ModelError> {
+    fn source<R: Record>(access: &CompletedInputs) -> Result<analysis::sources::SourceSnapshot, ModelError> {
+        Ok(access.read::<R>()?.snapshot())
     }
     Ok([
         source::<ProjectionSourceAssessment>(access)?,
@@ -62,70 +54,46 @@ fn sources(access: &StageAccess<'_, '_>) -> Result<[CompletedRelation; 3], Model
     ])
 }
 async fn load<R: Record>(
-    access: &StageAccess<'_, '_>,
-    reader: &AttemptSession,
-    session: &StageSession,
+    session: &datafusion::prelude::SessionContext,
     rows: &mut Rows<R>,
 ) -> Result<(), ModelError> {
-    let permit = access.read::<R>()?;
-    session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
-    let mut stream = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        rows.decode(&batch)?;
-    }
+    let mut stream=session.sql(&format!("SELECT * FROM \"{}\"",R::NAME)).await.map_err(ModelError::codec)?
+        .execute_stream().await.map_err(ModelError::codec)?;
+    while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? { rows.decode(&batch)?; }
     Ok(())
 }
+
 impl PreparedGraphs {
     /// Prepare after normalized publication/checkpoint, from the first consuming stage's permits.
     /// Its declaration must include the sources' normal invariant/reference closure, just like
     /// other completed-store readers. Selection is explicit; missing selected snapshots refuse.
     pub async fn load(
-        access: &StageAccess<'_, '_>,
-        attempt: &GenerationAttempt,
-        config: &RoleConfig,
-        runtime: &AttemptRuntime,
-        model: &Arc<ValidatedModel>,
+        access: &CompletedInputs,
+        runtime: &Workspace,
+        _model: &Arc<ValidatedModel>,
         names: &BTreeSet<ProjectionName>,
     ) -> Result<Self, ModelError> {
         if names.is_empty() {
             return Err(invalid("graph preparation needs a named projection"));
         }
         let sources = sources(access)?;
-        let reader = AttemptSession::open(
-            config,
-            attempt,
-            access,
-            model.clone(),
-            ProviderOptions::default(),
-        )
-        .await
-        .map_err(ModelError::codec)?;
-        let session = runtime.session(access);
+        let session=access.session(runtime).await?;
         let budget = runtime.budget();
         let mut assessments = Rows::<ProjectionSourceAssessment>::new(budget);
         let mut headers = Rows::<ProjectionSnapshot>::new(budget);
         let mut chunks = Rows::<ProjectionSnapshotChunk>::new(budget);
-        load(access, &reader, &session, &mut assessments).await?;
-        load(access, &reader, &session, &mut headers).await?;
-        load(access, &reader, &session, &mut chunks).await?;
+        load(&session, &mut assessments).await?;
+        load(&session, &mut headers).await?;
+        load(&session, &mut chunks).await?;
         drop(session);
-        reader.close().await.map_err(ModelError::codec)?;
         let budget = budget.clone();
         let names = names.clone();
-        tokio::task::spawn_blocking(move || {
+        crate::stage_runtime::borrowed_cpu("projection-hydration",|| {
             Self::hydrate(sources, assessments, headers, chunks, &names, &budget)
         })
-        .await
-        .map_err(ModelError::codec)?
     }
     fn hydrate(
-        sources: [CompletedRelation; 3],
+        sources: [analysis::sources::SourceSnapshot; 3],
         assessments: Rows<ProjectionSourceAssessment>,
         headers: Rows<ProjectionSnapshot>,
         chunks: Rows<ProjectionSnapshotChunk>,
@@ -179,7 +147,7 @@ impl PreparedGraphs {
     }
     fn admit(
         &self,
-        access: &StageAccess<'_, '_>,
+        access: &CompletedInputs,
         budget: &resources::ResourceBudget,
     ) -> Result<(), ModelError> {
         if !self.budget.shares_pool(budget) || self.sources != sources(access)? {
@@ -191,7 +159,7 @@ impl PreparedGraphs {
     }
     pub fn keys<'a>(
         &'a self,
-        access: &'a StageAccess<'_, '_>,
+        access: &'a CompletedInputs,
         budget: &resources::ResourceBudget,
     ) -> Result<impl Iterator<Item = ProjectionKey> + 'a, ModelError> {
         self.admit(access, budget)?;
@@ -199,7 +167,7 @@ impl PreparedGraphs {
     }
     pub fn graph<'a>(
         &'a self,
-        access: &'a StageAccess<'_, '_>,
+        access: &'a CompletedInputs,
         budget: &resources::ResourceBudget,
         key: ProjectionKey,
     ) -> Result<&'a MaterializedGraph, ModelError> {
@@ -213,7 +181,7 @@ impl PreparedGraphs {
     /// Availability remains independent of successful hydration and algorithm execution.
     pub fn assessment<'a>(
         &'a self,
-        access: &'a StageAccess<'_, '_>,
+        access: &'a CompletedInputs,
         budget: &resources::ResourceBudget,
         key: ProjectionKey,
     ) -> Result<&'a ProjectionSourceAssessment, ModelError> {

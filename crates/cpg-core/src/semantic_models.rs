@@ -1,7 +1,6 @@
 //! Model-owned analysis over completed native/normalized/Enriched inputs.
 use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -11,23 +10,21 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 async fn load<R: Record>(
-    access: &StageAccess<'_, '_>,
-    reader: &AttemptSession,
-    session: &StageSession,
+    access: &CompletedInputs,
+    session: &datafusion::prelude::SessionContext,
     registered: &mut charged::ChargedSet<&'static str>,
     charge: &mut charged::StateCharge,
     admission: &mut CoverageAdmission<'_>,
-    mut visit: impl FnMut(&ReadPermit<'_, R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
+    mut visit: impl FnMut(&analysis::sources::CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     let permit = access.read::<R>()?;
-    if registered.insert(charge, permit.relation())? {
-        session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+    if registered.insert(charge, R::NAME)? {
+        
     }
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -38,31 +35,21 @@ async fn load<R: Record>(
     Ok(())
 }
 pub async fn apply(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    roles: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
 ) -> Result<(), ModelError> {
     let profile = access.profile();
     let budget = runtime.budget();
-    let sources = CapturedSources::capture(&access, budget)?;
+    let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
-    let reader = AttemptSession::open(
-        roles,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut registered = charged::ChargedSet::default();
     let mut registration = charged::StateCharge::new(budget, "model_registration");
     let mut data = ModelData::new(budget);
-    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
     if profile == Profile::Behavioral {
         lctx_model::normalized_binding_inputs!(inputs);
         lctx_model::normalized_binding_outputs!(inputs);
@@ -71,7 +58,7 @@ pub async fn apply(
         lctx_model::entry_value_inputs!(inputs);
         inputs! {members:class_metadata::ClassMemberObservation,metadata:class_metadata::ClassMetadataObservation,origins:calls::CallOrigin,origin_steps:calls::CallOriginStep,terminals:protocols::NativeTerminalObservation,exits:protocols::NativeExitObservation,literals:value::Literal,}
     }
-    macro_rules! read{($($ty:ty),*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    macro_rules! read{($($ty:ty),*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
     read!(
         models::ModelCatalog,
         analysis::MethodParameters,
@@ -127,11 +114,9 @@ pub async fn apply(
             "Model definition absent from confirmed configuration".into(),
         ));
     }
-    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
-    let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);

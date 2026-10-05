@@ -1,7 +1,6 @@
 //! Store the explicit authored configuration and actual native premise projection once.
 use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -11,33 +10,16 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 
 pub async fn configuration(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    model: &ValidatedModel,
-    runtime: &AttemptRuntime,
+    _access: CompletedInputs,
+    output: ProducerOutput,
+    _model: &ValidatedModel,
+    runtime: &Workspace,
     configuration: &Configuration,
 ) -> Result<(), ModelError> {
     configuration.check_budget(runtime.budget())?;
-    let declaration = configuration.declaration();
-    if access.stage().name != declaration.name
-        || access.stage().configuration != declaration.configuration
-        || access.stage().code != declaration.code
-    {
-        return Err(ModelError::Invalid(
-            "authored analysis configuration differs from preflight".into(),
-        ));
-    }
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write {
         ($ty:ty,$rows:expr) => {{
             output.declare::<$ty>()?;
@@ -62,15 +44,14 @@ pub async fn configuration(
 }
 
 async fn native_input<R: Record>(
-    access: &StageAccess<'_, '_>,
-    reader: &AttemptSession,
-    session: &StageSession,
+    access: &CompletedInputs,
+    session: &datafusion::prelude::SessionContext,
     inventory: &mut NativeInventory,
 ) -> Result<(), ModelError> {
-    let permit = access.read::<R>()?;
-    session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+    let _permit = access.read::<R>()?;
+    
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -80,42 +61,24 @@ async fn native_input<R: Record>(
     Ok(())
 }
 pub async fn native_inventory(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut inventory = NativeInventory::new(runtime.budget());
-    native_input::<AssertionQualification>(&access, &reader, &session, &mut inventory).await?;
+    native_input::<AssertionQualification>(&access, &session, &mut inventory).await?;
     macro_rules! read_pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
-        if access.stage().reads::<$assertion>() {
-            native_input::<$assertion>(&access,&reader,&session,&mut inventory).await?;
-            native_input::<$support>(&access,&reader,&session,&mut inventory).await?;
+        if access.contains::<$assertion>() {
+            native_input::<$assertion>(&access,&session,&mut inventory).await?;
+            native_input::<$support>(&access,&session,&mut inventory).await?;
         }
     )*};}
     lctx_model::native_analysis_pairs!(read_pairs);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let rows = inventory.collect()?;
     drop(inventory);
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     output.declare::<NativeAssertionPremise>()?;
     for row in rows.premises.iter() {
         output.push(row.clone()).await?;
@@ -130,35 +93,19 @@ pub async fn native_inventory(
 
 /// Publish the one selected embedding configuration before analytic or retrieval work.
 pub async fn embedding_configuration(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    model: &ValidatedModel,
-    runtime: &AttemptRuntime,
+    _access: CompletedInputs,
+    output: ProducerOutput,
+    _model: &ValidatedModel,
+    runtime: &Workspace,
     configuration: Option<&embedding::configuration::Configuration>,
 ) -> Result<(), ModelError> {
     use embedding::{
         EmbeddingSpec,
-        configuration::{ServiceConfiguration, stage},
+        configuration::ServiceConfiguration,
     };
     if let Some(configuration) = configuration {
         configuration.check_budget(runtime.budget())?;
     }
-    let declaration = stage(configuration);
-    if access.stage().name != declaration.name
-        || access.stage().configuration != declaration.configuration
-        || access.stage().code != declaration.code
-    {
-        return Err(ModelError::Invalid(
-            "embedding configuration differs from preflight".into(),
-        ));
-    }
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     output.declare::<EmbeddingSpec>()?;
     output.declare::<ServiceConfiguration>()?;
     if let Some(configuration) = configuration {

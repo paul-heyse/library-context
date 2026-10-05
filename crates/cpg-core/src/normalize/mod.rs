@@ -1,7 +1,6 @@
 //! Computed normalization stages over admitted completed-stage inputs.
 use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -12,14 +11,13 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 
 /// One transfer-bounded stream at a time. The typed collector admits every retained row; the
 /// source-bound session and PreparedQuery own remote scan admission and stream lifetime.
-async fn load<R: Record>(session: &StageSession, rows: &mut Rows<R>) -> Result<(), ModelError> {
+async fn load<R: Record>(session: &datafusion::prelude::SessionContext, rows: &mut Rows<R>) -> Result<(), ModelError> {
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -29,42 +27,24 @@ async fn load<R: Record>(session: &StageSession, rows: &mut Rows<R>) -> Result<(
     Ok(())
 }
 pub async fn entities(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = EntityData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
-        let permit = access.read::<$ty>()?;
-        session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        let _permit = access.read::<$ty>()?;
+        
         load(&session, &mut data.$field).await?;
     )* }; }
     lctx_model::normalized_entity_inputs!(read_inputs);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let rows = compute(data, runtime.budget(), |data, budget| {
         entity_normalization::normalize(data.inputs(), budget)
     })
     .await?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
         output.declare::<$ty>()?;
         for row in rows.$field.iter() { output.push(row.clone()).await?; }
@@ -75,63 +55,45 @@ pub async fn entities(
 }
 
 pub async fn relations(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::normalized::relation_normalization::{self, RelationData};
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = RelationData::new(runtime.budget());
     let mut registered = charged::ChargedSet::default();
     let mut registration =
         charged::StateCharge::new(runtime.budget(), "relation-input-registration");
     macro_rules! read_facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
-        let permit = access.read::<$ty>()?;
+        let _permit = access.read::<$ty>()?;
         if registered.insert(&mut registration, <$ty>::NAME)? {
-            session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            
         }
         load(&session, &mut data.facts.$field).await?;
     )* }; }
     lctx_model::normalized_entity_inputs!(read_facts);
     macro_rules! read_entities { ($($field:ident: $ty:ty,)*) => { $(
-        let permit = access.read::<$ty>()?;
+        let _permit = access.read::<$ty>()?;
         if registered.insert(&mut registration, <$ty>::NAME)? {
-            session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            
         }
         load(&session, &mut data.entities.$field).await?;
     )* }; }
     lctx_model::normalized_entity_outputs!(read_entities);
     macro_rules! read_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
-        if access.stage().reads::<$ty>() {
-            let permit = access.read::<$ty>()?;
+        if access.contains::<$ty>() {
+            let _permit = access.read::<$ty>()?;
             if registered.insert(&mut registration, <$ty>::NAME)? {
-                session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+                
             }
             load(&session, &mut data.$field).await?;
         }
     )* }; }
     lctx_model::normalized_relation_inputs!(read_inputs);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let rows = compute(data, runtime.budget(), relation_normalization::normalize).await?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
         output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
     )* }; }
@@ -141,39 +103,21 @@ pub async fn relations(
 }
 
 pub async fn callables(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::normalized::callable_normalization::{self, CallableData};
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = CallableData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        let _permit = access.read::<$ty>()?; 
         load(&session, &mut data.$field).await?;
     )* }; }
     lctx_model::normalized_callable_inputs!(read_inputs);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let rows = compute(data, runtime.budget(), callable_normalization::normalize).await?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
         output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
     )* }; }
@@ -183,41 +127,23 @@ pub async fn callables(
 }
 
 pub async fn receivers(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::normalized::receiver::{self, ReceiverData};
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = ReceiverData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        if access.stage().reads::<$ty>() {
-            let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        if access.contains::<$ty>() {
+            let _permit = access.read::<$ty>()?; 
             load(&session, &mut data.$field).await?;
         }
     )* }; }
     lctx_model::normalized_receiver_inputs!(read_inputs);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let rows = compute(data, runtime.budget(), receiver::normalize).await?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
         output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
     )* }; }
@@ -227,41 +153,23 @@ pub async fn receivers(
 }
 
 pub async fn events(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::normalized::event_normalization::{self, EventData};
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = EventData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        if access.stage().reads::<$ty>() {
-            let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        if access.contains::<$ty>() {
+            let _permit = access.read::<$ty>()?; 
             load(&session, &mut data.$field).await?;
         }
     )* }; }
     lctx_model::normalized_event_inputs!(read_inputs);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let rows = compute(data, runtime.budget(), event_normalization::normalize).await?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
         output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
     )* }; }
@@ -271,41 +179,23 @@ pub async fn events(
 }
 
 pub async fn bindings(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::normalized::binding_normalization::{self, BindingData};
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = BindingData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        if access.stage().reads::<$ty>() {
-            let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        if access.contains::<$ty>() {
+            let _permit = access.read::<$ty>()?; 
             load(&session, &mut data.$field).await?;
         }
     )* }; }
     lctx_model::normalized_binding_inputs!(read_inputs);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let rows = compute(data, runtime.budget(), binding_normalization::normalize).await?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
         output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
     )* }; }
@@ -316,39 +206,21 @@ pub async fn bindings(
 
 /// Generation-local computational snapshots are built once, after their canonical inputs finish.
 pub async fn projections(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::projection::normalization::{self, ProjectionData};
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut data = ProjectionData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        let _permit = access.read::<$ty>()?; 
         load(&session, &mut data.$field).await?;
     )* }; }
     lctx_model::projection_inputs!(read_inputs);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let rows = compute(data, runtime.budget(), normalization::normalize).await?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
         output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
     )* }; }
@@ -358,7 +230,6 @@ pub async fn projections(
 }
 
 pub(crate) mod pipeline;
-pub use pipeline::{publish, schedule};
 
 async fn compute<D: Send + 'static, O: Send + 'static>(
     data: D,
@@ -367,51 +238,27 @@ async fn compute<D: Send + 'static, O: Send + 'static>(
     + Send
     + 'static,
 ) -> Result<O, ModelError> {
-    let budget = budget.clone();
-    tokio::task::spawn_blocking(move || operation(&data, &budget))
-        .await
-        .map_err(ModelError::codec)?
+    crate::stage_runtime::borrowed_cpu("normalization",||operation(&data,budget))
 }
 
 /// Assemble exact normalized scope outcomes over the private, admitted facts checkpoint.
 pub async fn coverage(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::{normalized::coverage::*, source::SourceArtifact};
-    let sources = access.stored_sources()?;
-    let profile = access.profile();
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let evidence = reader
-        .availability()
-        .cloned()
-        .ok_or_else(|| ModelError::Invalid("coverage writer requires facts checkpoint".into()))?;
-    let session = runtime.session(&access);
+    let sources=access.snapshots().collect::<Vec<_>>();
+    let profile=access.profile();
+    let evidence=runtime.facts_availability(profile)?;
+    let session = access.session(runtime).await?;
     let mut artifacts = Rows::<SourceArtifact>::new(runtime.budget());
-    let permit = access.read::<SourceArtifact>()?;
-    session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+    let _permit = access.read::<SourceArtifact>()?;
+    
     load(&session, &mut artifacts).await?;
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let rows = assemble(profile, &evidence, &artifacts, &sources, runtime.budget())?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     output.declare::<NormalizationComputation>()?;
     for row in rows.computations.iter() {
         output.push(row.clone()).await?;

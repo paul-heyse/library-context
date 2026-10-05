@@ -1,8 +1,7 @@
 //! A1 owns optional nominal results over stored A0 frames and admitted E1 winning bytes.
 use crate::{
     analysis_graphs::PreparedGraphs,
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::AttemptRuntime,
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use lctx_model::domain::{
     analysis::{self, analytic as owner},
@@ -10,7 +9,6 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 // Decoder reachability is separate from the model-owned consumed source inventory.
 macro_rules! decoder_inputs {($apply:ident)=>{
@@ -23,32 +21,22 @@ macro_rules! decoder_inputs {($apply:ident)=>{
         lctx_model::expected_domain_inputs!($apply);
 };}
 pub async fn produce(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
     graphs: &PreparedGraphs,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(&access, runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
-    let reader = AttemptSession::open(
-        config,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
     let mut data = build::Data::new(runtime.budget());
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
         build::Data::consumed_inputs(access.profile()),
         runtime.budget(),
     )?;
     macro_rules! read{($($t:ty),*)=>{$(while let Some((input,permit))=consumed.next::<$t>(&access)? {
-        let session=runtime.session(&access);
-        crate::consumed_rows::stream(&permit,&reader,&session,|permit,batch| {
+        let session=access.session(runtime).await?;
+        crate::consumed_rows::stream(&permit,&session,|permit,batch| {
             data.visit_input(&input,batch)?;
             admission.visit_if_expected(permit,batch)?;
             Ok(())
@@ -56,23 +44,8 @@ pub async fn produce(
     })*};}
     macro_rules! inventory{($($f:ident:$t:ty,)*)=>{read!($($t),*);};}
     decoder_inputs!(inventory);
-    consumed.finish(access.stage().name)?;
-    reader.close().await.map_err(ModelError::codec)?;
+    consumed.finish(access.name())?;
     let settings = data.configuration()?.clone();
-    let declared = build::stage(
-        access.profile(),
-        &settings,
-        model,
-        access.publication_order(),
-    )?;
-    if declared.code != access.stage().code
-        || declared.configuration != access.stage().configuration
-        || declared.name != access.stage().name
-    {
-        return Err(ModelError::Invalid(
-            "analytic stage differs from selected immutable settings/rules".into(),
-        ));
-    }
     let mut context = frames::Context::new(runtime.budget());
     let mut receipts = normalized::Rows::new(runtime.budget());
     let mut projections = normalized::Rows::new(runtime.budget());
@@ -133,18 +106,11 @@ pub async fn produce(
             },
         )?;
         results.extend(crate::stage_runtime::borrowed_cpu(
-            access.stage().name,
+            access.name(),
             || build::produce(&data, &frame, &context.invocations, graph, runtime.budget()),
         )?)?;
         tokio::task::yield_now().await;
     }
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
     macro_rules! write {

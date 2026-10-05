@@ -1,9 +1,7 @@
-//! Typed generation-bound facts, analysis and catalog orchestration (DESIGN §15).
-//! Serving remains the Phase 5 recovery boundary.
+//! Store-free semantic graph compilation; publication and serving are separate consumers.
 
 pub mod analysis_graphs;
 pub mod analysis_prepare;
-pub mod analysis_report;
 pub mod analytic_embedding;
 pub mod analytic_text;
 // src/bundle.rs remains uncompiled Phase 5 recovery source (P4 plan §11).
@@ -16,9 +14,6 @@ pub mod embedding_realization;
 pub mod embedding_service;
 pub mod facts;
 pub mod final_coverage;
-pub mod generation_read;
-pub mod model_runtime;
-pub mod postgres;
 pub mod retrieval_preparation;
 pub mod sql;
 pub mod stage_runtime;
@@ -28,8 +23,6 @@ pub mod synthesis_preparation;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
-    #[error(transparent)]
-    Postgres(#[from] postgres::Error),
     #[error("datafusion: {0}")]
     DataFusion(#[from] datafusion::error::DataFusionError),
     #[error("arrow: {0}")]
@@ -60,3 +53,6 @@ pub mod semantic_execution;
 pub mod semantic_models;
 
 pub mod semantic_summaries;
+
+/// Store-free attempt workspace and immutable completed inputs.
+pub mod workspace;

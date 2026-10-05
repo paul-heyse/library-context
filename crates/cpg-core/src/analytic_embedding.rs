@@ -2,8 +2,7 @@
 use crate::{
     embedding_realization,
     embedding_service::Embedder,
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -16,17 +15,16 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{Store, generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 
 async fn load<R: Record>(
-    session: &StageSession,
+    session: &datafusion::prelude::SessionContext,
     rows: &mut Rows<R>,
-    permit: &ReadPermit<'_, R>,
+    permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -39,54 +37,38 @@ async fn load<R: Record>(
 /// Every expected text window gets an exact value or an explicit availability receipt. Runtime
 /// corruption and resource failures abort; optional service failure never becomes a zero vector.
 pub async fn produce(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    roles: &RoleConfig,
-    runtime: &AttemptRuntime,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
     model: &Arc<ValidatedModel>,
     embedder: Option<&dyn Embedder>,
-    cache: Option<Store>,
+    cache: Option<Arc<dyn embedding_realization::EmbeddingCache>>,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(&access, runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
-    let reader = AttemptSession::open(
-        roles,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
+    let session = access.session(runtime).await?;
     let mut registered = charged::ChargedSet::default();
     let mut registration =
         charged::StateCharge::new(runtime.budget(), "expected-input-registration");
     let mut data = ConsumptionData::new(runtime.budget());
-    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.$field,&permit,&mut admission).await?;)*};}
+    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;registered.insert(&mut registration,<$ty>::NAME)?;load(&session,&mut data.$field,&permit,&mut admission).await?;)*};}
     lctx_model::analytic_consumption_inputs!(read);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
     let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());
     macro_rules! meta {
         ($ty:ty,$rows:ident,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
-            session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+            
             registered.insert(&mut registration, <$ty>::NAME)?;
             load(&session, &mut $rows, &permit, $admit).await?;
         }};
     }
     meta!(analysis::AnalysisDefinition, definitions, &mut admission);
     meta!(analysis::MethodParameters, parameters, &mut admission);
-    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.stage().reads::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,&mut admission);}})*};}
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$({if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,rows,&mut admission);}})*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
-    reader.close().await.map_err(ModelError::codec)?;
     let selected = data.selected()?;
-    if selected != (access.stage().effect == Effect::Embedding) {
-        return Err(ModelError::Invalid(
-            "analytic effect differs from immutable text selection".into(),
-        ));
-    }
     let (expected_parameters, definition) = analytic::definition();
     if definitions.get(definition.id()) != Some(&definition)
         || parameters.get(expected_parameters.id()) != Some(&expected_parameters)
@@ -100,8 +82,6 @@ pub async fn produce(
         Some(
             embedding_realization::Session::open(
                 &access,
-                attempt,
-                roles,
                 runtime,
                 model,
                 embedder.ok_or_else(|| {
@@ -205,13 +185,6 @@ pub async fn produce(
     }
     drop(service);
     data.validate(&invocations, &outcomes, &uses, runtime.budget())?;
-    let mut output = StageOutput::new(
-        access,
-        attempt,
-        model,
-        runtime.budget().clone(),
-        Default::default(),
-    )?;
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::analytic_embedding::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);

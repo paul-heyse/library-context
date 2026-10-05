@@ -1,8 +1,7 @@
 //! One nominal Summary publication over immutable predecessors and borrowed stored topology.
 use crate::{
     analysis_graphs::PreparedGraphs,
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::AttemptRuntime,
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, sources::CapturedSources, summary as owner},
@@ -10,7 +9,6 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 // Decoder reachability is separate from the model-owned consumed source inventory.
 macro_rules! decoder_inputs {
@@ -27,26 +25,16 @@ macro_rules! decoder_inputs {
     };
 }
 pub async fn produce(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    roles: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
     graphs: &PreparedGraphs,
 ) -> Result<(), ModelError> {
     let budget = runtime.budget();
-    let sources = CapturedSources::capture(&access, budget)?;
+    let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut coverage = CoverageAdmission::new(&sources, budget)?;
-    let reader = AttemptSession::open(
-        roles,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
     let mut data = SummaryData::new(budget);
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
         SummaryData::consumed_inputs(access.profile()),
@@ -54,15 +42,14 @@ pub async fn produce(
     )?;
     macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
         // Distinct epoch sources have the same nominal table name, so each gets its own session.
-        let session=runtime.session(&access);
-        crate::consumed_rows::stream(&permit,&reader,&session,|permit,batch|{
+        let session=access.session(runtime).await?;
+        crate::consumed_rows::stream(&permit,&session,|permit,batch|{
             coverage.visit_if_expected(permit,batch)?;
             data.visit_input(&input,batch)
         }).await?;
     })*};}
     decoder_inputs!(inputs);
-    consumed.finish(access.stage().name)?;
-    reader.close().await.map_err(ModelError::codec)?;
+    consumed.finish(access.name())?;
     let mut records = Vec::new();
     let mut frames = charged::ChargedSet::default();
     let mut frame_charge = charged::StateCharge::new(budget, "summary-output-frames");
@@ -97,7 +84,7 @@ pub async fn produce(
             &coverage,
             budget,
         )?;
-        let result = crate::stage_runtime::borrowed_cpu(access.stage().name, || {
+        let result = crate::stage_runtime::borrowed_cpu(access.name(), || {
             execution::summary_production::produce(
                 &data,
                 &invocation,
@@ -123,7 +110,6 @@ pub async fn produce(
             result,
         ));
     }
-    let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
 

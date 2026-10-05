@@ -1,7 +1,6 @@
 //! Last immutable frontier assessment over actual captured native frames and owner results.
 use crate::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, StageSession},
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -9,18 +8,16 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
 use std::sync::Arc;
 async fn load<R: Record>(
-    access: &StageAccess<'_, '_>,
-    reader: &AttemptSession,
-    session: &StageSession,
+    access: &CompletedInputs,
+    session: &datafusion::prelude::SessionContext,
     data: &mut FrontierData,
 ) -> Result<(), ModelError> {
-    let permit = access.read::<R>()?;
-    session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+    let _permit = access.read::<R>()?;
+    
     let query = session
-        .query(&format!("SELECT * FROM \"{}\"", R::NAME))
+        .sql(&format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -30,11 +27,10 @@ async fn load<R: Record>(
     Ok(())
 }
 pub async fn produce(
-    access: StageAccess<'_, '_>,
-    attempt: &GenerationAttempt,
-    roles: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
+    access: CompletedInputs,
+    output: ProducerOutput,
+    runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
     target: Target,
 ) -> Result<(), ModelError> {
     let budget = runtime.budget();
@@ -44,21 +40,10 @@ pub async fn produce(
     )?;
     let inputs = FrontierData::inputs(target);
     let mut data = FrontierData::new(access.profile(), budget);
-    let reader = AttemptSession::open(
-        roles,
-        attempt,
-        &access,
-        model.clone(),
-        ProviderOptions::default(),
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    let session = runtime.session(&access);
-    macro_rules! read{($($ty:ty),* $(,)?)=>{$(if inputs.iter().any(|i|i.name()==<$ty>::NAME){load::<$ty>(&access,&reader,&session,&mut data).await?;})*};}
+    let session = access.session(runtime).await?;
+    macro_rules! read{($($ty:ty),* $(,)?)=>{$(if inputs.iter().any(|i|i.name()==<$ty>::NAME){load::<$ty>(&access,&session,&mut data).await?;})*};}
     lctx_model::final_frontier_inputs!(read);
-    reader.close().await.map_err(ModelError::codec)?;
     let records = frontier::derive(&data, target, budget)?;
-    let mut output = StageOutput::new(access, attempt, model, budget.clone(), Default::default())?;
     match target {
         Target::Analysis => {
             output.declare::<frontier::AnalysisAssessment>()?;

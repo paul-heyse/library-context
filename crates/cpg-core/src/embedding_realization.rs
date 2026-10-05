@@ -2,8 +2,7 @@
 use crate::{
     CoreError,
     embedding_service::Embedder,
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::AttemptRuntime,
+    workspace::{CompletedInputs, Workspace},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -13,10 +12,18 @@ use lctx_model::domain::{
         value::{AdmittedValue, input_hash},
     },
     resources::ResourceBudget,
-    stages::*,
     *,
 };
-use lctx_postgres::{CacheValue, Store, generations::GenerationAttempt, roles::RoleConfig};
+use std::{future::Future, pin::Pin};
+/// Cache winners are keyed by the complete embedding specification and request identity.
+#[derive(Clone, Debug)]
+pub struct CacheValue { pub input_hash: ContentHash, pub vector: Vec<f32>, pub admitted_tokens: u32 }
+pub type CacheFuture<'a, T> = Pin<Box<dyn Future<Output=Result<T, ModelError>> + Send + 'a>>;
+pub trait EmbeddingCache: Send + Sync {
+    fn cached<'a>(&'a self, spec: &'a embedding::Spec, keys: &'a [ContentHash]) -> CacheFuture<'a, BTreeMap<ContentHash, CacheValue>>;
+    /// Atomically choose existing or new immutable winners; return a winner for every candidate.
+    fn admit<'a>(&'a self, spec: &'a embedding::Spec, candidates: &'a [CacheValue]) -> CacheFuture<'a, BTreeMap<ContentHash, CacheValue>>;
+}
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Resource and corruption failures remain distinct from optional service availability.
@@ -24,8 +31,6 @@ use std::{collections::BTreeMap, sync::Arc};
 pub enum Error {
     #[error(transparent)]
     Model(#[from] ModelError),
-    #[error(transparent)]
-    Cache(#[from] lctx_postgres::Error),
     #[error(transparent)]
     Service(#[from] CoreError),
     #[error("embedding request is {tokens} tokens, over the {limit}-token cap")]
@@ -40,7 +45,7 @@ impl Error {
 pub struct Session<'a> {
     embedder: &'a dyn Embedder,
     configuration: Configuration,
-    cache: Option<Store>,
+    cache: Option<Arc<dyn EmbeddingCache>>,
     budget: ResourceBudget,
     values: BTreeMap<ContentHash, AdmittedValue>,
     charge: charged::StateCharge,
@@ -49,37 +54,20 @@ impl<'a> Session<'a> {
     /// The selected configuration is read through the caller's actual completed R0 grants.
     /// A pure stage cannot acquire this effect. No pool lease survives a service request.
     pub async fn open(
-        access: &StageAccess<'_, '_>,
-        attempt: &GenerationAttempt,
-        roles: &RoleConfig,
-        runtime: &AttemptRuntime,
-        model: &Arc<ValidatedModel>,
+        access: &CompletedInputs,
+        runtime: &Workspace,
+        _model: &Arc<ValidatedModel>,
         embedder: &'a dyn Embedder,
-        cache: Option<Store>,
+        cache: Option<Arc<dyn EmbeddingCache>>,
     ) -> Result<Self, ModelError> {
-        if access.stage().effect != Effect::Embedding {
-            return Err(ModelError::Invalid(
-                "embedding effect was not declared".into(),
-            ));
-        }
-        let reader = AttemptSession::open(
-            roles,
-            attempt,
-            access,
-            model.clone(),
-            ProviderOptions::default(),
-        )
-        .await
-        .map_err(ModelError::codec)?;
-        let session = runtime.session(access);
+        let session = access.session(runtime).await?;
         let mut specs = normalized::Rows::<EmbeddingSpec>::new(runtime.budget());
         let mut services = normalized::Rows::<ServiceConfiguration>::new(runtime.budget());
         macro_rules! read {
             ($ty:ty,$rows:ident) => {{
-                let permit = access.read::<$ty>()?;
-                session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+                let _permit = access.read::<$ty>()?;
                 let query = session
-                    .query(&format!("SELECT * FROM \"{}\"", <$ty>::NAME))
+                    .sql(&format!("SELECT * FROM \"{}\"", <$ty>::NAME))
                     .await
                     .map_err(ModelError::codec)?;
                 let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -91,7 +79,6 @@ impl<'a> Session<'a> {
         read!(EmbeddingSpec, specs);
         read!(ServiceConfiguration, services);
         drop(session);
-        reader.close().await.map_err(ModelError::codec)?;
         if specs.len() != 1 || services.len() != 1 {
             return Err(ModelError::Invalid(
                 "embedding effect needs one selected service and spec".into(),
@@ -111,7 +98,7 @@ impl<'a> Session<'a> {
     fn selected(
         configuration: Configuration,
         embedder: &'a dyn Embedder,
-        cache: Option<Store>,
+        cache: Option<Arc<dyn EmbeddingCache>>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
         configuration.check_budget(budget)?;
@@ -185,7 +172,6 @@ impl<'a> Session<'a> {
                 lctx_model::domain::embedding::check_vector(&candidate.vector, spec.dimensions)
                     .map_err(ModelError::Invalid)?;
                 if let Some(cache) = &self.cache {
-                    cache.ensure_spec(spec).await?;
                     cache
                         .admit(spec, &[candidate])
                         .await?

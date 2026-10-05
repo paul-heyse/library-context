@@ -7,28 +7,25 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-sqlx.workspace = true
 lctx-model = { path = "../lctx-model" }
-lctx-postgres = { path = "../lctx-postgres" }
 cpg-extract = { path = "../cpg-extract" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
 datafusion.workspace = true
 async-trait.workspace = true
-datafusion-table-providers-postgres.workspace = true
-tokio-postgres.workspace = true
 futures.workspace = true
 serde.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tempfile.workspace = true
+serde_json.workspace = true
 url.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
 lctx-analytics = { path = "../lctx-analytics" }
-lctx-postgres = { path = "../lctx-postgres", features = ["testing"] }
 tempfile.workspace = true
 
 [lints]
