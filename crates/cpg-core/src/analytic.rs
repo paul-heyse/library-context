@@ -30,13 +30,13 @@ pub async fn produce(
     let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let mut data = build::Data::new(runtime.budget());
+    let session = access.session(runtime).await?;
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
         build::Data::consumed_inputs(access.profile()),
         runtime.budget(),
     )?;
     macro_rules! read{($($t:ty),*)=>{$(while let Some((input,permit))=consumed.next::<$t>(&access)? {
-        let session=access.session(runtime).await?;
-        crate::consumed_rows::stream(&permit,&session,|permit,batch| {
+        crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch| {
             data.visit_input(&input,batch)?;
             admission.visit_if_expected(permit,batch)?;
             Ok(())

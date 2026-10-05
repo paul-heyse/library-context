@@ -36,14 +36,13 @@ pub async fn produce(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut coverage = CoverageAdmission::new(&sources, budget)?;
     let mut data = SummaryData::new(budget);
+    let session = access.session(runtime).await?;
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
         SummaryData::consumed_inputs(access.profile()),
         budget,
     )?;
     macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
-        // Distinct epoch sources have the same nominal table name, so each gets its own session.
-        let session=access.session(runtime).await?;
-        crate::consumed_rows::stream(&permit,&session,|permit,batch|{
+        crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch|{
             coverage.visit_if_expected(permit,batch)?;
             data.visit_input(&input,batch)
         }).await?;

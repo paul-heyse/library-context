@@ -43,8 +43,8 @@ pub async fn produce(
         Data::consumed_inputs(access.profile()),
         runtime.budget(),
     )?;
-    macro_rules! read{($($f:ident:$ty:ty,)*)=>{$(while let Some((_input,permit))=consumed.next::<$ty>(&access)? {
-        crate::consumed_rows::stream(&permit,&session,|permit,batch| {
+    macro_rules! read{($($f:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)? {
+        crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch| {
             admission.visit_if_expected(permit,batch)?;
             data.visit(<$ty>::NAME,batch)?;
             Ok(())

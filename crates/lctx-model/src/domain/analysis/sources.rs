@@ -33,6 +33,9 @@ impl SourceSnapshot {
     pub fn rows(&self) -> i64 { self.rows }
     pub fn content(&self) -> ContentHash { self.content }
     pub fn model(&self) -> ContentHash { self.model }
+    pub(crate) fn identity(&self) -> ContentHash {
+        let mut sink=KeySink::new("completed-source-view/v1");self.encode(&mut sink);sink.finish()
+    }
     fn encode(&self, sink: &mut KeySink) {
         self.relation.encode(sink);
         self.producer.encode(sink);
@@ -56,8 +59,8 @@ impl<R: Record> CompletedInput<R> {
     pub fn source(&self) -> &SourceSnapshot { &self.source }
     pub fn snapshot(&self) -> SourceSnapshot { self.source.clone() }
 }
-pub(crate) fn digest(sources: &std::collections::BTreeMap<String, SourceSnapshot>) -> ContentHash {
-    let mut sink = KeySink::new("analysis-completed-inputs/v3");
+pub(crate) fn digest(sources: &std::collections::BTreeMap<ContentHash, SourceSnapshot>) -> ContentHash {
+    let mut sink = KeySink::new("analysis-completed-inputs/v4");
     for source in sources.values() { source.encode(&mut sink); }
     sink.finish()
 }
@@ -67,7 +70,7 @@ pub struct CapturedSources {
     charge: charged::StateCharge,
     model: Option<ContentHash>,
     profile: Option<stages::Profile>,
-    sources: charged::ChargedMap<String, SourceSnapshot>,
+    sources: charged::ChargedMap<ContentHash, SourceSnapshot>,
 }
 impl CapturedSources {
     pub fn new(budget: &resources::ResourceBudget) -> Self {
@@ -91,21 +94,21 @@ impl CapturedSources {
         if self.model.is_some_and(|model| model != source.model) {
             return Err(invalid("completed inputs have different semantic contracts"));
         }
-        if let Some(existing) = self.sources.get(&source.relation) {
+        if let Some(existing) = self.sources.get(&source.identity()) {
             if *existing != source { return Err(invalid("analysis reads conflicting completed views of one relation")); }
             return Ok(());
         }
         self.model = Some(source.model);
-        self.sources.insert(&mut self.charge, source.relation.clone(), source)?;
+        self.sources.insert(&mut self.charge, source.identity(), source)?;
         Ok(())
     }
     pub fn digest(&self) -> ContentHash { digest(&self.sources) }
     pub fn iter(&self) -> impl Iterator<Item=&SourceSnapshot> { self.sources.values() }
     pub fn is_empty(&self) -> bool { self.sources.is_empty() }
     pub fn profile(&self) -> Option<stages::Profile> { self.profile }
-    pub(crate) fn has_relation(&self, relation: &str) -> bool { self.sources.contains_key(relation) }
+    pub(crate) fn has_relation(&self, relation: &str) -> bool { self.sources.values().any(|source| source.relation==relation) }
     pub(crate) fn accepts<R: Record>(&self, input: &CompletedInput<R>) -> Result<(), ModelError> {
-        if self.sources.get(R::NAME) != Some(input.source()) {
+        if self.sources.get(&input.source().identity()) != Some(input.source()) {
             return Err(invalid("coverage read differs from captured completed input"));
         }
         Ok(())
@@ -114,7 +117,7 @@ impl CapturedSources {
 /// Exact comparison against effect-owner acknowledged source metadata. The effect owner verifies
 /// authority before supplying these snapshots; metadata cannot create runtime read grants.
 pub(crate) fn verify(
-    snapshots: &std::collections::BTreeMap<String, SourceSnapshot>,
+    snapshots: &std::collections::BTreeMap<ContentHash, SourceSnapshot>,
     actual: &[SourceSnapshot],
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -122,12 +125,12 @@ pub(crate) fn verify(
     let mut expected = charged::ChargedMap::default();
     for source in actual {
         let snapshot = source.clone();
-        if let Some(previous) = expected.get(&snapshot.relation) {
+        if let Some(previous) = expected.get(&snapshot.identity()) {
             if *previous != snapshot {
                 return Err(invalid("publication has conflicting source snapshots"));
             }
         } else {
-            expected.insert(&mut charge, snapshot.relation.clone(), snapshot)?;
+            expected.insert(&mut charge, snapshot.identity(), snapshot)?;
         }
     }
     if &*expected != snapshots {

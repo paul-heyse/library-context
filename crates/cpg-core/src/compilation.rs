@@ -486,7 +486,7 @@ pub async fn compile(
     for declaration in schedule.stages() {
         let Some(normalization)=Normalization::ALL.into_iter().find(|n|n.declaration(profile).name==declaration.name) else {continue;};
         let selected=completed_input_declaration(&schedule,declaration);
-        let access=workspace.stage_inputs(&selected,profile)?;
+        let access=workspace.stage_inputs_selected(declaration,&selected,profile)?;
         let output=workspace.producer(declaration,profile,access.clone());
         normalization.run(access,output,workspace,model).await?;
         completed.insert(declaration.name);
@@ -498,7 +498,7 @@ pub async fn compile(
         if fact_names.contains(declaration.name) {continue;}
         if Normalization::ALL.into_iter().any(|n|n.declaration(profile).name==declaration.name) {continue;}
         let selected=completed_input_declaration(&schedule,declaration);
-        let access=workspace.stage_inputs(&selected,profile)?;
+        let access=workspace.stage_inputs_selected(declaration,&selected,profile)?;
         let output=workspace.producer(declaration,profile,access.clone());
         let binding=UpperStage::resolve(declaration.name)?;
         let prepared=prepared.ok_or_else(||ModelError::Invalid("missing upper configuration".into()))?;

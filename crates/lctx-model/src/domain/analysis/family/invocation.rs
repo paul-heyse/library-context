@@ -105,7 +105,7 @@ fn validate_diagnostic(row: &AnalysisDiagnostic) -> Result<(), ModelError> {
 }
 pub(crate) fn invocation_invariants() -> Vec<Invariant> {
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: owner_table!("analysis_invocation_inputs"),
         inputs: invocation_inputs(),
         create: std::sync::Arc::new(|budget| {
@@ -121,7 +121,7 @@ pub(crate) fn invocation_invariants() -> Vec<Invariant> {
 }
 fn invocation_inputs()->Vec<ValidationInput> { let mut inputs=vec![ValidationInput::of::<SourceReceipt>(&["id"]),ValidationInput::of::<ProjectionInput>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisInput>(&["id"]),ValidationInput::of::<InvocationSource>(&["id"])]; predecessor_invocation_inputs(&mut inputs); inputs }
 struct InvocationCheck {
-    snapshots:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeMap<String,crate::domain::analysis::sources::SourceSnapshot>>,
+    snapshots:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeMap<ContentHash,crate::domain::analysis::sources::SourceSnapshot>>,
     projections:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeSet<Id<ProjectionDefinition>>>,
     sources:charged::ChargedMap<Id<InvocationSource>,InvocationSource>,
     frames:charged::ChargedMap<derivation::RowRef,(Id<input::InputRevision>,Id<attribution::AnalysisContext>)>,
@@ -155,7 +155,7 @@ impl InvariantCheck for InvocationCheck {
                     return Err(invalid("duplicate analysis parent"));
                 }
             }
-        } else if relation==SourceReceipt::NAME {for row in SourceReceipt::decode(batch)? {let snapshot=row.snapshot();let mut duplicate=false;self.snapshots.update(&mut self.charge,row.invocation,|sources|{duplicate=sources.insert(snapshot.relation.clone(),snapshot).is_some();})?;if duplicate {return Err(invalid("duplicate invocation source receipt"));}}
+        } else if relation==SourceReceipt::NAME {for row in SourceReceipt::decode(batch)? {let snapshot=row.snapshot();let mut duplicate=false;self.snapshots.update(&mut self.charge,row.invocation,|sources|{duplicate=sources.insert(snapshot.identity(),snapshot).is_some();})?;if duplicate {return Err(invalid("duplicate invocation source receipt"));}}
         } else if relation==ProjectionInput::NAME {for row in ProjectionInput::decode(batch)? {if !self.projections.update(&mut self.charge,row.invocation,|p|p.insert(row.projection))? {return Err(invalid("duplicate invocation projection"));}}}
         else if relation==InvocationSource::NAME { for row in InvocationSource::decode(batch)? { self.sources.insert(&mut self.charge,row.id(),row)?; }
         } else if !visit_predecessor_invocation(relation,batch,&mut self.frames,&mut self.charge)? {

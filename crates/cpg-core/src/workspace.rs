@@ -294,7 +294,7 @@ impl Workspace {
     /// Build an explicit immutable input set. Later completions do not change this view.
     pub fn inputs(&self, name: &'static str, profile: Profile, names: impl IntoIterator<Item=&'static str>) -> Result<CompletedInputs, ModelError> {
         let mut relations = BTreeMap::new();
-        for name in names { relations.insert(name, self.relation(name)?); }
+        for name in names { relations.insert((name,None), self.relation(name)?); }
         Ok(CompletedInputs { name, profile, relations })
     }
     /// Bind each declared semantic boundary to immutable vocabulary streams. Only small
@@ -309,13 +309,18 @@ impl Workspace {
         Ok(())
     }
     pub fn stage_inputs(&self,declaration:&lctx_model::domain::stages::Stage,profile:Profile)->Result<CompletedInputs,ModelError>{
+        self.stage_inputs_selected(declaration,declaration,profile)
+    }
+    pub(crate) fn stage_inputs_selected(&self,declaration:&lctx_model::domain::stages::Stage,selected:&lctx_model::domain::stages::Stage,profile:Profile)->Result<CompletedInputs,ModelError>{
+        if declaration.inputs.len()!=selected.inputs.len(){return Err(ModelError::Invalid("selected compiler inputs differ from declaration".into()));}
         let frozen=self.frozen_vocabulary.lock().map_err(|_|poisoned())?;
         let mut relations=BTreeMap::new();
-        for input in &declaration.inputs {
+        for (declared,input) in declaration.inputs.iter().zip(&selected.inputs) {
+            if declared.name()!=input.name(){return Err(ModelError::Invalid("selected compiler input type changed".into()));}
             let source=if let Some(boundary)=input.prefix(){
                 frozen.get(&(boundary,input.name())).cloned().ok_or_else(||ModelError::Invalid(format!("{} lacks frozen {:?} input {}",declaration.name,boundary,input.name())))?
             }else {self.relation(input.name())?};
-            relations.insert(input.name(),source);
+            if relations.insert((declared.name(),declared.prefix()),source).is_some(){return Err(ModelError::Invalid("duplicate selected compiler input".into()));}
         }
         Ok(CompletedInputs{name:declaration.name,profile,relations})
     }
@@ -433,17 +438,40 @@ impl<R: Record> Iterator for TypedBatches<R> {
     fn next(&mut self) -> Option<Self::Item> { self.reader.next().map(|batch| batch.map_err(ModelError::codec).and_then(|batch| Batch::read(&self.model, &batch, &self.budget))) }
 }
 #[derive(Clone)]
-pub struct CompletedInputs { name: &'static str, profile: Profile, relations: BTreeMap<&'static str, Arc<CompletedRelation>> }
+pub struct CompletedInputs { name: &'static str, profile: Profile, relations: BTreeMap<(&'static str,Option<lctx_model::domain::stages::PublicationBoundary>), Arc<CompletedRelation>> }
 impl CompletedInputs {
     pub fn name(&self) -> &'static str { self.name }
     pub fn profile(&self) -> Profile { self.profile }
-    pub fn contains<R: Record>(&self) -> bool { self.relations.contains_key(R::NAME) }
+    pub fn contains<R: Record>(&self) -> bool { self.relations.keys().any(|(name,_)|*name==R::NAME) }
     pub fn relation<R: Record>(&self) -> Result<&Arc<CompletedRelation>, ModelError> {
-        self.relations.get(R::NAME).ok_or_else(|| ModelError::Invalid(format!("{} lacks explicit input {}", self.name, R::NAME)))
+        let mut sources=self.relations.iter().filter(|((name,_),_)|*name==R::NAME).map(|(_,source)|source);
+        let source=sources.next().ok_or_else(||ModelError::Invalid(format!("{} lacks explicit input {}", self.name, R::NAME)))?;
+        if sources.any(|other|other.path!=source.path){return Err(ModelError::Invalid(format!("{} must select a completed view of {}",self.name,R::NAME)));}
+        Ok(source)
+    }
+    pub fn relation_at<R: Record>(&self,prefix:Option<lctx_model::domain::stages::PublicationBoundary>)->Result<&Arc<CompletedRelation>,ModelError>{
+        if let Some(source)=self.relations.get(&(R::NAME,prefix)){return Ok(source);}
+        if prefix.is_none(){return self.relation::<R>();}
+        Err(ModelError::Invalid(format!("{} lacks declared {:?} input {}",self.name,prefix,R::NAME)))
     }
     pub fn read<R: Record>(&self) -> Result<lctx_model::domain::analysis::sources::CompletedInput<R>, ModelError> {
-        let source = self.relation::<R>()?;
+        Self::read_source(self.relation::<R>()?)
+    }
+    pub fn read_at<R:Record>(&self,prefix:Option<lctx_model::domain::stages::PublicationBoundary>)->Result<lctx_model::domain::analysis::sources::CompletedInput<R>,ModelError>{
+        Self::read_source(self.relation_at::<R>(prefix)?)
+    }
+    fn read_source<R:Record>(source:&CompletedRelation)->Result<lctx_model::domain::analysis::sources::CompletedInput<R>,ModelError>{
         lctx_model::domain::analysis::sources::CompletedInput::new(source.producer(), source.contract(), source.implementation(), source.content(), source.rows())
+    }
+    fn table(name:&str,prefix:Option<lctx_model::domain::stages::PublicationBoundary>)->String {
+        format!("_view_{}_{}",prefix.map(|p|p.name()).unwrap_or("default").to_ascii_lowercase(),name)
+    }
+    pub fn table_at<R:Record>(&self,prefix:Option<lctx_model::domain::stages::PublicationBoundary>)->Result<String,ModelError>{
+        let selected=self.relation_at::<R>(prefix)?;
+        let actual_prefix=if self.relations.contains_key(&(R::NAME,prefix)){prefix}else{
+            self.relations.iter().find(|((name,_),source)|*name==R::NAME && source.path==selected.path).map(|((_,prefix),_)|*prefix).expect("selected declared source")
+        };
+        Ok(Self::table(R::NAME,actual_prefix))
     }
     pub fn snapshots(&self) -> impl Iterator<Item=lctx_model::domain::analysis::sources::SourceSnapshot> + '_ {
         self.relations.values().map(|source| source.snapshot())
@@ -451,9 +479,19 @@ impl CompletedInputs {
     pub fn relations(&self) -> impl Iterator<Item=&Arc<CompletedRelation>> { self.relations.values() }
     pub async fn session(&self, workspace: &Workspace) -> Result<SessionContext, ModelError> {
         let context = SessionContext::new_with_config_rt(workspace.context.copied_config(), workspace.context.runtime_env());
-        for source in self.relations.values() {
-            context.register_arrow(source.name(), source.path.to_string_lossy(), ArrowReadOptions::default().schema(source.relation.schema().as_ref()))
-                .await.map_err(ModelError::codec)?;
+        for ((name,prefix),source) in &self.relations {
+            let table=Self::table(name,*prefix);
+            context.register_arrow(&table, source.path.to_string_lossy(), ArrowReadOptions::default().schema(source.relation.schema().as_ref())).await.map_err(ModelError::codec)?;
+        }
+        // A plain typed read is available only when every declared selector names the same
+        // immutable stream. Distinct semantic views require their qualified alias.
+        let names=self.relations.keys().map(|(name,_)|*name).collect::<std::collections::BTreeSet<_>>();
+        for name in names {
+            let mut sources=self.relations.iter().filter(|((candidate,_),_)|*candidate==name).map(|(_,source)|source);
+            let source=sources.next().expect("declared input");
+            if sources.all(|other|other.path==source.path) {
+                context.register_arrow(name, source.path.to_string_lossy(), ArrowReadOptions::default().schema(source.relation.schema().as_ref())).await.map_err(ModelError::codec)?;
+            }
         }
         Ok(context)
     }

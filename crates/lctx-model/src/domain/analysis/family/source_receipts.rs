@@ -40,12 +40,12 @@ impl AnalysisInvocation {
         Ok((row,parents,receipts,projections))
     }
 }
-pub(crate) fn source_publication_checks()->Vec<PublicationInvariant> {let checks=vec![PublicationInvariant {revision: 2,name:owner_table!("invocation_sources"),inputs:vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<SourceReceipt>(&["id"])],create:std::sync::Arc::new(|budget|Box::new(SourcePublicationCheck {charge:charged::StateCharge::new(budget,"analysis_source_publication"),invocations:Default::default(),sources:Default::default()}))}];checks}
-struct SourcePublicationCheck {charge:charged::StateCharge,invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,sources:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeMap<String,SourceSnapshot>>}
+pub(crate) fn source_publication_checks()->Vec<PublicationInvariant> {let checks=vec![PublicationInvariant {revision: 3,name:owner_table!("invocation_sources"),inputs:vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<SourceReceipt>(&["id"])],create:std::sync::Arc::new(|budget|Box::new(SourcePublicationCheck {charge:charged::StateCharge::new(budget,"analysis_source_publication"),invocations:Default::default(),sources:Default::default()}))}];checks}
+struct SourcePublicationCheck {charge:charged::StateCharge,invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,sources:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeMap<ContentHash,SourceSnapshot>>}
 impl PublicationCheck for SourcePublicationCheck {
     fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
         if relation==AnalysisInvocation::NAME {for row in AnalysisInvocation::decode(batch)? {if self.invocations.insert(&mut self.charge,row.id(),row)?.is_some() {return Err(ModelError::Conflict(AnalysisInvocation::NAME));}}return Ok(());}
-        if relation==SourceReceipt::NAME {for row in SourceReceipt::decode(batch)? {let source=row.snapshot();let mut duplicate=false;self.sources.update(&mut self.charge,row.invocation,|sources|{duplicate=sources.insert(source.relation.clone(),source).is_some();})?;if duplicate {return Err(invalid("duplicate persisted source receipt"));}}return Ok(());}
+        if relation==SourceReceipt::NAME {for row in SourceReceipt::decode(batch)? {let source=row.snapshot();let mut duplicate=false;self.sources.update(&mut self.charge,row.invocation,|sources|{duplicate=sources.insert(source.identity(),source).is_some();})?;if duplicate {return Err(invalid("duplicate persisted source receipt"));}}return Ok(());}
         Err(invalid("undeclared source publication input"))
     }
     fn finish(self:Box<Self>,actual:&[crate::domain::analysis::sources::SourceSnapshot],_profile:stages::Profile)->Result<(),ModelError> {

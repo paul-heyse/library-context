@@ -33,14 +33,14 @@ pub async fn run(
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
+    let session = access.session(runtime).await?;
     let mut consumed =
         crate::consumed_rows::ConsumedInputs::new(LocalData::consumed_inputs(profile), budget)?;
     let mut data = LocalData::new(budget);
     let mut inputs = normalized::Rows::<input::InputRevision>::new(budget);
     let mut definitions = normalized::Rows::<analysis::AnalysisDefinition>::new(budget);
-    macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(while let Some((_,permit))=consumed.next::<$ty>(&access)?{
-        let session=access.session(runtime).await?;
-        crate::consumed_rows::stream(&permit,&session,|permit,batch|{
+    macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
+        crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch|{
             admission.visit_if_expected(permit,batch)?;
             data.visit_consumed(profile,<$ty>::NAME,batch)?;
             if <$ty>::NAME==input::InputRevision::NAME{inputs.decode(batch)?;}
