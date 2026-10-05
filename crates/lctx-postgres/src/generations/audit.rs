@@ -4,6 +4,7 @@ use super::validation_session::{ProofContext, Session};
 use lctx_model::domain::{ContentHash, ModelError, ValidationInput, admission::Frontier,
     resources::ResourceBudget, stages::{PublicationBoundary, Profile, is_vocabulary}};
 use sqlx::{Connection, Row};
+use futures::TryStreamExt;
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy)]
@@ -22,6 +23,27 @@ impl GenerationStore {
         if !matches!(registered.state.as_str(), "validated" | "published") { return Err(Error::State); }
         let requested = frontier.descriptor().relations(&self.model)?;
         if !requested.is_subset(&self.scope(registered.frontier)?.relations) { return Err(Error::Contract); }
+        // The enclosing metadata inventory is challenged even for a smaller body scope.
+        // This detects registry-only corruption without hydrating unrelated relations.
+        let _inventory = budget.reserve("audit-receipt-inventory", 4096)?;
+        let scope = self.scope(registered.frontier)?;
+        let mut expected_names = scope.relations.iter();
+        let mut aggregate = lctx_model::domain::KeySink::new("generation-content");
+        {
+            let mut receipts = sqlx::query("SELECT relation_name,content_digest FROM lctx_model_store.receipts WHERE generation_id=$1 ORDER BY relation_name COLLATE \"C\"")
+                .bind(generation.0.to_vec()).fetch(&mut *tx);
+            while let Some(receipt) = receipts.try_next().await? {
+                let name: String = receipt.try_get(0)?;
+                let digest: Vec<u8> = receipt.try_get(1)?;
+                if expected_names.next().copied() != Some(name.as_str()) || digest.len() != 32 { return Err(Error::Contract); }
+                aggregate.part(name.as_bytes(), &digest);
+            }
+        }
+        let stored: Vec<u8> = sqlx::query_scalar("SELECT content_digest FROM lctx_model_store.generations WHERE id=$1")
+            .bind(generation.0.to_vec()).fetch_one(&mut *tx).await?;
+        if expected_names.next().is_some() || stored != aggregate.finish().0 {
+            return Err(invalid("audit aggregate content mismatch".into()));
+        }
         let order = super::vocabulary::publication_order(&mut tx, generation).await?;
         let selected = prefix.map(|p| order.resolve(p)).transpose()?;
         if let Some(bound) = selected {

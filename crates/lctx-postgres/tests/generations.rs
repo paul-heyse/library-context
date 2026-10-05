@@ -697,6 +697,14 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     let damaged = damaged_h.generation();
     damaged_h.seal().await.unwrap();
     damaged_h.validate(&budget()).await.unwrap();
+    store.audit(damaged, lctx_model::domain::admission::Frontier::Conformance, None, &budget()).await.unwrap();
+    let content: Vec<u8> = sqlx::query_scalar("SELECT content_digest FROM lctx_model_store.generations WHERE id=decode($1,'hex')")
+        .bind(damaged.hex()).fetch_one(&owner).await.unwrap();
+    sqlx::query("UPDATE lctx_model_store.generations SET content_digest=decode(repeat('ab',32),'hex') WHERE id=decode($1,'hex')")
+        .bind(damaged.hex()).execute(&owner).await.unwrap();
+    assert!(store.audit(damaged, lctx_model::domain::admission::Frontier::Conformance, None, &budget()).await.is_err(), "audit challenges registry-only aggregate damage");
+    sqlx::query("UPDATE lctx_model_store.generations SET content_digest=$2 WHERE id=decode($1,'hex')")
+        .bind(damaged.hex()).bind(content).execute(&owner).await.unwrap();
     sqlx::query("UPDATE lctx_model_store.validation_receipts SET validator_name='substituted' WHERE generation_id=decode($1,'hex') AND validator_name='input_manifest_membership'").bind(damaged.hex()).execute(&owner).await.unwrap();
     // Normal publication trusts exact definition/binding stamps. Privileged substitution
     // of the display label is an explicit audit concern.

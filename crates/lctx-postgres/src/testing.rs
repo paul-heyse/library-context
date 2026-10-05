@@ -800,7 +800,7 @@ pub mod fixtures {
             // Every required premise has a declared producer. The canonical typed inventory
             // supplies the empty facts not otherwise owned by these fixture producers.
             let produced: std::collections::BTreeSet<_> = stages.iter()
-                .flat_map(|stage| stage.outputs.iter().map(RelationUse::name)).collect();
+                .flat_map(|stage| stage.outputs.iter().map(|output| output.name())).collect();
             macro_rules! remaining_outputs {
                 ($($record:ty),* $(,)?) => {
                     $(if !produced.contains(<$record as Record>::NAME) {
