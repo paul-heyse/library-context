@@ -57,6 +57,7 @@ pub async fn load_admission(
     runtime: &AttemptRuntime,
     model: &Arc<ValidatedModel>,
     admission: &mut CoverageAdmission<'_>,
+    mutation: &Arc<Mutex<State>>,
 ) -> Result<(), ModelError> {
     let reader = AttemptSession::open(
         config,
@@ -88,6 +89,22 @@ pub async fn load_admission(
     }
     macro_rules! read {($($f:ident:$ty:ty,)*)=>{$(if access.stage().reads::<$ty>() {load::<$ty>(access,&reader,&session,admission).await?;})*};}
     lctx_model::expected_domain_inputs!(read);
+    // StageOutput buffers common publication writers before result writers. Choose the extra
+    // invocation's real nominal subject from acknowledged predecessor input, rather than
+    // relying on PublicCandidate COPY happening before Invocation COPY.
+    let permit = access.read::<normalized::entities::EntityRef>()?;
+    session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+    let query = session.query(&format!(
+        "SELECT * FROM \"{}\" WHERE callable IS NOT NULL ORDER BY id LIMIT 1", normalized::entities::EntityRef::NAME,
+    )).await.map_err(ModelError::codec)?;
+    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
+    let mut subject = None;
+    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        subject = normalized::entities::EntityRef::decode(&batch)?.first().map(Record::id);
+        if subject.is_some() { break; }
+    }
+    drop(stream);
+    mutation.lock().map_err(|_| ModelError::Invalid("mutation observer poisoned".into()))?.subject = subject;
     drop(session);
     reader.close().await.map_err(ModelError::codec)
 }
@@ -173,11 +190,6 @@ impl StageSink for MutatingSink<'_, '_> {
                     }
                 }
             });
-            if R::NAME == PublicCandidate::NAME && state.subject.is_none() {
-                state.subject = PublicCandidate::decode(batch.arrow())?
-                    .first()
-                    .map(|r| r.entity);
-            }
             change!(owner::Invocation, rows, {
                 for row in &rows {
                     state.invocations.insert(row.id(), row.clone());
@@ -185,7 +197,7 @@ impl StageSink for MutatingSink<'_, '_> {
                 if self.case == Case::Extra && state.extra.is_none() {
                     let mut extra = rows.first().expect("native frame has invocations").clone();
                     state.first = Some(extra.id());
-                    extra.subject = Some(state.subject.expect("native public candidate exists"));
+                    extra.subject = Some(state.subject.expect("completed normalized callable exists"));
                     state.extra = Some(extra.id());
                     rows.push(extra);
                 }

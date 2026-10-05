@@ -480,6 +480,7 @@ async fn run(profile: Profile, case: Case) {
                             &runtime,
                             &model,
                             &mut admission,
+                            &mutation_state,
                         )
                         .await?;
                         let definitions = structural::build::methods()
