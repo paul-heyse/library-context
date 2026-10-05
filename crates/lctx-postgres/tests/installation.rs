@@ -1,10 +1,10 @@
 //! Generated install, `store check` and `store reset` against a disposable real PostgreSQL 18
 //! (cutover plan P1.6). Every drift is a pre-written mutation with the finding it must produce.
 use lctx_model::domain::resources::ResourceBudget;
-use lctx_model::domain::{ModelError, stages::Profile};
+use lctx_model::domain::{ContentHash, ModelError, input::{Package, Release}, stages::*, value::Literal};
 use lctx_model::{
     Domain,
-    domain::{Relation, ValidatedModel, model},
+    domain::{Relation, ValidatedModel},
 };
 use lctx_postgres::{
     Config, OwnerPool,
@@ -23,11 +23,14 @@ struct ResetProbe {
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 28).unwrap()
 }
-fn full() -> Arc<ValidatedModel> {
-    Arc::new(model().unwrap())
+/// Complete mechanics model: an FK, a sum-tag index and publishable vocabulary.
+fn fixture_model() -> Arc<ValidatedModel> {
+    Arc::new(ValidatedModel::declared(vec![
+        Relation::of::<Package>(), Relation::of::<Release>(), Relation::of::<Literal>(),
+    ]).unwrap())
 }
 fn extended() -> Arc<ValidatedModel> {
-    let mut relations = model().unwrap().relations().to_vec();
+    let mut relations = fixture_model().relations().to_vec();
     relations.push(Relation::of::<ResetProbe>());
     Arc::new(ValidatedModel::declared(relations).unwrap())
 }
@@ -53,9 +56,27 @@ async fn run(pool: &sqlx::PgPool, sql: &str) {
         .unwrap();
 }
 async fn harness(store: &GenerationStore, db: &DisposableDatabase) -> Harness {
-    Harness::begin_empty_conformance(store, db.writer.clone(), Profile::Catalog, budget(), vec![])
+    Harness::begin(store, db.writer.clone(), Profile::Catalog, budget())
         .await
         .unwrap()
+}
+/// A real typed producer closes the immutable prefix used by the ACL reconstruction control.
+async fn sealed_prefix(store: &GenerationStore, db: &DisposableDatabase) -> lctx_postgres::generations::SealedAttempt {
+    let model = fixture_model();
+    let schedule = Schedule::build_with_publications(&model, vec![Stage {
+        name: "installation_prefix", inputs: vec![],
+        outputs: vec![RelationUse::of::<Package>(), RelationUse::of::<Release>(), RelationUse::of::<Literal>()],
+        contributes: vec![], coverage: vec![], profiles: vec![Profile::Behavioral], effect: Effect::Pure,
+        code: ContentHash::of(b"installation-prefix/v1"), configuration: ContentHash::of(b"empty"),
+    }], &[], Profile::Behavioral, vec![PublicationGroup::new(PublicationBoundary::Facts, vec!["installation_prefix"])]).unwrap();
+    let mut execution = schedule.execute();
+    let attempt = store.begin_conformance(db.writer.clone(), &mut execution, budget()).await.unwrap();
+    let mut output = StageOutput::new(execution.begin("installation_prefix").unwrap(), &attempt, &model, budget(), Default::default()).unwrap();
+    output.declare::<Package>().unwrap();
+    output.declare::<Release>().unwrap();
+    output.declare::<Literal>().unwrap();
+    output.finish(ProviderOutcome::Complete).await.unwrap();
+    attempt.seal(execution.finish().unwrap()).await.unwrap()
 }
 async fn published(store: &GenerationStore, db: &DisposableDatabase) -> GenerationId {
     let mut g = harness(store, db).await;
@@ -72,7 +93,7 @@ async fn schemas(pool: &sqlx::PgPool) -> Vec<String> {
 #[tokio::test]
 async fn install_requires_service_owner() {
     let (db, _dir) = provisioned().await;
-    let model = full();
+    let model = fixture_model();
     let before = GenerationStore::check(&db.owner, &model).await.unwrap();
     assert_eq!(before.findings.len(), 1, "{:#?}", before.findings);
     assert_eq!(
@@ -98,7 +119,7 @@ async fn install_requires_service_owner() {
 #[tokio::test]
 async fn idempotent_install_and_digest_mismatch() {
     let (db, _dir) = provisioned().await;
-    let model = full();
+    let model = fixture_model();
     let first = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -150,21 +171,12 @@ async fn idempotent_install_and_digest_mismatch() {
 #[tokio::test]
 async fn check_clean_in_every_state() {
     let (db, _dir) = provisioned().await;
-    let model = full();
+    let model = fixture_model();
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
     let mut staging = harness(&store, &db).await;
-    let mut sealed = Harness::begin_empty_conformance(
-        &store,
-        db.writer.clone(),
-        Profile::Behavioral,
-        budget(),
-        vec![],
-    )
-    .await
-    .unwrap();
-    sealed.seal().await.unwrap();
+    let sealed = sealed_prefix(&store, &db).await;
     let mut validated = harness(&store, &db).await;
     validated.seal().await.unwrap();
     validated.validate(&budget()).await.unwrap();
@@ -225,7 +237,7 @@ async fn check_clean_in_every_state() {
 #[tokio::test]
 async fn check_detects_each_drift() {
     let (db, _dir) = provisioned().await;
-    let model = full();
+    let model = fixture_model();
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -467,7 +479,7 @@ async fn check_detects_each_drift() {
 #[tokio::test]
 async fn reset_refuses_live_lease_and_attempt() {
     let (db, _dir) = provisioned().await;
-    let model = full();
+    let model = fixture_model();
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -523,7 +535,7 @@ async fn reset_refuses_live_lease_and_attempt() {
 #[tokio::test]
 async fn reset_drops_only_inventoried_objects() {
     let (db, _dir) = provisioned().await;
-    let model = full();
+    let model = fixture_model();
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -597,7 +609,7 @@ async fn reset_drops_only_inventoried_objects() {
 #[tokio::test]
 async fn reset_reinstalls_new_model() {
     let (db, _dir) = provisioned().await;
-    let (old, new) = (full(), extended());
+    let (old, new) = (fixture_model(), extended());
     let before = GenerationStore::install(db.owner.clone(), old.clone())
         .await
         .unwrap();
@@ -651,7 +663,7 @@ async fn reset_reinstalls_new_model() {
 #[tokio::test]
 async fn reset_is_phased_and_resumable() {
     let (db, _dir) = provisioned().await;
-    let model = full();
+    let model = fixture_model();
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -685,7 +697,7 @@ async fn reset_is_phased_and_resumable() {
         "DROP TRIGGER refuse_reset ON lctx_model_store.events; DROP FUNCTION public.refuse_reset()",
     )
     .await;
-    // A rerun finishes, eight full-model generations within the server's default lock table.
+    // A rerun finishes the eight fixture generations within the server's default lock table.
     GenerationStore::reset(db.owner.clone(), model.clone(), "lctx")
         .await
         .unwrap();
@@ -713,7 +725,7 @@ async fn harness_attempt(
 #[tokio::test]
 async fn check_and_reset_refuse_busy_without_stalling_the_store() {
     let (db, _dir) = provisioned().await;
-    let model = full();
+    let model = fixture_model();
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
