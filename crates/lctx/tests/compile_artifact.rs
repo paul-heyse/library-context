@@ -6,7 +6,7 @@ fn ordinary_compile_is_unavailable_before_acquisition() {
     let root=tempfile::tempdir().unwrap();
     let result=Command::new(env!("CARGO_BIN_EXE_lctx")).current_dir(root.path()).args(["compile","absent","--through","catalog"]).output().unwrap();
     assert_eq!(result.status.code(),Some(3));
-    assert!(String::from_utf8_lossy(&result.stderr).contains("publisher"));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("native publication is not implemented"));
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(),0);
 }
 #[test]
