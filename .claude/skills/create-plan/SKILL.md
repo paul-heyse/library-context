@@ -48,6 +48,19 @@ library research or focused design advice where useful. Give consequential alter
 consideration and inspect decisive evidence. Keep one author responsible for assembling the plan;
 the coordinator retains design decisions. Delegation does not make the foundation assessment optional.
 
+## Confirm rule changes with the operator
+
+A design review lists the rules its recommendations would change, replace or retire (its rule
+impacts, `review#RCnn`). Before fixing the target design, present each item to the operator with
+its consequence and obtain an explicit accept or reject; never infer acceptance from the review.
+Record the outcome in a short rule-changes section of the plan: the item, the decision and its
+date, and the route (a superseding ADR, a product-ruling entry, or an edit to the binding,
+agent instructions or memory). Schedule accepted changes before the work that depends on them.
+For a rejected item, keep the rule, adapt the affected recommendation and state the consequence;
+seek focused design advice when a rejection undermines a central recommendation. A rule change
+that plan authoring itself reveals follows the same confirmation. Once confirmed, the rules
+govern execution as usual.
+
 ## Explain the target and its reasoning
 
 Describe the resulting responsibilities, contracts and interactions, including how the target
@@ -187,7 +200,7 @@ come from local instructions, not from this general authoring guidance.
 Check that the proposed contracts, work dependencies and completion evidence agree, and that
 material source obligations have an explicit route. Distinguish planned verification from
 commands actually run, with the repository's evidence labels and qualification boundaries.
-Route changes to accepted architecture through its existing decision process.
+Route operator-confirmed rule changes through the repository's existing decision process.
 
 For a plan-writing request, improvements are designed and scheduled in the document. Follow any
 separate authorization to implement them; creating a plan does not itself authorize production

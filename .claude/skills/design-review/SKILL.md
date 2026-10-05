@@ -34,13 +34,29 @@ Use the [Heuristics for Efficient Architecture](../../../docs/design_review/desi
 with the principles to assess relevant execution choices before they become fixed. The companion
 informs existing scenario/alternative judgments; it creates no extra verdict table or checklist.
 
+## Grounding
+
+Judge the subject only against the loaded standard (principles, companion heuristics, template and
+declared profiles) and the system's functional target, located through the binding. Every other
+repository rule describes the current design, not the criteria for judging it: accepted decisions
+and ADRs, binding decisions and product rulings, binding policies, agent instructions and working
+agreements, operator decisions recorded in status or memory, global working rules and dependency
+pins. Read them to understand the subject. Do not judge the design by its agreement with them,
+narrow a recommendation to fit them, or review them for their own sake. Where the target
+statement names a chosen mechanism, such as a store or framework, that choice is a rule.
+
+Rules for conducting and reporting the review still apply: its location, the reviewer's
+independence, the evidence vocabulary and outcome reporting. Once the judgment is settled, the
+review lists the rules its recommendations would change (see Identify rule impacts).
+
 ## Scope
 
 - **target:** document, code scope or both; infer from the request when clear.
 - **tier:** `change` within accepted boundaries, or `design` for architectural choices and assembled
   scope. Depth follows impact and uncertainty; compact/standard/deep are legacy effort descriptions.
-- **purpose:** `conformance` to the accepted architecture or `target` for the best architecture
-  serving the functional outcome. Use the binding's default.
+- **purpose:** always `target`, the best architecture serving the functional outcome; the tier
+  sets breadth only. The template's `conformance` purpose is not used: whether an implementation
+  matches its accepted design belongs to implementation review.
 - **scenarios/focus:** expected changes, foundations or domain concerns to emphasize. Focus never
   hides an encountered in-scope defect.
 - **slug:** infer from the subject when omitted.
@@ -198,6 +214,16 @@ premise that could change the verdict or selected remedy; name suitable settling
 material. An unexamined area is not itself a defect. Keep the next consequential decision and
 follow-up obligation clear without inventing implementation work merely to make the review actionable.
 
+## Identify rule impacts
+
+After the judgment and recommendations are settled, compare the recommended design with the
+current rules named under Grounding. List each rule it would change, replace or retire, including
+a rule it makes unnecessary, in the template's authority-changes slot. Give each item a stable
+identifier (`review#RCnn`), the rule and where it is recorded, the proposed change, the findings
+or recommendations that depend on it, and what the recommendation becomes if the rule is kept.
+State "none" when nothing is affected. The review does not edit, supersede or route these rules:
+plan creation presents them to the operator, and a change takes effect only once confirmed there.
+
 ## Organize the output for its readers
 
 The investigation structure, system decomposition and published argument need not coincide.
@@ -231,7 +257,7 @@ content references and scoped profile additions. A read-only delegated reviewer 
 and intended path; the coordinator publishes it while preserving the reviewer's judgment.
 Focused design advice during plan creation can instead be incorporated in the plan; it does not
 replace a formal review due under the binding. A request to discuss or revise this process does not itself require
-an additional review artifact. Close with scope, A1–A4, gates, material findings, bounded decision,
+an additional review artifact. Close with scope, A1–A4, gates, material findings, rule impacts, bounded decision,
 enclosing architectural status and path. Distinguish review acceptance from release qualification.
 
 ## Failure modes
@@ -245,3 +271,7 @@ enclosing architectural status and path. Distinguish review acceptance from rele
 - Deriving all tests from production logic, then treating agreement as independent evidence.
 - Calling a proposed benefit measured, or an accepted ADR an implemented correction.
 - Repeating a finding's current status across reviews, plans and handoff prose.
+- Fitting a recommendation to an existing ADR, ruling or policy instead of the standard and the
+  functional target.
+- Auditing the rule corpus instead of the design, or treating a rule impact as applied before the
+  operator confirms it.

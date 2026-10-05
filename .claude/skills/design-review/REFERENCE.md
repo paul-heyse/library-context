@@ -239,7 +239,7 @@ becoming a reason to weaken correctness or a synonym for "one call."
 | 8 Library fit | Composed capabilities and total machinery | Actual composition/optimizer/locality | Changed capability or scope reason |
 | 9 Alternatives | Worth the work | Worth the work | Optional; say why omitted |
 | 10 Verification | Proposed checks | Existing coverage and gaps | Top gaps only |
-| 11 Authority changes / exceptions | Target reviews; deviations | Same | Only if present |
+| 11 Authority changes / exceptions | Rule impacts (`review#RCnn`); deviations | Same | Same; state "none" when nothing is affected |
 | 12 Architecture and decision | A1–A4 and scoped decision | A1–A4 and scoped decision | Bounded judgment; enclosing limit |
 
 <a id="synthesis-and-corrective-reasoning"></a>

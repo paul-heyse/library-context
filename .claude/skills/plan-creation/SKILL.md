@@ -19,7 +19,9 @@ or an exhaustive investigation sequence.
 ## Separate obligations from open design choices
 
 Establish what the source material supplies: the problem to solve, guarantees to preserve,
-accepted constraints, proposed remedies and unresolved questions. A review's illustrative
+current rules, proposed remedies, rule impacts and unresolved questions. A review's rule impacts
+are proposals: create-plan has the operator confirm or reject each before the target design
+depends on it. Raise them early, since a rejection can change dependent design work. A review's illustrative
 remedy is not automatically a requirement. Carry forward settled reasoning whose assumptions
 remain applicable, and identify where the intended capability or current evidence requires
 fresh design work.
