@@ -12,11 +12,12 @@ The practical propagation audit covered all scheduled foundations and repaired c
 identities, documentary input admission, comparison ambiguity, float undercharge and stale consumers;
 its coverage and retained IA4 limits are in coordinator §8/§7, with no separate review document.
 
-**Test/validation/oracle architecture reviewed — Revise, 2026-10-04.** The
-[assurance review](docs/design_review/reviews/design_review_test-validation-oracle-architecture_2026-10-04.md)
-owns deferred F01–F04: duplicate replay, preparation/harness coupling, physical validation reuse
-and stale oracle coverage. Recommendations preserve independent challenges and retire obsolete
-evidence after carrying forward active obligations. Remediation is not implemented.
+**Testing architecture pivot planned — Proposed, 2026-10-04.** The
+[assurance coordinator](docs/plans/testing-architecture-pivot-plan_2026-10-04.md)
+owns scheduled F01–F04 from the [review](docs/design_review/reviews/design_review_test-validation-oracle-architecture_2026-10-04.md).
+Supporting validation/verification plans specify canonical obligations, owned immutable proof reuse,
+scoped preparation/cohorts and replacement gates. No old-green baseline or historical retention is
+required. Production remediation and gate-policy replacement are not implemented.
 
 Native Bound/unattached observations retain their pre-pruning formulas without fabricated Unbound
 or Entry proof. Requested libraries resolve over admitted first-party captures; unknown names refuse,
@@ -69,25 +70,25 @@ and adapter receipts retain their pre-Clippy artifact scope. Detailed failures, 
 | Full keep-going Clippy, hygiene and disposable-store acceptance | **not_run / pending** for Q0 |
 | Real-library reconstruction/activation, live vectors, PR6, confirmation and measurements | **not_run / stopped**; quality, speed and total RSS unmeasured |
 | `python3 scripts/build_environment.py -- uv run --no-sync python tests/scripts/test_semantic_soundness.py --bundle` | **passed**, three bounded observation-only runs (0.507–0.659s), 52 generated functions each; no producer/store/serving comparison or qualification |
-| Assurance review publication: `UV_NO_SYNC=1 just docs-check` | **passed**, 301 canonical pages and zero link errors; no product gate for this documentation-only scope |
+| Assurance plan publication: `UV_NO_SYNC=1 just docs-check` | **passed**, 304 canonical pages, zero link errors and ADR/agent checks; production tests **not_run** for this documentation-only scope |
 
 The initial stale-dependency unit build and earlier development compile failures are retained in
 `/home/paul/.cache/lctx-target-alignment/`. Prior enrichment and expansion failures/repairs remain in
 their existing coordinators. Historical full gates do not qualify the current source.
 
-## Next — assurance consolidation and qualification boundary
+## Next — testing architecture pivot and qualification boundary
 
-Prepare consolidation scope from the assurance review; its source findings remain deferred until
-scheduled. Prioritize truthful coverage/obsolete evidence retirement and duplicate replay; stable
-scan reuse requires a locking/snapshot premise. Existing gate policy remains in force meanwhile.
+Execute assurance P0/T0: declare the current assurance/trust contract, map open semantic acceptance
+to replacement controls and retire unsupported oracle claims/evidence. P1 canonical model obligations
+and independent pure/readiness work follow. Store proof reuse waits for verified writer freeze and
+exact prefix bindings. Existing gate policy changes with T4's ADR/owner/recipe migration.
 
 The operator cancelled the full test run during compilation; no replacement run is started.
-Q0 qualification remains open, with prior bounded receipts preserved. When qualification resumes,
-complete the snapshot assertion and remaining Q0/Q1 PG/native/MCP journeys, then run full
-`cargo clippy --release --workspace --all-targets --keep-going -- -D warnings` and `just hygiene`
-with a fresh **disposable** store scoped through `LCTX_DATABASE_CONFIG`. Model/native artifact
-agreement remains required; no operator-store reset or manual formatter/generator is implied.
-These gates are required before closing source findings or declaring this plan complete.
+Q0 qualification remains open. The pivot maps its snapshot, Q0/Q1 PG/native/MCP and remaining
+fixture requirements to new controls; no historical receipt closes them. T4 replaces the old gate
+requirements together with their qualification owners; P5 then runs new assembled acceptance and
+full keep-going Clippy. Model/native agreement and real **disposable** PG remain required; no
+operator-store reset, real-library activation or manual formatter/generator is implied.
 Executor worktrees and logs retain current qualification consumers; assess cleanup after integration
 acceptance. Build caches stay intact; Cargo jobs16/frontend1 and Nextest8 remain the local policy.
 

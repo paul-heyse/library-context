@@ -7,6 +7,13 @@ integration and four independent finite-context controls passed. The production 
 is retained. This establishes the recorded oracle/control scope, not current full-series Q1
 acceptance, performance measurement or a production-library substitution.
 
+**Proposed execution-policy migration, 2026-10-04.** The
+[testing architecture pivot](testing-architecture-pivot-plan_2026-10-04.md) schedules retaining
+these bounded independent controls within the replacement analytics family, moving enduring fit
+and semantic rationale to current owners, then retiring this supporting document. It does not take
+O08 disposition or establish Q1 acceptance. The gate language below records the current policy;
+replacement cadence is enacted with the pivot's T4, without first running the legacy suite.
+
 ## 1. Selected library use and production fit
 
 Retain the production finite FCA/implication kernel and its model outcome. Add **odis =2026.9.1

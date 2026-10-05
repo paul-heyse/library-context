@@ -139,8 +139,8 @@ with exactly one execution. Retain independent malformed-header, missing-invocat
 controls. Delete redundant factories, names and multiplicity-only assertions. A measurement can
 quantify savings; source inspection already establishes the duplicated instrument.
 
-**Disposition:** Deferred here until consolidation is authorized or the next source-call extension
-begins.
+**Disposition:** Scheduled, open in the [testing architecture coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md#5-findings-and-current-checkpoint), P1.
+The coordinator owns current status and closure; this review retains the source diagnosis.
 
 <a id="F02"></a>
 
@@ -190,8 +190,8 @@ representative helper edit through the reduced target organization, preserve gro
 and prove mutation cases cannot contaminate peers. Report compilation, preparation and execution
 cost separately.
 
-**Disposition:** Deferred here until preparation/harness consolidation is authorized. File counts
-alone neither close this finding nor establish savings.
+**Disposition:** Scheduled, open in the [testing architecture coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md#5-findings-and-current-checkpoint), P4/P5.
+File counts alone neither close this finding nor establish savings.
 
 <a id="F03"></a>
 
@@ -230,8 +230,9 @@ damaged-row controls; a previous success cannot authorize skipping current physi
 distinct prefixes and interruption; demonstrated locking/snapshot premises; same-workload scan
 and decode counts, wall time and peak state. Benefits remain unmeasured.
 
-**Disposition:** Deferred here until validation execution is redesigned or measurements identify
-scan/decode preparation as a material cost.
+**Disposition:** Scheduled, open in the [testing architecture coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md#5-findings-and-current-checkpoint), P2/P3.
+Its Proposed owned-immutability/audit contract deliberately reconsiders the remedy's routine
+external-integrity promise; this review's original evidence and recommendation remain dated evidence.
 
 <a id="F04"></a>
 
@@ -268,8 +269,8 @@ evidence remains only while it serves an active finding or decision.
 independent-challenge obligations have one owner, and obsolete evidence/commands/links are removed
 without dangling references. No new oracle qualification is implied.
 
-**Disposition:** Deferred here until owner correction/scoped retirement is authorized, or broader
-comparison is activated. Retention requires a substantive current consumer.
+**Disposition:** Scheduled, open in the [testing architecture coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md#5-findings-and-current-checkpoint), P0/P4.
+Retention requires a substantive current consumer.
 
 ## 4. Change scenarios, alternatives and reduced demand
 
@@ -392,8 +393,9 @@ arises merely from a former pass.
 | Bounded local verification | Tooling/harness owners: F02 prerequisite selection and cohesive fixtures/targets. | Isolated route, preserved mutation isolation and measured cost by phase. |
 | Stable preparation reuse | Store owner: F03 snapshot/locking premise before scan/result reuse. | Clean/damaged/prefix/cancellation equivalence plus scan/memory measurements. |
 
-The review owns these deferred findings until an active plan schedules them; no separate ledger
-is introduced. Changed validation ownership or gate policy follows ADR plus owning DESIGN/binding/
+The [testing architecture coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md#5-findings-and-current-checkpoint)
+now owns scheduled F01–F04; the discussion above retains the review's original recommendations,
+not a competing execution sequence. Changed validation ownership or gate policy follows ADR plus owning DESIGN/binding/
 AGENTS text. Ordinary harness refactoring within preserved contracts does not require an ADR
 solely for code movement.
 

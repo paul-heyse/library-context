@@ -1,0 +1,181 @@
+# Testing architecture pivot — coordinated implementation plan
+
+**Proposed, 2026-10-04.** This plan schedules the full testing, validation and oracle architecture
+pivot requested after the [source review](../design_review/reviews/design_review_test-validation-oracle-architecture_2026-10-04.md).
+It owns the combined target, execution dependencies and sole current disposition of F01–F04.
+The [validation plan](validation-execution-pivot-plan_2026-10-04.md) owns runtime validation design;
+the [verification plan](verification-execution-pivot-plan_2026-10-04.md) owns test execution design.
+Authoring these documents does not establish implementation or Tested acceptance.
+
+## 1. Purpose and authority
+
+Replace assurance organized around historical stages, duplicate replays and repeated complete
+fixtures with assurance organized around current contracts and the mechanisms that can violate
+them. Reduce the amount of validation required through structural guarantees, execute each remaining
+obligation over its exact inputs once where possible, and reuse acknowledged conclusions over owned
+immutable state. Make verification preparation proportional to the boundary exercised.
+
+All existing test scope is eligible for replacement or deletion. A passing historical suite is
+neither a prerequisite nor a retention reason. Existing test names, snapshots, campaigns, generic
+gates and evidence folders do not define the required target. Surviving product guarantees do:
+nominal identity, complete declared premises, precise uncertainty, bounded execution, honest partial
+outcomes, lifecycle safety and served fidelity. Changing a guarantee requires an explicit decision
+and its architectural owner; removing a redundant implementation of it does not.
+
+The applicable standard is Core 3.2 with code-intelligence 1.3 and the
+[repository binding](../design_review/design_principles/binding/library-context.md). This plan's
+foundation assessment used current source and focused independent advice at `daca90cf`, 2026-10-04.
+It is **Interface-checked** within those inspected boundaries, not an enclosing certification.
+Architectural ownership remains with [semantic model §15](../design/sections/semantic-model.md),
+[storage](../design/sections/storage-and-publication.md),
+[validation/evaluation](../design/sections/validation-and-evaluation.md) and their decisions.
+The plans describe Proposed changes to those contracts and the execution policy.
+
+Existing Q0/Q1 and Phase 5 acceptance remain open at their existing coordinators. Their outstanding
+semantic and integration obligations must be mapped to the replacement controls during P0/P5.
+Cancelled compilation and older focused receipts do not become qualification. Real-library
+activation, evaluation comparisons and opening heldout data remain outside this scope.
+
+## 2. Foundation assessment and selected target
+
+Model declarations already own schemas, input closure, invariant logic and stage requirements.
+PostgreSQL already owns publication locks, importer grant revocation, immutable completed outputs,
+append-only vocabulary epochs and receipt effects. Those are suitable foundations; their current
+registration and execution paths need consolidation. Cargo/uv already cache build artifacts, and
+the environment wrapper fingerprints native-adapter source membership/content. No generic impact
+engine or persistent test-pass cache is needed.
+
+| Question | Selected boundary and reason | Consequence |
+|---|---|---|
+| Who defines an assurance obligation? | The component owning the meaning. Model semantic obligations have one model-owned definition and explicit relation/stage references. | Complete input closure and distinct bindings replace repeated callback factories or a single accidental relation anchor. |
+| What needs runtime checking? | Facts not already guaranteed by construction and physical enforcement at the actual ingestion boundary. | Remove repeated null/type/key checks only after the boundary closes all bypasses; retain independent lowering challenges. |
+| When is semantic validation reusable? | After successful acknowledgement over exact owned immutable inputs, including vocabulary prefix and semantic configuration. | Publication establishes the conclusion; later reads check its authority and current admission without replaying the same question. |
+| What detects privileged mutation? | Explicit operator audit/repair, outside routine immutable-state read admission. | Reconsider old superuser-tamper controls; migrate relevant ones to audit and delete excluded promises through an ADR/owner change. |
+| Where is physical work shared? | Within a stable validation session, with bounded buffers and compatible ordering. | Digest calculation and several checks may share a stream; incompatible ordering or excessive retained state uses separate scans. |
+| What is shared by tests? | Immutable inputs and expensive preparation with an explicit lifetime. | Fresh leases, guards, request state and mutation isolation remain per case. No cached assertion success. |
+| What determines a check run? | Changed contract and affected consumers, selected explicitly by the implementer. | Small named family commands and one deliberate assembled qualification replace unconditional broad preparation/gates. |
+
+The trust choice is material: routine consumers will trust store-owned acknowledged immutability,
+rather than promise to rediscover arbitrary administrative row mutation on each read. Publication
+must drain writers, freeze the acknowledged input, validate it and commit the proof as one owned
+transition. A completed transaction or a receipt row alone does not establish this premise.
+Administrative repair quiesces consumers and rebuilds affected state with a new installation or
+generation identity. See validation V1/V4 for enforcement and audit obligations.
+
+Rejected alternatives are retaining three replay names with callback/name deduplication; deleting
+two relation attachments and relying on the third; adding a global cache beside receipts; accepting
+READ COMMITTED as a stable preparation boundary; and memoizing test success over mutable effects.
+These hide dependencies, retain redundant authorities or lack the needed stability premise.
+READ COMMITTED is usable when locking/immutability establishes unchanged logical frames; its
+transaction identity alone is not that premise. Always rehashing and replaying is defensible under a different tamper-detection contract, but is
+not the selected routine-read target. If a legitimate runtime writer cannot be excluded, strengthen
+its closure boundary before granting proof reuse for that input; do not silently assume immutability.
+
+## 3. Shared contracts
+
+An **obligation definition** supplies stable semantic identity/revision, exact required input roles
+and the model-owned checking implementation. Relations and stage uses reference it. A **binding**
+resolves a definition to exact generation sources, closed prefixes, model/lowering identity and
+relevant semantic settings. Different prefixes or profiles are different questions. Definitions
+and references participate in model identity; no callback address or incidental test name is a key.
+
+An **acknowledged conclusion** records successful complete validation of a binding under the
+selected ownership premise. Missing premises, failures, partial execution, cancellation and
+unconfirmed commit never establish success. Existing receipts are the persistence owner; their
+schema/meaning changes in the validation work, with a rebuild rather than compatibility readers.
+
+A **prepared frame** is a session-owned view/stream of one exact physical input. It records stable
+snapshot/locking premises, canonical ordering and charged lifetime. It is an execution facility,
+not another semantic model. Resource admission remains current-request work even on a proof hit.
+Reuse may avoid replay allocation/work, but cannot fabricate available memory or capability.
+
+Verification controls identify the current contract they challenge and their expectation source.
+Generated declarations test lowering agreement, not independent semantic truth. Same-provider CLI
+parity tests the driver/configuration. Independent finite matrices, authored counterexamples and
+bounded CPython observations challenge shared semantic mistakes. Product usefulness comparisons
+remain separate from correctness and are not activated here.
+
+## 4. Execution packages and readiness
+
+The root integrator owns shared model interfaces, recipes, policy/ADR changes and acceptance.
+Component executors own their production and harness changes. Parallel work is useful after shared
+contracts are available; shared editing surfaces require explicit ownership even when logically
+independent. No package requires an old-green baseline or a full gate after its slice.
+
+| Package | Result and responsibility | Prerequisite | Local verification |
+|---|---|---|---|
+| P0 — Declare the current assurance contract | Root with model/store/verification owners writes the pivot ADR, updates owning design text, and maps current product obligations and open Q0/Q1/Phase 5 requirements into replacement controls. Distinguish structural, semantic, driver, independent, lifecycle and transport evidence. Retire obsolete claims/evidence immediately when their active obligations have a home. | This Proposed target; current owners and source review. | Static contradiction/consumer audit; docs checks. No legacy suite prerequisite. |
+| P1 — Canonical obligation ownership | Validation V0/V2 supplies explicit definitions/references, complete closure and unique exact binding execution; migrates source-call replay and every declaration/stage/selection consumer of the changed interface. | P0 semantic contract; no immutable proof reuse needed yet. | Model compile and finite-model coverage/refusal controls. |
+| P2 — Owned freeze and prepared validation | Validation V1/V3 establishes ordinary and vocabulary closure under drained writers and stable session inputs; bounded scan fanout and structural-check removal use that premise. | P0 trust decision; P1 interface for execution integration. | Real disposable PG writer/closure controls and deterministic counters; focused replay challenges. |
+| P3 — Acknowledged result reuse and audit | Validation V4 replaces repeated production rehash/replay with exact proof lookup, current admission and explicit physical audit/repair. Migrates publication, read grants, selection, closure, final admission and strict consumers together. | P1 implemented binding and P2 verified freeze/preparation. | Hit/miss and dependency discrimination, interrupted commit, prefix stability, budget and audit controls. |
+| P4 — Verification footprint and prerequisites | Verification T0–T3 consolidates contract families/cohorts, shares immutable seeds, scopes adapter preparation and independent oracles, deletes obsolete controls and old evidence. | P0 family/expectation map. Seed reuse requires P2/P3 only where it depends on the new immutable-store contract. | Focused family execution, isolation and readiness invalidation controls; no whole-workspace gate. |
+| P5 — Policy and assembled acceptance | Verification T4/T5 integrates named commands, replaces broad cadence, reconciles Q0/Q1 and surviving Phase 5 fixture qualification, retires old gates and unused harnesses, and records target qualification. | P1–P4 functional migration complete; every surviving obligation has an implemented control. | One new assembled qualification, full keep-going Clippy and applicable non-functional checks on the same tree; repair and rerun failures. |
+| P6 — Benefit characterization and closure | Integrator records structural/work reduction and bounded comparable timings where useful; moves enduring contracts to owners and retires plans/review when their last current obligations close. | P5 acceptance for completion; measurement timing can be independent when sources are stable. | See §6; measurements are optional for functional closure and required for Measured speed claims. |
+
+P4's pure harness and truthful-oracle work can proceed alongside P1/P2. P3 depends on implemented
+freeze behavior, not just a settled interface. Runtime migration and its revealing controls belong
+in the same package; no final inventory phase may defer a consumer needed for soundness.
+Until T4 changes policy, current commands remain current instructions. T4 changes the instruction,
+recipe and qualification-owner text together before running replacement assembled acceptance;
+there is no requirement to run the retired full suite first.
+
+## 5. Findings and current checkpoint
+
+**Sole disposition owner, 2026-10-04.** All packages are Proposed/not implemented. Source findings
+retain their original diagnosis and IDs; remedies are assessed against this selected target.
+
+| Finding | Current disposition | Responsible component and closure evidence |
+|---|---|---|
+| F01 | Scheduled, open — P1 | `lctx-model` declarations and stage consumers. One source-call definition executes once per exact binding, with coverage when any referring relation is used in a supported finite model; malformed headers/inventory/missing invocation still refuse. |
+| F02 | Scheduled, open — P4/P5 | Verification/build-environment owners and affected serving/provider harnesses. Selected pure families require no adapters/PG; expensive read-only cohorts share one seed; mutation isolation and independent failure reporting pass. |
+| F03 | Scheduled, open — P2/P3 | `lctx-postgres::generations` with model bindings. Freeze, exact prefix/result reuse, current budget admission and audit controls pass; counters show eliminated equivalent replay/preparation. No speed claim from counters alone. |
+| F04 | Scheduled, open — P0/P4 | Validation/evaluation owner and oracle harness owners. Every current coverage claim names a live correctly classified control; obsolete Pysa/CrossHair evidence and dangling consumers are removed after active obligations move. |
+
+This coordinator does not take O08 or TA-F/LL-F disposition from other coordinators. The
+[analytic-kernel assurance plan](analytic-kernel-assurance-plan_2026-10-04.md) supplies implemented
+K1/K2 meaning and fit rationale; the analytical enrichment coordinator still owns O08. P0/P4 move
+its enduring requirements to analytics/validation owners and retain its current controls within the
+new family, then retire that supporting document when its last substantive consumer has moved.
+Existing historical qualification links alone do not require retention.
+
+Next executable work is P0 plus T0's contract/control mapping; P1 can then implement canonical
+definition ownership while T1 restructures pure controls. No production edits, test redesign,
+runtime proof reuse or cadence change were implemented by plan authoring.
+
+**Authoring verification, 2026-10-04:** `UV_NO_SYNC=1 just docs-check` **passed**, 304 canonical
+pages and zero link errors, including ADR/agent checks. Production compile/tests/qualification
+are **not_run** for this documentation-only scope. Focused independent draft advice found no
+architectural blocker; package references and the stable-input premise were reconciled before publication.
+
+## 6. Acceptance, measurements and retirement
+
+Functional completion requires the whole selected architecture, not a smaller improvement to the
+old gates: canonical coverage; enforceable immutable acknowledgement; bounded physical preparation;
+exact result reuse; truthful independent evidence; isolated cohorts; scoped prerequisites; replacement
+commands and policy; and deletion of superseded paths. Required new controls must actually run.
+`not_run` or selected package receipts cannot close assembled acceptance by aggregation alone.
+Expected refusals and known partial outcomes are successful controls only when their asserted
+contract is satisfied. Missing Docker/native tooling is a named block, never a mocked pass.
+
+One deliberate assembled run exercises all new families and representative production journeys
+on the same source/dependency tree, including actual PostgreSQL, native/wire agreement and MCP
+listing/calls. Full `cargo clippy --release --workspace --all-targets --keep-going -- -D warnings`
+runs without fail fast after functional migration. Other non-functional checks follow T4's affected
+surfaces; rerun failed checks and controls affected by repairs. No manual formatting or generators;
+the existing end-of-turn hook keeps that responsibility.
+
+Expected efficiency improvements are **Proposed**: fewer independent compilation units sharing
+large helpers, one expensive seed per compatible cohort, no unrelated native readiness, one replay
+per exact obligation and fewer equivalent row scans. Record process/setup/scan/replay counts on
+bounded fixture workloads. Optional timings compare identical source inputs and semantic outputs,
+same release/toolchain, stable Cargo paths, documented cold/warm state and concurrency; separate
+compilation, readiness, database setup, validation and assertions. Preserve resource/profile policy;
+never use `cargo clean` on shared intermediates. Do not rerun an old full suite to create a baseline.
+Missing optional timing is a limit, not a functional blocker or a Measured benefit.
+
+Deletion is part of each migration: old factories, duplicate predicates, unsupported oracle claims,
+obsolete evidence, legacy test targets/helpers and superseded commands go when the replacement
+owns their surviving obligation. Rebuild regenerable receipts/state under the new model, quiescing
+readers before replacing any project runtime state. No old-format readers, dual gates, rollback
+assets or historical evidence archive are added. Unrelated concurrent edits and build caches remain
+preserved. Any proposed new hook/register/document must have a concrete current consumer.
