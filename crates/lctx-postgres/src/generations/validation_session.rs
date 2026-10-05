@@ -306,61 +306,144 @@ impl<'s> Session<'s> {
         Ok(())
     }
 
-    pub async fn publication(&mut self, tx: &mut PgConnection, invariant: &PublicationInvariant,
-        physical: Vec<String>, sources: &[CompletedRelation], profile: Profile) -> Result<(), Error> {
-        let _source_charge = self.budget.reserve("publication-source-context", sources.len().saturating_mul(2048))?;
+    /// Publication checks share actual source snapshots and compatible next-input streams.
+    /// Pure checks may use this same session's receipts, but execute in a separate group.
+    pub async fn publications(&mut self, tx: &mut PgConnection,
+        requests: &[(&PublicationInvariant, Vec<String>)], sources: &[CompletedRelation],
+        profile: Profile) -> Result<(), Error> {
+        if requests.is_empty() { return Ok(()); }
+        let source_bytes = sources.iter().try_fold(0usize, |bytes, source| {
+            bytes.checked_add(512)?.checked_add(source.relation().len())?
+                .checked_add(source.producer().len())?.checked_add(source.relation().len())?
+                .checked_add(source.prefix().map_or(0, |prefix| prefix.name().len()))
+        }).ok_or(Error::Contract)?;
+        let _source_charge = self.budget.reserve("publication-source-context", source_bytes)?;
         let snapshots = sources.iter().map(lctx_model::domain::analysis::sources::SourceSnapshot::from_source)
             .collect::<Result<Vec<_>, _>>()?;
         let context = publication_context(&snapshots, profile);
-        let mut complete = true;
-        for (input, frame) in invariant.inputs.iter().zip(physical.iter()) {
-            if self.prepare_frame(tx, input, frame, false).await?.is_none() { complete = false; }
+        let _metadata = self.budget.reserve("publication-validation-plan",
+            requests.len().checked_mul(512).ok_or(Error::Contract)?)?;
+        let mut pending = Vec::with_capacity(requests.len());
+        for (index, (definition, frames)) in requests.iter().enumerate() {
+            if definition.inputs.len() != frames.len() { return Err(Error::Contract); }
+            if requests[..index].iter().any(|(other, existing)|
+                other.digest() == definition.digest() && existing == frames) { continue; }
+            let mut complete = true;
+            for (input, physical) in definition.inputs.iter().zip(frames) {
+                if self.prepare_frame(tx, input, physical, false).await?.is_none() { complete = false; }
+            }
+            let binding = if complete {
+                let binding = self.binding(tx, definition.digest(), &definition.inputs, frames, false, Some(context)).await?;
+                if self.has(tx, binding, definition.digest()).await? { continue; }
+                Some(binding)
+            } else { None };
+            pending.push((*definition, frames, binding));
         }
-        let binding = if complete {
-            let binding = self.binding(tx, invariant.digest(), &invariant.inputs, &physical, false, Some(context)).await?;
-            if self.has(tx, binding, invariant.digest()).await? { return Ok(()); }
-            Some(binding)
-        } else { None };
-        let mut check = (invariant.create)(self.budget);
-        self.stats.check_executions += 1;
-        for (input, physical) in invariant.inputs.iter().zip(physical.iter()) {
+        let conclusions = match self.shared_publication_checks(tx, &pending, &snapshots, profile, context).await {
+            Err(Error::Model(lctx_model::domain::ModelError::Resource { .. })) if pending.len() > 1 => {
+                // Shared checker state is dropped before serial admission. Keep every
+                // conclusion local until the whole fallback group has finished successfully.
+                let mut conclusions = Vec::with_capacity(pending.len());
+                for request in &pending {
+                    let bindings = self.shared_publication_checks(tx, std::slice::from_ref(request),
+                        &snapshots, profile, context).await?;
+                    conclusions.push(bindings[0]);
+                }
+                conclusions
+            },
+            other => other?,
+        };
+        for ((definition, frames, _), binding) in pending.iter().zip(conclusions) {
+            self.acknowledge_publication(tx, definition, frames, binding, &snapshots, profile).await?;
+        }
+        Ok(())
+    }
+
+    async fn shared_publication_checks(&mut self, tx: &mut PgConnection,
+        pending: &[(&PublicationInvariant, &Vec<String>, Option<ContentHash>)],
+        snapshots: &[lctx_model::domain::analysis::sources::SourceSnapshot],
+        profile: Profile, context: ContentHash) -> Result<Vec<ContentHash>, Error> {
+        // Charge vectors, indices and conclusion slots before constructing any checker.
+        // Each checker additionally owns the reservations for its retained semantic state.
+        let _execution = self.budget.reserve("publication-validation-execution",
+            pending.len().checked_mul(128).ok_or(Error::Contract)?)?;
+        let mut checks: Vec<_> = pending.iter().map(|(i, _, _)| (i.create)(self.budget)).collect();
+        let mut positions = vec![0; pending.len()];
+        self.stats.check_executions += pending.len() as u64;
+        while let Some(first) = (0..pending.len()).find(|&n| positions[n] < pending[n].0.inputs.len()) {
+            let (definition, frames, _) = pending[first];
+            let index = positions[first];
+            let input = &definition.inputs[index];
+            let physical = &frames[index];
+            let compatible: Vec<_> = (0..pending.len()).filter(|&n| {
+                let (other, frames, _) = pending[n];
+                let index = positions[n];
+                index < other.inputs.len() && frames[index] == *physical
+                    && other.inputs[index].name() == input.name()
+                    && other.inputs[index].order() == input.order()
+            }).collect();
             let relation = self.model.relation(input.name()).ok_or(Error::Contract)?;
             let needs_digest = input.order() == ["id"]
                 && self.frames.get(input.name()).and_then(|versions| versions.get(physical)).is_none();
             let _digest_charge = needs_digest.then(|| self.budget.reserve("validation-content", 512)).transpose()?;
             let mut content = needs_digest.then(|| relation.content());
             self.stats.row_scans += 1;
-            visit_named(tx, self.generation, relation, physical, input.order(), self.budget,
-                |batch| {
-                    if let Some(content) = &mut content { relation.hash_rows(&batch, content)?; }
-                    check.visit_input(input, &batch)?; Ok(())
-                }).await?;
+            visit_named(tx, self.generation, relation, physical, input.order(), self.budget, |batch| {
+                if let Some(content) = &mut content { relation.hash_rows(&batch, content)?; }
+                for &n in &compatible {
+                    checks[n].visit_input(&pending[n].0.inputs[positions[n]], &batch)?;
+                }
+                Ok(())
+            }).await?;
             if let Some(content) = content {
                 let (rows, content) = content.finish();
                 self.retain_frame(input, physical, RelationReceipt { rows, content })?;
                 self.stats.physical_frames += 1;
             }
+            for n in compatible { positions[n] += 1; }
         }
-        check.finish(&snapshots, profile)?;
-        let binding = match binding {
-            Some(binding) => binding,
-            None => self.binding(tx, invariant.digest(), &invariant.inputs, &physical, true, Some(context)).await?,
-        };
-        let _wire = self.budget.reserve("publication-receipt-wire", 1024 + physical.len().saturating_mul(1024) + sources.len().saturating_mul(4096))?;
-        let frames = self.proof_frames(tx, &invariant.inputs, &physical).await?;
-        self.acknowledge(tx, invariant.name, invariant.digest(), binding,
-            &ProofContext::Publication { frames, sources: snapshots, profile: profile.name().to_owned() }).await
+        for check in checks { check.finish(snapshots, profile)?; }
+        let mut conclusions = Vec::with_capacity(pending.len());
+        for (definition, frames, binding) in pending {
+            conclusions.push(match binding {
+                Some(binding) => *binding,
+                None => self.binding(tx, definition.digest(), &definition.inputs, frames, true, Some(context)).await?,
+            });
+        }
+        Ok(conclusions)
     }
+
+    async fn acknowledge_publication(&self, tx: &mut PgConnection, definition: &PublicationInvariant,
+        physical: &[String], binding: ContentHash,
+        snapshots: &[lctx_model::domain::analysis::sources::SourceSnapshot], profile: Profile) -> Result<(), Error> {
+        use lctx_model::domain::HeapSize;
+        let source_bytes = snapshots.iter().try_fold(0usize, |bytes, source|
+            bytes.checked_add(4096)?.checked_add(source.heap_bytes().checked_mul(4)?))
+            .ok_or(Error::Contract)?;
+        let bytes = physical.iter().try_fold(1024usize, |bytes, frame|
+            bytes.checked_add(1024)?.checked_add(frame.len()))
+            .and_then(|bytes| bytes.checked_add(source_bytes))
+            .ok_or(Error::Contract)?;
+        let _wire = self.budget.reserve("publication-receipt-wire", bytes)?;
+        let frames = self.proof_frames(tx, &definition.inputs, physical).await?;
+        self.acknowledge(tx, definition.name, definition.digest(), binding,
+            &ProofContext::Publication { frames, sources: snapshots.to_vec(), profile: profile.name().to_owned() }).await
+    }
+
 }
 
 pub(super) fn publication_context(sources: &[lctx_model::domain::analysis::sources::SourceSnapshot], profile: Profile) -> ContentHash {
-    let mut context = KeySink::new("publication-authority/v1");
+    let mut context = KeySink::new("publication-authority/v2");
     context.part(b"profile", profile.name().as_bytes());
     let mut ordered: Vec<_> = sources.iter().collect();
     ordered.sort_by_key(|source| (source.relation(), source.producer()));
     for source in ordered {
         context.part(b"relation", source.relation().as_bytes());
         context.part(b"producer", source.producer().as_bytes());
+        context.part(b"model", &source.model().0);
+        context.part(b"schedule", &source.schedule().0);
+        context.part(b"has-prefix", &[u8::from(source.prefix().is_some())]);
+        if let Some(prefix) = source.prefix() { context.part(b"prefix", prefix.as_bytes()); }
         context.part(b"frame", source.physical().as_bytes());
         context.part(b"rows", &source.rows().to_le_bytes());
         context.part(b"content", &source.content().0);
@@ -535,6 +618,166 @@ mod tests {
         assert!(store.audit(generation, lctx_model::domain::admission::Frontier::Conformance, None, &budget).await.is_err(), "substituted exact binding is refused");
         store.retire(generation).await.unwrap();
     }
+    struct PublicationCount {
+        count: Count,
+        _charge: Option<Box<dyn Reservation>>,
+        refusal: Option<ModelError>,
+    }
+    impl lctx_model::domain::PublicationCheck for PublicationCount {
+        fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+            if let Some(error) = self.refusal.take() { return Err(error); }
+            self.count.visit(name, batch)
+        }
+        fn finish(self: Box<Self>, sources: &[lctx_model::domain::analysis::sources::SourceSnapshot],
+            profile: Profile) -> Result<(), ModelError> {
+            if sources.len() != 1 || sources[0].relation() != Item::NAME || sources[0].rows() != 1
+                || profile != Profile::Catalog {
+                return Err(ModelError::Invalid("publication differs from authored source/profile answer".into()));
+            }
+            Box::new(self.count).finish()
+        }
+    }
+    fn publication_definition(name: &'static str, expected: usize, state_bytes: usize) -> PublicationInvariant {
+        PublicationInvariant { name, revision: 1, inputs: vec![ValidationInput::of::<Item>(&["id"])],
+            create: Arc::new(move |budget| {
+                let (charge, refusal) = match budget.reserve("independent-publication-count", state_bytes) {
+                    Ok(charge) => (Some(charge), None), Err(error) => (None, Some(error)),
+                };
+                Box::new(PublicationCount { count: Count { rows: 0, expected }, _charge: charge, refusal })
+            }) }
+    }
+
+    #[tokio::test]
+    async fn publication_group_shares_candidate_and_source_streams_and_stages_fallback_results() {
+        use lctx_model::domain::{input::Package, stages::*};
+        let db = DisposableDatabase::start().await;
+        let first_check = publication_definition("first_publication", 1, 0);
+        let second_check = publication_definition("second_publication", 1, 0);
+        let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Item>(), Relation::of::<Package>()],
+            ValidationDefinitions { invariants: vec![definition("first_count", 1), definition("second_count", 1)],
+                publication_checks: vec![first_check.clone(), second_check.clone()] }).unwrap());
+        let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
+        let stage = |name, inputs, outputs| Stage { name, inputs, outputs,
+            contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog], effect: Effect::Pure,
+            code: ContentHash::of(b"publication group fixture"), configuration: ContentHash::of(b"authored source count") };
+        let schedule = Schedule::build(&model, vec![
+            stage("source", vec![], vec![RelationUse::of::<Item>()]),
+            stage("consumer", vec![RelationUse::stored::<Item>()], vec![RelationUse::of::<Package>()]),
+        ], &[], Profile::Catalog).unwrap();
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let mut execution = schedule.execute();
+        let attempt = store.begin_conformance(db.writer.clone(), &mut execution, budget.clone()).await.unwrap();
+        let generation = attempt.generation();
+        let mut source = execution.begin("source").unwrap();
+        let batch = Batch::new(&model, vec![Item { name: "one".into() }], &budget).unwrap();
+        source.write::<Item, _>(async |permit| attempt.copy(permit, &batch).await).await.unwrap();
+        source.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+        let mut consumer = execution.begin("consumer").unwrap();
+        let sources = consumer.completed_sources().unwrap();
+        assert_eq!(sources.len(), 1, "fixture supplies a real acknowledged source");
+        let batch = Batch::<Package>::new(&model, vec![], &budget).unwrap();
+        consumer.write::<Package, _>(async |permit| attempt.copy(permit, &batch).await).await.unwrap();
+        consumer.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+        let requests = vec![(&first_check, vec![Item::NAME.into()]), (&second_check, vec![Item::NAME.into()])];
+        super::super::transaction(&store.owner, async |tx| {
+            store.lock_installation(tx).await?; super::super::lock(tx, generation, true).await?;
+            sqlx::query("DELETE FROM lctx_model_store.stage_receipts WHERE generation_id=$1 AND relation_name='proof_items'")
+                .bind(generation.0.to_vec()).execute(&mut *tx).await?;
+            let mut session = Session::new(&store, tx, generation, &budget).await?;
+            session.publications(tx, &requests, &sources, Profile::Catalog).await?;
+            assert_eq!(session.stats.row_scans, 1, "candidate digest and both publication checks share ID order");
+            assert_eq!(session.stats.physical_frames, 1);
+            assert_eq!(session.stats.check_executions, 2);
+            Err::<(), Error>(Error::Contract)
+        }).await.unwrap_err();
+        super::super::transaction(&store.owner, async |tx| {
+            store.lock_installation(tx).await?; super::super::lock(tx, generation, true).await?;
+            let mut session = Session::new(&store, tx, generation, &budget).await?;
+            let mut duplicated = requests.clone(); duplicated.push(requests[0].clone());
+            session.publications(tx, &duplicated, &sources, Profile::Catalog).await?;
+            assert_eq!(session.stats.row_scans, 1);
+            assert_eq!(session.stats.check_executions, 2);
+            assert_eq!(session.stats.proof_hits, 0, "rolled-back conclusions cannot answer");
+            Ok(())
+        }).await.unwrap();
+        super::super::transaction(&store.owner, async |tx| {
+            store.lock_installation(tx).await?; super::super::lock(tx, generation, true).await?;
+            let mut session = Session::new(&store, tx, generation, &budget).await?;
+            session.publications(tx, &requests, &sources, Profile::Catalog).await?;
+            assert_eq!(session.stats.proof_hits, 2);
+            assert_eq!(session.stats.row_scans, 0);
+            assert_eq!(session.stats.check_executions, 0);
+            let snapshots = sources.iter().map(lctx_model::domain::analysis::sources::SourceSnapshot::from_source)
+                .collect::<Result<Vec<_>, _>>()?;
+            let context = publication_context(&snapshots, Profile::Catalog);
+            let old = session.binding(tx, first_check.digest(), &first_check.inputs, &requests[0].1, false, Some(context)).await?;
+            let mut revised = first_check.clone(); revised.revision += 1;
+            let revised_binding = session.binding(tx, revised.digest(), &revised.inputs, &requests[0].1, false, Some(context)).await?;
+            assert_ne!(old, revised_binding);
+            assert!(!session.has(tx, revised_binding, revised.digest()).await?);
+            for changed_context in [publication_context(&[], Profile::Catalog), publication_context(&snapshots, Profile::Behavioral)] {
+                let changed = session.binding(tx, first_check.digest(), &first_check.inputs, &requests[0].1, false, Some(changed_context)).await?;
+                assert_ne!(old, changed);
+                assert!(!session.has(tx, changed, first_check.digest()).await?);
+            }
+            let mut failing = second_check.clone(); failing.revision += 1;
+            failing.create = publication_definition("second_publication", 2, 0).create;
+            assert!(session.publications(tx, &[(&revised, requests[0].1.clone()), (&failing, requests[1].1.clone())], &sources, Profile::Catalog).await.is_err());
+            assert!(!session.has(tx, revised_binding, revised.digest()).await?, "finish failure publishes no sibling conclusion");
+            let mut incompatible = first_check.clone(); incompatible.revision = 3;
+            incompatible.inputs = vec![ValidationInput::of::<Item>(&["name"])];
+            let before = session.stats.row_scans;
+            session.publications(tx, &[(&revised, requests[0].1.clone()), (&incompatible, requests[0].1.clone())], &sources, Profile::Catalog).await?;
+            assert_eq!(session.stats.row_scans - before, 2, "different total orders remain separate streams");
+            let fallback_budget = ResourceBudget::fixed(24576).unwrap();
+            let mut charged_first = publication_definition("first_publication", 1, 10000); charged_first.revision = 4;
+            let mut charged_second = publication_definition("second_publication", 1, 10000); charged_second.revision = 4;
+            let mut fallback = Session::new(&store, tx, generation, &fallback_budget).await?;
+            fallback.publications(tx, &[(&charged_first, requests[0].1.clone()), (&charged_second, requests[1].1.clone())], &sources, Profile::Catalog).await?;
+            assert!(fallback.stats.check_executions > 2, "aggregate state refusal uses serial admission");
+            drop(fallback);
+            assert_eq!(fallback_budget.reserved(), 0);
+            charged_first.revision = 5; charged_second.revision = 5;
+            charged_second.create = publication_definition("second_publication", 2, 10000).create;
+            let mut fallback = Session::new(&store, tx, generation, &fallback_budget).await?;
+            assert!(fallback.publications(tx, &[(&charged_first, requests[0].1.clone()), (&charged_second, requests[1].1.clone())], &sources, Profile::Catalog).await.is_err());
+            let unacknowledged = fallback.binding(tx, charged_first.digest(), &charged_first.inputs, &requests[0].1, false, Some(context)).await?;
+            assert!(!fallback.has(tx, unacknowledged, charged_first.digest()).await?, "serial fallback stages the earlier result until every sibling finishes");
+            drop(fallback);
+            assert_eq!(fallback_budget.reserved(), 0);
+            let plan_budget = ResourceBudget::fixed(4600).unwrap();
+            let mut constrained = Session::new(&store, tx, generation, &plan_budget).await?;
+            assert!(constrained.publications(tx, &requests, &sources, Profile::Catalog).await.is_err());
+            drop(constrained);
+            assert_eq!(plan_budget.reserved(), 0);
+            assert!(session.publications(tx, &[(&first_check, vec![])], &sources, Profile::Catalog).await.is_err(), "incomplete premise mapping refuses");
+            Ok(())
+        }).await.unwrap();
+        // The fixture's intentionally revised/ad hoc proofs are controls, not an audit claim.
+        attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap().publish().await.unwrap();
+        store.retire(generation).await.unwrap();
+    }
+
+    #[test]
+    fn publication_context_discriminates_every_source_authority_field() {
+        use lctx_model::domain::analysis::sources::SourceSnapshot;
+        let original = serde_json::json!({ "relation": "proof_items", "producer": "source",
+            "model": ContentHash([1; 32]), "schedule": ContentHash([2; 32]),
+            "content": ContentHash([3; 32]), "rows": 1, "physical": "proof_items", "prefix": null });
+        let snapshot: SourceSnapshot = serde_json::from_value(original.clone()).unwrap();
+        let baseline = publication_context(&[snapshot], Profile::Catalog);
+        for (field, replacement) in [
+            ("relation", serde_json::json!("other")), ("producer", serde_json::json!("other")),
+            ("model", serde_json::json!(ContentHash([4; 32]))), ("schedule", serde_json::json!(ContentHash([4; 32]))),
+            ("content", serde_json::json!(ContentHash([4; 32]))), ("rows", serde_json::json!(2)),
+            ("physical", serde_json::json!("__v0_proof_items")), ("prefix", serde_json::json!("Facts")),
+        ] {
+            let mut changed = original.clone(); changed[field] = replacement;
+            let snapshot: SourceSnapshot = serde_json::from_value(changed).unwrap();
+            assert_ne!(baseline, publication_context(&[snapshot], Profile::Catalog), "{field} must rebind publication authority");
+        }
+    }
+
     #[tokio::test]
     async fn acknowledged_unprefixed_question_retains_its_exact_frame_after_legal_append() {
         use lctx_model::domain::{input::Package, value::Literal, stages::*};

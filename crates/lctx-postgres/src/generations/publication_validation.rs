@@ -40,6 +40,8 @@ impl GenerationStore {
             .find(|candidate| candidate.name() == profile)
             .ok_or(Error::Contract)?;
         let order = super::vocabulary::publication_order(tx, generation).await?;
+        let _sources = budget.reserve("publication-source-refs",
+            sources.len().checked_mul(128).ok_or(Error::Contract)?)?;
         let mut inputs = BTreeMap::new();
         for source in sources {
             if source.model() != self.model.digest() {
@@ -72,8 +74,9 @@ impl GenerationStore {
             }
 
         }
+        let mut requests = Vec::with_capacity(checks.len());
         for invariant in checks {
-            let mut frames = Vec::new();
+            let mut frames = Vec::with_capacity(invariant.inputs.len());
             for input in &invariant.inputs {
                 let relation = self
                     .model
@@ -117,8 +120,8 @@ impl GenerationStore {
                 .await?;
                 frames.push(physical);
             }
-            session.publication(tx, invariant, frames, sources, profile).await?;
+            requests.push((invariant, frames));
         }
-        Ok(())
+        session.publications(tx, &requests, sources, profile).await
     }
 }
