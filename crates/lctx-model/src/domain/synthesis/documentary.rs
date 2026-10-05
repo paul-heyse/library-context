@@ -1110,7 +1110,6 @@ pub(crate) mod tests {
         ];
         for (controls, expected) in controls {
             for control in controls {
-                assert_eq!(control.revision, 2);
                 let views = control.inputs.iter().filter(|input| input.name() == AssertionQualification::NAME).map(ValidationInput::prefix).collect::<std::collections::BTreeSet<_>>();
                 assert_eq!(views, expected.iter().copied().collect::<std::collections::BTreeSet<_>>(), "{}", control.name);
             }

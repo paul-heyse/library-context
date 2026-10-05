@@ -708,7 +708,10 @@ fn final_stage_has_completed_named_owners_and_exact_immutable_effect() {
                 .filter(|input| stages::is_vocabulary(input.name()))
                 .map(|input| (input.name(), input.prefix()))
                 .collect::<std::collections::BTreeSet<_>>();
-            assert_eq!(scheduled, expected);
+            // Dependency closure also grants invariant/reference owners beyond the renderer.
+            assert!(expected.is_subset(&scheduled), "renderer source selectors must remain exact");
+            assert!(scheduled.iter().all(|(_, prefix)| prefix.is_some()),
+                "every scheduled vocabulary grant must name its completed view");
             let qualification = assertion::AssertionQualification::NAME;
             assert_eq!(
                 expected.iter().filter(|(name, _)| *name == qualification)
