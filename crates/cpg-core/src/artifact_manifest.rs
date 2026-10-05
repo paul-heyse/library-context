@@ -1,7 +1,7 @@
 //! Compact semantic manifest from completed owners. Diagnostics and physical realizations do not
 //! enter identity; nominal outcomes and exact consumed embedding values do.
 use crate::workspace::Workspace;
-use datafusion::arrow::array::{Array, StringArray};
+use datafusion::arrow::array::{Array, BinaryArray};
 use futures::TryStreamExt;
 use lctx_model::domain::{self as d, *, graph::{self, *}, admission::Frontier, stages::Profile};
 use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
@@ -155,15 +155,16 @@ async fn embeddings(workspace:&Workspace,profile:Profile,charge:&mut charged::St
             let typed=batch.project(&(0..width).collect::<Vec<_>>()).map_err(ModelError::codec)?;
             let _decode=workspace.budget().reserve("manifest-vector-binding",decode_allowance::<$record>(&typed)?)?;
             let rows=<$record>::decode(&typed)?;
-            let texts=batch.column(width).as_any().downcast_ref::<StringArray>().ok_or(ModelError::Schema(<$text>::NAME))?;
+            let texts=batch.column(width).as_any().downcast_ref::<BinaryArray>().ok_or(ModelError::Schema(<$text>::NAME))?;
             for (index,row) in rows.iter().enumerate(){
                 row.validate()?;if texts.is_null(index){return Err(invalid("embedding consumption lacks original text reference"));}
+                let text=std::str::from_utf8(texts.value(index)).map_err(ModelError::codec)?;
                 if !selected.contains(&row.specification){return Err(invalid("embedding consumption uses an unselected specification"));}
                 let specification=specs.get(&row.specification).ok_or_else(||invalid("embedding consumption lacks selected specification"))?;
-                let request_bytes=texts.value(index).len().checked_mul(specification.document_template.matches("{text}").count())
+                let request_bytes=text.len().checked_mul(specification.document_template.matches("{text}").count())
                     .and_then(|n|n.checked_add(specification.document_template.len())).and_then(|n|n.checked_mul(2)).ok_or_else(||invalid("embedding request allocation overflow"))?;
                 let _request=workspace.budget().reserve("manifest-vector-request",request_bytes)?;
-                let request=specification.document_text(texts.value(index));
+                let request=specification.document_text(text);
                 if row.input!=d::embedding::value::input_hash(&request){return Err(invalid("embedding consumption input differs from exact request text"));}
                 if row.availability==d::embedding::analytic::VectorAvailability::TokenLimit && row.admitted_tokens.is_none_or(|tokens|tokens<=i64::from(specification.max_document_tokens)){
                     return Err(invalid("embedding token-limit status does not exceed selected cap"));
