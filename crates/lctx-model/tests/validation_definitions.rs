@@ -184,11 +184,18 @@ fn acknowledged_premises_complete_inputs_without_selecting_their_checks() {
 }
 #[test]
 fn local_stability_scope_requires_the_complete_acknowledged_normalized_premises() {
-    use conditions::{entry::{EntryAccessSource, EntryValueWitness}, stability::StabilityWitness};
+    use conditions::{
+        entry::{EntryAccessSource, EntryValueWitness},
+        stability::StabilityWitness,
+    };
     let model = model().unwrap();
-    let referrers = [StabilityWitness::NAME, EntryValueWitness::NAME, EntryAccessSource::NAME]
-        .into_iter()
-        .collect();
+    let referrers = [
+        StabilityWitness::NAME,
+        EntryValueWitness::NAME,
+        EntryAccessSource::NAME,
+    ]
+    .into_iter()
+    .collect();
     let normalized = normalized_relations();
     let mut premises: std::collections::BTreeSet<_> =
         normalized.iter().map(Relation::name).collect();
@@ -196,15 +203,20 @@ fn local_stability_scope_requires_the_complete_acknowledged_normalized_premises(
     let checks = model
         .invariants_for_scope_with_premises(&referrers, &premises)
         .unwrap();
-    let stability = checks.iter().find(|check| check.name == "entry_guard_stability_replay").unwrap();
+    let stability = checks
+        .iter()
+        .find(|check| check.name == "entry_guard_stability_replay")
+        .unwrap();
     assert_eq!(
         stability.digest(),
         model.invariant(stability.name).unwrap().digest()
     );
     for check in &checks {
-        assert!(check.inputs.iter().all(|input| {
-            referrers.contains(input.name()) || premises.contains(input.name())
-        }));
+        assert!(
+            check.inputs.iter().all(|input| {
+                referrers.contains(input.name()) || premises.contains(input.name())
+            })
+        );
     }
     assert!(premises.remove(flow_inventory::FlowUseInventoryObservation::NAME));
     assert!(
@@ -398,10 +410,7 @@ fn lower_scope_derivation_is_required_and_exactly_scoped_and_cycles_refuse() {
     let scope = [Proof::NAME].into_iter().collect();
     let checks = model.invariants_for_scope(&scope).unwrap();
     let with_upper_premise = model
-        .invariants_for_scope_with_premises(
-            &scope,
-            &[OtherProof::NAME].into_iter().collect(),
-        )
+        .invariants_for_scope_with_premises(&scope, &[OtherProof::NAME].into_iter().collect())
         .unwrap();
     assert_eq!(with_upper_premise.len(), 1);
     assert_eq!(with_upper_premise[0].digest(), checks[0].digest());

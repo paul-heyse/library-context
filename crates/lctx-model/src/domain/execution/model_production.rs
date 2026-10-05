@@ -502,6 +502,12 @@ pub fn apply_all(
         }
     }
     let verified = verify(&data.early.bindings, &data.bindings, budget)?;
+    // Catalog targets describe Python operations. A document-only frame has no such
+    // domain; missing catalog targets there are not missing Python evidence. Retain the
+    // predecessor/binding checks above and derive emptiness from captured uses, never outputs.
+    if !has_python_domain(&data.early, invocation.input, budget)? {
+        return Ok(records);
+    }
     for compiled in catalog.models() {
         let mut symbols = data.early.bindings.symbols.iter().filter(|s| {
             s.context == invocation.context
@@ -732,6 +738,39 @@ pub fn apply_all(
     }
     Ok(records)
 }
+fn has_python_domain(
+    data: &ModelApplicationData,
+    input: Id<input::InputRevision>,
+    budget: &ResourceBudget,
+) -> Result<bool, ModelError> {
+    let bytes = data
+        .bindings
+        .artifacts
+        .iter()
+        .try_fold(0usize, |n, row| {
+            n.checked_add(size_of::<source::SourceArtifact>() + row.heap_bytes() + 128)
+        })
+        .and_then(|n| {
+            n.checked_add(
+                data.uses
+                    .len()
+                    .checked_mul(size_of::<input::ArtifactUse>())?,
+            )
+        })
+        .and_then(|n| n.checked_mul(2))
+        .ok_or_else(|| invalid("Model root allowance overflow"))?;
+    let _roots = budget.reserve("model_source_roots", bytes)?;
+    let roots = admission::analysis_roots(
+        &data.bindings.artifacts.iter().cloned().collect::<Vec<_>>(),
+        &data.uses.iter().cloned().collect::<Vec<_>>(),
+    )?;
+    Ok(data.bindings.artifacts.iter().any(|artifact| {
+        artifact.input == input
+            && roots.contains(&artifact.id())
+            && admission::ArtifactClass::of(&artifact.path)
+                == Some(admission::ArtifactClass::PythonSource)
+    }))
+}
 fn run_inputs() -> Vec<ValidationInput> {
     let mut inputs = ModelData::inputs();
     inputs.extend([
@@ -930,4 +969,114 @@ pub(crate) fn run_invariants_refs() -> Vec<&'static str> {
 }
 pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
     vec!["model_profile"]
+}
+
+#[cfg(test)]
+mod domain_controls {
+    use super::*;
+
+    fn input(path: &str) -> input::InputRevision {
+        input::InputRevision::from_entries(vec![input::ManifestEntry {
+            path: path.into(),
+            content: ContentHash::of(b"captured"),
+            byte_len: 8,
+        }])
+        .unwrap()
+    }
+
+    #[test]
+    fn model_domain_uses_owned_requested_python_artifacts_not_result_inventory() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let own = input("guide.md").id();
+        let other = input("foreign.py").id();
+        for role in [
+            input::SourceRole::Release,
+            input::SourceRole::Example,
+            input::SourceRole::Test,
+            input::SourceRole::DocBlock,
+            input::SourceRole::Document,
+            input::SourceRole::Configuration,
+            input::SourceRole::Dependency,
+        ] {
+            let mut data = ModelApplicationData::new(&budget);
+            let doc = source::SourceArtifact::from_bytes(own, "guide.md".into(), b"guide").unwrap();
+            let foreign =
+                source::SourceArtifact::from_bytes(other, "foreign.py".into(), b"x=1").unwrap();
+            data.bindings.artifacts.insert(doc.clone()).unwrap();
+            data.bindings.artifacts.insert(foreign.clone()).unwrap();
+            data.uses
+                .insert(input::ArtifactUse {
+                    input: own,
+                    artifact: doc.id(),
+                    role: input::SourceRole::Document,
+                })
+                .unwrap();
+            data.uses
+                .insert(input::ArtifactUse {
+                    input: other,
+                    artifact: foreign.id(),
+                    role: input::SourceRole::Release,
+                })
+                .unwrap();
+            assert!(!has_python_domain(&data, own, &budget).unwrap());
+            assert!(has_python_domain(&data, other, &budget).unwrap());
+            let python =
+                source::SourceArtifact::from_bytes(own, "example.pyi".into(), b"x: int").unwrap();
+            data.bindings.artifacts.insert(python.clone()).unwrap();
+            assert!(
+                !has_python_domain(&data, own, &budget).unwrap(),
+                "a filename without a use is supporting context"
+            );
+            data.uses
+                .insert(input::ArtifactUse {
+                    input: own,
+                    artifact: python.id(),
+                    role,
+                })
+                .unwrap();
+            assert_eq!(
+                has_python_domain(&data, own, &budget).unwrap(),
+                matches!(
+                    role,
+                    input::SourceRole::Release
+                        | input::SourceRole::Example
+                        | input::SourceRole::Test
+                        | input::SourceRole::DocBlock
+                )
+            );
+            assert!(
+                data.bindings.symbols.is_empty(),
+                "the declared domain does not require result symbols"
+            );
+        }
+    }
+
+    #[test]
+    fn model_domain_refuses_missing_artifacts_and_retains_resource_failure() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let own = input("example.py").id();
+        let python = source::SourceArtifact::from_bytes(own, "example.py".into(), b"x=1").unwrap();
+        let mut data = ModelApplicationData::new(&budget);
+        data.uses
+            .insert(input::ArtifactUse {
+                input: own,
+                artifact: python.id(),
+                role: input::SourceRole::Release,
+            })
+            .unwrap();
+        assert!(matches!(
+            has_python_domain(&data, own, &budget),
+            Err(ModelError::Frontier(_))
+        ));
+        data.bindings.artifacts.insert(python).unwrap();
+        let tiny = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            has_python_domain(&data, own, &tiny),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(tiny.reserved(), 0);
+        let before = budget.reserved();
+        assert!(has_python_domain(&data, own, &budget).unwrap());
+        assert_eq!(budget.reserved(), before);
+    }
 }

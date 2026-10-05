@@ -189,7 +189,14 @@ impl GenerationStore {
             session.bind_checkpoint(self, checkpoint)?;
         }
         let premises = session.checkpoint_premises(tx).await?;
-        let _scope = budget.reserve("publication-validation-scope", available.len().checked_add(premises.len()).and_then(|names| names.checked_mul(256)).ok_or(Error::Contract)?)?;
+        let _scope = budget.reserve(
+            "publication-validation-scope",
+            available
+                .len()
+                .checked_add(premises.len())
+                .and_then(|names| names.checked_mul(256))
+                .ok_or(Error::Contract)?,
+        )?;
         let referrers: BTreeSet<_> = available.iter().map(String::as_str).collect();
         let locked: BTreeSet<_> = referrers.union(&premises).copied().collect();
         // Deterministic canonical relation locks precede deterministic private delta locks.

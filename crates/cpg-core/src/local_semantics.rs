@@ -133,7 +133,11 @@ pub async fn run(
                 analysis::AnalysisStatus::NotRequested,
                 Some(ObligationKind::NotRequested),
             )
-        } else if coverage.scopes().iter().all(|scope| scope.expectation().no_scope) {
+        } else if coverage
+            .scopes()
+            .iter()
+            .all(|scope| scope.expectation().no_scope)
+        {
             // The admitted input domain, rather than absence of produced rows, proves emptiness.
             (analysis::AnalysisStatus::Completed, None)
         } else {

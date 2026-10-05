@@ -161,9 +161,10 @@ pub fn assess(
         EvidenceAvailability::NotRequested
     } else if expectation.no_scope {
         if !observed.is_empty() || status != AnalysisStatus::Completed || reason.is_some() {
-            return Err(invalid(
-                "NoScope requires a declared empty domain and completed computation",
-            ));
+            return Err(invalid(&format!(
+                "{}: NoScope requires a declared empty domain and completed computation (capability={:?}, status={:?}, reason={:?}, observations={})",
+                AnalysisCoverage::NAME, expectation.capability, status, reason, observed.len()
+            )));
         }
         EvidenceAvailability::NoScope
     } else {

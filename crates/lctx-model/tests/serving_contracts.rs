@@ -407,7 +407,15 @@ fn signature_is_mandatory_and_optional_sections_have_explicit_status() {
     decode_response("get_operation", &packet.to_string(), false, &limits).unwrap();
     let mut missing_domains = packet.clone();
     missing_domains.as_object_mut().unwrap().remove("domains");
-    assert!(decode_response("get_operation", &missing_domains.to_string(), false, &limits).is_err());
+    assert!(
+        decode_response(
+            "get_operation",
+            &missing_domains.to_string(),
+            false,
+            &limits
+        )
+        .is_err()
+    );
     let mut missing = packet.clone();
     missing["operation"]["packet"]["core"]
         .as_object_mut()

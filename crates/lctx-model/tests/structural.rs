@@ -442,43 +442,88 @@ fn static_conclusions_retain_exact_source_and_refuse_promotion_or_erasure() {
     assert!(frames::verify(&d, &c, &out, &b).is_err());
 }
 
-fn requested_controls() -> (ResourceBudget, Data, Context, Output, analysis::local::AnalysisCoverage) {
+fn requested_controls() -> (
+    ResourceBudget,
+    Data,
+    Context,
+    Output,
+    analysis::local::AnalysisCoverage,
+) {
     let (budget, data, mut context) = fixture();
     let mut output = produce(&data, &context, &budget);
     let local = context.local.iter().next().unwrap().clone();
     context.local_outcomes = Rows::new(&budget);
-    context.local_outcomes.insert(analysis::local::AnalysisOutcome {
-        invocation: local.id(), status: analysis::AnalysisStatus::Completed, reason: None,
-    }).unwrap();
+    context
+        .local_outcomes
+        .insert(analysis::local::AnalysisOutcome {
+            invocation: local.id(),
+            status: analysis::AnalysisStatus::Completed,
+            reason: None,
+        })
+        .unwrap();
     let mut frame = output.frames.iter().next().unwrap().clone();
     frame.controls_requested = true;
     output.frames = Rows::new(&budget);
     output.frames.insert(frame).unwrap();
-    let (receipt, premises) = analysis::local::coverage::assess(&analysis::local::coverage::CoverageExpectation {
-        invocation: local.id(), capability: analysis::AnalysisCapability::Transfers,
-        scope: (CoverageScope::Input { input: local.input }).id(), context: local.context,
-        requested: true, no_scope: true, sources: vec![],
-    }, &[], analysis::AnalysisStatus::Completed, None, &budget).unwrap();
+    let (receipt, premises) = analysis::local::coverage::assess(
+        &analysis::local::coverage::CoverageExpectation {
+            invocation: local.id(),
+            capability: analysis::AnalysisCapability::Transfers,
+            scope: (CoverageScope::Input { input: local.input }).id(),
+            context: local.context,
+            requested: true,
+            no_scope: true,
+            sources: vec![],
+        },
+        &[],
+        analysis::AnalysisStatus::Completed,
+        None,
+        &budget,
+    )
+    .unwrap();
     assert!(premises.is_empty());
     (budget, data, context, output, receipt)
 }
-fn control_outcome(context: &Context, output: &Output, budget: &ResourceBudget) -> owner::AnalysisOutcome {
+fn control_outcome(
+    context: &Context,
+    output: &Output,
+    budget: &ResourceBudget,
+) -> owner::AnalysisOutcome {
     let invocation = output.frames.iter().next().unwrap().control_invocation;
-    outcomes::derive(context, output, budget).unwrap().iter().find(|row| row.invocation == invocation).unwrap().clone()
+    outcomes::derive(context, output, budget)
+        .unwrap()
+        .iter()
+        .find(|row| row.invocation == invocation)
+        .unwrap()
+        .clone()
 }
 #[test]
 fn controls_empty_domain_requires_exact_acknowledged_local_noscope() {
     let (budget, _, mut context, output, receipt) = requested_controls();
     let missing = control_outcome(&context, &output, &budget);
     assert_eq!(missing.status, analysis::AnalysisStatus::Partial);
-    assert_eq!(missing.reason, Some(obligation::ObligationKind::IncompleteDomain));
+    assert_eq!(
+        missing.reason,
+        Some(obligation::ObligationKind::IncompleteDomain)
+    );
     context.local_coverage.insert(receipt.clone()).unwrap();
     let completed = control_outcome(&context, &output, &budget);
     assert_eq!(completed.status, analysis::AnalysisStatus::Completed);
     assert_eq!(completed.reason, None);
-    assert!(Context::validation_inputs().iter().any(|input| input.name() == analysis::local::AnalysisCoverage::NAME));
+    assert!(
+        Context::validation_inputs()
+            .iter()
+            .any(|input| input.name() == analysis::local::AnalysisCoverage::NAME)
+    );
     let mut decoded = Context::new(&budget);
-    assert!(decoded.visit(analysis::local::AnalysisCoverage::NAME, &analysis::local::AnalysisCoverage::encode(std::slice::from_ref(&receipt)).unwrap()).unwrap());
+    assert!(
+        decoded
+            .visit(
+                analysis::local::AnalysisCoverage::NAME,
+                &analysis::local::AnalysisCoverage::encode(std::slice::from_ref(&receipt)).unwrap()
+            )
+            .unwrap()
+    );
     assert_eq!(decoded.local_coverage.get(receipt.id()), Some(&receipt));
     let tiny = ResourceBudget::fixed(1).unwrap();
     assert!(outcomes::derive(&context, &output, &tiny).is_err());
@@ -487,13 +532,38 @@ fn controls_empty_domain_requires_exact_acknowledged_local_noscope() {
 #[test]
 fn controls_noscope_does_not_promote_foreign_or_nonempty_local_evidence() {
     use normalized::coverage::EvidenceAvailability as Availability;
-    for mismatch in ["invocation", "input", "context", "capability", "scope", "artifact_scope", "complete", "partial", "unavailable", "not_requested", "subject", "duplicate_root"] {
+    for mismatch in [
+        "invocation",
+        "input",
+        "context",
+        "capability",
+        "scope",
+        "artifact_scope",
+        "complete",
+        "partial",
+        "unavailable",
+        "not_requested",
+        "subject",
+        "duplicate_root",
+    ] {
         let (budget, _, mut context, output, mut receipt) = requested_controls();
         let original = context.local.iter().next().unwrap().clone();
         match mismatch {
             "invocation" => receipt.invocation = id(90),
             "input" => {
-                let foreign = context.local.insert(analysis::local::Invocation::new(id(91), original.context, original.definition, None, []).0).unwrap();
+                let foreign = context
+                    .local
+                    .insert(
+                        analysis::local::Invocation::new(
+                            id(91),
+                            original.context,
+                            original.definition,
+                            None,
+                            [],
+                        )
+                        .0,
+                    )
+                    .unwrap();
                 receipt.invocation = foreign;
                 receipt.scope = (CoverageScope::Input { input: id(91) }).id();
             }
@@ -502,21 +572,62 @@ fn controls_noscope_does_not_promote_foreign_or_nonempty_local_evidence() {
             "scope" => receipt.scope = (CoverageScope::Input { input: id(93) }).id(),
             "artifact_scope" => receipt.scope = (CoverageScope::Artifact { artifact: id(94) }).id(),
             "complete" => receipt.availability = Availability::Complete,
-            "partial" => { receipt.availability = Availability::Partial; receipt.reason = Some(obligation::ObligationKind::IncompleteDomain); }
-            "unavailable" => { receipt.availability = Availability::Unavailable; receipt.reason = Some(obligation::ObligationKind::IncompleteDomain); }
-            "not_requested" => { receipt.availability = Availability::NotRequested; receipt.reason = Some(obligation::ObligationKind::NotRequested); }
+            "partial" => {
+                receipt.availability = Availability::Partial;
+                receipt.reason = Some(obligation::ObligationKind::IncompleteDomain);
+            }
+            "unavailable" => {
+                receipt.availability = Availability::Unavailable;
+                receipt.reason = Some(obligation::ObligationKind::IncompleteDomain);
+            }
+            "not_requested" => {
+                receipt.availability = Availability::NotRequested;
+                receipt.reason = Some(obligation::ObligationKind::NotRequested);
+            }
             "subject" => {
-                receipt.invocation = context.local.insert(analysis::local::Invocation::new(original.input, original.context, original.definition, Some(id(95)), []).0).unwrap();
+                receipt.invocation = context
+                    .local
+                    .insert(
+                        analysis::local::Invocation::new(
+                            original.input,
+                            original.context,
+                            original.definition,
+                            Some(id(95)),
+                            [],
+                        )
+                        .0,
+                    )
+                    .unwrap();
             }
             "duplicate_root" => {
-                context.local.insert(analysis::local::Invocation::new(original.input, original.context, id(96), None, []).0).unwrap();
+                context
+                    .local
+                    .insert(
+                        analysis::local::Invocation::new(
+                            original.input,
+                            original.context,
+                            id(96),
+                            None,
+                            [],
+                        )
+                        .0,
+                    )
+                    .unwrap();
             }
             _ => unreachable!(),
         }
         context.local_coverage.insert(receipt).unwrap();
         let result = control_outcome(&context, &output, &budget);
-        assert_eq!(result.status, analysis::AnalysisStatus::Partial, "{mismatch}");
-        assert_eq!(result.reason, Some(obligation::ObligationKind::IncompleteDomain), "{mismatch}");
+        assert_eq!(
+            result.status,
+            analysis::AnalysisStatus::Partial,
+            "{mismatch}"
+        );
+        assert_eq!(
+            result.reason,
+            Some(obligation::ObligationKind::IncompleteDomain),
+            "{mismatch}"
+        );
     }
 }
 #[test]
@@ -524,19 +635,41 @@ fn controls_noscope_keeps_not_requested_and_budget_stop_precedence() {
     let (budget, _, mut context, mut output, receipt) = requested_controls();
     context.local_coverage.insert(receipt).unwrap();
     let mut frame = output.frames.iter().next().unwrap().clone();
-    output.control_traversals.insert(controls::ControlTraversal {
-        frame: frame.id(), seed: id(99), formal: id(98), stop: Some(TraversalStop::Arcs), vertices: 1, arcs: 0,
-    }).unwrap();
+    output
+        .control_traversals
+        .insert(controls::ControlTraversal {
+            frame: frame.id(),
+            seed: id(99),
+            formal: id(98),
+            stop: Some(TraversalStop::Arcs),
+            vertices: 1,
+            arcs: 0,
+        })
+        .unwrap();
     let bounded = control_outcome(&context, &output, &budget);
     assert_eq!(bounded.status, analysis::AnalysisStatus::Partial);
-    assert_eq!(bounded.reason, Some(obligation::ObligationKind::BudgetReached));
+    assert_eq!(
+        bounded.reason,
+        Some(obligation::ObligationKind::BudgetReached)
+    );
     frame.controls_requested = false;
     output.frames = Rows::new(&budget);
     output.frames.insert(frame.clone()).unwrap();
-    output.control_traversals.insert(controls::ControlTraversal {
-        frame: frame.id(), seed: id(99), formal: id(98), stop: Some(TraversalStop::Arcs), vertices: 1, arcs: 0,
-    }).unwrap();
+    output
+        .control_traversals
+        .insert(controls::ControlTraversal {
+            frame: frame.id(),
+            seed: id(99),
+            formal: id(98),
+            stop: Some(TraversalStop::Arcs),
+            vertices: 1,
+            arcs: 0,
+        })
+        .unwrap();
     let unrequested = control_outcome(&context, &output, &budget);
     assert_eq!(unrequested.status, analysis::AnalysisStatus::NotRequested);
-    assert_eq!(unrequested.reason, Some(obligation::ObligationKind::NotRequested));
+    assert_eq!(
+        unrequested.reason,
+        Some(obligation::ObligationKind::NotRequested)
+    );
 }

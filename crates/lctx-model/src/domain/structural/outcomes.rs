@@ -3,9 +3,9 @@ use super::{Output, build::invalid, frames::Context};
 use crate::domain::{
     analysis::{AnalysisCapability, AnalysisMethod, AnalysisStatus, structural as owner},
     normalized::{Rows, coverage::EvidenceAvailability},
-    source::CoverageScope,
     obligation::ObligationKind,
     resources::ResourceBudget,
+    source::CoverageScope,
     *,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -55,13 +55,16 @@ pub fn derive(
     // nonempty completeness rules. Only an acknowledged empty Local root can close Controls.
     let mut local_roots = BTreeMap::new();
     for local in context.local.iter().filter(|local| local.subject.is_none()) {
-        local_roots.entry((local.input, local.context))
+        local_roots
+            .entry((local.input, local.context))
             .and_modify(|root| *root = None)
             .or_insert(Some(local.id()));
     }
     let mut empty_local = BTreeSet::new();
     for coverage in context.local_coverage.iter() {
-        let Some(local) = context.local.get(coverage.invocation) else { continue; };
+        let Some(local) = context.local.get(coverage.invocation) else {
+            continue;
+        };
         if local.subject.is_none()
             && coverage.capability == AnalysisCapability::Transfers
             && coverage.context == local.context
@@ -106,8 +109,11 @@ pub fn derive(
                 } else if bounded {
                     (AnalysisStatus::Partial, Some(ObligationKind::BudgetReached))
                 } else if method == AnalysisMethod::Controls {
-                    if local_roots.get(&(invocation.input, invocation.context))
-                        .and_then(|root| *root).is_some_and(|root| empty_local.contains(&root)) {
+                    if local_roots
+                        .get(&(invocation.input, invocation.context))
+                        .and_then(|root| *root)
+                        .is_some_and(|root| empty_local.contains(&root))
+                    {
                         (AnalysisStatus::Completed, None)
                     } else {
                         (

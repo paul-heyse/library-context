@@ -555,7 +555,13 @@ impl StageSink for GenerationAttempt {
         let mut lifecycle = self.lifecycle.lock().await;
         let receipts = transaction_on(&mut lifecycle.connection, async |tx| {
             self.store
-                .close_vocabulary_step(tx, self.generation, &group, checkpoint.as_ref(), &self.budget)
+                .close_vocabulary_step(
+                    tx,
+                    self.generation,
+                    &group,
+                    checkpoint.as_ref(),
+                    &self.budget,
+                )
                 .await
         })
         .await

@@ -329,16 +329,19 @@ pub fn mention_layer(
         let admitted_input = if document_input == parent.input {
             q.context == parent.context
         } else {
-            d.corpus_libraries.iter().any(|link| {
-                link.corpus == document_input && link.library == parent.input
-            })
+            d.corpus_libraries
+                .iter()
+                .any(|link| link.corpus == document_input && link.library == parent.input)
         };
         // A corpus link admits documentary correspondence, not native context equality.
         // The candidate resolution below must still belong to this exact analytic context.
-        if !admitted_input || !d.uses.iter().any(|u| {
-            u.input == document_input && u.artifact == artifact
-                && u.role == input::SourceRole::Document
-        }) {
+        if !admitted_input
+            || !d.uses.iter().any(|u| {
+                u.input == document_input
+                    && u.artifact == artifact
+                    && u.role == input::SourceRole::Document
+            })
+        {
             continue;
         }
         for c in d

@@ -402,7 +402,8 @@ fn mentions(
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "mention-exposure-index");
-    let mut linked_inputs: ChargedMap<Id<input::InputRevision>, Vec<Id<input::InputRevision>>> = Default::default();
+    let mut linked_inputs: ChargedMap<Id<input::InputRevision>, Vec<Id<input::InputRevision>>> =
+        Default::default();
     for link in data.corpus_libraries.iter() {
         linked_inputs.update(&mut charge, link.corpus, |inputs| inputs.push(link.library))?;
     }
@@ -485,8 +486,14 @@ fn mentions(
             .into_iter()
             .flatten()
         {
-            for target in std::iter::once(&input).chain(linked_inputs.get(&input).into_iter().flatten()) {
-                for exposure in exposures.get(&(*target, spelling.clone())).into_iter().flatten() {
+            for target in
+                std::iter::once(&input).chain(linked_inputs.get(&input).into_iter().flatten())
+            {
+                for exposure in exposures
+                    .get(&(*target, spelling.clone()))
+                    .into_iter()
+                    .flatten()
+                {
                     if *target != input || exposure.context == context {
                         candidates.insert(&mut held, exposure.id(), exposure)?;
                     }
@@ -508,8 +515,14 @@ fn mentions(
         let mut symbol_candidates: ChargedMap<Id<SymbolObservation>, &SymbolObservation> =
             Default::default();
         if let Some(name) = &mention.qualified_name {
-            for target in std::iter::once(&input).chain(linked_inputs.get(&input).into_iter().flatten()) {
-                for row in qualified.get(&(*target, name.clone())).into_iter().flatten() {
+            for target in
+                std::iter::once(&input).chain(linked_inputs.get(&input).into_iter().flatten())
+            {
+                for row in qualified
+                    .get(&(*target, name.clone()))
+                    .into_iter()
+                    .flatten()
+                {
                     let symbol = need(&data.facts.symbols, row.symbol)?;
                     if *target == input && symbol.context != context {
                         continue;

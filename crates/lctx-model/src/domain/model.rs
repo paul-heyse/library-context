@@ -618,14 +618,9 @@ impl ValidatedModel {
             checks.push(check);
         }
         for check in &checks {
-            if let Some(input) = check
-                .inputs
-                .iter()
-                .find(|input| {
-                    !referrers.contains(input.name())
-                        && !acknowledged_premises.contains(input.name())
-                })
-            {
+            if let Some(input) = check.inputs.iter().find(|input| {
+                !referrers.contains(input.name()) && !acknowledged_premises.contains(input.name())
+            }) {
                 return Err(ModelError::Invalid(format!(
                     "{} requires validation premise {} outside scope",
                     check.name,
