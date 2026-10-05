@@ -35,7 +35,7 @@ FAMILIES = {
         rust("-p", "cpg-flow", "--lib", "--test", "flow_shapes", "--test", "capture_timing")), frozenset({"tools"})),
     "store": Family((rust("-p", "lctx-postgres", "--lib", "--test", "generation_stages", "--test", "vocabulary_epochs",
         "--test", "stage_reads", "--test", "stage_validation", "--test", "publication_checks", "--test", "lifecycle",
-        "--test", "generation_catalog", "--test", "installation", "--test", "generations", "--test", "serving_shapes",
+        "--test", "generation_catalog", "--test", "installation", "--test", "generations",
         "--test", "analysis_publication"),
         ("uv", "run", "--no-sync", "pytest", "tests/scripts/test_postgres_serving.py", "-q")), frozenset({"postgres", "cli", "tools"})),
     "serving": Family((rust("-p", "cpg-core", "--test", "structural", "--test", "behavioral_frontiers",

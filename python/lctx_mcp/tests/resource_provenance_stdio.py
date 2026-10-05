@@ -13,7 +13,7 @@ from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 from lctx_semantics import wire_tool
 from lctx_storage import open_service
-from mcp_types import ReadResourceResult
+from mcp_types import ReadResourceResult, TextResourceContents
 
 from lctx_mcp.wire import response_encodings
 
@@ -40,6 +40,7 @@ async def observe(spec: dict) -> None:
         contents = await client.read_resource(uri)
         assert len(contents) == 1
         resource = contents[0]
+        assert isinstance(resource, TextResourceContents)
         assert str(resource.uri) == uri
         assert resource.mime_type == "text/markdown"
         body = expected["capability"]["rendered"]

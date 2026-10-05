@@ -14,5 +14,5 @@ following AGENTS.md's capability routes and Context7 instructions.
 
 Follow AGENTS.md's Testing rules and the shared executor contract. Use the repository command
 surface and the repository's tools. Report changed behavior, deletions and functional checks against the
-assigned baseline; formatting and generators remain owned by the end-of-turn hook; `just hygiene` runs at scope end
-unless the assignment includes it.
+assigned baseline. Formatting and generators remain owned by the end-of-turn hook. Run affected
+functional families and non-functional leaves at scope end; assembled qualification belongs to the root.

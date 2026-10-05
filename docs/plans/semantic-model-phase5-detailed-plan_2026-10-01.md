@@ -567,7 +567,7 @@ expectations have moved to current owners before deleting the obsolete tests and
 |---|---|
 | Schema closure, structural rejection, final UTF-8 MCP bytes, model/wire identities | `lctx-model/tests/serving_contracts.rs`; latest 14-control receipt pending; actual serializers at T0 |
 | Finite literal restrictions, five verdicts, work refusal, exact original condition/proof, formal and context rejection | `lctx-model/tests/native_requests.rs` (16 passed), actual `lctx/tests/serving_native.rs` (both-profile rerun pending); retained SummaryRun replay owns stored discharge/finalizer proofs |
-| Explicit selection, reader retirement protection, atomic generation publication and corrupt/missing canonical rows | Existing real generation-store controls plus L0 cancellation/loss and `serving_shapes.rs`; later integrated gate remains pending |
+| Explicit selection, reader retirement protection, atomic generation publication and corrupt/missing canonical rows | Existing real generation-store controls plus L0 cancellation/loss and `serving_admission.rs`; later integrated gate remains pending |
 | Spec/domain isolation, exact vector values, negative/zero cosine, tampered physical cache and cleanup | `lctx/tests/serving_vectors.rs`; repaired full original fixture rerun pending |
 | Eligibility before ranking, complete family DF, contiguous ranks, exact-path promotion, channel/cursor identity | `lctx-model/tests/ranking_policy.rs`, actual `serving_retrieval.rs`, Python numerical arithmetic; latest integrated controls pending |
 | Canonical catalog specificity, whole required signatures, source ranges and grounded optional packets | `serving_catalog.rs`, `serving_packets.rs`, `serving_evidence.rs`; original capture/proof controls pending |

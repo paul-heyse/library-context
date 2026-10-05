@@ -126,7 +126,7 @@ async def test_real_mcp_listing_preserves_the_sole_native_inventory():
 
 
 def test_current_response_wraps_complete_dto_and_actual_generation_key():
-    response = {"generation": [5] * 16, "operation": {"resolution": "ambiguous", "candidates": []}}
+    response = {"generation": [5] * 16, "domains": [], "operation": {"resolution": "ambiguous", "candidates": []}}
     protocol = CallToolResult.model_validate_json(
         wire_tool_result("get_operation", json.dumps(response), False)
     )
@@ -136,6 +136,7 @@ def test_current_response_wraps_complete_dto_and_actual_generation_key():
     assert isinstance(protocol.content[0], TextContent)
     assert protocol.content[0].text == "get_operation: generation-bound result"
     for invalid in [
+        {key: value for key, value in response.items() if key != "domains"},
         {**response, "generation": [5] * 32},
         {**response, "generation": "05" * 16},
         {**response, "legacy_snapshot": "05" * 16},

@@ -45,7 +45,7 @@ old receipt meanings never change. Failed, cancelled or unconfirmed closure pois
 no partial publication becomes available. Final seal requires every group closed and frontier
 admission satisfied. Compilation never selects the published generation.
 
-> Decision: ADR-0086, ADR-0105, ADR-0108
+> Decision: ADR-0086, ADR-0105, ADR-0108, ADR-0126
 
 ### §6.2 Readers
 

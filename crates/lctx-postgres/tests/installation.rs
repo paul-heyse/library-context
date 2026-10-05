@@ -618,7 +618,7 @@ async fn reset_reinstalls_new_model() {
     // when that installation predates private stage reads and checkpoints.
     run(
         &db.superuser,
-        "DROP TABLE lctx_model_store.stage_read_checks; DROP TABLE lctx_model_store.checkpoints",
+        "DROP TABLE lctx_model_store.stage_read_checks; DROP TABLE lctx_model_store.checkpoint_frame_receipts; DROP TABLE lctx_model_store.checkpoints",
     )
     .await;
     let (_, after) = GenerationStore::reset(db.owner.clone(), new.clone(), "lctx")

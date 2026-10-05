@@ -28,6 +28,10 @@ pub(crate) fn fail(msg: impl Into<String>) -> ExtractError {
 
 /// PEP 503: lowercase, with runs of `-`, `_` and `.` as one `-`.
 pub fn normalize(name: &str) -> Result<String, String> {
+    // pep508_rs 0.9.2 accepts an empty normalized name; acquisition requires a name.
+    if name.is_empty() {
+        return Err("a distribution name must not be empty".into());
+    }
     pep508_rs::PackageName::new(name.to_owned())
         .map(|name| name.to_string())
         .map_err(|e| e.to_string())

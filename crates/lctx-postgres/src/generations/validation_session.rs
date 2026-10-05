@@ -23,6 +23,8 @@ pub struct ValidationStats {
     pub proof_hits: u64,
 }
 
+type EnvelopeRow = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, String);
+
 struct CheckpointAuthority {
     frontier: &'static str,
     contract: ContentHash,
@@ -56,7 +58,7 @@ impl<'s> Session<'s> {
         budget: &'s ResourceBudget) -> Result<Self, Error> {
         let charge = budget.reserve("validation-session", 4096)?;
         let (installation, model, physical, producer, schedule, profile):
-            (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, String) = sqlx::query_as(
+            EnvelopeRow = sqlx::query_as(
             "SELECT i.identity,g.model_digest,g.physical_digest,g.producer_digest,g.schedule_digest,g.profile FROM lctx_model_store.installation i CROSS JOIN lctx_model_store.generations g WHERE i.singleton AND g.id=$1")
             .bind(generation.0.to_vec()).fetch_one(&mut *tx).await?;
         if model != model_owner.digest().0 { return Err(Error::Contract); }
@@ -246,7 +248,7 @@ impl<'s> Session<'s> {
 
     async fn execute_invariant(&mut self, tx: &mut PgConnection, invariant: &Invariant,
         physical: &[String], candidate: bool) -> Result<ContentHash, Error> {
-        let binding = self.binding(tx, invariant.digest(), &invariant.inputs, &physical, candidate, None).await?;
+        let binding = self.binding(tx, invariant.digest(), &invariant.inputs, physical, candidate, None).await?;
         if self.has(tx, binding, invariant.digest()).await? { return Ok(binding); }
         let mut check = (invariant.create)(self.budget);
         self.stats.check_executions += 1;
