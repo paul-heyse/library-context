@@ -786,6 +786,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn final_receipts_cover_unproduced_empty_vocabulary_without_a_prefix() {
+        use lctx_model::domain::{input::Package, value::{Literal, LiteralSet, LiteralSetMember}, stages::*};
+        let db = DisposableDatabase::start().await;
+        let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>(),
+            Relation::of::<Literal>(), Relation::of::<LiteralSet>(), Relation::of::<LiteralSetMember>()]).unwrap());
+        let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
+        let schedule = Schedule::build_with_publications(&model, vec![Stage { name: "package",
+            inputs: vec![], outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![],
+            profiles: vec![Profile::Catalog], effect: Effect::Pure, code: ContentHash::of(b"empty held vocabulary"),
+            configuration: ContentHash::of(b"final acknowledgement") }], &[], Profile::Catalog,
+            vec![PublicationGroup::new(PublicationBoundary::Facts, vec!["package"])]).unwrap();
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let mut execution = schedule.execute();
+        let attempt = store.begin_conformance(db.writer.clone(), &mut execution, budget.clone()).await.unwrap();
+        let generation = attempt.generation();
+        let mut stage = execution.begin("package").unwrap();
+        let batch = Batch::new(&model, vec![Package { name: "authored-seed".into() }], &budget).unwrap();
+        stage.write::<Package, _>(async |permit| attempt.copy(permit, &batch).await).await.unwrap();
+        stage.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+        attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap().publish().await.unwrap();
+        let report = store.audit(generation, lctx_model::domain::admission::Frontier::Conformance, None, &budget).await.unwrap();
+        assert_eq!(report.relations, 4);
+        assert!(report.semantic_checks > 0);
+        store.retire(generation).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn acknowledged_unprefixed_question_retains_its_exact_frame_after_legal_append() {
         use lctx_model::domain::{input::Package, value::Literal, stages::*};
         let db = DisposableDatabase::start().await;

@@ -119,7 +119,7 @@ impl GenerationStore {
                         &generated
                     } else { self.model.invariant(&name)? };
                     if definition != check.digest().0 { return Err(Error::Contract); }
-                    let physical = exact_frames(&check.inputs, &frames, &order)?;
+                    let physical = context_frames(&mut tx, generation, &check.inputs, &frames, &order).await?;
                     let expected = session.binding(&mut tx, check.digest(), &check.inputs, &physical, false, None).await?;
                     if expected != binding { return Err(invalid(format!("audit binding mismatch: {name}"))); }
                     if names.is_subset(&requested) {
@@ -135,7 +135,7 @@ impl GenerationStore {
                 ProofContext::Publication { frames, sources, profile: claimed_profile } => {
                     let check = self.model.publication_check(&name)?;
                     if definition != check.digest().0 || claimed_profile != profile { return Err(Error::Contract); }
-                    let physical = exact_frames(&check.inputs, &frames, &order)?;
+                    let physical = context_frames(&mut tx, generation, &check.inputs, &frames, &order).await?;
                     let context = super::validation_session::publication_context(&sources, actual_profile);
                     if session.binding(&mut tx, check.digest(), &check.inputs, &physical, false, Some(context)).await? != binding {
                         return Err(invalid(format!("audit publication binding mismatch: {name}")));
@@ -215,7 +215,9 @@ fn exact_frames(inputs: &[ValidationInput], frames: &[(String, String)], order: 
         } else if frame == name {
             // A finite ordinary model can freeze vocabulary without publication groups.
             // Grouped vocabulary proofs always retain their exact closed ordinal.
-            if order.decode(0).is_ok() { return Err(Error::Contract); }
+            // Context admission separately checks that this relation has no epoch ack;
+            // a held unrequested empty vocabulary can have a final ordinary receipt.
+
         } else {
             let ordinal = frame.strip_prefix("__v").and_then(|v| v.split_once('_'))
                 .filter(|(_, relation)| *relation == name).and_then(|(n, _)| n.parse::<u16>().ok())
@@ -224,6 +226,17 @@ fn exact_frames(inputs: &[ValidationInput], frames: &[(String, String)], order: 
         }
     }
     Ok(frames.iter().map(|(_, frame)| frame.clone()).collect())
+}
+async fn context_frames(tx: &mut sqlx::PgConnection, generation: GenerationId, inputs: &[ValidationInput], frames: &[(String, String)], order: &lctx_model::domain::stages::PublicationOrder) -> Result<Vec<String>, Error> {
+    let physical = exact_frames(inputs, frames, order)?;
+    for (input, frame) in inputs.iter().zip(&physical) {
+        if is_vocabulary(input.name()) && input.prefix().is_none() && frame == input.name() {
+            let prefixed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.epoch_receipts WHERE generation_id=$1 AND relation_name=$2)")
+                .bind(generation.0.to_vec()).bind(input.name()).fetch_one(&mut *tx).await?;
+            if prefixed { return Err(Error::Contract); }
+        }
+    }
+    Ok(physical)
 }
 async fn audit_frame(store: &GenerationStore, session: &mut Session<'_>, tx: &mut sqlx::PgConnection,
     generation: GenerationId, input: &ValidationInput, physical: &str, budget: &ResourceBudget) -> Result<(), Error> {
@@ -252,6 +265,6 @@ mod tests {
         assert!(exact_frames(std::slice::from_ref(&vocabulary), &[(vocabulary.name().into(), order.decode(0).unwrap().view(vocabulary.name()))], &order).is_ok());
         let unprefixed = ValidationInput::of::<Literal>(&["id"]);
         assert!(exact_frames(std::slice::from_ref(&unprefixed), &[(unprefixed.name().into(), order.decode(0).unwrap().view(unprefixed.name()))], &order).is_ok());
-        assert!(exact_frames(std::slice::from_ref(&unprefixed), &[(unprefixed.name().into(), unprefixed.name().into())], &order).is_err());
+        assert!(exact_frames(std::slice::from_ref(&unprefixed), &[(unprefixed.name().into(), unprefixed.name().into())], &order).is_ok());
     }
 }
