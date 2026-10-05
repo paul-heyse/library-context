@@ -75,6 +75,8 @@ fn revision_identity_input_order_and_kind_are_explicit_and_conflicts_refuse() {
     let mut conflict = shared(1, count.clone()); conflict.invariants.extend(shared(2, count.clone()).invariants);
     assert!(ValidatedModel::validate(declarations.clone(), conflict).is_err());
     assert!(ValidatedModel::validate(declarations.clone(), shared(0, count.clone())).is_err());
+    let mut reserved = shared(1, count.clone()); reserved.invariants[0].name = "derivation_acyclic";
+    assert!(ValidatedModel::validate(vec![Relation::of::<Premise>()], reserved).is_err());
     let mut wrong_order = shared(1, count); wrong_order.invariants[0].inputs = vec![ValidationInput::of::<Premise>(&["missing", "id"])];
     assert!(ValidatedModel::validate(declarations, wrong_order).is_err());
 }

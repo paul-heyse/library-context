@@ -150,7 +150,7 @@ impl ValidationDefinitions {
     fn check_unique(&self) -> Result<(), ModelError> {
         let mut seen = HashSet::new();
         for identity in self.invariants.iter().map(Invariant::identity).chain(self.publication_checks.iter().map(PublicationInvariant::identity)) {
-            if !identifier(identity.id) || identity.revision == 0 || !seen.insert((identity.kind.code(), identity.id)) {
+            if !identifier(identity.id) || identity.revision == 0 || (identity.kind == ValidationKind::Invariant && identity.id == "derivation_acyclic") || !seen.insert((identity.kind.code(), identity.id)) {
                 return Err(ModelError::Invalid(format!("invalid or conflicting validation definition {}", identity.id)));
             }
         }
