@@ -4,8 +4,9 @@
 
 **Implemented / Tested within Phase 4 receipts, 2026-10-01; incremental alignment implemented 2026-10-02.** `lctx-model::domain::execution`,
 `transfer`, `models` and `obligation` own behavioral operations, evidence and replay. Nominal
-analysis families record each producing owner. `cpg-core` loads completed inputs and publishes
-their typed outputs through the generation store; `lctx-analytics`' native entry points re-export
+analysis families record each producing owner. **Implemented compiler route, 2026-10-05:**
+`cpg-core` loads immutable completed workspace views and admits their typed graph outputs;
+`lctx-analytics`' native entry points re-export
 the model-owned computational kernels. The [Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
 owns its scoped independent controls and dated qualification. The alignment coordinator owns
 current corrections; real-library serving qualification remains stopped. No phase-exit or pilot claim
@@ -221,16 +222,16 @@ runtime class/value authority remain unchanged; no recognizer fills a missing na
 
 ## Native serving boundary
 
-**Implemented Phase 5 contract, 2026-10-02; wider qualification stopped.** The model native preparation
-reads the same pinned PostgreSQL generation and model-owned conditions, proofs and obligations.
-It validates declared required inputs, preserves qualifications and follows bounded derivation
-witnesses. Private/nested callable evidence may support a public operation's proof without entering
-public lookup. There is no legacy bundle-format reader or second semantic interpreter.
+**Pure model contracts retained; native serving pending, 2026-10-05.** Model preparation owns
+conditions, proofs, obligations, required inputs and bounded derivation witnesses. SurrealDB-backed
+input acquisition and operation dispatch are subsequent accepted targets. Private/nested callable
+evidence may support a public operation's proof without entering public lookup. PostgreSQL readers
+and generation guards are retired; retained schemas and pure preparation are not operational serving.
 
 Path-local exact-input inspection is distinct from operation-wide completeness. A query cannot
 upgrade Unknown, truncate an established conclusion away or prove a negative from unvisited
-operations. Response row/node/work/depth budgets report unknown or truncation with generation-bound
-continuation. [§11.3](synthesis-and-serving.md#section-11-3) owns the MCP boundary.
+operations. The native serving target reports unknown or truncation and pins continuations to the
+complete admitted graph and its sealed realization. [§11.3](synthesis-and-serving.md#section-11-3) owns the MCP boundary.
 
 ## The capability registry
 

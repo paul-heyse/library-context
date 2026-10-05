@@ -3,20 +3,25 @@
 **Implemented / Tested, 2026-09-30, at the qualified facts frontier.** [§15](semantic-model.md) owns the current typed
 facts contracts (ADR-0085/0086/0089/0092). Acquisition captures the locked installed closure and
 selected pinned corpus before extraction. `lctx-model::domain` owns source, occurrence, attribution,
-call, type, flow, document and deployment meaning; permanent lowerings publish PostgreSQL facts
-generations. `catalog` omits the ty provider and reports Flow NotRequested; `behavioral` runs it.
-Both profiles run documents and deployment. Publication never selects a generation.
+call, type, flow, document and deployment meaning. **Implemented compiler route, 2026-10-05:**
+providers stream bounded typed batches into the private Arrow/DataFusion workspace; completed inputs
+feed graph admission. `catalog` omits the ty provider and reports Flow NotRequested; `behavioral`
+runs it. Both profiles run documents and deployment. Native publication is subsequent work.
 
 Current producers are `crates/cpg-extract/src/acquisition.rs`, `typed_syntax.rs`, `lexical.rs`,
 `symbol_records.rs`, `call_records.rs`, `type_records.rs`, `ty_flow.rs`, `document_parser.rs` and
 `deployment.rs`; `pyrefly_stage.rs` currently composes native Pyrefly facts per input, and `cpg-flow`
 provides transient native flow data over ty's separate parse. `cpg-core/src/facts.rs` owns stage
-composition, admission and publication; `crates/lctx/src/compile.rs` drives the cumulative frontier CLI.
-Focused receipts and qualification status are in the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md).
+composition over immutable completed streams; `artifact.rs` owns graph admission, and
+`crates/lctx/src/compile.rs` drives the cumulative frontier CLI. The
+[graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns current compiler
+acceptance; earlier facts receipts apply only to their recorded boundary.
 
-**Current downstream design (Implemented, 2026-10-02).** Normalization, analysis, catalog and
-serving follow the single-model PostgreSQL pipeline in §15. Their dated scoped receipts do not
-establish current real-library qualification or activation; both remain stopped. Acquisition
+**Current downstream design (Implemented compiler; native serving pending, 2026-10-05).**
+Normalization, analysis and catalog consume store-free completed inputs and enter the admitted
+semantic graph described in §15. SurrealDB persistence/publication and serving are accepted targets
+for subsequent packages. Dated earlier receipts do not establish graph-native real-library
+qualification or activation; both remain stopped. Acquisition
 requirements describe input verification, while typed row declarations own emission.
 
 > Decision: ADR-0078
@@ -168,33 +173,36 @@ model catalog digest also participates because context extraction retains model-
 classes (§3.2). A catalog or runtime-script edit therefore cannot reuse a prior producer or run
 identity.
 
-**Inspecting a generation (Implemented, 2026-10-02).** `lctx generation show <id>` reports
-its lifecycle and receipts; `lctx query --generation <id> "SQL"` reads an admitted published
-generation under the original read-only lease. `lctx compile` reports its unselected generation.
-Failed/interrupted staging is inspected through generation metadata and compilation receipts,
-not a published-reader bypass. [Storage §6](storage-and-publication.md) owns admission and reset.
+**Compiler artifact route (Implemented; integrated acceptance pending, 2026-10-05).**
+`lctx compile <library> --artifact-only --output <directory>` writes the admitted graph and captured
+originals without a database. A failed or interrupted attempt exposes no completed artifact.
+Generation inspection/query commands and their PostgreSQL readers are retired. Ordinary compile
+requires the future native publisher and reports unavailable before acquisition.
+[Storage §6](storage-and-publication.md) owns that subsequent native realization.
 
 > Decision: ADR-0117, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
 
 
 ### §4.1 Stages
 
-**Implemented, 2026-10-02.** The hard cumulative pipeline is executed by
-`cpg-core::compilation`; dated qualification remains with the cutover/phase plans.
+**Implemented compiler pipeline; integrated acceptance pending, 2026-10-05.**
+`cpg-core::compilation` executes the cumulative frontiers over completed workspace inputs.
+The graph-native coordinator owns current acceptance; native publication and serving follow it.
 
 | Stage | Owner | Output |
 |---|---|---|
 | Acquisition | uv and `cpg-extract::library` | Captured pinned release, corpus and attributed input context |
-| Facts | Pyrefly/Ruff in-process and explicitly requested `cpg-flow` | Typed `lctx-model` facts and provider coverage, stored in one PostgreSQL generation |
+| Facts | Pyrefly/Ruff in-process and explicitly requested `cpg-flow` | Typed `lctx-model` facts and provider coverage in completed immutable workspace streams |
 | Normalized | `cpg-core::normalize` adapting model operations | Entities, ownership, places, effective signatures and checked binding |
 | Analysis | Finite upper-stage bindings and model-owned operations | Local/Model/Summary, structural and optional analytic results; canonical catalog/evidence/selection |
 | Catalog | Model-owned synthesis and retrieval with compute/effect adapters | Attributed assertions, briefs and addressable evidence units |
-| Publication | `lctx-postgres` generation lifecycle | Shared validation, immutable receipts and one final unselected published generation |
-| Serving | Model contracts, original generation guard and Python MCP adapter | Canonical hydrated packets and bounded admitted wire envelopes |
+| Graph admission | `cpg-core::artifact` and model-owned graph contracts | Canonical admitted graph, manifest, original bytes and exact consumed vectors |
+| Native publication (accepted target, pending) | SurrealDB realization/publisher | Persisted reconciliation and sealed native realization |
+| Serving (accepted target, pending) | Model operation contracts, native queries and Python MCP adapter | Pinned canonical packets and bounded typed envelopes |
 
 Unknown targets and incomplete provider coverage remain explicit. No identity mapping drops
-unresolved rows; no compatibility store is retained. Facts/Normalized/Analysis checkpoints
-remain explicit and compilation never selects a generation. [§15](semantic-model.md) owns the
+unresolved rows; no compatibility store is retained. Facts/Normalized/Analysis/Catalog remain
+explicit requested frontiers. Compilation requires no persisted checkpoints or reader grants. [§15](semantic-model.md) owns the
 layer/declaration contract; [§11](synthesis-and-serving.md) owns serving.
 
 > Decision: ADR-0117, ADR-0086, ADR-0073
@@ -473,14 +481,14 @@ Missing, ambiguous or disagreeing correspondence remains Partial with a boundary
 class forms and payload disagreement refusal are scoped **Tested** in the code-facts
 coordinator §7; final assembled qualification remains open.
 
-### §4.3 Fact construction and persistence
+### §4.3 Fact construction and graph admission
 
-**Implemented, 2026-10-02.** `lctx-model::domain` owns typed records, schema/codebooks,
-canonical IDs and shared invariants. Provider adapters emit those records through bounded Arrow
-batches. `lctx-postgres` lowers declarations into COPY, constraints, receipts and generation
-publication; `cpg-core` registers completed sources for DataFusion compute. Canonical readers
-verify the actual content and declared publication prefix. Shared validation runs before
-publication; a failed attempt publishes no reader authority. [§6](storage-and-publication.md)
+**Implemented compiler route; integrated acceptance pending, 2026-10-05.**
+`lctx-model::domain` owns typed records, graph mappings, codebooks, canonical IDs and shared
+invariants. Provider adapters emit bounded Arrow batches into attempt-owned completed streams.
+`cpg-core` prepares those streams for DataFusion and native kernels; explicit semantic predecessor
+selectors preserve the facts and later vocabulary views. Graph admission checks canonical content,
+reference closure, required domain outcomes and coverage. A failed attempt exposes no admitted artifact. [§6](storage-and-publication.md)
 and [§15.11](semantic-model.md#section-15-11) own the lifecycle and exact consumption contract.
 
 **Extending a fact family (Implemented route, 2026-10-02).** Add the typed attributed relation

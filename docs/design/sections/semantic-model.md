@@ -372,9 +372,9 @@ missing declared provider resolution evidence keeps an event open. `CompleteEven
 constructed from the full normalized event and can be recovered only by shared validation, never
 from a policy-filtered query. The former public raw-symbol Summary route is removed. Flow-path
 links retain each qualified path and ordered argument/callee step, matching only the explicit event
-in the same context and recording missing correspondence. They establish no transfer. PostgreSQL
-views and DataFusion logical views use the same model-owned membership query. The latter require
-completed sources including the event invariant owner; inlining preserves physical-scan admission.
+in the same context and recording missing correspondence. They establish no transfer. Model-owned
+operations and DataFusion logical views select the same declared memberships over completed workspace
+sources, including the event invariant owner. No persisted view or read grant coordinates compilation.
 
 **Stored binding realization (Implemented, focused Tested 2026-09-30; N5).**
 The sole binder consumes complete raw variants and actuals. Store successful and refused attempts,
@@ -532,9 +532,10 @@ owns integration, native/store controls and corrective reinspection of P4B3-F01.
 **Implemented / focused-Tested, 2026-10-04 (ADR-0123).** Source composition witnesses retain
 the exact selected signature enumeration and its support when scoped declared closure is used;
 global closure leaves both references absent. Shared replay reconstructs this pair, and generic
-explanation follows the enumeration's member/signature premises. Actual PostgreSQL explanation,
-JSON round-trip and coupled-witness corruption controls passed within the analytical-enrichment
-coordinator's receipt. Global signature-family and effective-invocation completeness remain unchanged.
+explanation follows the enumeration's member/signature premises. The graph mapping retains those
+addressable premises; the earlier JSON and coupled-witness controls apply to their dated finite
+contract. They do not establish native serving acceptance. Global signature-family and
+effective-invocation completeness remain unchanged.
 
 > Decision: ADR-0085, ADR-0106, ADR-0123
 
@@ -606,8 +607,11 @@ stating:
 - its rule;
 - its premise columns and roles.
 
-**The generated index.** From these, PostgreSQL views `derivations` and `derivation_premises` are
-generated. It supports explanation lookup ("why", "why unresolved") and reverse dependency. The rules:
+**The graph mapping (Implemented, 2026-10-05; integrated acceptance pending).** Finite typed
+mappings retain derivations as addressable graph assertions with rule/revision, ordered role-labelled
+premises, assumptions and outcome. Admission checks mixed entity/assertion reference closure and
+derivation topology. Native explanation and reverse-dependency querying are subsequent serving
+consumers of this meaning. The rules:
 - Alternatives are separate derivations of one conclusion.
 - Premise graphs are acyclic.
 - The typed step relations and their sealed digests remain the premise payloads.
@@ -622,7 +626,7 @@ independently of witness deduplication.
 
 **Implemented / focused-Tested, 2026-10-01 (ADR-0108).** Invocation/support/coverage and
 proof families are nominal per producing owner, with one qualification and coverage policy.
-The generated index validates their combined DAG. Later discharge references earlier obligations
+Graph admission validates their combined DAG. Later discharge references earlier obligations
 without extending completed membership. S0 alone writes the shared finding family; earlier stages
 publish qualified conclusions for its emitter. A final read-only union does not become another
 writable authority or grant access to unfinished owners. Bound selectors are declared once in
@@ -659,22 +663,19 @@ views.
 - The SCC schedule uses `kosaraju_scc` with the canonical callee-first order.
 - Heuristic analytics remain governed and never reach a served claim as fact.
 
-**Phase 3 projection realization (Implemented / focused-Tested, 2026-09-30; automated gate passed; pilot measurements unqualified).** Typed endpoint roles in the relation
-model supply projection structure. Preserve isolates, parallel arcs, canonical ordering, evidence
-membership and unresolved side records. Dense petgraph indices stay private to a bounded immutable
-adapter. Every fresh normalized generation builds all named projections and stores their actual
-petgraph objects as versioned Serde/Postcard snapshots in bounded PostgreSQL BYTEA chunks. Analysis
-hydrates these immutable computational objects. Canonical normalized records retain semantic
-authority; snapshot validation checks the canonical projection. Rebuild unconditionally for each
-new collection lifecycle, with no graph reuse hash or incremental cache. The wrapper binds input,
-context, projection/format version and petgraph version; graph indices never become domain IDs.
-No separate graph schema or materialized path closure becomes semantic authority.
+**Compiler projection realization (Implemented; integrated acceptance pending, 2026-10-05).**
+Typed endpoint roles and named projection policies supply structure. Independent vertex inventories
+preserve isolates; identity-bearing arcs preserve parallel relationships, canonical order and
+unresolved side records. Dense petgraph indices stay private. Attempt-owned topology snapshots and
+borrowed native views are computational workspace data; canonical graph records retain semantic
+authority. Completed source identity, projection policy and format identify a view. The artifact
+manifest records source membership and declared topology losses, including omitted qualifications
+and evidence that remain in the semantic graph.
 
-**Implemented / focused-Tested adapter, 2026-09-30 (ADR-0106).** Algorithms can borrow generatively
-branded native visit views after hydration; canonical SCC ordering uses this interface without
-reconstructing edges from SQL. **Implemented / focused-Tested, 2026-10-01:** collection preparation
-retains hydrated graphs and their reservations; each later borrower needs matching completed-source
-permits and the same budget. The cumulative compilation driver wires those lifetimes to the current Structural and Analytic consumers; actual upper-frontier controls passed within the recorded scope, 2026-10-01.
+Algorithms borrow branded native visit views over shared prepared topology. Explicit completed-input
+selectors preserve the required Facts, Local, Model or later semantic view; they are static dependency
+metadata, without persisted read permits or generations. The cumulative driver owns graph lifetimes
+and the common attempt budget across Structural, Summary and selected Analytic consumers.
 Dispatch expansion precedes the graph build on every fresh collection.
 **Implemented / focused-Tested, 2026-10-01:** projection version 3 gives source callable
 definitions their own role and arc identity from normalized declaration ownership. Ordinary
@@ -684,10 +685,10 @@ delegation borrows both projections, preserving canonical witness ties, open dis
 roots, ordered configured seeds, bounds and the complete resolved technique set. The pure parser
 rejects contradictory flags and missing technique dependencies before effects. Final seed selection
 belongs to S0 after optional analytics; the mandatory C0 catalog owns public path expansion.
-Structural Pass A and direct usage are **Implemented / focused-Tested (2026-10-01)** through real
-PostgreSQL in both profiles. C0 owns public access candidates; selected settings and release/module
-membership define the structural scope. Prepared graphs are borrowed by production; publication
-replay recomputes exact path, boundary, usage and invocation inventories from completed inputs.
+Structural Pass A and direct usage have **Implemented store-free compiler adapters, 2026-10-05;
+integrated acceptance pending**. C0 owns public access candidates; selected settings and release/module
+membership define the structural scope. Production borrows prepared graphs; focused independent
+controls challenge exact path, boundary, usage and invocation inventories over completed inputs.
 Path steps retain their own conditions and phases: structural reachability does not establish
 execution or normal completion. S0 selects final brief seeds independently of the mandatory catalog. Optional topology/concept analyses publish explicit selected or NotRequested outcomes.
 **Implemented / Tested within the recorded controls, 2026-10-01:** numeric conversions have explicit universe/weight/lineage contracts and share
@@ -763,7 +764,8 @@ and nominal type references), not complete dependency analysis. NotRequested cov
 provider or invocation. Native caller identity distinguishes module/class bodies and decorator
 applications from ordinary symbols. Named callable types retain nominal provider-qualified
 Function/Method references and validate their transitive ownership. Assembly owns shared vocabulary.
-New compile outcomes belong to generation control; operation attempts remain historical only.
+Compile outcomes belong to the current attempt and admitted manifest; no historical operation-run
+registry is retained.
 
 > Decision: ADR-0092
 
@@ -782,8 +784,8 @@ attached to source parameters through this form. Resource and operational ceilin
 **Typed dictionary fields (Implemented, 2026-09-30; ADR-0097).** Anonymous TypedDicts reference
 `TypedDictFieldList` with ordered `TypedDictField` members. Arbitrary string keys, requiredness and
 term references retain mapping meaning; callable parameter-name rules belong to callable slots.
-The shared membership validator refuses duplicate keys, gaps and content changes in memory and
-PostgreSQL. Nominal TypedDict field observations also retain arbitrary string keys.
+The shared membership validator refuses duplicate keys, gaps and content changes over completed
+inputs; graph mappings retain the ordered members. Nominal TypedDict field observations also retain arbitrary string keys.
 > Decision: ADR-0097
 
 **Native slot interpretation (Implemented, 2026-09-30; ADR-0098).** Structural native shapes retain
@@ -793,8 +795,8 @@ returns with display-only support and Partial coverage; type closure enforces th
 > Decision: ADR-0098
 
 **Unicode values (Implemented, 2026-09-30; ADR-0099).** Literal strings and arbitrary mapping/native
-slot names use `Utf8Text`: valid Unicode owned once, lowered mechanically to Arrow Binary and
-PostgreSQL bytea. UTF-8 decoding rejects invalid bytes; NUL is preserved. The semantic text key
+slot names use `Utf8Text`: valid Unicode owned once, encoded mechanically in Arrow Binary and the
+canonical graph payload. UTF-8 decoding rejects invalid bytes; NUL is preserved. The semantic text key
 encoding and string/byte-literal distinction remain unchanged. Identifier and display columns keep
 their declared text contracts. The shared round-trip controls and facts pilots own qualification.
 

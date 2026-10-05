@@ -48,8 +48,9 @@ Paths in this reference table are relative to the repository root.
 
 The architectural collection owns accepted contracts and labeled targets. Current ADRs own
 rationale and open choices; the forward plan owns product sequencing and the current disposition
-of scheduled findings. PostgreSQL integration and conditional adoption share that forward plan; the runbook owns
-operator commands. Retained reviews hold dated evidence for open findings; STATUS links
+of scheduled product findings. The graph-native coordinator owns compiler acceptance and the later
+native persistence/serving dependencies; their current owners describe available operator routes.
+Retained reviews hold dated evidence for open findings; STATUS links
 the current checkpoint. Executable declarations own detailed implementation contracts.
 
 The site derives navigation and search from the retained working set. **Current** is the default:

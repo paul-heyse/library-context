@@ -12,11 +12,12 @@ enhancement qualification and finding disposition; earlier Phase 4 receipts reta
 
 `cpg-flow` supplies attributed ty observations. Normalized attachment, Local, execution and
 Summary derive their conclusions from those observations through model-owned operations and
-shared stored validators. `cpg-core` acquires completed inputs, runs these operations and
-publishes into the PostgreSQL generation store. Arrow and DataFusion are transport and compute;
-there is no separate schema, behavioral database or serving-side reconstruction authority.
-Serving is implemented within its recorded fixture boundaries; real-library qualification and
-activation remain separate ([§11](synthesis-and-serving.md#section-11)).
+shared model validators. **Implemented compiler route, 2026-10-05:** `cpg-core` consumes immutable
+completed workspace views, runs these operations and admits their typed semantic graph. Arrow and
+DataFusion supply transport and compute. SurrealDB publication and serving remain subsequent accepted
+targets; retained pure wire contracts do not establish operational serving. Integrated compiler
+acceptance and real-library qualification remain with the
+[coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md).
 
 ## Places
 
@@ -239,8 +240,8 @@ proof ancestry, arrival order and cost are not semantic identity. Codebooks rema
 Local → BaseEvaluation → BaseCompletion → SourceCall → EnrichedExecution → Model → Summary is
 an acyclic dependency order. Each later owner consumes completed nominal parents and cannot
 supply an earlier proof to itself. `cpg-core::compilation` orchestrates those declarations;
-`lctx-postgres` seals, validates and publishes their immutable generations. Later Structural,
-Analytic, catalog and S0 consumers preserve the earlier qualification and uncertainty. Phase 5
-will read the same generation without introducing a second behavioral authority.
+its workspace retains immutable completed predecessor views until their consumers drain. Later
+Structural, Analytic, catalog and S0 consumers preserve the earlier qualification and uncertainty
+in the admitted graph. Native persistence and serving will consume that graph under ADR-0128.
 
 > Decision: ADR-0045, ADR-0051, ADR-0085, ADR-0106, ADR-0108, ADR-0028, ADR-0064, ADR-0074
