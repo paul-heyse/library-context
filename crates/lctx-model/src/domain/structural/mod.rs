@@ -5,9 +5,9 @@ pub mod controls;
 pub mod frames;
 pub mod handoffs;
 pub mod outcomes;
-mod qualifications;
+pub(crate) mod qualifications;
 pub use conclusions::{Conclusion, ConclusionSource};
-mod records;
+pub(crate) mod records;
 use crate::domain::{normalized::Rows, resources::ResourceBudget, *};
 pub use records::*;
 #[macro_export]
@@ -68,3 +68,4 @@ pub fn relations() -> Vec<Relation> {
     macro_rules! rows{($($field:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};}
     crate::structural_outputs!(rows)
 }
+

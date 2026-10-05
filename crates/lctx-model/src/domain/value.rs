@@ -205,7 +205,7 @@ pub enum Predicate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "literal_sets", invariants = literal_set_invariants)]
+#[model(name = "literal_sets", invariant_refs = literal_set_invariants_refs)]
 pub struct LiteralSet {
     #[model(key)]
     pub members: super::ContentHash,
@@ -258,8 +258,9 @@ impl SetDigest {
         self.sink.finish()
     }
 }
-fn literal_set_invariants() -> Vec<super::Invariant> {
+pub(crate) fn literal_set_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant {
+        revision: 1,
         name: "literal_set_membership",
         inputs: vec![
             super::ValidationInput::of::<LiteralSet>(&["id"]),
@@ -343,3 +344,5 @@ impl super::InvariantCheck for SetCheck {
         Ok(())
     }
 }
+
+pub(crate) fn literal_set_invariants_refs() -> Vec<&'static str> { vec!["literal_set_membership"] }

@@ -44,7 +44,7 @@ pub struct RecordOptions {
     pub attrs_setattr_frozen: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "record_transform_defaults", validate = validate_transform, invariants = transform_invariants)]
+#[model(name = "record_transform_defaults", validate = validate_transform, invariant_refs = transform_invariants_refs)]
 pub struct RecordTransformDefaults {
     #[model(key)]
     pub eq: bool,
@@ -264,8 +264,9 @@ pub fn field_specifier_shape(values: &[(FieldSpecifierKind, Option<String>)]) ->
     sink.finish()
 }
 
-fn transform_invariants() -> Vec<Invariant> {
+pub(crate) fn transform_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "native_transform_specifier_shape",
         inputs: vec![
             ValidationInput::of::<RecordTransformDefaults>(&["id"]),
@@ -367,3 +368,5 @@ mod tests {
         }
     }
 }
+
+pub(crate) fn transform_invariants_refs() -> Vec<&'static str> { vec!["native_transform_specifier_shape"] }

@@ -15,7 +15,7 @@ pub enum OverloadSelection {
     Recovered = 5,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name="native_overload_observations", validate=validate_trace, invariants=trace_invariants)]
+#[model(name="native_overload_observations", validate=validate_trace, invariant_refs=trace_invariants_refs)]
 #[assertion(support=NativeOverloadSupport, name="native_overload_supports", family=crate::domain::attribution::FactFamily::Types, subjects(site, arguments, scope))]
 pub struct NativeOverloadObservation {
     #[model(key)]
@@ -162,8 +162,9 @@ fn validate_candidate(r: &NativeOverloadCandidate) -> Result<(), ModelError> {
     }
     Ok(())
 }
-fn trace_invariants() -> Vec<Invariant> {
+pub(crate) fn trace_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "native_overload_original_membership",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
@@ -313,3 +314,5 @@ impl InvariantCheck for Check {
         Ok(())
     }
 }
+
+pub(crate) fn trace_invariants_refs() -> Vec<&'static str> { vec!["native_overload_original_membership"] }

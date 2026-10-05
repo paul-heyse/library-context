@@ -13,7 +13,7 @@ use super::{
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "flow_uses", invariants = flow_invariants)]
+#[model(name = "flow_uses", invariant_refs = flow_invariants_refs)]
 pub struct FlowUse {
     #[model(key)]
     pub occurrence: Id<Occurrence>,
@@ -99,7 +99,7 @@ pub struct FlowNarrowingObservation {
 }
 /// Exact byte geometry does not make ty's transformed bytes the original source snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "flow_source_view_observations", validate = validate_view, invariants = view_invariants)]
+#[model(name = "flow_source_view_observations", validate = validate_view, invariant_refs = view_invariants_refs)]
 #[assertion(support = FlowSourceViewSupport, name = "flow_source_view_supports", family = FactFamily::Flow, subjects(source))]
 pub struct FlowSourceViewObservation {
     #[model(key)]
@@ -131,8 +131,9 @@ fn validate_view(row: &FlowSourceViewObservation) -> Result<(), ModelError> {
     }
     Ok(())
 }
-fn view_invariants() -> Vec<Invariant> {
+pub(crate) fn view_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "flow_view_and_narrowing_precision",
         inputs: vec![
             ValidationInput::of::<source::SourceArtifact>(&["id"]),
@@ -266,9 +267,10 @@ pub struct FlowRegionObservation {
     pub scope: Id<LexicalScope>,
 }
 
-fn flow_invariants() -> Vec<Invariant> {
+pub(crate) fn flow_invariants() -> Vec<Invariant> {
     vec![
         Invariant {
+            revision: 1,
             name: "flow_reaching_places",
             inputs: vec![
                 ValidationInput::of::<FlowUse>(&["id"]),
@@ -284,6 +286,7 @@ fn flow_invariants() -> Vec<Invariant> {
             }),
         },
         Invariant {
+            revision: 1,
             name: "flow_source_structure",
             inputs: vec![
                 ValidationInput::of::<Occurrence>(&["id"]),
@@ -543,7 +546,7 @@ pub enum FlowCallOperandRole {
     Callee = 1,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "flow_call_paths", invariants = flow_path_invariants)]
+#[model(name = "flow_call_paths", invariant_refs = flow_path_invariants_refs)]
 pub struct FlowCallPath {
     #[model(key)]
     pub steps: ContentHash,
@@ -613,8 +616,9 @@ impl FlowCallPath {
         Ok((row, steps))
     }
 }
-fn flow_path_invariants() -> Vec<Invariant> {
+pub(crate) fn flow_path_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "flow_call_path_structure",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
@@ -834,3 +838,7 @@ impl InvariantCheck for PathCheck {
 
 type CallStepIndex =
     ChargedMap<Id<FlowCallPath>, Vec<(Id<Occurrence>, Id<Occurrence>, FlowCallOperandRole)>>;
+
+pub(crate) fn view_invariants_refs() -> Vec<&'static str> { vec!["flow_view_and_narrowing_precision"] }
+pub(crate) fn flow_invariants_refs() -> Vec<&'static str> { vec!["flow_reaching_places", "flow_source_structure"] }
+pub(crate) fn flow_path_invariants_refs() -> Vec<&'static str> { vec!["flow_call_path_structure"] }

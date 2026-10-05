@@ -10,7 +10,7 @@ use super::{
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
-#[model(name = "document_nodes", validate = validate_node, invariants = document_invariants)]
+#[model(name = "document_nodes", validate = validate_node, invariant_refs = document_invariants_refs)]
 pub enum DocumentNode {
     #[model(code = 0)]
     Passage {
@@ -272,8 +272,9 @@ fn validate_attribute_observation(row: &DocumentAttributeObservation) -> Result<
     Ok(())
 }
 
-fn document_invariants() -> Vec<Invariant> {
+pub(crate) fn document_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "document_structure",
         inputs: vec![
             ValidationInput::of::<SourceArtifact>(&["id"]),
@@ -456,3 +457,5 @@ impl InvariantCheck for DocumentCheck {
         Ok(())
     }
 }
+
+pub(crate) fn document_invariants_refs() -> Vec<&'static str> { vec!["document_structure"] }

@@ -4,13 +4,13 @@ pub mod algebra;
 pub mod build;
 pub mod classification;
 pub mod evaluate;
-mod facets;
+pub(crate) mod facets;
 pub mod frames;
-mod inventory;
-mod preparation;
+pub(crate) mod inventory;
+pub(crate) mod preparation;
 pub mod specialization;
-mod structural_facets;
-mod vocabulary;
+pub(crate) mod structural_facets;
+pub(crate) mod vocabulary;
 use crate::domain::*;
 pub use facets::*;
 pub use vocabulary::*;
@@ -21,7 +21,7 @@ pub fn relations() -> Vec<Relation> {
     rows
 }
 #[derive(Debug, Clone, PartialEq, Eq, crate::Domain)]
-#[model(name="catalog_selection_invocations",invariants=frames::invariants,semantic_source=include_bytes!("frames.rs"))]
+#[model(name="catalog_selection_invocations",invariant_refs=frames::invariants_refs,semantic_source=include_bytes!("frames.rs"))]
 pub struct SelectionInvocation {
     #[model(key)]
     pub domain: Id<SelectionDomain>,
@@ -30,3 +30,4 @@ pub struct SelectionInvocation {
 }
 
 pub mod source_fields;
+

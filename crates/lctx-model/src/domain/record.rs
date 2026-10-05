@@ -491,10 +491,10 @@ pub trait Record:
     /// Encode the declared key by reference; identity checks must not clone large key payloads.
     fn write_key(&self, sink: &mut super::KeySink);
     fn fields() -> Vec<Field>;
-    fn invariants() -> Vec<super::Invariant> {
+    fn invariant_refs() -> Vec<&'static str> {
         Vec::new()
     }
-    fn publication_checks() -> Vec<super::model::PublicationInvariant> {
+    fn publication_refs() -> Vec<&'static str> {
         Vec::new()
     }
     /// Hash every semantic field, including non-key payload, independently of Arrow framing.

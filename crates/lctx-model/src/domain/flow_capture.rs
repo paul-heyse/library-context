@@ -45,7 +45,7 @@ pub enum FlowCaptureTarget {
     Unattached,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="flow_capture_inventories",invariants=inventory_invariants)]
+#[model(name="flow_capture_inventories",invariant_refs=inventory_invariants_refs)]
 pub struct FlowCaptureInventory {
     #[model(key)]
     pub members: ContentHash,
@@ -148,8 +148,9 @@ fn validate_snapshot(row: &FlowCaptureTimingObservation) -> Result<(), ModelErro
     }
     Ok(())
 }
-fn inventory_invariants() -> Vec<Invariant> {
+pub(crate) fn inventory_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "flow_capture_inventory",
         inputs: vec![
             ValidationInput::of::<FlowCaptureInventory>(&["id"]),
@@ -255,3 +256,5 @@ impl InvariantCheck for InventoryCheck {
         Ok(())
     }
 }
+
+pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> { vec!["flow_capture_inventory"] }

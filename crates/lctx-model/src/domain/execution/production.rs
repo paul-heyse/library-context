@@ -22,7 +22,7 @@ pub struct EvaluationBoundary {
     pub reason: obligation::ObligationKind,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="base_evaluation_runs",invariants=run_invariants,publication_checks=run_publication_checks)]
+#[model(name="base_evaluation_runs",invariant_refs=run_invariants_refs,publication_refs=run_publication_checks_refs)]
 pub struct EvaluationRun {
     #[model(key)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -280,8 +280,9 @@ fn run_inputs() -> Vec<ValidationInput> {
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     inputs
 }
-fn run_invariants() -> Vec<Invariant> {
+pub(crate) fn run_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "base_evaluation_inventory",
         inputs: run_inputs(),
         create: std::sync::Arc::new(|budget| Box::new(EvaluationRunCheck::new(budget))),
@@ -430,8 +431,9 @@ impl InvariantCheck for EvaluationRunCheck {
         Ok(())
     }
 }
-fn run_publication_checks() -> Vec<PublicationInvariant> {
+pub(crate) fn run_publication_checks() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "base_evaluation_request_profile",
         inputs: vec![
             ValidationInput::of::<EvaluationRun>(&["id"]),
@@ -508,7 +510,8 @@ pub fn stage(
         ]
     };
     for relation in &outputs {
-        for check in relation.publication_checks() {
+        for id in relation.publication_refs() {
+            let check = model.publication_check(id)?;
             initial.extend(check.inputs.iter().cloned());
         }
     }
@@ -542,3 +545,6 @@ pub fn stage(
         configuration: key.finish(),
     })
 }
+
+pub(crate) fn run_invariants_refs() -> Vec<&'static str> { vec!["base_evaluation_inventory"] }
+pub(crate) fn run_publication_checks_refs() -> Vec<&'static str> { vec!["base_evaluation_request_profile"] }

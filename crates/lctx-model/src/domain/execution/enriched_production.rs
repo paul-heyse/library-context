@@ -38,7 +38,7 @@ pub struct BodyBoundary {
     pub reason: obligation::ObligationKind,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="execution_runs",invariants=run_invariants,publication_checks=profile_checks)]
+#[model(name="execution_runs",invariant_refs=run_invariants_refs,publication_refs=profile_checks_refs)]
 pub struct ExecutionRun {
     #[model(key)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -725,8 +725,9 @@ fn invariant_inputs() -> Vec<ValidationInput> {
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     inputs
 }
-fn run_invariants() -> Vec<Invariant> {
+pub(crate) fn run_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "enriched_execution_inventory",
         inputs: invariant_inputs(),
         create: std::sync::Arc::new(|budget| Box::new(ExecutionCheck::new(budget))),
@@ -734,6 +735,7 @@ fn run_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn binding_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "context_entry_binding_replay",
         inputs: invariant_inputs(),
         create: std::sync::Arc::new(|b| Box::new(ExecutionCheck::new(b))),
@@ -741,6 +743,7 @@ pub(crate) fn binding_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn context_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "context_execution_replay",
         inputs: invariant_inputs(),
         create: std::sync::Arc::new(|b| Box::new(ExecutionCheck::new(b))),
@@ -748,6 +751,7 @@ pub(crate) fn context_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn definition_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "definition_evaluation_replay",
         inputs: invariant_inputs(),
         create: std::sync::Arc::new(|b| Box::new(ExecutionCheck::new(b))),
@@ -755,6 +759,7 @@ pub(crate) fn definition_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn modeled_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "enriched_modeled_call_replay",
         inputs: invariant_inputs(),
         create: std::sync::Arc::new(|budget| Box::new(ExecutionCheck::new(budget))),
@@ -762,6 +767,7 @@ pub(crate) fn modeled_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn statement_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "enriched_statement_replay",
         inputs: invariant_inputs(),
         create: std::sync::Arc::new(|budget| Box::new(ExecutionCheck::new(budget))),
@@ -784,8 +790,9 @@ macro_rules! checker{($($field:ident:$ty:ty,)*)=>{
  }
 };}
 outputs!(checker);
-fn profile_checks() -> Vec<PublicationInvariant> {
+pub(crate) fn profile_checks() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "enriched_execution_profile",
         inputs: vec![
             ValidationInput::of::<ExecutionRun>(&["id"]),
@@ -867,7 +874,8 @@ pub fn stage(
         ]
     };
     for relation in &outputs {
-        for check in relation.publication_checks() {
+        for id in relation.publication_refs() {
+            let check = model.publication_check(id)?;
             initial.extend(check.inputs.iter().cloned());
         }
     }
@@ -933,3 +941,11 @@ fn insert_body(output: &mut ExecutionRecords, records: BodyRecords) -> Result<()
     }
     Ok(())
 }
+
+pub(crate) fn run_invariants_refs() -> Vec<&'static str> { vec!["enriched_execution_inventory"] }
+pub(crate) fn binding_invariants_refs() -> Vec<&'static str> { vec!["context_entry_binding_replay"] }
+pub(crate) fn context_invariants_refs() -> Vec<&'static str> { vec!["context_execution_replay"] }
+pub(crate) fn definition_invariants_refs() -> Vec<&'static str> { vec!["definition_evaluation_replay"] }
+pub(crate) fn modeled_invariants_refs() -> Vec<&'static str> { vec!["enriched_modeled_call_replay"] }
+pub(crate) fn statement_invariants_refs() -> Vec<&'static str> { vec!["enriched_statement_replay"] }
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["enriched_execution_profile"] }

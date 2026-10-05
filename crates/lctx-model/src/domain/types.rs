@@ -12,10 +12,10 @@ use super::{
 };
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 pub mod contextual;
-mod generics;
+pub(crate) mod generics;
 pub mod locations;
-mod overload_origins;
-mod signatures;
+pub(crate) mod overload_origins;
+pub(crate) mod signatures;
 pub use generics::*;
 pub use overload_origins::*;
 pub use signatures::*;
@@ -137,7 +137,7 @@ fn validate_variable(row: &TypeVariable) -> Result<(), ModelError> {
 /// old kinds told apart only by display text have their own appended codes. Renderings, alias
 /// display names included, are presentations.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
-#[model(name = "type_terms", validate = validate_term, invariants = type_invariants)]
+#[model(name = "type_terms", validate = validate_term, invariant_refs = type_invariants_refs)]
 pub enum TypeTerm {
     #[model(code = 0)]
     ClassInstance {
@@ -317,7 +317,7 @@ pub enum VariableFormKind {
 /// An ordered list of named, kinded slots with their types: a callable's parameters, a parameter
 /// list, or an anonymous `TypedDict`'s fields. Identified by its content.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "callable_parameter_lists", invariants = parameter_list_invariants)]
+#[model(name = "callable_parameter_lists", invariant_refs = parameter_list_invariants_refs)]
 pub struct CallableParameterList {
     #[model(key)]
     pub members: ContentHash,
@@ -394,8 +394,9 @@ impl CallableParameterList {
         Ok((row, members))
     }
 }
-fn parameter_list_invariants() -> Vec<Invariant> {
+pub(crate) fn parameter_list_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "callable_parameter_membership",
         inputs: vec![
             ValidationInput::of::<CallableParameterList>(&["id"]),
@@ -472,7 +473,7 @@ impl InvariantCheck for ParameterListCheck {
 }
 /// Ordered structural dictionary fields. Keys are strings, including empty/non-identifiers.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "typed_dict_field_lists", invariants = dict_field_invariants)]
+#[model(name = "typed_dict_field_lists", invariant_refs = dict_field_invariants_refs)]
 pub struct TypedDictFieldList {
     #[model(key)]
     pub members: ContentHash,
@@ -537,8 +538,9 @@ impl TypedDictFieldList {
         Ok((row, members))
     }
 }
-fn dict_field_invariants() -> Vec<Invariant> {
+pub(crate) fn dict_field_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "typed_dictionary_membership",
         inputs: vec![
             ValidationInput::of::<TypedDictFieldList>(&["id"]),
@@ -632,7 +634,7 @@ pub enum TypeChildRole {
     TypeParameter = 9,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "type_sequences", invariants = sequence_invariants)]
+#[model(name = "type_sequences", invariant_refs = sequence_invariants_refs)]
 pub struct TypeSequence {
     #[model(key)]
     pub members: ContentHash,
@@ -705,7 +707,7 @@ pub enum TypeRole {
     OverloadCandidates = 7,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "type_observations", invariants = locations::invariants)]
+#[model(name = "type_observations", invariant_refs = locations::invariants_refs)]
 #[assertion(support = TypeSupport, name = "type_supports", family = FactFamily::Types, subjects(subject, term))]
 pub struct TypeObservation {
     #[model(key)]
@@ -765,8 +767,9 @@ fn validate_restriction(row: &TypeVariableRestriction) -> Result<(), ModelError>
     Ok(())
 }
 
-fn sequence_invariants() -> Vec<Invariant> {
+pub(crate) fn sequence_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "type_sequence_membership",
         inputs: vec![
             ValidationInput::of::<TypeSequence>(&["id"]),
@@ -841,8 +844,9 @@ impl InvariantCheck for SequenceCheck {
     }
 }
 
-fn type_invariants() -> Vec<Invariant> {
+pub(crate) fn type_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "structural_type_shapes",
         inputs: TypeIndex::inputs(),
         create: std::sync::Arc::new(|budget| {
@@ -1444,7 +1448,7 @@ pub enum FunctionBodyKind {
 /// What a provider resolved about a `def`'s body and the declarations around it: whether callers
 /// run a real body (an abstract method, a protocol member, a stub, an overload) or its override's.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "function_body_observations", invariants = body_invariants)]
+#[model(name = "function_body_observations", invariant_refs = body_invariants_refs)]
 #[assertion(support = FunctionBodySupport, name = "function_body_supports", family = FactFamily::Types, subjects(declaration))]
 pub struct FunctionBodyObservation {
     #[model(key)]
@@ -1457,8 +1461,9 @@ pub struct FunctionBodyObservation {
     pub in_type_checking_block: bool,
     pub overload: bool,
 }
-fn body_invariants() -> Vec<Invariant> {
+pub(crate) fn body_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "function_body_declarations",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
@@ -1521,7 +1526,7 @@ pub enum RecordKind {
 /// `TypedDict` fields state requiredness and read-only. The claim is about the class; an inherited
 /// field's declaration is a reference inside the class that declares it, possibly another module's.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "record_field_observations", validate = validate_record_field, invariants = record_invariants)]
+#[model(name = "record_field_observations", validate = validate_record_field, invariant_refs = record_invariants_refs)]
 #[assertion(support = RecordFieldSupport, name = "record_field_supports", family = FactFamily::Types, subjects(class, term, default_term), referents(declaration))]
 pub struct RecordFieldObservation {
     #[model(key)]
@@ -1568,8 +1573,9 @@ fn validate_record_field(row: &RecordFieldObservation) -> Result<(), ModelError>
     }
     Ok(())
 }
-fn record_invariants() -> Vec<Invariant> {
+pub(crate) fn record_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "record_field_order",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
@@ -1676,3 +1682,10 @@ type RecordFieldIndex =
 
 pub mod queries;
 pub use queries::{TypeQueryObservation, TypeQueryStatus, TypeQuerySupport};
+
+pub(crate) fn parameter_list_invariants_refs() -> Vec<&'static str> { vec!["callable_parameter_membership"] }
+pub(crate) fn dict_field_invariants_refs() -> Vec<&'static str> { vec!["typed_dictionary_membership"] }
+pub(crate) fn sequence_invariants_refs() -> Vec<&'static str> { vec!["type_sequence_membership"] }
+pub(crate) fn type_invariants_refs() -> Vec<&'static str> { vec!["structural_type_shapes"] }
+pub(crate) fn body_invariants_refs() -> Vec<&'static str> { vec!["function_body_declarations"] }
+pub(crate) fn record_invariants_refs() -> Vec<&'static str> { vec!["record_field_order"] }

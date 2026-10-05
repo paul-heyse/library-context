@@ -8,7 +8,7 @@ use super::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-mod inventory;
+pub(crate) mod inventory;
 pub mod native;
 pub mod normalization;
 pub mod snapshot;
@@ -237,7 +237,7 @@ pub enum ProjectionGapReason {
     OverrideDispatch = 10,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "projection_source_assessments", invariants = normalization::invariants)]
+#[model(name = "projection_source_assessments", invariant_refs = normalization::invariants_refs)]
 pub struct ProjectionSourceAssessment {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -329,3 +329,4 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<ProjectionSnapshotChunk>(),
     ]
 }
+

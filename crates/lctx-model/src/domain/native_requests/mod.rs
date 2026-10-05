@@ -1,10 +1,10 @@
 //! Pure generation-qualified exact-input inspection. This module never executes Python.
 //! A restricted diagram has request identity; its structural Condition ID is not a stored row.
-mod evaluate;
-mod ingress;
-mod inventory;
-mod preparation;
-mod scalar;
+pub(crate) mod evaluate;
+pub(crate) mod ingress;
+pub(crate) mod inventory;
+pub(crate) mod preparation;
+pub(crate) mod scalar;
 pub use evaluate::{assess, unexamined};
 pub use ingress::{CheckedAtom, NativeContext, NativePath};
 pub use inventory::NativeInventory;
@@ -131,3 +131,4 @@ pub struct Assessment {
     pub proof_truncated: bool,
     _charge: Option<Box<dyn crate::domain::resources::Reservation>>,
 }
+

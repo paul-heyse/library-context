@@ -370,7 +370,7 @@ pub enum Witness {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_selection_domains",invariants=super::build::invariants,semantic_source=include_bytes!("build.rs"))]
+#[model(name="catalog_selection_domains",invariant_refs=super::build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct SelectionDomain {
     #[model(key)]
     pub member: Id<CatalogMember>,
@@ -741,3 +741,4 @@ impl Default for Selection {
         }
     }
 }
+

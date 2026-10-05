@@ -45,7 +45,7 @@ pub enum ReceiverReason {
     SyntaxDisagreement = 10,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
-#[model(name="receiver_assessments", invariants=invariants)]
+#[model(name="receiver_assessments", invariant_refs=invariants_refs)]
 pub enum ReceiverAssessment {
     #[model(code = 0)]
     ClassOf {
@@ -682,6 +682,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = ReceiverData::validation_inputs();
     inputs.extend(ReceiverOutput::validation_inputs());
     vec![Invariant {
+        revision: 1,
         name: "normalized_receiver_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -986,3 +987,5 @@ mod tests {
         }
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_receiver_closure"] }

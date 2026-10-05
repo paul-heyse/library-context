@@ -23,7 +23,7 @@ pub enum OmissionReason {
     NoDocumentedOutcome = 0,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="synthesis_briefs",invariants=invariants,semantic_source=include_bytes!("briefs.rs"))]
+#[model(name="synthesis_briefs",invariant_refs=invariants_refs,semantic_source=include_bytes!("briefs.rs"))]
 pub struct Brief {
     #[model(key)]
     pub seed: Id<seeds::SelectedSeed>,
@@ -386,6 +386,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     vec![Invariant {
+        revision: 1,
         name: "canonical_brief_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -650,3 +651,5 @@ mod tests {
         }
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["canonical_brief_replay"] }

@@ -140,9 +140,9 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         syn::parse_quote!(::lctx_model::domain::assertion::NoDerivedSource)
     };
     let support_model = if derived {
-        quote! { #[model(name = #table, rule = "derived_assertion_support", conclusion = assertion, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] }
+        quote! { #[model(name = #table, rule = "derived_assertion_support", conclusion = assertion, invariant_refs = ::lctx_model::domain::assertion::support_invariants_refs::<#name, #support>)] }
     } else {
-        quote! { #[model(name = #table, family = #family, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] }
+        quote! { #[model(name = #table, family = #family, invariant_refs = ::lctx_model::domain::assertion::support_invariants_refs::<#name, #support>)] }
     };
     let support_fields = if derived {
         quote! {
@@ -261,9 +261,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     conclusion = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("validate") {
                     validator = Some(meta.value()?.parse()?);
-                } else if meta.path.is_ident("invariants") {
+                } else if meta.path.is_ident("invariant_refs") {
                     invariants = Some(meta.value()?.parse()?);
-                } else if meta.path.is_ident("publication_checks") {
+                } else if meta.path.is_ident("publication_refs") {
                     publication_checks=Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("projection_roles") {
                     projection_roles = Some(meta.value()?.parse()?);
@@ -455,8 +455,8 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 #(::lctx_model::domain::Key::encode(&self.#keys, sink);)*
             }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![#(#descriptors,)*] }
-            fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariants }
-            fn publication_checks()->Vec<::lctx_model::domain::PublicationInvariant> {#publication_checks}
+            fn invariant_refs() -> Vec<&'static str> { #invariants }
+            fn publication_refs()->Vec<&'static str> {#publication_checks}
             fn required_relations() -> Vec<(::std::any::TypeId, &'static str)> { #required_support }
             #family_fn
             #projection_roles_fn
@@ -682,7 +682,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 } else if meta.path.is_ident("validate") {
                     validator = Some(meta.value()?.parse()?);
                     Ok(())
-                } else if meta.path.is_ident("invariants") {
+                } else if meta.path.is_ident("invariant_refs") {
                     invariants = Some(meta.value()?.parse()?);
                     Ok(())
                 } else {
@@ -892,7 +892,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![::lctx_model::domain::Field::of::<i16>("kind", true, false), #(#descriptors,)*] }
             fn sum() -> Option<::lctx_model::domain::Sum> { Some(::lctx_model::domain::Sum { tag: "kind", arms: vec![#(#sum_arms,)*] }) }
             fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> { #validation Ok(()) }
-            fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariant_creation }
+            fn invariant_refs() -> Vec<&'static str> { #invariant_creation }
             fn encode(rows: &[Self]) -> Result<::lctx_model::domain::__private::RecordBatch, ::lctx_model::domain::ModelError> {
                 let mut builder = ::lctx_model::domain::__private::serde_arrow::ArrayBuilder::from_arrow(Self::schema().fields())
                     .map_err(::lctx_model::domain::ModelError::codec)?;

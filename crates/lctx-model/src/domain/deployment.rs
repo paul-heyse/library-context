@@ -87,7 +87,7 @@ fn validate_value(value: &ReportValue) -> Result<(), ModelError> {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "report_collections", invariants = collection_invariants)]
+#[model(name = "report_collections", invariant_refs = collection_invariants_refs)]
 pub struct ReportCollection {
     #[model(key)]
     pub kind: ReportCollectionKind,
@@ -193,7 +193,7 @@ impl ReportCollection {
 }
 /// A value reported by captured evidence; links a named release, not the active interpreter.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "reported_environments", invariants = report_shape_invariants)]
+#[model(name = "reported_environments", invariant_refs = report_shape_invariants_refs)]
 pub struct ReportedEnvironment {
     #[model(key)]
     pub release: Id<Release>,
@@ -322,8 +322,9 @@ fn validate_deployment(row: &DeploymentObservation) -> Result<(), ModelError> {
     Ok(())
 }
 
-fn collection_invariants() -> Vec<Invariant> {
+pub(crate) fn collection_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "report_collection_membership",
         inputs: vec![
             ValidationInput::of::<ReportCollection>(&["id"]),
@@ -415,8 +416,9 @@ impl InvariantCheck for CollectionCheck {
         Ok(())
     }
 }
-fn report_shape_invariants() -> Vec<Invariant> {
+pub(crate) fn report_shape_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "report_collection_roles",
         inputs: vec![
             ValidationInput::of::<ReportCollection>(&["id"]),
@@ -475,3 +477,6 @@ impl InvariantCheck for ReportShape {
         Ok(())
     }
 }
+
+pub(crate) fn collection_invariants_refs() -> Vec<&'static str> { vec!["report_collection_membership"] }
+pub(crate) fn report_shape_invariants_refs() -> Vec<&'static str> { vec!["report_collection_roles"] }

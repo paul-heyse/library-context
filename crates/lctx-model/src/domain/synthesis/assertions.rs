@@ -100,7 +100,7 @@ pub enum AssertionSource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="programmatic_assertions",invariants=invariants,semantic_source=include_bytes!("assertions.rs"))]
+#[model(name="programmatic_assertions",invariant_refs=invariants_refs,semantic_source=include_bytes!("assertions.rs"))]
 pub struct ProgrammaticAssertion {
     #[model(key)]
     pub invocation: Id<owner::Invocation>,
@@ -916,6 +916,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|i| i.name());
     inputs.dedup_by_key(|i| i.name());
     vec![Invariant {
+        revision: 1,
         name: "programmatic_assertion_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -1538,3 +1539,5 @@ raise ValueError('flag required')
         );
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["programmatic_assertion_replay"] }

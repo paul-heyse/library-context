@@ -26,7 +26,7 @@ impl<'a> FindingEvidence<'a> {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="findings",invariants=finding_invariants)]
+#[model(name="findings",invariant_refs=finding_invariants_refs)]
 pub struct Finding {
     #[model(key)]
     pub invocation: Id<Invocation>,
@@ -222,7 +222,7 @@ pub fn emit_with_basis(
         .collect();
     Ok((row, members, supports, qualification))
 }
-fn finding_invariants() -> Vec<Invariant> {
+pub(crate) fn finding_invariants() -> Vec<Invariant> {
     let mut inputs = EvidenceIndex::inputs();
     inputs.extend([
         ValidationInput::of::<Finding>(&["id"]),
@@ -234,6 +234,7 @@ fn finding_invariants() -> Vec<Invariant> {
         ValidationInput::of::<conditions::ConditionNode>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "finding_emitter",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -424,3 +425,5 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<FindingSupport>(),
     ]
 }
+
+pub(crate) fn finding_invariants_refs() -> Vec<&'static str> { vec!["finding_emitter"] }

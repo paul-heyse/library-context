@@ -47,7 +47,7 @@ impl SummaryPremise {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="summary_transfer_witnesses",rule="compose_through_call",invariants=crate::domain::composition::composition_invariants)]
+#[model(name="summary_transfer_witnesses",rule="compose_through_call",invariant_refs=crate::domain::composition::composition_invariants_refs)]
 pub struct SummaryWitness {
     #[model(key)]
     pub invocation: Id<crate::domain::analysis::summary::AnalysisInvocation>,
@@ -262,3 +262,4 @@ impl TransferEvidence {
         })
     }
 }
+

@@ -21,7 +21,7 @@ pub struct CompletionBoundary {
     pub reason: obligation::ObligationKind,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="base_completion_runs",invariants=run_invariants,publication_checks=run_publication_checks)]
+#[model(name="base_completion_runs",invariant_refs=run_invariants_refs,publication_refs=run_publication_checks_refs)]
 pub struct CompletionRun {
     #[model(key)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -440,8 +440,9 @@ pub(crate) fn inventory_inputs() -> Vec<ValidationInput> {
 pub(crate) fn inventory_check(budget: &ResourceBudget) -> Box<dyn InvariantCheck> {
     Box::new(CompletionRunCheck::new(budget))
 }
-fn run_invariants() -> Vec<Invariant> {
+pub(crate) fn run_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "base_completion_inventory",
         inputs: run_inputs(),
         create: std::sync::Arc::new(|budget| Box::new(CompletionRunCheck::new(budget))),
@@ -593,8 +594,9 @@ impl InvariantCheck for CompletionRunCheck {
         Ok(())
     }
 }
-fn run_publication_checks() -> Vec<PublicationInvariant> {
+pub(crate) fn run_publication_checks() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "base_completion_request_profile",
         inputs: vec![
             ValidationInput::of::<CompletionRun>(&["id"]),
@@ -672,7 +674,8 @@ pub fn stage(
         ]
     };
     for relation in &outputs {
-        for check in relation.publication_checks() {
+        for id in relation.publication_refs() {
+            let check = model.publication_check(id)?;
             initial.extend(check.inputs.iter().cloned());
         }
     }
@@ -706,3 +709,6 @@ pub fn stage(
         configuration: key.finish(),
     })
 }
+
+pub(crate) fn run_invariants_refs() -> Vec<&'static str> { vec!["base_completion_inventory"] }
+pub(crate) fn run_publication_checks_refs() -> Vec<&'static str> { vec!["base_completion_request_profile"] }

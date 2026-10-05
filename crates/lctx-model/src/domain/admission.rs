@@ -18,7 +18,7 @@ use super::{
     *,
 };
 use std::collections::{BTreeMap, BTreeSet};
-mod availability;
+pub(crate) mod availability;
 pub use availability::{CoverageEvidence, ScopedAvailability};
 
 /// What a generation can answer.
@@ -158,15 +158,7 @@ impl FrontierDescriptor {
     }
     pub fn invariants(self, model: &ValidatedModel) -> Result<Vec<&Invariant>, ModelError> {
         let relations = self.relations(model)?;
-        Ok(model
-            .invariants()
-            .iter()
-            .filter(|i| {
-                i.inputs
-                    .iter()
-                    .all(|input| relations.contains(input.name()))
-            })
-            .collect())
+        model.invariants_for_scope(&relations)
     }
 }
 /// The captured artifacts a family is stated over.
@@ -1024,3 +1016,4 @@ impl AdmissionCheck {
         })
     }
 }
+

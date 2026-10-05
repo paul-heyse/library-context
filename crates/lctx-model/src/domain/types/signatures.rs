@@ -19,7 +19,7 @@ pub enum CallableDeprecation {
     Deprecated = 2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "native_signature_observations", invariants = signature_port_invariants)]
+#[model(name = "native_signature_observations", invariant_refs = signature_port_invariants_refs)]
 #[assertion(support = NativeSignatureSupport, name = "native_signature_supports", family = FactFamily::Types, subjects(scope, term, family), referents(implementation, metadata_origin))]
 pub struct NativeSignatureObservation {
     #[model(key)]
@@ -60,8 +60,9 @@ pub struct SignatureTypeObservation {
     pub term: Id<TypeTerm>,
     pub scope: Id<CoverageScope>,
 }
-fn signature_port_invariants() -> Vec<Invariant> {
+pub(crate) fn signature_port_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "native_signature_ports",
         inputs: vec![
             ValidationInput::of::<Signature>(&["id"]),
@@ -162,3 +163,5 @@ impl InvariantCheck for PortCheck {
         Ok(())
     }
 }
+
+pub(crate) fn signature_port_invariants_refs() -> Vec<&'static str> { vec!["native_signature_ports"] }

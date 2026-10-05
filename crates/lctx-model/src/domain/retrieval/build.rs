@@ -674,6 +674,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = Data::inputs();
     inputs.extend(Output::inputs());
     vec![Invariant {
+        revision: 1,
         name: "retrieval_canonical_rendering",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -1122,3 +1123,5 @@ mod tests {
         assert!(build(&d, &b).is_err());
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["retrieval_canonical_rendering"] }

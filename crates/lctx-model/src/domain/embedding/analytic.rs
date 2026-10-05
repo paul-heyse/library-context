@@ -25,7 +25,7 @@ pub enum VectorAvailability {
     TokenLimit = 2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="analysis_embedding_uses",validate=validate_use,invariants=invariants)]
+#[model(name="analysis_embedding_uses",validate=validate_use,invariant_refs=invariants_refs)]
 pub struct AnalysisEmbeddingUse {
     #[model(key)]
     pub invocation: Id<AnalysisInvocation>,
@@ -319,6 +319,7 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<AnalysisEmbeddingUse>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "analytic_embedding_consumption",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -440,3 +441,5 @@ pub fn stage(
         configuration: ContentHash::of(if requested { b"requested" } else { b"disabled" }),
     })
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["analytic_embedding_consumption"] }

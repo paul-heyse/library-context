@@ -44,7 +44,7 @@ pub enum ExitDiagnosticPhase {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "native_exit_observations", validate = validate_exit, invariants = invariants)]
+#[model(name = "native_exit_observations", validate = validate_exit, invariant_refs = invariants_refs)]
 #[assertion(support = NativeExitSupport, name = "native_exit_supports", family = FactFamily::Types, subjects(subject, receiver, member, normal_result, exceptional_result))]
 pub struct NativeExitObservation {
     #[model(key)]
@@ -151,8 +151,9 @@ fn validate_diagnostic(row: &NativeExitDiagnostic) -> Result<(), ModelError> {
     }
     Ok(())
 }
-fn invariants() -> Vec<Invariant> {
+pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "located_native_protocols",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
@@ -282,3 +283,5 @@ impl InvariantCheck for Check {
         Ok(())
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["located_native_protocols"] }

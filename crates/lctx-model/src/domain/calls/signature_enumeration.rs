@@ -6,7 +6,7 @@ pub const MAX_SIGNATURE_VARIANTS: usize = 4096;
 /// A provider's exact enumeration for one symbol. `complete` describes this export only;
 /// it does not upgrade family coverage or claim that an undecorated signature executes.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "signature_enumeration_observations", invariants = enumeration_invariants)]
+#[model(name = "signature_enumeration_observations", invariant_refs = enumeration_invariants_refs)]
 #[assertion(support = SignatureEnumerationSupport, name = "signature_enumeration_supports", family = FactFamily::Signatures, subjects(scope))]
 pub struct SignatureEnumerationObservation {
     #[model(key)]
@@ -95,8 +95,9 @@ impl SignatureEnumerationObservation {
         Ok((row, members))
     }
 }
-fn enumeration_invariants() -> Vec<Invariant> {
+pub(crate) fn enumeration_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "native_signature_enumeration",
         inputs: vec![
             ValidationInput::of::<AssertionQualification>(&["id"]),
@@ -235,3 +236,5 @@ impl InvariantCheck for EnumerationCheck {
         Ok(())
     }
 }
+
+pub(crate) fn enumeration_invariants_refs() -> Vec<&'static str> { vec!["native_signature_enumeration"] }

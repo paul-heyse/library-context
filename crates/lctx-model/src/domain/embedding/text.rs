@@ -72,7 +72,7 @@ pub enum TextBoundary {
     UnsupportedEncoding = 5,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="analytic_text_assessments",validate=validate_assessment,invariants=text_invariants)]
+#[model(name="analytic_text_assessments",validate=validate_assessment,invariant_refs=text_invariants_refs)]
 pub struct TextAssessment {
     #[model(key)]
     pub subject: Id<TextSubject>,
@@ -655,7 +655,7 @@ pub fn prepare(
     }
     Ok(out)
 }
-fn text_invariants() -> Vec<Invariant> {
+pub(crate) fn text_invariants() -> Vec<Invariant> {
     let mut inputs = TextData::inputs();
     inputs.extend([
         ValidationInput::of::<TextDefinition>(&["id"]),
@@ -664,6 +664,7 @@ fn text_invariants() -> Vec<Invariant> {
         ValidationInput::of::<TextWindow>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "analytic_text_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -704,3 +705,5 @@ impl InvariantCheck for TextCheck {
         self.actual.matches(&expected)
     }
 }
+
+pub(crate) fn text_invariants_refs() -> Vec<&'static str> { vec!["analytic_text_replay"] }

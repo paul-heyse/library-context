@@ -7,8 +7,8 @@ pub struct Relation {
     type_id: TypeId,
     name: &'static str,
     fields: Vec<Field>,
-    invariants: Vec<Invariant>,
-    publication_checks: Vec<PublicationInvariant>,
+    invariant_refs: Vec<&'static str>,
+    publication_refs: Vec<&'static str>,
     required: Vec<(TypeId, &'static str)>,
     sum: Option<super::Sum>,
     derivation: Option<super::derivation::Derivation>,
@@ -28,8 +28,8 @@ impl Relation {
             type_id: TypeId::of::<R>(),
             name: R::NAME,
             fields: R::fields(),
-            invariants: R::invariants(),
-            publication_checks: R::publication_checks(),
+            invariant_refs: R::invariant_refs(),
+            publication_refs: R::publication_refs(),
             required: R::required_relations(),
             sum: R::sum(),
             derivation: R::derivation(),
@@ -56,11 +56,11 @@ impl Relation {
     pub fn projection_roles(&self) -> &[super::projection::EndpointRole] {
         &self.projection_roles
     }
-    pub fn invariants(&self) -> &[Invariant] {
-        &self.invariants
+    pub fn invariant_refs(&self) -> &[&'static str] {
+        &self.invariant_refs
     }
-    pub fn publication_checks(&self) -> &[PublicationInvariant] {
-        &self.publication_checks
+    pub fn publication_refs(&self) -> &[&'static str] {
+        &self.publication_refs
     }
     pub fn sum(&self) -> Option<&super::Sum> {
         self.sum.as_ref()
@@ -106,6 +106,92 @@ impl Relation {
     }
 }
 
+/// Semantic validation identity is distinct from domain refusal/coverage obligation kinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ValidationKind { Invariant, Publication }
+impl ValidationKind {
+    pub const fn code(self) -> u8 { match self { Self::Invariant => 0, Self::Publication => 1 } }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ValidationIdentity {
+    pub kind: ValidationKind,
+    pub id: &'static str,
+    pub revision: u32,
+}
+impl ValidationIdentity {
+    pub fn encode(self, sink: &mut KeySink) {
+        sink.part(b"validation-kind", &[self.kind.code()]);
+        sink.part(b"validation-id", self.id.as_bytes());
+        sink.part(b"validation-revision", &self.revision.to_le_bytes());
+    }
+    pub fn digest(self) -> ContentHash {
+        let mut sink = KeySink::new("validation-identity/v1"); self.encode(&mut sink); sink.finish()
+    }
+}
+/// Definitions are supplied once by the semantic owner; relation/stage declarations only refer.
+#[derive(Debug, Clone, Default)]
+pub struct ValidationDefinitions {
+    pub invariants: Vec<Invariant>,
+    pub publication_checks: Vec<PublicationInvariant>,
+}
+impl ValidationDefinitions {
+    fn contains(&self, kind: ValidationKind, id: &str) -> bool {
+        match kind {
+            ValidationKind::Invariant => self.invariants.iter().any(|i| i.name == id),
+            ValidationKind::Publication => self.publication_checks.iter().any(|i| i.name == id),
+        }
+    }
+    fn check_unique(&self) -> Result<(), ModelError> {
+        let mut seen = HashSet::new();
+        for identity in self.invariants.iter().map(Invariant::identity).chain(self.publication_checks.iter().map(PublicationInvariant::identity)) {
+            if !identifier(identity.id) || identity.revision == 0 || !seen.insert((identity.kind.code(), identity.id)) {
+                return Err(ModelError::Invalid(format!("invalid or conflicting validation definition {}", identity.id)));
+            }
+        }
+        Ok(())
+    }
+    /// Select declared definitions by explicit IDs, never by whether their premises happen to fit.
+    pub fn required_for(&self, relations: &[Relation]) -> Result<Self, ModelError> {
+        self.check_unique()?;
+        let mut invariant_ids = HashSet::new();
+        let mut publication_ids = HashSet::new();
+        for relation in relations {
+            for id in relation.invariant_refs() {
+                if !self.contains(ValidationKind::Invariant, id) { return Err(ModelError::Invalid(format!("unresolved validation definition {id}"))); }
+                invariant_ids.insert(*id);
+            }
+            for id in relation.publication_refs() {
+                if !self.contains(ValidationKind::Publication, id) { return Err(ModelError::Invalid(format!("unresolved publication definition {id}"))); }
+                publication_ids.insert(*id);
+            }
+        }
+        Ok(Self {
+            invariants: self.invariants.iter().filter(|i| invariant_ids.contains(i.name)).cloned().collect(),
+            publication_checks: self.publication_checks.iter().filter(|i| publication_ids.contains(i.name)).cloned().collect(),
+        })
+    }
+}
+fn validate_definition(identity: ValidationIdentity, inputs: &[ValidationInput], relations: &[Relation]) -> Result<(), ModelError> {
+    if inputs.is_empty() { return Err(ModelError::Invalid(format!("{} has no validation premises", identity.id))); }
+    let mut frames = HashSet::new();
+    for input in inputs {
+        if !frames.insert((input.type_id, input.prefix.map(|p| p.code()))) || input.order.is_empty() {
+            return Err(ModelError::Invalid(format!("{} needs distinct ordered input frames", identity.id)));
+        }
+        let relation = relations.iter().find(|r| r.type_id == input.type_id && r.name == input.name)
+            .ok_or_else(|| ModelError::Invalid(format!("{} requires absent validation premise {}", identity.id, input.name)))?;
+        input.validate_prefix()?;
+        let mut order_fields = HashSet::new();
+        for order in &input.order {
+            if !order_fields.insert(*order) || (*order != "id" && !relation.fields.iter().any(|f| f.name() == *order)) {
+                return Err(ModelError::Invalid(format!("{} has invalid input order {}.{order}", identity.id, relation.name)));
+            }
+        }
+        if !input.order.contains(&"id") { return Err(ModelError::Invalid(format!("{} needs ID as deterministic input order tie breaker", identity.id))); }
+    }
+    Ok(())
+}
+
 /// The only model accepted by storage or execution. Validation supports reference cycles.
 #[derive(Debug)]
 pub struct ValidatedModel {
@@ -115,7 +201,12 @@ pub struct ValidatedModel {
     digest: ContentHash,
 }
 impl ValidatedModel {
-    pub fn validate(mut relations: Vec<Relation>) -> Result<Self, ModelError> {
+    /// Resolve the explicitly referenced canonical domain definitions. No missing premise is omitted.
+    pub fn declared(relations: Vec<Relation>) -> Result<Self, ModelError> {
+        let definitions = super::validation::definitions().required_for(&relations)?;
+        Self::validate(relations, definitions)
+    }
+    pub fn validate(mut relations: Vec<Relation>, mut definitions: ValidationDefinitions) -> Result<Self, ModelError> {
         if relations.is_empty() {
             return Err(ModelError::Invalid("empty model".into()));
         }
@@ -141,7 +232,7 @@ impl ValidatedModel {
                 )));
             }
         }
-        let mut digest = KeySink::new("model/v2");
+        let mut digest = KeySink::new("model/v3");
         digest.part(
             b"owned-semantics",
             &ContentHash::of(include_bytes!(concat!(
@@ -296,93 +387,30 @@ impl ValidatedModel {
                 return Err(ModelError::Invalid(format!("{} has no key", relation.name)));
             }
         }
-        let mut invariants = Vec::new();
-        let mut invariant_names = HashSet::new();
+        definitions.check_unique()?;
         for relation in &relations {
-            for invariant in &relation.invariants {
-                if !identifier(invariant.name)
-                    || !invariant_names.insert(invariant.name)
-                    || invariant.inputs.is_empty()
-                {
-                    return Err(ModelError::Invalid("invalid or duplicate invariant".into()));
+            for (kind, references) in [(ValidationKind::Invariant, relation.invariant_refs()), (ValidationKind::Publication, relation.publication_refs())] {
+                let mut seen = HashSet::new();
+                for reference in references {
+                    if !seen.insert(*reference) || !definitions.contains(kind, reference) {
+                        return Err(ModelError::Invalid(format!("{} has duplicate or unresolved {kind:?} reference {reference}", relation.name())));
+                    }
+                    digest.part(b"validation-reference-relation", relation.name().as_bytes());
+                    digest.part(b"validation-reference-kind", &[kind.code()]);
+                    digest.part(b"validation-reference-id", reference.as_bytes());
                 }
-                digest.part(b"invariant", invariant.name.as_bytes());
-                let mut input_frames = HashSet::new();
-                for input in &invariant.inputs {
-                    if !input_frames.insert((input.type_id, input.prefix.map(|p| p.code()))) {
-                        return Err(ModelError::Invalid(format!(
-                            "duplicate validation input frame in {}: {}",
-                            invariant.name, input.name
-                        )));
-                    }
-                    if input.order.is_empty() {
-                        return Err(ModelError::Invalid(
-                            "invariant input needs an explicit order".into(),
-                        ));
-                    }
-                    let target = relations
-                        .iter()
-                        .find(|r| r.type_id == input.type_id)
-                        .ok_or_else(|| {
-                            ModelError::Invalid("invariant input absent from model".into())
-                        })?;
-                    digest.part(b"invariant-input", target.name.as_bytes());
-                    input.validate_prefix()?;
-                    digest.part(b"invariant-input-prefix", &input.prefix_code());
-                    for order in &input.order {
-                        if *order != "id" && !target.fields.iter().any(|f| f.name() == *order) {
-                            return Err(ModelError::Invalid("invariant order field absent".into()));
-                        }
-                        digest.part(b"invariant-order", order.as_bytes());
-                    }
-                }
-                invariants.push(invariant.clone());
             }
         }
-        let mut publication_checks = Vec::new();
-        let mut publication_names = HashSet::new();
-        for relation in &relations {
-            for check in &relation.publication_checks {
-                if !identifier(check.name)
-                    || !publication_names.insert(check.name)
-                    || check.inputs.is_empty()
-                {
-                    return Err(ModelError::Invalid(
-                        "invalid or duplicate publication check".into(),
-                    ));
-                }
-                digest.part(b"publication-check", check.name.as_bytes());
-                let mut input_types = HashSet::new();
-                for input in &check.inputs {
-                    if input.order.is_empty()
-                        || !input_types.insert((input.type_id, input.prefix.map(|p| p.code())))
-                    {
-                        return Err(ModelError::Invalid(
-                            "publication check needs distinct ordered inputs".into(),
-                        ));
-                    }
-                    let target = relations
-                        .iter()
-                        .find(|r| r.type_id == input.type_id)
-                        .ok_or_else(|| {
-                            ModelError::Invalid("publication check input absent from model".into())
-                        })?;
-                    digest.part(b"publication-input", target.name.as_bytes());
-                    input.validate_prefix()?;
-                    digest.part(b"publication-input-prefix", &input.prefix_code());
-                    for order in &input.order {
-                        if *order != "id" && !target.fields.iter().any(|f| f.name() == *order) {
-                            return Err(ModelError::Invalid(
-                                "publication check order field absent".into(),
-                            ));
-                        }
-                        digest.part(b"publication-order", order.as_bytes());
-                    }
-                }
-                publication_checks.push(check.clone());
-            }
+        definitions.invariants.sort_by_key(|check| check.name);
+        definitions.publication_checks.sort_by_key(|check| check.name);
+        let mut invariants = definitions.invariants;
+        let publication_checks = definitions.publication_checks;
+        let mut invariant_names: HashSet<_> = invariants.iter().map(|i| i.name).collect();
+        for (identity, inputs) in invariants.iter().map(|i| (i.identity(), i.inputs.as_slice())).chain(publication_checks.iter().map(|i| (i.identity(), i.inputs.as_slice()))) {
+            validate_definition(identity, inputs, &relations)?;
+            identity.encode(&mut digest);
+            for input in inputs { input.encode_contract(&mut digest); }
         }
-        publication_checks.sort_by_key(|v| v.name);
         if types.contains(&TypeId::of::<super::projection::ProjectionSourceAssessment>()) {
             for name in super::projection::ProjectionName::ALL {
                 for role in super::projection::ProjectionSpec::builtin(name).roles() {
@@ -411,7 +439,7 @@ impl ValidatedModel {
                     "reserved generated invariant name".into(),
                 ));
             }
-            let inputs = sources
+            let inputs: Vec<ValidationInput> = sources
                 .iter()
                 .map(|r| ValidationInput {
                     type_id: r.type_id,
@@ -420,8 +448,11 @@ impl ValidatedModel {
                     prefix: None,
                 })
                 .collect();
-            digest.part(b"generated-invariant", name.as_bytes());
+            let identity = ValidationIdentity { kind: ValidationKind::Invariant, id: name, revision: 1 };
+            identity.encode(&mut digest);
+            for input in &inputs { input.encode_contract(&mut digest); }
             invariants.push(Invariant {
+                revision: 1,
                 name,
                 inputs,
                 create: std::sync::Arc::new(move |budget| {
@@ -452,6 +483,38 @@ impl ValidatedModel {
     }
     pub fn publication_checks(&self) -> &[PublicationInvariant] {
         &self.publication_checks
+    }
+    /// Every reference in the scope is required, even if another referring relation is absent.
+    pub fn invariants_for_scope(&self, names: &std::collections::BTreeSet<&str>) -> Result<Vec<&Invariant>, ModelError> {
+        let mut ids = std::collections::BTreeSet::new();
+        for name in names {
+            let relation = self.relation(name).ok_or_else(|| ModelError::Invalid(format!("unknown validation scope relation {name}")))?;
+            ids.extend(relation.invariant_refs().iter().copied());
+        }
+        let mut checks = Vec::new();
+        for id in ids {
+            let check = self.invariant(id)?;
+            if let Some(input) = check.inputs.iter().find(|input| !names.contains(input.name())) {
+                return Err(ModelError::Invalid(format!("{id} requires validation premise {} outside scope", input.name())));
+            }
+            checks.push(check);
+        }
+        // This generated collective obligation belongs to this entire declared model. Lower
+        // frontiers generate their own collective checker when constructed as a scoped model.
+        if let Some(check) = self.invariants.iter().find(|i| i.name == "derivation_acyclic")
+            && check.inputs.iter().all(|i| names.contains(i.name())) {
+            checks.push(check);
+        }
+        Ok(checks)
+    }
+    pub fn invariant(&self, id: &str) -> Result<&Invariant, ModelError> {
+        self.invariants.iter().find(|i| i.name == id).ok_or_else(|| ModelError::Invalid(format!("unresolved invariant {id}")))
+    }
+    pub fn publication_check(&self, id: &str) -> Result<&PublicationInvariant, ModelError> {
+        self.publication_checks.iter().find(|i| i.name == id).ok_or_else(|| ModelError::Invalid(format!("unresolved publication check {id}")))
+    }
+    pub fn definitions(&self) -> ValidationDefinitions {
+        ValidationDefinitions { invariants: self.invariants.iter().filter(|i| i.name != "derivation_acyclic").cloned().collect(), publication_checks: self.publication_checks.clone() }
     }
     pub fn digest(&self) -> ContentHash {
         self.digest
@@ -525,10 +588,20 @@ fn hash_rows<R: Record>(
 /// semantic validation itself remains a pure, independently testable state machine.
 #[derive(Clone)]
 pub struct Invariant {
+    pub revision: u32,
     pub name: &'static str,
     pub inputs: Vec<ValidationInput>,
     /// Checks retain state only through the supplied attempt budget (see `charged`).
     pub create: InvariantFactory,
+}
+impl Invariant {
+    pub fn identity(&self) -> ValidationIdentity { ValidationIdentity { kind: ValidationKind::Invariant, id: self.name, revision: self.revision } }
+    pub fn digest(&self) -> ContentHash {
+        let mut sink = KeySink::new("validation-definition/v1");
+        self.identity().encode(&mut sink);
+        for input in &self.inputs { input.encode_contract(&mut sink); }
+        sink.finish()
+    }
 }
 impl std::fmt::Debug for Invariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -562,6 +635,12 @@ impl ValidationInput {
             ));
         }
         Ok(())
+    }
+    pub fn encode_contract(&self, sink: &mut KeySink) {
+        sink.part(b"input-role", self.name.as_bytes());
+        sink.part(b"input-prefix", &self.prefix_code());
+        sink.part(b"order-count", &(self.order.len() as u64).to_le_bytes());
+        for order in &self.order { sink.part(b"input-order", order.as_bytes()); }
     }
     fn prefix_code(&self) -> [u8; 2] {
         self.prefix.map_or([0, 0], |prefix| [1, prefix.code()])
@@ -629,9 +708,19 @@ type PublicationFactory = std::sync::Arc<
 /// Receipt snapshots are metadata; only these acknowledged R0 sources supply read authority.
 #[derive(Clone)]
 pub struct PublicationInvariant {
+    pub revision: u32,
     pub name: &'static str,
     pub inputs: Vec<ValidationInput>,
     pub create: PublicationFactory,
+}
+impl PublicationInvariant {
+    pub fn identity(&self) -> ValidationIdentity { ValidationIdentity { kind: ValidationKind::Publication, id: self.name, revision: self.revision } }
+    pub fn digest(&self) -> ContentHash {
+        let mut sink = KeySink::new("validation-definition/v1");
+        self.identity().encode(&mut sink);
+        for input in &self.inputs { input.encode_contract(&mut sink); }
+        sink.finish()
+    }
 }
 impl std::fmt::Debug for PublicationInvariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

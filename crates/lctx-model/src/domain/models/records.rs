@@ -53,6 +53,7 @@ pub fn relations() -> Vec<Relation> {
 }
 pub fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "authored_model_catalog",
         inputs: vec![
             ValidationInput::of::<ModelCatalog>(&["id"]),
@@ -112,7 +113,7 @@ mod tests {
     use super::*;
     use crate::domain::Batch;
     fn check(rows: &CatalogRecords, budget: &ResourceBudget) -> Result<(), ModelError> {
-        let model = crate::domain::ValidatedModel::validate(relations())?;
+        let model = crate::domain::ValidatedModel::declared(relations())?;
         let mut check = (invariants()[0].create)(budget);
         macro_rules! feed {
             ($field:ident,$ty:ty) => {
@@ -156,3 +157,5 @@ mod tests {
         assert!(catalog.validate().is_err());
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["authored_model_catalog"] }

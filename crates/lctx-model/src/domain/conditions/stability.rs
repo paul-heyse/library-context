@@ -36,7 +36,7 @@ pub fn substitutable(predicate: &Predicate) -> bool {
     StabilityBasis::ParameterOnlyReaching.eligible(predicate)
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="stability_witnesses",rule="parameter_only_reaching",conclusion=atom,invariants=stability_invariants)]
+#[model(name="stability_witnesses",rule="parameter_only_reaching",conclusion=atom,invariant_refs=stability_invariants_refs)]
 pub struct StabilityWitness {
     #[model(key)]
     pub atom: Id<EvaluationAtom>,
@@ -242,7 +242,7 @@ impl CheckedGuardBinding {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="guard_substitutions",rule="witnessed_guard_substitution",conclusion=atom,invariants=guard_substitution_invariants)]
+#[model(name="guard_substitutions",rule="witnessed_guard_substitution",conclusion=atom,invariant_refs=guard_substitution_invariants_refs)]
 pub struct GuardSubstitution {
     #[model(key)]
     pub atom: Id<EvaluationAtom>,
@@ -269,6 +269,7 @@ pub fn stability_invariants() -> Vec<Invariant> {
         ValidationInput::of::<StabilityWitness>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "entry_guard_stability_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -358,6 +359,7 @@ pub fn guard_substitution_invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|i| (i.name(), i.prefix().map(|p| p.code())));
     inputs.dedup_by_key(|i| (i.name(), i.prefix().map(|p| p.code())));
     vec![Invariant {
+        revision: 1,
         name: "guard_substitution_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -567,3 +569,6 @@ impl InvariantCheck for StabilityCheck {
         Ok(())
     }
 }
+
+pub(crate) fn stability_invariants_refs() -> Vec<&'static str> { vec!["entry_guard_stability_replay"] }
+pub(crate) fn guard_substitution_invariants_refs() -> Vec<&'static str> { vec!["guard_substitution_replay"] }

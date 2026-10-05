@@ -617,3 +617,5 @@ pub fn methods() -> [analysis::AnalysisMethod; 4] {
         analysis::AnalysisMethod::Controls,
     ]
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { super::frames::invariants_refs() }

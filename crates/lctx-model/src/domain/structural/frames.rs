@@ -272,13 +272,14 @@ pub fn verify(
     }
     actual.matches(&expected)
 }
-pub(super) fn invariants() -> Vec<Invariant> {
+pub(crate) fn invariants() -> Vec<Invariant> {
     let mut inputs = Data::validation_inputs();
     inputs.extend(Context::validation_inputs());
     inputs.extend(Output::validation_inputs());
     inputs.sort_by_key(|i| (i.name(), i.prefix()));
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
+        revision: 1,
         name: "structural_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -332,8 +333,9 @@ impl InvariantCheck for Check {
     }
 }
 
-pub(super) fn profile_checks() -> Vec<PublicationInvariant> {
+pub(crate) fn profile_checks() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "structural_profile",
         inputs: vec![ValidationInput::of::<StructuralFrame>(&["id"])],
         create: std::sync::Arc::new(|b| {
@@ -368,3 +370,6 @@ impl PublicationCheck for ProfileCheck {
         Ok(())
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["structural_replay"] }
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["structural_profile"] }

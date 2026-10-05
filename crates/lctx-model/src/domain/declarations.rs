@@ -14,7 +14,7 @@ use crate::{Assertion, Domain};
 
 /// A provider asserts that `symbol` is declared by the definition occurrence `declaration`.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "symbol_declarations", invariants = declaration_invariants)]
+#[model(name = "symbol_declarations", invariant_refs = declaration_invariants_refs)]
 #[assertion(support = SymbolDeclarationSupport, name = "symbol_declaration_supports", family = FactFamily::Signatures, subjects(declaration))]
 pub struct SymbolDeclaration {
     #[model(key)]
@@ -40,8 +40,9 @@ fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
 
-fn declaration_invariants() -> Vec<Invariant> {
+pub(crate) fn declaration_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "declaration_links",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
@@ -257,3 +258,5 @@ impl InvariantCheck for DeclarationCheck {
 
 type DeclarationIndex =
     ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>), Vec<Id<Occurrence>>>;
+
+pub(crate) fn declaration_invariants_refs() -> Vec<&'static str> { vec!["declaration_links"] }

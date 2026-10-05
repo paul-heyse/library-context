@@ -53,7 +53,7 @@ pub enum Assumption {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "assumption_sets", invariants = invariants, validate = validate_set)]
+#[model(name = "assumption_sets", invariant_refs = invariants_refs, validate = validate_set)]
 pub struct AssumptionSet {
     #[model(key)]
     pub members: ContentHash,
@@ -300,7 +300,7 @@ impl AssumptionIndex {
     }
 }
 
-fn invariants() -> Vec<Invariant> {
+pub(crate) fn invariants() -> Vec<Invariant> {
     let mut inputs = AssumptionIndex::inputs();
     inputs.extend(ownership::ScopeIndex::inputs());
     inputs.push(ValidationInput::of::<calls::ProviderSymbol>(&["id"]));
@@ -315,6 +315,7 @@ fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<ClassTraitSupport>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "claim_assumption_basis",
         inputs,
         create: std::sync::Arc::new(|budget| Box::new(Check::new(budget))),
@@ -525,3 +526,5 @@ impl AssumptionResolver for AssumptionIndex {
         AssumptionIndex::resolve(self, id)
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["claim_assumption_basis"] }

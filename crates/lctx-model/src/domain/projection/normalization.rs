@@ -774,6 +774,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = ProjectionData::validation_inputs();
     inputs.extend(ProjectionOutput::validation_inputs());
     vec![Invariant {
+        revision: 1,
         name: "normalized_projection_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -1155,3 +1156,5 @@ mod tests {
         assert_eq!(budget.reserved(), 0);
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_projection_closure"] }

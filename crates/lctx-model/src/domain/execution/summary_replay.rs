@@ -67,6 +67,7 @@ pub fn inputs_for_profile(profile: Profile) -> Vec<ValidationInput> {
 }
 pub fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "finite_summary_inventory_replay",
         inputs: inputs(),
         create: std::sync::Arc::new(|b| Box::new(Check::new(b))),
@@ -130,6 +131,7 @@ macro_rules! check{($($field:ident:$ty:ty,)*)=>{
 crate::summary_outputs!(check);
 pub fn profile_checks() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "summary_profile",
         inputs: vec![
             ValidationInput::of::<SummaryRun>(&["id"]),
@@ -262,3 +264,6 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<super::summary_symbolic::SymbolicFieldAlternative>(),
     ]
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["finite_summary_inventory_replay"] }
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["summary_profile"] }

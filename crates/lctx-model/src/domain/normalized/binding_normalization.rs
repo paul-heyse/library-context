@@ -1331,7 +1331,9 @@ pub(crate) fn verify_enumerations(
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let relation = Relation::of::<SignatureEnumerationObservation>();
-    let mut check = (relation.invariants()[0].create)(budget);
+    let definitions = crate::domain::validation::definitions();
+    let definition = definitions.invariants.iter().find(|check| relation.invariant_refs().contains(&check.name)).expect("canonical enumeration definition");
+    let mut check = (definition.create)(budget);
     macro_rules! feed {
         ($field:ident,$ty:ty) => {{
             let bytes = data
@@ -1517,6 +1519,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = BindingData::validation_inputs();
     inputs.extend(BindingOutput::validation_inputs());
     vec![Invariant {
+        revision: 1,
         name: "normalized_binding_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -1626,3 +1629,5 @@ fn verify_upstream(
     crate::normalized_event_outputs!(event_outputs);
     super::event_normalization::verify(&event_data, &event_output, budget)
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_binding_closure"] }

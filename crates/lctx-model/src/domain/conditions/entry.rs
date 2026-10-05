@@ -94,7 +94,7 @@ pub struct EntryRequest {
     pub run: Id<ProviderRun>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="entry_value_witnesses", rule="parameter_entry_value", conclusion=formal, invariants=entry_invariants)]
+#[model(name="entry_value_witnesses", rule="parameter_entry_value", conclusion=formal, invariant_refs=entry_invariants_refs)]
 pub struct EntryValueWitness {
     #[model(key)]
     pub owner: Id<EntityRef>,
@@ -1001,6 +1001,7 @@ pub fn entry_invariants() -> Vec<Invariant> {
         ValidationInput::of::<EntryAccessSource>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "entry_value_witness_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -1218,3 +1219,5 @@ pub(crate) fn region_for_access(
     }
     Ok((row.id(), selected.ok_or(ObligationKind::MissingEvidence)?))
 }
+
+pub(crate) fn entry_invariants_refs() -> Vec<&'static str> { vec!["entry_value_witness_replay"] }

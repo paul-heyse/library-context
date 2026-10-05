@@ -39,7 +39,7 @@ pub enum Approximation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "assertion_qualifications", invariants = qualification_invariants)]
+#[model(name = "assertion_qualifications", invariant_refs = qualification_invariants_refs)]
 pub struct AssertionQualification {
     #[model(key)]
     pub context: Id<AnalysisContext>,
@@ -71,7 +71,7 @@ fn validate_surface(row: &ProviderSurface) -> Result<(), ModelError> {
     Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
-#[model(name = "evidence", validate = validate_evidence, invariants = evidence_invariants)]
+#[model(name = "evidence", validate = validate_evidence, invariant_refs = evidence_invariants_refs)]
 pub enum Evidence {
     #[model(code = 0)]
     Occurrence { occurrence: Id<Occurrence> },
@@ -454,7 +454,7 @@ impl DerivedSupportIndex<NoDerivedSource> for NoDerivedIndex {
     }
 }
 
-fn qualification_invariants() -> Vec<Invariant> {
+pub(crate) fn qualification_invariants() -> Vec<Invariant> {
     let mut inputs = super::assumptions::AssumptionIndex::inputs();
     inputs.extend([
         ValidationInput::of::<EvaluationAtom>(&["id"]),
@@ -463,6 +463,7 @@ fn qualification_invariants() -> Vec<Invariant> {
         ValidationInput::of::<AssertionQualification>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "qualification_condition_context",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -537,8 +538,9 @@ impl InvariantCheck for QualificationCheck {
         Ok(())
     }
 }
-fn evidence_invariants() -> Vec<Invariant> {
+pub(crate) fn evidence_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "evidence_source_bounds",
         inputs: vec![
             ValidationInput::of::<SourceArtifact>(&["id"]),
@@ -620,6 +622,7 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion = A>>() -> Vec<Inva
         ValidationInput::of::<S>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: S::NAME,
         inputs,
         create: std::sync::Arc::new(|budget| Box::new(SupportCheck::<A, S>::new(budget))),
@@ -1310,3 +1313,7 @@ impl<A: Assertion, S: Support<Assertion = A>> InvariantCheck for SupportCheck<A,
         Ok(())
     }
 }
+
+pub(crate) fn qualification_invariants_refs() -> Vec<&'static str> { vec!["qualification_condition_context"] }
+pub(crate) fn evidence_invariants_refs() -> Vec<&'static str> { vec!["evidence_source_bounds"] }
+pub fn support_invariants_refs<A: Assertion, S: Support<Assertion = A>>() -> Vec<&'static str> { vec![S::NAME] }

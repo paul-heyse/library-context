@@ -106,7 +106,7 @@ pub enum EntityReason {
     QualifiedUncertainty = 9,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "symbol_entity_resolutions", validate = validate_resolution, invariants = super::entity_normalization::invariants)]
+#[model(name = "symbol_entity_resolutions", validate = validate_resolution, invariant_refs = super::entity_normalization::invariants_refs)]
 pub struct SymbolEntityResolution {
     #[model(key)]
     pub symbol: Id<ProviderSymbol>,
@@ -279,3 +279,4 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<PublicExposureCandidate>(),
     ]
 }
+

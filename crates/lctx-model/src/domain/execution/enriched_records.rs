@@ -97,7 +97,7 @@ pub enum ExecutionSource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="statement_executions",rule="ordered_statement_execution",invariants=super::enriched_production::statement_invariants)]
+#[model(name="statement_executions",rule="ordered_statement_execution",invariant_refs=super::enriched_production::statement_invariants_refs)]
 pub struct StatementExecution {
     #[model(key, premise)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -487,3 +487,4 @@ pub struct SourceExecutionArgument {
     #[model(premise)]
     pub evaluation: Id<super::records::ExpressionEvaluation>,
 }
+

@@ -32,7 +32,7 @@ pub const MAX_SEQUENCE_SYMBOLS: usize = 4096;
 /// An ordered sequence of one provider's symbols (a class's bases or its MRO), identified by its
 /// content; the empty sequence is a positive, complete statement.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "symbol_sequences", invariants = sequence_invariants)]
+#[model(name = "symbol_sequences", invariant_refs = sequence_invariants_refs)]
 pub struct SymbolSequence {
     #[model(key)]
     pub members: ContentHash,
@@ -94,7 +94,7 @@ impl SymbolSequence {
 /// A provider asserts that it defines `symbol`: at its module's top level (`parent` none), or
 /// directly inside the class or function `parent` names.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "symbol_observations", invariants = symbol_invariants)]
+#[model(name = "symbol_observations", invariant_refs = symbol_invariants_refs)]
 #[assertion(support = SymbolSupport, name = "symbol_supports", family = FactFamily::Signatures, subjects(symbol))]
 pub struct SymbolObservation {
     #[model(key)]
@@ -319,7 +319,7 @@ pub enum ExportEnumerationBasis {
     Missing = 4,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name="export_enumeration_observations",validate=validate_export_enumeration,invariants=export_enumeration_invariants)]
+#[model(name="export_enumeration_observations",validate=validate_export_enumeration,invariant_refs=export_enumeration_invariants_refs)]
 #[assertion(support=ExportEnumerationSupport,name="export_enumeration_supports",family=FactFamily::Exports,subjects(access))]
 pub struct ExportEnumerationObservation {
     #[model(key)]
@@ -345,8 +345,9 @@ fn validate_export_enumeration(row: &ExportEnumerationObservation) -> Result<(),
     }
     Ok(())
 }
-fn export_enumeration_invariants() -> Vec<Invariant> {
+pub(crate) fn export_enumeration_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "export_enumeration_membership",
         inputs: vec![
             ValidationInput::of::<AssertionQualification>(&["id"]),
@@ -506,8 +507,9 @@ pub struct ModuleResolutionObservation {
     pub location: Option<String>,
 }
 
-fn sequence_invariants() -> Vec<Invariant> {
+pub(crate) fn sequence_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "symbol_sequence_membership",
         inputs: vec![
             ValidationInput::of::<SymbolSequence>(&["id"]),
@@ -582,8 +584,9 @@ impl InvariantCheck for SequenceCheck {
     }
 }
 
-fn symbol_invariants() -> Vec<Invariant> {
+pub(crate) fn symbol_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "symbol_structure",
         inputs: vec![
             ValidationInput::of::<ProviderModule>(&["id"]),
@@ -917,3 +920,7 @@ impl InvariantCheck for SymbolCheck {
 
 type ObservedSymbolParents =
     ChargedMap<(Id<AssertionQualification>, Id<ProviderSymbol>), Option<Id<ProviderSymbol>>>;
+
+pub(crate) fn export_enumeration_invariants_refs() -> Vec<&'static str> { vec!["export_enumeration_membership"] }
+pub(crate) fn sequence_invariants_refs() -> Vec<&'static str> { vec!["symbol_sequence_membership"] }
+pub(crate) fn symbol_invariants_refs() -> Vec<&'static str> { vec!["symbol_structure"] }

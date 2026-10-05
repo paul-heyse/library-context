@@ -920,6 +920,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = EvidenceData::inputs();
     inputs.extend(EvidenceOutput::inputs());
     vec![Invariant {
+        revision: 1,
         name: "catalog_contextual_evidence",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -974,8 +975,9 @@ pub fn invocation_links(
     Ok(links)
 }
 pub fn invocation_invariants() -> Vec<Invariant> {
-    let mut invariants = super::frames::invariants();
+    let mut invariants = Vec::new();
     invariants.push(Invariant {
+        revision: 1,
         name: "catalog_evidence_invocation_closure",
         inputs: vec![
             ValidationInput::of::<EvidenceRoot>(&["id"]),
@@ -1089,4 +1091,11 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
         semantic_version: version.finish(),
     };
     (parameters, definition)
+}
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["catalog_contextual_evidence"] }
+pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> {
+    let mut refs = vec!["catalog_evidence_invocation_closure"];
+    refs.extend(super::frames::invariants_refs());
+    refs
 }

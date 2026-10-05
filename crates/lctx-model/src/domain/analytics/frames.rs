@@ -193,6 +193,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|i| (i.name(), i.prefix()));
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
+        revision: 1,
         name: "analytic_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -223,3 +224,5 @@ impl InvariantCheck for Check {
         verify(&self.data, &self.context, &self.output, &self.budget)
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["analytic_replay"] }

@@ -37,7 +37,7 @@ pub fn relations() -> Vec<Relation> {
 /// A persisted discharge cites an exact subject proof. There is no producer-selected verdict;
 /// publication reconstructs it with the shared conservative verdict operation.
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
-#[model(name=owner_table!("analysis_discharge_evidence"),rule="analysis_discharge",invariants=discharge_invariants)]
+#[model(name=owner_table!("analysis_discharge_evidence"),rule="analysis_discharge",invariant_refs=discharge_invariants_refs)]
 pub struct DischargeEvidence {
     #[model(key,premise)] pub obligation:Id<ObligationSource>,
     #[model(key,premise)] pub derivation:Id<AnalysisDerivation>,
@@ -55,8 +55,8 @@ fn discharge_inputs()->Vec<ValidationInput> {
     inputs.extend(ownership::ScopeIndex::inputs());
     inputs
 }
-fn discharge_invariants()->Vec<Invariant> {
-    vec![Invariant {name:owner_table!("analysis_discharge"),inputs:discharge_inputs(),create:std::sync::Arc::new(|budget|Box::new(DischargeCheck {
+pub(crate) fn discharge_invariants()->Vec<Invariant> {
+    vec![Invariant {revision: 1,name:owner_table!("analysis_discharge"),inputs:discharge_inputs(),create:std::sync::Arc::new(|budget|Box::new(DischargeCheck {
         charge:charged::StateCharge::new(budget,"analysis_discharge"),ownership:ownership::ScopeIndex::new(budget,"analysis_discharge"),
         obligations:Default::default(),subjects:Default::default(),sources:Default::default(),frames:Default::default(),evidence:Default::default(),derivations:Default::default(),propositions:Default::default(),qualifications:Default::default(),coverage:Default::default(),conditions:Default::default(),nodes:Default::default(),
     }))}]
@@ -112,3 +112,5 @@ impl InvariantCheck for DischargeCheck {
         Ok(())
     }
 }
+
+pub(crate) fn discharge_invariants_refs() -> Vec<&'static str> { vec![owner_table!("analysis_discharge")] }

@@ -701,6 +701,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = CatalogData::validation_inputs();
     inputs.extend(CatalogOutput::validation_inputs());
     vec![Invariant {
+        revision: 1,
         name: "catalog_core_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -865,6 +866,7 @@ pub fn invocation_invariants() -> Vec<Invariant> {
     ));
     inputs.push(ValidationInput::of::<CatalogMemberInvocation>(&["id"]));
     vec![Invariant {
+        revision: 1,
         name: "catalog_member_invocation_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -912,3 +914,6 @@ impl InvariantCheck for InvocationCheck {
         Ok(())
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["catalog_core_closure"] }
+pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> { vec!["catalog_member_invocation_closure"] }

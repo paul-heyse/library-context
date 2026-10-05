@@ -55,7 +55,7 @@ pub struct FlowUseInventoryMember {
     pub support: Id<FlowReachingSupport>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name="flow_use_inventory_observations", validate=validate_inventory, invariants=inventory_invariants)]
+#[model(name="flow_use_inventory_observations", validate=validate_inventory, invariant_refs=inventory_invariants_refs)]
 #[assertion(support=FlowUseInventorySupport, name="flow_use_inventory_supports", family=FactFamily::Flow, subjects(use_,scope))]
 pub struct FlowUseInventoryObservation {
     #[model(key)]
@@ -240,8 +240,9 @@ fn validate_inventory(row: &FlowUseInventoryObservation) -> Result<(), ModelErro
     }
     Ok(())
 }
-fn inventory_invariants() -> Vec<Invariant> {
+pub(crate) fn inventory_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "flow_use_inventory_replay",
         inputs: vec![
             ValidationInput::of::<ProviderRun>(&["id"]),
@@ -928,3 +929,5 @@ pub fn complete_native_singleton<'a>(
     }
     Ok(Some((inventory, inventory_support)))
 }
+
+pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> { vec!["flow_use_inventory_replay"] }

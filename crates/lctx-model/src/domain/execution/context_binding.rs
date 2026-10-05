@@ -18,7 +18,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainSum};
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="context_entry_bindings",rule="context_entry_binding",invariants=super::enriched_production::binding_invariants)]
+#[model(name="context_entry_bindings",rule="context_entry_binding",invariant_refs=super::enriched_production::binding_invariants_refs)]
 pub struct ContextEntryBinding {
     #[model(key, premise)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -466,3 +466,4 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<BindingMember>(),
     ]
 }
+

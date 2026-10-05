@@ -194,7 +194,7 @@ impl Stage {
             let relation = model
                 .relation(input.name)
                 .ok_or_else(|| ModelError::Invalid("undeclared stored input".into()))?;
-            names.extend(relation.invariants().iter().map(|i| i.name));
+            names.extend(relation.invariant_refs().iter().copied());
             names.extend(input.validators.iter().copied());
         }
         names
@@ -2362,3 +2362,4 @@ impl<R: Record, S: StageSink> PendingOutput<S> for Output<R> {
         })
     }
 }
+

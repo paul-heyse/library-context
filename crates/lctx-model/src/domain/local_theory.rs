@@ -114,7 +114,7 @@ impl TheoryData<'_> {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="local_type_domain_assessments",invariants=theory_invariants)]
+#[model(name="local_type_domain_assessments",invariant_refs=theory_invariants_refs)]
 pub struct TypeDomainAssessment {
     #[model(key)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -1519,7 +1519,7 @@ pub fn produce(
     }
     Ok(records)
 }
-fn theory_invariants() -> Vec<Invariant> {
+pub(crate) fn theory_invariants() -> Vec<Invariant> {
     let mut inputs = TheoryData::validation_inputs();
     inputs.push(ValidationInput::of::<publication::AnalysisInvocation>(&[
         "id",
@@ -1527,6 +1527,7 @@ fn theory_invariants() -> Vec<Invariant> {
     macro_rules! output_inputs{($($field:ident:$ty:ty,)*)=>{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}
     crate::local_theory_outputs!(output_inputs);
     vec![Invariant {
+        revision: 1,
         name: "local_structural_theory_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -1644,3 +1645,5 @@ impl InvariantCheck for TheoryCheck {
         Ok(())
     }
 }
+
+pub(crate) fn theory_invariants_refs() -> Vec<&'static str> { vec!["local_structural_theory_replay"] }

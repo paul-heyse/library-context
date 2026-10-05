@@ -28,7 +28,7 @@ pub enum AtomOutcome {
     Refused = 4,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="local_atom_decisions", rule="located_typing_atom_decision", invariants=invariants)]
+#[model(name="local_atom_decisions", rule="located_typing_atom_decision", invariant_refs=invariants_refs)]
 pub struct AtomDecision {
     #[model(key)]
     pub invocation: Id<owner::AnalysisInvocation>,
@@ -378,7 +378,7 @@ pub fn produce(
     }
     Ok(())
 }
-fn invariants() -> Vec<Invariant> {
+pub(crate) fn invariants() -> Vec<Invariant> {
     let mut inputs = LocalData::validation_inputs();
     inputs.push(ValidationInput::of::<owner::AnalysisInvocation>(&["id"]));
     macro_rules! current {($($field:ident:$ty:ty,)*)=>{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}
@@ -387,6 +387,7 @@ fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|i| (i.name(), i.prefix()));
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
+        revision: 1,
         name: "located_atom_restriction_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -479,3 +480,5 @@ impl InvariantCheck for Check {
         Ok(())
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["located_atom_restriction_replay"] }

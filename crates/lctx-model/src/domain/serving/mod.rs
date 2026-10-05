@@ -4,7 +4,7 @@ pub use identity::GenerationKey;
 pub mod mappings;
 pub mod resources;
 pub use resources::ResourceLimits;
-mod schema;
+pub(crate) mod schema;
 pub mod values;
 pub use values::*;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -40,3 +40,4 @@ pub use failure::{FailureKind, PublicFailure};
 
 pub mod library_domains;
 pub use library_domains::*;
+

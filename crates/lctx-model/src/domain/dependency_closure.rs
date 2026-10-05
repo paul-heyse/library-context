@@ -149,7 +149,8 @@ impl DependencyClosure {
                     &["id"],
                 ))?);
             }
-            for invariant in row.invariants() {
+            for id in row.invariant_refs() {
+                let invariant = model.invariant(id)?;
                 for required in &invariant.inputs {
                     pending.push(resolve(required.clone())?);
                 }
@@ -237,3 +238,4 @@ fn merge(
     }
     Ok(())
 }
+

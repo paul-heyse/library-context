@@ -141,8 +141,9 @@ pub fn verify(
     }
     Ok(())
 }
-pub(super) fn invariants() -> Vec<Invariant> {
+pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "catalog_evidence_invocation_domain",
         inputs: vec![
             ValidationInput::of::<ProviderRun>(&["id"]),
@@ -209,3 +210,5 @@ impl InvariantCheck for Check {
         )
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["catalog_evidence_invocation_domain"] }

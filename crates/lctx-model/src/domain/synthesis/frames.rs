@@ -7,7 +7,7 @@ use crate::domain::{
     *,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="synthesis_frames",invariants=invariants,semantic_source=include_bytes!("frames.rs"))]
+#[model(name="synthesis_frames",invariant_refs=invariants_refs,semantic_source=include_bytes!("frames.rs"))]
 pub struct Frame {
     #[model(key)]
     pub invocation: Id<owner::Invocation>,
@@ -382,7 +382,8 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<owner::InvocationSource>(&["id"]),
         ValidationInput::of::<owner::AnalysisInput>(&["id"]),
     ]);
-    let mut invariants = vec![Invariant {
+    let invariants = vec![Invariant {
+        revision: 1,
         name: "synthesis_fixed_native_frames",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -396,7 +397,6 @@ pub fn invariants() -> Vec<Invariant> {
             })
         }),
     }];
-    invariants.extend(super::observations::invariants());
     invariants
 }
 struct Check {
@@ -738,4 +738,10 @@ pub(crate) mod tests {
             assert!(parents(&d, &b).is_err());
         }
     }
+}
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    let mut refs = vec!["synthesis_fixed_native_frames"];
+    refs.extend(super::observations::invariants_refs());
+    refs
 }

@@ -25,6 +25,7 @@ struct Stored {
 /// Stage-bound when created by `bind`; a conformance generation accepts direct `put` instead.
 pub struct MemoryGeneration {
     model: ContentHash,
+    definitions: super::ValidationDefinitions,
     attempt: Option<AttemptIdentity>,
     stored: Mutex<Stored>,
     relations: BTreeMap<&'static str, Relation>,
@@ -36,6 +37,7 @@ impl MemoryGeneration {
     pub fn conformance(model: &ValidatedModel, budget: &ResourceBudget) -> Self {
         Self {
             model: model.digest(),
+            definitions: model.definitions(),
             attempt: None,
             relations: model
                 .relations()
@@ -151,7 +153,7 @@ impl MemoryGeneration {
         if model.digest() != self.model || preflight.contract().model() != model.digest() {
             return Err(ModelError::Invalid("memory facts model differs".into()));
         }
-        let scope = ValidatedModel::validate(super::facts_relations())?;
+        let scope = ValidatedModel::declared(super::facts_relations())?;
         let content = self.validate_inner(&scope, budget)?;
         let mut check = super::admission::AdmissionCheck::new(preflight, budget);
         let stored = self
@@ -295,7 +297,7 @@ impl StageSink for MemoryGeneration {
         completion.seal(receipts)
     }
     async fn close_group(&self, group: GroupCompletion) -> Result<ClosedGroup, ModelError> {
-        let model = ValidatedModel::validate(self.relations.values().cloned().collect())?;
+        let model = ValidatedModel::validate(self.relations.values().cloned().collect(), self.definitions.clone())?;
         let mut stored = self
             .stored
             .lock()
@@ -370,10 +372,7 @@ impl StageSink for MemoryGeneration {
         let mut charge = StateCharge::new(&self.budget, "memory-group-references");
         let keys = Keys::collect(&model, &sorted, &mut charge)?;
         keys.references(&model, &sorted)?;
-        for invariant in model
-            .invariants()
-            .iter()
-            .filter(|i| i.inputs.iter().all(|r| candidate.contains_key(r.name())))
+        for invariant in model.invariants_for_scope(&candidate.keys().copied().collect())?
         {
             let mut check = (invariant.create)(&self.budget);
             for input in &invariant.inputs {
@@ -699,3 +698,4 @@ fn unique(relation: &Relation, batch: &RecordBatch) -> Result<RecordBatch, Model
     arrow_select::take::take_record_batch(&sorted, &UInt32Array::from(indices))
         .map_err(ModelError::codec)
 }
+

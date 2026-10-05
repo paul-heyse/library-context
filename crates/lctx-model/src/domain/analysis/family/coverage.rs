@@ -1,6 +1,6 @@
 use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name=owner_table!("analysis_coverage"), validate = validate_coverage, invariants = coverage_invariants)]
+#[model(name=owner_table!("analysis_coverage"), validate = validate_coverage, invariant_refs = coverage_invariants_refs)]
 pub struct AnalysisCoverage {
     #[model(key)]
     pub invocation: Id<AnalysisInvocation>,
@@ -238,8 +238,8 @@ impl CoverageExpectation {
         Ok((row,members))
     }
 }
-fn coverage_invariants()->Vec<Invariant> {
-    vec![Invariant { name:owner_table!("analysis_coverage_membership"),inputs: coverage_inputs(),create:std::sync::Arc::new(|budget|Box::new(CoverageCheck { charge:charged::StateCharge::new(budget,"analysis_coverage_membership"),invocations:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),members:Default::default(),sources:Default::default(),native:Default::default(),normalized:Default::default(),predecessors:Default::default() })) }]
+pub(crate) fn coverage_invariants()->Vec<Invariant> {
+    vec![Invariant { revision: 1, name:owner_table!("analysis_coverage_membership"),inputs: coverage_inputs(),create:std::sync::Arc::new(|budget|Box::new(CoverageCheck { charge:charged::StateCharge::new(budget,"analysis_coverage_membership"),invocations:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),members:Default::default(),sources:Default::default(),native:Default::default(),normalized:Default::default(),predecessors:Default::default() })) }]
 }
 fn coverage_inputs()->Vec<ValidationInput> {let mut inputs=vec![
         ValidationInput::of::<AnalysisInvocation>(&["id"]),
@@ -350,10 +350,10 @@ fn bound_methods()->&'static [AnalysisMethod] {match AnalysisCoverage::NAME {
 "structural_analysis_coverage"=>&[AnalysisMethod::Delegation,AnalysisMethod::DirectUsage,AnalysisMethod::Handoffs,AnalysisMethod::Controls],
 _=>&[]}}
 
-pub(super) fn publication_checks()->Vec<PublicationInvariant> {
+pub(crate) fn publication_checks()->Vec<PublicationInvariant> {
     let mut inputs=vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<super::AnalysisOutcome>(&["id"]),ValidationInput::of::<CoverageRequirement>(&["id"]),ValidationInput::of::<CoverageRequiredSource>(&["id"]),ValidationInput::of::<AnalysisCoverage>(&["id"]),ValidationInput::of::<AnalysisCoveragePremise>(&["id"]),ValidationInput::of::<CoverageSource>(&["id"])];
     for method in bound_methods() {inputs.extend(crate::domain::analysis::expected::inputs(*method));}inputs.sort_by_key(|r|(r.name(),r.prefix()));inputs.dedup_by_key(|r|(r.name(),r.prefix()));
-    vec![PublicationInvariant {name:owner_table!("coverage_frontier"),inputs,create:std::sync::Arc::new(|budget|Box::new(FrontierCheck {charge:charged::StateCharge::new(budget,"analysis_coverage_frontier"),frontier:crate::domain::analysis::expected::FrontierIndex::new(stages::Profile::Catalog,budget),invocations:Default::default(),definitions:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),premises:Default::default(),sources:Default::default()}))}]
+    vec![PublicationInvariant {revision: 1,name:owner_table!("coverage_frontier"),inputs,create:std::sync::Arc::new(|budget|Box::new(FrontierCheck {charge:charged::StateCharge::new(budget,"analysis_coverage_frontier"),frontier:crate::domain::analysis::expected::FrontierIndex::new(stages::Profile::Catalog,budget),invocations:Default::default(),definitions:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),premises:Default::default(),sources:Default::default()}))}]
 }
 struct FrontierCheck {charge:charged::StateCharge,frontier:crate::domain::analysis::expected::FrontierIndex,invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,definitions:charged::ChargedMap<Id<AnalysisDefinition>,AnalysisDefinition>,outcomes:charged::ChargedMap<Id<AnalysisInvocation>,super::AnalysisOutcome>,requirements:charged::ChargedMap<Id<CoverageRequirement>,CoverageRequirement>,required:charged::ChargedMap<Id<CoverageRequirement>,std::collections::BTreeSet<Id<CoverageSource>>>,coverage:charged::ChargedMap<Id<AnalysisCoverage>,AnalysisCoverage>,premises:charged::ChargedMap<Id<AnalysisCoverage>,std::collections::BTreeSet<Id<CoverageSource>>>,sources:charged::ChargedMap<Id<CoverageSource>,CoverageSource>}
 impl PublicationCheck for FrontierCheck {
@@ -388,3 +388,6 @@ impl PublicationCheck for FrontierCheck {
         for id in self.premises.keys() {if !expected_coverage.contains(id) {return Err(invalid("orphan admitted coverage premise"));}}Ok(())
     }
 }
+
+pub(crate) fn coverage_invariants_refs() -> Vec<&'static str> { vec![owner_table!("analysis_coverage_membership")] }
+pub(crate) fn publication_checks_refs() -> Vec<&'static str> { vec![owner_table!("coverage_frontier")] }

@@ -13,7 +13,7 @@ pub struct AnalysisProposition {
     #[model(key)] pub qualification:Id<AssertionQualification>,
 }
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
-#[model(name=owner_table!("analysis_derivations"),invariants=support_invariants)]
+#[model(name=owner_table!("analysis_derivations"),invariant_refs=support_invariants_refs)]
 pub struct AnalysisDerivation {
     #[model(key)] pub invocation:Id<AnalysisInvocation>,
     #[model(key)] pub proposition:Id<AnalysisProposition>,
@@ -68,7 +68,7 @@ impl AnalysisDerivation {
     }
 }
 fn support_inputs()->Vec<ValidationInput> {let mut inputs=vec![ValidationInput::of::<AnalysisProposition>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<conditions::Condition>(&["id"]),ValidationInput::of::<conditions::ConditionNode>(&["id"]),ValidationInput::of::<NativeQualification>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"]),ValidationInput::of::<SupportSource>(&["id"]),ValidationInput::of::<AnalysisDerivationPremise>(&["id"])];predecessor_support_inputs(&mut inputs);inputs.extend(assumptions::AssumptionIndex::inputs());for input in ownership::ScopeIndex::inputs() {if !inputs.iter().any(|r|r.name()==input.name()) {inputs.push(input);}}inputs}
-fn support_invariants()->Vec<Invariant> {vec![Invariant {name:owner_table!("qualified_derivation"),inputs:support_inputs(),create:std::sync::Arc::new(|budget|Box::new(SupportCheck::new(budget)))}]}
+pub(crate) fn support_invariants()->Vec<Invariant> {vec![Invariant {revision: 1,name:owner_table!("qualified_derivation"),inputs:support_inputs(),create:std::sync::Arc::new(|budget|Box::new(SupportCheck::new(budget)))}]}
 struct SupportCheck {
     charge:charged::StateCharge,
     ownership:ownership::ScopeIndex,
@@ -157,3 +157,5 @@ impl EvidenceIndex {
     }
     pub fn get(&self,id:Id<SupportSource>)->Result<(&SupportSource,SourceFacts),ModelError> {let source=self.sources.get(&id).ok_or_else(||invalid("nominal support source absent"))?;let facts=*self.facts.get(&source.reference()).ok_or_else(||invalid("immutable source evidence absent"))?;Ok((source,facts))}
 }
+
+pub(crate) fn support_invariants_refs() -> Vec<&'static str> { vec![owner_table!("qualified_derivation")] }

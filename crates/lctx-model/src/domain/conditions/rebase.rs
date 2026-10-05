@@ -102,8 +102,9 @@ impl GuardIndex {
         }
     }
 }
-pub(super) fn guard_invariants() -> Vec<Invariant> {
+pub(crate) fn guard_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "invoked_guard_origins",
         inputs: vec![
             ValidationInput::of::<Predicate>(&["id"]),
@@ -455,3 +456,5 @@ fn lookup<R: Record>(rows: &BTreeMap<Id<R>, R>, id: Id<R>) -> Result<&R, Obligat
     }
     Ok(row)
 }
+
+pub(crate) fn guard_invariants_refs() -> Vec<&'static str> { vec!["invoked_guard_origins"] }

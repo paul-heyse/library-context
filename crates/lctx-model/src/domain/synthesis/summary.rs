@@ -10,7 +10,7 @@ use crate::domain::{
     *,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="synthesis_summary_facets",rule="synthesis_summary_facet",invariants=invariants,semantic_source=include_bytes!("summary.rs"))]
+#[model(name="synthesis_summary_facets",rule="synthesis_summary_facet",invariant_refs=invariants_refs,semantic_source=include_bytes!("summary.rs"))]
 pub struct SummaryFacet {
     #[model(key)]
     pub frame: Id<frames::Frame>,
@@ -256,6 +256,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     vec![Invariant {
+        revision: 1,
         name: "synthesis_exact_summary_facets",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -829,3 +830,5 @@ mod tests {
         }
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_exact_summary_facets"] }

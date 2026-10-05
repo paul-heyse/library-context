@@ -60,7 +60,7 @@ pub enum DefaultSlot {
     NativeUnknown = 3,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "effective_callable_assessments", validate = validate_assessment, invariants = super::callable_normalization::invariants)]
+#[model(name = "effective_callable_assessments", validate = validate_assessment, invariant_refs = super::callable_normalization::invariants_refs)]
 pub struct EffectiveCallableAssessment {
     #[model(key)]
     pub callable: Id<CallableEntity>,
@@ -194,3 +194,4 @@ pub fn relations() -> Vec<Relation> {
     macro_rules! declare { ($($field:ident: $ty:ty,)*) => { vec![$(Relation::of::<$ty>()),*] }; }
     crate::normalized_callable_outputs!(declare)
 }
+

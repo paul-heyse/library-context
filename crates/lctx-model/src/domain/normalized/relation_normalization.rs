@@ -895,6 +895,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = RelationData::validation_inputs();
     inputs.extend(RelationOutput::validation_inputs());
     vec![Invariant {
+        revision: 1,
         name: "normalized_relationship_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -948,3 +949,5 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         configuration: ContentHash::of(b"relations/v1"),
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_relationship_closure"] }

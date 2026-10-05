@@ -118,10 +118,5 @@ impl AdmissionData {
         Ok(())
     }
 }
-/// Existing canonical validators whose receipts establish this narrow metadata's closure.
-pub const VALIDATORS: &[&str] = &[
-    "catalog_selection_declaration_closure",
-    "catalog_selection_invocation_domain",
-    "selection_analysis_invocation_inputs",
-    "selection_analysis_coverage_membership",
-];
+
+

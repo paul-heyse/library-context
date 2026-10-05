@@ -80,7 +80,7 @@ pub enum SyntaxField {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "lexical_scopes", invariants = lexical_invariants)]
+#[model(name = "lexical_scopes", invariant_refs = lexical_invariants_refs)]
 pub struct LexicalScope {
     #[model(key)]
     pub owner: Id<Occurrence>,
@@ -213,8 +213,9 @@ pub struct LexicalResolution {
     pub captured: bool,
 }
 
-fn lexical_invariants() -> Vec<Invariant> {
+pub(crate) fn lexical_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "lexical_source_structure",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
@@ -385,3 +386,5 @@ impl InvariantCheck for LexicalCheck {
         Ok(())
     }
 }
+
+pub(crate) fn lexical_invariants_refs() -> Vec<&'static str> { vec!["lexical_source_structure"] }

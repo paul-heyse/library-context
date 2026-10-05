@@ -1,13 +1,13 @@
 //! Immutable analysis publications have finite nominal owners. Native attribution stays separate.
-mod config;
+pub(crate) mod config;
 pub mod coverage;
 pub mod delegation;
 pub mod expected;
-mod family;
+pub(crate) mod family;
 pub mod findings;
 pub mod frontier;
 pub mod native;
-mod obligation_support;
+pub(crate) mod obligation_support;
 pub mod policy;
 pub mod preparation;
 pub mod settings;
@@ -107,3 +107,4 @@ pub fn catalog_publication_relations() -> Vec<Relation> {
 fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
+

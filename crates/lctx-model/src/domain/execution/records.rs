@@ -30,7 +30,7 @@ pub enum EvaluationSource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="base_expression_evaluations",rule="base_closed_expression",invariants=base_invariants)]
+#[model(name="base_expression_evaluations",rule="base_closed_expression",invariant_refs=base_invariants_refs)]
 pub struct ExpressionEvaluation {
     #[model(key, premise)]
     pub invocation: Id<AnalysisInvocation>,
@@ -282,6 +282,7 @@ pub fn base_invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|input| (input.name(), input.prefix()));
     inputs.dedup_by_key(|input| (input.name(), input.prefix()));
     vec![Invariant {
+        revision: 1,
         name: "base_closed_expression_replay",
         inputs,
         create: std::sync::Arc::new(|budget| Box::new(BaseCheck::new(budget))),
@@ -518,3 +519,5 @@ impl BaseCheck {
         Ok(checked)
     }
 }
+
+pub(crate) fn base_invariants_refs() -> Vec<&'static str> { vec!["base_closed_expression_replay"] }

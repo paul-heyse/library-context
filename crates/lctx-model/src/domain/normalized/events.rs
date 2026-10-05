@@ -97,7 +97,7 @@ pub enum PolicyReason {
     UncertainEvent = 5,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "normalized_call_events", invariants = super::event_normalization::invariants)]
+#[model(name = "normalized_call_events", invariant_refs = super::event_normalization::invariants_refs)]
 pub struct NormalizedCallEvent {
     #[model(key)]
     pub site: Id<source::Occurrence>,
@@ -252,3 +252,4 @@ pub fn relations() -> Vec<Relation> {
     macro_rules! declare { ($($field:ident: $ty:ty,)*) => { vec![$(Relation::of::<$ty>()),*] }; }
     crate::normalized_event_outputs!(declare)
 }
+

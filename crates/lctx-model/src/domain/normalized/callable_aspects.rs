@@ -53,7 +53,7 @@ pub enum AspectSource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="callable_aspects",invariants=invariants,semantic_source=include_bytes!("callable_aspects.rs"))]
+#[model(name="callable_aspects",invariant_refs=invariants_refs,semantic_source=include_bytes!("callable_aspects.rs"))]
 pub struct CallableAspect {
     #[model(key)]
     pub assessment: Id<EffectiveCallableAssessment>,
@@ -973,6 +973,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = super::facts_inputs(AspectData::inputs());
     inputs.extend(AspectOutput::inputs());
     vec![Invariant {
+        revision: 1,
         name: "normalized_callable_aspects",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -1147,3 +1148,5 @@ mod span_index_controls {
         assert!(scan(&index, &empty, nominal(99)).unwrap().is_empty());
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_callable_aspects"] }

@@ -13,7 +13,7 @@ use crate::domain::{
     *,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="summary_proof_costs",rule="finite_summary_proof_cost",invariants=invariants)]
+#[model(name="summary_proof_costs",rule="finite_summary_proof_cost",invariant_refs=invariants_refs)]
 pub struct SummaryProofCost {
     #[model(key, premise)]
     pub proof: Id<SummaryPremise>,
@@ -90,8 +90,9 @@ pub fn limits(
 pub fn relations() -> Vec<Relation> {
     vec![Relation::of::<SummaryProofCost>()]
 }
-fn invariants() -> Vec<Invariant> {
+pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "finite_summary_cost_equations",
         inputs: vec![
             ValidationInput::of::<SummaryProofCost>(&["rank", "id"]),
@@ -225,3 +226,5 @@ impl InvariantCheck for CostCheck {
         Ok(())
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["finite_summary_cost_equations"] }

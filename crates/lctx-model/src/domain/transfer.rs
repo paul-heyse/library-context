@@ -56,7 +56,7 @@ macro_rules! transfer_family {
  ($owner:ident,$prefix:literal,$support_name:literal,$source:path,$($controls:tt)*) => {pub mod $owner {
  use super::*;
  #[derive(Debug,Clone,PartialEq,Eq,Domain)]
- #[model(name=concat!($prefix,"_transfer_keys"),invariants=family_invariants)]
+ #[model(name=concat!($prefix,"_transfer_keys"),invariant_refs=family_invariants_refs)]
  pub struct TransferKey {
     #[model(key)]
     pub owner: Id<EntityRef>,
@@ -104,7 +104,8 @@ macro_rules! transfer_family {
  fn inputs()->Vec<ValidationInput> {let mut rows=<Id<Place> as assertion::SubjectValue>::inputs();rows.push(ValidationInput::of::<TransferKey>(&["id"]));rows}
  fn append_subjects(&self,rows:&mut Vec<assertion::Subject>) {rows.push(assertion::Subject::Transfer(RowRef::of(*self)));}
  }
- fn family_invariants()->Vec<Invariant> {frame_invariants::<TransferKey>()}
+ pub(crate) fn family_invariants()->Vec<Invariant> {frame_invariants::<TransferKey>()}
+ fn family_invariants_refs()->Vec<&'static str> {vec![TransferKey::NAME]}
  pub fn relations()->Vec<Relation> {vec![Relation::of::<TransferKey>(),Relation::of::<TransferAlternative>(),Relation::of::<TransferSupport>()]}
  $($controls)*
  }};
@@ -127,7 +128,7 @@ pub struct ControlInfluence {
 /// A typed derivation edge: this supported influence reaches an atom guarding this supported
 /// alternative of a stable transfer. It is not a value flow from the influencing place.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = $selection_name, invariants = control_invariants, rule = "control_selects_transfer")]
+#[model(name = $selection_name, invariant_refs = control_invariants_refs, rule = "control_selects_transfer")]
 pub struct Selection {
     #[model(key, premise)]
     pub influence: Id<ControlInfluence>,
@@ -141,7 +142,8 @@ pub struct Selection {
 
 impl ControlRecord for ControlInfluence {fn atom(&self)->Id<EvaluationAtom> {self.atom}fn evaluation(&self)->Id<Occurrence> {self.evaluation}}
 impl SelectionRecord for Selection {type Transfer=TransferKey;type Control=ControlInfluence;fn influence(&self)->Id<ControlInfluence> {self.influence}fn atom(&self)->Id<EvaluationAtom> {self.atom}fn alternative(&self)->Id<TransferAlternative> {self.alternative}fn transfer(&self)->Id<TransferKey> {self.transfer}}
-fn control_invariants()->Vec<Invariant> {super::control_invariants::<TransferKey,ControlInfluence,Selection>()}
+pub(crate) fn control_invariants()->Vec<Invariant> {super::control_invariants::<TransferKey,ControlInfluence,Selection>()}
+ fn control_invariants_refs()->Vec<&'static str> {vec![Selection::NAME]}
 
  };
 }
@@ -158,7 +160,7 @@ transfer_family!(summary,"summary","summary_transfer_supports",crate::domain::an
 control_family!("summary_control_influences","summary_control_supports","summary_transfer_selections",crate::domain::analysis::summary::SupportSource);
 pub use super::witness::{SummaryPremise,SummaryWitness,SummaryContribution,WitnessBranch,TransferEvidence};
 );
-mod witness;
+pub(crate) mod witness;
 /// Read-only typed projection used by the shared support validator. Membership stays nominal.
 pub(crate) fn subject_rows(
     relation: &str,
@@ -394,6 +396,7 @@ pub fn merge<K: TransferKeyRecord>(
 }
 fn frame_invariants<K: TransferKeyRecord>() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: K::NAME,
         inputs: vec![
             ValidationInput::of::<EntityRef>(&["id"]),
@@ -489,6 +492,7 @@ fn control_invariants<
     S: SelectionRecord<Transfer = K, Control = I>,
 >() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: S::NAME,
         inputs: vec![
             ValidationInput::of::<AssertionQualification>(&["id"]),
@@ -627,3 +631,4 @@ impl<K: TransferKeyRecord, I: ControlRecord, S: SelectionRecord<Transfer = K, Co
         Ok(())
     }
 }
+

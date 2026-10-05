@@ -1,10 +1,10 @@
 //! Mandatory public catalog. Normalized/raw contracts remain their single semantic owners.
 pub mod access_routes;
-mod aliases;
+pub(crate) mod aliases;
 pub mod build;
 pub mod evidence;
-mod inventory;
-mod paths;
+pub(crate) mod inventory;
+pub(crate) mod paths;
 use crate::domain::{
     input::InputRevision,
     normalized::{callables::*, entities::*, links::*},
@@ -18,7 +18,7 @@ use crate::domain::{
 use crate::{Domain, DomainCode, DomainSum};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_members",validate=validate_member,invariants=build::invariants,semantic_source=include_bytes!("build.rs"))]
+#[model(name="catalog_members",validate=validate_member,invariant_refs=build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct CatalogMember {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -222,7 +222,7 @@ pub fn core_relations() -> Vec<Relation> {
 }
 /// Each slot's contextual computation has exact admitted source receipts and coverage.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_member_invocations",invariants=build::invocation_invariants,semantic_source=include_bytes!("build.rs"))]
+#[model(name="catalog_member_invocations",invariant_refs=build::invocation_invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct CatalogMemberInvocation {
     #[model(key)]
     pub member: Id<CatalogMember>,
@@ -311,3 +311,4 @@ pub fn relations() -> Vec<Relation> {
     rows.extend(evidence::relations());
     rows
 }
+

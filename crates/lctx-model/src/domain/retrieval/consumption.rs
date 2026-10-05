@@ -19,7 +19,7 @@ use crate::domain::{
     resources::ResourceBudget,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="retrieval_embedding_uses",validate=validate_use,invariants=invariants)]
+#[model(name="retrieval_embedding_uses",validate=validate_use,invariant_refs=invariants_refs)]
 pub struct RetrievalEmbeddingUse {
     #[model(key)]
     pub invocation: Id<AnalysisInvocation>,
@@ -321,6 +321,7 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<RetrievalEmbeddingUse>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "retrieval_embedding_consumption_and_winners",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -362,3 +363,5 @@ impl InvariantCheck for Check {
             .verify(&self.invocations, &self.outcomes, &self.uses, &self.budget)
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["retrieval_embedding_consumption_and_winners"] }

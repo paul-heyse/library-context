@@ -86,7 +86,7 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
 };}
 crate::local_semantic_inputs!(data);
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="local_flow_assessments",invariants=local_invariants)]
+#[model(name="local_flow_assessments",invariant_refs=local_invariants_refs)]
 pub struct LocalAssessment {
     #[model(key)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -448,7 +448,7 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<crate::domain::atom_decision::AtomRestriction>(),
     ]
 }
-fn local_invariants() -> Vec<Invariant> {
+pub(crate) fn local_invariants() -> Vec<Invariant> {
     let mut inputs = LocalData::validation_inputs();
     inputs.extend([
         ValidationInput::of::<publication::AnalysisInvocation>(&["id"]),
@@ -463,6 +463,7 @@ fn local_invariants() -> Vec<Invariant> {
         ValidationInput::of::<ControlInfluence>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "local_semantic_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -1504,3 +1505,5 @@ fn produce_fields(
     }
     Ok(())
 }
+
+pub(crate) fn local_invariants_refs() -> Vec<&'static str> { vec!["local_semantic_replay"] }

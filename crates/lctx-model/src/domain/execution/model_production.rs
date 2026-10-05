@@ -124,7 +124,7 @@ pub struct ActionPostcondition {
     pub phase: ActionPhase,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="model_runs",invariants=run_invariants,publication_checks=profile_checks)]
+#[model(name="model_runs",invariant_refs=run_invariants_refs,publication_refs=profile_checks_refs)]
 pub struct ModelRun {
     #[model(key)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -745,8 +745,9 @@ fn run_inputs() -> Vec<ValidationInput> {
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     inputs
 }
-fn run_invariants() -> Vec<Invariant> {
+pub(crate) fn run_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "model_inventory_replay",
         inputs: run_inputs(),
         create: std::sync::Arc::new(|budget| Box::new(ModelCheck::new(budget))),
@@ -769,8 +770,9 @@ impl InvariantCheck for ModelCheck{
 }
 };}
 output_rows!(checker);
-fn profile_checks() -> Vec<PublicationInvariant> {
+pub(crate) fn profile_checks() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "model_profile",
         inputs: vec![
             ValidationInput::of::<ModelRun>(&["id"]),
@@ -887,7 +889,8 @@ pub fn stage(
         ValidationInput::of::<attribution::ProviderCoverage>(&["id"]),
     ]);
     for relation in &outputs {
-        for check in relation.publication_checks() {
+        for id in relation.publication_refs() {
+            let check = model.publication_check(id)?;
             initial.extend(check.inputs.iter().cloned());
         }
     }
@@ -921,3 +924,6 @@ pub fn stage(
         configuration: key.finish(),
     })
 }
+
+pub(crate) fn run_invariants_refs() -> Vec<&'static str> { vec!["model_inventory_replay"] }
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["model_profile"] }

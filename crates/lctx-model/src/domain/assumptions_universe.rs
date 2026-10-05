@@ -8,7 +8,7 @@ use super::{
 };
 use crate::Domain;
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "assumption_universe_supports", rule = "pinned_assumption_universe", conclusion = universe, invariants = invariants)]
+#[model(name = "assumption_universe_supports", rule = "pinned_assumption_universe", conclusion = universe, invariant_refs = invariants_refs)]
 pub struct AssumptionUniverseSupport {
     #[model(key)]
     pub universe: Id<AssumptionUniverse>,
@@ -49,8 +49,9 @@ impl AssumptionUniverseSupport {
 fn invalid(s: &str) -> ModelError {
     ModelError::Invalid(s.into())
 }
-fn invariants() -> Vec<Invariant> {
+pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "actual_pinned_assumption_universe",
         inputs: vec![
             ValidationInput::of::<AssumptionUniverse>(&["id"]),
@@ -142,3 +143,5 @@ impl InvariantCheck for Check {
         Ok(())
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["actual_pinned_assumption_universe"] }

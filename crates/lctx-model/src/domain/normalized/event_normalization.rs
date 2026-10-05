@@ -850,6 +850,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = EventData::validation_inputs();
     inputs.extend(EventOutput::validation_inputs());
     vec![Invariant {
+        revision: 1,
         name: "normalized_event_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -908,3 +909,5 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         configuration: ContentHash::of(b"events/v1"),
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_event_closure"] }

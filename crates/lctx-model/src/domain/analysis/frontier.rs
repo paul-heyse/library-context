@@ -21,7 +21,7 @@ pub enum Target {
     Catalog,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="analysis_frontier_assessments",publication_checks=analysis_checks)]
+#[model(name="analysis_frontier_assessments",publication_refs=analysis_checks_refs)]
 pub struct AnalysisAssessment {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -35,7 +35,7 @@ pub struct AnalysisAssessment {
     pub reason: Option<ObligationKind>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_frontier_assessments",rule="final_catalog_assessment",publication_checks=catalog_checks)]
+#[model(name="catalog_frontier_assessments",rule="final_catalog_assessment",publication_refs=catalog_checks_refs)]
 pub struct CatalogAssessment {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -326,6 +326,7 @@ fn checks(target: Target) -> Vec<PublicationInvariant> {
         ]),
     };
     vec![PublicationInvariant {
+        revision: 1,
         name: match target {
             Target::Analysis => "complete_analysis_frontier",
             Target::Catalog => "complete_catalog_frontier",
@@ -341,10 +342,10 @@ fn checks(target: Target) -> Vec<PublicationInvariant> {
         }),
     }]
 }
-fn analysis_checks() -> Vec<PublicationInvariant> {
+pub(crate) fn analysis_checks() -> Vec<PublicationInvariant> {
     checks(Target::Analysis)
 }
-fn catalog_checks() -> Vec<PublicationInvariant> {
+pub(crate) fn catalog_checks() -> Vec<PublicationInvariant> {
     checks(Target::Catalog)
 }
 struct Check {
@@ -584,7 +585,7 @@ mod tests {
                 && r.name() != CatalogMember::NAME
         });
         declarations.extend(analysis_relations());
-        ValidatedModel::validate(declarations)
+        ValidatedModel::declared(declarations)
             .expect("Analysis frontier independently closes without Catalog successors");
         assert!(
             Relation::of::<AnalysisMember>()
@@ -724,3 +725,6 @@ mod tests {
         );
     }
 }
+
+pub(crate) fn analysis_checks_refs() -> Vec<&'static str> { vec!["complete_analysis_frontier"] }
+pub(crate) fn catalog_checks_refs() -> Vec<&'static str> { vec!["complete_catalog_frontier"] }

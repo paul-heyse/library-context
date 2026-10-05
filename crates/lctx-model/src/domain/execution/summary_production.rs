@@ -58,7 +58,7 @@ pub enum SummaryOrigin {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="summary_runs",invariants=super::summary_replay::invariants,publication_checks=super::summary_replay::profile_checks)]
+#[model(name="summary_runs",invariant_refs=super::summary_replay::invariants_refs,publication_refs=super::summary_replay::profile_checks_refs)]
 pub struct SummaryRun {
     #[model(key)]
     pub invocation: Id<owner::AnalysisInvocation>,
@@ -2298,3 +2298,4 @@ mod assumption_controls {
         assert_eq!(progress.branches.len(), 2);
     }
 }
+

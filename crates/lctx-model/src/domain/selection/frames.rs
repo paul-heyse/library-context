@@ -122,6 +122,7 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<SelectionInvocation>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "catalog_selection_invocation_domain",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -176,3 +177,5 @@ impl InvariantCheck for Check {
         )
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["catalog_selection_invocation_domain"] }

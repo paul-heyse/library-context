@@ -62,7 +62,7 @@ impl FieldData<'_> {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="local_field_location_assessments",invariants=field_invariants)]
+#[model(name="local_field_location_assessments",invariant_refs=field_invariants_refs)]
 pub struct FieldLocationAssessment {
     #[model(key)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -482,7 +482,7 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<crate::domain::local_symbolic::SymbolicFieldStore>(),
     ]
 }
-fn field_invariants() -> Vec<Invariant> {
+pub(crate) fn field_invariants() -> Vec<Invariant> {
     let mut inputs = FieldData::validation_inputs();
     inputs.extend([
         ValidationInput::of::<publication::AnalysisInvocation>(&["id"]),
@@ -492,6 +492,7 @@ fn field_invariants() -> Vec<Invariant> {
     macro_rules! output{($($field:ident:$ty:ty,)*)=>{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}
     crate::local_field_outputs!(output);
     vec![Invariant {
+        revision: 1,
         name: "local_field_location_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -627,3 +628,5 @@ impl InvariantCheck for FieldCheck {
         Ok(())
     }
 }
+
+pub(crate) fn field_invariants_refs() -> Vec<&'static str> { vec!["local_field_location_replay"] }

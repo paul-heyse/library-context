@@ -46,7 +46,7 @@ fn validate_release(value: &Release) -> Result<(), ModelError> {
 
 /// The digest covers all analyzer-visible entries. Provenance and display labels live separately.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "input_revisions", invariants = input_invariants)]
+#[model(name = "input_revisions", invariant_refs = input_invariants_refs)]
 pub struct InputRevision {
     #[model(key)]
     pub manifest: ContentHash,
@@ -91,7 +91,7 @@ pub enum InputOrigin {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "input_acquisitions", invariants = acquisition_invariants)]
+#[model(name = "input_acquisitions", invariant_refs = acquisition_invariants_refs)]
 pub struct InputAcquisition {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -171,8 +171,9 @@ impl ManifestBuilder {
         self.sink.finish()
     }
 }
-fn input_invariants() -> Vec<Invariant> {
+pub(crate) fn input_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "input_manifest_membership",
         inputs: vec![
             ValidationInput::of::<InputRevision>(&["id"]),
@@ -289,7 +290,7 @@ fn validate_distribution(row: &DistributionVerification) -> Result<(), ModelErro
     Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "artifact_ownership", invariants = ownership_invariants)]
+#[model(name = "artifact_ownership", invariant_refs = ownership_invariants_refs)]
 pub struct ArtifactOwnership {
     #[model(key)]
     pub artifact: Id<super::source::SourceArtifact>,
@@ -330,7 +331,7 @@ pub const DERIVED_ROOT: &str = "_lctx/";
 /// A captured artifact no verified distribution's `RECORD` owns: a loose file or an unowned stub in
 /// an environment, or any file of a tree or corpus input.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "unowned_artifacts", invariants = class_invariants)]
+#[model(name = "unowned_artifacts", invariant_refs = class_invariants_refs)]
 pub struct UnownedArtifact {
     #[model(key)]
     pub artifact: Id<super::source::SourceArtifact>,
@@ -414,8 +415,9 @@ fn validate_fingerprint(row: &EnvironmentFingerprint) -> Result<(), ModelError> 
 /// Every captured artifact has at most one class: owned by distributions, unowned, or derived. Only
 /// derived artifacts live under `_lctx/`, each derived from an original document of its own input,
 /// within that document's bytes. Facts admission requires every artifact to have a class.
-fn class_invariants() -> Vec<Invariant> {
+pub(crate) fn class_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "artifact_classes",
         inputs: vec![
             ValidationInput::of::<InputAcquisition>(&["id"]),
@@ -584,8 +586,9 @@ impl InvariantCheck for ClassCheck {
     }
 }
 
-fn ownership_invariants() -> Vec<Invariant> {
+pub(crate) fn ownership_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "artifact_ownership_input",
         inputs: vec![
             ValidationInput::of::<InputAcquisition>(&["id"]),
@@ -674,8 +677,9 @@ impl InvariantCheck for OwnershipCheck {
     }
 }
 
-fn acquisition_invariants() -> Vec<Invariant> {
+pub(crate) fn acquisition_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "input_acquisition_boundaries",
         inputs: vec![
             ValidationInput::of::<InputOrigin>(&["id"]),
@@ -813,3 +817,8 @@ impl InvariantCheck for AcquisitionBoundaries {
         Ok(())
     }
 }
+
+pub(crate) fn input_invariants_refs() -> Vec<&'static str> { vec!["input_manifest_membership"] }
+pub(crate) fn class_invariants_refs() -> Vec<&'static str> { vec!["artifact_classes"] }
+pub(crate) fn ownership_invariants_refs() -> Vec<&'static str> { vec!["artifact_ownership_input"] }
+pub(crate) fn acquisition_invariants_refs() -> Vec<&'static str> { vec!["input_acquisition_boundaries"] }

@@ -220,17 +220,8 @@ impl PreparationInputs {
 
 /// Shared owner validators are executed by the repository against their exact declared epochs.
 pub fn preparation_invariants() -> Vec<Invariant> {
-    let mut invariants = EntryValueWitness::invariants();
-    invariants.extend(EvaluationAtom::invariants());
-    invariants.extend(EffectiveCallableAssessment::invariants());
-    invariants.extend(SignatureVariant::invariants());
-    invariants.extend(SignatureSlot::invariants());
-    invariants.extend(LocalGuardContribution::invariants());
-    invariants.extend(SummaryWitness::invariants());
-    invariants.extend(SummaryRun::invariants());
-    invariants.extend(stability::StabilityWitness::invariants());
-    invariants.extend(stability::GuardSubstitution::invariants());
-    invariants
+    let required_relations = vec![Relation::of::<EntryValueWitness>(), Relation::of::<EvaluationAtom>(), Relation::of::<EffectiveCallableAssessment>(), Relation::of::<SignatureVariant>(), Relation::of::<SignatureSlot>(), Relation::of::<LocalGuardContribution>(), Relation::of::<SummaryWitness>(), Relation::of::<SummaryRun>(), Relation::of::<stability::StabilityWitness>(), Relation::of::<stability::GuardSubstitution>()];
+    validation::definitions().required_for(&required_relations).expect("canonical preparation definitions").invariants
 }
 
 #[derive(Default)]
@@ -908,3 +899,4 @@ impl PreparedNativeSemantics {
         }
     }
 }
+

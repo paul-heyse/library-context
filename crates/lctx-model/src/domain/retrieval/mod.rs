@@ -1,7 +1,7 @@
 //! Canonical retrieval preparation. Renderings aid discovery; anchors retain semantic authority.
 pub mod build;
 pub mod consumption;
-mod inventory;
+pub(crate) mod inventory;
 pub mod source;
 use crate::domain::{
     attribution::AnalysisContext,
@@ -94,7 +94,7 @@ fn validate_text(r: &CorpusText) -> Result<(), ModelError> {
     Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="retrieval_units",invariants=build::invariants,semantic_source=include_bytes!("build.rs"))]
+#[model(name="retrieval_units",invariant_refs=build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct Unit {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -203,3 +203,4 @@ pub fn relations() -> Vec<Relation> {
 }
 
 pub type Definition = RetrievalDefinition;
+

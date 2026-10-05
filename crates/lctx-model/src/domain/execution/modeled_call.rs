@@ -17,7 +17,7 @@ use crate::domain::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="modeled_call_evaluations",rule="modeled_call_evaluation",invariants=super::enriched_production::modeled_invariants)]
+#[model(name="modeled_call_evaluations",rule="modeled_call_evaluation",invariant_refs=super::enriched_production::modeled_invariants_refs)]
 pub struct ModeledCallEvaluation {
     #[model(key, premise)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -290,3 +290,4 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<ModeledCallNative>(),
     ]
 }
+

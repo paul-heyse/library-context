@@ -890,6 +890,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = EntityData::validation_inputs();
     inputs.extend(EntityOutput::validation_inputs());
     vec![Invariant {
+        revision: 1,
         name: "normalized_entity_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -938,3 +939,5 @@ pub fn stage() -> stages::Stage {
         configuration: ContentHash::of(b"entities/v1"),
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_entity_closure"] }

@@ -96,7 +96,7 @@ pub struct ClaimStanding {
     pub reason: Option<ObligationKind>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
-#[model(name="summary_claim_proofs",rule="checked_summary_claim",invariants=refutation_invariants)]
+#[model(name="summary_claim_proofs",rule="checked_summary_claim",invariant_refs=refutation_invariants_refs)]
 pub enum ClaimProof {
     #[model(code = 0)]
     Finite {
@@ -1091,8 +1091,9 @@ pub fn relations() -> Vec<Relation> {
     ]
 }
 
-fn refutation_invariants() -> Vec<Invariant> {
+pub(crate) fn refutation_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "checked_finite_refutation_membership",
         inputs: vec![
             ValidationInput::of::<ClaimProof>(&["id"]),
@@ -1465,3 +1466,5 @@ mod tests {
         assert!(matches!(decisions.decide(1), Standing::Proved { proof: 7 }));
     }
 }
+
+pub(crate) fn refutation_invariants_refs() -> Vec<&'static str> { vec!["checked_finite_refutation_membership"] }

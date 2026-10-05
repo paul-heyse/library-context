@@ -1,9 +1,9 @@
 //! Normalized semantic identities and total attributed relationships (ADR-0103).
-mod binding_inventory;
+pub(crate) mod binding_inventory;
 pub mod binding_normalization;
 pub mod bindings;
 pub mod callable_aspects;
-mod callable_inventory;
+pub(crate) mod callable_inventory;
 pub mod callable_normalization;
 pub mod callables;
 pub mod coverage;
@@ -11,19 +11,19 @@ pub mod decorator_identity;
 pub mod dispatch;
 pub mod entities;
 pub mod entity_normalization;
-mod event_inventory;
+pub(crate) mod event_inventory;
 pub mod event_normalization;
 pub mod events;
 pub mod generic_specialization;
-mod inventory;
+pub(crate) mod inventory;
 pub mod links;
 pub mod overload_association;
 pub mod parameter_correspondence;
 pub mod receiver;
-mod receiver_inventory;
-mod relation_inventory;
+pub(crate) mod receiver_inventory;
+pub(crate) mod relation_inventory;
 pub mod relation_normalization;
-mod rows;
+pub(crate) mod rows;
 pub mod signature_applicability;
 pub mod symbolic_fields;
 use super::*;
@@ -87,8 +87,9 @@ pub fn facts_stage_inputs(inputs: Vec<stages::RelationUse>) -> Vec<stages::Relat
     inputs
 }
 
-mod native_lexical;
+pub(crate) mod native_lexical;
 
 pub mod contract_comparison;
 
 pub mod incoming_references;
+

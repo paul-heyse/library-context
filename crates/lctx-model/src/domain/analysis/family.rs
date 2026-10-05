@@ -133,7 +133,7 @@ macro_rules! analysis_family {
             fn predecessor_support_inputs(inputs:&mut Vec<ValidationInput>) {$(inputs.push(ValidationInput::of::<$proof_type>(&["id"]));)*$(inputs.push(ValidationInput::of::<super::$support_predecessor::AnalysisDerivation>(&["id"]));)*}
             #[allow(unused_variables,reason="Owners without predecessors instantiate an empty repetition")]
             fn visit_predecessor_support(relation:&str,batch:&arrow_array::RecordBatch,rows:&mut charged::ChargedMap<derivation::RowRef,super::support::SourceFacts>,charge:&mut charged::StateCharge)->Result<bool,ModelError> {$(if relation==<$proof_type>::NAME {for row in <$proof_type>::decode(batch)? {rows.insert(charge,derivation::RowRef::of(row.id()),super::support::DerivedEvidence::source_facts(&row))?;}return Ok(true);})*$(if relation==super::$support_predecessor::AnalysisDerivation::NAME {for row in super::$support_predecessor::AnalysisDerivation::decode(batch)? {rows.insert(charge,derivation::RowRef::of(row.id()),row.facts())?;}return Ok(true);})* Ok(false)}
-            mod invocation {include!("family/invocation.rs");}
+            pub(crate) mod invocation {include!("family/invocation.rs");}
             pub use invocation::*;
             pub mod coverage {include!("family/coverage.rs");}
             pub use coverage::{AnalysisCoverage,AnalysisCoveragePremise,CoverageRequirement,CoverageRequiredSource};
@@ -157,3 +157,4 @@ macro_rules! analysis_family {
     };
 }
 pub(crate) use analysis_family;
+

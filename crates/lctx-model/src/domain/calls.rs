@@ -5,7 +5,7 @@ use super::{assertion::*, attribution::*, source::*, *};
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 use std::collections::{BTreeMap, BTreeSet};
 
-mod signature_enumeration;
+pub(crate) mod signature_enumeration;
 pub use signature_enumeration::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
@@ -37,7 +37,7 @@ pub enum ModuleBundle {
 /// provider and context, as is an unresolved module, which keeps the provider's spelling and never
 /// equals a resolved one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
-#[model(name = "provider_modules", validate = validate_provider_module, invariants = provider_module_invariants)]
+#[model(name = "provider_modules", validate = validate_provider_module, invariant_refs = provider_module_invariants_refs)]
 pub enum ProviderModule {
     #[model(code = 0)]
     Acquired { module: Id<Module> },
@@ -75,7 +75,7 @@ fn validate_provider_module(row: &ProviderModule) -> Result<(), ModelError> {
 /// A provider's native symbol key, qualified by its pinned provider and analysis context.
 /// Cross-provider equivalence is a later attributed relationship, never a spelling join.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "provider_symbols", validate = validate_symbol, invariants = native_support_invariants)]
+#[model(name = "provider_symbols", validate = validate_symbol, invariant_refs = native_support_invariants_refs)]
 pub struct ProviderSymbol {
     #[model(key, provenance)]
     pub provider: Id<Provider>,
@@ -148,8 +148,9 @@ impl ProviderCallable {
         Ok(symbol.module)
     }
 }
-fn provider_module_invariants() -> Vec<Invariant> {
+pub(crate) fn provider_module_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "provider_module_owners",
         inputs: vec![
             ValidationInput::of::<ProviderModule>(&["id"]),
@@ -290,7 +291,7 @@ impl SignatureRole {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "signature_observations", invariants = signature_invariants)]
+#[model(name = "signature_observations", invariant_refs = signature_invariants_refs)]
 #[assertion(support = SignatureSupport, name = "signature_supports", family = FactFamily::Signatures, subjects(scope))]
 pub struct Signature {
     #[model(key)]
@@ -437,8 +438,9 @@ fn validate_shapes(form: SignatureForm, parameters: &[ParameterShape]) -> Result
     }
     Ok(())
 }
-fn signature_invariants() -> Vec<Invariant> {
+pub(crate) fn signature_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "complete_signature_membership",
         inputs: vec![
             ValidationInput::of::<AssertionQualification>(&["id"]),
@@ -658,7 +660,7 @@ pub enum Receiver {
     Unknown { reason: ObligationKind },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "call_target_observations", invariants = target_invariants)]
+#[model(name = "call_target_observations", invariant_refs = target_invariants_refs)]
 #[assertion(support = CallTargetSupport, name = "call_target_supports", family = FactFamily::Calls, subjects(site), referents(destination, receiver_class))]
 pub struct CallTarget {
     #[model(key)]
@@ -737,7 +739,7 @@ pub const MAX_ORIGIN_STEPS: usize = 64;
 /// is `tail`'s steps, then `head`'s (the order it displays). The origin is the one authority on
 /// whether an event is implicit; a support's origin states only who asserts it.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "call_origins", invariants = origin_invariants)]
+#[model(name = "call_origins", invariant_refs = origin_invariants_refs)]
 pub struct CallOrigin {
     #[model(key)]
     pub steps: ContentHash,
@@ -807,8 +809,9 @@ impl CallOrigin {
         .id()
     }
 }
-fn origin_invariants() -> Vec<Invariant> {
+pub(crate) fn origin_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "call_origin_membership",
         inputs: vec![
             ValidationInput::of::<CallOrigin>(&["id"]),
@@ -907,7 +910,7 @@ pub enum PysaCalleeKind {
 /// reports it, and the native record kinds. The caller is the provider's attribution; the owner
 /// rule remains the model's only definition of a caller, and a difference stays visible.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "provider_call_sites", validate = validate_provider_site, invariants = provider_site_invariants)]
+#[model(name = "provider_call_sites", validate = validate_provider_site, invariant_refs = provider_site_invariants_refs)]
 #[assertion(support = ProviderCallSiteSupport, name = "provider_call_site_supports", family = FactFamily::Calls, subjects(site, caller))]
 pub struct ProviderCallSite {
     #[model(key)]
@@ -963,8 +966,9 @@ fn validate_provider_site(row: &ProviderCallSite) -> Result<(), ModelError> {
     }
     Ok(())
 }
-fn provider_site_invariants() -> Vec<Invariant> {
+pub(crate) fn provider_site_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "provider_call_site_callers",
         inputs: vec![
             ValidationInput::of::<Module>(&["id"]),
@@ -1115,7 +1119,7 @@ pub struct Actual {
 /// A provider's syntax for one call site: its callee expression and complete ordered argument list.
 /// Arguments are relationship rows; the digest fixes their membership and order.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "call_syntax", invariants = call_syntax_invariants)]
+#[model(name = "call_syntax", invariant_refs = call_syntax_invariants_refs)]
 #[assertion(support = CallSyntaxSupport, name = "call_syntax_supports", family = FactFamily::Syntax, subjects(site, callee))]
 pub struct CallSyntax {
     #[model(key)]
@@ -1232,8 +1236,9 @@ impl CallSyntax {
             .collect())
     }
 }
-fn call_syntax_invariants() -> Vec<Invariant> {
+pub(crate) fn call_syntax_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "call_syntax_membership",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
@@ -1796,7 +1801,7 @@ pub fn classify_receiver(evidence: ReceiverEvidence) -> Receiver {
 /// Its digest includes unresolved and otherwise inadmissible alternatives. Filtering first cannot
 /// manufacture uniqueness. Completeness remains an attributed provider claim.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "call_resolutions", invariants = resolution_invariants)]
+#[model(name = "call_resolutions", invariant_refs = resolution_invariants_refs)]
 #[assertion(support = CallResolutionSupport, name = "call_resolution_supports", family = FactFamily::Calls, subjects(site))]
 pub struct CallResolution {
     #[model(key)]
@@ -1872,8 +1877,9 @@ impl CallResolution {
         Ok((row, members))
     }
 }
-fn resolution_invariants() -> Vec<Invariant> {
+pub(crate) fn resolution_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "complete_call_alternatives",
         inputs: vec![
             ValidationInput::of::<AssertionQualification>(&["id"]),
@@ -2143,8 +2149,9 @@ fn validate_receiver(row: &Receiver) -> Result<(), ModelError> {
     }
     Ok(())
 }
-fn target_invariants() -> Vec<Invariant> {
+pub(crate) fn target_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "call_target_ownership",
         inputs: vec![
             ValidationInput::of::<AssertionQualification>(&["id"]),
@@ -2289,8 +2296,9 @@ impl InvariantCheck for TargetCheck {
 
 /// A native provider key is meaningful only in that provider's namespace. Supporting an
 /// equivalent symbol from another provider requires a later explicit equivalence relationship.
-fn native_support_invariants() -> Vec<Invariant> {
+pub(crate) fn native_support_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "native_symbol_support_ownership",
         inputs: vec![
             ValidationInput::of::<ProviderSymbol>(&["id"]),
@@ -2406,3 +2414,12 @@ type OriginMembers = Option<(Id<CallOrigin>, Vec<(OriginStep, Option<i64>)>)>;
 
 type NativeTargetIndex =
     ChargedMap<Id<CallTarget>, (Id<CallDestination>, Option<Id<ProviderSymbol>>)>;
+
+pub(crate) fn provider_module_invariants_refs() -> Vec<&'static str> { vec!["provider_module_owners"] }
+pub(crate) fn signature_invariants_refs() -> Vec<&'static str> { vec!["complete_signature_membership"] }
+pub(crate) fn origin_invariants_refs() -> Vec<&'static str> { vec!["call_origin_membership"] }
+pub(crate) fn provider_site_invariants_refs() -> Vec<&'static str> { vec!["provider_call_site_callers"] }
+pub(crate) fn call_syntax_invariants_refs() -> Vec<&'static str> { vec!["call_syntax_membership"] }
+pub(crate) fn resolution_invariants_refs() -> Vec<&'static str> { vec!["complete_call_alternatives"] }
+pub(crate) fn target_invariants_refs() -> Vec<&'static str> { vec!["call_target_ownership"] }
+pub(crate) fn native_support_invariants_refs() -> Vec<&'static str> { vec!["native_symbol_support_ownership"] }

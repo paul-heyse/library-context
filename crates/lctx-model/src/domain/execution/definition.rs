@@ -14,7 +14,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainSum};
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="definition_evaluations",rule="definition_evaluation",invariants=super::enriched_production::definition_invariants)]
+#[model(name="definition_evaluations",rule="definition_evaluation",invariant_refs=super::enriched_production::definition_invariants_refs)]
 pub struct DefinitionEvaluation {
     #[model(key, premise)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -343,3 +343,4 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<DefinitionMember>(),
     ]
 }
+

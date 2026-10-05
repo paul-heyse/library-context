@@ -144,7 +144,7 @@ impl DocumentarySource {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="synthesis_documentary_conclusions",rule="sourced_authored_prose",invariants=invariants,semantic_source=include_bytes!("documentary.rs"))]
+#[model(name="synthesis_documentary_conclusions",rule="sourced_authored_prose",invariant_refs=invariants_refs,semantic_source=include_bytes!("documentary.rs"))]
 pub struct DocumentaryConclusion {
     #[model(key, premise)]
     pub source: Id<DocumentarySource>,
@@ -680,6 +680,7 @@ pub fn invariants() -> Vec<Invariant> {
         }
     }
     vec![Invariant {
+        revision: 1,
         name: "synthesis_documentary_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -1769,3 +1770,5 @@ pub(crate) mod tests {
         assert_eq!(build(&d, &b).unwrap().conclusions.len(), 1);
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_documentary_replay"] }

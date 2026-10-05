@@ -609,7 +609,7 @@ pub enum ExceptionAction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "model_catalogs", validate = validate_catalog, invariants = records::invariants)]
+#[model(name = "model_catalogs", validate = validate_catalog, invariant_refs = records::invariants_refs)]
 pub struct ModelCatalog {
     #[model(key)]
     pub source_name: String,
@@ -1212,3 +1212,4 @@ modality = "definite"
         );
     }
 }
+

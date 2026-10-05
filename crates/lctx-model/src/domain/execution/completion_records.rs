@@ -62,7 +62,7 @@ pub enum CompletionSource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="base_statement_completions",rule="base_statement_completion",invariants=completion_invariants)]
+#[model(name="base_statement_completions",rule="base_statement_completion",invariant_refs=completion_invariants_refs)]
 pub struct StatementCompletion {
     #[model(key, premise)]
     pub invocation: Id<AnalysisInvocation>,
@@ -248,6 +248,7 @@ pub fn completion_invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|input| (input.name(), input.prefix()));
     inputs.dedup_by_key(|input| (input.name(), input.prefix()));
     vec![Invariant {
+        revision: 1,
         name: "base_statement_completion_replay",
         inputs,
         create: std::sync::Arc::new(|budget| Box::new(CompletionCheck::new(budget))),
@@ -396,3 +397,5 @@ impl InvariantCheck for CompletionCheck {
         Ok(())
     }
 }
+
+pub(crate) fn completion_invariants_refs() -> Vec<&'static str> { vec!["base_statement_completion_replay"] }

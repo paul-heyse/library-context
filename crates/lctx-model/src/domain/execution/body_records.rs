@@ -32,7 +32,7 @@ pub enum BodySource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="base_source_body_completions",rule="base_source_body_completion",invariants=body_invariants)]
+#[model(name="base_source_body_completions",rule="base_source_body_completion",invariant_refs=body_invariants_refs)]
 pub struct SourceBodyCompletion {
     #[model(key, premise)]
     pub invocation: Id<AnalysisInvocation>,
@@ -195,8 +195,9 @@ pub(crate) fn emit(
         _charge: charge,
     })
 }
-fn body_invariants() -> Vec<Invariant> {
+pub(crate) fn body_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "base_source_body_inventory",
         inputs: super::completion_production::inventory_inputs(),
         create: std::sync::Arc::new(|budget| super::completion_production::inventory_check(budget)),
@@ -211,3 +212,5 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<BodyBoundary>(),
     ]
 }
+
+pub(crate) fn body_invariants_refs() -> Vec<&'static str> { vec!["base_source_body_inventory"] }

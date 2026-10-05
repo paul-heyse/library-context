@@ -105,6 +105,7 @@ impl ArtifactVerifier {
 
 pub(crate) fn content_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "artifact_chunk_content",
         inputs: vec![
             ValidationInput::of::<SourceArtifact>(&["id"]),
@@ -277,3 +278,5 @@ impl ArtifactCapture {
         self.verifier.finish()
     }
 }
+
+pub(crate) fn content_invariants_refs() -> Vec<&'static str> { vec!["artifact_chunk_content"] }

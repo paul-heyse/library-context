@@ -24,11 +24,11 @@ pub mod diagnostics;
 pub mod documents;
 pub mod embedding;
 pub mod execution;
-mod finite;
+pub(crate) mod finite;
 pub mod flow;
 pub mod flow_capture;
 pub mod flow_inventory;
-mod identity;
+pub(crate) mod identity;
 pub mod input;
 pub mod lexical;
 pub mod local_fields;
@@ -36,16 +36,16 @@ pub mod local_semantics;
 pub mod local_symbolic;
 pub mod local_theory;
 pub mod memory;
-mod model;
+pub(crate) mod model;
 pub mod models;
 pub mod normalized;
 pub mod obligation;
 pub mod occurrence_owner;
-mod ownership;
+pub(crate) mod ownership;
 pub mod place_composition;
 pub mod projection;
 pub mod protocols;
-mod record;
+pub(crate) mod record;
 pub mod resources;
 pub mod retrieval;
 pub mod ruff;
@@ -59,12 +59,13 @@ pub mod synthesis;
 pub mod transfer;
 pub mod types;
 pub mod value;
+pub mod validation;
 
 pub use finite::FiniteF64;
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink, Utf8Text};
 pub use model::{
     Invariant, InvariantCheck, PublicationCheck, PublicationInvariant, Relation, RelationContent,
-    ValidatedModel, ValidationInput,
+    ValidatedModel, ValidationInput, ValidationDefinitions, ValidationIdentity, ValidationKind,
 };
 pub use record::{
     Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar, Sum,
@@ -220,7 +221,7 @@ pub fn normalized_relations() -> Vec<Relation> {
     relations
 }
 pub fn model() -> Result<ValidatedModel, ModelError> {
-    ValidatedModel::validate(catalog_frontier_relations())
+    ValidatedModel::declared(catalog_frontier_relations())
 }
 /// Cumulative analysis ownership. Activation still requires the complete producer envelope.
 pub fn analysis_frontier_relations() -> Vec<Relation> {
@@ -547,3 +548,4 @@ pub mod serving;
 pub mod native_requests;
 
 pub mod dependency_closure;
+

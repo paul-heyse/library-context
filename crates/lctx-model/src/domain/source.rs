@@ -6,7 +6,7 @@ use super::{assertion::AssertionQualification, attribution::FactFamily};
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "source_artifacts", validate = validate_source, invariants = super::artifact::content_invariants)]
+#[model(name = "source_artifacts", validate = validate_source, invariant_refs = super::artifact::content_invariants_refs)]
 pub struct SourceArtifact {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -69,7 +69,7 @@ pub struct Module {
     pub qualified_name: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "occurrences", validate = validate_occurrence, invariants = occurrence_invariants)]
+#[model(name = "occurrences", validate = validate_occurrence, invariant_refs = occurrence_invariants_refs)]
 pub struct Occurrence {
     #[model(key)]
     pub source: Id<SourceArtifact>,
@@ -237,8 +237,9 @@ pub enum CoverageScope {
     Artifact { artifact: Id<SourceArtifact> },
 }
 
-fn occurrence_invariants() -> Vec<super::Invariant> {
+pub(crate) fn occurrence_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant {
+        revision: 1,
         name: "occurrence_source_bounds",
         inputs: vec![
             super::ValidationInput::of::<SourceArtifact>(&["id"]),
@@ -295,3 +296,5 @@ impl super::InvariantCheck for OccurrenceBounds {
         Ok(())
     }
 }
+
+pub(crate) fn occurrence_invariants_refs() -> Vec<&'static str> { vec!["occurrence_source_bounds"] }

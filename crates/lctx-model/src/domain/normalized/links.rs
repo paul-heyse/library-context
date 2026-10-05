@@ -31,7 +31,7 @@ pub enum ReferenceEntityTarget {
     Unresolved { target: Id<lexical::LexicalTarget> },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "reference_entity_assessments", invariants = super::relation_normalization::invariants)]
+#[model(name = "reference_entity_assessments", invariant_refs = super::relation_normalization::invariants_refs)]
 pub struct ReferenceEntityAssessment {
     #[model(key)]
     pub reference: Id<lexical::ReferenceObservation>,
@@ -241,3 +241,4 @@ pub struct DeclarationNativeCharacterization {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
+

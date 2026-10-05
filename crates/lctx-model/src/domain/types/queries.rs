@@ -13,7 +13,7 @@ pub enum TypeQueryStatus {
     Partial = 2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name="native_type_query_observations", validate=validate, invariants=invariants)]
+#[model(name="native_type_query_observations", validate=validate, invariant_refs=invariants_refs)]
 #[assertion(support=TypeQuerySupport, name="native_type_query_supports", family=FactFamily::Types, subjects(subject))]
 pub struct TypeQueryObservation {
     #[model(key)]
@@ -42,8 +42,9 @@ fn validate(row: &TypeQueryObservation) -> Result<(), ModelError> {
         _ => Err(invalid("type query availability contradicts its result")),
     }
 }
-fn invariants() -> Vec<Invariant> {
+pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "located_type_query_availability",
         inputs: vec![
             ValidationInput::of::<TypeQueryObservation>(&["id"]),
@@ -113,3 +114,5 @@ impl InvariantCheck for Check {
         Ok(())
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["located_type_query_availability"] }

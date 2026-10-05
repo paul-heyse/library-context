@@ -8,7 +8,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainCode, DomainSum};
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="analytic_frames",invariants=super::frames::invariants)]
+#[model(name="analytic_frames",invariant_refs=super::frames::invariants_refs)]
 pub struct AnalyticFrame {
     #[model(key)]
     pub structural: Id<StructuralFrame>,
@@ -649,3 +649,4 @@ pub struct LayerNeighbour {
     pub target_use: Id<AnalysisEmbeddingUse>,
     pub score: FiniteF64,
 }
+

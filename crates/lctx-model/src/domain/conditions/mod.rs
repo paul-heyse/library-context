@@ -1,7 +1,7 @@
 //! Occurrence-keyed conditions. The sole persisted truth representation is a reduced ordered BDD.
 pub mod graph;
 pub(super) mod kernel;
-mod substitution;
+pub(crate) mod substitution;
 pub use graph::{CondGraph, CondNode, GraphCondition};
 pub mod entry;
 pub mod rebase;
@@ -20,7 +20,7 @@ pub use kernel::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "evaluation_atoms", invariants = rebase::guard_invariants)]
+#[model(name = "evaluation_atoms", invariant_refs = rebase::guard_invariants_refs)]
 pub struct EvaluationAtom {
     #[model(key)]
     pub evaluation: Id<Occurrence>,
@@ -56,14 +56,15 @@ fn validate_node(row: &ConditionNode) -> Result<(), ModelError> {
     Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "conditions", invariants = condition_invariants)]
+#[model(name = "conditions", invariant_refs = condition_invariants_refs)]
 pub struct Condition {
     #[model(key)]
     pub root: Id<ConditionNode>,
 }
 
-fn condition_invariants() -> Vec<super::Invariant> {
+pub(crate) fn condition_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant {
+        revision: 1,
         name: "canonical_condition_catalog",
         inputs: vec![
             super::ValidationInput::of::<ConditionNode>(&["id"]),
@@ -122,3 +123,5 @@ impl super::InvariantCheck for CatalogCheck {
         Ok(())
     }
 }
+
+pub(crate) fn condition_invariants_refs() -> Vec<&'static str> { vec!["canonical_condition_catalog"] }

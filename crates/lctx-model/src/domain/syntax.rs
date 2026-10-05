@@ -27,7 +27,7 @@ fn invalid(message: &str) -> ModelError {
 /// Where an occurrence sits in the parse: its nearest placed ancestor (none for a module), the
 /// ancestor's field that holds it, and its ordinal among that field's placed children.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name = "syntax_placements", validate = validate_placement, invariants = syntax_invariants)]
+#[model(name = "syntax_placements", validate = validate_placement, invariant_refs = syntax_invariants_refs)]
 #[assertion(support = SyntaxPlacementSupport, name = "syntax_placement_supports", family = FactFamily::Syntax, subjects(occurrence, parent))]
 pub struct SyntaxPlacement {
     #[model(key)]
@@ -300,7 +300,7 @@ fn validate_field(row: &ClassFieldSyntaxObservation) -> Result<(), ModelError> {
 /// A stop a provider disclosed in a scope it covers: the family, the subject when one exists, the
 /// reason and a bounded detail. Its coverage of that scope is never complete.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "subject_boundaries", validate = validate_boundary, invariants = boundary_invariants)]
+#[model(name = "subject_boundaries", validate = validate_boundary, invariant_refs = boundary_invariants_refs)]
 pub struct SubjectBoundary {
     #[model(key)]
     pub scope: Id<CoverageScope>,
@@ -388,8 +388,9 @@ fn kind(placed: &Placed, kinds: &[SyntaxKind]) -> bool {
 }
 
 /// Syntax records describe occurrences of one source, nested as the parse nests them.
-fn syntax_invariants() -> Vec<Invariant> {
+pub(crate) fn syntax_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "syntax_geometry",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
@@ -571,8 +572,9 @@ impl InvariantCheck for SyntaxGeometry {
 /// A boundary sits under its provider's non-complete coverage of its scope, and its subject lies in
 /// that scope. An attachment outcome is disclosed by the matching reason, in its boundary's scope,
 /// and keeps its candidates: one for an innermost container, at least two when ambiguous.
-fn boundary_invariants() -> Vec<Invariant> {
+pub(crate) fn boundary_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "subject_boundaries",
         inputs: vec![
             ValidationInput::of::<SourceArtifact>(&["id"]),
@@ -774,3 +776,6 @@ impl InvariantCheck for BoundaryCheck {
 }
 
 type IncompleteScopes = ChargedSet<(Id<CoverageScope>, Id<Provider>, Id<AnalysisContext>, i16)>;
+
+pub(crate) fn syntax_invariants_refs() -> Vec<&'static str> { vec!["syntax_geometry"] }
+pub(crate) fn boundary_invariants_refs() -> Vec<&'static str> { vec!["subject_boundaries"] }

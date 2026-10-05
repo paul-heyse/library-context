@@ -7,12 +7,12 @@ pub use diagnostic_uses::{
     DiagnosticUseAssessment, DiagnosticUseLink, DiagnosticUsePath, DiagnosticUseStatus,
     DiagnosticUseTarget,
 };
-mod fields;
+pub(crate) mod fields;
 pub mod frames;
-mod intent;
-mod inventory;
+pub(crate) mod intent;
+pub(crate) mod inventory;
 pub mod runtime;
-mod symbolic;
+pub(crate) mod symbolic;
 use crate::domain::{
     assertion::{AssertionQualification, EvidenceSourceSpanId},
     catalog::*,
@@ -62,7 +62,7 @@ pub enum Intent {
     Mixed = 5,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_scenarios",invariants=build::invariants,semantic_source=include_bytes!("build.rs"))]
+#[model(name="catalog_scenarios",invariant_refs=build::invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct CatalogScenario {
     #[model(key)]
     pub source: Id<ScenarioSource>,
@@ -262,7 +262,7 @@ pub struct EvidenceRoot {
     pub subject: Id<RootSubject>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_evidence_invocations",invariants=build::invocation_invariants,semantic_source=include_bytes!("frames.rs"))]
+#[model(name="catalog_evidence_invocations",invariant_refs=build::invocation_invariants_refs,semantic_source=include_bytes!("frames.rs"))]
 pub struct EvidenceInvocation {
     #[model(key)]
     pub root: Id<EvidenceRoot>,
@@ -277,3 +277,4 @@ pub fn relations() -> Vec<Relation> {
 }
 
 pub use runtime::{ConstructorCandidateLink, FieldLocationLink};
+

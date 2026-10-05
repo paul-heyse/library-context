@@ -11,6 +11,7 @@ use crate::domain::{
 };
 pub fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "selected_type_location_shapes",
         inputs: vec![
             ValidationInput::of::<AssertionQualification>(&["id"]),
@@ -130,3 +131,5 @@ impl InvariantCheck for Check {
         Ok(())
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["selected_type_location_shapes"] }

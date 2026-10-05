@@ -176,7 +176,7 @@ crate::native_analysis_pairs!(native_pairs);
 /// One-shot typed projection of an actual native pair. Every payload is recomputed from
 /// the paired assertion/support; it does not select a new attribution or claim.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "native_qualifications", rule = "native_qualification", invariants = inventory_invariants)]
+#[model(name = "native_qualifications", rule = "native_qualification", invariant_refs = inventory_invariants_refs)]
 pub struct NativeQualification {
     #[model(key, premise)]
     pub premise: Id<NativeAssertionPremise>,
@@ -276,13 +276,14 @@ impl NativeInventoryOutput {
         }
     }
 }
-fn inventory_invariants() -> Vec<Invariant> {
+pub(crate) fn inventory_invariants() -> Vec<Invariant> {
     let mut inputs = NativeInventory::inputs();
     inputs.extend([
         ValidationInput::of::<NativeAssertionPremise>(&["id"]),
         ValidationInput::of::<NativeQualification>(&["id"]),
     ]);
     vec![Invariant {
+        revision: 1,
         name: "native_inventory_projection",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -326,3 +327,5 @@ impl InvariantCheck for InventoryCheck {
         Ok(())
     }
 }
+
+pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> { vec!["native_inventory_projection"] }

@@ -1,6 +1,6 @@
 use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = owner_table!("analysis_invocations"), invariants = invocation_invariants, publication_checks=source_publication_checks)]
+#[model(name = owner_table!("analysis_invocations"), invariant_refs = invocation_invariants_refs, publication_refs=source_publication_checks_refs)]
 pub struct AnalysisInvocation {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -103,8 +103,9 @@ fn validate_diagnostic(row: &AnalysisDiagnostic) -> Result<(), ModelError> {
     }
     Ok(())
 }
-fn invocation_invariants() -> Vec<Invariant> {
+pub(crate) fn invocation_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: owner_table!("analysis_invocation_inputs"),
         inputs: invocation_inputs(),
         create: std::sync::Arc::new(|budget| {
@@ -183,3 +184,5 @@ impl InvariantCheck for InvocationCheck {
 }
 
 include!("source_receipts.rs");
+
+pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> { vec![owner_table!("analysis_invocation_inputs")] }

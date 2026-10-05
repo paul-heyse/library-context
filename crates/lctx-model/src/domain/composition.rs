@@ -1248,6 +1248,7 @@ fn delivers(
 
 pub(crate) fn composition_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "call_composition_frames",
         inputs: {
             let mut inputs = vec![
@@ -2257,3 +2258,5 @@ impl InvariantCheck for CompositionCheck {
 }
 
 type RestatementIndex = ChargedMap<(Id<Occurrence>, Id<EvaluationAtom>), Vec<Id<EvaluationAtom>>>;
+
+pub(crate) fn composition_invariants_refs() -> Vec<&'static str> { vec!["call_composition_frames"] }

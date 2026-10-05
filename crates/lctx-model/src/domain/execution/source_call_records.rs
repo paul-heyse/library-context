@@ -19,7 +19,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainSum};
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="source_call_headers",rule="fresh_source_binding",invariants=header_invariants)]
+#[model(name="source_call_headers",rule="fresh_source_binding",invariant_refs=source_call_invariants_refs)]
 pub struct SourceCallHeader {
     #[model(key, premise)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -54,7 +54,7 @@ pub struct SourceCallBoundary {
     pub reason: obligation::ObligationKind,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="source_call_runs",invariants=run_invariants,publication_checks=profile_checks)]
+#[model(name="source_call_runs",invariant_refs=source_call_invariants_refs,publication_refs=profile_checks_refs)]
 pub struct SourceCallRun {
     #[model(key)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -109,7 +109,7 @@ pub struct SourceFrameArgument {
     pub evaluation: Id<super::records::ExpressionEvaluation>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="source_call_invocations",rule="source_call_invocation",invariants=invocation_invariants)]
+#[model(name="source_call_invocations",rule="source_call_invocation",invariant_refs=source_call_invariants_refs)]
 pub struct SourceInvocation {
     #[model(key, premise)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -567,23 +567,10 @@ fn invariant_inputs() -> Vec<ValidationInput> {
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     inputs
 }
-fn run_invariants() -> Vec<Invariant> {
+pub fn source_call_invariants() -> Vec<Invariant> {
     vec![Invariant {
-        name: "source_call_inventory",
-        inputs: invariant_inputs(),
-        create: std::sync::Arc::new(|budget| Box::new(SourceCheck::new(budget))),
-    }]
-}
-fn invocation_invariants() -> Vec<Invariant> {
-    vec![Invariant {
-        name: "source_call_invocation_replay",
-        inputs: invariant_inputs(),
-        create: std::sync::Arc::new(|budget| Box::new(SourceCheck::new(budget))),
-    }]
-}
-fn header_invariants() -> Vec<Invariant> {
-    vec![Invariant {
-        name: "source_call_header_replay",
+        revision: 1,
+        name: "source_call_replay",
         inputs: invariant_inputs(),
         create: std::sync::Arc::new(|budget| Box::new(SourceCheck::new(budget))),
     }]
@@ -751,8 +738,9 @@ impl InvariantCheck for SourceCheck {
         Ok(())
     }
 }
-fn profile_checks() -> Vec<PublicationInvariant> {
+pub(crate) fn profile_checks() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "source_call_profile",
         inputs: vec![
             ValidationInput::of::<SourceCallRun>(&["id"]),
@@ -836,7 +824,8 @@ pub fn stage(
         ]
     };
     for relation in &outputs {
-        for check in relation.publication_checks() {
+        for id in relation.publication_refs() {
+            let check = model.publication_check(id)?;
             initial.extend(check.inputs.iter().cloned());
         }
     }
@@ -870,3 +859,6 @@ pub fn stage(
         configuration: key.finish(),
     })
 }
+
+pub(crate) fn source_call_invariants_refs() -> Vec<&'static str> { vec!["source_call_replay"] }
+pub(crate) fn profile_checks_refs() -> Vec<&'static str> { vec!["source_call_profile"] }

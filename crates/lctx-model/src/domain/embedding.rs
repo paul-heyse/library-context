@@ -2,7 +2,7 @@
 pub mod analytic;
 pub mod configuration;
 pub mod consumption;
-mod spec;
+pub(crate) mod spec;
 pub mod text;
 pub mod value;
 use super::*;
@@ -153,3 +153,4 @@ pub fn relations() -> Vec<Relation> {
     rows.extend(analytic::relations());
     rows
 }
+

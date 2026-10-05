@@ -233,6 +233,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     vec![Invariant {
+        revision: 1,
         name: "synthesis_observation_universe",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -452,3 +453,5 @@ mod tests {
         }
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_observation_universe"] }

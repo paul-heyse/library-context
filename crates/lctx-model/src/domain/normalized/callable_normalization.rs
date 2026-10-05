@@ -792,6 +792,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = CallableData::validation_inputs();
     inputs.extend(CallableOutput::validation_inputs());
     vec![Invariant {
+        revision: 1,
         name: "normalized_callable_closure",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -845,3 +846,5 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         configuration: ContentHash::of(b"callables/v1"),
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_callable_closure"] }

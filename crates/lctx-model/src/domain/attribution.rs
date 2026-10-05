@@ -103,7 +103,7 @@ pub struct AnalysisContext {
     pub lock_digest: Option<ContentHash>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "provider_runs", invariants = invocation_invariants)]
+#[model(name = "provider_runs", invariant_refs = invocation_invariants_refs)]
 pub struct ProviderRun {
     #[model(key, provenance)]
     pub provider: Id<Provider>,
@@ -127,7 +127,7 @@ pub enum CoverageStatus {
     Failed = 4,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "provider_coverage", validate = validate_coverage, invariants = coverage_ownership_invariants)]
+#[model(name = "provider_coverage", validate = validate_coverage, invariant_refs = coverage_ownership_invariants_refs)]
 pub struct ProviderCoverage {
     #[model(key)]
     pub scope: Id<CoverageScope>,
@@ -321,8 +321,9 @@ pub fn validate_coverage_contract(
 
 /// Stored invocation membership is checked independently of compiler-provided scope expectations.
 /// The latter are still required to prove that no scheduled scope was omitted.
-fn invocation_invariants() -> Vec<super::Invariant> {
+pub(crate) fn invocation_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant {
+        revision: 1,
         name: "provider_invocation_membership",
         inputs: vec![
             super::ValidationInput::of::<ProviderRun>(&["id"]),
@@ -433,13 +434,14 @@ impl super::InvariantCheck for InvocationCheck {
     }
 }
 
-fn coverage_ownership_invariants() -> Vec<super::Invariant> {
+pub(crate) fn coverage_ownership_invariants() -> Vec<super::Invariant> {
     let mut inputs = super::ownership::ScopeIndex::inputs();
     inputs.extend([
         super::ValidationInput::of::<ProviderRun>(&["id"]),
         super::ValidationInput::of::<ProviderCoverage>(&["id"]),
     ]);
     vec![super::Invariant {
+        revision: 1,
         name: "coverage_scope_ownership",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -496,3 +498,6 @@ impl super::InvariantCheck for CoverageOwnership {
         Ok(())
     }
 }
+
+pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> { vec!["provider_invocation_membership"] }
+pub(crate) fn coverage_ownership_invariants_refs() -> Vec<&'static str> { vec!["coverage_scope_ownership"] }

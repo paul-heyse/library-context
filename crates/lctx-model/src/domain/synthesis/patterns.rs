@@ -43,7 +43,7 @@ pub struct AuthoredCodeSource {
     pub source_input: Id<input::InputRevision>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="synthesis_authored_code_conclusions",rule="original_official_code",invariants=invariants,semantic_source=include_bytes!("patterns.rs"))]
+#[model(name="synthesis_authored_code_conclusions",rule="original_official_code",invariant_refs=invariants_refs,semantic_source=include_bytes!("patterns.rs"))]
 pub struct AuthoredCodeConclusion {
     #[model(key, premise)]
     pub source: Id<AuthoredCodeSource>,
@@ -645,6 +645,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     vec![Invariant {
+        revision: 1,
         name: "authored_original_statement_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -1237,3 +1238,5 @@ pub(crate) mod tests {
         }
     }
 }
+
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["authored_original_statement_replay"] }

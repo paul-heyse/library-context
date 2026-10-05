@@ -34,7 +34,7 @@ pub enum BindingSetReason {
     IncompleteCoverage = 4,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "call_binding_attempts", invariants = super::binding_normalization::invariants)]
+#[model(name = "call_binding_attempts", invariant_refs = super::binding_normalization::invariants_refs)]
 pub struct CallBindingAttempt {
     #[model(key)]
     pub alternative: Id<NormalizedCallAlternative>,
@@ -123,3 +123,4 @@ pub fn relations() -> Vec<Relation> {
     macro_rules! declare { ($($field:ident: $ty:ty,)*) => { vec![$(Relation::of::<$ty>()),*] }; }
     crate::normalized_binding_outputs!(declare)
 }
+

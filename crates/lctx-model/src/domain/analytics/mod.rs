@@ -4,10 +4,10 @@ pub mod concepts;
 pub mod neighbours;
 pub mod policy;
 pub mod ranking;
-mod records;
+pub(crate) mod records;
 pub use records::*;
 pub mod build;
-mod conclusions;
+pub(crate) mod conclusions;
 pub mod frames;
 use crate::domain::{normalized::Rows, resources::ResourceBudget, *};
 pub use conclusions::{Conclusion, ConclusionSource};
@@ -65,8 +65,9 @@ pub fn relations() -> Vec<Relation> {
     macro_rules! rows {($($f:ident:$t:ty,)*)=>{vec![$(Relation::of::<$t>()),*]};}
     crate::analytic_outputs!(rows)
 }
-mod attributes;
+pub(crate) mod attributes;
 pub use attributes::mention_layer;
-mod native_attributes;
-mod partitions;
-mod vectors;
+pub(crate) mod native_attributes;
+pub(crate) mod partitions;
+pub(crate) mod vectors;
+

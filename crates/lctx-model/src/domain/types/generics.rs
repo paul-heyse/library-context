@@ -8,7 +8,7 @@ pub enum TypeVariance {
     Invariant = 2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
-#[model(name="generic_specialization_observations",invariants=generic_invariants)]
+#[model(name="generic_specialization_observations",invariant_refs=generic_invariants_refs)]
 #[assertion(support=GenericSpecializationSupport,name="generic_specialization_supports",family=FactFamily::Types,subjects(scope,site,receiver,variable,argument))]
 pub struct GenericSpecializationObservation {
     #[model(key)]
@@ -25,8 +25,9 @@ pub struct GenericSpecializationObservation {
     #[model(key)]
     pub receiver: Id<TypeTerm>,
 }
-fn generic_invariants() -> Vec<Invariant> {
+pub(crate) fn generic_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "generic_specialization_basis",
         inputs: vec![
             ValidationInput::of::<AssertionQualification>(&["id"]),
@@ -133,3 +134,5 @@ impl InvariantCheck for GenericCheck {
         Ok(())
     }
 }
+
+pub(crate) fn generic_invariants_refs() -> Vec<&'static str> { vec!["generic_specialization_basis"] }
