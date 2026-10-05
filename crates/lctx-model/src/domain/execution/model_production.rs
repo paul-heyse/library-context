@@ -802,7 +802,7 @@ impl PublicationCheck for ProfileCheck {
     }
     fn finish(
         self: Box<Self>,
-        _sources: &[stages::CompletedRelation],
+        _sources: &[crate::domain::analysis::sources::SourceSnapshot],
         profile: stages::Profile,
     ) -> Result<(), ModelError> {
         if self.runs.len() != self.invocations.len()

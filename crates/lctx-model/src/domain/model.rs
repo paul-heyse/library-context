@@ -702,8 +702,8 @@ type PublicationFactory = std::sync::Arc<
     dyn Fn(&super::resources::ResourceBudget) -> Box<dyn PublicationCheck> + Send + Sync,
 >;
 
-/// Checks ordinary output consistency against the effect owner's actual sealed input grants.
-/// Receipt snapshots are metadata; only these acknowledged R0 sources supply read authority.
+/// Checks ordinary output consistency against effect-owner acknowledged source metadata.
+/// The effect owner validates live authority before supplying snapshots; snapshots grant no reads.
 #[derive(Clone)]
 pub struct PublicationInvariant {
     pub revision: u32,
@@ -740,7 +740,7 @@ pub trait PublicationCheck: Send + Sync {
     -> Result<(), ModelError>;
     fn finish(
         self: Box<Self>,
-        sources: &[super::stages::CompletedRelation],
+        sources: &[super::analysis::sources::SourceSnapshot],
         profile: super::stages::Profile,
     ) -> Result<(), ModelError>;
 }

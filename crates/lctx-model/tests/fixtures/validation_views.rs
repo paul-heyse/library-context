@@ -112,7 +112,7 @@ impl PublicationCheck for Check {
     ) -> Result<(), ModelError> {
         self.input(input, batch)
     }
-    fn finish(self: Box<Self>, _: &[CompletedRelation], _: Profile) -> Result<(), ModelError> {
+    fn finish(self: Box<Self>, _: &[lctx_model::domain::analysis::sources::SourceSnapshot], _: Profile) -> Result<(), ModelError> {
         self.finish_check()
     }
 }

@@ -324,7 +324,8 @@ fn publication<R: Record>(
         });
         check.visit(input.name(), &batch)?;
     }
-    check.finish(sources, profile)
+    let snapshots = sources.iter().map(analysis::sources::SourceSnapshot::from_source).collect::<Result<Vec<_>, _>>()?;
+    check.finish(&snapshots, profile)
 }
 #[test]
 fn local_frontier_derives_every_scope_and_refuses_coupled_shrink() {

@@ -357,7 +357,7 @@ impl PublicationCheck for ProfileCheck {
     }
     fn finish(
         self: Box<Self>,
-        _: &[stages::CompletedRelation],
+        _: &[crate::domain::analysis::sources::SourceSnapshot],
         profile: stages::Profile,
     ) -> Result<(), ModelError> {
         if self

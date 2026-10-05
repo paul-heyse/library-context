@@ -81,7 +81,8 @@ fn publication(
         &Invocation::encode(std::slice::from_ref(inv))?,
     )?;
     check.visit(SourceReceipt::NAME, &SourceReceipt::encode(receipts)?)?;
-    check.finish(sources, Profile::Catalog)
+    let snapshots = sources.iter().map(analysis::sources::SourceSnapshot::from_source).collect::<Result<Vec<_>, _>>()?;
+    check.finish(&snapshots, Profile::Catalog)
 }
 #[test]
 fn capture_binds_exact_sealed_sources_and_refuses_coupled_omission() {

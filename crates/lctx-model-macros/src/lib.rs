@@ -686,7 +686,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     invariants = Some(meta.value()?.parse()?);
                     Ok(())
                 } else {
-                    Err(meta.error("expected name, semantic_source, validate or invariants"))
+                    Err(meta.error("expected name, semantic_source, validate or invariant_refs"))
                 }
             })?;
         }

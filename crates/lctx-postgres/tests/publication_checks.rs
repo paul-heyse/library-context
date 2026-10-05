@@ -48,20 +48,21 @@ impl PublicationCheck for Check {
     }
     fn finish(
         self: Box<Self>,
-        sources: &[CompletedRelation],
+        sources: &[lctx_model::domain::analysis::sources::SourceSnapshot],
         profile: Profile,
     ) -> Result<(), ModelError> {
         let source = sources
             .iter()
             .find(|s| s.relation() == Literal::NAME)
             .ok_or_else(|| ModelError::Invalid("missing acknowledged source".into()))?;
-        let receipt = source.receipt();
+        let receipt_rows = source.rows();
+        let receipt_content = source.content();
         if sources.len() != 1
             || self.audits.len() != 1
-            || self.literals.len() as u64 != receipt.rows
+            || self.literals.len() as i64 != receipt_rows
             || self.audits.iter().any(|row| {
-                row.content != receipt.content
-                    || u64::try_from(row.rows).ok() != Some(receipt.rows)
+                row.content != receipt_content
+                    || row.rows != receipt_rows
                     || row.behavioral != (profile == Profile::Behavioral)
             })
         {

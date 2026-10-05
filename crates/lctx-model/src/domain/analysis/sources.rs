@@ -4,7 +4,8 @@ use crate::domain::{
     stages::{CompletedRelation, ReadPermit, StageAccess, StageIdentity},
     *,
 };
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SourceSnapshot {
     pub(crate) relation: String,
     pub(crate) producer: String,
@@ -24,7 +25,7 @@ impl HeapSize for SourceSnapshot {
     }
 }
 impl SourceSnapshot {
-    fn from_source(source: &CompletedRelation) -> Result<Self, ModelError> {
+    pub fn from_source(source: &CompletedRelation) -> Result<Self, ModelError> {
         Ok(Self {
             relation: source.relation().to_owned(),
             producer: source.producer().to_owned(),
@@ -183,17 +184,17 @@ impl CapturedSources {
         Ok(())
     }
 }
-/// Exact comparison against acknowledged effect-owner sources. Copying this metadata cannot grant
-/// authority, shrink the required domain, choose a different prefix, or change a source's payload.
+/// Exact comparison against effect-owner acknowledged source metadata. The effect owner verifies
+/// authority before supplying these snapshots; metadata cannot create runtime read grants.
 pub(crate) fn verify(
     snapshots: &std::collections::BTreeMap<String, SourceSnapshot>,
-    actual: &[CompletedRelation],
+    actual: &[SourceSnapshot],
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = charged::StateCharge::new(budget, "analysis_source_verify");
     let mut expected = charged::ChargedMap::default();
     for source in actual {
-        let snapshot = SourceSnapshot::from_source(source)?;
+        let snapshot = source.clone();
         if let Some(previous) = expected.get(&snapshot.relation) {
             if *previous != snapshot {
                 return Err(invalid("publication has conflicting source snapshots"));

@@ -364,7 +364,7 @@ impl PublicationCheck for FrontierCheck {
         if relation==AnalysisCoveragePremise::NAME {for row in AnalysisCoveragePremise::decode(batch)? {if !self.premises.update(&mut self.charge,row.coverage,|v|v.insert(row.source))? {return Err(invalid("duplicate frontier coverage premise"));}}return Ok(());}
         if !bound_methods().is_empty() && self.frontier.visit(relation,batch)? {return Ok(());}Err(invalid("undeclared analysis frontier input"))
     }
-    fn finish(mut self:Box<Self>,actual:&[stages::CompletedRelation],profile:stages::Profile)->Result<(),ModelError> {
+    fn finish(mut self:Box<Self>,actual:&[crate::domain::analysis::sources::SourceSnapshot],profile:stages::Profile)->Result<(),ModelError> {
         self.frontier.set_profile(profile);let budget=self.charge.budget().ok_or_else(||invalid("frontier budget absent"))?;let mut charge=charged::StateCharge::new(budget,"analysis_expected_recheck");let mut expected_requirements=charged::ChargedSet::default();let mut expected_coverage=charged::ChargedSet::default();let mut expected_sources=charged::ChargedSet::default();let empty=std::collections::BTreeSet::new();
         for invocation in self.invocations.values() {
             let definition=self.definitions.get(&invocation.definition).ok_or_else(||invalid("admitted analysis definition absent"))?;

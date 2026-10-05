@@ -27,7 +27,7 @@ impl PublicationCheck for Noop {
     fn visit(&mut self, _: &str, _: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         Ok(())
     }
-    fn finish(self: Box<Self>, _: &[CompletedRelation], _: Profile) -> Result<(), ModelError> {
+    fn finish(self: Box<Self>, _: &[lctx_model::domain::analysis::sources::SourceSnapshot], _: Profile) -> Result<(), ModelError> {
         Ok(())
     }
 }

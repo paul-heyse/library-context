@@ -378,7 +378,7 @@ impl PublicationCheck for Check {
     }
     fn finish(
         mut self: Box<Self>,
-        _: &[stages::CompletedRelation],
+        _: &[crate::domain::analysis::sources::SourceSnapshot],
         profile: Profile,
     ) -> Result<(), ModelError> {
         self.data.frontier.set_profile(profile);

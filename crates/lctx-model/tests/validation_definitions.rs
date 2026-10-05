@@ -130,3 +130,13 @@ fn lower_scope_derivation_is_required_and_exactly_scoped_and_cycles_refuse() {
         assert_eq!(check.finish().is_err(), cyclic, "authored self-cycle must fail the lower-scope generated checker");
     }
 }
+
+#[test]
+fn source_snapshot_wire_is_auditable_metadata_and_rejects_unknown_fields() {
+    let wire = serde_json::json!({ "relation": Premise::NAME, "producer": "control", "model": ContentHash::of(b"model"), "schedule": ContentHash::of(b"schedule"), "content": ContentHash::of(b"content"), "rows": 0, "physical": "control_prefix", "prefix": "Facts" });
+    let snapshot: analysis::sources::SourceSnapshot = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(snapshot.relation(), Premise::NAME); assert_eq!(snapshot.rows(), 0); assert_eq!(snapshot.prefix(), Some("Facts"));
+    assert_eq!(serde_json::to_value(&snapshot).unwrap(), wire);
+    let mut malformed = wire; malformed.as_object_mut().unwrap().insert("read_authority".into(), serde_json::json!(true));
+    assert!(serde_json::from_value::<analysis::sources::SourceSnapshot>(malformed).is_err());
+}
