@@ -88,8 +88,9 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
             .filter_map(|field| field.target().map(|(_, name)| name))
             .chain(
                 relation
-                    .invariants()
-                    .iter()
+                    .resolved_invariants(&model)
+                    .unwrap()
+                    .into_iter()
                     .flat_map(|check| check.inputs.iter().map(ValidationInput::name)),
             )
         {
