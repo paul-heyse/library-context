@@ -626,7 +626,7 @@ impl<R: Record> Batch<R> {
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
         model.require::<R>()?;
-        let encoded = arrow.get_array_memory_size();
+        let encoded = logical_batch_bytes(arrow)?;
         // Decoded rows hold at most their inline size plus the encoded variable payload.
         let decoded = arrow
             .num_rows()
@@ -677,7 +677,7 @@ impl<R: Record> Batch<R> {
 /// Admission for decoded typed rows uses the logical slice, not retained Arrow buffer
 /// capacity. An IPC batch may share a file mapping with every other batch in that file.
 /// Those borrowed bytes are owned by the reader; they are not allocated again by decoding.
-pub fn decode_allowance<R:Record>(batch:&RecordBatch)->Result<usize,ModelError>{
+pub fn logical_batch_bytes(batch:&RecordBatch)->Result<usize,ModelError>{
     fn logical(array:&dyn arrow_array::Array)->Result<usize,ModelError>{
         use arrow_array::{StringArray,BinaryArray,ListArray};
         use arrow_schema::DataType;
@@ -693,5 +693,7 @@ pub fn decode_allowance<R:Record>(batch:&RecordBatch)->Result<usize,ModelError>{
         variable.checked_add(array.len().checked_mul(8).ok_or_else(invalid)?).ok_or_else(invalid)
     }
     let payload=batch.columns().iter().try_fold(0usize,|bytes,array|bytes.checked_add(logical(array.as_ref())?).ok_or_else(||ModelError::Invalid("logical decode size overflow".into())))?;
-    batch.num_rows().checked_mul(size_of::<R>()).and_then(|inline|inline.checked_add(payload.checked_mul(4)?)).ok_or_else(||ModelError::Invalid(format!("{} decode size overflow",R::NAME)))
+    Ok(payload)
 }
+
+pub fn decode_allowance<R:Record>(batch:&RecordBatch)->Result<usize,ModelError>{let payload=logical_batch_bytes(batch)?;batch.num_rows().checked_mul(size_of::<R>()).and_then(|inline|inline.checked_add(payload.checked_mul(4)?)).ok_or_else(||ModelError::Invalid(format!("{} decode size overflow",R::NAME)))}
