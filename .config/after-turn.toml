@@ -10,6 +10,6 @@ after = ["library-catalog"]
 # Seconds before a hung step is killed.
 step_timeout = 1200
 
-# Run a sync step only when these glob pathspecs differ from HEAD or are untracked.
+# Run a sync step when current inputs differ from its last successful refresh, including commits.
 [sync_when]
-build-features = ["Cargo.lock", "**/Cargo.toml"]
+build-features = ["Cargo.lock", "**/Cargo.toml", ".config/hakari.toml"]

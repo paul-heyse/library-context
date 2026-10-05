@@ -83,15 +83,40 @@ class ReportTests(unittest.TestCase):
         )
         self.assertIsNone(after_turn.operator_message({"steps": {"fmt": passed}}))
 
-    def test_sync_when_matches_root_and_nested_manifests(self) -> None:
+    def test_sync_when_detects_committed_root_and_nested_manifests(self) -> None:
         repo = committed_repo({"Cargo.toml": "[workspace]\n", "crates/a/Cargo.toml": "[package]\n"})
         patterns = ("Cargo.lock", "**/Cargo.toml")
-        self.assertFalse(after_turn.changed_since_head(repo, patterns))
+        state = Path(tempfile.mkdtemp())
+        self.assertTrue(after_turn.sync_needed(repo, state, "build-features", patterns))
+        marker = state / "build-features.inputs"
+        marker.write_text(after_turn.sync_inputs(repo, patterns))
+        self.assertFalse(after_turn.sync_needed(repo, state, "build-features", patterns))
         (repo / "Cargo.toml").write_text("[workspace]\nmembers = []\n")
-        self.assertTrue(after_turn.changed_since_head(repo, patterns))
         git(repo, "commit", "-qam", "root")
+        self.assertTrue(after_turn.sync_needed(repo, state, "build-features", patterns))
+        marker.write_text(after_turn.sync_inputs(repo, patterns))
         (repo / "crates" / "a" / "Cargo.toml").write_text("[package]\nname = 'a'\n")
-        self.assertTrue(after_turn.changed_since_head(repo, patterns))
+        git(repo, "commit", "-qam", "nested")
+        self.assertTrue(after_turn.sync_needed(repo, state, "build-features", patterns))
+
+    def test_sync_inputs_detect_untracked_deletion_and_config(self) -> None:
+        repo = committed_repo({"Cargo.toml": "[workspace]\n", ".config/hakari.toml": "old\n"})
+        patterns = ("**/Cargo.toml", ".config/hakari.toml")
+        original = after_turn.sync_inputs(repo, patterns)
+        nested = repo / "crates/new/Cargo.toml"
+        nested.parent.mkdir(parents=True)
+        nested.write_text("[package]\n")
+        self.assertNotEqual(after_turn.sync_inputs(repo, patterns), original)
+        nested.unlink()
+        self.assertEqual(after_turn.sync_inputs(repo, patterns), original)
+        (repo / ".config/hakari.toml").write_text("new\n")
+        git(repo, "commit", "-qam", "config")
+        changed = after_turn.sync_inputs(repo, patterns)
+        self.assertNotEqual(changed, original)
+        (repo / "Cargo.toml").unlink()
+        self.assertNotEqual(after_turn.sync_inputs(repo, patterns), changed)
+        git(repo, "commit", "-qam", "delete")
+        self.assertNotEqual(after_turn.sync_inputs(repo, patterns), changed)
 
 
 def patched(stack: contextlib.ExitStack, state: Path, config: object = None) -> None:
@@ -132,6 +157,46 @@ class PromptTests(unittest.TestCase):
         (state / "report.json").write_text(json.dumps({"shown": False, "steps": {"x": passed}}))
         self.assertEqual(self.prompt(state, "codex"), "")
         self.assertTrue(json.loads((state / "report.json").read_text())["shown"])
+
+
+class StopTests(unittest.TestCase):
+    def test_successful_generator_records_resulting_inputs_and_retries_failures(self) -> None:
+        repo = committed_repo({"Cargo.toml": "[workspace]\n"})
+        state = Path(tempfile.mkdtemp())
+        config = after_turn.Config(sync=("build-features",), sync_when={"build-features": ("Cargo.lock", "**/Cargo.toml")})
+        outcomes = iter(["failed", "passed", "passed"])
+        ran = []
+
+        def step(name, *_args):
+            ran.append(name)
+            outcome = next(outcomes)
+            if outcome == "passed":
+                # The real generator also updates watched manifests/lockfiles.
+                (repo / "Cargo.lock").write_text("resolved\n")
+            return {"status": outcome, "rc": int(outcome != "passed"), "log": "-"}
+
+        real_popen = subprocess.Popen
+
+        def popen(command, *args, **kwargs):
+            if command[0] == sys.executable and command[1] == str(SCRIPT):
+                return mock.Mock()
+            return real_popen(command, *args, **kwargs)
+
+        with contextlib.ExitStack() as stack:
+            patched(stack, state, config)
+            stack.enter_context(mock.patch.object(after_turn, "repo_root", return_value=repo))
+            stack.enter_context(mock.patch.object(after_turn, "run_step", side_effect=step))
+            stack.enter_context(mock.patch.object(after_turn.subprocess, "Popen", side_effect=popen))
+            after_turn.cmd_stop("codex")
+            self.assertFalse((state / "build-features.inputs").exists())
+            after_turn.cmd_stop("codex")
+            self.assertEqual(len(ran), 2)
+            after_turn.cmd_stop("codex")
+            self.assertEqual(len(ran), 2, "unchanged successful generation must not rerun")
+            (repo / "Cargo.toml").write_text("[workspace]\nmembers = []\n")
+            git(repo, "commit", "-qam", "dependency change before stop")
+            after_turn.cmd_stop("codex")
+            self.assertEqual(len(ran), 3, "committing the change must not hide it")
 
 
 class JobTests(unittest.TestCase):

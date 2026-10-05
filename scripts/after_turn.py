@@ -25,6 +25,7 @@ import contextlib
 import dataclasses
 import datetime
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -187,17 +188,35 @@ def run_step(step: str, root: Path, state: Path, config: Config) -> dict[str, An
     }
 
 
-def changed_since_head(root: Path, patterns: Sequence[str]) -> bool:
-    """Whether any file matching the glob ``patterns`` differs from HEAD or is untracked."""
+def sync_inputs(root: Path, patterns: Sequence[str]) -> str:
+    """Fingerprint current inputs, including committed edits and untracked manifests."""
     specs = [f":(glob){p}" for p in patterns]
-    diff = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", *specs], cwd=root)
-    untracked = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard", "--", *specs],
+    files = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", *specs],
         cwd=root,
         capture_output=True,
-        text=True,
+        check=True,
     )
-    return diff.returncode != 0 or bool(untracked.stdout.strip())
+    digest = hashlib.sha256()
+    digest.update(json.dumps(list(patterns)).encode())
+    for name in sorted(set(files.stdout.split(b"\0")) - {b""}):
+        digest.update(len(name).to_bytes(8, "little"))
+        digest.update(name)
+        path = root / os.fsdecode(name)
+        if path.exists():
+            data = path.read_bytes()
+            digest.update(b"present")
+            digest.update(len(data).to_bytes(8, "little"))
+            digest.update(data)
+        else:
+            digest.update(b"missing")
+    return digest.hexdigest()
+
+
+def sync_needed(root: Path, state: Path, step: str, patterns: Sequence[str]) -> bool:
+    marker = state / f"{step}.inputs"
+    previous = marker.read_text() if marker.exists() else None
+    return previous != sync_inputs(root, patterns)
 
 
 def load_report(state: Path) -> Report | None:
@@ -263,9 +282,16 @@ def cmd_stop(harness: str) -> int:
     results: dict[str, Any] = {}
     for step in config.sync:
         when = config.sync_when.get(step)
-        if when and not changed_since_head(root, when):
+        if when and not sync_needed(root, state, step, when):
             continue
         results[step] = run_step(step, root, state, config)
+        if when and results[step]["status"] == "passed":
+            # A generator can change watched outputs (e.g. manifests/lockfiles).
+            # Save its successful resulting tree, never a failed attempt or HEAD.
+            marker = state / f"{step}.inputs"
+            temporary = marker.with_suffix(".inputs.tmp")
+            temporary.write_text(sync_inputs(root, when))
+            temporary.replace(marker)
     (state / "sync.json").write_text(json.dumps(results, indent=2) + "\n")
     (state / "job-pending").touch()
     subprocess.Popen(
