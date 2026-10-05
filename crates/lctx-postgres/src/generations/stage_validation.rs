@@ -173,6 +173,7 @@ impl GenerationStore {
         }
         let input_digest = digest.finish();
         let mut session = super::validation_session::Session::new(self, tx, g, budget).await?;
+        if let Some(checkpoint) = checkpoint { session.bind_checkpoint(self, checkpoint)?; }
         let nominal_definition = ContentHash::of(b"model-owned-nominal-reference-closure/v1");
         let nominal_binding = session.metadata_binding(nominal_definition, input_digest);
         if !session.has(tx, nominal_binding, nominal_definition).await? {

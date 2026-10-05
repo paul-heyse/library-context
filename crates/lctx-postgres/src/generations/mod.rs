@@ -728,7 +728,7 @@ fn copy_size(row: &RecordBatch, builders: &[EncoderBuilder]) -> Result<usize, Er
 }
 
 /// The control records a generation owns; cleanup removes them with its schema.
-const CONTROL_RECORDS: [&str; 14] = [
+const CONTROL_RECORDS: [&str; 15] = [
     "publication_outputs",
     "epoch_receipts",
     "publication_groups",
@@ -738,6 +738,7 @@ const CONTROL_RECORDS: [&str; 14] = [
     "stage_receipts",
     "planned_outputs",
     "stage_outcomes",
+    "checkpoint_frame_receipts",
     "checkpoints",
     "admission_families",
     "admissions",

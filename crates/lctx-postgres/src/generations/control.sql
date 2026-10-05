@@ -122,6 +122,19 @@ CREATE TABLE {control}.checkpoints (
     content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
     PRIMARY KEY(generation_id,frontier)
 );
+-- Ordinary immutable frames acknowledged by a committed private checkpoint. Vocabulary
+-- identity remains owned by its exact closed epoch, never by the growing canonical table.
+-- These acknowledgements do not create producer-stage or completed-source authority.
+CREATE TABLE {control}.checkpoint_frame_receipts (
+    generation_id bytea NOT NULL,
+    frontier text NOT NULL,
+    relation_name text NOT NULL,
+    physical_frame text NOT NULL CHECK(physical_frame=relation_name),
+    row_count bigint NOT NULL CHECK(row_count >= 0),
+    content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
+    PRIMARY KEY(generation_id,frontier,relation_name,physical_frame),
+    FOREIGN KEY(generation_id,frontier) REFERENCES {control}.checkpoints(generation_id,frontier)
+);
 -- The facts admission a published facts generation carries; only admission constructs one.
 CREATE TABLE {control}.admissions (
     generation_id bytea PRIMARY KEY REFERENCES {control}.generations(id),

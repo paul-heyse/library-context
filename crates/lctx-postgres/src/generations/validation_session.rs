@@ -2,9 +2,9 @@
 //! read grants refer to them, rather than constituting a second semantic authority.
 use super::{Error, GenerationId, GenerationStore, visit_named};
 use lctx_model::domain::{ContentHash, Invariant, KeySink, PublicationInvariant, ValidationInput,
-    resources::{Reservation, ResourceBudget}, stages::{CompletedRelation, Profile, RelationReceipt}};
+    admission::FrontierAdmission, resources::{Reservation, ResourceBudget}, stages::{CompletedRelation, Profile, RelationReceipt}};
 use sqlx::PgConnection;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
@@ -23,6 +23,17 @@ pub struct ValidationStats {
     pub proof_hits: u64,
 }
 
+struct CheckpointAuthority {
+    frontier: &'static str,
+    contract: ContentHash,
+    model: ContentHash,
+    schedule: ContentHash,
+    coverage: ContentHash,
+    content: ContentHash,
+    profile: Profile,
+    covered: BTreeSet<&'static str>,
+}
+
 pub(super) struct Session<'s> {
     model: &'s lctx_model::domain::ValidatedModel,
     generation: GenerationId,
@@ -30,6 +41,7 @@ pub(super) struct Session<'s> {
     envelope: ContentHash,
     physical: ContentHash,
     frames: BTreeMap<&'static str, BTreeMap<String, RelationReceipt>>,
+    checkpoint: Option<CheckpointAuthority>,
     charge: Box<dyn Reservation>,
     pub stats: ValidationStats,
 }
@@ -58,7 +70,24 @@ impl<'s> Session<'s> {
         sink.part(b"schedule", &schedule);
         sink.part(b"profile", profile.as_bytes());
         Ok(Self { model: model_owner, generation, budget, envelope: sink.finish(), physical,
-            frames: BTreeMap::new(), charge, stats: ValidationStats::default() })
+            frames: BTreeMap::new(), checkpoint: None, charge, stats: ValidationStats::default() })
+    }
+
+    /// Only the effect owner's admitted checkpoint authorizes its covered immutable frames.
+    /// Completed sources and producer acknowledgements remain independently required.
+    pub fn bind_checkpoint(&mut self, store: &GenerationStore, admission: &FrontierAdmission) -> Result<(), Error> {
+        if admission.model() != self.model.digest() || store.model.digest() != self.model.digest()
+            || self.checkpoint.is_some() { return Err(Error::Contract); }
+        let covered = &store.scope(admission.frontier())?.relations;
+        let bytes = covered.len().checked_mul(128).and_then(|bytes| bytes.checked_add(512))
+            .ok_or(Error::Contract)?;
+        self.charge.try_resize(self.charge.size().checked_add(bytes).ok_or(Error::Contract)?)?;
+        self.checkpoint = Some(CheckpointAuthority {
+            frontier: admission.frontier().name(), contract: admission.contract(), model: admission.model(),
+            schedule: admission.schedule(), coverage: admission.coverage(), content: admission.content(),
+            profile: admission.profile(), covered: covered.clone(),
+        });
+        Ok(())
     }
 
     /// The caller holds installation/generation authority and mutation-excluding candidate
@@ -102,6 +131,17 @@ impl<'s> Session<'s> {
             // this does not manufacture producer stage/source authority.
             expected = sqlx::query_as("SELECT r.row_count,r.content_digest FROM lctx_model_store.receipts r JOIN lctx_model_store.generations g ON g.id=r.generation_id WHERE r.generation_id=$1 AND r.relation_name=$2 AND g.state IN ('validated','published')")
                 .bind(self.generation.0.to_vec()).bind(input.name()).fetch_optional(&mut *tx).await?;
+        }
+        if expected.is_none() && physical == input.name()
+            && !lctx_model::domain::stages::is_vocabulary(input.name())
+            && let Some(checkpoint) = &self.checkpoint
+            && checkpoint.covered.contains(input.name()) {
+            let _lookup = self.budget.reserve("checkpoint-frame-read", 512)?;
+            expected = sqlx::query_as("SELECT r.row_count,r.content_digest FROM lctx_model_store.checkpoint_frame_receipts r JOIN lctx_model_store.checkpoints c USING(generation_id,frontier) JOIN lctx_model_store.generations g ON g.id=r.generation_id WHERE r.generation_id=$1 AND r.frontier=$2 AND r.relation_name=$3 AND r.physical_frame=$4 AND c.contract_digest=$5 AND c.model_digest=$6 AND c.schedule_digest=$7 AND c.coverage_digest=$8 AND c.content_digest=$9 AND g.state='staging' AND g.model_digest=c.model_digest AND g.schedule_digest=c.schedule_digest AND g.physical_digest=$10 AND g.profile=$11")
+                .bind(self.generation.0.to_vec()).bind(checkpoint.frontier).bind(input.name()).bind(physical)
+                .bind(checkpoint.contract.0.to_vec()).bind(checkpoint.model.0.to_vec()).bind(checkpoint.schedule.0.to_vec())
+                .bind(checkpoint.coverage.0.to_vec()).bind(checkpoint.content.0.to_vec()).bind(self.physical.0.to_vec())
+                .bind(checkpoint.profile.name()).fetch_optional(&mut *tx).await?;
         }
         let receipt = match expected {
             Some((rows, content)) => RelationReceipt { rows: u64::try_from(rows).map_err(|_| Error::Contract)?,
@@ -625,6 +665,138 @@ mod tests {
         assert!(store.audit(generation, lctx_model::domain::admission::Frontier::Conformance, None, &budget).await.is_err(), "substituted exact binding is refused");
         store.retire(generation).await.unwrap();
     }
+    #[tokio::test]
+    async fn committed_checkpoint_owns_unproduced_ordinary_frames_and_excludes_late_writers() {
+        use crate::testing::fixtures::Facts;
+        use lctx_model::domain::{admission::Frontier, flow::FlowTestLeafObservation, value::Literal};
+        use std::time::Duration;
+        let db = DisposableDatabase::start().await;
+        let fixture = Facts::new();
+        let store = GenerationStore::install(db.owner.clone(), fixture.model.clone()).await.unwrap();
+        let schedule = fixture.schedule();
+        let preflight = fixture.contract().checkpoint_preflight(&schedule).unwrap();
+        let (attempt, receipt) = fixture.written(&store, db.writer.clone(), true).await;
+        let generation = attempt.generation();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let input = ValidationInput::of::<FlowTestLeafObservation>(&["id"]);
+        let frames = vec![FlowTestLeafObservation::NAME.to_owned()];
+        let definition = Invariant { name: "checkpoint_empty_flow_question", revision: 1,
+            inputs: vec![input.clone()], create: Arc::new(|_| Box::new(Count { rows: 0, expected: 0 })) };
+        let sources: i64 = sqlx::query_scalar("SELECT count(*) FROM lctx_model_store.stage_receipts WHERE generation_id=$1 AND relation_name=$2")
+            .bind(generation.0.to_vec()).bind(input.name()).fetch_one(&db.superuser).await.unwrap();
+        assert_eq!(sources, 0, "Catalog never fabricates a Flow producer");
+        super::super::transaction(&store.owner, async |tx| {
+            let mut session = Session::new(&store, tx, generation, &budget).await?;
+            assert!(matches!(session.frame(tx, &input, input.name(), false).await, Err(Error::Contract)),
+                "table existence is not acknowledgement");
+            Ok(())
+        }).await.unwrap();
+
+        // An admission returned inside a transaction is unusable after its rollback.
+        let mut tx = store.owner.pool().begin().await.unwrap();
+        let rolled_back = store.checkpoint_step(&mut tx, generation, &budget, &preflight, &receipt).await.unwrap();
+        tx.rollback().await.unwrap();
+        super::super::transaction(&store.owner, async |tx| {
+            let mut session = Session::new(&store, tx, generation, &budget).await?;
+            session.bind_checkpoint(&store, &rolled_back)?;
+            assert!(matches!(session.frame(tx, &input, input.name(), false).await, Err(Error::Contract)));
+            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM lctx_model_store.checkpoint_frame_receipts WHERE generation_id=$1")
+                .bind(generation.0.to_vec()).fetch_one(&mut *tx).await?;
+            assert_eq!(count, 0, "rollback exposes neither parent nor frame conclusions");
+            Ok(())
+        }).await.unwrap();
+
+        // A real importer statement holds RowExclusiveLock even for an empty write. Closing
+        // this unproduced frame must drain that transaction and exclude a later queued writer.
+        let physical = format!("{}.{}", generation.schema(), input.name());
+        let write = format!("INSERT INTO {physical}(id,qualification,test,atom,operand) SELECT decode(repeat('01',16),'hex'),decode(repeat('02',16),'hex'),decode(repeat('03',16),'hex'),decode(repeat('04',16),'hex'),NULL WHERE false");
+        let mut prior = db.writer.begin().await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(write.clone())).execute(&mut *prior).await.unwrap();
+        let admission = {
+            let closing = super::super::transaction(&store.owner, async |tx|
+                store.checkpoint_step(tx, generation, &budget, &preflight, &receipt).await);
+            tokio::pin!(closing);
+            let wait_for_lock = async {
+                loop {
+                    let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE relation=to_regclass($1) AND mode='AccessExclusiveLock' AND NOT granted)")
+                        .bind(&physical).fetch_one(&db.superuser).await.unwrap();
+                    if waiting { break; }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            };
+            tokio::select! {
+                completed = &mut closing => panic!("checkpoint did not drain the writer: {completed:?}"),
+                waited = tokio::time::timeout(Duration::from_secs(5), wait_for_lock) =>
+                    assert!(waited.is_ok(), "checkpoint queues its frame lock before the later writer"),
+            }
+            let writer = db.writer.clone();
+            let mut queued = tokio::spawn(async move {
+                sqlx::query(sqlx::AssertSqlSafe(write)).execute(&writer).await
+            });
+            assert!(tokio::time::timeout(Duration::from_millis(100), &mut queued).await.is_err());
+            let queued_write: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE relation=to_regclass($1) AND mode='RowExclusiveLock' AND NOT granted)")
+                .bind(&physical).fetch_one(&db.superuser).await.unwrap();
+            assert!(queued_write, "the later importer is actually queued behind checkpoint closure");
+            prior.commit().await.unwrap();
+            let admission = closing.await.unwrap();
+            let refusal = queued.await.unwrap().unwrap_err();
+            assert_eq!(refusal.as_database_error().and_then(|error| error.code()).as_deref(), Some("42501"),
+                "queued write rechecks revoked importer permission");
+            admission
+        };
+        assert_eq!(admission.frontier(), Frontier::Facts);
+        let frame: (i64, String) = sqlx::query_as("SELECT row_count,physical_frame FROM lctx_model_store.checkpoint_frame_receipts WHERE generation_id=$1 AND frontier='facts' AND relation_name=$2")
+            .bind(generation.0.to_vec()).bind(input.name()).fetch_one(&db.superuser).await.unwrap();
+        assert_eq!(frame, (0, input.name().to_owned()));
+        let vocabulary: i64 = sqlx::query_scalar("SELECT count(*) FROM lctx_model_store.checkpoint_frame_receipts WHERE generation_id=$1 AND relation_name=$2")
+            .bind(generation.0.to_vec()).bind(Literal::NAME).fetch_one(&db.superuser).await.unwrap();
+        assert_eq!(vocabulary, 0, "growing vocabulary stays owned by exact epoch acknowledgements");
+        let expected = super::super::transaction(&store.owner, async |tx| {
+            let mut unbound = Session::new(&store, tx, generation, &budget).await?;
+            assert!(unbound.frame(tx, &input, input.name(), false).await.is_err(),
+                "a committed checkpoint still needs explicit covered authority");
+            let mut session = Session::new(&store, tx, generation, &budget).await?;
+            session.bind_checkpoint(&store, &admission)?;
+            let binding = session.binding(tx, definition.digest(), &definition.inputs, &frames, false, None).await?;
+            assert_eq!(session.stats.row_scans, 0, "acknowledged content resolves without rehash");
+            session.invariant(tx, &definition, frames.clone(), false).await?;
+            assert_eq!(session.stats.row_scans, 1, "a new semantic question still executes");
+            Ok(binding)
+        }).await.unwrap();
+        super::super::transaction(&store.owner, async |tx| {
+            let mut session = Session::new(&store, tx, generation, &budget).await?;
+            session.bind_checkpoint(&store, &admission)?;
+            let binding = session.invariant(tx, &definition, frames.clone(), false).await?;
+            assert_eq!(binding, expected, "the declared Flow premise keeps its exact binding");
+            assert_eq!(session.stats.proof_hits, 1);
+            assert_eq!(session.stats.row_scans, 0);
+            for column in ["contract_digest", "model_digest", "schedule_digest", "coverage_digest", "content_digest"] {
+                // Scoped privileged injection challenges identity lookup; rollback restores it.
+                sqlx::query("SAVEPOINT mismatched_checkpoint").execute(&mut *tx).await?;
+                sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE lctx_model_store.checkpoints SET {column}=decode(repeat('ef',32),'hex') WHERE generation_id=$1 AND frontier='facts'")))
+                    .bind(generation.0.to_vec()).execute(&mut *tx).await?;
+                let mut mismatched = Session::new(&store, tx, generation, &budget).await?;
+                mismatched.bind_checkpoint(&store, &admission)?;
+                assert!(matches!(mismatched.frame(tx, &input, input.name(), false).await, Err(Error::Contract)),
+                    "{column} mismatch cannot authorize a checkpoint frame");
+                sqlx::query("ROLLBACK TO SAVEPOINT mismatched_checkpoint").execute(&mut *tx).await?;
+            }
+            let mut outside = Session::new(&store, tx, generation, &budget).await?;
+            outside.bind_checkpoint(&store, &admission)?;
+            assert!(outside.frame(tx, &input, "__v0_flow_test_leaf_observations", false).await.is_err(),
+                "checkpoint receipts never invent a different physical frame");
+            Ok(())
+        }).await.unwrap();
+        let sources: i64 = sqlx::query_scalar("SELECT count(*) FROM lctx_model_store.stage_receipts WHERE generation_id=$1 AND relation_name=$2")
+            .bind(generation.0.to_vec()).bind(input.name()).fetch_one(&db.superuser).await.unwrap();
+        assert_eq!(sources, 0, "checkpoint acknowledgement creates no source capability");
+        attempt.abort().await.unwrap();
+        let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM lctx_model_store.checkpoint_frame_receipts WHERE generation_id=$1")
+            .bind(generation.0.to_vec()).fetch_one(&db.superuser).await.unwrap();
+        assert_eq!(remaining, 0, "generation cleanup removes checkpoint frame conclusions");
+        assert_eq!(budget.reserved(), 0);
+    }
+
     struct PublicationCount {
         count: Count,
         _charge: Option<Box<dyn Reservation>>,

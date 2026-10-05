@@ -277,8 +277,36 @@ impl GenerationStore {
             }
             None => None,
         };
+        if !persist {
+            let checkpoint = admission.as_ref().ok_or(Error::Contract)?;
+            self.acknowledge_checkpoint_frames(tx, g, checkpoint, &relations, &mut session, budget).await?;
+        }
         Ok((digest, admission))
     }
+
+    /// Persist parent and ordinary frame conclusions only after every scoped checker and
+    /// admission succeeds. The charged session retains receipts through these bounded inserts.
+    async fn acknowledge_checkpoint_frames(&self, tx: &mut PgConnection, g: GenerationId,
+        admission: &FrontierAdmission, relations: &[&lctx_model::domain::Relation],
+        session: &mut super::validation_session::Session<'_>, budget: &ResourceBudget) -> Result<(), Error> {
+        let _wire = budget.reserve("checkpoint-receipt-wire", 1024)?;
+        sqlx::query("INSERT INTO lctx_model_store.checkpoints VALUES($1,$2,$3,$4,$5,$6,$7)")
+            .bind(g.0.to_vec()).bind(admission.frontier().name()).bind(admission.contract().0.to_vec())
+            .bind(admission.model().0.to_vec()).bind(admission.schedule().0.to_vec())
+            .bind(admission.coverage().0.to_vec()).bind(admission.content().0.to_vec())
+            .execute(&mut *tx).await?;
+        for relation in relations.iter().filter(|relation|
+            !lctx_model::domain::stages::is_vocabulary(relation.name())) {
+            let input = lctx_model::domain::ValidationInput::of_relation(relation, &["id"]);
+            let frozen = session.frame(tx, &input, relation.name(), false).await?;
+            sqlx::query("INSERT INTO lctx_model_store.checkpoint_frame_receipts(generation_id,frontier,relation_name,physical_frame,row_count,content_digest) VALUES($1,$2,$3,$4,$5,$6)")
+                .bind(g.0.to_vec()).bind(admission.frontier().name()).bind(relation.name()).bind(relation.name())
+                .bind(i64::try_from(frozen.rows).map_err(|_| Error::Contract)?).bind(frozen.content.0.to_vec())
+                .execute(&mut *tx).await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn checkpoint_step(
         &self,
         tx: &mut PgConnection,
@@ -323,16 +351,6 @@ impl GenerationStore {
             )
             .await?;
         let admission = admission.ok_or(Error::Contract)?;
-        sqlx::query("INSERT INTO lctx_model_store.checkpoints VALUES($1,$2,$3,$4,$5,$6,$7)")
-            .bind(g.0.to_vec())
-            .bind(frontier.name())
-            .bind(admission.contract().0.to_vec())
-            .bind(admission.model().0.to_vec())
-            .bind(admission.schedule().0.to_vec())
-            .bind(admission.coverage().0.to_vec())
-            .bind(admission.content().0.to_vec())
-            .execute(&mut *tx)
-            .await?;
         Ok(admission)
     }
     /// Publication binds the receipts, the validator set, the planned outputs and, for a facts
