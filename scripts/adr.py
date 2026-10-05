@@ -85,11 +85,15 @@ class Adr:
 def design_reference(ref: str) -> str:
     """Normalize section-ID presentation without changing the accepted record's bytes.
 
-    Frontmatter can use quoted scalar IDs and omit the prose section marker. Only the exact
-    stable-ID grammar is admitted; existence and governing decisions remain lint obligations.
+    Frontmatter can use quoted scalar IDs, omit the prose section marker, or name an exact
+    canonical section fragment. Existence and governing decisions remain lint obligations;
+    presentation normalization never supplies an owner or changes the accepted record.
     """
     if len(ref) >= 2 and ref[0] == ref[-1] and ref[0] in {"'", '"'}:
         ref = ref[1:-1]
+    fragment = re.fullmatch(r"section-([a-z]?\d+(?:-\d+)*)", ref)
+    if fragment:
+        ref = fragment[1].upper().replace("-", ".")
     match = re.fullmatch(r"§?([A-Z]?\d+(?:\.\d+)*)", ref)
     return f"§{match[1]}" if match else ref
 

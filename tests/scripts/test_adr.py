@@ -63,7 +63,7 @@ def test_unresolved_design_ref_is_reported(root: Path) -> None:
     assert any("§9.9 does not resolve" in p for p in problems)
 
 
-@pytest.mark.parametrize("ref", ["§4.2", "4.2", "'4.2'", '"4.2"', "'§4.2'"])
+@pytest.mark.parametrize("ref", ["§4.2", "4.2", "'4.2'", '"4.2"', "'§4.2'", "section-4-2", "'section-4-2'"])
 def test_design_reference_scalar_forms_keep_owner_and_decision_checks(root: Path, ref: str) -> None:
     path = new(root, "scalar-section", f"[{ref}]", decide=False)
     design = root / "docs/design/DESIGN.md"
@@ -90,10 +90,15 @@ def test_design_reference_scalar_forms_keep_owner_and_decision_checks(root: Path
     assert any("§4.2 does not resolve" in p for p in adr.lint(root, check_git=False))
 
 
-@pytest.mark.parametrize("ref", ["'4.2", "4.2suffix", "4..2", "'4.2 title'", "§ 4.2"])
+@pytest.mark.parametrize("ref", ["'4.2", "4.2suffix", "4..2", "'4.2 title'", "§ 4.2", "section-4--2", "section-4-2suffix", "section-4-2-title", "Section-4-2"])
 def test_invalid_design_reference_is_not_normalized(root: Path, ref: str) -> None:
     new(root, "invalid-section", f"[{ref}]", decide=False)
     assert any("does not resolve" in p for p in adr.lint(root, check_git=False))
+
+
+def test_canonical_binding_fragment_preserves_the_stable_owner() -> None:
+    assert adr.design_reference("section-b1") == "§B1"
+    assert adr.design_reference("section-B1") == "section-B1"
 
 
 def test_supersede_links_both_sides(root: Path) -> None:
