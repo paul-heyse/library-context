@@ -2,17 +2,17 @@
 
 _Updated 2026-10-05 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**SurrealDB capability review complete (Proposed / Accept scoped, 2026-10-05).**
+**Architectural-criteria assessment complete (Proposed / Revise standard, 2026-10-05).**
+The [assessment](docs/design_review/reviews/design_review_architectural-criteria_2026-10-05.md)
+recommends FP-07/A4 for execution fit, with twelve concrete architectural lenses and amendments to
+existing core/profile rules. It owns deferred F01–F04 until standard adoption; no governing text changed.
+Next: decide/adopt the standard revision, then record and plan the graph replacement.
 The [capability assessment](docs/design_review/reviews/design_review_surrealdb-capabilities_2026-10-05.md)
-recommends native functions, graph/search composition, snapshot-local realizations and reusable exports;
-Rust owns semantics while execution placement stays flexible. It covers the full skill/integration surface.
-Independent review accepted the scoped design; runtime qualification and replacement remain unimplemented.
-The [target review](docs/design_review/reviews/design_review_graph-native-target_2026-10-05.md) still recommends
-hard pivot now: disposable existing data, no compatibility, dual writes or intermediate PG redesign.
-Next: record the architecture and plan one replacement, beginning with graph admission and realization.
+recommends native functions, graph/search composition, sealed realizations and exports; it owns F01–F03.
+The [target review](docs/design_review/reviews/design_review_graph-native-target_2026-10-05.md) recommends
+hard pivot now, without compatibility or intermediate PG redesign. Both remain Proposed / Accept scoped.
 The [earlier review §11](docs/design_review/reviews/design_review_surrealdb-graph-store_2026-10-05.md#11-authority-changes-and-dispositions-slot-11)
-owns its F01–F14; the new review owns its deferred F01–F03 until the replacement plan absorbs them.
-No production code, accepted ADRs or stores changed; no new probes or product runs were performed.
+owns its F01–F14 until the replacement plan absorbs them. Production code and stores are unchanged.
 
 **First real-library catalog compile failed (F01).** The authorized FastMCP 4.0.5 behavioral run
 through catalog (all analytics, fake embedder) went as follows:
@@ -46,8 +46,8 @@ assertion-pass cache, compatibility receipt readers or historical runtime archiv
 
 ## Last verified — 2026-10-05
 
-**Capability review:** `just docs-check` **passed** (308 pages, zero link errors); independent review accepted scoped target.
-Static source/library review only; `just qualify` and real-library compilation **not_run**.
+**Architectural-criteria assessment:** `just docs-check` **passed** (309 pages, zero link errors); independent review accepted scoped proposal.
+`just qualify`, real-library compilation and benchmarks **not_run** (assessment-only scope).
 
 **Earlier design-review session (store, compile and docs only; no product code changed):**
 
