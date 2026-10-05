@@ -7,7 +7,7 @@ supersedes: [ADR-0110]
 superseded-by: null
 design: [§1.2, §6.1, §6.2, §8, §15]
 evidence: Interface-checked
-revisit: A legitimate service writer can mutate an acknowledged frame, or family selection omits a current product guarantee.
+revisit: A legitimate service writer can mutate an acknowledged frame, or family selection omits a current product guarantee, or agents repeatedly skip `just turn-end`.
 ---
 
 ## Context
@@ -66,10 +66,12 @@ one assembled `just qualify` run, including real disposable PG/native/MCP and fu
 Clippy. The launcher collects independent failures and blocks only families with failed prerequisites.
 Empty required selections fail. Superseded broad gate aliases are removed with their consumers.
 
-The automatic hook retains sole formatting/generator ownership: skills-sync, ADR index, conditional
-build-features and fmt at Stop; images/tools and catalog in the background. Prompt submission never
-waits. No fixer or non-functional checks run in the hook. Agents fix failures in their selected
-scope and rerun failed checks; they never manually format or run generators mid-work.
+There are no hooks: end-of-turn hooks were tried and removed, since a report-only background job
+needed a script, a lock and operator plumbing to run a few recipes agents can run themselves. The
+root agent runs `just turn-end` (ADR index, build-features, fmt) at the end of a turn that changed
+files, and `just ready` (skills-sync, images, tools) after an environment change. Agents fix
+failures in their selected scope and rerun failed checks; they never format or run generators
+mid-work.
 
 ## Consequences
 

@@ -57,7 +57,7 @@ content or an undeclared source refuses admission rather than becoming an empty 
 challenge injected invalid rows and independent hand-known semantics separately from generated
 structural checks.
 
-**Accepted assurance pivot, implementation in progress (2026-10-04).** One model-owned definition
+**Implemented / focused-Tested assurance pivot (2026-10-05).** One model-owned definition
 with stable ID/revision supplies each obligation's complete ordered premises. Relations and stage
 uses reference it explicitly. Existing store receipts own complete acknowledged binding conclusions;
 read-check receipts are grant evidence. A stable validation session shares compatible streams and

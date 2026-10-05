@@ -90,10 +90,11 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Dependency policy | `just deps`, the dependency-policy leaf check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, every exact Cargo pin or git rev has a `docs/pins.md` row, cargo-deny bans and sources, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Move dependencies to the latest | `just upgrade` (root `uv.lock` and `Cargo.lock`) at your discretion, then the affected tests; `libraries/*` and `services/vllm` move only deliberately (above, and their pins rows) |
-| Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; the end-of-turn hook regenerates the index; agents run `just adr-lint` for affected decision metadata at scope end |
+| Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; `just turn-end` regenerates the index; agents run `just adr-lint` for affected decision metadata at scope end |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for affected publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
-| After every turn (automatic) | The end-of-turn hook (`scripts/after_turn.py`, ADR-0126, wired in `.claude/settings.json` and `.codex/hooks.json`) runs once the main agent stops: `just skills-sync`, `just adr index`, `just build-features` after dependency changes and `just fmt` (with ruff's safe auto-fixes); then, in the background, missing PostgreSQL images and tools, and `just library-catalog` last. The operator, never the model, sees failed steps; the next prompt never waits. The hook runs no other checks and fixes nothing: clippy, pyrefly type errors, lint, rules, ADR and agent lint, fixtures, gold, `docs-check` and `deps` findings are yours through applicable leaves at scope end. Disposable store checks belong to `verify-store`/`qualify`; inspecting the default operator store with `just store-check` is an explicit operator action. Don't run the formatters or generators yourself |
-| Tools present? | `just doctor`; the end-of-turn hook reports a missing tool |
+| End of a turn that changed files | The root agent runs `just turn-end` (ADR index, `build-features`, formatting with ruff's safe auto-fixes). Subagents don't. Clippy, pyrefly, lint, rules, ADR and agent lint, fixtures, gold, `docs-check` and `deps` findings are yours through applicable leaves at scope end. Disposable store checks belong to `verify-store`/`qualify`; inspecting the default operator store with `just store-check` is an explicit operator action |
+| After a dependency, toolchain or skill-selection change, or an environment-shaped failure | `just ready` (skills sync, PostgreSQL images, tool check) |
+| Tools present? | `just doctor`, or `just ready` |
 
 The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0079).
 Do not pass floating `+nightly` or `+stable`. Python is 3.14.7 via `uv`; run Python tools as
@@ -110,7 +111,7 @@ including path dependencies. Keep release tests and the default single frontend 
 shell use `eval "$(python3 scripts/build_environment.py --shell)"` before building. Prefer Cargo
 config `build.target-dir`/`build.build-dir` to exported target paths; `LCTX_CARGO_TARGET_DIR` is an
 explicit override for an external target. Keep paths and rustflags stable during ordinary edits.
-The end-of-turn hook runs `just build-features` after dependency changes, refreshing the CLI's
+`just turn-end` runs `just build-features`, refreshing the CLI's
 Hakari crate; `just deps` checks it. Lower libraries and Python bindings stay outside its dependency closure. Isolated benchmark
 trials own both artifact directories and never clean the shared build directory.
 The build-environment wrapper also derives each native Python adapter's content/membership cache
@@ -153,11 +154,11 @@ and any administration: create, alter, drop, inspect, repair.
 ### Library skills
 
 
-Select library skills in `.config/library-skills.toml`; the end-of-turn hook runs `just skills-sync`
+Select library skills in `.config/library-skills.toml`; then run `just ready`
 (`just skills-check` inspects). The gitignored `.claude/skills/<name>` links expose one live
 copy per skill from `~/.local/share/library-skills/skills/` to both Codex and Claude Code.
 Improvements there reach every selecting repo; process skills remain local. Set
-`LIBRARY_SKILLS_ROOT` if the shared store is elsewhere. A new worktree gets its links when its first turn ends.
+`LIBRARY_SKILLS_ROOT` if the shared store is elsewhere. A new worktree gets its links from its first `just ready`.
 
 The library capability skills under `.claude/skills/` are pinned, offline indexes. They are helpful reference for identifying and understanding library functionality in depth:
 - `datafusion` (DataFusion, Arrow, object_store)
@@ -222,9 +223,9 @@ capability is absent.
   or library changes do not automatically require assembled product qualification. Real-library
   pilots/activation still require authorization.
 - **No formatting mid-work; applicable non-functional leaves once, at scope end** (ADR-0126).
-  The end-of-turn hook owns `just fmt` (with ruff's safe auto-fixes) and generators. It never runs
-  or fixes Clippy, pyrefly, lint or policy checks. Agents run applicable leaves and fix findings;
-  no manual formatting, generators or non-functional checks during functional implementation.
+  Run `just turn-end` as the last step of a turn that changed files, not mid-work. Agents run
+  applicable leaves at scope end and fix findings; no non-functional checks during functional
+  implementation.
 - Reuse cached release-profile Rust code for tests. Test data may be fresh, existing, or empty
   according to the test's purpose. Store controls use owned disposable PostgreSQL 18; qualification
   never implicitly inspects or resets the default operator store.

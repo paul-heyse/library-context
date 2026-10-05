@@ -46,7 +46,12 @@ records failures/repairs and their boundaries; focused receipts are not assemble
 | `cargo nextest run --release -p lctx-postgres --test lifecycle --test generation_catalog --no-fail-fast --no-tests=fail` | **passed**, 14. Catalog fixtures now declare exact typed premises; state-only controls use a separate minimal model |
 | Final held-empty-vocabulary and exact audit-frame controls | **passed**, two |
 | Scoped union readiness within `NEXTEST_TEST_THREADS=8 just qualify` | **passed**, both adapters rebuilt; actual MCP/semantics/storage imports and PG image readiness passed |
-| `NEXTEST_TEST_THREADS=8 just qualify` | **in progress**, `/tmp/assurance-qualify.log`; release CLI preparation running, subsequent families/leaves pending |
+| `NEXTEST_TEST_THREADS=8 just qualify` | **failed** initially; analytics, oracles and tooling passed. Provider/store/producer/serving failures were repaired; affected reruns remain pending. Full keep-going Clippy also requires its repair rerun |
+| Focused checkpoint/install/stage/budget controls | **composite passed**, 12; checkpoint acknowledgement, writer exclusion, rollback and admission-lifetime controls retained |
+| `UV_NO_SYNC=1 just ruff types lint-agents adr-lint docs-check` | **passed** after the authorized existing Stop hook; 300 canonical pages, no link errors |
+| `NEXTEST_TEST_THREADS=8 just verify-model` plus `-- -E 'binary(serving_contracts)'` | **composite passed**, 623 controls; two response fixtures omitted mandatory domains, repaired with missing-domain refusal retained; affected target21 passed |
+| Package-name normalization control | **passed**, one; explicit empty-name refusal retained |
+| `NEXTEST_TEST_THREADS=8 just verify-store --command rust` | **passed**, 59 disposable PostgreSQL controls |
 | Optional comparable timings / total RSS | **not_run**; structural scan/setup counts establish no Measured speed claim |
 | Real-library reconstruction/activation, live vectors, product comparisons and heldout | **not_run / stopped**, outside this pivot |
 
@@ -57,11 +62,13 @@ above, rather than static judgment, establish their Tested boundaries.
 
 ## Next
 
-Complete the running replacement qualification, inspect/accept the CLI schema snapshot migration,
-repair failures and rerun affected families/leaves. Full keep-going Clippy belongs to that run.
-Formatting/generators remain owned by the automatic Stop hook; an explicit scope-end hook exception
-has been requested to finish generated-file checks before this turn ends. No hook is manually run
-without that answer. Update F01–F04 and applicable Q0/Q1 owners only from actual replacement evidence.
+Model623, provider repair1 and store59 are composite/passed. Producer rerun18 passed11 and
+failed7: Catalog vocabulary closure omitted checkpoint-qualified empty premises; five structural
+mutation cases used a stale sum column. Typed fixture and coordinated premise planning now compile;
+29 definition/vocabulary/checkpoint controls passed. Eight affected producer cases are rebuilding,
+then native/MCP, serving, CLI schema migration and full keep-going Clippy remain. Full keep-going Clippy belongs to that run.
+Formatting/generators remain owned by the existing Stop hook. The operator authorized invoking
+that hook at scope end; it has run, with formatting and generators completed. Verify affected checks. Update F01–F04 and applicable Q0/Q1 owners only from actual replacement evidence.
 
 The [target coordinator](docs/plans/target-implementation-alignment-plan_2026-10-04.md)
 retains TA-F/LL-F disposition and its implemented foundations. The new assurance control map carries
@@ -78,5 +85,5 @@ are untouched by this scope. New receipt/install schemas are exercised only in o
 stores; default-store reconstruction is required before later authorized activation.
 
 Current integration worktrees/logs remain until acceptance; clean up fully integrated worktrees
-then. Old qualification worktrees retain their existing current consumers. Shared build caches,
-Cargo jobs16/frontend1 and Nextest8 are preserved; no `cargo clean` or broad reset was run.
+then. Old qualification worktrees retain their existing current consumers. The operator cleared approximately 560 GiB with `cargo clean`, so resumed builds are cold.
+Cargo jobs16/frontend1 and Nextest8 remain unchanged; the agent ran no clean or broad reset.

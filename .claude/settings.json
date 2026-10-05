@@ -49,29 +49,5 @@
       "Bash(cargo publish*)",
       "Bash(pip install*)"
     ]
-  },
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run --no-project --python 3.14 python \"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.py stop --harness claude",
-            "timeout": 120
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run --no-project --python 3.14 python \"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.py prompt --harness claude",
-            "timeout": 30
-          }
-        ]
-      }
-    ]
   }
 }

@@ -168,8 +168,8 @@ An action uses the existing route appropriate to it:
 | Existing check | Use |
 |---|---|
 | Compile checks; `just verify-model`, `verify-analytics`, `verify-providers`, `verify-store`, `verify-serving`, `verify-oracles`, `verify-tooling` | During implementation: focused affected contract controls with explicit selection and release-profile Rust reuse; preparation follows actual effects |
-| `just fmt` and generators | After every turn, by the end-of-turn hook (ADR-0126); agents never run them |
-| Applicable non-functional leaves | Once at functional scope end; agents fix failures and rerun affected checks. The hook never runs or fixes them |
+| `just turn-end` | At the end of a turn that changed files, by the root agent (ADR-0126) |
+| Applicable non-functional leaves | Once at functional scope end; agents fix failures and rerun affected checks |
 | `just rules-scan`, `just rules-test` | A justified code-shape invariant, when affected |
 | `just adr-lint`, `just lint-agents`, `just docs-check`, `just deps` | Affected decision metadata, agent commands, publication and dependency policy, at scope end |
 | `just qualify` | Assembled acceptance for this pivot, a changed shared model/receipt/trust/transport contract, or unresolved cross-boundary uncertainty: required families/journeys, doc contracts, full keep-going Clippy and applicable leaves on one tree; independent failures are collected |

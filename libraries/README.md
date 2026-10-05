@@ -26,7 +26,7 @@ Review the proposal and the lock, then commit the three files.
 2. `uv lock --project libraries/<name> --upgrade-package <dist>`, and review the lock diff.
 3. `lctx compile <name> --through facts --profile catalog` (acquires, captures, extracts, validates and publishes facts).
 4. For `fastmcp`, move the `fastmcp` skill (the gold reference) to the same version through its own
-   `MAINTENANCE.md`; `just gold` (an end-of-turn check) fails until they agree.
+   `MAINTENANCE.md`; `just gold` (a non-functional leaf check) fails until they agree.
 
 ## Compile
 

@@ -90,9 +90,9 @@ transport change or unresolved cross-boundary uncertainty requires assembled `ju
 required families and representative journeys, compile-fail/doc contracts, full keep-going Clippy
 and applicable leaves on one tree. This assurance pivot requires that assembled acceptance; a
 focused pass does not establish it. Minor unrelated documentation/library changes do not
-implicitly trigger it. Failures rerun the affected boundary or leaf. The automatic end-of-turn
-hook retains sole formatting/generator ownership and background readiness/catalog work; it
-runs no non-functional checks and fixes nothing else. The default operator store is inspected
+implicitly trigger it. Failures rerun the affected boundary or leaf. The root agent runs
+`just turn-end` (formatting, generators) at the end of a turn that changed files, and `just ready`
+after an environment change. The default operator store is inspected
 only by explicit operator action; qualification owns disposable store configuration.
 
 **Implemented workflow, 2026-09-30 (ADR-0109):** a coordinator owns design, integration and

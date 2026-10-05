@@ -61,7 +61,7 @@ invariants name the original Facts prefix explicitly; no consumer invents a seco
 
 > Decision: ADR-0086, ADR-0094, ADR-0105
 
-**Accepted trust boundary, implementation in progress, 2026-10-04.** Complete acknowledgements
+**Implemented / focused-Tested trust boundary, 2026-10-05.** Complete acknowledgements
 are trusted under enforced owned immutability. Direct output locks drain in-flight writes before
 receipt/grant transitions. Private vocabulary deltas are drained, sealed and revoked before merge;
 closed prefix payloads, membership and view meaning remain immutable under legal service operations.
@@ -71,6 +71,18 @@ rebuilds under a new installation/generation identity. Candidate proof writes co
 closure; failure/cancellation/uncertain acknowledgement supplies no usable conclusion. No global
 proof cache or compatibility receipt reader is introduced. Qualification belongs to the
 [assurance coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md).
+
+An admitted checkpoint atomically retains exact digest/count acknowledgements for its covered
+ordinary frames, including frozen empty relations without a producer in the selected profile.
+Reuse requires the matching frontier contract, model, schedule, coverage, content, physical layout,
+profile and canonical physical frame. Vocabulary remains bound to its own closed-prefix receipts.
+Checkpoint acknowledgement supplies neither a completed producer nor an undeclared source grant;
+both authorities remain independently required. Referring relations select validation definitions;
+checkpoint-qualified premises complete their inputs without selecting unrelated checks. Vocabulary
+closure binds that existing admitted checkpoint, resolves checkpoint-only inputs before candidate
+execution and retains vocabulary prefixes independently. Failed or rolled-back checkpoint work leaves no
+usable frame acknowledgement. Disposable PostgreSQL controls exercise writer draining/revocation,
+rollback, identity misses, receipt reuse and admission-reservation release.
 
 > Decision: ADR-0126
 

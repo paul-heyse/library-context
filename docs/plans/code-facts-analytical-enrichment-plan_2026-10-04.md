@@ -248,8 +248,8 @@ functional scope, run assembled `just qualify` once for the same final tree (ADR
 required families/journeys, doc contracts, full keep-going Clippy and applicable type/policy/docs/
 dependency leaves. Qualification owns disposable store configuration; default operator-store
 inspection remains explicit operator action. Fix findings and rerun affected boundaries or the
-failing `just <id>`. Report composite receipts honestly. The end-of-turn hook owns formatting
-and generators; do not run them manually. Earlier gate receipts below retain their dated scope.
+failing `just <id>`. Report composite receipts honestly. The root agent runs `just turn-end`
+(formatting, generators) at the end of a turn that changed files, not mid-work. Earlier gate receipts below retain their dated scope.
 
 Required evidence establishes semantics, replay, resource refusal and served usefulness on named
 fixtures. No scale/speed/retrieval-quality improvement is claimed. Broad performance campaigns,

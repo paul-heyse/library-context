@@ -1,14 +1,40 @@
 # The only command surface agents need. `just` lists recipes.
 # Check recipes do not edit source; tests may create their own data.
 # `fmt`, `library-catalog`, `skills-sync`, `build-features` and `adr new|supersede|index` edit the
-# working tree. Agents run scoped contract families and applicable leaves; the end-of-turn hook
-# (`scripts/after_turn.py`) runs only formatting, generators, readiness and the catalog.
+# working tree. Agents run scoped contract families and applicable leaves. Two bundles, each
+# keeping going after a failure: `turn-end` at the end of a turn that changed files, and `ready`
+# after an environment change.
 
 set shell := ["python3", "scripts/build_environment.py", "--", "bash", "-euo", "pipefail", "-c"]
 
 # List recipes
 default:
     @just --list
+
+turn_end_steps := "adr-index build-features fmt"
+ready_steps := "skills-sync images-ready doctor-check"
+
+# End of a turn that changed files: regenerate the ADR index and Hakari crate, and format
+turn-end: (_bundle "turn-end" turn_end_steps)
+
+# After a dependency, toolchain or skill-selection change, or an environment-shaped failure
+ready: (_bundle "ready" ready_steps)
+
+# Run each recipe, keep going after a failure, and list the failures
+[private]
+_bundle name steps:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    failed=()
+    for step in {{ steps }}; do
+      echo "== just $step"
+      just "$step" || failed+=("$step")
+    done
+    if [ ${#failed[@]} -gt 0 ]; then
+      echo "{{ name }}: ${#failed[@]} failed: ${failed[*]} (re-run one with just <id>)"
+      exit 1
+    fi
+    echo "{{ name }}: all passed"
 
 # Apply the shared library-skill selection for Codex and Claude Code
 skills-sync:
@@ -67,7 +93,7 @@ fmt:
 clippy:
     cargo clippy --release --workspace --all-targets --keep-going -- -D warnings
 
-# Read-only lint; the automatic formatting hook owns safe fixes
+# Read-only lint; `just fmt` (part of `turn-end`) owns safe fixes
 ruff:
     uv run --no-sync ruff check --quiet
 
@@ -116,7 +142,7 @@ upgrade *projects:
         for p in {{ projects }}; do uv lock --upgrade --project "$p"; done
     fi
 
-# Regenerate the executable's dependency feature union after dependency changes (ADR-0079).
+# Regenerate the executable's dependency feature union (ADR-0079; part of `turn-end`).
 build-features:
     cargo hakari generate
     cargo hakari manage-deps -y
@@ -162,7 +188,7 @@ rules-test:
 adr *args:
     @uv run --no-project --offline --no-python-downloads python scripts/adr.py "$@"
 
-# Regenerate the ADR index (an end-of-turn sync step)
+# Regenerate the ADR index (part of `turn-end`)
 adr-index:
     @uv run --no-project --offline --no-python-downloads python scripts/adr.py index
 
@@ -170,7 +196,7 @@ adr-index:
 lint-agents:
     uv run --no-project --offline --no-python-downloads python scripts/check_agents.py
 
-# Edits the working tree; one to two minutes (tools/lu-resolve). The end-of-turn hook runs it last.
+# Edits the working tree; one to two minutes (tools/lu-resolve).
 # Regenerate the library catalog and the usage index behind the library-catalog MCP server
 library-catalog:
     uv run python scripts/library_utilization.py --write
@@ -187,7 +213,7 @@ doctor:
     printf '%-14s ' python; uv run python --version
     uv run --no-project --offline --no-python-downloads python scripts/docs.py doctor
 
-# Fail when `doctor` reports a missing or failing tool (end-of-turn readiness)
+# Fail when `doctor` reports a missing or failing tool (part of `ready`)
 doctor-check:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -226,7 +252,7 @@ postgres-test-setup:
     docker pull "postgres:$(cat specs/postgres-image.txt)"
     docker pull "$(cat specs/postgres-vector-image.txt)"
 
-# Pull a pinned PostgreSQL image only when it is missing (end-of-turn readiness)
+# Pull a pinned PostgreSQL image only when it is missing (part of `ready`)
 images-ready:
     #!/usr/bin/env bash
     set -euo pipefail

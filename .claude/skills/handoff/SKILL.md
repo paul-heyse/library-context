@@ -17,7 +17,7 @@ keep a dated receipt only while it bounds a current claim, with its original dat
 - Outcomes of checks actually run for this scope. Use the repository's acceptance timing: a
   handoff does not trigger `just qualify` or a real-library pilot run. Report omitted checks
   as `not_run` with the reason; never promote another session's receipt to a current result.
-- Current ADR index and relevant decisions. The end-of-turn hook regenerates the index only; agents
+- Current ADR index and relevant decisions. `just turn-end` regenerates the index; agents
   own the applicable `just adr-lint` leaf at scope end. Inspect relevant revisit conditions; run
   commands only when due and within scope.
 - Current plan disposition rows and review conclusions. Distinguish the bounded slice judgment,
