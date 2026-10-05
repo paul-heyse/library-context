@@ -15,7 +15,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-from build_environment import ROOT, native_input_fingerprints, normalized_env
+from build_environment import ROOT, normalized_env
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,12 @@ FAMILIES = {
                 "cpg-extract",
                 "--lib",
                 "--test",
+                "acquisition",
+                "--test",
+                "bundle",
+                "--test",
+                "typed_conformance",
+                "--test",
                 "typed_flow",
                 "--test",
                 "typed_calls",
@@ -52,89 +58,20 @@ FAMILIES = {
         ),
         frozenset({"tools"}),
     ),
-    "store": Family(
+    "compiler": Family(
         (
-            rust(
-                "-p",
-                "lctx-postgres",
-                "--lib",
-                "--test",
-                "generation_stages",
-                "--test",
-                "vocabulary_epochs",
-                "--test",
-                "stage_reads",
-                "--test",
-                "stage_validation",
-                "--test",
-                "publication_checks",
-                "--test",
-                "lifecycle",
-                "--test",
-                "generation_catalog",
-                "--test",
-                "installation",
-                "--test",
-                "generations",
-                "--test",
-                "analysis_publication",
-            ),
-            ("uv", "run", "--no-sync", "pytest", "tests/scripts/test_postgres_serving.py", "-q"),
+            rust("-p", "cpg-core", "--lib", "--tests"),
+            rust("-p", "lctx", "--test", "acquire", "--test", "model_describe", "--test", "compile_artifact"),
         ),
-        frozenset({"postgres", "cli", "tools"}),
+        frozenset({"tools"}),
     ),
-    "serving": Family(
-        (
-            rust(
-                "-p",
-                "cpg-core",
-                "--test",
-                "structural",
-                "--test",
-                "behavioral_frontiers",
-                "--test",
-                "catalog_selection",
-                "--test",
-                "validation_views",
-                "--test",
-                "facts_generation",
-                "--test",
-                "facts_admission",
-            ),
-            rust(
-                "-p",
-                "lctx",
-                "--test",
-                "model_describe",
-                "--test",
-                "serving_admission",
-                "--test",
-                "serving_cohort",
-                "--test",
-                "serving_packets",
-                "--test",
-                "serving_evidence",
-                "--test",
-                "serving_native",
-                "--test",
-                "serving_qualification",
-                "--test",
-                "conditional_output_packets",
-                "--test",
-                "terminal_question_packets",
-                "--test",
-                "raised_type_selection",
-            ),
-            ("uv", "run", "--no-sync", "pytest", "python/lctx_mcp/tests", "-q"),
-        ),
-        frozenset({"mcp", "postgres", "tools"}),
-    ),
+    # Publication and serving are separate later stages. An absent native implementation
+    # must be reported blocked, never covered by retired PostgreSQL tests or an empty pass.
+    "store": Family((), frozenset({"native-store"})),
+    "serving": Family((), frozenset({"native-serving"})),
     "oracles": Family(
-        (
-            ("uv", "run", "--no-sync", "pytest", "tests/scripts/test_flow_soundness.py", "-q"),
-            rust("-p", "lctx", "--test", "serving_soundness"),
-        ),
-        frozenset({"mcp", "postgres", "cli", "tools"}),
+        (("uv", "run", "--no-sync", "pytest", "tests/scripts/test_flow_soundness.py", "-q"),),
+        frozenset({"tools", "cli"}),
     ),
     "tooling": Family(
         (
@@ -159,22 +96,19 @@ COMMANDS = {
     "model": ("rust",),
     "analytics": ("rust",),
     "providers": ("extract", "flow"),
-    "store": ("rust", "python"),
-    "serving": ("producer", "serving", "python"),
-    "oracles": ("flow", "served"),
+    "compiler": ("producer", "cli"),
+    "store": (),
+    "serving": (),
+    "oracles": ("flow",),
     "tooling": ("python", "docs"),
 }
 
 BOUNDARY_REQUIREMENTS = {
-    ("store", "rust"): frozenset({"postgres"}),
-    ("store", "python"): frozenset({"postgres", "cli", "tools"}),
     ("providers", "extract"): frozenset({"tools"}),
     ("providers", "flow"): frozenset(),
-    ("serving", "producer"): frozenset({"postgres"}),
-    ("serving", "serving"): frozenset({"mcp", "postgres", "tools"}),
-    ("serving", "python"): frozenset({"mcp", "tools"}),
+    ("compiler", "producer"): frozenset({"tools"}),
+    ("compiler", "cli"): frozenset({"tools"}),
     ("oracles", "flow"): frozenset({"tools", "cli"}),
-    ("oracles", "served"): frozenset({"mcp", "postgres", "tools"}),
     ("tooling", "python"): frozenset({"tools"}),
     ("tooling", "docs"): frozenset(),
 }
@@ -205,36 +139,12 @@ Runner = Callable[[tuple[str, ...]], int]
 
 def prepare(requirements: set[str], run: Runner) -> dict[str, bool]:
     ready = {}
-    # MCP owns the union of the two native adapters. Inexact subset preparation
-    # never removes another selected family's packages from this shared environment.
-    packages = (
-        ["mcp"]
-        if "mcp" in requirements
-        else [r for r in ("semantics", "storage") if r in requirements]
-    )
     if "tools" in requirements:
         ready["tools"] = run(("uv", "sync", "--locked", "--inexact", "--only-group", "dev")) == 0
-    before = native_input_fingerprints(ROOT) if packages else {}
-    for package in packages:
-        command = ("uv", "sync", "--locked", "--inexact", "--package", f"lctx-{package}")
-        okay = run(command) == 0
-        if okay:
-            imports = (
-                "import lctx_mcp, lctx_semantics, lctx_storage"
-                if package == "mcp"
-                else f"import lctx_{package}"
-            )
-            okay = run(("uv", "run", "--no-sync", "python", "-c", imports)) == 0
-        ready[package] = okay
-        if package == "mcp":
-            ready.update(semantics=okay, storage=okay)
-    if packages and before != native_input_fingerprints(ROOT):
-        for requirement in ("mcp", "semantics", "storage"):
-            if requirement in ready:
-                ready[requirement] = False
-        print("blocked: native source inputs changed during readiness", flush=True)
-    if "postgres" in requirements:
-        ready["postgres"] = run(("just", "postgres-test-ready")) == 0
+    for native in ("native-store", "native-serving"):
+        if native in requirements:
+            ready[native] = False
+            print(f"blocked: {native} implementation belongs to a later graph-native stage", flush=True)
     if "cli" in requirements:
         ready["cli"] = run(("cargo", "build", "--release", "-p", "lctx")) == 0
     return ready
@@ -305,7 +215,7 @@ def main() -> int:
     requirements = set().union(*(prerequisites(name, args.command) for name in selected))
     env = normalized_env(
         dict(os.environ, INSTA_UPDATE="no", UV_NO_SYNC="1"),
-        native_inputs=bool(requirements & {"mcp", "semantics", "storage"}),
+        native_inputs=False,
     )
 
     def run(command: tuple[str, ...]) -> int:
@@ -313,7 +223,7 @@ def main() -> int:
 
     # Hold ownership through live workers, not just sync. This prevents another
     # family launcher preparing the shared environment while these fixtures run.
-    with environment_owner(bool(requirements & {"tools", "mcp", "semantics", "storage"})):
+    with environment_owner("tools" in requirements):
         ready = prepare(requirements, run)
         results = execute(selected, ready, run, arguments, args.command)
         if args.family == "qualify":

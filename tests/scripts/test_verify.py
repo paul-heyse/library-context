@@ -30,37 +30,29 @@ def test_readiness_failure_blocks_dependents_but_pure_controls_still_run():
 def test_pure_preparation_invokes_no_environment_or_store_setup(monkeypatch):
     import verify
 
-    def unexpected(root):
-        raise AssertionError("pure preparation must not inspect native adapter inputs")
-
-    monkeypatch.setattr(verify, "native_input_fingerprints", unexpected)
     commands = []
     assert prepare(set(), lambda command: commands.append(command) or 0) == {}
     assert commands == []
 
 
-def test_inexact_union_preparation_never_syncs_during_assertions():
+def test_compiler_readiness_has_no_retired_store_or_binding_setup():
     commands = []
-    ready = prepare(
-        {"tools", "mcp", "semantics", "storage"}, lambda command: commands.append(command) or 0
-    )
-    sync = [c for c in commands if c[:2] == ("uv", "sync")]
-    assert len(sync) == 2  # Root tools and MCP's actual native dependency closure.
-    assert all("--locked" in c and "--inexact" in c for c in sync)
-    assert sync[0][-2:] == ("--only-group", "dev")
-    assert sync[1][-2:] == ("--package", "lctx-mcp")
-    assert all(ready[r] for r in ("tools", "mcp", "semantics", "storage"))
-    execute(["model", "analytics"], ready, lambda command: commands.append(command) or 0)
-    assert [c for c in commands if c[:2] == ("uv", "sync")] == sync
+    ready = prepare({"tools", "cli"}, lambda command: commands.append(command) or 0)
+    assert ready == {"tools": True, "cli": True}
+    assert commands == [
+        ("uv", "sync", "--locked", "--inexact", "--only-group", "dev"),
+        ("cargo", "build", "--release", "-p", "lctx"),
+    ]
 
 
-def test_tools_readiness_is_independent_of_failed_native_preparation():
-    def run(command):
-        return 1 if "lctx-mcp" in command else 0
-
-    ready = prepare({"tools", "mcp"}, run)
-    assert ready["tools"]
-    assert not ready["mcp"]
+def test_later_native_stages_are_explicitly_blocked():
+    commands = []
+    ready = prepare({"native-store", "native-serving"}, lambda command: commands.append(command) or 0)
+    assert ready == {"native-store": False, "native-serving": False}
+    assert execute(["store", "serving"], ready, lambda command: commands.append(command) or 0) == {
+        "store": "blocked", "serving": "blocked"
+    }
+    assert commands == []
 
 
 def test_required_families_never_allow_empty_selection():
@@ -74,7 +66,7 @@ def test_required_families_never_allow_empty_selection():
 def test_boundary_filter_scopes_real_prerequisites_and_preserves_ordinary_filters():
     commands = []
     assert prerequisites("providers", "flow") == frozenset()
-    assert prerequisites("serving", "producer") == frozenset({"postgres"})
+    assert prerequisites("compiler", "producer") == frozenset({"tools"})
     result = execute(
         ["providers"],
         {},
@@ -115,10 +107,14 @@ def test_missing_executable_is_reported_and_other_families_continue(monkeypatch)
     assert len(commands) == 2
 
 
-def test_disposable_pg_check_belongs_only_to_the_store_boundary():
-    assert prerequisites("store", "python") == frozenset({"postgres", "cli", "tools"})
-    assert any(
-        "tests/scripts/test_postgres_serving.py" in command
-        for command in FAMILIES["store"].commands
-    )
-    assert "--ignore=tests/scripts/test_postgres_serving.py" in FAMILIES["tooling"].commands[0]
+def test_compiler_selections_reference_current_binaries():
+    import verify
+
+    for family in ("compiler", "providers"):
+        for command in FAMILIES[family].commands:
+            package = command[command.index("-p") + 1]
+            for index, argument in enumerate(command):
+                if argument == "--test":
+                    assert (verify.ROOT / "crates" / package / "tests" / (command[index + 1] + ".rs")).is_file()
+    assert all("postgres" not in prerequisites("compiler", boundary) for boundary in (None, "producer", "cli"))
+    assert not FAMILIES["store"].commands and not FAMILIES["serving"].commands
