@@ -210,7 +210,7 @@ pub struct LiteralSet {
     #[model(key)]
     pub members: super::ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "literal_set_members")]
 pub struct LiteralSetMember {
     #[model(key)]

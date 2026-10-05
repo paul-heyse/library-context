@@ -1133,7 +1133,7 @@ pub struct CallSyntax {
     #[model(key)]
     pub in_annotation: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_arguments", validate = validate_argument)]
 pub struct CallArgument {
     #[model(key)]

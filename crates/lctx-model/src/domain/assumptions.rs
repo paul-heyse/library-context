@@ -60,7 +60,7 @@ pub struct AssumptionSet {
     #[model(key)]
     pub count: i64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "assumption_set_members")]
 pub struct AssumptionSetMember {
     #[model(key)]

@@ -90,7 +90,7 @@ pub enum InputOrigin {
         revision: String,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "input_acquisitions", invariant_refs = acquisition_invariants_refs)]
 pub struct InputAcquisition {
     #[model(key)]
@@ -98,7 +98,7 @@ pub struct InputAcquisition {
     #[model(key, provenance)]
     pub origin: Id<InputOrigin>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "corpus_libraries")]
 pub struct CorpusLibrary {
     #[model(key)]
@@ -112,7 +112,7 @@ pub enum DistributionRole {
     FirstParty = 0,
     Dependency = 1,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "input_distributions")]
 pub struct InputDistribution {
     #[model(key)]
@@ -261,7 +261,7 @@ impl InvariantCheck for InputManifestCheck {
 }
 
 /// Acquisition-specific verification does not change enduring package/version identity.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "distribution_verifications", validate = validate_distribution)]
 pub struct DistributionVerification {
     #[model(key, provenance)]
@@ -289,7 +289,7 @@ fn validate_distribution(row: &DistributionVerification) -> Result<(), ModelErro
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "artifact_ownership", invariant_refs = ownership_invariants_refs)]
 pub struct ArtifactOwnership {
     #[model(key)]
@@ -311,7 +311,7 @@ pub enum SourceRole {
     Configuration = 7,
     TaskReceipt = 8,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "artifact_uses")]
 /// A source artifact used in its own revision, or a library artifact explicitly used by a
 /// corpus linked through CorpusLibrary. The use never changes the artifact's content identity.
@@ -330,7 +330,7 @@ pub const DERIVED_ROOT: &str = "_lctx/";
 
 /// A captured artifact no verified distribution's `RECORD` owns: a loose file or an unowned stub in
 /// an environment, or any file of a tree or corpus input.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "unowned_artifacts", invariant_refs = class_invariants_refs)]
 pub struct UnownedArtifact {
     #[model(key)]
@@ -341,7 +341,7 @@ pub struct UnownedArtifact {
 /// Provenance of an artifact captured into the reserved namespace. Python blocks name an
 /// original document and its byte fence; externally reported task receipts name their corpus
 /// input and never pretend to have a document fence. Codes are append-only.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "derived_artifacts", validate = validate_derived)]
 pub enum DerivedArtifact {
     #[model(code = 0)]
@@ -387,7 +387,7 @@ fn validate_derived(row: &DerivedArtifact) -> Result<(), ModelError> {
 /// The environment an installed input was acquired from, stated in the terms a deployment receipt
 /// reports (`ReportedEnvironment`), so the two can be compared. The compiler never runs the
 /// interpreter, so the runtime and interpreter digests a receipt may state have no acquired twin.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "environment_fingerprints", validate = validate_fingerprint)]
 pub struct EnvironmentFingerprint {
     #[model(key, provenance)]

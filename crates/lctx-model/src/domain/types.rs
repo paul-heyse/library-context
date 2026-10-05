@@ -639,7 +639,7 @@ pub struct TypeSequence {
     #[model(key)]
     pub members: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "type_sequence_members", validate = validate_member)]
 pub struct TypeSequenceMember {
     #[model(key)]

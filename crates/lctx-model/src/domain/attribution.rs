@@ -126,7 +126,7 @@ pub enum CoverageStatus {
     Unavailable = 3,
     Failed = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "provider_coverage", validate = validate_coverage, invariant_refs = coverage_ownership_invariants_refs)]
 pub struct ProviderCoverage {
     #[model(key)]
@@ -170,7 +170,7 @@ fn validate_coverage(row: &ProviderCoverage) -> Result<(), ModelError> {
         _ => Ok(()),
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "run_families")]
 pub struct RunFamily {
     #[model(key, provenance)]

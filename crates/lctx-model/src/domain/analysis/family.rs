@@ -29,7 +29,7 @@ macro_rules! analysis_family {
             use crate::domain::{*,assertion::AssertionQualification,attribution::{AnalysisContext,ProviderCoverage,CoverageStatus},source::{CoverageScope,Occurrence},input::InputRevision,normalized::{entities::EntityRef,coverage::{EvidenceAvailability,NormalizationCoverage}},calls::CallPhase,obligation::ObligationKind};
             use crate::{Domain,DomainSum};
             macro_rules! owner_table {($suffix:literal)=>{concat!($prefix,"_",$suffix)}}
-            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
+            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum, serde::Serialize, serde::Deserialize)]
             #[model(name=owner_table!("invocation_sources"),rule="analysis_invocation_source")]
             pub enum InvocationSource {
                 #[model(code=0)] Current {#[model(premise)] invocation:Id<AnalysisInvocation>},
@@ -40,7 +40,7 @@ macro_rules! analysis_family {
                 #[allow(unreachable_patterns,reason="Owners without predecessors have only the current variant")]
                 fn current(&self)->Option<Id<AnalysisInvocation>> {match self {Self::Current {invocation}=>Some(*invocation),_=>None}}
             }
-            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
+            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum, serde::Serialize, serde::Deserialize)]
             #[model(name=owner_table!("support_sources"),rule="analysis_support_source")]
             pub enum SupportSource {
                 #[model(code=0)] NativeAssertion {#[model(premise)] premise:Id<super::native::NativeAssertionPremise>},
@@ -51,7 +51,7 @@ macro_rules! analysis_family {
             impl SupportSource {
                 pub fn reference(&self)->derivation::RowRef {match self {Self::NativeAssertion {premise}=>derivation::RowRef::of(*premise),Self::AnalysisDerivation {derivation}=>derivation::RowRef::of(*derivation),$(Self::$support_variant {derivation}=>derivation::RowRef::of(*derivation),)*$(Self::$proof_variant {witness}=>derivation::RowRef::of(*witness),)*}}
             }
-            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
+            #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum, serde::Serialize, serde::Deserialize)]
             #[model(name=owner_table!("coverage_sources"),rule="analysis_coverage_source")]
             pub enum CoverageSource {
                 #[model(code=0)] Native {#[model(premise)] coverage:Id<ProviderCoverage>},

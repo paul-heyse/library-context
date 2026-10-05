@@ -4,7 +4,7 @@ pub use crate::domain::analysis::support::{QualificationOperation,QualifiedResul
 pub use super::SupportSource;
 pub type QualifiedPremise<'a>=crate::domain::analysis::support::QualifiedPremise<'a,SupportSource>;
 pub fn qualify(operation:QualificationOperation,premises:&[QualifiedPremise<'_>],budget:&resources::ResourceBudget)->Result<QualifiedResult,ModelError> {crate::domain::analysis::support::qualify(operation,premises,budget)}
-#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[derive(Debug,Clone,PartialEq,Eq,Domain, serde::Serialize, serde::Deserialize)]
 #[model(name=owner_table!("analysis_propositions"))]
 pub struct AnalysisProposition {
     #[model(key)] pub subject:Id<ObligationSubject>,
@@ -12,7 +12,7 @@ pub struct AnalysisProposition {
     #[model(key)] pub phase:CallPhase,
     #[model(key)] pub qualification:Id<AssertionQualification>,
 }
-#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[derive(Debug,Clone,PartialEq,Eq,Domain, serde::Serialize, serde::Deserialize)]
 #[model(name=owner_table!("analysis_derivations"),invariant_refs=support_invariants_refs)]
 pub struct AnalysisDerivation {
     #[model(key)] pub invocation:Id<AnalysisInvocation>,
@@ -25,7 +25,7 @@ pub struct AnalysisDerivation {
     pub heuristic:bool,
 }
 impl AnalysisDerivation {pub fn facts(&self)->SourceFacts {SourceFacts {qualification:self.qualification,status:self.status,heuristic:self.heuristic}}}
-#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[derive(Debug,Clone,PartialEq,Eq,Domain, serde::Serialize, serde::Deserialize)]
 #[model(name=owner_table!("analysis_derivation_premises"),rule="qualified_analysis_derivation",conclusion=derivation)]
 pub struct AnalysisDerivationPremise {#[model(key)] pub derivation:Id<AnalysisDerivation>,#[model(key,premise)] pub source:Id<SupportSource>}
 /// A source's status is obtained only from its typed native projection or immutable proof.

@@ -31,13 +31,13 @@ pub const MAX_SEQUENCE_SYMBOLS: usize = 4096;
 
 /// An ordered sequence of one provider's symbols (a class's bases or its MRO), identified by its
 /// content; the empty sequence is a positive, complete statement.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "symbol_sequences", invariant_refs = sequence_invariants_refs)]
 pub struct SymbolSequence {
     #[model(key)]
     pub members: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "symbol_sequence_members", validate = validate_member)]
 pub struct SymbolSequenceMember {
     #[model(key)]

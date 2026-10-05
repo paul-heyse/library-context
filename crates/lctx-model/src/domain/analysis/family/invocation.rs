@@ -1,5 +1,5 @@
 use super::*;
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = owner_table!("analysis_invocations"), invariant_refs = invocation_invariants_refs, publication_refs=source_publication_checks_refs)]
 pub struct AnalysisInvocation {
     #[model(key)]
@@ -16,7 +16,7 @@ pub struct AnalysisInvocation {
     #[model(key)] pub sources:ContentHash,
     #[model(key)] pub projections:ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = owner_table!("analysis_inputs"), rule = "analysis_input", conclusion = invocation)]
 pub struct AnalysisInput {
     #[model(key)]
@@ -61,7 +61,7 @@ fn parent_digest(parents: &std::collections::BTreeSet<Id<InvocationSource>>) -> 
     }
     sink.finish()
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = owner_table!("analysis_outcomes"), validate = validate_outcome)]
 pub struct AnalysisOutcome {
     #[model(key)]

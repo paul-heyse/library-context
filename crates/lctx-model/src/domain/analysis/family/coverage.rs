@@ -1,5 +1,5 @@
 use super::*;
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name=owner_table!("analysis_coverage"), validate = validate_coverage, invariant_refs = coverage_invariants_refs)]
 pub struct AnalysisCoverage {
     #[model(key)]
@@ -38,7 +38,7 @@ fn validate_coverage(row: &AnalysisCoverage) -> Result<(), ModelError> {
         _ => Ok(()),
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name=owner_table!("analysis_coverage_premises"), rule = "analysis_coverage", conclusion = coverage)]
 pub struct AnalysisCoveragePremise {
     #[model(key)]
