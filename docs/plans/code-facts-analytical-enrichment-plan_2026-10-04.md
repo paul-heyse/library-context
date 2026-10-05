@@ -892,20 +892,22 @@ production ty project/IDE search remain conditional deferrals, not incomplete se
   link; that link was corrected and the same publication check **passed** on rerun: 292 pages,
   zero errors (`/home/paul/.cache/lctx-enrichment-closeout-docs-check-final-rerun.log`).
 
-The newest native read-region changes add four nullable fields across two existing Named enum
-relations. Their deliberate schema snapshot migration, final source-matching adapters/CLI,
-current-model disposable store qualification and final assembled `just qualify` (full keep-going
-Clippy and applicable leaves, ADR-0126) are
-**not_run / pending**, by the operator's checkpoint request. Earlier `8f8ec7c…` schema/artifact and
-Clippy/hygiene receipts qualify only that predecessor source. The interrupted superseded full gate
-launched no tests; it supplies no current acceptance. Automatic hook formatting was observed after
-the targeted runtime receipts; `f7e94515` retains that four-file output. Focused diff/token inspection
-found only reflow, trailing separators and equivalent blocks, with no changed identifiers, literals
-or operations (`/home/paul/.cache/lctx-enrichment-closeout-hook-format-inspection.json`). The runtime
-receipts belong to `8bac19ab`, before this formatting; no final fingerprint/store/adapters acceptance
-is inferred. No formatter was manually run in this checkpoint; formatting remains hook-owned.
-Default staging `d3a3fa026a1237a1c4e175b9b1019eeb` retains 204 receipts and remains unselected;
-operator registrations and stopped real-library activation are unchanged.
+**Current schema/artifact and fixture qualification, 2026-10-05 — composite passed.** The four
+nullable Named fields were reviewed/accepted with the current CLI description. Source-matching
+adapters, actual disposable-store/native/MCP journeys, conditional/generated/Terminal/raised packets,
+independent served oracle and full keep-going Clippy passed within the
+[assurance coordinator's receipt](testing-architecture-pivot-plan_2026-10-04.md#7-current-contractcontrol-map-and-execution-checkpoint).
+Official Corpus association retains original contexts and the exact acquisition link; current
+Catalog/Behavioral split-input publication/stdio and provenance counterexamples passed. This replaces
+the former pending artifact/gate checkpoint; interrupted compilation supplies no acceptance.
+
+Q0 fixture integration is closed at the target coordinator. **Q1 remains open** for its authored
+before/after answer-benefit evidence on role comparison, field readers, admitted diagnostics,
+re-export routes, contextual types, non-call references and the selected guarded-proof branch.
+Current correctness/fidelity controls do not silently certify that separate product-benefit set.
+Default staging remains unselected; operator registrations and stopped real-library activation
+are unchanged. Scope-end formatting retains functional receipts unless behavior changes; a raw-source
+fingerprint update still requires affected artifact/model-description agreement.
 
 All implementation and worktree-assessment subagents concluded. Selected production changes are
 integrated; static source/history comparison found no missing useful integration in the fifteen

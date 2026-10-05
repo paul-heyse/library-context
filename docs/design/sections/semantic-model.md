@@ -46,12 +46,13 @@ source/effective defaults, signature variants, predicate-specific selection clos
 evidence remain typed. Symbolic source associations retain Unknown/no-proof reader outcomes;
 known field location never establishes allocation, alias, mutation or temporal value identity.
 
-**Implemented incremental foundations; integrated acceptance pending, 2026-10-04:** the [target-alignment series](../../plans/target-implementation-alignment-plan_2026-10-04.md)
+**Implemented / Tested incremental foundations; Q0 fixture composite passed, 2026-10-05:** the [target-alignment series](../../plans/target-implementation-alignment-plan_2026-10-04.md)
 integrates faithful native Bound/unattached candidate formulas, finite publication/closure expansion,
 one physical-layout owner and explicit identity encodings. Candidate attachment failure must not
 become Unbound; retained formulas do not authorize Entry proof. Exact validation epochs and sufficient
-grants remain distinct. Existing declared schema/identity changes and their qualification remain
-pending; plan publication does not qualify the model. The coordinator owns the transferred findings.
+grants remain distinct. Reviewed schema/identity changes and actual fixture/native/store/MCP
+qualification passed within the coordinator's composite boundary. Real-library activation remains stopped.
+The coordinator owns the transferred findings.
 
 **Implemented / Tested canonical validation, 2026-10-05 (ADR-0126); model-family scope.**
 Validation definitions have stable semantic IDs/revisions, complete ordered relation/prefix inputs
@@ -61,7 +62,7 @@ definitions and missing required premises refuse model construction; finite mode
 run a smaller replay. Source-call headers, invocations and arguments reference the same replay
 obligation. Store execution/acknowledgement remains an effect of this model, never an independent
 semantic registry. [Assurance coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md)
-owns integrated acceptance; model-family controls passed with the composite repair receipt.
+owns the passing integrated composite fixture acceptance; model-family controls passed with the repair receipt.
 
 > Decision: ADR-0126
 
@@ -203,7 +204,7 @@ condition; the owned merge joins conditions and retains all support.
 Generation IDs identify attempts. Model, physical schema, producer and content digests have separate
 meanings. Content equality excludes runtime timestamps and measurement data.
 
-**Accepted alignment contract, 2026-10-04; assembled qualification pending.** Declaration and
+**Implemented / Tested alignment contract, 2026-10-05; Q0 composite fixture qualification.** Declaration and
 mapping/preparation compatibility use explicit framed scalar/role/reference/code/sum encodings,
 with versioned namespaces. Fields retain declaration order and sum arms numeric-code order.
 Incidental Arrow presentation metadata does not define a semantic contract. The conservative
@@ -785,7 +786,7 @@ A facts generation lowers only the facts relations, and readers verify its diges
 before any scan. `store check` compares the live catalog with a rolled-back shadow lowering; `store
 reset` removes one generation per transaction and is resumable.
 
-**Compute — Implemented / source-inspected, 2026-10-04; current full gates pending.** Most
+**Compute — Implemented / source-inspected, 2026-10-04; current Q0 fixture composite passed 2026-10-05.** Most
 current derivations and semantic validators invoke pure model kernels over admitted charged typed
 Rows. Model-owned validated-membership SQL is installed in PostgreSQL; DataFusion logical-view
 registration has bounded inspected test consumers. DataFusion reads published relations through
@@ -973,7 +974,7 @@ validator execution, content/epoch receipts, actual proof membership, retained c
 original guard; it releases the lease mutex before pure CPU preparation and reconfirms that guard
 before publishing state. Pure helper agreement never admits a generation or invented proof row.
 
-**Startup execution (Implemented; focused qualification pending, 2026-10-04).** Selection,
+**Startup execution (Implemented / Tested; both-profile native/MCP fixtures, 2026-10-05).** Selection,
 native semantics, retrieval indexes and numerical initialization share the original guard's CPU
 capacity. Startup admission has a finite wait; preparation uses the preparation allowance and
 does not inherit a request deadline. Tracked blocking workers retain the slot, guard and charges
@@ -981,7 +982,7 @@ until actual completion even after caller cancellation. Shutdown fences new star
 drains request and startup workers, then releases the original canonical session. Numerical
 buffers retained by the service keep their preparation reservation until shutdown clears them.
 The [target coordinator](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations)
-owns IS2 controls and stopped activation; this implementation label is not lifecycle acceptance.
+owns the passing IS2 lifecycle controls and stopped real-library activation.
 
 **Existing extension routes (Implemented guidance, 2026-10-02).** A new finite model extends its
 checked construction, declared typed inputs and production/replay path; an independent matching

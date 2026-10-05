@@ -61,7 +61,7 @@ invariants name the original Facts prefix explicitly; no consumer invents a seco
 
 > Decision: ADR-0086, ADR-0094, ADR-0105
 
-**Implemented / focused-Tested trust boundary, 2026-10-05.** Complete acknowledgements
+**Implemented / Tested trust boundary, 2026-10-05 (composite disposable-store qualification).** Complete acknowledgements
 are trusted under enforced owned immutability. Direct output locks drain in-flight writes before
 receipt/grant transitions. Private vocabulary deltas are drained, sealed and revoked before merge;
 closed prefix payloads, membership and view meaning remain immutable under legal service operations.

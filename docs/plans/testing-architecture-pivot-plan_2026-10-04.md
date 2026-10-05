@@ -1,6 +1,6 @@
 # Testing architecture pivot — coordinated implementation plan
 
-**Implemented; assembled qualification in progress, 2026-10-05.** This plan schedules the full testing, validation and oracle architecture
+**Implemented / Tested; assembled qualification composite passed, 2026-10-05.** This plan schedules the full testing, validation and oracle architecture
 pivot requested after the [source review](../design_review/reviews/design_review_test-validation-oracle-architecture_2026-10-04.md).
 It owns the combined target, execution dependencies and sole current disposition of F01–F04.
 The [validation plan](validation-execution-pivot-plan_2026-10-04.md) owns runtime validation design;
@@ -31,8 +31,9 @@ Architectural ownership remains with [semantic model §15](../design/sections/se
 [validation/evaluation](../design/sections/validation-and-evaluation.md) and their decisions.
 ADR-0126 accepts the pivot; these plans specify its implementation and acceptance boundary.
 
-Existing Q0/Q1 and Phase 5 acceptance remain open at their existing coordinators. Their outstanding
-semantic and integration obligations must be mapped to the replacement controls during P0/P5.
+Q0 fixture acceptance is closed at its existing coordinator by the composite receipt below. Q1
+packet-benefit evidence and Phase 5 real-library acceptance remain at their existing coordinators.
+Their surviving obligations are mapped to replacement controls during P0/P5.
 Cancelled compilation and older focused receipts do not become qualification. Real-library
 activation, evaluation comparisons and opening heldout data remain outside this scope.
 
@@ -121,15 +122,15 @@ there is no requirement to run the retired full suite first.
 
 ## 5. Findings and current checkpoint
 
-**Sole disposition owner, 2026-10-05.** The pivot is in progress; the working-tree slices below do not establish combined qualification. Source findings
+**Sole disposition owner, 2026-10-05.** P0–P5 are complete within the selected fixture and assurance scope; assembled qualification composite passed below. Source findings
 retain their original diagnosis and IDs; remedies are assessed against this selected target.
 
 | Finding | Current disposition | Responsible component and closure evidence |
 |---|---|---|
-| F01 | Scheduled, open — P1 | `lctx-model` declarations and stage consumers. One source-call definition executes once per exact binding, with coverage when any referring relation is used in a supported finite model; malformed headers/inventory/missing invocation still refuse. |
-| F02 | Scheduled, open — P4/P5 | Verification/build-environment owners and affected serving/provider harnesses. Selected pure families require no adapters/PG; expensive read-only cohorts share one seed; mutation isolation and independent failure reporting pass. |
-| F03 | Scheduled, open — P2/P3 | `lctx-postgres::generations` with model bindings. Freeze, exact prefix/result reuse, current budget admission and audit controls pass; counters show eliminated equivalent replay/preparation. No speed claim from counters alone. |
-| F04 | Scheduled, open — P0/P4 | Validation/evaluation owner and oracle harness owners. Every current coverage claim names a live correctly classified control; obsolete Pysa/CrossHair evidence and dangling consumers are removed after active obligations move. |
+| F01 | Closed / Tested — P1/P5, 2026-10-05 | `lctx-model` declarations and stage consumers. One source-call definition executes once per exact binding, with coverage when any referring relation is used in a supported finite model; malformed headers/inventory/missing invocation still refuse. |
+| F02 | Closed / Tested — P4/P5, 2026-10-05 | Verification/build-environment owners and affected serving/provider harnesses. Selected pure families require no adapters/PG; expensive read-only cohorts share one seed; mutation isolation and independent failure reporting pass. |
+| F03 | Closed / Tested — P2/P3/P5, 2026-10-05 | `lctx-postgres::generations` with model bindings. Freeze, exact prefix/result reuse, current budget admission and audit controls pass; counters show eliminated equivalent replay/preparation. No speed claim from counters alone. |
+| F04 | Closed / Tested — P0/P4/P5, 2026-10-05 | Validation/evaluation owner and oracle harness owners. Every current coverage claim names a live correctly classified control; obsolete Pysa/CrossHair evidence and dangling consumers are removed after active obligations move. |
 
 This coordinator does not take O08 or TA-F/LL-F disposition from other coordinators. The
 [analytics assurance owner](../design/sections/analytics.md#section-9-6) now owns K1/K2 meaning, bounded independent controls and production fit rationale; the analytical
@@ -140,13 +141,8 @@ P0/T0's accepted contract is ADR-0126. Current model/store/validation owners car
 obligations, acknowledged immutability, explicit audit and evidence classification. The retired
 Pysa/CrossHair folders and analytic supporting plan have been removed after surviving requirements
 moved to validation/analytics. P1–P4 implementation is integrated: model-owned definitions, exact owned acknowledgements, bounded
-stream groups, explicit audit, scoped preparation and read-only cohorts. Focused controls establish
-the recorded model/store boundaries; enclosing acceptance is pending the new P5 qualification.
-
-**Authoring verification, 2026-10-04:** `UV_NO_SYNC=1 just docs-check` **passed**, 304 canonical
-pages and zero link errors, including ADR/agent checks. Production compile/tests/qualification
-are **not_run** for this documentation-only scope. Focused independent draft advice found no
-architectural blocker; package references and the stable-input premise were reconciled before publication.
+stream groups, explicit audit, scoped preparation and read-only cohorts. The composite P5 receipt below establishes the selected model/store/native/MCP and assurance
+boundaries. Optional timing and real-library acceptance are excluded.
 
 ## 6. Acceptance, measurements and retirement
 
@@ -183,8 +179,8 @@ preserved. Any proposed new hook/register/document must have a concrete current 
 
 ## 7. Current contract/control map and execution checkpoint
 
-**Implemented mapping, 2026-10-05; replacement controls still require qualification.**
-This table maps surviving guarantees, including open Q0/Q1 and Phase 5 fixture obligations, to the
+**Tested mapping, 2026-10-05; assembled qualification composite passed.**
+This table maps surviving guarantees, including Q0 fixture, open Q1 and Phase 5 fixture obligations, to the
 launcher selections in `scripts/verify.py`. Existing coordinators retain their finding IDs and
 real-library stop; this is no second disposition register.
 
@@ -202,7 +198,9 @@ real-library stop; this is no second disposition register.
 | Readiness membership/content/lock/model/config changes, scope selection and honest failure collection | Tooling family `test_build_environment`/`test_verify`; native import/model agreement also requires actual provider/serving controls after scoped readiness |
 | Rust authority boundaries and documentation/process meaning | Compile-fail docs and affected ADR/agent/docs/Python/dependency leaves, full keep-going Clippy at assembled scope completion |
 
-**Focused implementation receipts, 2026-10-05:** normalized commands use
+**Composite qualification receipt, 2026-10-05:** all required families and applicable leaves have passing receipts from the deliberate assembled run and affected repair reruns. The initial `just qualify` failed; this is not an initially clean run. Repairs preserved refusal/partial assertions. Optional timings, live vectors, product comparisons, heldout and real-library activation are not_run.
+
+**Commands and affected receipts:** normalized commands use
 `python3 scripts/build_environment.py -- …` (or its `--shell` environment).
 
 - **passed:** `uv run --no-sync pytest tests/scripts/test_verify.py tests/scripts/test_build_environment.py -q`, 20 launcher/readiness controls. Mocked launcher controls establish scheduling behavior, not actual family qualification.
@@ -215,11 +213,23 @@ real-library stop; this is no second disposition register.
 - **composite passed, 2026-10-05:** model family623 (621 initially passed; complete serving-contract target21 passed after fixing mandatory `domains` in its response fixture), targeted provider empty-name control1, store Rust family59 and scheduling/readiness controls20. Checkpoint acknowledgements retain frozen empty ordinary frames, independently of producer/source capabilities; rollback, writer exclusion, exact misses/hits and reservation release pass.
 - **composite passed, 2026-10-05:** producer18. The repair rerun selected eight structural/selection controls and passed all eight, including the seven earlier failures. Catalog vocabulary closure now resolves real checkpoint-qualified empty premises; adversarial fixtures select the typed nominal subject rather than a physical sum column. Coordinated model/store planning also passed29 definition/vocabulary/checkpoint controls. Missing premises remain refusals, extra acknowledged inputs select no unrelated checks, and checkpoint-only frames resolve before candidate execution.
 - **passed:** `NEXTEST_TEST_THREADS=8 just verify-serving --command python`, 25 MCP controls after actual native-adapter rebuild and MCP/semantics/storage imports. Ruff/types/agent/ADR leaves passed on the resumed tree.
-- **passed:** the CLI description migration assertion within `NEXTEST_TEST_THREADS=8 just verify-serving --command serving`. The reviewed migration leaves all878 relation schemas and existing invariant premise lists unchanged; canonical definition metadata, explicit references, publication checks and the single replay replace the old description.
+- **passed:** the CLI description migration assertion within `NEXTEST_TEST_THREADS=8 just verify-serving --command serving`. The reviewed migration leaves all878 relation schemas unchanged; canonical definition metadata, explicit references, publication checks and the single replay replace the old description. The later Structural replay migration adds its mandatory Local coverage premise; all39 publication checks are unchanged. Latest `INSTA_UPDATE=no` description assertion passed after reviewing the digest-only update.
 - **passed:** `NEXTEST_TEST_THREADS=8 just verify-store --command python`, two controls. A combined release qualification/served-oracle rerun passed the independent served oracle again; qualification remained failed.
-- **qualification pending:** serving assembly22 passed21/failed1. Actual admission, immutable cohort, packets, native both-profile agreement, evidence, conditional/Terminal/raised journeys passed. Corpus correspondence now consumes the exact `CorpusLibrary` premise and preserves original contexts, explicit candidates, ambiguity and exact document/link/target-context ownership. Its provenance/link/context/artifact-use counterexamples passed. The fixture now distinguishes Corpus/Installed frames, release ranking scope and source-role defaults. Catalog stdio passed; Behavioral exposed empty flow/Local/Controls propagation defects. Those production repairs retain admitted NoScope meaning, nonempty partial outcomes, NotRequested and budget-stop precedence. Current actual both-profile qualification and the latest description assertion remain pending; final owner updates require publication checking.
+- **composite passed:** serving assembly22. Its21 previously passing controls cover actual admission, immutable cohort, packets, native both-profile agreement, evidence and conditional/Terminal/raised journeys. The remaining `serving_qualification` control passed on the current source, including actual Catalog and Behavioral stdio and received generation/evidence/channel/default corruption challenges. `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=new cargo nextest run --release -p lctx --test serving_qualification --test model_describe --no-fail-fast --no-tests=fail` passed qualification217.793s and deliberately emitted the description digest update; the reviewed snapshot was accepted and `INSTA_UPDATE=no` on `--test model_describe` passed1. No failed assertion is counted as passing.
+- **passed:** document-only Corpus and Installed frames remain distinct. Normalization/analytics preserve exact links, original contexts, ambiguity and document/target ownership; stored provenance/link/context/artifact-use counterexamples pass. Empty Flow inventories return no modules. Local uses the admitted domain; Structural Controls uses its exact Local NoScope receipt. Model production/replay checks captured requested Python roots after predecessor/binding replay, so catalog target absence on a document-only frame no longer invents IncompleteCoverage. Nonempty Partial, NotRequested and budget/refusal contracts remain unchanged.
 
-**Affected repair controls, 2026-10-05:** integrated `cargo check --release -p lctx-model -p lctx --tests` **passed**; release Nextest `lctx-model` targets `corpus_mentions`, `domain_normalized`, `domain_analytics`, `validation_definitions`, `dependency_closure`, `analysis_sources`, `analysis_expected` and `analysis_schedule` **passed**, 39 controls. Release `cpg-flow` library/`flow_shapes`/`capture_timing` **passed**, 43. Structural/handoff/closure/schedule/definition controls **composite passed**, 32 after correcting new fixture setup; complete Structural target8 passed on rerun. The actual PG compatible-stream/proof-reuse/audit control **passed** after naming the saved receipt row. `UV_NO_SYNC=1 just clippy` **passed**, full release workspace/all-targets/keep-going with warnings denied, after four harness repairs. Native adapters rebuilt/imported successfully; actual both-profile qualification and the latest description assertion remain. Scoped static reviews found no material production defect; functional commands provide the Tested boundaries.
+**Affected repair controls, 2026-10-05:** integrated `cargo check --release -p lctx-model -p lctx --tests` **passed**; release Nextest `lctx-model` targets `corpus_mentions`, `domain_normalized`, `domain_analytics`, `validation_definitions`, `dependency_closure`, `analysis_sources`, `analysis_expected` and `analysis_schedule` **passed**, 39 controls. Release `cpg-flow` library/`flow_shapes`/`capture_timing` **passed**, 43. Structural/handoff/closure/schedule/definition controls **composite passed**, 32 after correcting new fixture setup; complete Structural target8 passed on rerun. The actual PG compatible-stream/proof-reuse/audit control **passed** after naming the saved receipt row. `UV_NO_SYNC=1 just clippy` **passed**, full release workspace/all-targets/keep-going with warnings denied, after four harness repairs. The latest Model-domain library/expected-domain/schedule/definition rerun passed17 controls after correcting the new fixture's expected Frontier refusal; missing artifacts, foreign inputs, role selection and resource failure remain tested. Both native adapters rebuilt/imported successfully. Actual both-profile qualification and the reviewed description assertion passed. Full `UV_NO_SYNC=1 just clippy` passed again after the final production repair, workspace/all-targets/keep-going with warnings denied. Scoped static reviews found no material production defect; functional commands provide the Tested boundaries.
+
+
+**Final artifact agreement, 2026-10-05 — passed.** `UV_NO_SYNC=1 just turn-end` passed;
+Hakari reported no changes, Python formatting/fixes changed nothing, and inspected Rust changes
+were reflow/import ordering. Formatting re-keyed the conservative source fingerprint only.
+`uv sync --locked --inexact --package lctx-mcp` rebuilt both native adapters; actual MCP/semantics/
+storage imports passed. Release `--test model_describe` rebuilt the current CLI, emitted only the
+expected digest change, and passed with `INSTA_UPDATE=no` after exact snapshot review/acceptance.
+All model schemas, definitions/references and premise lists match the qualified pre-format tree.
+Full keep-going Clippy and functional receipts precede this formatting; no unchanged functional
+campaign was repeated. `UV_NO_SYNC=1 just docs-check` passed300 canonical pages with zero link errors.
 
 Publication checks share compatible ordered streams within a publication group; pure checks share
 within their pure group. Both use the same prepared receipt session. Cross-kind row fanout is not

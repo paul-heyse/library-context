@@ -57,7 +57,7 @@ content or an undeclared source refuses admission rather than becoming an empty 
 challenge injected invalid rows and independent hand-known semantics separately from generated
 structural checks.
 
-**Implemented / focused-Tested assurance pivot (2026-10-05).** One model-owned definition
+**Implemented / Tested assurance pivot (2026-10-05; composite fixture qualification).** One model-owned definition
 with stable ID/revision supplies each obligation's complete ordered premises. Relations and stage
 uses reference it explicitly. Existing store receipts own complete acknowledged binding conclusions;
 read-check receipts are grant evidence. A stable validation session shares compatible streams and
@@ -66,7 +66,7 @@ includes installation/generation, model/layout, definition, exact immutable sour
 semantic configuration. Missing, failed, partial or unconfirmed conclusions never authorize a hit.
 Fresh consumer admission remains required. Normal reads trust owned immutability; explicit audit
 recomputes physical integrity, nominal references and pure/publication semantics. The [coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md)
-owns qualification and F01–F04; structural work counts alone establish no measured speed benefit.
+owns the passing composite qualification and closed F01–F04; structural work counts alone establish no measured speed benefit.
 
 > Decision: ADR-0126
 

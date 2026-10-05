@@ -110,7 +110,7 @@ stored handoff/setup lineage is retained; this does not add a serving explanatio
 Seven admission and three qualification/resource controls, plus actual PostgreSQL Catalog/Behavioral
 positives and paired condition-erasure refusal passed. The
 [coordinator checkpoint](../../plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
-bounds those receipts; schema/artifact refresh and full-series acceptance remain pending.
+bounds those receipts; the assurance coordinator records the current schema/artifact and composite fixture qualification. Q1 packet-benefit evidence remains separate.
 
 > Decision: ADR-0122
 
@@ -137,8 +137,9 @@ declared input link while retaining every target exposure/symbol context and can
 equates contexts. Same-input correspondence still requires exact context. An analytic vote requires
 the resolution's exact frame context and release entity universe, actual document ownership/use,
 and one vote per passage/entity. The N2/N5 declared premises include the acknowledged acquisition
-link. This association correction is **Implemented**, 2026-10-05; actual split-input qualification
-is pending in the code-facts coordinator §7.
+link. This association correction is **Tested**, 2026-10-05: actual split-input Catalog/Behavioral
+publication and stdio qualification passed, including missing/wrong-link, foreign-context and
+forged document-use refusals. The assurance coordinator owns that composite receipt.
 A community label is a deterministic description; membership remains heuristic and
 cannot assert behavior or capability identity.
 

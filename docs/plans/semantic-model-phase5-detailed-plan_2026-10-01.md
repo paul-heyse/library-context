@@ -1001,9 +1001,11 @@ Normalized `INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -
 `1ed7b371-7840-4cd1-90c1-17eb08f48d7f` (`source-default-packet-control.log`).
 `just native-adapter-ready` passed after refreshing storage (`source-default-native-refresh.log`).
 
-Remaining integration on resume: add `serving_qualification` to the explicit PostgreSQL gate
-inventory; reconcile `SearchEvidenceRequest.families=[]` (schema promises route default, retrieval
-currently filters every unit out). The runner explicitly requests Rust-declared families, so its
-pass does not close that default-family defect. Real-library compilation/journeys, assembled
-review, final complete gates/hygiene and selected-startup activation remain not_run. No further
-qualification is scheduled during review planning.
+**Current fixture integration, 2026-10-05 — composite passed.** ADR-0126's explicit serving
+family includes `serving_qualification`; actual Catalog/Behavioral producer/store/stdio qualification
+passed after strict Corpus correspondence and empty-domain repairs. Empty `SearchEvidenceRequest.families`
+now uses the route default; immutable cohort and current native/MCP controls passed. These replace
+the two pending integration obligations above. The [assurance coordinator](testing-architecture-pivot-plan_2026-10-04.md#7-current-contractcontrol-map-and-execution-checkpoint)
+owns the current schema/adapters, independent oracle and full keep-going Clippy repair receipt.
+Real-library compilation/journeys, analytical-output review, live embedding and selected-startup
+activation remain **not_run / stopped**. Fixture qualification does not select or activate FastMCP.
