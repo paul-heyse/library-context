@@ -1,4 +1,5 @@
 //! Deployment descriptions and explicitly captured reports; analyzed code is never executed.
+use crate::bundle::ProviderSink;
 use crate::{
     acquisition::{AcquiredInput, Acquisition},
     assembly,
@@ -285,7 +286,7 @@ fn check_receipt(
     }
     Ok(target.id())
 }
-fn collection<S: StageSink + 'static>(
+fn collection<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     kind: ReportCollectionKind,
     values: Vec<ReportValue>,
@@ -301,7 +302,7 @@ fn collection<S: StageSink + 'static>(
     }
     Ok(id)
 }
-impl<S: StageSink + 'static> ProviderStage<S> for Deployment {
+impl<S: ProviderSink + 'static> ProviderStage<S> for Deployment {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
         macro_rules! declare {($($ty:ty),+)=>{$(context.declare::<$ty>()?;)+}}
         outputs!(declare);

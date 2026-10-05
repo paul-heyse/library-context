@@ -20,6 +20,7 @@
 //! parameter's displayed annotation, and declaration links at exact name spans. Signatures are
 //! complete unless a declaration fails to attach, which is a boundary. Exports stay Partial until
 //! the public names are stated. A computed `__all__` is a subject boundary.
+use crate::bundle::ProviderSink;
 use crate::{
     acquisition::{AcquiredInput, Acquisition},
     bundle::{self, Declared, ProviderStage, StageContext},
@@ -46,7 +47,7 @@ use lctx_model::domain::{
     lexical::*,
     ruff::*,
     source::*,
-    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage, StageSink},
+    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage},
     symbols::*,
     syntax::*,
     types::*,
@@ -316,7 +317,7 @@ pub fn roots(input: &AcquiredInput) -> Result<Vec<&SourceArtifact>, ModelError> 
     Ok(roots)
 }
 
-impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
+impl<S: ProviderSink + 'static> ProviderStage<S> for Pyrefly {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
         macro_rules! declare { ($($ty:ty),+) => { $( context.declare::<$ty>()?; )+ }; }
         declare!(
@@ -580,7 +581,7 @@ fn configured(
     Ok((cfg, analysis))
 }
 /// One input's session. Returns whether any of its coverage is less than complete.
-fn session<S: StageSink + 'static>(
+fn session<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     provider: &Provider,
     condition: &Condition,
@@ -2041,7 +2042,7 @@ fn definitions(
     clippy::too_many_arguments,
     reason = "the session's attribution, each distinct"
 )]
-fn write_docs<S: StageSink + 'static>(
+fn write_docs<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     docs: symbol_records::ParameterDocs,
     scope: &CoverageScope,
@@ -2082,7 +2083,7 @@ fn write_docs<S: StageSink + 'static>(
     clippy::too_many_arguments,
     reason = "the session's attribution, each distinct"
 )]
-fn write_symbols<S: StageSink + 'static>(
+fn write_symbols<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     records: symbol_records::SymbolRecords,
     scope: &CoverageScope,
@@ -2247,7 +2248,7 @@ type Support = (
     lctx_model::domain::Id<Evidence>,
 );
 /// Emit one module's records, each with its native support.
-fn write_records<S: StageSink + 'static>(
+fn write_records<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     records: syntax_records::Records,
     support: &dyn Fn(FactFamily, lctx_model::domain::Id<Occurrence>) -> Support,
@@ -2334,7 +2335,7 @@ fn write_records<S: StageSink + 'static>(
 }
 
 /// Emit one module's lexical records, each assertion with its support.
-fn write_lexical<S: StageSink + 'static>(
+fn write_lexical<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     records: lexical_records::LexicalRecords,
     support: &dyn Fn(lctx_model::domain::Id<Occurrence>) -> Support,
@@ -2603,7 +2604,7 @@ fn calls(
     clippy::too_many_arguments,
     reason = "Shared generated contracts and fixtures require this scoped exception"
 )]
-fn write_calls<S: StageSink + 'static>(
+fn write_calls<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     records: crate::call_records::Records,
     scope: &CoverageScope,
@@ -2840,7 +2841,7 @@ fn types(
     clippy::too_many_arguments,
     reason = "Shared generated contracts and fixtures require this scoped exception"
 )]
-fn write_types<S: StageSink + 'static>(
+fn write_types<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     records: crate::type_records::Records,
     scope: &CoverageScope,
@@ -3031,7 +3032,7 @@ fn write_types<S: StageSink + 'static>(
     Ok(())
 }
 
-fn write_native_lexical<S: StageSink + 'static>(
+fn write_native_lexical<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     rows: crate::ruff_lexical::NativeLexicalRecords,
     source: &lexical_records::LexicalRecords,
@@ -3098,7 +3099,7 @@ fn write_native_lexical<S: StageSink + 'static>(
     Ok(())
 }
 
-fn write_diagnostics<S: StageSink + 'static>(
+fn write_diagnostics<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     records: crate::diagnostic_records::Records,
     run: &ProviderRun,
@@ -3140,7 +3141,7 @@ fn write_diagnostics<S: StageSink + 'static>(
     emit!(&records.pyrefly, PyreflyDiagnosticSupport);
     Ok(())
 }
-fn write_parameter_definitions<S: StageSink + 'static>(
+fn write_parameter_definitions<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     records: crate::parameter_definition_records::Records,
     run: &ProviderRun,

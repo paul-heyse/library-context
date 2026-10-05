@@ -1,5 +1,6 @@
 //! Native ty coordinates become facts only through exact typed attachment. No provider-local
 //! index, predicate key, rendered condition or display-place identity is stored.
+use crate::bundle::ProviderSink;
 use crate::{
     acquisition::Acquisition,
     assembly::Attached,
@@ -17,7 +18,7 @@ use lctx_model::domain::{
     flow_inventory::*,
     lexical::*,
     source::*,
-    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage, StageSink},
+    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage},
     syntax::*,
     value::*,
     *,
@@ -155,15 +156,16 @@ struct Index {
     owner_declarations: BTreeMap<Id<Occurrence>, Vec<usize>>,
 }
 impl Index {
-    fn new<S: StageSink + 'static>(context: &mut StageContext<S>) -> Result<Self, ModelError> {
+    fn new<S: ProviderSink + 'static>(context: &mut StageContext<S>) -> Result<Self, ModelError> {
         let mut charge = StateCharge::new(context.budget(), "ty_flow_indexes");
-        fn read<R: Record, S: StageSink + 'static>(
+        fn read<R: Record, S: ProviderSink + 'static>(
             context: &mut StageContext<S>,
             charge: &mut StateCharge,
         ) -> Result<Vec<R>, ModelError> {
-            let batches = context.handoff::<R>()?;
+            let batches = context.input::<R>()?;
             let mut rows = Vec::new();
             for batch in batches {
+                let batch = batch?;
                 for row in batch.rows() {
                     charge.grow((size_of::<R>() + row.heap_bytes() + 128).saturating_mul(4))?;
                     rows.push(row.clone());
@@ -557,7 +559,7 @@ impl Index {
         out
     }
 }
-impl<S: StageSink + 'static> ProviderStage<S> for TyFlow {
+impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
         macro_rules! declare {($($ty:ty),+)=>{$(context.declare::<$ty>()?;)+}}
         output_types!(declare);
@@ -736,7 +738,7 @@ fn coverage(
         diagnostic,
     }
 }
-struct Writer<'a, S: StageSink + 'static> {
+struct Writer<'a, S: ProviderSink + 'static> {
     context: &'a mut StageContext<S>,
     index: &'a Index,
     flow: &'a ModuleFlow,
@@ -766,7 +768,7 @@ macro_rules! supported {
         $writer.context.emit(row)?;
     }};
 }
-impl<S: StageSink + 'static> Writer<'_, S> {
+impl<S: ProviderSink + 'static> Writer<'_, S> {
     fn boundary(
         &mut self,
         occurrence: Option<Id<Occurrence>>,

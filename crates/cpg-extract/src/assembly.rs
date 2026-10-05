@@ -1,6 +1,7 @@
 //! Attachment of provider events to occurrences (ADR-0089). Only an exact span match attaches;
 //! every other outcome goes back to the provider with its candidates, to be disclosed as a subject
 //! boundary rather than guessed.
+use crate::bundle::ProviderSink;
 use crate::bundle::{Declared, ProviderStage, StageContext};
 use lctx_model::domain::{
     Batch, ContentHash, Id, ModelError, Record,
@@ -9,7 +10,7 @@ use lctx_model::domain::{
     },
     resources::ResourceBudget,
     source::Occurrence,
-    stages::{Effect, Profile, ProviderOutcome, Stage, StageSink},
+    stages::{Effect, Profile, ProviderOutcome, Stage},
 };
 use std::sync::Arc;
 
@@ -68,7 +69,7 @@ impl Declared for Assemble {
         }
     }
 }
-impl<S: StageSink + 'static> ProviderStage<S> for Assemble {
+impl<S: ProviderSink + 'static> ProviderStage<S> for Assemble {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
         use lctx_model::domain::{
             assertion::*, assumptions::*, attribution::*, conditions::*, source::CoverageScope,

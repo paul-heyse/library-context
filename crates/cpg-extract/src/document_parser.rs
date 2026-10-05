@@ -1,4 +1,5 @@
 //! Typed document producer over markdown-rs offsets and captured derived blocks.
+use crate::bundle::ProviderSink;
 use lctx_model::domain::{calls::SymbolKind, documents::*, source::*, syntax::DeclarationKind, *};
 use markdown::mdast::{AttributeContent, AttributeValue, Node};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -456,7 +457,7 @@ use lctx_model::domain::{
     charged::StateCharge,
     conditions::Diagram,
     input::SourceRole,
-    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage, StageSink},
+    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage},
     symbols::*,
     syntax::*,
 };
@@ -525,16 +526,17 @@ impl Declared for Documents {
     }
 }
 impl Vocabulary {
-    fn typed<S: StageSink + 'static>(
+    fn typed<S: ProviderSink + 'static>(
         context: &mut StageContext<S>,
     ) -> Result<(Self, StateCharge), ModelError> {
         let mut charge = StateCharge::new(context.budget(), "documents_vocabulary");
-        fn rows<R: Record, S: StageSink + 'static>(
+        fn rows<R: Record, S: ProviderSink + 'static>(
             context: &mut StageContext<S>,
             charge: &mut StateCharge,
         ) -> Result<Vec<R>, ModelError> {
             let mut rows = vec![];
-            for batch in context.handoff::<R>()? {
+            for batch in context.input::<R>()? {
+                let batch = batch?;
                 for row in batch.rows() {
                     charge.grow((size_of::<R>() + row.heap_bytes() + 256).saturating_mul(4))?;
                     rows.push(row.clone());
@@ -693,7 +695,7 @@ macro_rules! supported {
         $context.emit(row)?;
     }};
 }
-impl<S: StageSink + 'static> ProviderStage<S> for Documents {
+impl<S: ProviderSink + 'static> ProviderStage<S> for Documents {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
         macro_rules! declare {($($ty:ty),+)=>{$(context.declare::<$ty>()?;)+}}
         document_types!(declare);
@@ -757,7 +759,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for Documents {
         })
     }
 }
-fn source_span<S: StageSink + 'static>(
+fn source_span<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     source: &SourceArtifact,
     start: usize,
@@ -772,7 +774,7 @@ fn source_span<S: StageSink + 'static>(
     context.contribute(evidence.clone())?;
     Ok((evidence, span))
 }
-fn document<S: StageSink + 'static>(
+fn document<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     input: &AcquiredInput,
     source: &SourceArtifact,

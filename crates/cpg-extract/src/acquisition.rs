@@ -9,6 +9,7 @@
 //! plus every analyzer-readable file it can import. A `RECORD` is verification evidence, not
 //! analyzer input: its console-script lines carry the environment's location, so its in-site
 //! entries are digested into the distribution's verification and its bytes are not captured.
+use crate::bundle::ProviderSink;
 use crate::{
     ExtractError,
     bundle::{self, CapturedInputs, Declared, ProviderStage, StageContext},
@@ -23,7 +24,7 @@ use lctx_model::domain::{
     input::*,
     resources::ResourceBudget,
     source::SourceArtifact,
-    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage, StageSink},
+    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage},
 };
 use sha2::{Digest as _, Sha256};
 use std::{
@@ -695,7 +696,7 @@ impl Declared for Acquire {
         }
     }
 }
-impl<S: StageSink + 'static> ProviderStage<S> for Acquire {
+impl<S: ProviderSink + 'static> ProviderStage<S> for Acquire {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
         context.declare::<Package>()?;
         context.declare::<Release>()?;
