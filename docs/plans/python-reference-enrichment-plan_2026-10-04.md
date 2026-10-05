@@ -154,5 +154,6 @@ with R1. Delete packet-local spelling matches and speculative duplicate referenc
 current call-use packets and category limits because they remain valid consumers. Enduring scope
 belongs in acquisition/extraction, API product and serving owners, with accurate evidence labels.
 Targeted release compilation/model/extractor/service tests happen while implementing; coordinator
-Q1 owns the final disposable PostgreSQL/MCP journey and same-tree `just test-all`/`just hygiene`.
+Q1 owns the final disposable PostgreSQL/MCP journey and same-tree assembled `just qualify`,
+including full keep-going Clippy and applicable leaves (ADR-0126).
 No real-library qualification or operator activation is authorized by this supporting plan.

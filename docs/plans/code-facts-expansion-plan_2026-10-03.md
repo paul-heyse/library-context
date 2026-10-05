@@ -109,7 +109,7 @@ Prerequisites denote working, tested contract slices, not merely agreed type ske
 | P2b | P2a, N1–N5; B4 for behavioral raise predicates | Role-explicit catalog/selection and typed facet values |
 | P3 | M2/M3 and normalized target/variant identity | Selected diagnostics/pytest/usage/original evidence consumers |
 | P4 | B0; completed output slices P1–P3/B1–B4 | S0 and generated wire preserve role, premises and citation closure |
-| Q0 | All functional packages | Assembled disposable-PG fixture journeys, snapshots, test-all and hygiene |
+| Q0 | All functional packages | Assembled `just qualify`: disposable-PG fixture journeys, snapshots, full keep-going Clippy and applicable leaves |
 
 N0/P0, N4a, P2a and exact B4 are useful before analyzer migration; they repair current facts
 without interim semantic authorities. M0 and B0 settle the largest uncertainty first. N1 supplies
@@ -188,19 +188,20 @@ follow-up inventories old generations/artifacts, preserves required receipts, th
 obsolete runtime state and reconstructs from the new pins. Interrupted staging is never selected;
 resume/abort uses current generation commands, not an old-schema rollback copy.
 
-For Q0 hygiene, provision a current disposable store through existing PostgreSQL test support
-and set `LCTX_DATABASE_CONFIG` to its application configuration before `just hygiene`:
-`just store-check` otherwise checks the operator's old live schema. Keep that store alive through
-the gate and verify the same-tree model there. Do not reset stopped operator staging to make a
+For Q0, the store verification family and assembled qualification own a current disposable
+PostgreSQL configuration through existing test support. Keep that store alive through its checks
+and verify the same-tree model there. Default `just store-check` is an explicit operator action,
+not an implicit qualification prerequisite. Do not reset stopped operator staging to make a
 fixture qualification pass. Configure service/migration roles through existing test support;
 never substitute superuser credentials in product execution.
 
 During implementation use normalized build environment and targeted release-profile Cargo checks,
 tests and provider parity controls. Keep stable caches, jobs16 and default frontend1. After all
-functional scope, Q0 runs `just test-all` and `just hygiene` once; repair findings and rerun named
-failed checks. Hygiene includes full Clippy, dependency/fork policy, agent/ADR/documentation checks.
-Formatting and generators remain end-of-turn-hook work. Generated refresh timing must precede
-claiming the final same-tree gates; use a documented scoped exception only if needed and authorized.
+functional scope, Q0 runs assembled `just qualify` once on the same tree (ADR-0126), including
+required families/journeys, doc contracts, full keep-going Clippy and applicable dependency/fork,
+agent/ADR/documentation leaves. Repair findings and rerun affected boundaries or failed leaves.
+Formatting and generators remain end-of-turn-hook work. Current artifacts must match the final
+source before qualification is claimed. Earlier receipts below retain their historical scope.
 
 Required assembled journeys, independently specified fixture expectations:
 
@@ -246,7 +247,7 @@ assembled runtime acceptance.
 | Corpus mention review correction | The selected-analytics Q0 fixture exposed an Installed/Corpus input mismatch that silently discarded valid official co-mentions. P1 now consumes existing `CorpusLibrary` and follows only exact declared corpus→library links, retaining context, Document role, resolved universe and deduplication. Targeted check passed; actual split-input and unlinked-corpus controls remain open. |
 | P3 | Diagnostics/pytest and usage are integrated. Native ten-control composite passed. Actual PG diagnostics and repaired usage both passed as a two-control composite; the repair retains opaque module/local assignment negatives alongside direct import/re-export positives. Current-tree assembled qualification remains open. |
 | P4 | Native roles/ports, conditional Summary/brief basis and exception packet controls are integrated. Capture proof/source-correspondence is integrated (`16827a31`/`3b8a4a69`) after actual PG and required-wire controls passed. Terminal output is integrated at `5928f043`, but independent review found I-F03: the checker requires Input scope while the native frontier retains Artifact scope. Its shared ownership correction is integrated at `ae9af4e6`; actual qualification remains open; final independent review accepts the scope correction at static strength. Conditional/generated service controls require matching assembled CLI and runtime reruns. |
-| Q0 | **not_run**: functional packages are integrated and independent assembled review accepts at static strength. Current adapter, fixture journeys, snapshots, `just test-all` and full `just hygiene` remain prerequisites. The integrated both-profile stdio fixture explicitly selects fixed communities/PageRank/FCA/RCA/type/mention policies; kNN/embeddings remain off. Old operator staging and real-library/activation remain excluded. |
+| Q0 | **not_run**: functional packages are integrated and independent assembled review accepts at static strength. Current matching adapter, fixture journeys, snapshots and assembled `just qualify` remain prerequisites under ADR-0126. The integrated both-profile stdio fixture explicitly selects fixed communities/PageRank/FCA/RCA/type/mention policies; kNN/embeddings remain off. Old operator staging and real-library/activation remain excluded. |
 
 | Package / command, 2026-10-03 | Outcome and boundary |
 |---|---|

@@ -22,10 +22,14 @@ owns the exact acceptance boundary and receipts. Phase 5 MCP remains unavailable
 higher-layer requests with empty tables. Product work stays paused. The forward plan retains
 product context and unrelated findings.
 
-**Qualification:** compile checks and focused tests during execution; `just test-all` and
-`just hygiene` once all authorized functional scope and retirement are integrated. The automatic
-end-of-turn hook owns formatting and generators. A phase's decision is not evidence
-of implementation. PostgreSQL qualification uses a real disposable server, including concurrency.
+**Current qualification policy, 2026-10-05 (ADR-0126):** compile checks and focused affected
+verification families during execution; affected controls and applicable non-functional leaves
+at functional completion. Shared model/receipt/trust/transport changes require assembled
+`just qualify` on one tree. This assurance pivot requires that run, including real disposable
+PG/native/MCP, compile-fail/doc contracts and full keep-going Clippy. The automatic end-of-turn
+hook owns formatting and generators. Earlier phase command descriptions and dated receipts below
+retain their historical scope; superseded broad aliases are not current execution instructions.
+A phase's decision is not evidence of implementation. PostgreSQL qualification uses a real disposable server, including concurrency.
 Independent semantic fixtures, oracles, benchmark assets and held-out isolation are preserved.
 
 ## 2. Baseline and reopened work

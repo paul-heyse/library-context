@@ -83,9 +83,17 @@ uv projects (ADR-0117). ADR-0040 owns review cadence. ADR-0079 owns the current-
 workspace feature unification, a CLI-only Hakari crate and shared intermediates with fine-grain
 locking. Final artifacts stay in local `target/`: workspace O2 with incremental compilation,
 imported dependencies O3 with sccache, and the existing release test workflow. No wheel
-project is selected. Agents run functional tests and, at scope end, every non-functional check
-(`just hygiene`), fixing what fails. An end-of-turn hook runs only automatic steps: formatting,
-generators, readiness and the library catalog. It fixes nothing else (ADR-0110).
+project is selected. **Accepted verification target, 2026-10-04 (ADR-0126):** agents run compile
+checks and focused affected contract families during implementation, then affected controls and
+applicable non-functional leaves at functional scope completion. A shared model/receipt/trust/
+transport change or unresolved cross-boundary uncertainty requires assembled `just qualify`:
+required families and representative journeys, compile-fail/doc contracts, full keep-going Clippy
+and applicable leaves on one tree. This assurance pivot requires that assembled acceptance; a
+focused pass does not establish it. Minor unrelated documentation/library changes do not
+implicitly trigger it. Failures rerun the affected boundary or leaf. The automatic end-of-turn
+hook retains sole formatting/generator ownership and background readiness/catalog work; it
+runs no non-functional checks and fixes nothing else. The default operator store is inspected
+only by explicit operator action; qualification owns disposable store configuration.
 
 **Implemented workflow, 2026-09-30 (ADR-0109):** a coordinator owns design, integration and
 acceptance, using reusable evidence, design-review, execution, implementation-review and functional
@@ -101,7 +109,7 @@ evidence conflicts and repeated repair failures trigger coordinator reassessment
 single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
 routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0110, ADR-0109, ADR-0113
+> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0126, ADR-0109, ADR-0113
 
 <a id="section-1-3"></a>
 
@@ -148,7 +156,7 @@ routes; resource savings and broader workflow effectiveness remain **Proposed**.
   ever a compiler input: acquisition fetches its own pinned artifacts even when identical bytes
   exist in a skill cache. Gold scores are a record of brief retrieval; techniques are judged by
   the structured evaluation (§9.8), and the gold never tunes parameters.
-- **One version.** `scripts/check_gold.py` (`just gold`, part of `just test-all`) fails when the
+- **One version.** `scripts/check_gold.py` (`just gold`, the applicable evaluation-policy leaf) fails when the
   skill's install line or resolved release versions differ from `libraries/fastmcp`.
 - **Freezes.** The analytics config, the analytics and selection parameters in code and the
   variant policies are frozen by digest in `eval/gold/analytics-freeze.json`; `just gold` fails on

@@ -83,16 +83,16 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 
 | When | Run |
 |---|---|
-| During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No integrated gate after a slice or commit. |
-| After all functional scope in the plan is implemented | `just test-all`: release-profile nextest, pytest (including the oracles), real PostgreSQL and compile-fail doc tests. Then `just hygiene`, every non-functional check, once; fix what fails and re-run a single check with `just <id>`. Qualification cites both passing for the same tree |
+| During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on touched crates) and focused affected contract controls through `just verify-model`, `verify-analytics`, `verify-providers`, `verify-store`, `verify-serving`, `verify-oracles` or `verify-tooling`. Select the family and filters explicitly; no assembled gate after a slice or commit. |
+| At functional scope completion | Run affected family controls and applicable non-functional leaf checks once. Use `just qualify` for this assurance pivot, a changed shared model/receipt/trust/transport contract, or uncertainty that focused controls cannot resolve: all required families, representative real-PG/native/MCP journeys, compile-fail/doc contracts, full keep-going Clippy and applicable leaves for one tree. Fix failures and rerun affected controls or the failed `just <id>`; minor unrelated docs/library changes do not automatically trigger qualification. |
 | The real library, end to end | `lctx compile fastmcp --through facts|normalized|analysis|catalog --profile catalog|behavioral`; reports an unselected generation. Run real-library qualification only when authorized. Upper-frontier fixture qualification passed within the Phase 4 receipt; real-library upper pilots are not_run; serving code is implemented, with activation and real-library qualification stopped. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
-| Dependency policy | `just deps`, a `hygiene` check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, every exact Cargo pin or git rev has a `docs/pins.md` row, cargo-deny bans and sources, and the Pyrefly fork check (tag + patch, classified env reads) |
+| Dependency policy | `just deps`, the dependency-policy leaf check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, every exact Cargo pin or git rev has a `docs/pins.md` row, cargo-deny bans and sources, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Move dependencies to the latest | `just upgrade` (root `uv.lock` and `Cargo.lock`) at your discretion, then the affected tests; `libraries/*` and `services/vllm` move only deliberately (above, and their pins rows) |
-| Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; the end-of-turn hook regenerates the index; `just adr-lint` runs within `just hygiene` |
-| Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` (publication) runs within `just hygiene`. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
-| After every turn (automatic) | The end-of-turn hook (`scripts/after_turn.py`, ADR-0110, wired in `.claude/settings.json` and `.codex/hooks.json`) runs once the main agent stops: `just skills-sync`, `just adr index`, `just build-features` after dependency changes and `just fmt` (with ruff's safe auto-fixes); then, in the background, missing PostgreSQL images and tools, and `just library-catalog` last. The operator, never the model, sees failed steps; the next prompt never waits. The hook runs no other checks and fixes nothing: clippy, pyrefly type errors, lint, rules, ADR and agent lint, fixtures, gold, `docs-check`, `deps` and `store-check` findings are yours, through `just hygiene` at scope end. Don't run the formatters or generators yourself |
+| Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; the end-of-turn hook regenerates the index; agents run `just adr-lint` for affected decision metadata at scope end |
+| Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for affected publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
+| After every turn (automatic) | The end-of-turn hook (`scripts/after_turn.py`, ADR-0126, wired in `.claude/settings.json` and `.codex/hooks.json`) runs once the main agent stops: `just skills-sync`, `just adr index`, `just build-features` after dependency changes and `just fmt` (with ruff's safe auto-fixes); then, in the background, missing PostgreSQL images and tools, and `just library-catalog` last. The operator, never the model, sees failed steps; the next prompt never waits. The hook runs no other checks and fixes nothing: clippy, pyrefly type errors, lint, rules, ADR and agent lint, fixtures, gold, `docs-check` and `deps` findings are yours through applicable leaves at scope end. Disposable store checks belong to `verify-store`/`qualify`; inspecting the default operator store with `just store-check` is an explicit operator action. Don't run the formatters or generators yourself |
 | Tools present? | `just doctor`; the end-of-turn hook reports a missing tool |
 
 The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0079).
@@ -207,19 +207,28 @@ capability is absent.
 
 ## Testing rules
 
-- **During implementation, only compile checks and targeted tests.** Validate each new piece of
-  scope with a compile check and the focused tests or probes that exercise it. Integrated tests
-  (`just test`, `just check`, `just test-all`, facts pilots) wait until all functional scope in
-  the plan is implemented; repeat them only for a failure or a subsequent material change.
-- **No formatting mid-work; non-functional checks once, at scope end** (ADR-0110). The end-of-turn
-  hook runs `just fmt` (with ruff's safe auto-fixes) after each turn; don't run it, `cargo fmt` or
-  `ruff format` yourself. The hook does not run or fix clippy, pyrefly, lint or policy checks:
-  once all functional scope is implemented, run `just hygiene` beside `just test-all` and fix what
-  fails (`just <id>` re-runs one check). Don't run hygiene checks during implementation:
-  auto-fixes and findings mid-work move code you are still reasoning about.
+- **During implementation, compile checks and focused contract controls.** Select the affected
+  verification families and ordinary filters explicitly; validate each new piece with meaningful
+  tests or probes. Pure model/analytics checks prepare no Python adapters or PostgreSQL. Provider,
+  store, serving and oracle families prepare their actual prerequisites once before execution.
+  Tests use `--no-sync`; never synchronize the environment while native guards/workers are live.
+- **At functional scope completion, affected controls and applicable non-functional leaves.**
+  This assurance pivot, changes to shared model/receipt/trust/transport contracts, or unresolved
+  cross-boundary uncertainty require `just qualify` on the assembled tree (ADR-0126). It collects
+  required families and representative journeys, compile-fail/doc contracts, full keep-going
+  Clippy and applicable leaves without skipping independent failures. Failed readiness blocks its
+  dependents and reports the prerequisite; empty required selections fail. Repair failures and
+  rerun affected boundaries/leaves. Record chosen scope and limits; minor unrelated documentation
+  or library changes do not automatically require assembled product qualification. Real-library
+  pilots/activation still require authorization.
+- **No formatting mid-work; applicable non-functional leaves once, at scope end** (ADR-0126).
+  The end-of-turn hook owns `just fmt` (with ruff's safe auto-fixes) and generators. It never runs
+  or fixes Clippy, pyrefly, lint or policy checks. Agents run applicable leaves and fix findings;
+  no manual formatting, generators or non-functional checks during functional implementation.
 - Reuse cached release-profile Rust code for tests. Test data may be fresh, existing, or empty
-  according to the test's purpose.
-- **Schema contracts** are insta snapshots. `just check` runs with `INSTA_UPDATE=no`. To accept
+  according to the test's purpose. Store controls use owned disposable PostgreSQL 18; qualification
+  never implicitly inspects or resets the default operator store.
+- **Schema contracts** are insta snapshots. Verification runs with `INSTA_UPDATE=no`. To accept
   a change, read the `.snap.new` diff first, then run `cargo insta accept`. Never run
   `cargo insta review`, which is interactive. A schema snapshot change is a schema migration,
   so say so in the commit.

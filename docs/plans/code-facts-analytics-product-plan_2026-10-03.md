@@ -189,8 +189,8 @@ independent source expectations expose wrong joins. Deterministic partition comp
 membership, not incidental labels. No test-only validator copies.
 
 Q0 runs assembled fixture compilation for both profiles, fixed communities/PageRank/FCA/RCA/type/
-mention policies, actual selection/original-evidence/brief/packet service, then `just test-all`
-and `just hygiene`. Package boundaries do not trigger full campaigns. Passing gates establish
+mention policies and actual selection/original-evidence/brief/packet service in assembled
+`just qualify`, with full keep-going Clippy and applicable leaves on one tree (ADR-0126). Package boundaries do not trigger full campaigns. Passing gates establish
 that tree and fixture behavior, not retrieval-quality or real-library serving acceptance.
 All future acceptance commands are **not_run** at authoring.
 

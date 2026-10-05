@@ -155,13 +155,18 @@ Old-format stores are refused; reconstruct semantic state from pinned inputs.
 ## Development checks
 
 - `just postgres-test-setup` pulls the pinned images.
-- `just test-all` builds the release CLI, checks both pinned images and synchronizes native Python
-  adapters before one workspace Nextest run covering the real-PG18 controls; Python/oracles and
-  doctests follow. Adapter cache keys include their declared transitive Rust/SQL inputs; the build
-  environment supplies content and membership fingerprints, including deletions. Transport
-  fixtures use `--no-sync` while their actual native grants are live. The standalone subset remains available.
-- `just test-postgres` runs the real-PG18 suites through Testcontainers: the store, provider sessions,
-  the CLI. Missing Docker or a missing image is `blocked`.
+- `just verify-store` runs real disposable PostgreSQL 18 controls through the generation store;
+  `just verify-serving` exercises producer/store/native/MCP composition. Each family prepares
+  only its declared closure, once before execution. Missing Docker or a required image is `blocked`.
+- `just qualify` assembles required families and representative journeys once, with union readiness,
+  compile-fail/doc contracts, full keep-going Clippy and applicable non-functional leaves on the
+  same tree. It collects independent failures; readiness blocks only dependent families.
+- Adapter cache keys include declared transitive Rust/SQL inputs. The build environment supplies
+  content and membership fingerprints, including deletions; native fixtures use `--no-sync`
+  while grants/workers are live. Never sync during execution.
+- Qualification checks owned disposable installation/configuration, never the default operator
+  database. `just store-check` against the default configuration remains an explicit operator
+  action; do not reset stopped operator staging to make fixture checks pass.
 - The `testing` feature of `lctx-postgres` provides `DisposableDatabase`, which is provisioned like
   production with production session limits, and the attempt-semantics test harness.
 - Canonical serving binds values and derives relation identifiers from the validated model. Its

@@ -883,11 +883,15 @@ runtime oracles where they test the selected contract. Gold/held-out material ne
 
 ### 12.2 Commands and timing
 
+**Historical Phase 4 execution policy, 2026-10-01.** The completed Q0 receipt retains the
+commands and policy then in force. Current edits use affected verification families and the
+ADR-0126 `just qualify` policy in AGENTS; superseded broad aliases are not current instructions.
+
 During production implementation, use the build-environment wrapper with cargo check on changed
 crates and focused release-profile tests. Add real-store cases through the existing disposable
 PostgreSQL harness. Review changed schema snapshots before accepting them.
 
-After all functional packages and retirement are complete, run `just test-all` and `just hygiene` once on the assembled tree under the current AGENTS/ADR-0110 rules.
+After all functional packages and retirement are complete, run `just test-all` and `just hygiene` once on the assembled tree under the then-current AGENTS/ADR-0110 rules.
 Do not run formats/lints/full gates after each package. Fix failed checks and report composite
 receipts honestly. The assembled design review evaluates source and exercised contracts;
 documentation link success is not semantic acceptance.

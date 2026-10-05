@@ -203,8 +203,10 @@ publication move together. Provider diagnostics have original source/context, no
 behavioral authority. M2/M3 are not complete until their first normalized/behavior/product
 consumers in the coordinator run with actual payloads; mock constructors do not qualify a seam.
 
-Run targeted release-profile checks/tests during packages. Full `just test-all`/`just hygiene`
-wait for Q0 across the series; no real-library run here. Source-inspected migration probes from
+Run compile checks and focused provider/affected verification families during packages. At
+functional completion run affected controls and applicable leaves; this shared-contract series
+requires assembled `just qualify` at Q0, with full keep-going Clippy on one tree (ADR-0126).
+No real-library run here. Source-inspected migration probes from
 the skill are historical library evidence, not a passing current-tree migration. All local
 acceptance above is **not_run** at authoring. Independent extraction performance and memory
 benefits remain unmeasured; measure only with a separately authorized representative library.

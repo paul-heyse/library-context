@@ -428,7 +428,7 @@ No whole-document barrier is implied.
 | N1 — native bridge owner | N0, M0, L0, E0 | Prepared native query over actual generation records; five verdicts, original conditions and same-generation proofs |
 | T0 — Python transport owner | M0 schemas, L0 lifecycle; integrate C0/E0/R0/N1 as ready | Actual ten-tool/list/resource dispatch, final byte admission and shared cancellation/runtime ownership |
 | X0 — root / retiring consumers | Replacements and independent controls integrated | Remove last old serving authorities and named dormant runtime sources; verify active dependency/reference inventory |
-| Q0 — root / qualification owner | All Phase 5 functional packages and X0 | Both-profile real-library/native/MCP journeys, complete functional gate, hygiene, assembled scoped target review and handoff |
+| Q0 — root / qualification owner | All Phase 5 functional packages and X0 | Both-profile real-library/native/MCP journeys, assembled `just qualify`, full keep-going Clippy, applicable leaves, assembled scoped target review and handoff |
 | F2/F3 — canonical adapter owner | Companion foundation contracts | Independent improvements; integrate before Q0 only if part of the executed scope, otherwise keep their completion separate |
 
 A useful sequence is D0, then M0/F1/N0 in parallel. L0 follows M0's working admission contract.
@@ -487,9 +487,12 @@ or unconsumed old schemas. Publication/preparation never selects automatically.
 
 During implementation run pinned compile checks and targeted release-profile tests/probes only.
 Use real disposable PostgreSQL18 for store controls and pure model tests for finite operations.
-At complete functional scope run just test-all and just hygiene for the same assembled tree, fixing
-failures with named reruns. End-of-turn automation owns formatting and generated-file refreshes.
-Plan/doc-only work does not trigger these product gates.
+At complete functional scope run affected controls and applicable leaves; this shared-contract
+scope requires assembled `just qualify` on one tree (ADR-0126), with real disposable PG/native/MCP,
+compile-fail/doc contracts and full keep-going Clippy. Repair failures and rerun affected boundaries
+or named leaves. End-of-turn automation owns formatting and generated-file refreshes. Plan/doc-only
+work does not trigger product qualification. Dated receipts below retain their original scope;
+superseded broad aliases are not current instructions.
 
 Q0 additionally compiles the pinned FastMCP library through Catalog for both catalog and behavioral
 profiles, prepares the required physical artifact explicitly, and runs actual native/MCP journeys

@@ -63,8 +63,8 @@ site directory. Update prose for enduring meaning, boundaries and workflow chang
 navigation/search and link checks serve readers; they do not certify implementation or historical
 claims. Internal changes require no additional evidence packet. Current-work selection links to
 existing disposition owners and never copies their status. Documentation tooling uses focused
-`just docs-test`, with `docs-check` in `just hygiene`, independently of integrated product
-qualification.
+`just docs-test` and the applicable `just docs-check` leaf, independently of assembled product
+qualification. Documentation alone does not trigger that product gate (ADR-0126).
 
 ## 1. Binding decisions and what they bear on
 
@@ -167,12 +167,14 @@ An action uses the existing route appropriate to it:
 
 | Existing check | Use |
 |---|---|
-| Compile checks, focused tests/probes | During implementation: validate the scope just implemented; use release-profile Rust reuse |
-| `just fmt` | After every turn, by the end-of-turn hook (ADR-0110); agents never run it |
-| `just hygiene` | Once at scope end, beside `just test-all`; the agent fixes what fails. The hook never runs or fixes it |
-| `just rules-scan`, `just rules-test` | A justified code-shape invariant; run within `hygiene` |
-| `just adr-lint`, `just lint-agents` | Decision metadata and agent-facing links/commands; run within `hygiene` |
-| `just test-all`, `just pilot` | Integrated functional acceptance at scope end, not every slice or process edit; qualification also cites `just hygiene` passing for the same tree |
+| Compile checks; `just verify-model`, `verify-analytics`, `verify-providers`, `verify-store`, `verify-serving`, `verify-oracles`, `verify-tooling` | During implementation: focused affected contract controls with explicit selection and release-profile Rust reuse; preparation follows actual effects |
+| `just fmt` and generators | After every turn, by the end-of-turn hook (ADR-0126); agents never run them |
+| Applicable non-functional leaves | Once at functional scope end; agents fix failures and rerun affected checks. The hook never runs or fixes them |
+| `just rules-scan`, `just rules-test` | A justified code-shape invariant, when affected |
+| `just adr-lint`, `just lint-agents`, `just docs-check`, `just deps` | Affected decision metadata, agent commands, publication and dependency policy, at scope end |
+| `just qualify` | Assembled acceptance for this pivot, a changed shared model/receipt/trust/transport contract, or unresolved cross-boundary uncertainty: required families/journeys, doc contracts, full keep-going Clippy and applicable leaves on one tree; independent failures are collected |
+| `just store-check` | Default operator-store inspection only on explicit operator action. Disposable installation/configuration checks belong to the store family and qualification |
+| Real-library compilation/activation | Separately authorized qualification only; a family or assembled fixture pass does not establish real-library acceptance |
 
 Review quality is established by scenario reasoning and calibration, not by a new checker.
 

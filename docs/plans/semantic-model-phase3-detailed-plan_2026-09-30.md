@@ -735,6 +735,11 @@ catalog; test a pure normalization operation without acquisition, PostgreSQL or 
 
 ### 10.2 Commands and timing
 
+**Historical Phase 3 execution policy, 2026-09-30.** The qualification receipt below retains
+these original commands and authorization boundaries. Current edits use affected verification
+families and the ADR-0126 `just qualify` policy in AGENTS; agents never manually format or run
+superseded broad aliases. No historical pilot authorization activates a new campaign.
+
 During implementation use `python3 scripts/build_environment.py -- cargo check -p <touched-crate>`
 and `cargo test --release -p <owner> --test <focused-suite>` through the same wrapper.
 Store suites use the real disposable PG18 harness. Snapshot changes are reviewed before

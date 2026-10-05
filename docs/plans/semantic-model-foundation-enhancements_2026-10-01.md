@@ -235,8 +235,10 @@ owner to avoid competing edits. The root owns integration and shared manifests. 
 accepted semantics or ownership route through ADR/DESIGN; behavior-preserving API/helper refinements
 inside existing boundaries do not need a separate ADR solely for code movement.
 
-During implementation use compile checks and targeted release-profile tests. Integrated test-all and
-hygiene run once all functional scope of the actual execution is complete. If F2/F3 integrate into
+During implementation use compile checks and focused affected verification families. At functional
+completion run affected controls and applicable non-functional leaves; a shared-contract change
+or unresolved cross-boundary uncertainty requires assembled `just qualify` (ADR-0126). Dated
+receipts below retain the superseded commands' original scope. If F2/F3 integrate into
 Phase 5 before Q0, Q0 qualifies that assembled tree. If executed as a separate concurrent scope,
 their integrator owns their completion qualification; neither an isolated test nor Phase 5's earlier
 receipt qualifies later changes. End-of-turn automation owns formatting/generators.
@@ -260,7 +262,7 @@ through an explicit injected budget. The remaining ADR-0114 serving proposals ar
 implemented by settling this foundation-only contract.
 
 **Current package state, 2026-10-02:** F1–F3 local implementation and composite focused acceptance passed.
-Scope-end functional/hygiene qualification is next; broader Phase 5 remains outside this scope.
+Scope-end qualification follows the current family/`just qualify` policy; broader Phase 5 remains outside this scope.
 
 ### 5.1 F2 focused receipt — 2026-10-01
 

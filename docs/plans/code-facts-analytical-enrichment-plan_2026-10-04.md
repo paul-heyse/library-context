@@ -244,11 +244,12 @@ Do not copy or silently close the earlier findings.
 
 During implementation run scoped release compile checks and focused tests/probes for each touched
 capability, with `INSTA_UPDATE=no` outside deliberate snapshot acceptance. After all selected
-functional scope, run `just test-all` and `just hygiene` once for the same final tree. Fix findings
-and rerun the failing `just <id>`; repeat the functional gate only when a repair materially affects
-it. Report a composite receipt honestly when appropriate. The end-of-turn hook owns formatting
-and generators; do not run them manually. Final hygiene includes clippy, type/policy/docs/dependency
-and store checks; formatting is not a substitute.
+functional scope, run assembled `just qualify` once for the same final tree (ADR-0126), including
+required families/journeys, doc contracts, full keep-going Clippy and applicable type/policy/docs/
+dependency leaves. Qualification owns disposable store configuration; default operator-store
+inspection remains explicit operator action. Fix findings and rerun affected boundaries or the
+failing `just <id>`. Report composite receipts honestly. The end-of-turn hook owns formatting
+and generators; do not run them manually. Earlier gate receipts below retain their dated scope.
 
 Required evidence establishes semantics, replay, resource refusal and served usefulness on named
 fixtures. No scale/speed/retrieval-quality improvement is claimed. Broad performance campaigns,
@@ -893,7 +894,8 @@ production ty project/IDE search remain conditional deferrals, not incomplete se
 
 The newest native read-region changes add four nullable fields across two existing Named enum
 relations. Their deliberate schema snapshot migration, final source-matching adapters/CLI,
-current-model scoped store qualification and final full Clippy/hygiene/functional gates are
+current-model disposable store qualification and final assembled `just qualify` (full keep-going
+Clippy and applicable leaves, ADR-0126) are
 **not_run / pending**, by the operator's checkpoint request. Earlier `8f8ec7c…` schema/artifact and
 Clippy/hygiene receipts qualify only that predecessor source. The interrupted superseded full gate
 launched no tests; it supplies no current acceptance. Automatic hook formatting was observed after

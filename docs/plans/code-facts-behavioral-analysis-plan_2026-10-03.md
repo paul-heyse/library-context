@@ -207,7 +207,8 @@ Run targeted release-profile model/core tests and real disposable-PG publication
 new references. Known truth/completion expectations come from explicit Python semantics and
 existing independent oracle fixtures where applicable; do not compare only two consumers of the
 same disputed lowering. New runtime probes are selected for material uncertainty, not required
-for every row. Q0 owns full dual-profile journeys and test/hygiene gates after all functional scope.
+for every row. Q0 owns actual dual-profile journeys and assembled `just qualify` after all functional scope
+(ADR-0126), with full keep-going Clippy and applicable leaves on one tree.
 
 All planned evidence here is **not_run**. Completion requires first semantic use and qualified
 output, not merely persisted facts or source review. Expanded coverage is Proposed; total runtime

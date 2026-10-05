@@ -27,9 +27,10 @@ exact version, cap, git rev or hold-back with its reason. Documentation binaries
 
    Not reasons: reproducibility (the lockfile gives it), "already in the lock", or a version
    entering a key or digest (a bump re-keys).
-3. Write the pin, then run the tests the change affects; `just test-all` at the end of the
-   scope. `just hygiene` runs `just deps`: every exact pin or git rev has a row, declared
-   families resolve to one version (`scripts/check_family.py`), cargo-deny checks bans and
+3. Write the pin, then run affected compile/family controls and `just deps` at scope end.
+   A shared-contract change or unresolved cross-boundary uncertainty requires `just qualify`
+   (ADR-0126); a minor unrelated library change does not automatically trigger it. `just deps`
+   checks that every exact pin or git rev has a row, declared families resolve to one version (`scripts/check_family.py`), cargo-deny checks bans and
    sources, and the fork checks run.
 4. **Fork revisions.** A Pyrefly or Ruff/ty fork change gets a new pinned revision and patch:
    `uv run python scripts/check_pyrefly_fork.py` and `uv run python scripts/check_ruff_fork.py`

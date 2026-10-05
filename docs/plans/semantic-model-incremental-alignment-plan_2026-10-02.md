@@ -109,25 +109,18 @@ Future changes justify these seams without adding those features to this plan:
 
 ### T0 — F06: one integrated Rust test execution
 
-Current `test-all` includes the release workspace run via `check`, then `test-postgres` repeats
-a package subset under the same profile/features/environment. Make the integrated command run
-that workspace once while retaining every intended PostgreSQL control, Python/oracle suite,
-compile-fail doctest and required release CLI build. The standalone subset remains convenient.
+**Completed under the predecessor gate, 2026-10-02.** T0 removed duplicate workspace/subset
+execution while retaining its then-required PostgreSQL controls, Python/oracles, compile-fail
+contracts and release CLI readiness. The dated receipts below establish that bounded result.
 
-Add an ordinary read-only PostgreSQL image readiness prerequisite covering both pinned images;
-pull/setup remains with existing setup/end-of-turn mechanisms. Keep an explicit CLI-build
-prerequisite. Proposed recipe composition is `test-all: postgres-test-ready test-cli-build check
-test-doc`, and `test-postgres: postgres-test-ready test-cli-build` followed by its existing
-package subset. Preserve `check`'s Rust/Python meaning, INSTA_UPDATE=no, release profile,
-no-fail-fast, store fixtures, oracles and docs tests. Confirm prerequisites run before consumers
-and only once through Just dependency composition; do not accidentally remove standalone tests.
-
-Remove the subset invocation from the integrated path and update command documentation.
-Coverage comparison uses current package/test inventory and flags, not a passing shortened
-suite alone. The final authorized integrated gate establishes the new composition; it does not
-close Phase 5 Q0. Keep Cargo jobs16 and default single frontend thread; Nextest8 caps test
-processes rather than requesting eight threads per process. No unexplained SIGTERM diagnosis
-or performance promise is attached to deduplication.
+**Current execution policy, 2026-10-05 (ADR-0126):** explicit verification families and assembled
+`just qualify` replace that recipe composition. Store/serving/oracle families retain actual
+current contracts with their declared prerequisites, one readiness union and fresh assertions;
+no legacy aliases or repeated subset invocation are retained. Missing readiness blocks its
+consumers and independent failures are collected. This policy migration is owned by the
+[assurance coordinator](testing-architecture-pivot-plan_2026-10-04.md), not another T0 repair.
+Keep Cargo jobs16, the default single frontend thread, stable release caches and explicit
+Nextest concurrency. Neither target reduction nor removed duplication establishes speed/RSS benefit.
 
 ### T1 — O4: declared embedded scripts, conservative remaining capture
 
@@ -284,12 +277,13 @@ completion independently review native/store, closure/loader and serving interac
 the same scenarios, distinguishing architecture from fidelity judgments. Static review can
 settle design; planned runtime claims still require their appropriate controls.
 
-After all functional scope is implemented, run `NEXTEST_TEST_THREADS=8 just test-all` and
-`just hygiene` once for the same tree. T0 removes duplicated workspace/subset execution but
-keeps all functional controls. Fix findings and rerun the failed named check; repeat broader
-gates only for a subsequent material change or unresolved failure. Preserve policy/resource
-settings and classify actual outcomes as passed/failed/blocked/not_run. Clippy and other hygiene
-work remain required; formatters/generators remain end-of-turn-hook owned.
+During implementation run focused affected families; at functional scope completion run affected
+controls and applicable non-functional leaves. Shared model/receipt/trust/transport changes or
+unresolved cross-boundary uncertainty require `just qualify` once for the same assembled tree
+(ADR-0126), including full keep-going Clippy and disposable-store acceptance. Fix findings and
+rerun affected boundaries or the failed named leaf. Preserve policy/resource settings and
+classify actual outcomes as passed/failed/blocked/not_run. Formatters/generators remain
+end-of-turn-hook owned; older gate receipts below retain their original date and scope.
 
 These future gates qualify the incremental corrections, not unrun real-library Q0 journeys.
 No arbitrary throughput/RSS/retrieval-quality threshold is added. Measurements can later test
