@@ -1,91 +1,8 @@
-//! Actual structural publication over native C0/Local and borrowed normalized graphs.
-use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
-use cpg_extract::{
-    acquisition::AcquiredInput,
-    bundle::{CapturedInputs, run_stage},
-    capture::CapturedInput,
-};
-use lctx_model::domain::{
-    admission::FrontierContract,
-    catalog::build,
-    normalized::{
-        binding_normalization, callable_normalization, entity_normalization, event_normalization,
-        relation_normalization,
-    },
-    stages::*,
-    *,
-};
-use lctx_postgres::{
-    generations::GenerationStore,
-    roles::{Role, RoleConfig},
-    testing::DisposableDatabase,
-};
-use std::sync::Arc;
-async fn run(
-    profile: Profile,
-    selected: bool,
-    vectors_available: bool,
-    extra_layers: bool,
-    layer_only: bool,
-) {
-    let runtime = AttemptRuntime::new(RuntimeOptions {
-        memory_bytes: 1 << 30,
-        partitions: 2,
-    })
-    .unwrap();
-    let budget = runtime.budget();
-    let db = DisposableDatabase::start().await;
-    db.migrate().await;
-    let config = RoleConfig {
-        format: 1,
-        role: Role::Importer,
-        url: db.url("lctx_importer"),
-        max_connections: 6,
-        provider_connections: 4,
-        acquire_timeout_seconds: 5,
-        statement_timeout_seconds: 60,
-        lock_timeout_seconds: 10,
-    };
-    let mut relations = normalized_relations();
-    relations.extend(analysis::early_relations());
-    relations.extend(analysis::catalog_core::relations());
-    relations.extend(catalog::core_relations());
-
-    relations.extend(analysis::local::relations());
-    relations.extend(transfer::local::relations());
-    relations.extend(local_semantics::relations());
-    relations.extend(local_theory::relations());
-    relations.extend(local_fields::relations());
-    macro_rules! declared {($($field:ident:$ty:ty,)*)=>{$(relations.push(Relation::of::<$ty>());)*};}
-    lctx_model::local_semantic_outputs!(declared);
-    relations.extend(analysis::structural::relations());
-    relations.extend(structural::relations());
-    relations.extend(analysis::analytic::relations());
-    relations.extend(analytics::relations());
-    relations.extend(analysis::analytic_embedding::relations());
-    relations.extend(embedding::relations());
-    relations.sort_by_key(Relation::name);
-    relations.dedup_by_key(|r| r.name());
-    let model = Arc::new(ValidatedModel::declared(relations).unwrap());
-    let store = GenerationStore::install(db.owner.clone(), model.clone())
-        .await
-        .unwrap();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/python/analytic_optional");
-    let captured = Arc::new(CapturedInputs::new(
-        vec![AcquiredInput::tree(
-            CapturedInput::capture_derived(
-                &root,
-                &["api.py".into(), "guide.mdx".into()],
-                budget,
-                &["guide.mdx".into()],
-                cpg_extract::acquisition::derive_blocks,
-            )
-            .unwrap(),
-            "C0",
-        )],
-        cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
-    ));
+//! Optional graph algorithms run against completed native compiler projections and explicit effects.
+#[path = "fixtures/catalog_runtime.rs"]
+mod catalog_runtime;
+use lctx_model::domain::{admission::Frontier,stages::Profile,*};
+async fn run(profile:Profile,selected:bool,vectors_available:bool,extra_layers:bool,layer_only:bool) {
     let settings = analysis::settings::AnalyticsConfiguration {
         module_prefixes: vec!["api".into()],
         public_roots: vec!["api".into()],
@@ -104,392 +21,11 @@ async fn run(
         mention_layer: selected && extra_layers,
         knn_layer: selected && extra_layers,
     };
-    let (parameters, local) = local_semantics::definition();
-    let mut definitions = vec![
-        build::definition(),
-        (parameters, local.clone()),
-        structural::build::definition(&settings, analysis::AnalysisMethod::Delegation).unwrap(),
-        structural::build::definition(&settings, analysis::AnalysisMethod::DirectUsage).unwrap(),
-        embedding::analytic::definition(),
-    ];
-    for method in [
-        analysis::AnalysisMethod::Handoffs,
-        analysis::AnalysisMethod::Controls,
-    ] {
-        definitions.push(structural::build::definition(&settings, method).unwrap());
-    }
-    for method in analytics::build::METHODS {
-        definitions.push(analytics::build::definition(&settings, method).unwrap());
-    }
-    let configuration =
-        analysis::preparation::Configuration::new(captured.config().catalog(), definitions, budget)
-            .unwrap()
-            .with_analytics(settings.clone())
-            .unwrap();
-    let provider = ContractEmbedder::new(vectors_available);
-    use cpg_core::embedding_service::Embedder;
-    let vectors_requested = settings.knn || settings.knn_layer;
-    let service = vectors_requested.then(|| {
-        embedding::configuration::Configuration::new(provider.spec(), provider.endpoint(), budget)
-            .unwrap()
-    });
-    let text_definition = embedding::text::TextDefinition {
-        requested: vectors_requested,
-        ..embedding::text::TextDefinition::builtin()
-    };
-    let mut providers = cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
-    let mut declarations: Vec<_> = providers.iter().map(|p| p.declaration(profile)).collect();
-    declarations.extend([
-        entity_normalization::stage(),
-        relation_normalization::stage(profile),
-        callable_normalization::stage(profile),
-        normalized::receiver::stage(profile),
-        event_normalization::stage(profile),
-        binding_normalization::stage(profile),
-        projection::normalization::stage(profile),
-        normalized::coverage::stage(profile),
-        configuration.declaration(),
-        analysis::preparation::native_stage(profile, &model, &fixture_publication_order()).unwrap(),
-        normalized::callable_aspects::stage(profile),
-        build::stage(profile, &model, &fixture_publication_order()).unwrap(),
-    ]);
-    declarations.extend([
-        local_semantics::stage(profile, &local, &model, &fixture_publication_order()).unwrap(),
-        structural::build::stage(profile, &settings, &model, &fixture_publication_order()).unwrap(),
-        embedding::text::stage(
-            profile,
-            &text_definition,
-            &model,
-            &fixture_publication_order(),
-        )
-        .unwrap(),
-        embedding::configuration::stage(service.as_ref()),
-        embedding::analytic::stage(
-            profile,
-            vectors_requested,
-            &model,
-            &fixture_publication_order(),
-        )
-        .unwrap(),
-        analytics::build::stage(profile, &settings, &model, &fixture_publication_order()).unwrap(),
-    ]);
-    let facts_members = declarations
-        .iter()
-        .filter(|s| {
-            s.name != "analyze_local"
-                && s.name != "analyze_structural"
-                && s.name != "analyze_analytic"
-                && s.name != "normalize_events"
-                && s.outputs.iter().any(|r| is_vocabulary(r.name()))
-        })
-        .map(|s| s.name)
-        .collect();
-    let schedule = Schedule::build_with_publications(
-        &model,
-        declarations,
-        &[],
-        profile,
-        vec![
-            PublicationGroup::new(PublicationBoundary::Facts, facts_members),
-            PublicationGroup::new(PublicationBoundary::Local, vec!["analyze_local"]),
-            PublicationGroup::new(PublicationBoundary::Structural, vec!["analyze_structural"]),
-            PublicationGroup::new(PublicationBoundary::Analytic, vec!["analyze_analytic"]),
-        ],
-    )
-    .unwrap();
-    assert!(!schedule.stages().iter().any(|s| s.name.contains("synth")));
-    let mut execution = schedule.execute();
-    let attempt = store
-        .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
-        .await
-        .unwrap();
-    let id = attempt.generation();
-    for declaration in schedule.stages() {
-        let installation:bool=sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton").bind(model.digest().0.to_vec()).bind(store.physical_digest().0.to_vec()).fetch_one(db.owner.pool()).await.unwrap();
-        assert!(
-            installation,
-            "installation digest changed before {}",
-            declaration.name
-        );
-        let normalization = match declaration.name {
-            "normalize_entities" => Some(0),
-            "normalize_relations" => Some(1),
-            "normalize_callables" => Some(2),
-            "normalize_events" => Some(3),
-            "normalize_bindings" => Some(4),
-            "normalize_projections" => Some(5),
-            "normalize_coverage" => Some(6),
-            "normalize_receivers" => Some(7),
-            _ => None,
-        };
-        if let Some(which) = normalization {
-            if which == 0 {
-                attempt
-                    .checkpoint(
-                        &execution,
-                        &FrontierContract::facts(&model, profile).unwrap(),
-                    )
-                    .await
-                    .unwrap();
-            }
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| match which {
-                    0 => {
-                        cpg_core::normalize::entities(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    1 => {
-                        cpg_core::normalize::relations(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    2 => {
-                        cpg_core::normalize::callables(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    3 => {
-                        cpg_core::normalize::events(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    4 => {
-                        cpg_core::normalize::bindings(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    5 => {
-                        cpg_core::normalize::projections(
-                            access, &attempt, &config, &runtime, &model,
-                        )
-                        .await
-                    }
-                    7 => {
-                        cpg_core::normalize::receivers(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    _ => {
-                        cpg_core::normalize::coverage(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else if declaration.name == "analysis_configuration" {
-            cpg_core::analysis_prepare::configuration(
-                execution.begin(declaration.name).unwrap(),
-                &attempt,
-                &model,
-                &runtime,
-                &configuration,
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "analysis_native_inventory" {
-            cpg_core::analysis_prepare::native_inventory(
-                execution.begin(declaration.name).unwrap(),
-                &attempt,
-                &config,
-                &runtime,
-                &model,
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else if declaration.name == "normalize_callable_aspects" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::catalog_core::aspects(access, &attempt, &config, &runtime, &model)
-                        .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "analyze_local" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::local_semantics::run(
-                        access, &attempt, &config, &runtime, &model, &local,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "analyze_structural" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
-                        &access,
-                        &attempt,
-                        &config,
-                        &runtime,
-                        &model,
-                        &[
-                            projection::ProjectionName::CallableInvocation,
-                            projection::ProjectionName::DefinitionContainment,
-                        ]
-                        .into_iter()
-                        .collect(),
-                    )
-                    .await?;
-                    cpg_core::structural::produce(
-                        access, &attempt, &config, &runtime, &model, &graphs,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "analytic_text" {
-            cpg_core::analytic_text::publish(
-                execution.begin(declaration.name).unwrap(),
-                &attempt,
-                &config,
-                &runtime,
-                &model,
-                text_definition.clone(),
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "embedding_configuration" {
-            cpg_core::analysis_prepare::embedding_configuration(
-                execution.begin(declaration.name).unwrap(),
-                &attempt,
-                &model,
-                &runtime,
-                service.as_ref(),
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "analytic_embedding" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::analytic_embedding::produce(
-                        access,
-                        &attempt,
-                        &config,
-                        &runtime,
-                        &model,
-                        vectors_requested
-                            .then_some(&provider as &dyn cpg_core::embedding_service::Embedder),
-                        None,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("E1 failed: {e}"));
-        } else if declaration.name == "analyze_analytic" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
-                        &access,
-                        &attempt,
-                        &config,
-                        &runtime,
-                        &model,
-                        &[projection::ProjectionName::CallableInvocation]
-                            .into_iter()
-                            .collect(),
-                    )
-                    .await?;
-                    if selected && vectors_available {
-                        replay_controls(&access, &attempt, &config, &runtime, &model, &graphs)
-                            .await;
-                    }
-                    cpg_core::analytic::produce(
-                        access, &attempt, &config, &runtime, &model, &graphs,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("A1 failed: {e}"));
-        } else if declaration.name == "catalog_core" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::catalog_core::produce(access, &attempt, &config, &runtime, &model)
-                        .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else if declaration.name == "catalog_evidence" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::catalog_evidence::produce(access, &attempt, &config, &runtime, &model)
-                        .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else if declaration.name == "catalog_selection" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::catalog_selection::produce(
-                        access, &attempt, &config, &runtime, &model,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else {
-            let position = providers
-                .iter()
-                .position(|p| p.declaration(profile).name == declaration.name)
-                .unwrap();
-            run_stage(
-                providers.swap_remove(position),
-                execution.begin(declaration.name).unwrap(),
-                &attempt,
-                &model,
-                &captured,
-                budget,
-                Default::default(),
-            )
-            .await
-            .unwrap();
-        }
-    }
-    let validated = attempt
-        .seal(execution.finish().unwrap())
-        .await
-        .unwrap()
-        .validate()
-        .await
-        .unwrap();
-    let s = id.schema();
-    let results: Vec<(i16, bool, i16, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT method,selected,status,stop FROM {s}.analytic_technique_results"
-    )))
-    .fetch_all(db.owner.pool())
-    .await
-    .unwrap();
+    let provider=ContractEmbedder::new(vectors_available);
+    let vectors_requested=settings.knn||settings.knn_layer;
+    let fixture=catalog_runtime::compile("analytic_optional",profile,Frontier::Catalog,settings.clone(),if vectors_requested{Some(&provider)}else{None}).await;
+    if selected && vectors_available { replay_controls(&fixture).await; }
+    let results: Vec<(i16, bool, i16, i16)> = catalog_runtime::query(&fixture, "SELECT method,selected,status,stop FROM analytic_technique_results").await;
     assert!(!results.is_empty());
     assert_eq!(results.len() % 5, 0);
     assert!(results.iter().all(|r| r.1
@@ -502,39 +38,16 @@ async fn run(
                 .iter()
                 .all(|r| r.2 == analysis::AnalysisStatus::NotRequested.code())
         );
-        let ranks: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_rank_scores"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let ranks: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_rank_scores").await;
         assert_eq!(ranks, 0);
     } else {
-        let ranks: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_rank_scores"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let ranks: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_rank_scores").await;
         assert!(ranks >= 7);
-        let runs: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_community_runs"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let runs: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_community_runs").await;
         assert!(runs >= 40);
-        let scopes: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_concept_scopes"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let scopes: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_concept_scopes").await;
         assert!(scopes > 0);
-        let parameter_inputs: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT convert_from(a.parameter_name, 'UTF8'), count(DISTINCT i.entity) FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id WHERE a.kind=0 GROUP BY a.parameter_name"
-        )))
-        .fetch_all(db.owner.pool()).await.unwrap();
+        let parameter_inputs: Vec<(String, i64)> = catalog_runtime::query(&fixture, "SELECT convert_from(a.parameter_name, 'UTF8'), count(DISTINCT i.entity) FROM analytic_attributes a JOIN analytic_incidences i ON i.attribute=a.id WHERE a.kind=0 GROUP BY a.parameter_name").await;
         assert!(
             parameter_inputs
                 .iter()
@@ -547,19 +60,14 @@ async fn run(
                 .any(|(name, n)| name == "value" && *n == 8),
             "all eight declared value parameters must contribute independently"
         );
-        let typed_parameters: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(DISTINCT i.entity) FROM {s}.analytic_incidences i JOIN {s}.analytic_attributes a ON a.id=i.attribute JOIN {s}.analytic_incidence_sources p ON p.id=i.source WHERE a.kind=1 AND p.kind=1"
-        )))
-        .fetch_one(db.owner.pool()).await.unwrap();
+        let typed_parameters: i64 = catalog_runtime::one(&fixture, "SELECT count(DISTINCT i.entity) FROM analytic_incidences i JOIN analytic_attributes a ON a.id=i.attribute JOIN analytic_incidence_sources p ON p.id=i.source WHERE a.kind=1 AND p.kind=1").await;
         assert_eq!(
             typed_parameters, 8,
             "parameter type subjects attach to formals rather than their containers"
         );
         // Independent fixture oracle: only alpha/beta/gamma declare LeftValue. Its actual
         // native final/record traits enrich those parameter ports, with no RightValue negatives.
-        let traits: Vec<(String, i16, i16, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT DISTINCT m.name, a.typeclasstrait_role, a.typeclasstrait_basis, a.typeclasstrait_trait_kind FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id JOIN {s}.structural_public_candidates p ON p.entity=i.entity JOIN {s}.catalog_members m ON m.id=p.member WHERE a.kind=8 ORDER BY 1,2,3,4"
-        ))).fetch_all(db.owner.pool()).await.unwrap();
+        let traits: Vec<(String, i16, i16, i16)> = catalog_runtime::query(&fixture, "SELECT DISTINCT m.name, a.typeclasstrait_role, a.typeclasstrait_basis, a.typeclasstrait_trait_kind FROM analytic_attributes a JOIN analytic_incidences i ON i.attribute=a.id JOIN structural_public_candidates p ON p.entity=i.entity JOIN catalog_members m ON m.id=p.member WHERE a.kind=8 ORDER BY 1,2,3,4").await;
         let expected: Vec<_> = ["alpha", "beta", "gamma"]
             .into_iter()
             .map(|name| (name.to_owned(), 0_i16, 1_i16, 0_i16))
@@ -568,32 +76,22 @@ async fn run(
             traits, expected,
             "metadata incidence must match the independently enumerated declared-port universe"
         );
-        let records: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT DISTINCT m.name FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id JOIN {s}.structural_public_candidates p ON p.entity=i.entity JOIN {s}.catalog_members m ON m.id=p.member JOIN {s}.record_options o ON o.id=a.typeclassrecord_options WHERE a.kind=9 AND a.typeclassrecord_role=0 AND o.frozen ORDER BY 1"
-        ))).fetch_all(db.owner.pool()).await.unwrap();
+        let records: Vec<String> = catalog_runtime::query(&fixture, "SELECT DISTINCT m.name FROM analytic_attributes a JOIN analytic_incidences i ON i.attribute=a.id JOIN structural_public_candidates p ON p.entity=i.entity JOIN catalog_members m ON m.id=p.member JOIN record_options o ON o.id=a.typeclassrecord_options WHERE a.kind=9 AND a.typeclassrecord_role=0 AND o.frozen ORDER BY 1").await;
         assert_eq!(records, ["alpha", "beta", "gamma"]);
-        let uncertain: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_type_metadata_selections WHERE status=1 AND abstract_absence_known IS NULL"
-        ))).fetch_one(db.owner.pool()).await.unwrap();
+        let uncertain: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_type_metadata_selections WHERE status=1 AND abstract_absence_known IS NULL").await;
         assert!(
             uncertain > 0,
             "builtin class metadata is unavailable rather than a negative trait"
         );
-        let known_absence: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_type_metadata_selections WHERE abstract_absence_known"
-        ))).fetch_one(db.owner.pool()).await.unwrap();
+        let known_absence: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_type_metadata_selections WHERE abstract_absence_known").await;
         assert_eq!(known_absence, 0);
-        let captures: Vec<(String, i16, Option<bool>, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT DISTINCT m.name, a.capturedependence_origin, a.capturedependence_mutable, a.capturedependence_timing FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id JOIN {s}.structural_public_candidates p ON p.entity=i.entity JOIN {s}.catalog_members m ON m.id=p.member WHERE a.kind=15 AND a.capturedependence_name='GLOBAL' ORDER BY 1"
-        ))).fetch_all(db.owner.pool()).await.unwrap();
+        let captures: Vec<(String, i16, Option<bool>, i16)> = catalog_runtime::query(&fixture, "SELECT DISTINCT m.name, a.capturedependence_origin, a.capturedependence_mutable, a.capturedependence_timing FROM analytic_attributes a JOIN analytic_incidences i ON i.attribute=a.id JOIN structural_public_candidates p ON p.entity=i.entity JOIN catalog_members m ON m.id=p.member WHERE a.kind=15 AND a.capturedependence_name='GLOBAL' ORDER BY 1").await;
         assert_eq!(
             captures,
             [("isolate".to_owned(), 1_i16, None, 0_i16)],
             "global capture dependence has unknown mutation and snapshot time"
         );
-        let decorators: Vec<(String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT DISTINCT m.name,r.name FROM {s}.analytic_attributes a JOIN {s}.analytic_incidences i ON i.attribute=a.id JOIN {s}.analytic_incidence_sources src ON src.id=i.source JOIN {s}.structural_public_candidates p ON p.entity=i.entity JOIN {s}.catalog_members m ON m.id=p.member JOIN {s}.reference_entity_assessments ra ON ra.id=src.resolveddecorator_assessment JOIN {s}.reference_observations r ON r.id=ra.reference WHERE a.kind=7 AND src.kind=7 ORDER BY 1,2"
-        ))).fetch_all(db.owner.pool()).await.unwrap();
+        let decorators: Vec<(String, String)> = catalog_runtime::query(&fixture, "SELECT DISTINCT m.name,r.name FROM analytic_attributes a JOIN analytic_incidences i ON i.attribute=a.id JOIN analytic_incidence_sources src ON src.id=i.source JOIN structural_public_candidates p ON p.entity=i.entity JOIN catalog_members m ON m.id=p.member JOIN reference_entity_assessments ra ON ra.id=src.resolveddecorator_assessment JOIN reference_observations r ON r.id=ra.reference WHERE a.kind=7 AND src.kind=7 ORDER BY 1,2").await;
         assert_eq!(
             decorators
                 .into_iter()
@@ -606,45 +104,22 @@ async fn run(
             .collect(),
             "only declared decorator heads supply their resolved identities"
         );
-        let selected_decorators: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_decorator_selections WHERE status=0"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let selected_decorators: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_decorator_selections WHERE status=0").await;
         assert!(selected_decorators > 0);
         if settings.type_layer {
-            let pairs: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {s}.analytic_layer_pairs WHERE layer=2 GROUP BY frame"
-            )))
-            .fetch_all(db.owner.pool())
-            .await
-            .unwrap();
+            let pairs: Vec<i64> = catalog_runtime::query(&fixture, "SELECT count(*) FROM analytic_layer_pairs WHERE layer=2 GROUP BY frame").await;
             assert!(!pairs.is_empty());
             assert!(
                 pairs.iter().all(|count| *count == 6),
                 "two release-class triples supply exactly six pairs; builtin int cannot add a release-class edge"
             );
         }
-        let handoffs: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_incidence_sources WHERE kind=4"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let handoffs: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_incidence_sources WHERE kind=4").await;
         if handoffs == 0 {
-            let attempts: Vec<(Option<i16>, i16, i16, i16, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT sig.role,b.authority,b.authority_reason,b.outcome,count(*) FROM {s}.call_binding_attempts b LEFT JOIN {s}.signature_observations sig ON sig.id=b.signature GROUP BY 1,2,3,4 ORDER BY 1,2,3,4"
-            ))).fetch_all(db.owner.pool()).await.unwrap();
-            let effective: Vec<(i16, i16, i16, i16, i16, i16, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT identity,identity_reason,signatures,signature_reason,descriptor,descriptor_reason,count(*) FROM {s}.effective_callable_assessments GROUP BY 1,2,3,4,5,6 ORDER BY 1,2,3,4,5,6"
-            ))).fetch_all(db.owner.pool()).await.unwrap();
-            let coverage: Vec<(i16, i16, Option<String>, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT family,status,diagnostic,count(*) FROM {s}.provider_coverage GROUP BY 1,2,3 ORDER BY 1,2,3"
-            ))).fetch_all(db.owner.pool()).await.unwrap();
-            let a0: Vec<(Option<i16>, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT reason,count(*) FROM {s}.structural_handoff_assessments GROUP BY 1 ORDER BY 1"
-            ))).fetch_all(db.owner.pool()).await.unwrap();
+            let attempts: Vec<(Option<i16>, i16, i16, i16, i64)> = catalog_runtime::query(&fixture, "SELECT sig.role,b.authority,b.authority_reason,b.outcome,count(*) FROM call_binding_attempts b LEFT JOIN signature_observations sig ON sig.id=b.signature GROUP BY 1,2,3,4 ORDER BY 1,2,3,4").await;
+            let effective: Vec<(i16, i16, i16, i16, i16, i16, i64)> = catalog_runtime::query(&fixture, "SELECT identity,identity_reason,signatures,signature_reason,descriptor,descriptor_reason,count(*) FROM effective_callable_assessments GROUP BY 1,2,3,4,5,6 ORDER BY 1,2,3,4,5,6").await;
+            let coverage: Vec<(i16, i16, Option<String>, i64)> = catalog_runtime::query(&fixture, "SELECT family,status,diagnostic,count(*) FROM provider_coverage GROUP BY 1,2,3 ORDER BY 1,2,3").await;
+            let a0: Vec<(Option<i16>, i64)> = catalog_runtime::query(&fixture, "SELECT reason,count(*) FROM structural_handoff_assessments GROUP BY 1 ORDER BY 1").await;
             eprintln!(
                 "handoff attempts {attempts:?}; effective {effective:?}; coverage {coverage:?}; A0 {a0:?}"
             );
@@ -659,53 +134,26 @@ async fn run(
             );
         }
     }
-    let selectors: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT count(*) FROM {s}.analytic_public_selectors"
-    )))
-    .fetch_one(db.owner.pool())
-    .await
-    .unwrap();
+    let selectors: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_public_selectors").await;
     assert!(
         selectors > 2,
         "configured two seed paths cannot shrink all public candidates"
     );
-    let public: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT count(*) FROM {s}.structural_public_candidates WHERE in_subsystem"
-    )))
-    .fetch_one(db.owner.pool())
-    .await
-    .unwrap();
+    let public: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_public_candidates WHERE in_subsystem").await;
     assert_eq!(selectors, public);
-    let mismatches:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.analytic_source_receipts r LEFT JOIN lctx_model_store.stage_receipts c ON c.generation_id=decode($1,'hex') AND c.relation_name=r.relation AND c.stage_name=r.producer WHERE c.content_digest IS DISTINCT FROM r.content OR c.row_count IS DISTINCT FROM r.rows"))).bind(id.hex()).fetch_one(db.owner.pool()).await.unwrap();
-    assert_eq!(mismatches, 0);
     if selected && !extra_layers {
-        let isolated: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_universe_members WHERE excluded_isolate"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let isolated: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_universe_members WHERE excluded_isolate").await;
         assert!(isolated >= 1);
-        let co_use: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_layer_pairs WHERE layer=1 AND count=1"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let co_use: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_layer_pairs WHERE layer=1 AND count=1").await;
         assert!(
             co_use >= 1,
             "distinct call sites in one official scope must co-occur"
         );
     }
     if layer_only {
-        let ordinary:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {s}.analytic_neighbours)+(SELECT count(*) FROM {s}.analytic_document_neighbours)+(SELECT count(*) FROM {s}.analytic_community_labels)"))).fetch_one(db.owner.pool()).await.unwrap();
+        let ordinary:i64=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM analytic_neighbours)+(SELECT count(*) FROM analytic_document_neighbours)+(SELECT count(*) FROM analytic_community_labels)").await;
         assert_eq!(ordinary, 0);
-        let layer: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.analytic_layer_neighbours"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let layer: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_layer_neighbours").await;
         assert!(layer > 0);
         assert!(
             results
@@ -714,48 +162,7 @@ async fn run(
                 .all(|r| !r.1 && r.2 == analysis::AnalysisStatus::NotRequested.code())
         );
     }
-    validated.publish().await.unwrap();
-    let serving = RoleConfig {
-        role: Role::Serving,
-        url: db.url("lctx_serving"),
-        max_connections: 3,
-        provider_connections: 2,
-        ..config.clone()
-    };
-    let session = cpg_core::generation_read::GenerationSession::open(
-        &serving,
-        model.clone(),
-        id,
-        Default::default(),
-    )
-    .await
-    .unwrap();
-    let report = cpg_core::analysis_report::read(session, &model)
-        .await
-        .unwrap();
-    assert_eq!(
-        report
-            .diagnostics
-            .iter()
-            .filter(|r| r.owner == "analytic")
-            .count(),
-        results.iter().filter(|r| r.1).count()
-    );
-    for diagnostic in report.diagnostics.iter().filter(|r| r.owner == "analytic") {
-        assert!(diagnostic.iterations.is_some() && diagnostic.examined_members.is_some());
-        assert!(
-            diagnostic.elapsed_micros.is_none(),
-            "readback must not invent elapsed measurements"
-        );
-    }
-    drop(report);
-    store.retire(id).await.unwrap();
-    drop(configuration);
-    drop(service);
-    drop(captured);
-    assert_eq!(budget.reserved(), 0);
 }
-
 use cpg_core::embedding_service::{EmbedFuture, Embedder};
 struct ContractEmbedder {
     inner: cpg_core::embedding_service::FakeEmbedder,
@@ -826,64 +233,27 @@ async fn selected_vector_failures_remain_visible() {
     run(Profile::Behavioral, true, false, true, false).await;
 }
 
-async fn replay_controls(
-    access: &StageAccess<'_, '_>,
-    attempt: &lctx_postgres::generations::GenerationAttempt,
-    config: &RoleConfig,
-    runtime: &AttemptRuntime,
-    model: &Arc<ValidatedModel>,
-    graphs: &cpg_core::analysis_graphs::PreparedGraphs,
-) {
-    use futures::TryStreamExt;
-    async fn read<R: Record>(
-        access: &StageAccess<'_, '_>,
-        reader: &cpg_core::generation_read::AttemptSession,
-        session: &cpg_core::model_runtime::StageSession,
-        data: &mut analytics::build::Data,
-        seen: &mut std::collections::BTreeSet<&'static str>,
-    ) {
-        if !access.stage().reads::<R>() || !seen.insert(R::NAME) {
-            return;
-        }
-        let permit = access.read::<R>().unwrap();
-        session
-            .register(&permit, reader.table(&permit).unwrap())
-            .unwrap();
-        let q = session
-            .query(&format!("SELECT * FROM \"{}\"", R::NAME))
-            .await
-            .unwrap();
-        let mut stream = q.execute_stream().await.unwrap();
-        while let Some(batch) = stream.try_next().await.unwrap() {
-            data.visit(R::NAME, &batch).unwrap();
-        }
-    }
-    let b = runtime.budget();
-    let mut d = analytics::build::Data::new(b);
-    let mut seen = std::collections::BTreeSet::new();
-    let reader = cpg_core::generation_read::AttemptSession::open(
-        config,
-        attempt,
-        access,
-        model.clone(),
-        Default::default(),
-    )
-    .await
-    .unwrap();
-    let session = runtime.session(access);
-    macro_rules! collect{($($f:ident:$t:ty,)*)=>{$(read::<$t>(access,&reader,&session,&mut d,&mut seen).await;)*};}
-    lctx_model::normalized_binding_inputs!(collect);
-    lctx_model::structural_outputs!(collect);
-    lctx_model::analytic_extra_inputs!(collect);
-    lctx_model::analytic_consumption_inputs!(collect);
-    read::<projection::ProjectionSourceAssessment>(access, &reader, &session, &mut d, &mut seen)
-        .await;
-    read::<projection::ProjectionSnapshot>(access, &reader, &session, &mut d, &mut seen).await;
-    read::<projection::ProjectionSnapshotChunk>(access, &reader, &session, &mut d, &mut seen).await;
-    drop(session);
-    reader.close().await.unwrap();
+#[tokio::test]
+async fn baseline_community_scope_preserves_excluded_isolates_and_official_scope_pairs() {
+    run(Profile::Catalog, true, true, false, false).await;
+}
+
+#[tokio::test]
+async fn nearest_community_layer_preserves_unrequested_public_neighbours() {
+    run(Profile::Catalog, true, true, true, true).await;
+}
+
+
+async fn replay_controls(fixture:&catalog_runtime::Fixture) {
+ let workspace=&fixture.workspace;let b=workspace.budget();
+ let completed=workspace.completed_relations().unwrap();
+ let access=workspace.inputs("analytic-contract-control",Profile::Catalog,completed.iter().map(|r|r.name())).unwrap();
+ let graphs=cpg_core::analysis_graphs::PreparedGraphs::load(&access,workspace,workspace.model(),&[projection::ProjectionName::CallableInvocation].into_iter().collect()).await.unwrap();
+ let mut d=analytics::build::Data::new(b);
+ let mut seen=std::collections::BTreeSet::new();
+ for input in analytics::build::Data::validation_inputs(){if !seen.insert(input.name()){continue;}if let Ok(relation)=workspace.relation(input.name()){for batch in relation.batches().unwrap(){d.visit(input.name(),&batch.unwrap()).unwrap();}}}
     let mut c = analytics::frames::Context::new(b);
-    let sources = analysis::sources::CapturedSources::capture(access, b).unwrap();
+    let sources = analysis::sources::CapturedSources::capture(access.profile(),access.snapshots(),b).unwrap();
     let mut out = analytics::Output::new(b);
     for sf in d.structural.frames.iter() {
         let parent = d.structural_invocations.get(sf.invocation).unwrap();
@@ -920,7 +290,7 @@ async fn replay_controls(
         };
         let g = graphs
             .graph(
-                access,
+                &access,
                 b,
                 projection::normalization::ProjectionKey {
                     input: parent.input,
@@ -1015,7 +385,7 @@ async fn replay_controls(
         };
         let graph = graphs
             .graph(
-                access,
+                &access,
                 b,
                 projection::normalization::ProjectionKey {
                     input: parent.input,
@@ -1214,36 +584,4 @@ async fn replay_controls(
             "forgery {corruption} accepted"
         );
     }
-}
-
-#[tokio::test]
-async fn baseline_community_scope_preserves_excluded_isolates_and_official_scope_pairs() {
-    run(Profile::Catalog, true, true, false, false).await;
-}
-
-#[tokio::test]
-async fn nearest_community_layer_preserves_unrequested_public_neighbours() {
-    run(Profile::Catalog, true, true, true, true).await;
-}
-
-fn fixture_publication_order() -> lctx_model::domain::stages::PublicationOrder {
-    lctx_model::domain::stages::PublicationOrder::registered(
-        lctx_model::domain::ContentHash::of(b"fixture publication order"),
-        &[
-            (0, lctx_model::domain::stages::PublicationBoundary::Facts),
-            (1, lctx_model::domain::stages::PublicationBoundary::Local),
-            (2, lctx_model::domain::stages::PublicationBoundary::Model),
-            (3, lctx_model::domain::stages::PublicationBoundary::Summary),
-            (
-                4,
-                lctx_model::domain::stages::PublicationBoundary::Structural,
-            ),
-            (5, lctx_model::domain::stages::PublicationBoundary::Analytic),
-            (
-                6,
-                lctx_model::domain::stages::PublicationBoundary::Synthesis,
-            ),
-        ],
-    )
-    .unwrap()
 }

@@ -1,716 +1,31 @@
-//! Actual structural publication over native C0/Local and borrowed normalized graphs.
+//! Structural graph kernels consume actual completed native and normalized compiler inputs.
 #[path = "fixtures/catalog_runtime.rs"]
-#[allow(
-    dead_code,
-    reason = "The shared fixture also exposes relation declarations used by other tests"
-)]
 mod catalog_runtime;
-#[path = "fixtures/structural_mutations.rs"]
-mod structural_mutations;
-use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
-use cpg_extract::{
-    acquisition::AcquiredInput,
-    bundle::{CapturedInputs, run_stage},
-    capture::CapturedInput,
-};
-use lctx_model::domain::{
-    admission::{Frontier, FrontierContract},
-    stages::*,
-    *,
-};
-use lctx_postgres::{
-    generations::GenerationStore,
-    roles::{Role, RoleConfig},
-    testing::DisposableDatabase,
-};
-use std::sync::Arc;
-use structural_mutations::{Case, MutatingSink, State};
-#[tokio::test]
-async fn structural_candidates_paths_and_usage_publish_in_catalog() {
-    run(Profile::Catalog, Case::Truthful).await;
-}
-
-#[tokio::test]
-async fn structural_candidates_paths_and_usage_publish_in_behavioral() {
-    run(Profile::Behavioral, Case::Truthful).await;
-}
-
-#[tokio::test]
-async fn structural_refuses_strengthened_support() {
-    run(Profile::Behavioral, Case::Strengthen).await;
-}
-
-#[tokio::test]
-async fn structural_refuses_missing_support() {
-    run(Profile::Behavioral, Case::Missing).await;
-}
-
-#[tokio::test]
-async fn structural_refuses_extra_invocation() {
-    run(Profile::Behavioral, Case::Extra).await;
-}
-
-#[tokio::test]
-async fn structural_refuses_paired_invocation_deletion() {
-    run(Profile::Behavioral, Case::Paired).await;
-}
-
-#[tokio::test]
-async fn structural_refuses_erased_condition() {
-    run(Profile::Behavioral, Case::EraseCondition).await;
-}
-
-async fn run(profile: Profile, case: Case) {
-    assert!(Case::ALL.contains(&case));
-    let case_started = std::time::Instant::now();
-    eprintln!("structural BEGIN profile={profile:?} case={case:?}");
-    let runtime = AttemptRuntime::new(RuntimeOptions {
-        memory_bytes: 1 << 30,
-        partitions: 2,
-    })
-    .unwrap();
-    let budget = runtime.budget();
-    let db = DisposableDatabase::start().await;
-    db.migrate().await;
-    let config = RoleConfig {
-        format: 1,
-        role: Role::Importer,
-        url: db.url("lctx_importer"),
-        max_connections: 6,
-        provider_connections: 4,
-        acquire_timeout_seconds: 5,
-        statement_timeout_seconds: 60,
-        lock_timeout_seconds: 10,
-    };
-    let model = Arc::new(lctx_model::domain::model().unwrap());
-    let store = GenerationStore::install(db.owner.clone(), model.clone())
-        .await
-        .unwrap();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/python/structural_usage");
-    let captured = Arc::new(CapturedInputs::new(
-        vec![AcquiredInput::tree(
-            CapturedInput::capture_derived(
-                &root,
-                &["api.py".into(), "guide.mdx".into()],
-                budget,
-                &["guide.mdx".into()],
-                cpg_extract::acquisition::derive_blocks,
-            )
-            .unwrap(),
-            "C0",
-        )],
-        cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
-    ));
-    let settings = analysis::settings::AnalyticsConfiguration {
-        module_prefixes: vec!["api".into()],
-        public_roots: vec!["api".into()],
-        configured_seeds: vec!["api.Client".into(), "api.missing".into()],
-        depth: 2,
-        vertices: 512,
-        arcs: 2048,
-        witnesses: 3,
-        brief_budget: 8,
-        communities: false,
-        pagerank: false,
-        fca: false,
-        rca: false,
-        knn: false,
-        type_layer: false,
-        mention_layer: false,
-        knn_layer: false,
-    };
-    let prepared = cpg_core::compilation::PreparedCompilation::new(
-        Frontier::Catalog,
-        settings.clone(),
-        captured.config().catalog(),
-        None,
-        budget,
-    )
-    .unwrap();
-    let configuration = prepared.configuration();
-    let definition = |method| {
-        configuration
-            .definitions()
-            .iter()
-            .find(|d| d.method == method)
-            .unwrap()
-            .clone()
-    };
-    let enriched_definition = definition(analysis::AnalysisMethod::EnrichedExecution);
-    let model_definition = definition(analysis::AnalysisMethod::Models);
-    let summary_definition = definition(analysis::AnalysisMethod::Summaries);
-    let mut providers = cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
-    let schedule = prepared.schedule(&model, &providers, profile).unwrap();
-    let mutation_state = Arc::new(std::sync::Mutex::new(State::default()));
-    let mut refused = false;
-    let mut execution = schedule.execute();
-    let attempt = store
-        .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
-        .await
-        .unwrap();
-    let id = attempt.generation();
-    for declaration in schedule.stages() {
-        let stage_started = std::time::Instant::now();
-        eprintln!(
-            "structural BEGIN profile={profile:?} case={case:?} stage={}",
-            declaration.name
-        );
-        let installation:bool=sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton").bind(model.digest().0.to_vec()).bind(store.physical_digest().0.to_vec()).fetch_one(db.owner.pool()).await.unwrap();
-        assert!(
-            installation,
-            "installation digest changed before {}",
-            declaration.name
-        );
-        let normalization = match declaration.name {
-            "normalize_entities" => Some(0),
-            "normalize_relations" => Some(1),
-            "normalize_callables" => Some(2),
-            "normalize_events" => Some(3),
-            "normalize_bindings" => Some(4),
-            "normalize_projections" => Some(5),
-            "normalize_coverage" => Some(6),
-            "normalize_receivers" => Some(7),
-            _ => None,
-        };
-        if let Some(which) = normalization {
-            if which == 0 {
-                attempt
-                    .checkpoint(
-                        &execution,
-                        &FrontierContract::facts(&model, profile).unwrap(),
-                    )
-                    .await
-                    .unwrap();
-            }
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| match which {
-                    0 => {
-                        cpg_core::normalize::entities(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    1 => {
-                        cpg_core::normalize::relations(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    2 => {
-                        cpg_core::normalize::callables(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    3 => {
-                        cpg_core::normalize::events(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    4 => {
-                        cpg_core::normalize::bindings(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    5 => {
-                        cpg_core::normalize::projections(
-                            access, &attempt, &config, &runtime, &model,
-                        )
-                        .await
-                    }
-                    7 => {
-                        cpg_core::normalize::receivers(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    _ => {
-                        cpg_core::normalize::coverage(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else if declaration.name == "analysis_configuration" {
-            cpg_core::analysis_prepare::configuration(
-                execution.begin(declaration.name).unwrap(),
-                &attempt,
-                &model,
-                &runtime,
-                configuration,
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "analysis_native_inventory" {
-            cpg_core::analysis_prepare::native_inventory(
-                execution.begin(declaration.name).unwrap(),
-                &attempt,
-                &config,
-                &runtime,
-                &model,
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else if declaration.name == "normalize_callable_aspects" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::catalog_core::aspects(access, &attempt, &config, &runtime, &model)
-                        .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap();
-        } else if matches!(
-            declaration.name,
-            "embedding_configuration"
-                | "analytic_text"
-                | "analytic_embedding"
-                | "analyze_analytic"
-                | "synthesis"
-                | "retrieval"
-                | "assess_analysis_frontier"
-                | "assess_catalog_frontier"
-        ) {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| match declaration.name {
-                    "embedding_configuration" => {
-                        cpg_core::analysis_prepare::embedding_configuration(
-                            access, &attempt, &model, &runtime, None,
-                        )
-                        .await
-                    }
-                    "analytic_text" => {
-                        cpg_core::analytic_text::publish(
-                            access,
-                            &attempt,
-                            &config,
-                            &runtime,
-                            &model,
-                            embedding::text::TextDefinition {
-                                requested: false,
-                                ..embedding::text::TextDefinition::builtin()
-                            },
-                        )
-                        .await
-                    }
-                    "analytic_embedding" => {
-                        cpg_core::analytic_embedding::produce(
-                            access, &attempt, &config, &runtime, &model, None, None,
-                        )
-                        .await
-                    }
-                    "analyze_analytic" => {
-                        let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
-                            &access,
-                            &attempt,
-                            &config,
-                            &runtime,
-                            &model,
-                            &[projection::ProjectionName::CallableInvocation]
-                                .into_iter()
-                                .collect(),
-                        )
-                        .await?;
-                        cpg_core::analytic::produce(
-                            access, &attempt, &config, &runtime, &model, &graphs,
-                        )
-                        .await
-                    }
-                    "synthesis" => {
-                        cpg_core::synthesis::produce(access, &attempt, &config, &runtime, &model)
-                            .await
-                    }
-                    "retrieval" => {
-                        cpg_core::retrieval::produce(
-                            access, &attempt, &config, &runtime, &model, None, None,
-                        )
-                        .await
-                    }
-                    "assess_analysis_frontier" => {
-                        cpg_core::final_coverage::produce(
-                            access,
-                            &attempt,
-                            &config,
-                            &runtime,
-                            &model,
-                            analysis::frontier::Target::Analysis,
-                        )
-                        .await
-                    }
-                    "assess_catalog_frontier" => {
-                        cpg_core::final_coverage::produce(
-                            access,
-                            &attempt,
-                            &config,
-                            &runtime,
-                            &model,
-                            analysis::frontier::Target::Catalog,
-                        )
-                        .await
-                    }
-                    _ => unreachable!(),
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else if matches!(
-            declaration.name,
-            "analyze_local" | "evaluate_base" | "complete_base" | "prepare_source_calls"
-        ) {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    catalog_runtime::run(
-                        declaration.name,
-                        access,
-                        &attempt,
-                        &config,
-                        &runtime,
-                        &model,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "enrich_execution" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::semantic_execution::enrich(
-                        access,
-                        &attempt,
-                        &config,
-                        &runtime,
-                        &model,
-                        &enriched_definition,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "apply_models" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::semantic_models::apply(
-                        access,
-                        &attempt,
-                        &config,
-                        &runtime,
-                        &model,
-                        &model_definition,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "analyze_summaries" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
-                        &access,
-                        &attempt,
-                        &config,
-                        &runtime,
-                        &model,
-                        &[projection::ProjectionName::CallableInvocation]
-                            .into_iter()
-                            .collect(),
-                    )
-                    .await?;
-                    cpg_core::semantic_summaries::produce(
-                        access,
-                        &attempt,
-                        &config,
-                        &runtime,
-                        &model,
-                        &summary_definition,
-                        &graphs,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap();
-        } else if declaration.name == "analyze_structural" {
-            let result = cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
-                        &access,
-                        &attempt,
-                        &config,
-                        &runtime,
-                        &model,
-                        &[
-                            projection::ProjectionName::CallableInvocation,
-                            projection::ProjectionName::DefinitionContainment,
-                        ]
-                        .into_iter()
-                        .collect(),
-                    )
-                    .await?;
-                    if case == Case::Truthful {
-                        cpg_core::structural::produce(
-                            access, &attempt, &config, &runtime, &model, &graphs,
-                        )
-                        .await
-                    } else {
-                        let sources = structural_mutations::capture(&access, budget)?;
-                        let mut admission =
-                            analysis::expected::CoverageAdmission::new(&sources, budget)?;
-                        structural_mutations::load_admission(
-                            &access,
-                            &attempt,
-                            &config,
-                            &runtime,
-                            &model,
-                            &mut admission,
-                            &mutation_state,
-                        )
-                        .await?;
-                        let definitions = structural::build::methods()
-                            .into_iter()
-                            .map(|m| structural::build::definition(&settings, m).map(|(_, d)| d))
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let sink = MutatingSink {
-                            sink: &attempt,
-                            model: &model,
-                            budget,
-                            admission: &admission,
-                            definitions: &definitions,
-                            case,
-                            state: mutation_state.clone(),
-                        };
-                        cpg_core::structural::produce_with_sink(
-                            access, &attempt, &config, &runtime, &model, &graphs, &sink,
-                        )
-                        .await
-                    }
-                },
-                &mut |_| {},
-            )
-            .await;
-            if case == Case::Truthful {
-                result.unwrap();
-            } else {
-                let error =
-                    result.expect_err("adversarial Structural output cannot close publication");
-                let detail = error.to_string();
-                let expected = match case {
-                    Case::Strengthen => {
-                        "Structural outcomes differ from retained semantic inventory"
-                    }
-                    Case::Missing => "coverage computation outcome absent",
-                    Case::Extra => "structural exact invocation/parent membership differs",
-                    Case::Paired => "structural invocation domain incomplete",
-                    Case::EraseCondition => {
-                        "structural inventory differs: structural_argument_flows"
-                    }
-                    Case::Truthful => unreachable!(),
-                };
-                assert!(detail.contains(expected), "{case:?}: {detail}");
-                let schema = id.schema();
-                let parents: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                    "SELECT count(*) FROM {schema}.catalog_core_analysis_invocations"
-                )))
-                .fetch_one(db.owner.pool())
-                .await
-                .unwrap();
-                assert!(parents > 0, "independent C0 parent survives {case:?}");
-                let (changed, changed_coverage, stops, forwarded_stops) = {
-                    let state = mutation_state.lock().unwrap();
-                    (
-                        state.changed,
-                        state.changed_coverage,
-                        state.stops.clone(),
-                        state.forwarded_stops.clone(),
-                    )
-                };
-                assert!(changed > 0, "{case:?} performed its mutation");
-                if case == Case::Strengthen {
-                    assert!(changed_coverage > 0);
-                    assert!(!stops.is_empty());
-                    assert_eq!(
-                        stops, forwarded_stops,
-                        "exact stop inventory survives at the actual PG sink"
-                    );
-                    for relation in stops.keys() {
-                        let actual = sqlx::query_scalar::<_, Vec<u8>>(sqlx::AssertSqlSafe(
-                            format!("SELECT id FROM {schema}.{relation} WHERE stop IS NOT NULL"),
-                        ))
-                        .fetch_all(db.owner.pool())
-                        .await
-                        .unwrap()
-                        .into_iter()
-                        .collect::<std::collections::BTreeSet<_>>();
-                        assert!(
-                            actual.is_empty(),
-                            "failed Structural publication rolls back its staged stop rows"
-                        );
-                    }
-                }
-                eprintln!("profile={profile:?} case={case:?} refused: {detail}");
-                refused = true;
-                break;
-            }
-        } else if declaration.name == "catalog_core" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::catalog_core::produce(access, &attempt, &config, &runtime, &model)
-                        .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else if declaration.name == "catalog_evidence" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::catalog_evidence::produce(access, &attempt, &config, &runtime, &model)
-                        .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else if declaration.name == "catalog_selection" {
-            cpg_core::stage_runtime::run_declared_stage(
-                &mut execution,
-                declaration,
-                async |access| {
-                    cpg_core::catalog_selection::produce(
-                        access, &attempt, &config, &runtime, &model,
-                    )
-                    .await
-                },
-                &mut |_| {},
-            )
-            .await
-            .unwrap_or_else(|e| panic!("stage {} failed: {e}", declaration.name));
-        } else {
-            let position = providers
-                .iter()
-                .position(|p| p.declaration(profile).name == declaration.name)
-                .unwrap();
-            run_stage(
-                providers.swap_remove(position),
-                execution.begin(declaration.name).unwrap(),
-                &attempt,
-                &model,
-                &captured,
-                budget,
-                Default::default(),
-            )
-            .await
-            .unwrap();
-        }
-        eprintln!(
-            "structural END profile={profile:?} case={case:?} stage={} elapsed_s={:.3}",
-            declaration.name,
-            stage_started.elapsed().as_secs_f64()
-        );
-    }
-    if refused {
-        attempt
-            .fail(&ModelError::Invalid(format!(
-                "intentional {case:?} control"
-            )))
-            .await
-            .unwrap();
-        store.abort(id).await.unwrap();
-        drop(prepared);
-        drop(captured);
-        assert_eq!(budget.reserved(), 0);
-        eprintln!(
-            "structural END profile={profile:?} case={case:?} refused elapsed_s={:.3}",
-            case_started.elapsed().as_secs_f64()
-        );
-        return;
-    }
-    let validation_started = std::time::Instant::now();
-    eprintln!("structural BEGIN profile={profile:?} case={case:?} seal_validate");
-    let validated = attempt
-        .seal(execution.finish().unwrap())
-        .await
-        .unwrap()
-        .validate()
-        .await
-        .unwrap();
-    eprintln!(
-        "structural END profile={profile:?} case={case:?} seal_validate elapsed_s={:.3}",
-        validation_started.elapsed().as_secs_f64()
-    );
-    let s = id.schema();
-    let frames: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT count(*) FROM {s}.structural_frames"
-    )))
-    .fetch_one(db.owner.pool())
-    .await
-    .unwrap();
+use lctx_model::domain::{admission::Frontier, stages::Profile, *};
+async fn run(profile: Profile) {
+    let mut settings = catalog_runtime::settings("api");
+    settings.configured_seeds = vec!["api.Client".into(),"api.missing".into()];
+    let fixture = catalog_runtime::compile("structural_usage",profile,Frontier::Catalog,settings,None).await;
+    let frames: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_frames").await;
     assert!(frames > 0);
-    let invocations: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT count(*) FROM {s}.structural_analysis_invocations"
-    )))
-    .fetch_one(db.owner.pool())
-    .await
-    .unwrap();
+    let invocations: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_analysis_invocations").await;
     assert_eq!(invocations, frames * 4);
-    let public: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT count(*) FROM {s}.structural_public_candidates"
-    )))
-    .fetch_one(db.owner.pool())
-    .await
-    .unwrap();
+    let public: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_public_candidates").await;
     assert!(public > 0);
-    let missing:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_configured_seeds WHERE path='api.missing' AND candidates=0"))).fetch_one(db.owner.pool()).await.unwrap();
+    let missing:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_configured_seeds WHERE path='api.missing' AND candidates=0").await;
     assert_eq!(missing, frames);
-    let mismatches:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_source_receipts r LEFT JOIN lctx_model_store.stage_receipts c ON c.generation_id=decode($1,'hex') AND c.relation_name=r.relation AND c.stage_name=r.producer WHERE c.content_digest IS DISTINCT FROM r.content OR c.row_count IS DISTINCT FROM r.rows"))).bind(id.hex()).fetch_one(db.owner.pool()).await.unwrap();
-    assert_eq!(mismatches, 0);
-    let handoffs: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT count(*) FROM {s}.structural_handoff_occurrences"
-    )))
-    .fetch_one(db.owner.pool())
-    .await
-    .unwrap();
+    let handoffs: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_handoff_occurrences").await;
     assert!(
         handoffs > 0,
         "actual official nested result handoff must survive"
     );
-    let named:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_handoff_occurrences h JOIN {s}.structural_handoff_values v ON v.id=h.value WHERE v.kind=1"))).fetch_one(db.owner.pool()).await.unwrap();
+    let named:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_handoff_occurrences h JOIN structural_handoff_values v ON v.id=h.value WHERE v.kind=1").await;
     if profile == Profile::Behavioral {
-        if named == 0 {
-            named_handoff_diagnostics(db.owner.pool(), &s).await;
-        }
         assert!(
             named > 0,
             "actual reaching-definition result handoff must survive"
         );
-        let region_lineage: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.structural_handoff_occurrences h JOIN {s}.structural_handoff_values v ON v.id=h.value JOIN {s}.flow_region_observations r ON r.id=v.named_region JOIN {s}.flow_region_supports rs ON rs.id=v.named_region_support AND rs.assertion=r.id JOIN {s}.flow_use_supports us ON us.id=v.named_support AND us.run=rs.run JOIN {s}.assertion_qualifications q ON q.id=r.qualification WHERE v.kind=1 AND q.condition<>$1"
-        )))
-        .bind(conditions::Diagram::always().id().bytes().to_vec())
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let region_lineage: i64 = catalog_runtime::one_with(&fixture, "SELECT count(*) FROM structural_handoff_occurrences h JOIN structural_handoff_values v ON v.id=h.value JOIN flow_region_observations r ON r.id=v.named_region JOIN flow_region_supports rs ON rs.id=v.named_region_support AND rs.assertion=r.id JOIN flow_use_supports us ON us.id=v.named_support AND us.run=rs.run JOIN assertion_qualifications q ON q.id=r.qualification WHERE v.kind=1 AND q.condition<>$1", vec![datafusion::common::ScalarValue::FixedSizeBinary(16,Some(conditions::Diagram::always().id().bytes().to_vec()))]).await;
         assert!(
             region_lineage > 0,
             "named call results retain the native call-return execution region and same-run support"
@@ -721,31 +36,25 @@ async fn run(profile: Profile, case: Case) {
             "catalog must not claim named result identity without Flow"
         );
     }
-    let false_spare:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_handoff_assessments a JOIN {s}.occurrences o ON o.id=a.argument WHERE a.value IS NOT NULL AND o.syntax_kind=48"))).fetch_one(db.owner.pool()).await.unwrap();
+    let false_spare:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_handoff_assessments a JOIN occurrences o ON o.id=a.argument WHERE a.value IS NOT NULL AND o.syntax_kind=48").await;
     assert_eq!(false_spare, 0, "same type is not producer-result identity");
-    let controls:(i64,i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {s}.structural_argument_flows),(SELECT count(*) FROM {s}.structural_argument_flows WHERE alias IS NOT NULL),(SELECT count(*) FROM {s}.structural_conditional_raises),(SELECT count(*) FROM {s}.structural_unfollowed_arguments)"))).fetch_one(db.owner.pool()).await.unwrap();
+    let controls:(i64,i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM structural_argument_flows),(SELECT count(*) FROM structural_argument_flows WHERE alias IS NOT NULL),(SELECT count(*) FROM structural_conditional_raises),(SELECT count(*) FROM structural_unfollowed_arguments)").await;
     if profile == Profile::Behavioral {
         assert!(controls.0 > 0, "actual direct parameter forwarding");
         assert!(controls.1 > 0, "one native identity alias");
-        let conditional_alias: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.structural_argument_flows f JOIN {s}.structural_public_candidates p ON p.entity=f.caller AND p.frame=f.frame JOIN {s}.structural_handoff_values v ON v.id=f.alias JOIN {s}.flow_region_observations r ON r.id=v.named_region JOIN {s}.assertion_qualifications q ON q.id=f.qualification JOIN {s}.assertion_qualifications rq ON rq.id=r.qualification WHERE p.path='api.alias_forward' AND f.conditional AND rq.condition<>$1 AND q.condition=rq.condition"
-        )))
-        .bind(conditions::Diagram::always().id().bytes().to_vec())
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let conditional_alias: i64 = catalog_runtime::one_with(&fixture, "SELECT count(*) FROM structural_argument_flows f JOIN structural_public_candidates p ON p.entity=f.caller AND p.frame=f.frame JOIN structural_handoff_values v ON v.id=f.alias JOIN flow_region_observations r ON r.id=v.named_region JOIN assertion_qualifications q ON q.id=f.qualification JOIN assertion_qualifications rq ON rq.id=r.qualification WHERE p.path='api.alias_forward' AND f.conditional AND rq.condition<>$1 AND q.condition=rq.condition", vec![datafusion::common::ScalarValue::FixedSizeBinary(16,Some(conditions::Diagram::always().id().bytes().to_vec()))]).await;
         assert!(
             conditional_alias > 0,
             "alias forwarding retains the intervening native call-return condition"
         );
         assert!(controls.2 > 0, "qualified local conditional raise");
         assert!(controls.3 > 0, "computed/rebound argument boundaries");
-        let qualified:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_argument_flows f JOIN {s}.structural_public_candidates p ON p.entity=f.caller AND p.frame=f.frame JOIN {s}.local_flow_contributions l ON l.id=f.contribution JOIN {s}.assertion_qualifications q ON q.id=f.qualification JOIN {s}.assertion_qualifications lq ON lq.id=l.qualification JOIN {s}.flow_value_observations v ON v.id=l.value JOIN {s}.flow_use_inventory_observations i ON i.use_=v.use_ WHERE p.path='api.tested' AND i.complete AND i.native_count=1 AND i.mapped_count=1 AND f.conditional AND q.condition<>$1 AND q.condition=lq.condition AND q.modality>=lq.modality AND q.approximation=lq.approximation"))).bind(conditions::Diagram::always().id().bytes().to_vec()).fetch_one(db.owner.pool()).await.unwrap();
+        let qualified:i64=catalog_runtime::one_with(&fixture, "SELECT count(*) FROM structural_argument_flows f JOIN structural_public_candidates p ON p.entity=f.caller AND p.frame=f.frame JOIN local_flow_contributions l ON l.id=f.contribution JOIN assertion_qualifications q ON q.id=f.qualification JOIN assertion_qualifications lq ON lq.id=l.qualification JOIN flow_value_observations v ON v.id=l.value JOIN flow_use_inventory_observations i ON i.use_=v.use_ WHERE p.path='api.tested' AND i.complete AND i.native_count=1 AND i.mapped_count=1 AND f.conditional AND q.condition<>$1 AND q.condition=lq.condition AND q.modality>=lq.modality AND q.approximation=lq.approximation", vec![datafusion::common::ScalarValue::FixedSizeBinary(16,Some(conditions::Diagram::always().id().bytes().to_vec()))]).await;
         assert!(
             qualified > 0,
             "actual native singleton Local qualification remains conditional in persisted Structural flow"
         );
-        let caught:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_conditional_raises r JOIN {s}.structural_control_paths p ON p.id=r.path JOIN {s}.structural_control_traversals t ON t.id=p.traversal JOIN {s}.structural_public_candidates c ON c.entity=t.seed AND c.frame=t.frame WHERE c.path IN ('api.caught','api.swallowed','api.tested')"))).fetch_one(db.owner.pool()).await.unwrap();
+        let caught:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_conditional_raises r JOIN structural_control_paths p ON p.id=r.path JOIN structural_control_traversals t ON t.id=p.traversal JOIN structural_public_candidates c ON c.entity=t.seed AND c.frame=t.frame WHERE c.path IN ('api.caught','api.swallowed','api.tested')").await;
         assert_eq!(
             caught, 0,
             "catching, swallowed and value-tested paths must suppress propagated raise claim"
@@ -754,136 +63,42 @@ async fn run(profile: Profile, case: Case) {
         assert_eq!(controls, (0, 0, 0, 0));
     }
     if profile == Profile::Behavioral {
-        let stopped: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.structural_control_traversals WHERE stop IS NOT NULL"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let stopped: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_control_traversals WHERE stop IS NOT NULL").await;
         assert!(stopped > 0, "bounded forwarding retains its depth stop");
-        let literal: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {s}.structural_literal_arguments"
-        )))
-        .fetch_one(db.owner.pool())
-        .await
-        .unwrap();
+        let literal: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_literal_arguments").await;
         assert!(literal > 0, "exact native literal argument retained");
-        let unpacked:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_unfollowed_arguments WHERE binding IS NULL AND reason=$1"))).bind(obligation::ObligationKind::UnsupportedUnpacking.code()).fetch_one(db.owner.pool()).await.unwrap();
+        let unpacked:i64=catalog_runtime::one_with(&fixture, "SELECT count(*) FROM structural_unfollowed_arguments WHERE binding IS NULL AND reason=$1", vec![datafusion::common::ScalarValue::Int16(Some(obligation::ObligationKind::UnsupportedUnpacking.code()))]).await;
         assert!(
             unpacked > 0,
             "unmapped parameter unpacking remains explicit"
         );
     }
-    validated.publish().await.unwrap();
-    let serving = RoleConfig {
-        role: Role::Serving,
-        url: db.url("lctx_serving"),
-        max_connections: 3,
-        provider_connections: 2,
-        ..config.clone()
-    };
-    let session = cpg_core::generation_read::GenerationSession::open(
-        &serving,
-        model.clone(),
-        id,
-        Default::default(),
-    )
-    .await
-    .unwrap();
-    let report = cpg_core::analysis_report::read(session, &model)
-        .await
-        .unwrap();
-    assert!(
-        report
-            .outcomes
-            .iter()
-            .any(|r| r.owner == "structural" && r.method == "Delegation")
-    );
-    assert!(
-        report
-            .capabilities
-            .iter()
-            .any(|r| r.capability == "Controls"
-                && r.availability
-                    == if profile == Profile::Catalog {
-                        "NotRequested"
-                    } else {
-                        "Partial"
-                    })
-    );
-    assert!(report.outcomes.iter().any(|r| r.owner == "analytic"));
-    assert!(
-        !serde_json::to_string(&report)
-            .unwrap()
-            .contains("serving_ready")
-    );
-    drop(report);
-    store.retire(id).await.unwrap();
-    drop(prepared);
-    drop(captured);
-    assert_eq!(budget.reserved(), 0);
-    eprintln!(
-        "structural END profile={profile:?} case={case:?} elapsed_s={:.3}",
-        case_started.elapsed().as_secs_f64()
-    );
 }
+#[tokio::test]
+async fn structural_candidates_paths_and_usage_compile_in_catalog() {run(Profile::Catalog).await;}
+#[tokio::test]
+async fn structural_candidates_paths_and_usage_compile_in_behavioral() {run(Profile::Behavioral).await;}
 
-/// Failure-only persisted evidence. These rows explain refusal; they never supply admission.
-async fn named_handoff_diagnostics(pool: &sqlx::PgPool, schema: &str) {
-    let name_kind = source::SyntaxKind::ExprName.code();
-    for (label, query) in [
-        (
-            "assessment and binder roles",
-            format!(
-                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT a.reason,b.authority,b.authority_reason,b.outcome,sig.role,count(*) FROM {schema}.structural_handoff_assessments a JOIN {schema}.call_bindings cb ON cb.id=a.binding JOIN {schema}.call_binding_attempts b ON b.id=cb.attempt LEFT JOIN {schema}.signature_observations sig ON sig.id=b.signature GROUP BY a.reason,b.authority,b.authority_reason,b.outcome,sig.role ORDER BY a.reason,b.authority,b.authority_reason,b.outcome,sig.role) r"
-            ),
-        ),
-        (
-            "named use inventory and reaching",
-            format!(
-                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT art.path,to_jsonb(arg) AS argument,to_jsonb(a) AS assessment,to_jsonb(u) AS use,to_jsonb(o) AS observation,to_jsonb(q) AS use_qualification,to_jsonb(i) AS inventory,to_jsonb(reach) AS reaching,to_jsonb(rq) AS reach_qualification,to_jsonb(t) AS target FROM {schema}.structural_handoff_assessments a JOIN {schema}.occurrences arg ON arg.id=a.argument JOIN {schema}.source_artifacts art ON art.id=arg.source LEFT JOIN {schema}.flow_uses u ON u.occurrence=arg.id LEFT JOIN {schema}.flow_use_observations o ON o.use_=u.id LEFT JOIN {schema}.assertion_qualifications q ON q.id=o.qualification LEFT JOIN {schema}.flow_use_inventory_observations i ON i.use_=u.id LEFT JOIN {schema}.flow_reaching_observations reach ON reach.use_=u.id LEFT JOIN {schema}.assertion_qualifications rq ON rq.id=reach.qualification LEFT JOIN {schema}.reaching_definitions t ON t.id=reach.target WHERE arg.syntax_kind={name_kind} ORDER BY art.path,arg.start,reach.id LIMIT 24) r"
-            ),
-        ),
-        (
-            "named candidate mapping",
-            format!(
-                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT to_jsonb(i) AS inventory,to_jsonb(c) AS candidate,to_jsonb(m) AS member FROM {schema}.structural_handoff_assessments a JOIN {schema}.flow_uses u ON u.occurrence=a.argument JOIN {schema}.flow_use_inventory_observations i ON i.use_=u.id LEFT JOIN {schema}.flow_use_candidates c ON c.inventory=i.id LEFT JOIN {schema}.flow_use_inventory_members m ON m.inventory=i.id ORDER BY i.id,c.ordinal,m.ordinal LIMIT 24) r"
-            ),
-        ),
-        (
-            "named support receipts",
-            format!(
-                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT a.argument,to_jsonb(us) AS use_support,to_jsonb(rs) AS reaching_support,to_jsonb(ins) AS inventory_support,to_jsonb(p) AS native_premise,to_jsonb(q) AS native_qualification FROM {schema}.structural_handoff_assessments a JOIN {schema}.flow_uses u ON u.occurrence=a.argument JOIN {schema}.flow_use_observations o ON o.use_=u.id LEFT JOIN {schema}.flow_use_supports us ON us.assertion=o.id LEFT JOIN {schema}.flow_reaching_observations reach ON reach.use_=u.id LEFT JOIN {schema}.flow_reaching_supports rs ON rs.assertion=reach.id LEFT JOIN {schema}.flow_use_inventory_observations i ON i.use_=u.id LEFT JOIN {schema}.flow_use_inventory_supports ins ON ins.assertion=i.id LEFT JOIN {schema}.native_analysis_premises p ON p.use_assertion=o.id OR p.reaching_assertion=reach.id OR p.flowuseinventory_assertion=i.id LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id ORDER BY a.argument,p.kind LIMIT 24) r"
-            ),
-        ),
-        (
-            "definition value geometry",
-            format!(
-                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT art.path,to_jsonb(d) AS definition,to_jsonb(o) AS observation,to_jsonb(q) AS qualification,to_jsonb(v) AS value,to_jsonb(s) AS support FROM {schema}.flow_definitions d JOIN {schema}.occurrences target ON target.id=d.occurrence JOIN {schema}.source_artifacts art ON art.id=target.source JOIN {schema}.flow_definition_observations o ON o.definition=d.id LEFT JOIN {schema}.assertion_qualifications q ON q.id=o.qualification LEFT JOIN {schema}.occurrences v ON v.id=o.value LEFT JOIN {schema}.flow_definition_supports s ON s.assertion=o.id WHERE art.path<>'api.py' ORDER BY art.path,target.start LIMIT 24) r"
-            ),
-        ),
-        (
-            "native origin premise coverage",
-            format!(
-                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT p.kind,q.family,q.fidelity,q.status,count(*) FROM {schema}.native_analysis_premises p LEFT JOIN {schema}.native_qualifications q ON q.premise=p.id WHERE p.kind IN (0,1,2,59,72) GROUP BY p.kind,q.family,q.fidelity,q.status ORDER BY p.kind,q.family,q.fidelity,q.status) r"
-            ),
-        ),
-        (
-            "view and flow coverage",
-            format!(
-                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT to_jsonb(v) AS view,to_jsonb(s) AS support,to_jsonb(a) AS artifact,to_jsonb(c) AS coverage FROM {schema}.flow_source_view_observations v JOIN {schema}.source_artifacts a ON a.id=v.source LEFT JOIN {schema}.flow_source_view_supports s ON s.assertion=v.id LEFT JOIN {schema}.provider_coverage c ON c.run=s.run AND c.family=13 ORDER BY a.path LIMIT 24) r"
-            ),
-        ),
-        (
-            "flow boundaries",
-            format!(
-                "SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM (SELECT * FROM {schema}.subject_boundaries WHERE family=13 ORDER BY id LIMIT 24) r"
-            ),
-        ),
-    ] {
-        let sample = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(query))
-            .fetch_one(pool)
-            .await;
-        eprintln!("named handoff failure {label}: {sample:?}");
-    }
+/// Corrupt only selected completed structural results and use the model's shared replay.
+#[tokio::test]
+async fn structural_replay_refuses_support_invocation_and_condition_forgery() {
+ use lctx_model::domain::{analysis::structural as owner,structural::controls::ArgumentFlow};
+ let mut settings=catalog_runtime::settings("api");settings.configured_seeds=vec!["api.Client".into(),"api.missing".into()];
+ let fixture=catalog_runtime::compile("structural_usage",Profile::Behavioral,Frontier::Catalog,settings,None).await;
+ let invariant=fixture.workspace.model().invariants().iter().find(|i|i.name=="structural_replay").unwrap();
+ for corruption in 0..6 {
+  let mut check=(invariant.create)(fixture.workspace.budget());let mut changed=0;
+  for input in &invariant.inputs {
+   let relation=fixture.workspace.relation(input.name()).unwrap();
+   for batch in relation.batches().unwrap(){let batch=batch.unwrap();let mut forwarded=batch.clone();
+    if corruption==1 && input.name()==owner::AnalysisOutcome::NAME {let mut rows=owner::AnalysisOutcome::decode(&batch).unwrap();for row in &mut rows{if row.status==analysis::AnalysisStatus::Partial{row.status=analysis::AnalysisStatus::Completed;row.reason=None;changed+=1;}}forwarded=owner::AnalysisOutcome::encode(&rows).unwrap();}
+    if corruption==2 && input.name()==owner::AnalysisOutcome::NAME && changed==0 {let mut rows=owner::AnalysisOutcome::decode(&batch).unwrap();if !rows.is_empty(){rows.remove(0);changed+=1;}forwarded=owner::AnalysisOutcome::encode(&rows).unwrap();}
+    if corruption==3 && input.name()==owner::Invocation::NAME && changed==0 {let mut rows=owner::Invocation::decode(&batch).unwrap();if let Some(original)=rows.first(){let mut extra=original.clone();extra.subject=Some(fixture.workspace.completed::<normalized::entities::EntityRef>().unwrap().batches().unwrap().flat_map(|b|normalized::entities::EntityRef::decode(&b.unwrap()).unwrap()).find(|r|matches!(r,normalized::entities::EntityRef::Callable{..})).unwrap().id());assert_ne!(extra.id(),original.id());rows.push(extra);changed+=1;}forwarded=owner::Invocation::encode(&rows).unwrap();}
+    if corruption==4 && input.name().starts_with("structural_"){changed+=batch.num_rows();forwarded=batch.slice(0,0);}
+    if corruption==5 && input.name()==ArgumentFlow::NAME {let mut rows=ArgumentFlow::decode(&batch).unwrap();for row in &mut rows{if row.conditional{row.conditional=false;row.qualification=fixture.workspace.completed::<assertion::AssertionQualification>().unwrap().batches().unwrap().flat_map(|b|assertion::AssertionQualification::decode(&b.unwrap()).unwrap()).find(|q|q.condition==conditions::Diagram::always().id()).unwrap().id();changed+=1;}}forwarded=ArgumentFlow::encode(&rows).unwrap();}
+    check.visit_input(input,&forwarded).unwrap();
+   }
+  }
+  let result=check.finish();if corruption==0{result.unwrap();}else{assert!(changed>0,"corruption {corruption} must exercise actual rows");assert!(result.is_err(),"corruption {corruption} accepted");}
+ }
 }
