@@ -142,3 +142,14 @@ fn projection_exclusions_share_the_endpoint_category_policy() {
         assert!(excluded.contains(&EntityCategory::Place));
     }
 }
+
+#[test]
+fn intrinsic_lowering_and_emission_share_the_typed_declaration(){
+ let mut emitted=BTreeSet::new();
+ macro_rules! emitted {($($variant:ident:$record:ty,)*)=>{$(assert!(emitted.insert(<$record as Record>::NAME),"duplicate intrinsic emission owner");)*};}
+ lctx_model::graph_entity_records!(emitted);
+ macro_rules! declared {($consumer:ident;$($variant:ident:$kind:ident=>$record:ty,)*)=>{$(assert!(emitted.contains(<$record as Record>::NAME));assert_eq!(<$record as GraphEntityRecord>::GRAPH_KIND,EntityKind::$kind);)*};}
+ lctx_model::graph_entity_declarations!(declared, parity);
+ // Regression for the concrete missing method-parameter owner found by artifact admission.
+ assert!(emitted.contains(<d::analysis::MethodParameters as Record>::NAME));
+}
