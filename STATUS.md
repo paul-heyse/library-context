@@ -2,20 +2,17 @@
 
 _Updated 2026-10-05 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Store and graph-engine design review: Revise (2026-10-05; review and evidence uncommitted).**
-The [SurrealDB graph-store review](docs/design_review/reviews/design_review_surrealdb-graph-store_2026-10-05.md)
-(design/target, with a coordinator addendum) pivots the architecture, not the store: SurrealDB 3.3 is not adopted now and is kept as the leading alternative lowering behind the F12 seam; Neo4j is not integrated. Its primary
-structural finding is F12: the typed declarations are *coupled*, not only connected, to physical
-layout, execution unit and identity scope. It orders the work as follows:
-1. F01: validation holds the lifecycle transaction idle across `finish()` under the product's own
-   30 s idle-in-transaction cap.
-2. A model-side lowering seam, with store-free stage reads and declaration-derived identity
-   (F12 part 1, F09, F05).
-3. A pipeline-shape ADR, with compile-then-store (R3) leading, settled by PR-3.
-4. F02–F14.
-
-Its §11 owns the disposition of F01–F14 until a plan's findings table takes them over. Accepted
-architecture is unchanged until ADRs follow.
+**Independent graph-native target review: hard pivot now (Proposed, 2026-10-05).**
+The [target review](docs/design_review/reviews/design_review_graph-native-target_2026-10-05.md)
+recommends SurrealDB 3.3 as primary store/serving engine, with compile/admit first, one stored-content
+verification, bounded graph queries and reusable projections. The operator chooses a direct design-phase
+replacement: existing snapshots are disposable; no compatibility, dual writes or intermediate PG redesign.
+The review is **Accept scoped as target design**, not implementation or activation acceptance.
+Next: record the target and plan one replacement, starting with the admitted graph boundary.
+The [earlier review §11](docs/design_review/reviews/design_review_surrealdb-graph-store_2026-10-05.md#11-authority-changes-and-dispositions-slot-11)
+still owns F01–F14 until that plan absorbs surviving obligations; this review recommends replacing
+their operational causes rather than first completing their PostgreSQL remedies. Accepted ADRs and
+production code are unchanged. No new probes, product runs or store mutations were performed.
 
 **First real-library catalog compile failed (F01).** The authorized FastMCP 4.0.5 behavioral run
 through catalog (all analytics, fake embedder) went as follows:
@@ -25,7 +22,7 @@ through catalog (all analytics, fake embedder) went as follows:
 - The attempt ended "cleanup unconfirmed".
 
 Interrupted generation `786cd6d58dc5dccea686c0a54a8f0dcd` (facts layer only, about 16.6M rows,
-staging) is retained as PR-3's input. `lctx generation abort` removes it when it is no longer needed.
+staging) still exists; it is disposable under the pivot direction. This review did not remove it.
 
 **Testing, validation and verification pivot implemented / Tested; assembled qualification composite passed.**
 The [assurance coordinator](docs/plans/testing-architecture-pivot-plan_2026-10-04.md#7-current-contractcontrol-map-and-execution-checkpoint)
@@ -49,7 +46,10 @@ assertion-pass cache, compatibility receipt readers or historical runtime archiv
 
 ## Last verified — 2026-10-05
 
-**Design-review session (store, compile and docs only; no product code changed):**
+**Independent target review:** `just docs-check` **passed** (307 pages, zero link errors).
+Static source/library review only; `just qualify` and real-library compilation **not_run**.
+
+**Earlier design-review session (store, compile and docs only; no product code changed):**
 
 | Command / boundary | Outcome |
 |---|---|
