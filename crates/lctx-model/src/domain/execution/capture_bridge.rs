@@ -382,7 +382,7 @@ impl CheckedCaptureOrigin {
 
 /// Conditional on entry to this exact active caller frame and its direct synchronous call.
 /// The header's closed origin proof remains separate from this activation.
-#[derive(Debug, Clone, PartialEq, Eq, crate::Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, crate::Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "captured_entry_bindings", rule = "bounded_own_frame_capture")]
 pub struct CapturedEntryBinding {
     #[model(key, premise)]

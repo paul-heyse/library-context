@@ -106,7 +106,7 @@ pub struct SourceFieldAssociation {
     pub qualification: Id<AssertionQualification>,
     pub inventory: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "source_field_reader_links",
     rule = "source_field_reader_association"

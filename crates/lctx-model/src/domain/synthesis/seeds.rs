@@ -8,7 +8,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="synthesis_seed_plans",invariant_refs=invariants_refs,semantic_source=include_bytes!("seeds.rs"))]
 pub struct SeedPlan {
     #[model(key)]
@@ -51,7 +51,7 @@ pub struct ConfiguredSeedCandidate {
     #[model(key)]
     pub member: Id<CatalogMemberInvocation>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "synthesis_selected_seed_sources")]
 pub enum SelectedSeedSource {
     #[model(code = 0)]
@@ -63,7 +63,7 @@ pub enum SelectedSeedSource {
         decision: Id<super::automatic::Decision>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "synthesis_selected_seeds")]
 pub struct SelectedSeed {
     #[model(key)]

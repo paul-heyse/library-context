@@ -39,7 +39,7 @@ macro_rules! synthesis_control_text_inputs {
 macro_rules! control_data{($($f:ident:$t:ty,)*)=>{pub struct ControlData{$(pub $f:Rows<$t>,)*}impl ControlData{pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$t>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]}}};}
 crate::synthesis_control_text_inputs!(control_data);
 pub const TEMPLATE_VERSION: i64 = 2;
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "synthesis_assertion_templates")]
 pub enum AssertionTemplate {
     #[model(code = 0)]

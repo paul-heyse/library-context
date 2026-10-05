@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "document_nodes", validate = validate_node, invariant_refs = document_invariants_refs)]
 pub enum DocumentNode {
     #[model(code = 0)]
@@ -233,7 +233,7 @@ fn validate_component(row: &DocumentComponentObservation) -> Result<(), ModelErr
 }
 /// Codes retain the old attribute codebook. Payload shape, rather than a parallel optional-field
 /// convention, distinguishes literal content, expression source, a bare name and a spread.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "document_attribute_values", validate = validate_attribute)]
 pub enum DocumentAttributeValue {
     #[model(code = 0)]

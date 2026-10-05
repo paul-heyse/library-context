@@ -23,7 +23,7 @@ pub enum DispatchReason {
     IncompleteCoverage = 9,
     QualificationDisagreement = 10,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "normalized_dispatch_assessments")]
 pub struct DispatchAssessment {
     #[model(key)]
@@ -39,7 +39,7 @@ pub struct DispatchAssessment {
     pub open: bool,
     pub reason: DispatchReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "normalized_dispatch_members")]
 pub struct DispatchMember {
     #[model(key)]

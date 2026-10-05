@@ -9,7 +9,7 @@ use crate::domain::{
     resources::ResourceBudget,
     *,
 };
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="synthesis_summary_facets",rule="synthesis_summary_facet",invariant_refs=invariants_refs,semantic_source=include_bytes!("summary.rs"))]
 pub struct SummaryFacet {
     #[model(key)]

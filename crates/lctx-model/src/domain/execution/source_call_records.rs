@@ -72,7 +72,7 @@ impl analysis::support::DerivedEvidence for SourceCallHeader {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "source_call_outcomes")]
 pub enum SourceCallOutcome {
     #[model(code = 0)]
@@ -83,7 +83,7 @@ pub enum SourceCallOutcome {
         exception: super::ExactRuntimeException,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "source_call_frame_releases",
     rule = "source_call_frame_release"

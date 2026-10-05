@@ -59,7 +59,7 @@ pub enum DefaultSlot {
     Collector = 2,
     NativeUnknown = 3,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "effective_callable_assessments", validate = validate_assessment, invariant_refs = super::callable_normalization::invariants_refs)]
 pub struct EffectiveCallableAssessment {
     #[model(key)]
@@ -157,7 +157,7 @@ pub struct SignatureVariant {
     pub assessment: Option<Id<EffectiveCallableAssessment>>,
     pub adjustment: SignatureAdjustment,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "signature_slots")]
 pub struct SignatureSlot {
     #[model(key)]
@@ -166,7 +166,7 @@ pub struct SignatureSlot {
     pub ordinal: i64,
     pub default: DefaultSlot,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "signature_slot_entities")]
 pub struct SignatureSlotEntity {
     #[model(key)]

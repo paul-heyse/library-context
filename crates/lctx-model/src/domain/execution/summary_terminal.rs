@@ -19,7 +19,7 @@ use crate::domain::{
     resources::ResourceBudget,
     *,
 };
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "summary_terminal_witnesses",
     rule = "given_entry_terminal_summary"

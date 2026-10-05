@@ -44,7 +44,7 @@ pub struct DocumentaryBoundary {
     pub reason: DocumentaryBoundaryReason,
 }
 /// The earlier original anchor remains the authority; these are derived excerpt operations.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "synthesis_prose_sources")]
 pub enum ProseSource {
     #[model(code = 0)]
@@ -59,7 +59,7 @@ pub enum ProseSource {
         literal: Id<Literal>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="synthesis_prose_slices",validate=validate_slice)]
 pub struct ProseSlice {
     #[model(key)]
@@ -75,7 +75,7 @@ fn validate_slice(r: &ProseSlice) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "synthesis_documentary_sources",
     rule = "sourced_authored_prose"

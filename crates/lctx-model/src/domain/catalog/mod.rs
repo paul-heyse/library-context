@@ -28,7 +28,7 @@ pub struct CatalogMember {
     pub path: Vec<String>,
     pub name: String,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "catalog_exposures")]
 pub struct CatalogExposure {
     #[model(key)]
@@ -37,7 +37,7 @@ pub struct CatalogExposure {
     pub exposure: Id<PublicExposure>,
 }
 /// The original exposure candidate remains visible even when it has no entity candidate.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "catalog_candidates")]
 pub struct CatalogCandidate {
     #[model(key)]
@@ -52,7 +52,7 @@ pub struct CatalogCandidate {
     pub alias: Option<Id<CatalogAlias>>,
 }
 /// Normalized assessment retains all component uncertainty; no catalog reclassification.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "catalog_callables")]
 pub struct CatalogCallable {
     #[model(key)]
@@ -79,7 +79,7 @@ pub struct CatalogCallableAspect {
     #[model(key)]
     pub aspect: Id<normalized::callable_aspects::CallableAspect>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "catalog_classes")]
 pub struct CatalogClass {
     #[model(key)]
@@ -146,7 +146,7 @@ pub struct CatalogConstructor {
     pub applicability: Knowledge,
     pub disposition: ConstructorDisposition,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "catalog_option_subjects")]
 pub enum CatalogOptionSubject {
     #[model(code = 0)]
@@ -157,7 +157,7 @@ pub enum CatalogOptionSubject {
     SourceParameter { parameter: Id<ParameterEntity> },
 }
 /// Missing evaluation and missing source evidence never mean a known absent default.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "catalog_defaults")]
 pub enum CatalogDefault {
     #[model(code = 0)]
@@ -174,7 +174,7 @@ pub enum CatalogDefault {
     #[model(code = 5)]
     Factory { expression: Id<Occurrence> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "catalog_option_evidence")]
 pub enum CatalogOptionEvidence {
     #[model(code = 0)]
@@ -221,7 +221,7 @@ pub fn core_relations() -> Vec<Relation> {
     }
 }
 /// Each slot's contextual computation has exact admitted source receipts and coverage.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="catalog_member_invocations",invariant_refs=build::invocation_invariants_refs,semantic_source=include_bytes!("build.rs"))]
 pub struct CatalogMemberInvocation {
     #[model(key)]

@@ -40,7 +40,7 @@ pub struct NativeSignatureObservation {
     pub receiver: NativeReceiver,
     pub complete: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "signature_type_subjects")]
 pub enum SignatureTypeSubject {
     #[model(code = 0)]

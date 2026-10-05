@@ -59,7 +59,7 @@ pub struct ArgumentFlow {
     pub may_catch: bool,
     pub value_tested: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_literal_arguments")]
 pub struct LiteralArgument {
     #[model(key)]
@@ -104,7 +104,7 @@ pub struct ControlTraversal {
     pub vertices: i64,
     pub arcs: i64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_control_paths")]
 pub struct ControlPath {
     #[model(key)]
@@ -126,7 +126,7 @@ pub struct ControlStep {
     pub ordinal: i64,
     pub flow: Id<ArgumentFlow>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_conditional_raises")]
 pub struct ConditionalRaise {
     #[model(key)]
@@ -143,7 +143,7 @@ pub struct ConditionalRaise {
     pub support: Id<FlowRegionSupport>,
     pub positive: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_unfollowed_paths")]
 pub struct UnfollowedPath {
     #[model(key)]

@@ -72,7 +72,7 @@ pub struct CallBinding {
     pub kind: BindingKind,
     pub projection: Id<BindingProjection>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "binding_set_assessments")]
 pub struct BindingSetAssessment {
     #[model(key)]

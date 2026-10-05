@@ -31,7 +31,7 @@ pub enum BodySource {
         completion: Id<StatementCompletion>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="base_source_body_completions",rule="base_source_body_completion",invariant_refs=body_invariants_refs)]
 pub struct SourceBodyCompletion {
     #[model(key, premise)]

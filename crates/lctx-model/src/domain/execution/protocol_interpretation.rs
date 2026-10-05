@@ -146,7 +146,7 @@ pub struct TerminalFrontierAssessment {
     pub frontier: Option<Id<ConditionalTerminalFrontier>>,
     pub reason: Option<ObligationKind>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "conditional_terminal_frontiers",
     rule = "given_entry_no_normal_continuation"
@@ -173,7 +173,7 @@ pub struct ConditionalTerminalFrontier {
     pub effects_unknown: bool,
     pub exceptions_unknown: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "normal_continuation_restrictions",
     rule = "qualified_direct_suite_continuation"

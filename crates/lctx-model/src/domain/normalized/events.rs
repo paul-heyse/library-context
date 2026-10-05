@@ -96,7 +96,7 @@ pub enum PolicyReason {
     NonUniqueEvent = 4,
     UncertainEvent = 5,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "normalized_call_events", invariant_refs = super::event_normalization::invariants_refs)]
 pub struct NormalizedCallEvent {
     #[model(key)]
@@ -139,7 +139,7 @@ pub struct CallEventResolutionEvidence {
     #[model(key)]
     pub support: Id<CallResolutionSupport>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "normalized_call_alternatives", projection_roles = crate::domain::projection::call_roles)]
 pub struct NormalizedCallAlternative {
     #[model(key)]
@@ -154,7 +154,7 @@ pub struct NormalizedCallAlternative {
     pub reason: LinkReason,
 }
 /// A derived member retains its original native premise; it never impersonates a raw target.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "normalized_call_alternative_sources")]
 pub enum CallAlternativeSource {
     #[model(code = 0)]

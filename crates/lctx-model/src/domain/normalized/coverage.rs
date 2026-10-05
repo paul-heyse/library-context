@@ -122,7 +122,7 @@ pub enum EvidenceAvailability {
     NotRequested = 3,
     NoScope = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "normalization_computations")]
 pub struct NormalizationComputation {
     #[model(key)]
@@ -145,7 +145,7 @@ pub struct NormalizationOutputReceipt {
     pub rows: i64,
     pub content: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "normalization_coverage")]
 pub struct NormalizationCoverage {
     #[model(key)]

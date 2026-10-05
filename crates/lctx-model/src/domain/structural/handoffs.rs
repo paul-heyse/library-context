@@ -82,7 +82,7 @@ pub struct Handoff {
     pub value: Id<ValueSource>,
     pub role: Id<ArtifactUse>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_handoff_groups")]
 pub struct Group {
     #[model(key)]

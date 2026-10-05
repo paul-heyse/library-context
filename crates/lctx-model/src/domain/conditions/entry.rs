@@ -93,7 +93,7 @@ pub struct EntryRequest {
     pub context: Id<AnalysisContext>,
     pub run: Id<ProviderRun>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="entry_value_witnesses", rule="parameter_entry_value", conclusion=formal, invariant_refs=entry_invariants_refs)]
 pub struct EntryValueWitness {
     #[model(key)]
@@ -1054,7 +1054,7 @@ impl InvariantCheck for EntryCheck {
 }
 
 /// Exact native execution-domain source; no producer-selected condition is accepted.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "entry_access_sources", rule = "entry_access_source")]
 pub enum EntryAccessSource {
     #[model(code = 0)]

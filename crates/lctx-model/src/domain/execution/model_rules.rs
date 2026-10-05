@@ -66,7 +66,7 @@ impl From<models::Exit> for ActionPhase {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "model_value_paths")]
 pub enum ModelValuePath {
     #[model(code = 0)]
@@ -110,7 +110,7 @@ pub enum ExceptionOperation {
     Convert = 2,
     Suppress = 3,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "modeled_operations")]
 pub enum ModeledOperation {
     #[model(code = 0)]
@@ -166,7 +166,7 @@ pub struct ResourceIdentity {
     pub phase: ActionPhase,
 }
 /// Applicability of one authored rule; admission of its exit postcondition is a separate record.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "model_applied_rules")]
 pub struct AppliedRule {
     #[model(key)]

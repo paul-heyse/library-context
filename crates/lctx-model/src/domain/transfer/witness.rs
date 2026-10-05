@@ -6,7 +6,7 @@ use crate::domain::{
     normalized::bindings::CallBindingAttempt,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "summary_transfer_premises", rule = "summary_transfer_premise")]
 pub enum SummaryPremise {
     #[model(code = 0)]
@@ -46,7 +46,7 @@ impl SummaryPremise {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="summary_transfer_witnesses",rule="compose_through_call",invariant_refs=crate::domain::composition::composition_invariants_refs)]
 pub struct SummaryWitness {
     #[model(key)]

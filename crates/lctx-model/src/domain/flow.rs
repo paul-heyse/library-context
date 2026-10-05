@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "flow_uses", invariant_refs = flow_invariants_refs)]
 pub struct FlowUse {
     #[model(key)]
@@ -20,7 +20,7 @@ pub struct FlowUse {
     #[model(key)]
     pub place: Id<Place>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "flow_definitions")]
 pub struct FlowDefinition {
     #[model(key)]
@@ -56,7 +56,7 @@ pub struct FlowDefinitionObservation {
     #[model(key)]
     pub value: Option<Id<Occurrence>>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "reaching_definitions")]
 pub enum ReachingDefinition {
     #[model(code = 0)]
@@ -545,13 +545,13 @@ pub enum FlowCallOperandRole {
     Argument = 0,
     Callee = 1,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "flow_call_paths", invariant_refs = flow_path_invariants_refs)]
 pub struct FlowCallPath {
     #[model(key)]
     pub steps: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "flow_call_steps", validate = validate_step)]
 pub struct FlowCallStep {
     #[model(key)]

@@ -36,7 +36,7 @@ pub enum OriginalSource {
     #[model(code = 2)]
     Span { span: EvidenceSourceSpanId },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "catalog_scenario_sources")]
 pub enum ScenarioSource {
     #[model(code = 0)]

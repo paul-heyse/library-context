@@ -88,7 +88,7 @@ pub enum FieldDefault {
         argument: Id<CallArgument>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "class_field_default_assessments")]
 pub struct FieldDefaultAssessment {
     #[model(key)]

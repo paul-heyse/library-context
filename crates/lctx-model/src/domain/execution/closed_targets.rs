@@ -34,7 +34,7 @@ pub enum TargetBasis {
     TypingConditional = 1,
     Open = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "closed_target_assessments", rule = "checked_target_basis")]
 pub struct ClosedTargetAssessment {
     #[model(key, premise)]

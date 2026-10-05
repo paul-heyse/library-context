@@ -17,7 +17,7 @@ use crate::domain::{
     value::{AccessPath, Place, PlaceRoot},
     *,
 };
-#[derive(Debug, Clone, PartialEq, Eq, crate::Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, crate::Domain,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "summary_capture_witnesses",
     rule = "completed_own_frame_capture_summary"

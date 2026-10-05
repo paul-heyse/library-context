@@ -15,7 +15,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "model_context_resources", rule = "authored_context_resource")]
 pub struct ContextResource {
     #[model(key, premise)]

@@ -24,7 +24,7 @@ pub enum BoundaryReason {
     FlowUnavailable = 5,
     StatementLimit = 6,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "synthesis_authored_code_sources",
     rule = "authored_code_source"
@@ -42,7 +42,7 @@ pub struct AuthoredCodeSource {
     pub association: Id<c1::ScenarioAssociation>,
     pub source_input: Id<input::InputRevision>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="synthesis_authored_code_conclusions",rule="original_official_code",invariant_refs=invariants_refs,semantic_source=include_bytes!("patterns.rs"))]
 pub struct AuthoredCodeConclusion {
     #[model(key, premise)]

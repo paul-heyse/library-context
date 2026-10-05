@@ -59,7 +59,7 @@ pub enum ReportCollectionKind {
 }
 /// Atomic collection values. Ordinals preserve duplicate command arguments and tool entries;
 /// named maps retain exact keys instead of an opaque JSON relationship payload.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "report_values", validate = validate_value)]
 pub enum ReportValue {
     #[model(code = 0)]
@@ -86,7 +86,7 @@ fn validate_value(value: &ReportValue) -> Result<(), ModelError> {
         _ => Ok(()),
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "report_collections", invariant_refs = collection_invariants_refs)]
 pub struct ReportCollection {
     #[model(key)]
@@ -94,7 +94,7 @@ pub struct ReportCollection {
     #[model(key)]
     pub members: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "report_entries", validate = validate_entry)]
 pub struct ReportEntry {
     #[model(key)]
@@ -192,7 +192,7 @@ impl ReportCollection {
     }
 }
 /// A value reported by captured evidence; links a named release, not the active interpreter.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "reported_environments", invariant_refs = report_shape_invariants_refs)]
 pub struct ReportedEnvironment {
     #[model(key)]
@@ -214,7 +214,7 @@ pub struct ReportedEnvironment {
     #[model(key)]
     pub metadata: Id<ReportCollection>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "task_reports", validate = validate_report)]
 pub struct TaskReport {
     #[model(key)]

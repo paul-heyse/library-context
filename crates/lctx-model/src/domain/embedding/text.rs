@@ -93,7 +93,7 @@ fn validate_assessment(row: &TextAssessment) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="analytic_text_windows",validate=validate_window)]
 pub struct TextWindow {
     #[model(key)]

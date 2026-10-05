@@ -126,7 +126,7 @@ fn validate_resolution(row: &SymbolEntityResolution) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "symbol_entity_candidates")]
 pub struct SymbolEntityCandidate {
     #[model(key)]
@@ -161,7 +161,7 @@ pub struct SymbolEntityEvidence {
     #[model(key)]
     pub premise: Id<SymbolEntityPremise>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "occurrence_ownership", projection_roles = crate::domain::projection::containment_roles)]
 pub struct OccurrenceOwnership {
     #[model(key)]
@@ -169,7 +169,7 @@ pub struct OccurrenceOwnership {
     pub owner: Id<Occurrence>,
     pub entity: Id<EntityRef>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "parameter_entity_links")]
 pub struct ParameterEntityLink {
     #[model(key)]
@@ -179,7 +179,7 @@ pub struct ParameterEntityLink {
     #[model(key)]
     pub declaration: Option<Id<ParameterDeclaration>>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "field_entity_links")]
 pub struct FieldEntityLink {
     #[model(key)]
@@ -187,7 +187,7 @@ pub struct FieldEntityLink {
     #[model(key)]
     pub observation: Id<RecordFieldObservation>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "field_declaration_links")]
 pub struct FieldDeclarationLink {
     #[model(key)]
@@ -229,7 +229,7 @@ pub struct PublicExposure {
     pub status: ResolutionStatus,
     pub reason: EntityReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "public_exposure_candidates", projection_roles = crate::domain::projection::exposure_roles)]
 pub struct PublicExposureCandidate {
     #[model(key)]

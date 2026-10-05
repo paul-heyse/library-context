@@ -12,7 +12,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="structural_frames",invariant_refs=super::frames::invariants_refs,publication_refs=super::frames::profile_checks_refs)]
 pub struct StructuralFrame {
     #[model(key)]
@@ -32,7 +32,7 @@ pub struct StructuralFrame {
     pub definition_graph: Id<ProjectionSourceAssessment>,
 }
 /// This is an admitted public access candidate, preserving C0's resolution and descriptor limits.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_public_candidates")]
 pub struct PublicCandidate {
     #[model(key)]
@@ -73,7 +73,7 @@ pub enum TraversalStop {
     Vertices = 1,
     Arcs = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_traversals")]
 pub struct Traversal {
     #[model(key)]
@@ -96,7 +96,7 @@ pub struct Reach {
     pub depth: i64,
     pub witnesses_omitted: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_paths")]
 pub struct Path {
     #[model(key)]
@@ -150,7 +150,7 @@ pub struct PathStep {
     pub target: Id<EntityRef>,
     pub evidence: Id<StepEvidence>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "structural_unresolved_events")]
 pub struct UnresolvedEvent {
     #[model(key)]

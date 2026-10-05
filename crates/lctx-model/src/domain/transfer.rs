@@ -55,7 +55,7 @@ impl TransferDescriptor {
 macro_rules! transfer_family {
  ($owner:ident,$prefix:literal,$support_name:literal,$source:path,$($controls:tt)*) => {pub mod $owner {
  use super::*;
- #[derive(Debug,Clone,PartialEq,Eq,Domain)]
+ #[derive(Debug,Clone,PartialEq,Eq,Domain,serde::Serialize,serde::Deserialize)]
  #[model(name=concat!($prefix,"_transfer_keys"),invariant_refs=family_invariants_refs)]
  pub struct TransferKey {
     #[model(key)]
@@ -80,7 +80,7 @@ macro_rules! transfer_family {
     pub provenance: ProvenanceClass,
 }
 
- #[derive(Debug,Clone,PartialEq,Eq,Domain,Assertion)]
+ #[derive(Debug,Clone,PartialEq,Eq,Domain,Assertion,serde::Serialize,serde::Deserialize)]
  #[model(name=concat!($prefix,"_transfer_alternatives"))]
  #[assertion(support=TransferSupport,name=$support_name,family=FactFamily::Flow,derived,source=$source,subjects(scope,transfer))]
  pub struct TransferAlternative {
@@ -112,7 +112,7 @@ macro_rules! transfer_family {
 }
 macro_rules! control_family {
  ($control_name:literal,$control_support_name:literal,$selection_name:literal,$source:path)=>{
-#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion,serde::Serialize,serde::Deserialize)]
 #[model(name = $control_name)]
 #[assertion(support = ControlSupport, name = $control_support_name, family = FactFamily::Flow, derived, source = $source, subjects(evaluation, input))]
 pub struct ControlInfluence {

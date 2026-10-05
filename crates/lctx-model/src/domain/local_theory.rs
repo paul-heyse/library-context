@@ -109,7 +109,7 @@ impl TheoryData<'_> {
         inputs
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name="local_type_domain_assessments",invariant_refs=theory_invariants_refs)]
 pub struct TypeDomainAssessment {
     #[model(key)]
@@ -121,7 +121,7 @@ pub struct TypeDomainAssessment {
     pub domain: Option<Id<TypeDomain>>,
     pub reason: Option<TheoryReason>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "local_type_domains", rule = "structural_type_domain")]
 pub struct TypeDomain {
     #[model(key)]
@@ -135,7 +135,7 @@ pub struct TypeDomain {
     pub completeness: DomainCompleteness,
     pub members: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "local_type_domain_values")]
 pub enum DomainValue {
     #[model(code = 0)]
@@ -147,7 +147,7 @@ pub enum DomainValue {
     #[model(code = 3)]
     ClassObject { class: Id<ProviderSymbol> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "local_type_domain_members")]
 pub struct TypeDomainMember {
     #[model(key)]
@@ -209,7 +209,7 @@ pub struct TheoryWitness {
     status: EvidenceStatus,
 }
 /// Exact native syntax and builtin resolution; display predicate text is never authority.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(
     name = "local_builtin_operand_witnesses",
     rule = "native_builtin_operand"

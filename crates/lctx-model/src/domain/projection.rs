@@ -236,7 +236,7 @@ pub enum ProjectionGapReason {
     EventUncertainty = 9,
     OverrideDispatch = 10,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "projection_source_assessments", invariant_refs = normalization::invariants_refs)]
 pub struct ProjectionSourceAssessment {
     #[model(key)]

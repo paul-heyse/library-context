@@ -18,7 +18,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
 #[model(name = "model_applications", rule = "checked_authored_application")]
 pub struct ModelApplication {
     #[model(key, premise)]

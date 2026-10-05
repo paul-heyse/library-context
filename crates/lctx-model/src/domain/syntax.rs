@@ -86,7 +86,7 @@ pub enum OperatorKind {
 }
 /// What an occurrence's bytes do not state directly: an operator's kind, or a literal's value
 /// (escapes resolved, implicit concatenation joined).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "syntax_details")]
 pub enum SyntaxDetail {
     #[model(code = 0)]

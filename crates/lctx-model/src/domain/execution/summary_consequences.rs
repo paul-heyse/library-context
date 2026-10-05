@@ -95,7 +95,7 @@ pub struct ClaimStanding {
     pub proof: Option<Id<ClaimProof>>,
     pub reason: Option<ObligationKind>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name="summary_claim_proofs",rule="checked_summary_claim",invariant_refs=refutation_invariants_refs)]
 pub enum ClaimProof {
     #[model(code = 0)]

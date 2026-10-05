@@ -36,7 +36,7 @@ pub struct SummaryPathWitness {
     pub status: analysis::policy::EvidenceStatus,
     pub heuristic: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
 #[model(name = "summary_path_routes", rule = "summary_native_path_route")]
 pub enum SummaryPathRoute {
     #[model(code = 0)]
