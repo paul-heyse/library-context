@@ -2,7 +2,6 @@
 use crate::{
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, model as owner, sources::CapturedSources},
     execution::{model_production::*, model_rules::*},
@@ -14,22 +13,15 @@ use std::sync::Arc;
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
-    registered: &mut charged::ChargedSet<&'static str>,
-    charge: &mut charged::StateCharge,
+    consumed: &mut crate::consumed_rows::ConsumedInputs,
     admission: &mut CoverageAdmission<'_>,
-    mut visit: impl FnMut(&analysis::sources::CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
+    mut visit: impl FnMut(&ValidationInput, &analysis::sources::CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
-    let permit = access.read::<R>()?;
-    if registered.insert(charge, R::NAME)? {
-        
-    }
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        admission.visit_if_expected(&permit, &batch)?;
-        visit(&permit, &batch)?;
+    while let Some((input, permit)) = consumed.next::<R>(access)? {
+        crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+            admission.visit_if_expected(permit, batch)?;
+            visit(&input, permit, batch)
+        }).await?;
     }
     Ok(())
 }
@@ -45,10 +37,11 @@ pub async fn apply(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
-    let mut registered = charged::ChargedSet::default();
-    let mut registration = charged::StateCharge::new(budget, "model_registration");
     let mut data = ModelData::new(budget);
-    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    let mut declarations = ModelData::consumed_inputs(profile);
+    declarations.extend(analysis::expected::inputs(definition.method));
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
+    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
     if profile == Profile::Behavioral {
         lctx_model::normalized_binding_inputs!(inputs);
         lctx_model::normalized_binding_outputs!(inputs);
@@ -57,7 +50,7 @@ pub async fn apply(
         lctx_model::entry_value_inputs!(inputs);
         inputs! {members:class_metadata::ClassMemberObservation,metadata:class_metadata::ClassMetadataObservation,origins:calls::CallOrigin,origin_steps:calls::CallOriginStep,terminals:protocols::NativeTerminalObservation,exits:protocols::NativeExitObservation,literals:value::Literal,}
     }
-    macro_rules! read{($($ty:ty),*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    macro_rules! read{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
     read!(
         models::ModelCatalog,
         analysis::MethodParameters,
@@ -113,9 +106,10 @@ pub async fn apply(
             "Model definition absent from confirmed configuration".into(),
         ));
     }
-    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
+    consumed.finish(access.name())?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);

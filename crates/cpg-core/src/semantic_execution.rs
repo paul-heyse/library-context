@@ -2,7 +2,6 @@
 use crate::{
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{
         self, base_evaluation as publication, expected::CoverageAdmission, sources::CapturedSources,
@@ -21,22 +20,15 @@ use std::sync::Arc;
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
-    registered: &mut charged::ChargedSet<&'static str>,
-    charge: &mut charged::StateCharge,
+    consumed: &mut crate::consumed_rows::ConsumedInputs,
     admission: &mut CoverageAdmission<'_>,
-    mut visit: impl FnMut(&analysis::sources::CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
+    mut visit: impl FnMut(&ValidationInput, &analysis::sources::CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
-    let permit = access.read::<R>()?;
-    if registered.insert(charge, R::NAME)? {
-        
-    }
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        admission.visit_if_expected(&permit, &batch)?;
-        visit(&permit, &batch)?;
+    while let Some((input, permit)) = consumed.next::<R>(access)? {
+        crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+            admission.visit_if_expected(permit, batch)?;
+            visit(&input, permit, batch)
+        }).await?;
     }
     Ok(())
 }
@@ -57,11 +49,24 @@ pub async fn evaluate_base(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
-    let mut registered = charged::ChargedSet::default();
-    let mut registration = charged::StateCharge::new(budget, "base_execution_registration");
     let mut data = EvaluationData::new(budget);
     let mut entry = EntryData::new(budget);
-    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|{data.visit(<$ty>::NAME,batch)?;entry.visit(<$ty>::NAME,batch)?;Ok(())}).await?;}})*};}
+    let mut declarations = Vec::new();
+    if profile == Profile::Behavioral {
+        declarations.extend(EvaluationData::consumed_inputs(profile));
+        declarations.extend(EntryData::facts_inputs());
+        declarations.extend([
+            ValidationInput::of::<EntryValueWitness>(&["id"]),
+            ValidationInput::of::<EntryAccessSource>(&["id"]),
+        ]);
+    }
+    declarations.extend([
+        ValidationInput::of::<analysis::local::AnalysisInvocation>(&["id"]),
+        ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+    ]);
+    declarations.extend(analysis::expected::inputs(definition.method));
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
+    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|{data.visit_input(input, batch)?;entry.visit_input(input, batch)?;Ok(())}).await?;})*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
@@ -70,7 +75,7 @@ pub async fn evaluate_base(
     let mut entry_sources = Rows::<EntryAccessSource>::new(budget);
     let mut local = Rows::<analysis::local::AnalysisInvocation>::new(budget);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(budget);
-    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|$field.decode(batch)).await?;)*};}
+    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,batch|$field.decode(batch)).await?;)*};}
     if profile == Profile::Behavioral {
         read! {entries:EntryValueWitness,entry_sources:EntryAccessSource,}
     }
@@ -80,9 +85,10 @@ pub async fn evaluate_base(
             "base execution definition absent from confirmed configuration".into(),
         ));
     }
-    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$(if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
+    consumed.finish(access.name())?;
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<publication::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
@@ -273,17 +279,18 @@ pub async fn complete_base(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
-    let mut registered = charged::ChargedSet::default();
-    let mut registration = charged::StateCharge::new(budget, "base_completion_registration");
     let mut data = execution::completion_production::CompletedEvaluations::new(budget);
-    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|{data.visit(<$ty>::NAME,batch)}).await?;}})*};}
+    let mut declarations = execution::completion_production::CompletedEvaluations::consumed_inputs(profile);
+    declarations.extend(analysis::expected::inputs(definition.method));
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
+    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|{data.visit_input(input, batch)}).await?;})*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
     }
     let mut base = Rows::<analysis::base_evaluation::AnalysisInvocation>::new(budget);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(budget);
-    macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}
+    macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
     if profile == Profile::Behavioral {
         read!(
             EntryValueWitness,
@@ -297,24 +304,22 @@ pub async fn complete_base(
     load::<analysis::base_evaluation::AnalysisInvocation>(
         &access,
         &session,
-        &mut registered,
-        &mut registration,
+        &mut consumed,
         &mut admission,
-        |_, batch| {
+        |input, _, batch| {
             base.decode(batch)?;
-            data.visit(analysis::base_evaluation::AnalysisInvocation::NAME, batch)
+            data.visit_input(input, batch)
         },
     )
     .await?;
     load::<analysis::AnalysisDefinition>(
         &access,
         &session,
-        &mut registered,
-        &mut registration,
+        &mut consumed,
         &mut admission,
-        |_, batch| {
+        |input, _, batch| {
             definitions.decode(batch)?;
-            data.visit(analysis::AnalysisDefinition::NAME, batch)
+            data.visit_input(input, batch)
         },
     )
     .await?;
@@ -323,9 +328,10 @@ pub async fn complete_base(
             "base completion definition absent from confirmed configuration".into(),
         ));
     }
-    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$(if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
+    consumed.finish(access.name())?;
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<completion_publication::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
@@ -471,10 +477,11 @@ pub async fn prepare_source_calls(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
-    let mut registered = charged::ChargedSet::default();
-    let mut registration = charged::StateCharge::new(budget, "source_call_registration");
     let mut data = SourceCallData::new(budget);
-    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    let mut declarations = SourceCallData::consumed_inputs(profile);
+    declarations.extend(analysis::expected::inputs(definition.method));
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
+    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
@@ -482,7 +489,7 @@ pub async fn prepare_source_calls(
         lctx_model::normalized_binding_outputs!(inputs);
     }
     if profile == Profile::Behavioral {
-        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}
+        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
         earlier!(
             syntax::ParameterSyntaxObservation,
             EntryValueWitness,
@@ -500,24 +507,22 @@ pub async fn prepare_source_calls(
     load::<analysis::base_completion::AnalysisInvocation>(
         &access,
         &session,
-        &mut registered,
-        &mut registration,
+        &mut consumed,
         &mut admission,
-        |_, batch| {
+        |input, _, batch| {
             base.decode(batch)?;
-            data.visit(analysis::base_completion::AnalysisInvocation::NAME, batch)
+            data.visit_input(input, batch)
         },
     )
     .await?;
     load::<analysis::AnalysisDefinition>(
         &access,
         &session,
-        &mut registered,
-        &mut registration,
+        &mut consumed,
         &mut admission,
-        |_, batch| {
+        |input, _, batch| {
             definitions.decode(batch)?;
-            data.visit(analysis::AnalysisDefinition::NAME, batch)
+            data.visit_input(input, batch)
         },
     )
     .await?;
@@ -526,9 +531,10 @@ pub async fn prepare_source_calls(
             "source call definition absent from captured configuration".into(),
         ));
     }
-    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
+    consumed.finish(access.name())?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
@@ -702,10 +708,11 @@ pub async fn enrich(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
-    let mut registered = charged::ChargedSet::default();
-    let mut registration = charged::StateCharge::new(budget, "enriched_execution_registration");
     let mut data = EnrichedData::new(budget);
-    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(if !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;})*};}
+    let mut declarations = EnrichedData::consumed_inputs(profile);
+    declarations.extend(analysis::expected::inputs(definition.method));
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
+    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
@@ -714,7 +721,7 @@ pub async fn enrich(
         lctx_model::model_pin_inputs!(inputs);
     }
     if profile == Profile::Behavioral {
-        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,batch|data.visit(<$ty>::NAME,batch)).await?;)*};}
+        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
         earlier!(
             syntax::ParameterSyntaxObservation,
             EntryValueWitness,
@@ -741,19 +748,17 @@ pub async fn enrich(
     load::<analysis::MethodParameters>(
         &access,
         &session,
-        &mut registered,
-        &mut registration,
+        &mut consumed,
         &mut admission,
-        |_, batch| data.visit(analysis::MethodParameters::NAME, batch),
+        |input, _, batch| data.visit_input(input, batch),
     )
     .await?;
     load::<models::ModelCatalog>(
         &access,
         &session,
-        &mut registered,
-        &mut registration,
+        &mut consumed,
         &mut admission,
-        |_, batch| data.visit(models::ModelCatalog::NAME, batch),
+        |input, _, batch| data.visit_input(input, batch),
     )
     .await?;
     let mut base = Rows::<analysis::source_call::AnalysisInvocation>::new(budget);
@@ -761,24 +766,22 @@ pub async fn enrich(
     load::<analysis::source_call::AnalysisInvocation>(
         &access,
         &session,
-        &mut registered,
-        &mut registration,
+        &mut consumed,
         &mut admission,
-        |_, batch| {
+        |input, _, batch| {
             base.decode(batch)?;
-            data.visit(analysis::source_call::AnalysisInvocation::NAME, batch)
+            data.visit_input(input, batch)
         },
     )
     .await?;
     load::<analysis::AnalysisDefinition>(
         &access,
         &session,
-        &mut registered,
-        &mut registration,
+        &mut consumed,
         &mut admission,
-        |_, batch| {
+        |input, _, batch| {
             definitions.decode(batch)?;
-            data.visit(analysis::AnalysisDefinition::NAME, batch)
+            data.visit_input(input, batch)
         },
     )
     .await?;
@@ -787,9 +790,10 @@ pub async fn enrich(
             "enriched execution definition absent from captured configuration".into(),
         ));
     }
-    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){load::<$ty>(&access,&session,&mut registered,&mut registration,&mut admission,|_,_|Ok(())).await?;})*};}
+    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
+    consumed.finish(access.name())?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
