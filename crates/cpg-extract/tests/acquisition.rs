@@ -1,18 +1,17 @@
 //! Acquisition (cutover plan A2, T6; ADR-0089; review focus #5) over a synthetic acquired library:
 //! a definition, its lock, the environment `uv sync --frozen` would build (real `RECORD` hashes and
 //! a location-dependent console-script line) and a fetched source tree. The acquired rows are
-//! validated by the model in a stage-bound memory generation. Every control states its answer first.
+//! read from immutable compiler workspace outputs. Every control states its answer first.
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use cpg_extract::{
-    acquisition::{self, ACQUIRE, Acquire, InputInventory},
-    bundle::{Declared, ProviderStage, StageContext, run_stage},
+    acquisition::{self, Acquire, InputInventory},
 };
+use cpg_core::workspace::{Workspace, WorkspaceOptions};
 use lctx_model::domain::{
     batching::TransferLimits,
     input::*,
-    memory::MemoryGeneration,
     resources::ResourceBudget,
-    source::{Module, SourceArtifact},
+    source::SourceArtifact,
     stages::*,
     *,
 };
@@ -20,7 +19,7 @@ use sha2::{Digest as _, Sha256};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 const DEMO: &str = "from dep import helper\n\n\ndef api(x):\n    return helper(x)\n";
@@ -140,7 +139,7 @@ fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
 }
 
-/// The acquired rows the model validated, and the generation's content digest.
+/// Completed acquisition rows and their semantic content digest.
 #[derive(Default, Clone)]
 struct Rows {
     digest: Option<ContentHash>,
@@ -189,57 +188,12 @@ impl Rows {
             .collect()
     }
 }
-/// Reads every acquisition relation through its handoff.
-struct Inspect(Arc<Mutex<Rows>>);
-fn inspect_stage() -> Stage {
-    let acquire = Acquire::new(ContentHash::of(b"x")).declaration(Profile::Catalog);
-    Stage {
-        name: "inspect",
-        inputs: acquire.outputs,
-        outputs: vec![RelationUse::of::<Module>()],
-        contributes: vec![],
-        coverage: vec![],
-        profiles: vec![Profile::Catalog, Profile::Behavioral],
-        effect: Effect::Pure,
-        code: ContentHash::of(b"inspect"),
-        configuration: ContentHash::of(b"inspect"),
+fn all<R: Record>(workspace: &Workspace) -> Result<Vec<R>, ModelError> {
+    let mut rows = Vec::new();
+    for batch in workspace.completed::<R>()?.read::<R>(workspace.model().clone(), workspace.budget().clone())? {
+        rows.extend(batch?.rows().iter().cloned());
     }
-}
-impl Declared for Inspect {
-    fn declaration(&self, _: Profile) -> Stage {
-        inspect_stage()
-    }
-}
-impl ProviderStage<MemoryGeneration> for Inspect {
-    fn run(
-        &mut self,
-        context: &mut StageContext<MemoryGeneration>,
-    ) -> Result<ProviderOutcome, ModelError> {
-        fn all<R: Record>(
-            context: &mut StageContext<MemoryGeneration>,
-        ) -> Result<Vec<R>, ModelError> {
-            Ok(context
-                .handoff::<R>()?
-                .iter()
-                .flat_map(|b| b.rows().to_vec())
-                .collect())
-        }
-        let mut rows = self.0.lock().unwrap();
-        rows.revisions = all(context)?;
-        rows.origins = all(context)?;
-        rows.artifacts = all(context)?;
-        rows.ownership = all(context)?;
-        rows.unowned = all(context)?;
-        rows.derived = all(context)?;
-        rows.uses = all(context)?;
-        rows.distributions = all(context)?;
-        rows.verifications = all(context)?;
-        rows.fingerprints = all(context)?;
-        rows.corpus_libraries = all(context)?;
-        rows.releases = all(context)?;
-        context.declare::<Module>()?;
-        Ok(ProviderOutcome::Complete)
-    }
+    Ok(rows)
 }
 async fn acquire(f: &Fixture) -> Result<Rows, String> {
     let budget = budget();
@@ -257,36 +211,32 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
         .map_err(|e| e.to_string())?,
     );
     let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
-    let stage = Acquire::of(&inventory).declaration(Profile::Catalog);
-    let schedule =
-        Schedule::build(&model, vec![stage, inspect_stage()], &[], Profile::Catalog).unwrap();
-    let mut execution = schedule.execute();
-    let generation = MemoryGeneration::bind(&model, &budget, &mut execution).unwrap();
-    let rows = Arc::new(Mutex::new(Rows::default()));
-    let providers: Vec<(&str, Box<dyn ProviderStage<MemoryGeneration>>)> = vec![
-        (ACQUIRE, Box::new(Acquire::of(&inventory))),
-        ("inspect", Box::new(Inspect(rows.clone()))),
-    ];
-    for (name, provider) in providers {
-        run_stage(
-            provider,
-            execution.begin(name).unwrap(),
-            &generation,
-            &model,
-            &captured,
-            &budget,
-            TransferLimits::default(),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-    }
-    execution.finish().unwrap();
-    let digest = generation
-        .validate(&model, &budget)
-        .map_err(|e| e.to_string())?;
-    let mut rows = rows.lock().unwrap().clone();
-    rows.digest = Some(digest);
-    Ok(rows)
+    let workspace = Workspace::with_budget(model, WorkspaceOptions {
+        memory_bytes: budget.limit(),
+        ..WorkspaceOptions::default()
+    }, budget).map_err(|e| e.to_string())?;
+    cpg_core::facts::compile_facts(
+        &workspace, &captured, Profile::Catalog,
+        vec![Box::new(Acquire::of(&inventory))], TransferLimits::default(),
+    ).await.map_err(|e| e.to_string())?;
+    workspace.validate().await.map_err(|e| e.to_string())?;
+    let rows = || -> Result<Rows, ModelError> { Ok(Rows {
+        digest: Some(workspace.content()?),
+        revisions: all(&workspace)?,
+        origins: all(&workspace)?,
+        artifacts: all(&workspace)?,
+        ownership: all(&workspace)?,
+        unowned: all(&workspace)?,
+        derived: all(&workspace)?,
+        uses: all(&workspace)?,
+        distributions: all(&workspace)?,
+        verifications: all(&workspace)?,
+        fingerprints: all(&workspace)?,
+        corpus_libraries: all(&workspace)?,
+        releases: all(&workspace)?,
+    }) };
+    rows().map_err(|e| e.to_string())
+
 }
 /// Every file and directory under `roots`, with its bytes.
 fn snapshot(roots: &[&Path]) -> BTreeMap<PathBuf, Option<Vec<u8>>> {

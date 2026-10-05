@@ -3,19 +3,19 @@
     reason = "Shared contract fixtures expose helpers to multiple targeted suites"
 )]
 //! Shared driver for the typed producer suites: a fixture tree is acquired and run through
-//! `acquire`, `pyrefly` and `assemble` into a stage-bound memory generation the model validates;
-//! a sink observer records the same permitted batches accepted by the generation. It owns no
-//! production relation and cannot introduce a second writer as more producers are enabled.
+//! the native production providers into immutable spillable compiler streams. Inspection reads
+//! completed outputs after producers finish; it never intercepts writes or supplies another store.
 use cpg_extract::{
     acquisition::{Acquire, AcquiredInput},
     assembly::Assemble,
-    bundle::{CapturedInputs, ProviderStage, run_stage},
+    bundle::{CapturedInputs, ProviderStage},
     capture::CapturedInput,
     pyrefly_stage::Pyrefly,
     typed_syntax::SyntaxLimits,
 };
+use cpg_core::workspace::{ProducerOutput, Workspace, WorkspaceOptions};
 use lctx_model::domain::{
-    batching::TransferLimits, memory::MemoryGeneration, resources::ResourceBudget,
+    batching::TransferLimits, resources::ResourceBudget,
     source::SourceArtifact, stages::*, *,
 };
 use std::{collections::BTreeMap, path::Path, sync::Arc};
@@ -62,45 +62,18 @@ pub fn rows<R: Record>(tables: &Tables) -> Vec<R> {
 pub trait Inspector {
     fn tables(&self) -> Tables;
 }
-pub struct ObservedSink<S> {
-    pub generation: Arc<S>,
-    pub tables: Tables,
+/// Copy small fixture outputs for independent assertions, after the actual compiler completed them.
+pub fn observe(workspace: &Workspace, tables: &Tables) -> Result<(), ModelError> {
+    let mut tables = tables.lock().map_err(|_| ModelError::Invalid("test observer poisoned".into()))?;
+    for relation in workspace.completed_relations()? {
+        let batches = relation.batches()?.collect::<Result<Vec<_>, _>>().map_err(ModelError::codec)?;
+        if let Some(first) = batches.first() {
+            tables.insert(relation.name(), arrow_select::concat::concat_batches(&first.schema(), &batches).map_err(ModelError::codec)?);
+        }
+    }
+    Ok(())
 }
-impl<S: StageSink + Send> StageSink for ObservedSink<S> {
-    async fn compute(&self, completion: StageCompletion) -> Result<ComputedStage, ModelError> {
-        self.generation.compute(completion).await
-    }
-    async fn close_group(&self, group: GroupCompletion) -> Result<ClosedGroup, ModelError> {
-        self.generation.close_group(group).await
-    }
-    async fn complete(
-        &self,
-        completion: lctx_model::domain::stages::StageCompletion,
-    ) -> Result<lctx_model::domain::stages::CompletedStage, ModelError> {
-        self.generation.complete(completion).await
-    }
-    async fn copy<R: Record>(
-        &self,
-        permit: WritePermit<'_, R>,
-        batch: &Batch<R>,
-    ) -> Result<(), ModelError> {
-        self.generation.copy(permit, batch).await?;
-        let mut tables = self
-            .tables
-            .lock()
-            .map_err(|_| ModelError::Invalid("test observer poisoned".into()))?;
-        let parts = match tables.get(R::NAME) {
-            Some(previous) => vec![previous.clone(), batch.arrow().clone()],
-            None => vec![batch.arrow().clone()],
-        };
-        tables.insert(
-            R::NAME,
-            arrow_select::concat::concat_batches(&R::schema(), &parts)
-                .map_err(ModelError::codec)?,
-        );
-        Ok(())
-    }
-}
+
 /// Names the independent expectations' observed tables without declaring a production writer.
 #[macro_export]
 macro_rules! inspector {
@@ -157,8 +130,7 @@ pub fn capture_with_ruff(
     ))
 }
 
-/// Run `acquire → pyrefly → assemble` over `files` into memory; validate the generation
-/// and return its content digest.
+/// Run the native facts compiler over `files` and return its semantic content digest.
 pub async fn run<I>(
     files: &BTreeMap<String, Vec<u8>>,
     inspect: I,
@@ -246,7 +218,7 @@ pub async fn run_profile_with_budget<I: Inspector>(
     resources: ResourceBudget,
 ) -> Result<ContentHash, ModelError> {
     let model = Arc::new(model()?);
-    let mut providers: Vec<Box<dyn ProviderStage<ObservedSink<MemoryGeneration>>>> = vec![
+    let mut providers: Vec<Box<dyn ProviderStage<ProducerOutput>>> = vec![
         Box::new(Acquire::new(ContentHash::of(b"typed-driver"))),
         Box::new(pyrefly),
         Box::new(cpg_extract::document_parser::Documents),
@@ -259,43 +231,15 @@ pub async fn run_profile_with_budget<I: Inspector>(
     if reverse_providers {
         providers.reverse();
     }
-    let stages = providers.iter().map(|p| p.declaration(profile)).collect();
-    let schedule = Schedule::build(&model, stages, &[], profile)?;
-    let mut execution = schedule.execute();
-    let generation = Arc::new(MemoryGeneration::bind(&model, &resources, &mut execution)?);
-    let sink = ObservedSink {
-        generation: generation.clone(),
-        tables: inspect.tables(),
-    };
-    let mut providers: BTreeMap<&str, Box<dyn ProviderStage<ObservedSink<MemoryGeneration>>>> =
-        providers
-            .into_iter()
-            .map(|p| (p.declaration(profile).name, p))
-            .collect();
-    let names: Vec<&'static str> = execution
-        .schedule()
-        .stages()
-        .iter()
-        .map(|s| s.name)
-        .collect();
-    for name in names {
-        run_stage(
-            providers.remove(name).unwrap(),
-            execution.begin(name)?,
-            &sink,
-            &model,
-            &captured,
-            &resources,
-            limits,
-        )
-        .await?;
-    }
-    let receipt = execution.finish()?;
-    let preflight = lctx_model::domain::admission::FrontierContract::facts(&model, profile)?
-        .preflight(&schedule)?;
-    Ok(generation
-        .validate_facts(&model, &resources, preflight, &receipt)?
-        .content())
+    let workspace = Workspace::with_budget(model, WorkspaceOptions {
+        memory_bytes: resources.limit(),
+        ..WorkspaceOptions::default()
+    }, resources)?;
+    cpg_core::facts::compile_facts(&workspace, &captured, profile, providers, limits).await?;
+    workspace.validate().await?;
+    observe(&workspace, &inspect.tables())?;
+    workspace.content()
+
 }
 
 /// The artifact at `path` among `artifacts`.
