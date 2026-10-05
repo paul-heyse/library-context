@@ -1,6 +1,6 @@
 //! Finite alternatives and complete call-member claims are different semantic questions.
 //! Only the shared obligation owner decides priority, discharge and behavioral verdicts.
-use super::summary_production::{CallMember, PairDisposition, SummaryData, SummaryRecords};
+use super::summary_production::{CallMember, PairDisposition, PairOutcome, SummaryData, SummaryRecords, SummaryResidual};
 use crate::domain::{
     analysis::{
         self,
@@ -12,7 +12,7 @@ use crate::domain::{
     attribution::*,
     calls::CallPhase,
     conditions::{ConditionNode, Diagram},
-    normalized::{Rows, bindings::BindingOutcome, events::NormalizedCallEvent},
+    normalized::{Rows, bindings::{BindingOutcome, CallBindingAttempt}, events::NormalizedCallEvent},
     obligation::{self, ObligationKind, Standing, Verdict},
     resources::ResourceBudget,
     transfer::{
@@ -23,7 +23,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 fn invalid(s: &str) -> ModelError {
     ModelError::Invalid(s.into())
 }
@@ -265,37 +265,45 @@ struct Finite {
     facts: SourceFacts,
 }
 impl HeapSize for Finite {}
-fn diagram(
-    data: &SummaryData,
-    out: &SummaryRecords,
-    q: &AssertionQualification,
-    b: &ResourceBudget,
-) -> Result<(Diagram, Box<dyn resources::Reservation>), ModelError> {
-    let buffer = b.reserve(
-        "summary-consequence-condition",
-        (data.vocabulary.nodes.len() + out.vocabulary.nodes.len())
-            .saturating_mul(4096)
-            .saturating_add(4096),
-    )?;
-    let mut nodes = BTreeMap::new();
-    for row in data
-        .vocabulary
-        .nodes
-        .values()
-        .chain(out.vocabulary.nodes.values())
-    {
-        nodes.insert(row.id(), row.clone());
+/// Immutable Model/Summary nodes are merged once; every condition uses the shared kernel's
+/// exact reachable closure and canonical atom ordering. Distinct qualifications may reuse a BDD.
+struct ConditionCatalog {
+    nodes: charged::ChargedMap<Id<ConditionNode>, ConditionNode>,
+    diagrams: charged::ChargedMap<Id<conditions::Condition>, CachedCondition>,
+    validated: bool,
+    charge: charged::StateCharge,
+}
+struct CachedCondition(Diagram);
+impl HeapSize for CachedCondition {
+    fn heap_bytes(&self) -> usize { self.0.allocation_allowance() }
+}
+impl ConditionCatalog {
+    fn new(data: &SummaryData, out: &SummaryRecords, b: &ResourceBudget) -> Result<Self, ModelError> {
+        let mut catalog=Self {nodes:Default::default(),diagrams:Default::default(),validated:false,charge:charged::StateCharge::new(b,"summary-consequence-condition-catalog")};
+        // Preserve the existing Summary-over-Model precedence for duplicate node identities.
+        for node in data.vocabulary.nodes.values().chain(out.vocabulary.nodes.values()) {
+            catalog.nodes.insert(&mut catalog.charge,node.id(),node.clone())?;
+        }
+        Ok(catalog)
     }
-    let record = out
-        .vocabulary
-        .conditions
-        .get(&q.condition)
-        .or_else(|| data.vocabulary.conditions.get(&q.condition))
-        .ok_or_else(|| invalid("Summary consequence condition absent"))?;
-    Ok((
-        Diagram::from_records(record, &nodes.into_values().collect::<Vec<ConditionNode>>())?,
-        buffer,
-    ))
+    fn diagram(&mut self, data:&SummaryData, out:&SummaryRecords, q:&AssertionQualification, b:&ResourceBudget) -> Result<&Diagram,ModelError> {
+        if !self.diagrams.contains_key(&q.condition) {
+            if !self.validated {
+                // from_records previously checked the entire merged catalog on every request.
+                if self.nodes.len()>100_000 {return Err(invalid("condition node admission exceeded"));}
+                for node in self.nodes.values() {node.validate()?;}
+                self.validated=true;
+            }
+            let record=out.vocabulary.conditions.get(&q.condition).or_else(||data.vocabulary.conditions.get(&q.condition)).ok_or_else(||invalid("Summary consequence condition absent"))?;
+            let mut scratch=b.reserve("summary-consequence-condition",self.nodes.len().saturating_mul(128).saturating_add(4096))?;
+            let selected=conditions::kernel::closure(record.root,&self.nodes)?;
+            scratch.try_resize(self.nodes.len().saturating_mul(128).saturating_add(selected.len().saturating_mul(4096)).saturating_add(4096))?;
+            let nodes=selected.iter().map(|id|self.nodes[id].clone()).collect::<Vec<_>>();
+            let diagram=Diagram::from_records(record,&nodes)?;
+            self.diagrams.insert(&mut self.charge,q.condition,CachedCondition(diagram))?;
+        }
+        Ok(&self.diagrams.get(&q.condition).expect("condition inserted above").0)
+    }
 }
 fn qualification<'a>(
     data: &'a SummaryData,
@@ -341,6 +349,7 @@ fn facts(
     data: &SummaryData,
     out: &SummaryRecords,
     invocation: &owner::AnalysisInvocation,
+    conditions: &mut ConditionCatalog,
     b: &ResourceBudget,
 ) -> Result<
     (
@@ -361,11 +370,12 @@ fn facts(
         if q.context != invocation.context {
             return Err(invalid("Summary finite consequence changes context"));
         }
-        let (condition, _charge) = diagram(data, out, q, b)?;
+        let condition = conditions.diagram(data, out, q, b)?;
+        let _copy=b.reserve("summary-consequence-condition-copy",condition.allocation_allowance())?;
         let branch = TransferBranch::new(
             TransferKey::from_descriptor(descriptor),
             q.clone(),
-            condition,
+            condition.clone(),
             b,
         )?;
         rows.insert(
@@ -698,7 +708,8 @@ pub fn derive(
         return Ok(rows);
     }
     normalized::binding_normalization::verify(&data.bindings, &data.binding_output, b)?;
-    let (finite, _inventory) = facts(data, out, invocation, b)?;
+    let mut conditions=ConditionCatalog::new(data,out,b)?;
+    let (finite, _inventory) = facts(data, out, invocation, &mut conditions, b)?;
     let mut conclusions = charged::ChargedMap::<Id<SummaryClaim>, ClaimConclusion>::default();
     let mut proven = charged::ChargedMap::<Id<SummaryPremise>, Id<ClaimProof>>::default();
     let mut charge = charged::StateCharge::new(b, "summary-consequence-proof-index");
@@ -805,9 +816,12 @@ pub fn derive(
     }
     // A query comes from an actual attempted pair or residual, never from an empty flow table.
     let mut queries = charged::ChargedSet::default();
+    // Qualification remains a proof comparison below; grouping must not discard other qids.
+    let mut pairs=charged::ChargedMap::<(Id<CallBindingAttempt>,Id<Place>,Id<Place>),Vec<&PairOutcome>>::default();
     for row in out.pair_outcomes.iter() {
         let attempt = need(&data.binding_output.attempts, row.attempt)?;
         if let (Some(caller), Some(callee)) = (finite.get(&row.caller), finite.get(&row.callee)) {
+            pairs.update(&mut charge,(row.attempt,caller.branch.descriptor().input,callee.branch.descriptor().output),|members:&mut Vec<_>|members.push(row))?;
             queries.insert(
                 &mut charge,
                 (
@@ -819,35 +833,38 @@ pub fn derive(
             )?;
         }
     }
+    // The original residual question is event/input/output, independent of qualification.
+    let mut residuals=charged::ChargedMap::<(Id<NormalizedCallEvent>,Id<Place>,Id<Place>),Vec<&SummaryResidual>>::default();
     for row in out.residuals.iter() {
+        residuals.update(&mut charge,(row.event,row.input,row.output),|members:&mut Vec<_>|members.push(row))?;
         queries.insert(
             &mut charge,
             (row.event, row.input, row.output, row.qualification),
         )?;
     }
+    let mut members_by_event=charged::ChargedMap::<Id<NormalizedCallEvent>,Vec<&CallMember>>::default();
+    for member in out.call_members.iter() {
+        if let Some(attempt)=data.binding_output.attempts.get(member.attempt) {
+            members_by_event.update(&mut charge,attempt.event,|members:&mut Vec<_>|members.push(member))?;
+        }
+    }
+    let mut actual_by_event=charged::ChargedMap::<Id<NormalizedCallEvent>,usize>::default();
+    for attempt in data.binding_output.attempts.iter() {
+        actual_by_event.update(&mut charge,attempt.event,|count:&mut usize|*count+=1)?;
+    }
+    let mut assessed=charged::ChargedSet::<Id<NormalizedCallEvent>>::default();
+    for assessment in data.bindings.event_assessments.iter().filter(|a|a.complete) {assessed.insert(&mut charge,assessment.event)?;}
+    let mut complete_sets=charged::ChargedMap::<Id<NormalizedCallEvent>,bool>::default();
+    for set in data.binding_output.sets.iter() {
+        let complete=complete_sets.get(&set.event).copied().unwrap_or(true) && set.coverage_complete;
+        complete_sets.insert(&mut charge,set.event,complete)?;
+    }
     for &(event, input, output, qid) in queries.iter() {
         let q = qualification(data, out, qid)?;
-        let _member_buffer = b.reserve(
-            "summary-consequence-member-universe",
-            (out.call_members.len() + out.pair_outcomes.len() + out.residuals.len())
-                .saturating_mul(1024),
-        )?;
-        let members = out
-            .call_members
-            .iter()
-            .filter(|m| {
-                data.binding_output
-                    .attempts
-                    .get(m.attempt)
-                    .is_some_and(|a| a.event == event)
-            })
-            .collect::<Vec<_>>();
-        let actual = data
-            .binding_output
-            .attempts
-            .iter()
-            .filter(|a| a.event == event)
-            .count();
+        // Group insertion follows Rows' canonical order, so claim digests and ordinals are stable.
+        let members=members_by_event.get(&event).map(Vec::as_slice).unwrap_or(&[]);
+        let actual=actual_by_event.get(&event).copied().unwrap_or(0);
+        let _member_buffer=b.reserve("summary-consequence-member-universe",members.len().saturating_mul(1024))?;
         if members.len() != actual || members.iter().any(|m| m.invocation != invocation.id()) {
             return Err(invalid("Summary claim omits actual call member"));
         }
@@ -887,23 +904,7 @@ pub fn derive(
                 if let Some(reason) = member.reason {
                     decisions.open(member.attempt, reason);
                 }
-                for pair in out
-                    .pair_outcomes
-                    .iter()
-                    .filter(|p| p.attempt == member.attempt)
-                {
-                    let (Some(caller), Some(callee)) =
-                        (finite.get(&pair.caller), finite.get(&pair.callee))
-                    else {
-                        continue;
-                    };
-                    if (
-                        caller.branch.descriptor().input,
-                        callee.branch.descriptor().output,
-                    ) != (input, output)
-                    {
-                        continue;
-                    }
+                for pair in pairs.get(&(member.attempt,input,output)).into_iter().flatten() {
                     if pair.disposition == PairDisposition::Refused {
                         decisions.open(
                             member.attempt,
@@ -923,11 +924,7 @@ pub fn derive(
                         }
                     }
                 }
-                for residual in out
-                    .residuals
-                    .iter()
-                    .filter(|r| r.event == event && r.input == input && r.output == output)
-                {
+                for residual in residuals.get(&(event,input,output)).into_iter().flatten() {
                     decisions.open(member.attempt, residual.reason);
                 }
             }
@@ -962,18 +959,7 @@ pub fn derive(
                 open.push(boundary.reason);
             }
         }
-        let complete = data
-            .bindings
-            .event_assessments
-            .iter()
-            .any(|a| a.event == event && a.complete)
-            && data
-                .binding_output
-                .sets
-                .iter()
-                .filter(|s| s.event == event)
-                .all(|s| s.coverage_complete)
-            && data.binding_output.sets.iter().any(|s| s.event == event);
+        let complete=assessed.contains(&event) && complete_sets.get(&event).copied().unwrap_or(false);
         let (closed, _) = obligation::discharge(&applicable, &decisions);
         if !complete {
             open.push(ObligationKind::IncompleteCoverage);
@@ -981,7 +967,7 @@ pub fn derive(
         if !closed && open.is_empty() {
             open.push(ObligationKind::MissingEvidence);
         }
-        let (condition, _condition_charge) = diagram(data, out, q, b)?;
+        let condition = conditions.diagram(data, out, q, b)?;
         let c = coverage(data, invocation, q);
         let status =
             analysis::support::inferred_status(analysis::Interpretation::Structural, statuses);
@@ -1245,6 +1231,44 @@ mod tests {
             serde::de::value::Error,
         >::new([n; 16].into_iter()))
         .unwrap()
+    }
+    #[test]
+    fn prepared_conditions_reuse_roots_without_widening_atoms_or_qualifications() {
+        let b=ResourceBudget::fixed(8<<20).unwrap();
+        let mut data=SummaryData::new(&b);
+        let out=SummaryRecords::new(nominal(1),&b);
+        let mut charge=charged::StateCharge::new(&b,"summary-condition-control");
+        let expected=Diagram::from_atom(nominal(2));
+        let unrelated=Diagram::from_atom(nominal(3));
+        for diagram in [&expected,&unrelated] {
+            let (condition,nodes)=diagram.records();
+            data.vocabulary.conditions.insert(&mut charge,condition.id(),condition).unwrap();
+            for node in nodes {data.vocabulary.nodes.insert(&mut charge,node.id(),node).unwrap();}
+        }
+        let q=AssertionQualification {assumptions:assumptions::AssumptionSet::empty_id(),context:nominal(4),scope:nominal(5),condition:expected.id(),modality:Modality::Definite,approximation:Approximation::Exact};
+        let mut other=q.clone();other.scope=nominal(6);
+        let mut prepared=ConditionCatalog::new(&data,&out,&b).unwrap();
+        assert_eq!(prepared.diagram(&data,&out,&q,&b).unwrap().records(),expected.records());
+        assert_eq!(prepared.diagram(&data,&out,&other,&b).unwrap().records(),expected.records());
+        assert_eq!(prepared.diagrams.len(),1);
+        assert_ne!(q.id(),other.id());
+        // Every merged node still receives the prior shape validation, even when unreachable.
+        let invalid=ConditionNode::Branch {atom:nominal(7),low:ConditionNode::False.id(),high:ConditionNode::False.id()};
+        data.vocabulary.nodes.insert(&mut charge,invalid.id(),invalid).unwrap();
+        assert!(ConditionCatalog::new(&data,&out,&b).unwrap().diagram(&data,&out,&q,&b).is_err());
+    }
+    #[test]
+    fn prepared_conditions_retain_missing_child_refusal() {
+        let b=ResourceBudget::fixed(8<<20).unwrap();
+        let mut data=SummaryData::new(&b);
+        let out=SummaryRecords::new(nominal(1),&b);
+        let mut charge=charged::StateCharge::new(&b,"summary-condition-control");
+        let node=ConditionNode::Branch {atom:nominal(2),low:ConditionNode::False.id(),high:ConditionNode::True.id()};
+        let condition=conditions::Condition {root:node.id()};
+        data.vocabulary.conditions.insert(&mut charge,condition.id(),condition.clone()).unwrap();
+        for node in [node,ConditionNode::False] {data.vocabulary.nodes.insert(&mut charge,node.id(),node).unwrap();}
+        let q=AssertionQualification {assumptions:assumptions::AssumptionSet::empty_id(),context:nominal(3),scope:nominal(4),condition:condition.id(),modality:Modality::Definite,approximation:Approximation::Exact};
+        assert!(ConditionCatalog::new(&data,&out,&b).unwrap().diagram(&data,&out,&q,&b).is_err());
     }
     #[test]
     fn checked_zero_condition_refutation_requires_all_complete_native_members() {
