@@ -81,6 +81,9 @@ macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{
         pub fn new(budget:&resources::ResourceBudget)->Self {Self{$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})* Ok(false)}
         pub fn validation_inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
+        /// Native entry identity is evaluated against the completed Facts vocabulary.
+        pub fn facts_inputs()->Vec<ValidationInput>{Self::validation_inputs().into_iter().map(|input|if stages::is_vocabulary(input.name()){input.at_epoch(stages::PublicationBoundary::Facts)}else{input}).collect()}
+        pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{crate::domain::execution::require_facts_view(input)?;self.visit(input.name(),batch)}
     }
 };}
 crate::entry_value_inputs!(inputs);

@@ -1,11 +1,11 @@
-//! Exact validation universes and their sufficient stage grants are different products.
+//! Exact immutable semantic view requirements and their static compiler inputs.
 use super::{stages::*, *};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct DependencyClosure {
     /// Ordered validator inputs retain their independent epoch and stream contracts.
     pub requirements: Vec<ValidationInput>,
-    /// One grant per read relation, at the widest required acknowledged epoch.
+    /// One static compiler input per exact relation and completed semantic view.
     /// Inferred ordinary facts remain validation premises covered by the frozen facts checkpoint.
     pub grants: Vec<RelationUse>,
 }
@@ -194,11 +194,11 @@ impl DependencyClosure {
     }
 }
 fn merge(
-    grants: &mut BTreeMap<&'static str, RelationUse>,
+    grants: &mut BTreeMap<(&'static str, Option<PublicationBoundary>), RelationUse>,
     grant: RelationUse,
     order: &PublicationOrder,
 ) -> Result<(), ModelError> {
-    if let Some(existing) = grants.get_mut(grant.name()) {
+    if let Some(existing) = grants.get_mut(&(grant.name(),grant.prefix())) {
         if existing.transport() != grant.transport()
             || (existing.requirement().is_some()
                 && grant.requirement().is_some()
@@ -219,22 +219,12 @@ fn merge(
         if existing.validators().is_empty() {
             *existing = existing.validated_by(grant.validators());
         }
-        match (existing.prefix(), grant.prefix()) {
-            (Some(a), Some(b)) if order.resolve(b)?.ordinal() > order.resolve(a)?.ordinal() => {
-                *existing = existing.at_epoch(b)
-            }
-            (None, None) | (Some(_), Some(_)) => {}
-            _ => {
-                return Err(ModelError::Invalid(
-                    "incompatible closure epoch policies".into(),
-                ));
-            }
-        }
+
     } else {
         if let Some(epoch) = grant.prefix() {
             order.resolve(epoch)?;
         }
-        grants.insert(grant.name(), grant);
+        grants.insert((grant.name(),grant.prefix()), grant);
     }
     Ok(())
 }

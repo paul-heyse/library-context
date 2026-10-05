@@ -67,6 +67,8 @@ macro_rules! data{($($field:ident:$ty:ty,)*)=>{
  impl EnrichedData{
   pub fn new(budget:&ResourceBudget)->Self{Self{source:SourceCallData::new(budget),application:super::model_application::ModelApplicationData::new(budget),$($field:Rows::new(budget),)*}}
   pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{self.source.visit(name,batch)?;self.application.visit(name,batch)?;$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*Ok(())}
+  pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{super::require_facts_view(input)?;self.visit(input.name(),batch)}
+  pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{if profile==stages::Profile::Behavioral{return Self::inputs();}vec![ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),ValidationInput::of::<analysis::MethodParameters>(&["id"]),ValidationInput::of::<models::ModelCatalog>(&["id"])]}
   pub fn inputs()->Vec<ValidationInput>{let mut inputs=SourceCallData::inputs();inputs.extend(super::model_application::ModelApplicationData::validation_inputs());inputs.extend(vec![$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
  }
 };}
@@ -778,7 +780,7 @@ macro_rules! checker{($($field:ident:$ty:ty,)*)=>{
  impl ExecutionCheck{fn new(budget:&ResourceBudget)->Self{Self{data:EnrichedData::new(budget),invocations:Rows::new(budget),runs:Rows::new(budget),results:Rows::new(budget),$($field:Rows::new(budget),)*budget:budget.clone()}}}
  impl InvariantCheck for ExecutionCheck{
   fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{self.data.visit(name,batch)?;if name==publication::AnalysisInvocation::NAME{self.invocations.decode(batch)?;}if name==ExecutionRun::NAME{self.runs.decode(batch)?;}if name==publication::AnalysisOutcome::NAME{self.results.decode(batch)?;}$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*Ok(())}
-  fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{self.visit(input.name(),batch)}
+  fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{if stages::is_vocabulary(input.name()){self.data.visit_input(input,batch)}else{self.visit(input.name(),batch)}}
   fn finish(self:Box<Self>)->Result<(),ModelError>{
    let invalid=|message:&str|ModelError::Invalid(message.into());let mut frames=charged::ChargedSet::default();let mut charge=charged::StateCharge::new(&self.budget,"enriched_frame_inventory");for row in self.data.source_invocations.iter(){frames.insert(&mut charge,(row.input,row.context))?;}if self.invocations.len()!=frames.len()||frames.iter().any(|frame|self.invocations.iter().filter(|row|(row.input,row.context)==*frame).count()!=1){return Err(invalid("enriched omitted/duplicated SourceCall frame"));}
    let mut runs=Rows::new(&self.budget);let mut results=Rows::new(&self.budget);$(let mut $field=Rows::new(&self.budget);)*

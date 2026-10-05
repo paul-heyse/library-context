@@ -185,6 +185,14 @@ impl SourceCallData {
         crate::normalized_binding_outputs!(output);
         Ok(())
     }
+    pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+        super::require_facts_view(input)?;
+        self.visit(input.name(),batch)
+    }
+    pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{
+        if profile==stages::Profile::Behavioral{return Self::inputs();}
+        vec![ValidationInput::of::<analysis::base_completion::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"])]
+    }
     pub fn inputs() -> Vec<ValidationInput> {
         let mut inputs = EvaluationData::validation_inputs();
         inputs.push(ValidationInput::of::<syntax::ParameterSyntaxObservation>(
@@ -192,7 +200,7 @@ impl SourceCallData {
         ));
         inputs.extend(EntryData::validation_inputs().into_iter().map(|input| {
             if stages::is_vocabulary(input.name()) {
-                input
+                input.at_epoch(stages::PublicationBoundary::Facts)
             } else {
                 input
             }
@@ -206,7 +214,7 @@ impl SourceCallData {
                 .into_iter()
                 .map(|input| {
                     if stages::is_vocabulary(input.name()) {
-                        input
+                        input.at_epoch(stages::PublicationBoundary::Facts)
                     } else {
                         input
                     }
@@ -625,7 +633,7 @@ impl InvariantCheck for SourceCheck {
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        self.visit(input.name(), batch)
+        if stages::is_vocabulary(input.name()){self.data.visit_input(input,batch)}else{self.visit(input.name(),batch)}
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         let invalid = |s: &str| ModelError::Invalid(s.into());

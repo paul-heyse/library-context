@@ -85,3 +85,43 @@ fn normalized_replay_and_production_select_the_same_native_vocabulary(){
  }
  assert!(selected>0);
 }
+
+#[test]
+fn upper_native_collectors_preserve_facts_and_summary_routes_model_vocabulary_separately(){
+ use stages::PublicationBoundary as View;
+ use execution::{source_call_records::SourceCallData,enriched_production::EnrichedData,model_production::ModelData,summary_production::SummaryData};
+ let budget=budget();
+ let input=input::InputRevision{manifest:ContentHash::of(b"view isolation")};
+ let artifact=source::SourceArtifact::from_bytes(input.id(),"view.py".into(),b"x = 1").unwrap();
+ let module=source::Module{source:artifact.id(),qualified_name:"view".into()};
+ let path=value::AccessPath{first:None,second:None,unknown_suffix:false};
+ let native=value::Place{root:value::PlaceRoot::Global{module:module.id(),name:"native".into()}.id(),path:path.id()};
+ let derived=value::Place{root:value::PlaceRoot::Global{module:module.id(),name:"derived".into()}.id(),path:native.path};
+ let facts=ValidationInput::of::<value::Place>(&["id"]).at_epoch(View::Facts);
+ let model=ValidationInput::of::<value::Place>(&["id"]).at_epoch(View::Model);
+ let native_batch=value::Place::encode(std::slice::from_ref(&native)).unwrap();
+ let later_batch=value::Place::encode(&[native.clone(),derived.clone()]).unwrap();
+ let mut source=SourceCallData::new(&budget);
+ source.visit_input(&facts,&native_batch).unwrap();
+ assert!(source.visit_input(&model,&later_batch).is_err());
+ assert_eq!(source.bindings.places.len(),1);
+ assert!(source.bindings.places.get(derived.id()).is_none());
+ let mut enriched=EnrichedData::new(&budget);
+ enriched.visit_input(&facts,&native_batch).unwrap();
+ assert!(enriched.visit_input(&model,&later_batch).is_err());
+ assert_eq!(enriched.source.bindings.places.len(),1);
+ let mut applicability=ModelData::new(&budget);
+ applicability.visit_input(&facts,&native_batch).unwrap();
+ assert!(applicability.visit_input(&model,&later_batch).is_err());
+ assert_eq!(applicability.early.bindings.places.len(),1);
+ let mut summary=SummaryData::new(&budget);
+ summary.visit_input(&facts,&native_batch).unwrap();
+ summary.visit_input(&model,&later_batch).unwrap();
+ assert_eq!(summary.bindings.places.len(),1);
+ assert_eq!(summary.entry.places.len(),1);
+ assert_eq!(summary.vocabulary.places.len(),2);
+ assert!(summary.vocabulary.places.get(&derived.id()).is_some());
+ assert!(summary.visit_input(&ValidationInput::of::<value::Place>(&["id"]),&later_batch).is_err());
+ let views=SummaryData::consumed_inputs(Profile::Behavioral).into_iter().filter(|i|i.name()==value::Place::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
+ assert_eq!(views,[Some(View::Facts),Some(View::Model)].into_iter().collect());
+}

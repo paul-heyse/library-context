@@ -264,7 +264,7 @@ pub fn base_invariants() -> Vec<Invariant> {
     let mut inputs = EvaluationData::validation_inputs();
     inputs.extend(EntryData::validation_inputs().into_iter().map(|input| {
         if stages::is_vocabulary(input.name()) {
-            input
+            input.at_epoch(stages::PublicationBoundary::Facts)
         } else {
             input
         }
@@ -376,6 +376,7 @@ impl BaseCheck {
     }
 }
 impl InvariantCheck for BaseCheck {
+    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{super::require_facts_view(input)?;self.visit(input.name(),batch)}
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         self.data.visit(name, batch)?;
         self.entry.visit(name, batch)?;

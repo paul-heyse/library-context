@@ -36,6 +36,7 @@ impl ModelApplicationData{
  pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
   $(if name==<$ty>::NAME{self.$field.decode(batch)?;return Ok(true);})*self.bindings.visit(name,batch)
  }
+ pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{super::require_facts_view(input)?;self.visit(input.name(),batch)}
  pub fn validation_inputs()->Vec<ValidationInput>{let mut inputs=BindingData::validation_inputs();$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*inputs}
 }
 };}

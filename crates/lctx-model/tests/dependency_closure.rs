@@ -1,4 +1,4 @@
-//! Exact epoch requirements are independently stronger than one sufficient grant.
+//! Static compiler inputs preserve each exact immutable semantic view.
 use lctx_model::{
     Domain,
     domain::{dependency_closure::*, input::Package, stages::*, value::Literal, *},
@@ -19,7 +19,7 @@ fn order() -> PublicationOrder {
     .unwrap()
 }
 #[test]
-fn separate_epochs_and_orders_lower_by_publication_ordinal_without_erasing_requirements() {
+fn separate_views_and_orders_preserve_each_compiler_input() {
     let model = ValidatedModel::declared(vec![Relation::of::<Literal>()]).unwrap();
     let closure = DependencyClosure::build(
         &model,
@@ -46,12 +46,8 @@ fn separate_epochs_and_orders_lower_by_publication_ordinal_without_erasing_requi
             .iter()
             .any(|r| r.prefix() == Some(PublicationBoundary::Facts))
     );
-    assert_eq!(closure.grants.len(), 1);
-    assert_eq!(
-        closure.grants[0].prefix(),
-        Some(PublicationBoundary::Local),
-        "declared order wins even though boundary codes have another order"
-    );
+    assert_eq!(closure.grants.len(), 3);
+    for view in [PublicationBoundary::Facts,PublicationBoundary::Structural,PublicationBoundary::Local]{assert!(closure.grants.iter().any(|input|input.prefix()==Some(view)));}
 }
 #[test]
 fn inferred_facts_omission_preserves_explicit_inputs_and_unfinished_output_refuses() {
@@ -194,7 +190,7 @@ fn extra_invariant_epoch_and_fact_premise_survive_grant_projection() {
         closure
             .grants
             .iter()
-            .find(|g| g.name() == Literal::NAME)
+            .find(|g| g.name() == Literal::NAME&&g.prefix()==Some(PublicationBoundary::Local))
             .unwrap()
             .prefix(),
         Some(PublicationBoundary::Local)
