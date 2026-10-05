@@ -10,7 +10,7 @@ async fn both_profiles_keep_selected_catalog_and_exact_native_inventory() {
         settings.fca=true;
         settings.brief_budget=4;
         let fixture=catalog_runtime::compile("normalized_relations",profile,Frontier::Analysis,settings,None).await;
-        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM native_analysis_premises),(SELECT count(*) FROM native_qualifications),(SELECT count(*) FROM model_catalogs)").await;
+        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM native_analysis_premises) AS fixture_column_0,(SELECT count(*) FROM native_qualifications) AS fixture_column_1,(SELECT count(*) FROM model_catalogs) AS fixture_column_2").await;
         assert!(counts.0 > 0);
         assert_eq!(counts.0, counts.1);
         assert_eq!(counts.2, 1);

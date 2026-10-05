@@ -12,7 +12,7 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
         let refused:Vec<(i16,i64)> = catalog_runtime::query(&fixture, "SELECT reason,count(*) FROM execution_body_boundaries GROUP BY reason ORDER BY reason").await;
         eprintln!("B4_NATIVE {native:?}; B4_REFUSED {refused:?}");
     }
-    let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_expression_evaluations),(SELECT count(*) FROM base_evaluation_boundaries),(SELECT count(*) FROM base_evaluation_runs)").await;
+    let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_expression_evaluations) AS fixture_column_0,(SELECT count(*) FROM base_evaluation_boundaries) AS fixture_column_1,(SELECT count(*) FROM base_evaluation_runs) AS fixture_column_2").await;
     assert!(counts.2 > 0);
     let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM base_evaluation_analysis_outcomes").await;
     assert!(!statuses.is_empty());
@@ -27,7 +27,7 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
         assert_eq!((counts.0, counts.1), (0, 0));
         assert!(statuses.iter().all(|s| *s == 3));
     }
-    let read_counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_read_observations),(SELECT count(*) FROM base_formal_read_assessments),(SELECT count(*) FROM base_attribute_reads)").await;
+    let read_counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_read_observations) AS fixture_column_0,(SELECT count(*) FROM base_formal_read_assessments) AS fixture_column_1,(SELECT count(*) FROM base_attribute_reads) AS fixture_column_2").await;
     if profile == Profile::Behavioral {
         if case != "exact_exception_shapes" {
             assert!(read_counts.0 > 0 && read_counts.1 > 0 && read_counts.2 > 0);
@@ -52,7 +52,7 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
         assert!(dynamic.0 > 0 && dynamic.1 > 0);
     }
     if case == "field_read_screen" {
-        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_field_read_assessments WHERE status=1),(SELECT count(*) FROM base_field_read_assessments WHERE status=0),(SELECT count(*) FROM base_global_field_read_assessments WHERE status=1)").await;
+        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_field_read_assessments WHERE status=1) AS fixture_column_0,(SELECT count(*) FROM base_field_read_assessments WHERE status=0) AS fixture_column_1,(SELECT count(*) FROM base_global_field_read_assessments WHERE status=1) AS fixture_column_2").await;
         if profile == Profile::Behavioral {
             assert!(counts.0 >= 2 && counts.1 > 0 && counts.2 >= 2);
         } else {
@@ -60,11 +60,11 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
         }
     }
     if completion {
-        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_statement_completions),(SELECT count(*) FROM base_completion_boundaries),(SELECT count(*) FROM base_completion_runs)").await;
+        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_statement_completions) AS fixture_column_0,(SELECT count(*) FROM base_completion_boundaries) AS fixture_column_1,(SELECT count(*) FROM base_completion_runs) AS fixture_column_2").await;
         assert!(counts.2 > 0);
         let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM base_completion_analysis_outcomes").await;
         if profile == Profile::Behavioral {
-            let body_counts:(i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_source_body_completions),(SELECT count(*) FROM base_source_body_boundaries)").await;
+            let body_counts:(i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_source_body_completions) AS fixture_column_0,(SELECT count(*) FROM base_source_body_boundaries) AS fixture_column_1").await;
             if case != "exact_exception_shapes" {
                 assert!(body_counts.0 > 0 && body_counts.1 > 0);
             }
@@ -87,7 +87,7 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
                 .iter()
                 .all(|s| *s == if profile == Profile::Behavioral { 1 } else { 3 })
         );
-        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM source_call_headers),(SELECT count(*) FROM source_call_boundaries),(SELECT count(*) FROM source_call_runs)").await;
+        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM source_call_headers) AS fixture_column_0,(SELECT count(*) FROM source_call_boundaries) AS fixture_column_1,(SELECT count(*) FROM source_call_runs) AS fixture_column_2").await;
         assert!(counts.2 > 0);
         if profile == Profile::Behavioral {
             if case != "exact_exception_shapes" {
@@ -109,7 +109,7 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
                 .iter()
                 .all(|s| *s == if profile == Profile::Behavioral { 1 } else { 3 })
         );
-        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM statement_executions),(SELECT count(*) FROM execution_sources WHERE kind=2),(SELECT count(*) FROM execution_runs)").await;
+        let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM statement_executions) AS fixture_column_0,(SELECT count(*) FROM execution_sources WHERE kind=2) AS fixture_column_1,(SELECT count(*) FROM execution_runs) AS fixture_column_2").await;
         assert!(counts.2 > 0);
         if profile == Profile::Behavioral {
             if case != "exact_exception_shapes" {

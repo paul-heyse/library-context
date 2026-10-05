@@ -9,7 +9,7 @@ async fn run(profile: Profile) {
     let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM model_analysis_outcomes").await;
     let applications: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM model_applications").await;
     let postconditions: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM modeled_action_postconditions WHERE phase=1").await;
-    let context_counts:(i64,i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM model_context_resources),(SELECT count(*) FROM model_context_postconditions WHERE phase=1),(SELECT count(*) FROM model_context_postconditions WHERE phase=2),(SELECT count(*) FROM model_context_postconditions WHERE phase=3)").await;
+    let context_counts:(i64,i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM model_context_resources) AS fixture_column_0,(SELECT count(*) FROM model_context_postconditions WHERE phase=1) AS fixture_column_1,(SELECT count(*) FROM model_context_postconditions WHERE phase=2) AS fixture_column_2,(SELECT count(*) FROM model_context_postconditions WHERE phase=3) AS fixture_column_3").await;
     let transfers: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM model_transfer_alternatives").await;
     let context_transfers: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM model_context_transfer_witnesses").await;
     if profile == Profile::Behavioral {

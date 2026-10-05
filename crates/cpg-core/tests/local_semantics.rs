@@ -5,7 +5,7 @@ use lctx_model::domain::{admission::Frontier, stages::Profile, *};
 async fn run(profile: Profile) {
     let root = catalog_runtime::root("local_semantics");
     let fixture = catalog_runtime::compile("local_semantics",profile,Frontier::Analysis,catalog_runtime::settings("cases"),None).await;
-    let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM local_flow_contributions),(SELECT count(*) FROM local_transfer_alternatives),(SELECT count(*) FROM local_flow_assessments WHERE reason IS NOT NULL)").await;
+    let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM local_flow_contributions) AS fixture_column_0,(SELECT count(*) FROM local_transfer_alternatives) AS fixture_column_1,(SELECT count(*) FROM local_flow_assessments WHERE reason IS NOT NULL) AS fixture_column_2").await;
     if profile == Profile::Behavioral {
         assert!(counts.0 > 0);
         assert!(counts.1 >= counts.0);
@@ -23,7 +23,7 @@ async fn run(profile: Profile) {
                 .all(|s| *s == normalized::coverage::EvidenceAvailability::NotRequested.code())
         );
     }
-    let theory:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM local_type_domains),(SELECT count(*) FROM local_theory_witnesses),(SELECT count(*) FROM local_type_class_members)").await;
+    let theory:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM local_type_domains) AS fixture_column_0,(SELECT count(*) FROM local_theory_witnesses) AS fixture_column_1,(SELECT count(*) FROM local_type_class_members) AS fixture_column_2").await;
     if profile == Profile::Behavioral {
         assert!(theory.0 > 0 && theory.1 > 0 && theory.2 >= 4);
         let decisions: Vec<(i64, i16)> = catalog_runtime::query(&fixture, "SELECT occurrence.start, decision.outcome FROM local_atom_decisions decision JOIN flow_test_leaf_observations leaf ON leaf.id=decision.leaf JOIN occurrences occurrence ON occurrence.id=leaf.test").await;

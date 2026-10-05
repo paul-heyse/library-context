@@ -7,7 +7,7 @@ async fn normalized_is_self_contained_and_repeatable() {
  for profile in [Profile::Catalog,Profile::Behavioral,Profile::Behavioral] {
   let fixture=catalog_runtime::compile("normalized_projections",profile,Frontier::Normalized,catalog_runtime::settings("graph"),None).await;
   if profile==Profile::Behavioral {let content=fixture.workspace.content().unwrap();if let Some(previous)=previous {assert_eq!(previous,content);}previous=Some(content);}
-  let counts:(i64,i64,i64)=catalog_runtime::one(&fixture,"SELECT (SELECT count(*) FROM projection_snapshots),(SELECT count(*) FROM call_binding_attempts),(SELECT count(*) FROM source_artifacts)").await;
+  let counts:(i64,i64,i64)=catalog_runtime::one(&fixture,"SELECT (SELECT count(*) FROM projection_snapshots) AS fixture_column_0,(SELECT count(*) FROM call_binding_attempts) AS fixture_column_1,(SELECT count(*) FROM source_artifacts) AS fixture_column_2").await;
   assert_eq!(counts.0,4);assert!(counts.1>0);assert_eq!(counts.2,2);
   let availability:Vec<i16>=catalog_runtime::query(&fixture,"SELECT c.availability FROM normalization_coverage c JOIN normalization_computations n ON c.computation=n.id WHERE n.capability=10").await;
   assert_eq!(availability.len(),2,"one flow outcome per Python artifact");

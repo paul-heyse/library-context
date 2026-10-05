@@ -38,7 +38,7 @@ async fn run(profile: Profile) {
     }
     let false_spare:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_handoff_assessments a JOIN occurrences o ON o.id=a.argument WHERE a.value IS NOT NULL AND o.syntax_kind=48").await;
     assert_eq!(false_spare, 0, "same type is not producer-result identity");
-    let controls:(i64,i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM structural_argument_flows),(SELECT count(*) FROM structural_argument_flows WHERE alias IS NOT NULL),(SELECT count(*) FROM structural_conditional_raises),(SELECT count(*) FROM structural_unfollowed_arguments)").await;
+    let controls:(i64,i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM structural_argument_flows) AS fixture_column_0,(SELECT count(*) FROM structural_argument_flows WHERE alias IS NOT NULL) AS fixture_column_1,(SELECT count(*) FROM structural_conditional_raises) AS fixture_column_2,(SELECT count(*) FROM structural_unfollowed_arguments) AS fixture_column_3").await;
     if profile == Profile::Behavioral {
         assert!(controls.0 > 0, "actual direct parameter forwarding");
         assert!(controls.1 > 0, "one native identity alias");

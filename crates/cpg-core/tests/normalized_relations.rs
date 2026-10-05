@@ -7,19 +7,19 @@ async fn run(profile: Profile) {
     settings.knn = true;
     let embedder = cpg_core::embedding_service::FakeEmbedder::new();
     let fixture = catalog_runtime::compile("normalized_relations", profile, Frontier::Catalog, settings, Some(&embedder)).await;
-    let counts: (i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM symbol_entity_resolutions), (SELECT count(*) FROM provider_symbols)").await;
+    let counts: (i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM symbol_entity_resolutions) AS fixture_column_0, (SELECT count(*) FROM provider_symbols) AS fixture_column_1").await;
     assert!(counts.0 > 0);
     assert_eq!(counts.0, counts.1);
-    let leaves: (i64, i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM flow_test_leaf_observations), (SELECT count(*) FROM test_operand_type_assessments), (SELECT count(*) FROM test_operand_type_links)").await;
+    let leaves: (i64, i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM flow_test_leaf_observations) AS fixture_column_0, (SELECT count(*) FROM test_operand_type_assessments) AS fixture_column_1, (SELECT count(*) FROM test_operand_type_links) AS fixture_column_2").await;
     assert_eq!(leaves.0, leaves.1);
     match profile {
         Profile::Catalog => assert_eq!(leaves, (0, 0, 0)),
         Profile::Behavioral => assert!(leaves.0 > 0 && leaves.2 > 0),
     }
-    let signatures: (i64, i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM signature_observations), (SELECT count(*) FROM signature_variants), (SELECT count(*) FROM effective_callable_assessments)").await;
+    let signatures: (i64, i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM signature_observations) AS fixture_column_0, (SELECT count(*) FROM signature_variants) AS fixture_column_1, (SELECT count(*) FROM effective_callable_assessments) AS fixture_column_2").await;
     assert!(signatures.0 > 0 && signatures.2 > 0);
     assert_eq!(signatures.0, signatures.1);
-    let snapshot_counts: (i64, i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM projection_source_assessments), (SELECT count(*) FROM projection_snapshots), (SELECT count(*) FROM projection_snapshot_chunks)").await;
+    let snapshot_counts: (i64, i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM projection_source_assessments) AS fixture_column_0, (SELECT count(*) FROM projection_snapshots) AS fixture_column_1, (SELECT count(*) FROM projection_snapshot_chunks) AS fixture_column_2").await;
     assert_eq!(snapshot_counts.0, 4);
     assert_eq!(snapshot_counts.1, 4);
     assert!(snapshot_counts.2 >= 4);
