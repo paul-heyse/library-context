@@ -354,7 +354,9 @@ impl PublicationBoundary {
         }
     }
     pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|boundary| boundary.name() == name)
+        Self::ALL
+            .into_iter()
+            .find(|boundary| boundary.name() == name)
     }
     pub fn code(self) -> u8 {
         self as u8

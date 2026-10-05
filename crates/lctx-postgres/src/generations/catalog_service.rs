@@ -32,9 +32,9 @@ pub struct CatalogService {
 /// A canonical member exposed by multiple captures is not a unique release operation.
 pub(super) fn ambiguous_candidates(candidates: &[OperationCandidate]) -> bool {
     candidates.iter().any(|c| c.releases.len() > 1)
-        || candidates.first().is_some_and(|first| {
-            candidates.iter().any(|c| c.member != first.member)
-        })
+        || candidates
+            .first()
+            .is_some_and(|first| candidates.iter().any(|c| c.member != first.member))
 }
 pub(super) fn wire_error(e: WireError) -> Error {
     match e {

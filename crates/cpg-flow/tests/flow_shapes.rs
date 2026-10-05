@@ -1178,11 +1178,20 @@ fn native_candidate_formulas_survive_pruning_and_missing_pep695_attachment() {
     for kind in [CandidateKind::Nested, CandidateKind::LoopHeader] {
         assert!(flow.candidates.iter().any(|c| c.kind == kind), "{kind:?}");
     }
-    let loop_read = source.find("value = value + element").unwrap() as u32 + "value = ".len() as u32;
-    let loop_use = flow.uses.iter().position(|u| u.span.start == loop_read).unwrap() as u32;
-    assert!(flow.candidates.iter().any(|c| c.use_ix == loop_use
-        && c.kind == CandidateKind::LoopHeader && c.loop_expanded && !c.reaching.is_empty()),
-        "the read before reassignment must retain the loop-header candidate");
+    let loop_read =
+        source.find("value = value + element").unwrap() as u32 + "value = ".len() as u32;
+    let loop_use = flow
+        .uses
+        .iter()
+        .position(|u| u.span.start == loop_read)
+        .unwrap() as u32;
+    assert!(
+        flow.candidates.iter().any(|c| c.use_ix == loop_use
+            && c.kind == CandidateKind::LoopHeader
+            && c.loop_expanded
+            && !c.reaching.is_empty()),
+        "the read before reassignment must retain the loop-header candidate"
+    );
     assert!(
         flow.candidates
             .iter()

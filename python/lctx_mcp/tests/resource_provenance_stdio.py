@@ -11,8 +11,8 @@ from pathlib import Path
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
-from lctx_storage import open_service
 from lctx_semantics import wire_tool
+from lctx_storage import open_service
 from mcp_types import ReadResourceResult
 
 from lctx_mcp.wire import response_encodings

@@ -1016,10 +1016,7 @@ async fn qualify_generation_runtime(
     assert!(queued.await.unwrap_err().is_cancelled());
     drop(first);
     drop(second);
-    assert!(
-        observed.await.is_err(),
-        "cancelled queued work never began"
-    );
+    assert!(observed.await.is_err(), "cancelled queued work never began");
     let baseline = startup.memory_reserved();
     let failed = startup
         .guard()

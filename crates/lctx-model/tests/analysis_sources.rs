@@ -122,8 +122,10 @@ fn capture_binds_exact_sealed_sources_and_refuses_coupled_omission() {
     let prefix = encoded.schema().index_of("prefix").unwrap();
     columns[prefix] = std::sync::Arc::new(arrow_array::StringArray::from(vec![Some("Unknown")]));
     let malformed = arrow_array::RecordBatch::try_new(encoded.schema(), columns).unwrap();
-    assert!(matches!(SourceReceipt::decode(&malformed), Err(ModelError::Invalid(message))
-        if message.contains("source receipt has invalid metadata")));
+    assert!(
+        matches!(SourceReceipt::decode(&malformed), Err(ModelError::Invalid(message))
+        if message.contains("source receipt has invalid metadata"))
+    );
     assert!(publication(&inv, &[], &sources, &budget).is_err());
     let empty = CapturedSources::new(&budget);
     let (forged, _, no_receipts, _) = Invocation::admitted(

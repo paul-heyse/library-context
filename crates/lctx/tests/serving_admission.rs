@@ -258,29 +258,73 @@ async fn admitted_empty_corpus_and_unknown_domain_agree_through_pg_native_and_wi
 #[tokio::test]
 async fn subjectless_first_party_documents_survive_explicit_and_union_search_with_originals() {
     let document = b"# Captured packaging guide\n\nStandalone packaging instructions retain exact original bytes.\n";
-    let fixture = ServingFixture::start_captured(b"__all__ = ['api']\ndef api():\n    pass\n", Some(document), &["1.0"]).await;
+    let fixture = ServingFixture::start_captured(
+        b"__all__ = ['api']\ndef api():\n    pass\n",
+        Some(document),
+        &["1.0"],
+    )
+    .await;
     let execution = fixture.service.execution().await.unwrap();
-    let retrieval = RetrievalService::prepare(fixture.catalog.clone(), false).await.unwrap();
+    let retrieval = RetrievalService::prepare(fixture.catalog.clone(), false)
+        .await
+        .unwrap();
     let corpus = retrieval.numerical_corpus(&execution).unwrap();
     let mut answered = Vec::new();
     for library in [Some("demo"), None] {
         let mut raw = serde_json::json!({"query":"packaging", "families":[domain::retrieval::Family::DocumentationDeployment]});
-        if let Some(library) = library { raw["library"] = library.into(); }
+        if let Some(library) = library {
+            raw["library"] = library.into();
+        }
         let req = request("search_evidence", raw);
-        let prepared = retrieval.request(&execution, &req, None, None).await.unwrap();
-        let scores = corpus.documents.iter().map(|d| DocumentScore { document: d.id, score: Some(1.0) }).collect();
-        let (prepared, ranked) = retrieval.rank(&execution, prepared, scores, None).await.unwrap();
-        let Response::SearchEvidence(response) = retrieval.finish(&execution, req, prepared, ranked).await.unwrap() else { panic!("evidence route"); };
+        let prepared = retrieval
+            .request(&execution, &req, None, None)
+            .await
+            .unwrap();
+        let scores = corpus
+            .documents
+            .iter()
+            .map(|d| DocumentScore {
+                document: d.id,
+                score: Some(1.0),
+            })
+            .collect();
+        let (prepared, ranked) = retrieval
+            .rank(&execution, prepared, scores, None)
+            .await
+            .unwrap();
+        let Response::SearchEvidence(response) = retrieval
+            .finish(&execution, req, prepared, ranked)
+            .await
+            .unwrap()
+        else {
+            panic!("evidence route");
+        };
         let hits = response.results.items;
-        assert!(!hits.is_empty(), "first-party documentary evidence was dropped");
+        assert!(
+            !hits.is_empty(),
+            "first-party documentary evidence was dropped"
+        );
         assert!(hits.iter().all(|hit| hit.associated_members.is_empty()));
         for hit in &hits {
             assert!(!hit.originals.is_empty());
             for original in &hit.originals {
-                let evidence = fixture.service.evidence(&execution, &GetEvidenceRequest { source: original.source.clone(), page: PageRequest::default() }).await.unwrap();
+                let evidence = fixture
+                    .service
+                    .evidence(
+                        &execution,
+                        &GetEvidenceRequest {
+                            source: original.source.clone(),
+                            page: PageRequest::default(),
+                        },
+                    )
+                    .await
+                    .unwrap();
                 assert_eq!(evidence.evidence.original.artifact, original.artifact);
                 assert_eq!(evidence.evidence.original.digest, original.digest);
-                assert_eq!(evidence.evidence.body.bytes, document[original.start as usize..original.end as usize]);
+                assert_eq!(
+                    evidence.evidence.body.bytes,
+                    document[original.start as usize..original.end as usize]
+                );
                 assert!(!evidence.evidence.body.truncated);
             }
         }
@@ -294,19 +338,56 @@ async fn subjectless_first_party_documents_survive_explicit_and_union_search_wit
 
 #[tokio::test]
 async fn one_member_in_multiple_release_captures_is_ambiguous_in_get_and_compare() {
-    let fixture = ServingFixture::start_captured(b"__all__ = ['api']\ndef api():\n    pass\n", None, &["1.0", "2.0"]).await;
+    let fixture = ServingFixture::start_captured(
+        b"__all__ = ['api']\ndef api():\n    pass\n",
+        None,
+        &["1.0", "2.0"],
+    )
+    .await;
     let execution = fixture.service.execution().await.unwrap();
     let library = Name::new("demo").unwrap();
     let operation = support::path("demo.api");
-    let get = fixture.catalog.operation(&execution, &GetOperationRequest { library: library.clone(),
-        operation: operation.clone(), comparison: Optional::default(), reference_parameter: Optional::default(),
-        sections: vec![], page: PageRequest::default() }).await.unwrap();
-    let OperationResolution::Ambiguous { candidates } = get.operation else { panic!("multiple captures were silently selected"); };
+    let get = fixture
+        .catalog
+        .operation(
+            &execution,
+            &GetOperationRequest {
+                library: library.clone(),
+                operation: operation.clone(),
+                comparison: Optional::default(),
+                reference_parameter: Optional::default(),
+                sections: vec![],
+                page: PageRequest::default(),
+            },
+        )
+        .await
+        .unwrap();
+    let OperationResolution::Ambiguous { candidates } = get.operation else {
+        panic!("multiple captures were silently selected");
+    };
     assert!(!candidates.is_empty());
-    assert_eq!(candidates.iter().map(|c| c.member).collect::<std::collections::BTreeSet<_>>().len(), 1);
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|c| c.member)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        1
+    );
     assert!(candidates.iter().all(|c| c.releases.len() == 2));
-    let compare = fixture.catalog.compare(&execution, &CompareOperationsRequest { library,
-        operations: vec![operation], selection: SelectionInput::default(), page: PageRequest::default() }).await.unwrap();
+    let compare = fixture
+        .catalog
+        .compare(
+            &execution,
+            &CompareOperationsRequest {
+                library,
+                operations: vec![operation],
+                selection: SelectionInput::default(),
+                page: PageRequest::default(),
+            },
+        )
+        .await
+        .unwrap();
     assert!(compare.operations[0].ambiguous);
     assert_eq!(compare.operations[0].candidates, candidates);
     drop(execution);

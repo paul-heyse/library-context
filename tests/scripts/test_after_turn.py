@@ -163,7 +163,9 @@ class StopTests(unittest.TestCase):
     def test_successful_generator_records_resulting_inputs_and_retries_failures(self) -> None:
         repo = committed_repo({"Cargo.toml": "[workspace]\n"})
         state = Path(tempfile.mkdtemp())
-        config = after_turn.Config(sync=("build-features",), sync_when={"build-features": ("Cargo.lock", "**/Cargo.toml")})
+        config = after_turn.Config(
+            sync=("build-features",), sync_when={"build-features": ("Cargo.lock", "**/Cargo.toml")}
+        )
         outcomes = iter(["failed", "passed", "passed"])
         ran = []
 
@@ -186,7 +188,9 @@ class StopTests(unittest.TestCase):
             patched(stack, state, config)
             stack.enter_context(mock.patch.object(after_turn, "repo_root", return_value=repo))
             stack.enter_context(mock.patch.object(after_turn, "run_step", side_effect=step))
-            stack.enter_context(mock.patch.object(after_turn.subprocess, "Popen", side_effect=popen))
+            stack.enter_context(
+                mock.patch.object(after_turn.subprocess, "Popen", side_effect=popen)
+            )
             after_turn.cmd_stop("codex")
             self.assertFalse((state / "build-features.inputs").exists())
             after_turn.cmd_stop("codex")

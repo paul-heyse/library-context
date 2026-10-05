@@ -206,13 +206,19 @@ mod tests {
     }
     #[test]
     fn finite_float_extremes_roundtrip_bits_and_account_the_formatting_buffer() {
-        let bits = [1u64, 0x8000000000000001, f64::MAX.to_bits(), (-f64::MAX).to_bits()];
+        let bits = [
+            1u64,
+            0x8000000000000001,
+            f64::MAX.to_bits(),
+            (-f64::MAX).to_bits(),
+        ];
         let budget = ResourceBudget::fixed(512).unwrap();
         let mut expressions = Vec::new();
         for bits in bits {
             let literal = Literal::Float { bits: bits as i64 };
             let rendered = render(&literal, Mode::PythonExpression, None, &budget)
-                .unwrap().unwrap();
+                .unwrap()
+                .unwrap();
             assert_eq!(budget.reserved(), 512);
             assert_eq!(rendered.text.capacity(), 512);
             assert!(rendered.text.len() <= budget.reserved());
@@ -220,8 +226,10 @@ mod tests {
             drop(rendered);
             assert_eq!(budget.reserved(), 0);
             let refused = ResourceBudget::fixed(511).unwrap();
-            assert!(matches!(render(&literal, Mode::PythonExpression, None, &refused),
-                Err(ModelError::Resource { .. })));
+            assert!(matches!(
+                render(&literal, Mode::PythonExpression, None, &refused),
+                Err(ModelError::Resource { .. })
+            ));
             assert_eq!(refused.reserved(), 0);
         }
         let encoded = serde_json::to_string(&expressions).unwrap();
@@ -229,7 +237,11 @@ mod tests {
             .args(["run", "--no-sync", "python", "-I", "-c",
                 "import json,struct,sys; rows=json.loads(sys.argv[1]); assert all(struct.unpack('>Q', struct.pack('>d', eval(expression, {'__builtins__': {}})))[0] == int(bits) for bits,expression in rows)",
                 &encoded]).output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     #[test]
     fn large_signed_integer_expressions_execute_under_python_decimal_limits() {

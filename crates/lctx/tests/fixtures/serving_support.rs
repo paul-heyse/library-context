@@ -223,52 +223,116 @@ impl ServingFixture {
     /// Model-valid first-party captures drive the production compiler directly. This permits
     /// documents and finite multiple-release inputs independently of installed wheel inventory.
     pub async fn start_captured(source: &[u8], document: Option<&[u8]>, versions: &[&str]) -> Self {
-        use cpg_extract::{acquisition::*, bundle::CapturedInputs, capture::CapturedInput,
-            native_context::NativeContextConfig};
-        use cpg_core::{compilation::PreparedCompilation, model_runtime::{AttemptRuntime, RuntimeOptions}};
-        use domain::{admission::Frontier, analysis::settings::{AnalyticsConfiguration, Techniques},
-            input::SourceRole, stages::Profile, ContentHash};
+        use cpg_core::{
+            compilation::PreparedCompilation,
+            model_runtime::{AttemptRuntime, RuntimeOptions},
+        };
+        use cpg_extract::{
+            acquisition::*, bundle::CapturedInputs, capture::CapturedInput,
+            native_context::NativeContextConfig,
+        };
+        use domain::{
+            ContentHash,
+            admission::Frontier,
+            analysis::settings::{AnalyticsConfiguration, Techniques},
+            input::SourceRole,
+            stages::Profile,
+        };
         let db = DisposableDatabase::start().await;
         db.migrate().await;
         let model = Arc::new(domain::model().unwrap());
-        let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
+        let store = GenerationStore::install(db.owner.clone(), model.clone())
+            .await
+            .unwrap();
         let dir = tempfile::tempdir().unwrap();
         db.write_configs(dir.path()).unwrap();
         let runtime = AttemptRuntime::new(RuntimeOptions::default()).unwrap();
         let budget = runtime.budget();
         let site = dir.path().join("captured");
         write(&site.join("demo/__init__.py"), source);
-        let mut files = vec![InventoryFile { path: "demo/__init__.py".into(), owners: vec![],
-            role: SourceRole::Release, record_sha256: None }];
+        let mut files = vec![InventoryFile {
+            path: "demo/__init__.py".into(),
+            owners: vec![],
+            role: SourceRole::Release,
+            record_sha256: None,
+        }];
         if let Some(document) = document {
             write(&site.join("guide.md"), document);
-            files.push(InventoryFile { path: "guide.md".into(), owners: vec![],
-                role: SourceRole::Document, record_sha256: None });
+            files.push(InventoryFile {
+                path: "guide.md".into(),
+                owners: vec![],
+                role: SourceRole::Document,
+                record_sha256: None,
+            });
         }
         let paths = files.iter().map(|f| f.path.clone()).collect::<Vec<_>>();
         let frozen = CapturedInput::capture(&site, &paths, budget).unwrap();
         let configuration = ContentHash::of(b"serving admitted-capture fixture");
-        let inventory = LibraryInventory { name: "demo".into(), requirement: "demo fixture".into(),
-            lock_digest: ContentHash::of(b"finite fixture inputs"), installer: Some("typed fixture".into()),
-            python_version: "3.14.7".into(), platform: "linux".into(), site_packages: site,
-            distributions: versions.iter().map(|version| InventoryDistribution {
-                name: "demo".into(), version: (*version).into(), first_party: true,
-                artifact_sha256: vec![], record_digest: ContentHash::of(version.as_bytes()),
-            }).collect(), files, configuration };
+        let inventory = LibraryInventory {
+            name: "demo".into(),
+            requirement: "demo fixture".into(),
+            lock_digest: ContentHash::of(b"finite fixture inputs"),
+            installer: Some("typed fixture".into()),
+            python_version: "3.14.7".into(),
+            platform: "linux".into(),
+            site_packages: site,
+            distributions: versions
+                .iter()
+                .map(|version| InventoryDistribution {
+                    name: "demo".into(),
+                    version: (*version).into(),
+                    first_party: true,
+                    artifact_sha256: vec![],
+                    record_digest: ContentHash::of(version.as_bytes()),
+                })
+                .collect(),
+            files,
+            configuration,
+        };
         let native = NativeContextConfig::committed(Profile::Catalog, budget).unwrap();
         let prepared = PreparedCompilation::new(Frontier::Catalog,
             AnalyticsConfiguration::parse("version = 1\n[subsystem]\nmodule_prefixes = ['demo']\npublic_roots = ['demo']\n[seeds]\nprimary = []\ndistractors = []\n[pass_a]\nmax_depth = 4\nmax_vertices = 256\nmax_edges = 1024\nmax_witnesses = 4\n[briefs]\nbudget = 0\n", Techniques::default()).unwrap(),
             native.catalog(), None, budget).unwrap();
-        let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::new(frozen,
-            Acquisition::Installed(inventory))], native));
-        let roles = lctx_postgres::roles::RoleConfig::load(&dir.path().join("postgres-importer.json")).unwrap();
-        let published = cpg_core::compilation::publish(&store, &roles, db.writer.clone(), captured,
-            &runtime, Profile::Catalog, configuration, &prepared, None, None).await.unwrap();
+        let captured = Arc::new(CapturedInputs::new(
+            vec![AcquiredInput::new(
+                frozen,
+                Acquisition::Installed(inventory),
+            )],
+            native,
+        ));
+        let roles =
+            lctx_postgres::roles::RoleConfig::load(&dir.path().join("postgres-importer.json"))
+                .unwrap();
+        let published = cpg_core::compilation::publish(
+            &store,
+            &roles,
+            db.writer.clone(),
+            captured,
+            &runtime,
+            Profile::Catalog,
+            configuration,
+            &prepared,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         let generation = published.generation;
-        let serving = lctx_postgres::roles::RoleConfig::load(&dir.path().join("postgres-serving.json")).unwrap();
-        let service = GenerationService::admit(model, &serving, Some(generation)).await.unwrap();
+        let serving =
+            lctx_postgres::roles::RoleConfig::load(&dir.path().join("postgres-serving.json"))
+                .unwrap();
+        let service = GenerationService::admit(model, &serving, Some(generation))
+            .await
+            .unwrap();
         let catalog = CatalogService::prepare(service.clone()).await.unwrap();
-        Self { db, store, service, catalog, generation, dir }
+        Self {
+            db,
+            store,
+            service,
+            catalog,
+            generation,
+            dir,
+        }
     }
     pub async fn members(&self) -> Vec<OperationCandidate> {
         let execution = self.service.execution().await.unwrap();

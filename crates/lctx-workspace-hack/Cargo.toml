@@ -82,12 +82,12 @@ rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.8" }
 regex = { version = "1.13.1" }
 regex-automata = { version = "0.4.18", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
 regex-syntax = { version = "0.8.11" }
-ruff_db = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["cache", "junit", "serde"] }
-ruff_diagnostics = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["serde"] }
-ruff_python_ast = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["cache", "get-size", "salsa", "serde"] }
-ruff_ranged_value = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["get-size"] }
-ruff_source_file = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["get-size", "serde"] }
-ruff_text_size = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["get-size", "serde"] }
+ruff_db = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["cache", "junit", "serde"] }
+ruff_diagnostics = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["serde"] }
+ruff_python_ast = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["cache", "get-size", "salsa", "serde"] }
+ruff_ranged_value = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["get-size"] }
+ruff_source_file = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["get-size", "serde"] }
+ruff_text_size = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["get-size", "serde"] }
 rust_decimal = { version = "1.43.0", features = ["db-postgres"] }
 rustc-hash = { version = "2.1.3" }
 rustls = { version = "0.23.45", default-features = false, features = ["logging", "ring", "std", "tls12"] }
@@ -111,15 +111,15 @@ thiserror = { version = "2.0.21" }
 time = { version = "0.3.55", features = ["macros", "serde-well-known"] }
 tokio = { version = "1.53.1", features = ["fs", "io-util", "macros", "net", "parking_lot", "process", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1.19", features = ["fs", "net", "sync"] }
-tokio-util = { version = "0.7.19", features = ["codec", "io"] }
+tokio-util = { version = "0.7.19", features = ["codec", "io", "rt"] }
 toml = { version = "1.1.6", features = ["preserve_order"] }
 toml_datetime = { version = "1.1.1", features = ["serde"] }
 toml_parser = { version = "1.1.3" }
 toml_writer = { version = "1.1.2" }
 tracing = { version = "0.1.44", features = ["log", "valuable"] }
 tracing-core = { version = "0.1.36", features = ["valuable"] }
-ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["serde"] }
-ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "f7bdff69e1fb94ab0ed5b340e977aac0d26e9301", default-features = false, features = ["zstd"] }
+ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["serde"] }
+ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["zstd"] }
 typenum = { version = "1.20.1", default-features = false, features = ["const-generics"] }
 unicode-normalization = { version = "0.1.25" }
 unicode-width = { version = "0.2.2" }

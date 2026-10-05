@@ -988,7 +988,10 @@ mod encoding_controls {
         );
         let mut revision = mapping.clone();
         revision.revision = 2;
-        assert_ne!(identity_for(std::slice::from_ref(&mapping)), identity_for(&[revision]));
+        assert_ne!(
+            identity_for(std::slice::from_ref(&mapping)),
+            identity_for(&[revision])
+        );
         let mut other = mapping.clone();
         other.name = "other";
         assert_eq!(
