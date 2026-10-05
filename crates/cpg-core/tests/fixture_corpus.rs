@@ -8,106 +8,117 @@ use cpg_extract::{
 use lctx_model::domain::{ContentHash, resources::ResourceBudget, stages::Profile};
 use cpg_core::workspace::{Workspace, WorkspaceOptions};
 use std::{collections::BTreeSet, path::Path, sync::Arc};
-const CASES: &[&str] = &[
-    "behavioral_frontiers",
-    "capture_observations",
-    "class_metadata",
-    "contextual_expected_arguments",
-    "guarded_origin_inventory",
-    "module_resolution",
-    "native_callable_deprecation",
-    "native_callable_variants",
-    "native_candidate_inventory",
-    "native_class_traits",
-    "native_diagnostics",
-    "native_exports",
-    "native_generics",
-    "native_lexical",
-    "native_overload_origins",
-    "native_usage",
-    "protocol_observations",
-    "python_reference_oracle",
-    "ruff_context",
-    "stable_capture_shapes",
-    "terminal_question",
-    "symbolic_fields",
-    "retired_read_expectations",
-    "retired_attribute_expectations",
-    "retired_shadow_boundaries",
-    "field_dynamic_all",
-    "field_read_screen",
-    "analytic_optional",
-    "entry_value_witnesses",
-    "transfer_composition",
-    "dictionary_keys",
-    "direct_usage",
-    "execution_channels",
-    "local_semantics",
-    "string_values",
-    "_invalid",
-    "action_shapes",
-    "analysis_shapes",
-    "behavior_shapes",
-    "catalog",
-    "catalog_evidence",
-    "catalog_core",
-    "catalog_context",
-    "context_protocol_shapes",
-    "dep_env",
-    "derive_cases",
-    "docs_shapes",
-    "dunder_all",
-    "entry_bridge",
-    "expression_completion_shapes",
-    "exact_exception_shapes",
-    "flow_call_paths",
-    "flow_shapes",
-    "graph_shapes",
-    "handler_shapes",
-    "import_cycle",
-    "invocation_shapes",
-    "lexical_shapes",
-    "model_handler_shapes",
-    "model_shapes",
-    "native_signature",
-    "native_model_context",
-    "normalized_relations",
-    "normalized_projections",
-    "phase4_context_constructors",
-    "phase4_summaries",
-    "phase4_models",
-    "normalized_entities",
-    "normalized_bindings",
-    "effective_callables",
-    "postgres_report_corpus",
-    "public_shapes",
-    "pysa_keys",
-    "pysa_tito_shapes",
-    "pysa_variants",
-    "rebuild_matrix",
-    "return_completion_shapes",
-    "semantic_declarations",
-    "semantic_deployment",
-    "semantic_documents",
-    "semantic_guards",
-    "semantic_lexical",
-    "semantic_owner",
-    "semantic_shapes",
-    "semantic_stability",
-    "semantic_symbols",
-    "semantic_syntax",
-    "source_body_shapes",
-    "structural_usage",
-    "summary_caps",
-    "syntax_shapes",
-    "synthesis_refutation",
-    "synthesis_sources",
-    "transfer_alternatives",
-    "type_guard",
-    "type_shapes",
-    "typed_semantics",
-    "unicode_bom",
-];
+macro_rules! fixture_cases {
+    ($($case:ident),* $(,)?) => {
+        const CASES: &[&str] = &[$(stringify!($case)),*];
+        $(
+            #[tokio::test]
+            async fn $case() {
+                both_profiles_use_the_real_facts_frontier(stringify!($case)).await;
+            }
+        )*
+    };
+}
+fixture_cases! {
+    behavioral_frontiers,
+    capture_observations,
+    class_metadata,
+    contextual_expected_arguments,
+    guarded_origin_inventory,
+    module_resolution,
+    native_callable_deprecation,
+    native_callable_variants,
+    native_candidate_inventory,
+    native_class_traits,
+    native_diagnostics,
+    native_exports,
+    native_generics,
+    native_lexical,
+    native_overload_origins,
+    native_usage,
+    protocol_observations,
+    python_reference_oracle,
+    ruff_context,
+    stable_capture_shapes,
+    terminal_question,
+    symbolic_fields,
+    retired_read_expectations,
+    retired_attribute_expectations,
+    retired_shadow_boundaries,
+    field_dynamic_all,
+    field_read_screen,
+    analytic_optional,
+    entry_value_witnesses,
+    transfer_composition,
+    dictionary_keys,
+    direct_usage,
+    execution_channels,
+    local_semantics,
+    string_values,
+    _invalid,
+    action_shapes,
+    analysis_shapes,
+    behavior_shapes,
+    catalog,
+    catalog_evidence,
+    catalog_core,
+    catalog_context,
+    context_protocol_shapes,
+    dep_env,
+    derive_cases,
+    docs_shapes,
+    dunder_all,
+    entry_bridge,
+    expression_completion_shapes,
+    exact_exception_shapes,
+    flow_call_paths,
+    flow_shapes,
+    graph_shapes,
+    handler_shapes,
+    import_cycle,
+    invocation_shapes,
+    lexical_shapes,
+    model_handler_shapes,
+    model_shapes,
+    native_signature,
+    native_model_context,
+    normalized_relations,
+    normalized_projections,
+    phase4_context_constructors,
+    phase4_summaries,
+    phase4_models,
+    normalized_entities,
+    normalized_bindings,
+    effective_callables,
+    postgres_report_corpus,
+    public_shapes,
+    pysa_keys,
+    pysa_tito_shapes,
+    pysa_variants,
+    rebuild_matrix,
+    return_completion_shapes,
+    semantic_declarations,
+    semantic_deployment,
+    semantic_documents,
+    semantic_guards,
+    semantic_lexical,
+    semantic_owner,
+    semantic_shapes,
+    semantic_stability,
+    semantic_symbols,
+    semantic_syntax,
+    source_body_shapes,
+    structural_usage,
+    summary_caps,
+    syntax_shapes,
+    synthesis_refutation,
+    synthesis_sources,
+    transfer_alternatives,
+    type_guard,
+    type_shapes,
+    typed_semantics,
+    unicode_bom,
+}
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(4 << 30).unwrap()
 }
@@ -142,8 +153,8 @@ fn capture(case: &str, profile: Profile, resources: &ResourceBudget) -> Arc<Capt
         cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap(),
     ))
 }
-#[tokio::test]
-async fn every_fixture_is_registered_and_both_profiles_use_the_real_facts_frontier() {
+#[test]
+fn every_fixture_is_registered() {
     let listed = std::fs::read_dir(root())
         .unwrap()
         .map(Result::unwrap)
@@ -151,9 +162,11 @@ async fn every_fixture_is_registered_and_both_profiles_use_the_real_facts_fronti
         .map(|p| p.file_name().to_string_lossy().into_owned())
         .collect::<BTreeSet<_>>();
     assert_eq!(listed, CASES.iter().map(|c| c.to_string()).collect());
+}
+
+async fn both_profiles_use_the_real_facts_frontier(case: &str) {
     let mut failures = vec![];
-    for case in CASES {
-        for profile in Profile::ALL {
+    for profile in Profile::ALL {
             let resources = budget();
             let result = async {
                 let workspace = Workspace::with_budget(Arc::new(lctx_model::domain::model()?), WorkspaceOptions { memory_bytes: resources.limit(), ..Default::default() }, resources.clone())?;
@@ -172,7 +185,6 @@ async fn every_fixture_is_registered_and_both_profiles_use_the_real_facts_fronti
                 }
                 Err(error) => failures.push(format!("{case} {}: {error}", profile.name())),
             }
-        }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
