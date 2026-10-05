@@ -65,7 +65,7 @@ charged preparation, with bounded separate execution when order/state requires i
 includes installation/generation, model/layout, definition, exact immutable source/prefix and relevant
 semantic configuration. Missing, failed, partial or unconfirmed conclusions never authorize a hit.
 Fresh consumer admission remains required. Normal reads trust owned immutability; explicit audit
-recomputes physical integrity and pure semantics. The [coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md)
+recomputes physical integrity, nominal references and pure/publication semantics. The [coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md)
 owns qualification and F01–F04; structural work counts alone establish no measured speed benefit.
 
 > Decision: ADR-0126

@@ -97,7 +97,7 @@ impl GenerationStore {
                         &generated
                     } else { self.model.invariant(&name)? };
                     if definition != check.digest().0 { return Err(Error::Contract); }
-                    let physical = exact_frames(&check.inputs, &frames)?;
+                    let physical = exact_frames(&check.inputs, &frames, &order)?;
                     let expected = session.binding(&mut tx, check.digest(), &check.inputs, &physical, false, None).await?;
                     if expected != binding { return Err(invalid(format!("audit binding mismatch: {name}"))); }
                     if names.is_subset(&requested) {
@@ -113,7 +113,7 @@ impl GenerationStore {
                 ProofContext::Publication { frames, sources, profile: claimed_profile } => {
                     let check = self.model.publication_check(&name)?;
                     if definition != check.digest().0 || claimed_profile != profile { return Err(Error::Contract); }
-                    let physical = exact_frames(&check.inputs, &frames)?;
+                    let physical = exact_frames(&check.inputs, &frames, &order)?;
                     let context = super::validation_session::publication_context(&sources, actual_profile);
                     if session.binding(&mut tx, check.digest(), &check.inputs, &physical, false, Some(context)).await? != binding {
                         return Err(invalid(format!("audit publication binding mismatch: {name}")));
@@ -128,6 +128,12 @@ impl GenerationStore {
                             let boundary = PublicationBoundary::from_name(name).ok_or(Error::Contract)?;
                             Ok::<_, Error>(order.resolve(boundary)?)
                         }).transpose()?;
+                        if let Some(prefix) = prefix {
+                            let closed: bool = sqlx::query_scalar("SELECT closed FROM lctx_model_store.publication_groups WHERE generation_id=$1 AND epoch=$2")
+                                .bind(generation.0.to_vec()).bind(i16::try_from(prefix.ordinal()).map_err(|_| Error::Contract)?)
+                                .fetch_one(&mut *tx).await?;
+                            if !closed { return Err(Error::Contract); }
+                        }
                         let physical = prefix.map_or_else(|| source.relation().to_owned(), |p| super::vocabulary::physical(source.relation(), p));
                         if source.physical() != physical { return Err(Error::Contract); }
                         let input = ValidationInput::of_relation(relation, &["id"]);
@@ -176,8 +182,25 @@ impl GenerationStore {
     }
 }
 
-fn exact_frames(inputs: &[ValidationInput], frames: &[(String, String)]) -> Result<Vec<String>, Error> {
-    if inputs.len() != frames.len() || inputs.iter().zip(frames).any(|(input, (name, _))| input.name() != name) { return Err(Error::Contract); }
+fn exact_frames(inputs: &[ValidationInput], frames: &[(String, String)], order: &lctx_model::domain::stages::PublicationOrder) -> Result<Vec<String>, Error> {
+    if inputs.len() != frames.len() { return Err(Error::Contract); }
+    for (input, (name, frame)) in inputs.iter().zip(frames) {
+        if input.name() != name { return Err(Error::Contract); }
+        if !is_vocabulary(name) {
+            if frame != name { return Err(Error::Contract); }
+        } else if let Some(boundary) = input.prefix() {
+            if *frame != order.resolve(boundary)?.view(name) { return Err(Error::Contract); }
+        } else if frame == name {
+            // A finite ordinary model can freeze vocabulary without publication groups.
+            // Grouped vocabulary proofs always retain their exact closed ordinal.
+            if order.decode(0).is_ok() { return Err(Error::Contract); }
+        } else {
+            let ordinal = frame.strip_prefix("__v").and_then(|v| v.split_once('_'))
+                .filter(|(_, relation)| *relation == name).and_then(|(n, _)| n.parse::<u16>().ok())
+                .ok_or(Error::Contract)?;
+            if *frame != order.decode(ordinal)?.view(name) { return Err(Error::Contract); }
+        }
+    }
     Ok(frames.iter().map(|(_, frame)| frame.clone()).collect())
 }
 async fn audit_frame(store: &GenerationStore, session: &mut Session<'_>, tx: &mut sqlx::PgConnection,
@@ -188,3 +211,25 @@ async fn audit_frame(store: &GenerationStore, session: &mut Session<'_>, tx: &mu
     Ok(())
 }
 fn invalid(message: String) -> Error { Error::Model(ModelError::Invalid(message)) }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lctx_model::domain::{source::SourceArtifact, value::Literal, stages::PublicationOrder};
+
+    #[test]
+    fn replay_context_cannot_substitute_an_ordinary_or_declared_prefix_frame() {
+        let order = PublicationOrder::registered(ContentHash::of(b"audit-frame-control"), &[
+            (0, PublicationBoundary::Facts), (1, PublicationBoundary::Dispatch),
+        ]).unwrap();
+        let ordinary = ValidationInput::of::<SourceArtifact>(&["id"]);
+        assert!(exact_frames(std::slice::from_ref(&ordinary), &[(ordinary.name().into(), "other_table".into())], &order).is_err());
+        assert!(exact_frames(std::slice::from_ref(&ordinary), &[(ordinary.name().into(), ordinary.name().into())], &order).is_ok());
+        let vocabulary = ValidationInput::of::<Literal>(&["id"]).at_epoch(PublicationBoundary::Facts);
+        assert!(exact_frames(std::slice::from_ref(&vocabulary), &[(vocabulary.name().into(), order.decode(1).unwrap().view(vocabulary.name()))], &order).is_err());
+        assert!(exact_frames(std::slice::from_ref(&vocabulary), &[(vocabulary.name().into(), order.decode(0).unwrap().view(vocabulary.name()))], &order).is_ok());
+        let unprefixed = ValidationInput::of::<Literal>(&["id"]);
+        assert!(exact_frames(std::slice::from_ref(&unprefixed), &[(unprefixed.name().into(), order.decode(0).unwrap().view(unprefixed.name()))], &order).is_ok());
+        assert!(exact_frames(std::slice::from_ref(&unprefixed), &[(unprefixed.name().into(), unprefixed.name().into())], &order).is_err());
+    }
+}

@@ -23,8 +23,25 @@ async fn immutable_catalog_cohort() {
         eprintln!("failed: mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration");
         failed.push("mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration");
     } else { println!("passed: mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration"); }
+    if AssertUnwindSafe(explicit_audit_recomputes_the_catalog_without_changing_it(&fixture)).catch_unwind().await.is_err() {
+        eprintln!("failed: explicit_audit_recomputes_the_catalog_without_changing_it");
+        failed.push("explicit_audit_recomputes_the_catalog_without_changing_it");
+    } else { println!("passed: explicit_audit_recomputes_the_catalog_without_changing_it"); }
     fixture.finish().await;
     assert!(failed.is_empty(), "failed immutable cohort cases: {failed:?}");
+}
+
+async fn explicit_audit_recomputes_the_catalog_without_changing_it(fixture: &ServingFixture) {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_lctx"))
+        .arg("--database").arg(fixture.dir.path().join("postgres.json"))
+        .args(["generation", "audit", &fixture.generation.hex(), "--frontier", "catalog"])
+        .output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(report["relations"].as_u64().unwrap() > 0);
+    assert!(report["semantic_checks"].as_u64().unwrap() > 0);
+    // A fresh ordinary reader remains admitted after the read-only challenge.
+    fixture.service.execution().await.unwrap();
 }
 
 async fn complete_find_cursors_selection_browse_counts_and_caller_order(fixture: &ServingFixture) {

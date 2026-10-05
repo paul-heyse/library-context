@@ -1,7 +1,7 @@
 # The only command surface agents need. `just` lists recipes.
-# Check recipes do not edit source, except `ruff`'s auto-fixes; tests may create their own data.
+# Check recipes do not edit source; tests may create their own data.
 # `fmt`, `library-catalog`, `skills-sync`, `build-features` and `adr new|supersede|index` edit the
-# working tree. Agents run functional tests and, at scope end, `hygiene`; the end-of-turn hook
+# working tree. Agents run scoped contract families and applicable leaves; the end-of-turn hook
 # (`scripts/after_turn.py`) runs only formatting, generators, readiness and the catalog.
 
 set shell := ["python3", "scripts/build_environment.py", "--", "bash", "-euo", "pipefail", "-c"]
@@ -51,22 +51,6 @@ verify-tooling *args:
 qualify:
     python3 scripts/verify.py qualify
 
-# The default functional loop: optimized cached core tests and Python tests
-check: test py-test
-
-# Everything functional: one workspace run (including real PostgreSQL), Python/oracles and docs.
-test-all: postgres-test-ready test-cli-build check test-doc
-
-# Canonical serving uses model-derived identifiers and bound runtime queries; no frozen SQLx
-# metadata remains. Agents run hygiene once at scope end, beside `test-all`, and fix what fails
-# (`just <id>` re-runs one); the end-of-turn hook does not run it.
-# Every non-functional check, one check id per dependency
-hygiene: lint-agents adr-lint fixtures-check gold rules-scan rules-test ruff types docs-check deps clippy store-check
-
-# Compile-fail and positive Rust API contracts are outside nextest discovery.
-test-doc:
-    INSTA_UPDATE=no cargo test --release --workspace --doc
-
 # Explicit complete fixture registration over native producers and real PG comparisons.
 fixture-corpus:
     INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test fixture_corpus --no-fail-fast
@@ -100,25 +84,6 @@ adr-lint:
 store-check *args:
     cargo build --release -p lctx --quiet
     target/release/lctx "$@" store check
-
-# Core Rust tests share the release profile with the shipped binary. Cargo rebuilds only changed
-# Rust inputs; repeated runs execute cached optimized test binaries. Tests own their data state.
-# Snapshots never auto-accept (INSTA_UPDATE=no).
-test *args: native-adapter-ready
-    INSTA_UPDATE=no cargo nextest run --release --workspace --no-fail-fast --no-tests=pass {{args}}
-
-# Rust serving fixtures invoke Python without syncing while their native grants are live.
-native-adapter-ready:
-    uv sync --locked
-
-# Python unit/oracle controls; live MCP fixtures are driven by the Rust serving tests
-py-test:
-    uv run pytest
-
-# Independent runtime challenges of the release producer (S7): CPython admission of flow facts
-# and of served claims over compiled generated packages. Also part of `py-test`.
-oracles:
-    uv run pytest tests/scripts/test_flow_soundness.py tests/scripts/test_semantic_soundness.py -q
 
 # `structured-eval`, `score` and `ranking-check` read served generations; they return with serving
 # (cutover phase 5).
@@ -274,8 +239,3 @@ postgres-test-ready:
     @docker image inspect "postgres:$(cat specs/postgres-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
     @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
 
-test-cli-build:
-    cargo build --release -p lctx
-
-test-postgres: postgres-test-ready test-cli-build native-adapter-ready
-    INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract -p cpg-core -p lctx --no-fail-fast

@@ -201,11 +201,14 @@ real-library stop; this is no second disposition register.
 | Readiness membership/content/lock/model/config changes, scope selection and honest failure collection | Tooling family `test_build_environment`/`test_verify`; native import/model agreement also requires actual provider/serving controls after scoped readiness |
 | Rust authority boundaries and documentation/process meaning | Compile-fail docs and affected ADR/agent/docs/Python/dependency leaves, full keep-going Clippy at assembled scope completion |
 
-**Focused launcher receipt, 2026-10-05:** `python3 scripts/build_environment.py -- uv run
---no-sync pytest tests/scripts/test_verify.py tests/scripts/test_build_environment.py -q`
-**passed**, 15 controls. These test launcher/readiness-key behavior, not real producer/store/transport
-qualification. The targeted `python3 scripts/build_environment.py -- cargo check --release -p lctx-postgres
---tests` is **failed / integration pending** on missing definition `digest()` methods while the
-model executor's canonical API is being implemented. New PG freeze/proof/audit/cohort controls,
-assembled qualification and full keep-going Clippy are **not_run**, pending that integration. No performance measurement
-or real-library activation is claimed.
+**Focused implementation receipts, 2026-10-05:** normalized commands use
+`python3 scripts/build_environment.py -- …` (or its `--shell` environment).
+
+- **passed:** `uv run --no-sync pytest tests/scripts/test_verify.py tests/scripts/test_build_environment.py -q`, 20 launcher/readiness controls. Mocked launcher controls establish scheduling behavior, not actual family qualification.
+- **passed:** `cargo test --release -p lctx-model --test validation_definitions --test validation_views --test dependency_closure --test analysis_sources --test analysis_expected --no-fail-fast`, 24 controls after explicit source-check selection repair.
+- **passed:** `cargo check --release -p lctx-postgres -p lctx -p cpg-core --tests`, integrated model/store/CLI compile; subsequent focused controls compiled the newer session/audit changes.
+- **composite passed:** actual disposable PG new proof reuse, delayed/queued writer and immutable prefix controls. The first run exposed two harness mistakes (prefix views hide introduction metadata; duplicate IDs collapse); corrected row/body assertions passed on rerun.
+- **failed / fixture propagation in progress:** focused store run selected session unit, writer/prefix, stage-validation, publication-check and lifecycle targets: 19 run, 15 passed, four lifecycle failures. The lifecycle fixture omitted `ArtifactChunk`, a required complete premise. The new resolver correctly refuses incomplete validation; fixture declarations/writes are being migrated rather than restoring inputs-fit omission.
+- **not_run:** replacement assembled qualification, full keep-going Clippy and actual native/cohort/CLI snapshot migration on the final integrated source. T4 policy commits are integrated; legacy command aliases are removed with their current consumers. Remaining publication stream grouping and complete lifecycle fixture propagation precede P5.
+
+No Measured speed claim or real-library activation is made.

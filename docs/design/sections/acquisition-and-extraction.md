@@ -461,7 +461,7 @@ M2 owns adoption; a bespoke port of Ruff's semantic model remains deferred.
 4. Migrate owned adapters and append model codes as needed. Source/role attachment failures remain
    explicit, never casts, string parsing or silent old-pin fallback.
 5. Run focused native/current adapter parity and deterministic fixtures, then the scope-end full
-   functional and hygiene gates. Record dated pins/limits in docs/pins and the coordinator.
+   applicable provider/serving/oracle families and non-functional leaves. Record dated pins/limits in docs/pins and the coordinator.
 
 > Decision: ADR-0117, ADR-0118
 
