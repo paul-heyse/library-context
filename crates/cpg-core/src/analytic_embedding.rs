@@ -123,6 +123,12 @@ pub async fn produce(
         }
         if let Some(service) = service.as_mut() {
             let specification = data.specification()?;
+            let _batch = runtime.budget().reserve("analytic-request-selection", data.windows.len() * size_of::<&str>())?;
+            let mut documents = Vec::new();
+            for window in data.windows.iter() {
+                if data.owns(&invocation, window)? { documents.push(window.text.as_str()); }
+            }
+            service.prepare(documents).await.map_err(ModelError::codec)?;
             for window in data.windows.iter() {
                 if !data.owns(&invocation, window)? {
                     continue;

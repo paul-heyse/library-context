@@ -190,6 +190,19 @@ impl ConsumptionData {
         b: &ResourceBudget,
     ) -> Result<(), ModelError> {
         self.output.matches(&build::build(&self.render, b)?)?;
+        self.verify_completion(invocations, outcomes, uses, b)
+    }
+    /// Completion checks exact frames, parents, outcomes, nominal uses and winning bytes.
+    /// Canonical construction is already owned by the renderer; independent equivalence replay
+    /// remains available through `verify` for corruption and known-answer controls.
+    pub fn verify_completion(
+        &self,
+        invocations: &Rows<AnalysisInvocation>,
+        outcomes: &Rows<AnalysisOutcome>,
+        uses: &Rows<RetrievalEmbeddingUse>,
+        b: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        self.output.verify_completion(&self.render, b)?;
         let selected = self.render.selected()?.embedding_requested;
         let mut charge = charged::StateCharge::new(b, "retrieval-consumption-membership");
         let mut expected = charged::ChargedSet::default();
@@ -360,7 +373,7 @@ impl InvariantCheck for Check {
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         self.data
-            .verify(&self.invocations, &self.outcomes, &self.uses, &self.budget)
+            .verify_completion(&self.invocations, &self.outcomes, &self.uses, &self.budget)
     }
 }
 

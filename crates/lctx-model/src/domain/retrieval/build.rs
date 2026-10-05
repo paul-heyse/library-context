@@ -62,6 +62,87 @@ macro_rules! synthesis {($($f:ident:$ty:ty,)*)=>{pub struct SynthesisFacts {$(pu
 crate::retrieval_synthesis_inputs!(synthesis);
 macro_rules! outputs {($($f:ident:$ty:ty,)*)=>{pub struct Output {$(pub $f:Rows<$ty>,)*}impl Output {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}pub fn matches(&self,o:&Self)->Result<(),ModelError> {$(if !self.$f.same(&o.$f) {return Err(invalid(format!("canonical retrieval closure differs: {}",<$ty>::NAME)));})*Ok(())}}};}
 crate::retrieval_outputs!(outputs);
+impl Output {
+    /// Check completed text membership, exact fragment bytes, contextual roots and original
+    /// anchor closure without rendering API/source/document text a second time.
+    pub fn verify_completion(&self, d: &Data, b: &ResourceBudget) -> Result<(), ModelError> {
+        let definition = d.selected()?;
+        let _index = b.reserve("retrieval-completion-index",
+            self.fragments.len() * (size_of::<&Fragment>() + 64)
+                + self.roots.len() * (size_of::<&UnitRoot>() + 64)
+                + self.anchors.len() * (size_of::<&OriginalAnchor>() + 64)
+                + self.units.len() * (size_of::<Id<CorpusText>>() + 64))?;
+        let mut roots = std::collections::BTreeMap::new();
+        let mut anchors = std::collections::BTreeMap::<Id<Unit>, Vec<&OriginalAnchor>>::new();
+        let mut corpora = std::collections::BTreeSet::new();
+        for unit in self.units.iter() { corpora.insert(unit.corpus); }
+        for root in self.roots.iter() {
+            need(&self.units, root.unit)?;
+            if roots.insert(root.unit, root.root).is_some() { return Err(invalid("retrieval unit has multiple contextual roots")); }
+        }
+        for anchor in self.anchors.iter() {
+            need(&self.units, anchor.unit)?;
+            anchors.entry(anchor.unit).or_default().push(anchor);
+        }
+        let mut fragments = std::collections::BTreeMap::<Id<CorpusText>, Vec<&Fragment>>::new();
+        for fragment in self.fragments.iter() {
+            fragment.validate()?;
+            need(&self.corpus, fragment.corpus)?;
+            fragments.entry(fragment.corpus).or_default().push(fragment);
+        }
+        for corpus in self.corpus.iter() {
+            corpus.validate()?;
+            if corpus.rendering_version != definition.rendering_version
+                || !corpora.contains(&corpus.id()) {
+                return Err(invalid("retrieval corpus has no selected contextual unit"));
+            }
+            let rows = fragments.entry(corpus.id()).or_default();
+            rows.sort_by_key(|f| f.ordinal);
+            let mut start = 0;
+            for (ordinal, fragment) in rows.iter().enumerate() {
+                let mut end = (start + definition.fragment_bytes as usize).min(corpus.text.len());
+                while !corpus.text.as_str().is_char_boundary(end) { end -= 1; }
+                if fragment.definition != definition.id()
+                    || fragment.fragment_bytes != definition.fragment_bytes
+                    || fragment.ordinal != ordinal as i64
+                    || fragment.start != start as i64 || fragment.end != end as i64
+                    || corpus.text.as_str().get(start..end) != Some(fragment.text.as_str()) {
+                    return Err(invalid("retrieval fragment differs from exact completed corpus"));
+                }
+                start = end;
+            }
+            if start != corpus.text.len() {
+                return Err(invalid("retrieval fragment domain incomplete"));
+            }
+        }
+        for unit in self.units.iter() {
+            let corpus = need(&self.corpus, unit.corpus)?;
+            let origin = need(&self.origins, unit.origin)?;
+            if unit.family != corpus.family { return Err(invalid("retrieval unit family differs from corpus")); }
+            let root = need(&d.evidence.roots, *roots.get(&unit.id()).ok_or_else(|| invalid("retrieval unit lacks C1 root"))?)?;
+            if root.input != unit.input || root.context != unit.context {
+                return Err(invalid("retrieval unit differs from its exact contextual root"));
+            }
+            let unit_anchors = anchors.entry(unit.id()).or_default();
+            unit_anchors.sort_by_key(|a| a.ordinal);
+            for (ordinal, anchor) in unit_anchors.iter().enumerate() {
+                if anchor.ordinal != ordinal as i64 { return Err(invalid("retrieval original anchor order incomplete")); }
+                let source = need(&self.anchor_sources, anchor.original)?;
+                let (artifact, start, end) = super::source::coordinates(d, source)?;
+                let artifact = need(&d.source.core.artifacts, artifact)?;
+                if start < 0 || end < start || end > artifact.byte_len
+                    || (!matches!(origin, Origin::Brief { .. }) && artifact.input != unit.input) {
+                    return Err(invalid("retrieval anchor differs from captured original frame"));
+                }
+            }
+        }
+        for link in self.unit_subjects.iter() {
+            need(&self.units, link.unit)?;
+            need(&self.subjects, link.subject)?;
+        }
+        Ok(())
+    }
+}
 pub fn fragments(
     definition: &Definition,
     corpus: &CorpusText,
@@ -669,7 +750,7 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
             c1::RootSubject::Option { .. } | c1::RootSubject::Release { .. } => {}
         }
     }
-    briefs(d, &mut out, b)?;
+    extend_synthesis(d, &mut out, b)?;
     Ok(out)
 }
 pub fn invariants() -> Vec<Invariant> {
@@ -701,7 +782,7 @@ impl InvariantCheck for Check {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        self.out.matches(&build(&self.data, &self.budget)?)
+        self.out.verify_completion(&self.data, &self.budget)
     }
 }
 pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition) {
@@ -719,7 +800,7 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
 }
 
 /// Optional briefs enrich ApiOptions without replacing any mandatory family or original source.
-fn briefs(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), ModelError> {
+pub fn extend_synthesis(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), ModelError> {
     for brief in d.synthesis.briefs.iter() {
         let seed = need(&d.synthesis.seeds, brief.seed)?;
         let plan = need(&d.synthesis.seed_plans, seed.plan)?;
@@ -1080,6 +1161,8 @@ mod tests {
                 subject,
             })
             .unwrap();
+        let mut extended = build(&d, &b).unwrap();
+        let mandatory_units = extended.units.iter().map(Record::id).collect::<Vec<_>>();
         d.synthesis.synthesis_invocations = invocations;
         d.synthesis.seed_plans = seeds.plans;
         d.synthesis.seeds = seeds.selected;
@@ -1089,7 +1172,21 @@ mod tests {
         d.synthesis.documentary = docs.conclusions;
         d.synthesis.prose_slices = docs.slices;
         d.synthesis.prose_sources = docs.prose_sources;
+        extend_synthesis(&d, &mut extended, &b).unwrap();
         let out = build(&d, &b).unwrap();
+        extended.matches(&out).unwrap();
+        extended.verify_completion(&d, &b).unwrap();
+        assert!(mandatory_units.iter().all(|id| extended.units.get(*id).is_some()));
+        // A fragment with internally valid text/digest still must equal its canonical corpus slice.
+        let original = extended.fragments.iter().next().unwrap().clone();
+        let mut damaged = original.clone();
+        damaged.text = "x".repeat(original.text.len()).into();
+        damaged.digest = ContentHash::of(damaged.text.as_str().as_bytes());
+        damaged.validate().unwrap();
+        let mut fragments = Rows::new(&b);
+        for fragment in extended.fragments.iter() { fragments.insert(if fragment.id() == original.id() { damaged.clone() } else { fragment.clone() }).unwrap(); }
+        extended.fragments = fragments;
+        assert!(extended.verify_completion(&d, &b).is_err());
         let unit = out
             .units
             .iter()

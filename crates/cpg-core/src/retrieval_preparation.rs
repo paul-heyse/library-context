@@ -1,4 +1,4 @@
-//! E0 mandatory preparation over actual completed C1 grants; final realization reuses this helper.
+//! E0 constructs mandatory retrieval content from completed C1 inputs; final realization extends it.
 use datafusion::execution::context::SessionContext;
 use crate::{
     workspace::{CompletedInputs, ProducerOutput, Workspace},

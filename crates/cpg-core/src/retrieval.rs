@@ -48,7 +48,7 @@ pub async fn produce(
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let (render, mandatory) =
         retrieval_preparation::mandatory(&access, runtime, model).await?;
-    drop(mandatory);
+
     let mut data = ConsumptionData::new(runtime.budget());
     data.render = render;
     let session = access.session(runtime).await?;
@@ -88,7 +88,8 @@ pub async fn produce(
     macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$({if access.contains::<$ty>() && !registered.contains(<$ty>::NAME){let mut rows=Rows::<$ty>::new(runtime.budget());meta!($ty,&mut rows,&mut admission);}})*};}
     lctx_model::expected_domain_inputs!(expected);
     drop(session);
-    data.output = build::build(&data.render, runtime.budget())?;
+    data.output = mandatory;
+    build::extend_synthesis(&data.render, &mut data.output, runtime.budget())?;
     let selected = data.render.selected()?.embedding_requested;
     let (_, definition) = build::definition();
     let mut service = if selected {
@@ -108,6 +109,16 @@ pub async fn produce(
     } else {
         None
     };
+    if let Some(service) = service.as_mut() {
+        for row in data.analytic_uses.iter() {
+            row.validate()?;
+            if row.availability == VectorAvailability::Available {
+                let spec = build::need(&data.specifications, row.specification)?;
+                let window = build::need(&data.windows, row.window)?;
+                service.seed_receipt(spec, window.text.as_str(), row.receipt()?)?;
+            }
+        }
+    }
     let mut frames = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(runtime.budget(), "retrieval-native-frames");
     for run in data.render.source.facts.runs.iter() {
@@ -147,6 +158,8 @@ pub async fn produce(
         }
         if let Some(service) = service.as_mut() {
             let specification = data.selected_spec()?;
+            service.prepare(data.output.fragments.iter().filter(|f| data.owns(&invocation, f)).map(|f| f.text.as_str()))
+                .await.map_err(ModelError::codec)?;
             for fragment in data
                 .output
                 .fragments
@@ -209,7 +222,7 @@ pub async fn produce(
         invocations.insert(invocation)?;
     }
     drop(service);
-    data.verify(&invocations, &outcomes, &uses, runtime.budget())?;
+    data.verify_completion(&invocations, &outcomes, &uses, runtime.budget())?;
     retrieval_preparation::publish_mandatory(&mut output, &data.output).await?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::retrieval::$record>()?;)*};}
