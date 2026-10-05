@@ -1,6 +1,6 @@
 [package]
 name = "lctx"
-description = "Acquire pinned libraries and publish typed PostgreSQL facts generations (DESIGN §15)."
+description = "Acquire pinned libraries and compile admitted semantic graphs (DESIGN §15)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,7 +13,6 @@ lctx-model = { path = "../lctx-model" }
 lctx-embed = { path = "../lctx-embed" }
 url.workspace = true
 datafusion.workspace = true
-sqlx.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
@@ -32,7 +31,6 @@ base64.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 insta.workspace = true
-lctx-postgres = { path = "../lctx-postgres", features = ["testing"] }
 
 [lints]
 workspace = true

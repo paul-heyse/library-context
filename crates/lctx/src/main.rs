@@ -1,37 +1,11 @@
-//! `lctx`: pinned Python libraries and their compilation (DESIGN §4.0, ADR-0013). Every analyzed
-//! library is a committed uv project under `libraries/<name>/`.
-//!
-//! The semantic-model cutover exposes facts and normalized frontiers. Downstream commands return with
-//! phases 4–5; unsupported frontiers exit 3 before acquisition or database effects.
-//!
-//! ```text
-//! lctx library init <name> --requirement REQ [--python 3.14.7]   write, lock, acquire, propose release
-//! lctx acquire <name> [--reinstall]                              uv sync --frozen into build/envs/<name>,
-//!                                                                and the declared source tree at its
-//!                                                                commit into build/sources/<name>
-//! lctx model describe [--format text|json]                       the typed model, with no database
-//! lctx store install|check|reset [--confirm DB]                  the generation store (service owner)
-//! lctx generation list|show|select|clear-selection|retire|abort  generations (reader; owner changes)
-//! lctx serving prepare --generation ID                         explicitly prepare exact vectors; no selection
-//! lctx query --generation ID SQL                                 read-only SQL over one leased generation
-//! lctx runs list|show|mark-interrupted                           operational compile-attempt history
-//! lctx flow FILE                                                 one file's flow facts (oracle input)
-//! lctx compile <name> --through facts|normalized --profile catalog|behavioral   publish; selection is explicit
-//! ```
-//! Common options: `--database FILE` (the protected `postgres.json`; its siblings select the roles),
-//! `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`), `--sources DIR`
-//! (default `build/sources`). Exit status: 0 ok, 1 error, 2 refused, 3 unavailable.
+//! `lctx` acquires pinned library inputs and compiles admitted graph artifacts.
+//! `compile --artifact-only --output DIR` writes a store-free artifact; ordinary compilation
+//! requires the future native publisher and returns unavailable before acquisition.
 
 mod compile;
 mod compile_options;
-mod database;
-mod generation;
 mod model;
 mod propose;
-mod query;
-mod runs;
-mod serving;
-mod store;
 
 /// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a
 /// 6,100-7,300 MiB pilot peak; under jemalloc the peak stays flat at extraction's working set
@@ -45,7 +19,6 @@ use std::process::{Command, ExitCode};
 
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
-use cpg_core::postgres::operations::AttemptId;
 use cpg_extract::library;
 use lctx_workspace_hack as _; // Contributes Cargo features, not callable APIs (ADR-0079).
 
@@ -57,10 +30,6 @@ use lctx_workspace_hack as _; // Contributes Cargo features, not callable APIs (
     about = "Pinned Python libraries and their compilation"
 )]
 struct Cli {
-    /// Protected PostgreSQL config (`postgres.json`; its siblings select the roles); otherwise
-    /// LCTX_DATABASE_CONFIG or ~/.config/library-context/postgres.json.
-    #[arg(long, global = true)]
-    database: Option<PathBuf>,
     /// Library projects: `<DIR>/<name>/`.
     #[arg(long, global = true, default_value = "libraries")]
     libraries: PathBuf,
@@ -81,32 +50,6 @@ enum Cmd {
         #[command(subcommand)]
         command: ModelCommand,
     },
-    /// The generation store, as the service owner.
-    Store {
-        #[command(subcommand)]
-        command: store::StoreCommand,
-    },
-    /// Generations: listed and shown by the reader; selected, retired and aborted by the owner.
-    Generation {
-        #[command(subcommand)]
-        command: generation::GenerationCommand,
-    },
-    /// Explicit preparation of disposable serving artifacts; publication does not select.
-    Serving {
-        #[command(subcommand)]
-        command: serving::ServingCommand,
-    },
-    /// Read-only SQL over one leased generation.
-    Query {
-        #[arg(long, value_parser = generation::parse_generation)]
-        generation: cpg_core::postgres::generations::GenerationId,
-        sql: String,
-    },
-    /// Operational compile-attempt history.
-    Runs {
-        #[command(subcommand)]
-        command: runs::Runs,
-    },
     /// Library definitions.
     Library {
         #[command(subcommand)]
@@ -121,9 +64,15 @@ enum Cmd {
     },
     /// The acquired environment's deployment identity, as JSON (scripts/deployment_check.py).
     DeploymentIdentity { name: String },
-    /// Publish a cumulative facts, normalized, analysis or catalog generation; selection is explicit.
+    /// Compile a cumulative admitted graph; publication requires the native publisher.
     Compile {
         name: String,
+        /// Compile and export without publication.
+        #[arg(long, requires = "output")]
+        artifact_only: bool,
+        /// Destination for the admitted artifact; must not already exist.
+        #[arg(long, requires = "artifact_only")]
+        output: Option<PathBuf>,
         #[arg(long)]
         through: String,
         #[arg(long,default_value="catalog",value_parser=compile::profile)]
@@ -174,35 +123,7 @@ pub struct Refused(pub String);
 
 /// Whether an error is a refusal: the store, a lease or the read contract declined the request.
 fn refused(error: &anyhow::Error) -> bool {
-    use cpg_core::generation_read::ReadError;
-    use cpg_core::postgres::generations::Error as Store;
-    let store = |e: &Store| {
-        matches!(
-            e,
-            Store::State
-                | Store::Absent
-                | Store::NotInstalled
-                | Store::Busy
-                | Store::Contract
-                | Store::Frontier(_)
-                | Store::Confirmation
-                | Store::Orphaned
-                | Store::ResourceRefused(_)
-        )
-    };
-    error.chain().any(|cause| {
-        cause.is::<Refused>()
-            || cause.downcast_ref::<Store>().is_some_and(store)
-            || cause.downcast_ref::<ReadError>().is_some_and(|e| match e {
-                ReadError::Frontier(_) => true,
-                ReadError::Store(inner) => store(inner),
-                _ => false,
-            })
-    })
-}
-
-fn parse_id(s: &str) -> Result<AttemptId, String> {
-    AttemptId::from_hex(s).ok_or_else(|| format!("{s:?} is not 32 hex digits"))
+    error.chain().any(|cause| cause.is::<Refused>())
 }
 
 fn absolute(p: &Path) -> anyhow::Result<PathBuf> {
@@ -454,22 +375,30 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
         )],
         cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral, &budget)?,
     ));
-    let (model, generation, digest) = tokio::runtime::Runtime::new()?.block_on(
-        cpg_core::facts::inspect(captured, budget.clone(), Profile::Behavioral),
+    let (model, workspace) = tokio::runtime::Runtime::new()?.block_on(
+        cpg_core::facts::inspect(captured, cpg_core::workspace::WorkspaceOptions::default(), Profile::Behavioral),
     )?;
-    let occurrences = generation.read::<Occurrence>(&model, &budget)?;
-    let uses = generation.read::<FlowUse>(&model, &budget)?;
-    let definitions = generation.read::<FlowDefinition>(&model, &budget)?;
-    let def_observations = generation.read::<FlowDefinitionObservation>(&model, &budget)?;
-    let qs = generation.read::<AssertionQualification>(&model, &budget)?;
-    let conditions = generation.read::<Condition>(&model, &budget)?;
-    let nodes = generation.read::<ConditionNode>(&model, &budget)?;
-    let places = generation.read::<Place>(&model, &budget)?;
-    let roots = generation.read::<PlaceRoot>(&model, &budget)?;
-    let paths = generation.read::<AccessPath>(&model, &budget)?;
-    let segments = generation.read::<PathSegment>(&model, &budget)?;
-    let targets = generation.read::<ReachingDefinition>(&model, &budget)?;
-    let events = generation.read::<BindingEvent>(&model, &budget)?;
+    let digest = workspace.content()?;
+    fn read<R: Record>(workspace: &cpg_core::workspace::Workspace, budget: &ResourceBudget) -> Result<Batch<R>, ModelError> {
+        let mut rows = Vec::new();
+        for batch in workspace.completed::<R>()?.read::<R>(workspace.model().clone(), budget.clone())? {
+            rows.extend(batch?.rows().iter().cloned());
+        }
+        Batch::new(workspace.model(), rows, budget)
+    }
+    let occurrences = read::<Occurrence>(&workspace, &budget)?;
+    let uses = read::<FlowUse>(&workspace, &budget)?;
+    let definitions = read::<FlowDefinition>(&workspace, &budget)?;
+    let def_observations = read::<FlowDefinitionObservation>(&workspace, &budget)?;
+    let qs = read::<AssertionQualification>(&workspace, &budget)?;
+    let conditions = read::<Condition>(&workspace, &budget)?;
+    let nodes = read::<ConditionNode>(&workspace, &budget)?;
+    let places = read::<Place>(&workspace, &budget)?;
+    let roots = read::<PlaceRoot>(&workspace, &budget)?;
+    let paths = read::<AccessPath>(&workspace, &budget)?;
+    let segments = read::<PathSegment>(&workspace, &budget)?;
+    let targets = read::<ReachingDefinition>(&workspace, &budget)?;
+    let events = read::<BindingEvent>(&workspace, &budget)?;
     let at = |id| {
         occurrences
             .rows()
@@ -545,20 +474,20 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
         "model":model.digest().hex(),"content":digest.hex(),
         "uses":uses.rows().iter().map(|u|Ok(serde_json::json!({"id":u.id().hex(),"occurrence":u.occurrence.hex(),"place_id":u.place.hex(),"place":place_name(u.place)?,"span":span(u.occurrence)?}))).collect::<anyhow::Result<Vec<_>>>()?,
         "definitions":definitions.rows().iter().map(|d|{let obs=def_observations.rows().iter().find(|o|o.definition==d.id()).context("flow definition observation missing")?;Ok(serde_json::json!({"id":d.id().hex(),"place_id":d.place.hex(),"place":place_name(d.place)?,"target":span(d.occurrence)?,"kind":format!("{:?}",obs.kind)}))}).collect::<anyhow::Result<Vec<_>>>()?,
-        "reaching":generation.read::<FlowReachingObservation>(&model,&budget)?.rows().iter().map(|r|{let target=targets.rows().iter().find(|t|t.id()==r.target).context("flow reaching target missing")?;Ok(serde_json::json!({"id":r.id().hex(),"use":r.use_.hex(),"definition":match target {ReachingDefinition::Bound {definition}=>Some(definition.hex()),_=>None},"target":format!("{target:?}"),"condition":condition(r.qualification)?,"loop_carried":r.loop_carried}))}).collect::<anyhow::Result<Vec<_>>>()?,
-        "values":generation.read::<FlowValueObservation>(&model,&budget)?.rows().iter().map(|v|Ok(serde_json::json!({"id":v.id().hex(),"sink":format!("{:?}",v.kind),"span":span(v.sink)?,"use":v.use_.hex(),"identity":v.transfer==lctx_model::domain::transfer::TransferKind::Identity,"through_call":v.through_call,"condition":condition(v.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
-        "regions":generation.read::<FlowRegionObservation>(&model,&budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"span":span(r.statement)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
-        "tests":generation.read::<FlowTestObservation>(&model,&budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"span":span(r.test)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
-        "test_leaves":generation.read::<FlowTestLeafObservation>(&model,&budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"atom":r.atom.hex(),"operand":r.operand.map(|id|id.hex()),"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
-        "attribute_loads":generation.read::<FlowAttributeLoadObservation>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"occurrence":r.occurrence.hex(),"name":r.name})).collect::<Vec<_>>(),
-        "evaluation_atoms":generation.read::<EvaluationAtom>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"evaluation":r.evaluation.hex(),"context":r.context.hex(),"predicate":r.predicate.hex(),"operand":r.operand.map(|id|id.hex())})).collect::<Vec<_>>(),
-        "predicates":generation.read::<Predicate>(&model,&budget)?.rows().iter().map(|r|match r {Predicate::IsNone=>serde_json::json!({"id":r.id().hex(),"kind":"is_none"}),Predicate::IsValue {value}=>serde_json::json!({"id":r.id().hex(),"kind":"is_value","value":value.hex()}),Predicate::Equals {value}=>serde_json::json!({"id":r.id().hex(),"kind":"equals","value":value.hex()}),Predicate::MemberOf {values}=>serde_json::json!({"id":r.id().hex(),"kind":"member_of","values":values.hex()}),Predicate::Truthy=>serde_json::json!({"id":r.id().hex(),"kind":"truthy"}),Predicate::IsInstance {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"is_instance","class_expression":class_expression}),Predicate::TypeIs {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"type_is","class_expression":class_expression}),Predicate::Opaque {text}=>serde_json::json!({"id":r.id().hex(),"kind":"opaque","text":text}),Predicate::InvokedGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"invoked_guard","source":source.hex()}),Predicate::BoundGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"bound_guard","source":source.hex()}),Predicate::NonTerminalCall {awaiting}=>serde_json::json!({"id":r.id().hex(),"kind":"nonterminal_call","awaiting":awaiting}),Predicate::NonEmptyIterable=>serde_json::json!({"id":r.id().hex(),"kind":"nonempty_iterable"}),Predicate::ContextManagerSuppresses {asynchronous}=>serde_json::json!({"id":r.id().hex(),"kind":"context_manager_suppresses","asynchronous":asynchronous}),Predicate::FinallyNormalPathImpossible=>serde_json::json!({"id":r.id().hex(),"kind":"finally_normal_path_impossible"})}).collect::<Vec<_>>(),
-        "call_paths":generation.read::<FlowCallPath>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"steps_digest":r.steps.hex()})).collect::<Vec<_>>(),
-        "call_steps":generation.read::<FlowCallStep>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"path":r.path.hex(),"ordinal":r.ordinal,"call":r.call.hex(),"operand":r.operand.hex(),"role":format!("{:?}",r.role)})).collect::<Vec<_>>(),
-        "value_paths":generation.read::<FlowValuePathObservation>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"value":r.value.hex(),"path":r.path.hex()})).collect::<Vec<_>>(),
+        "reaching":read::<FlowReachingObservation>(&workspace, &budget)?.rows().iter().map(|r|{let target=targets.rows().iter().find(|t|t.id()==r.target).context("flow reaching target missing")?;Ok(serde_json::json!({"id":r.id().hex(),"use":r.use_.hex(),"definition":match target {ReachingDefinition::Bound {definition}=>Some(definition.hex()),_=>None},"target":format!("{target:?}"),"condition":condition(r.qualification)?,"loop_carried":r.loop_carried}))}).collect::<anyhow::Result<Vec<_>>>()?,
+        "values":read::<FlowValueObservation>(&workspace, &budget)?.rows().iter().map(|v|Ok(serde_json::json!({"id":v.id().hex(),"sink":format!("{:?}",v.kind),"span":span(v.sink)?,"use":v.use_.hex(),"identity":v.transfer==lctx_model::domain::transfer::TransferKind::Identity,"through_call":v.through_call,"condition":condition(v.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+        "regions":read::<FlowRegionObservation>(&workspace, &budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"span":span(r.statement)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+        "tests":read::<FlowTestObservation>(&workspace, &budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"span":span(r.test)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+        "test_leaves":read::<FlowTestLeafObservation>(&workspace, &budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"atom":r.atom.hex(),"operand":r.operand.map(|id|id.hex()),"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+        "attribute_loads":read::<FlowAttributeLoadObservation>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"occurrence":r.occurrence.hex(),"name":r.name})).collect::<Vec<_>>(),
+        "evaluation_atoms":read::<EvaluationAtom>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"evaluation":r.evaluation.hex(),"context":r.context.hex(),"predicate":r.predicate.hex(),"operand":r.operand.map(|id|id.hex())})).collect::<Vec<_>>(),
+        "predicates":read::<Predicate>(&workspace, &budget)?.rows().iter().map(|r|match r {Predicate::IsNone=>serde_json::json!({"id":r.id().hex(),"kind":"is_none"}),Predicate::IsValue {value}=>serde_json::json!({"id":r.id().hex(),"kind":"is_value","value":value.hex()}),Predicate::Equals {value}=>serde_json::json!({"id":r.id().hex(),"kind":"equals","value":value.hex()}),Predicate::MemberOf {values}=>serde_json::json!({"id":r.id().hex(),"kind":"member_of","values":values.hex()}),Predicate::Truthy=>serde_json::json!({"id":r.id().hex(),"kind":"truthy"}),Predicate::IsInstance {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"is_instance","class_expression":class_expression}),Predicate::TypeIs {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"type_is","class_expression":class_expression}),Predicate::Opaque {text}=>serde_json::json!({"id":r.id().hex(),"kind":"opaque","text":text}),Predicate::InvokedGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"invoked_guard","source":source.hex()}),Predicate::BoundGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"bound_guard","source":source.hex()}),Predicate::NonTerminalCall {awaiting}=>serde_json::json!({"id":r.id().hex(),"kind":"nonterminal_call","awaiting":awaiting}),Predicate::NonEmptyIterable=>serde_json::json!({"id":r.id().hex(),"kind":"nonempty_iterable"}),Predicate::ContextManagerSuppresses {asynchronous}=>serde_json::json!({"id":r.id().hex(),"kind":"context_manager_suppresses","asynchronous":asynchronous}),Predicate::FinallyNormalPathImpossible=>serde_json::json!({"id":r.id().hex(),"kind":"finally_normal_path_impossible"})}).collect::<Vec<_>>(),
+        "call_paths":read::<FlowCallPath>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"steps_digest":r.steps.hex()})).collect::<Vec<_>>(),
+        "call_steps":read::<FlowCallStep>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"path":r.path.hex(),"ordinal":r.ordinal,"call":r.call.hex(),"operand":r.operand.hex(),"role":format!("{:?}",r.role)})).collect::<Vec<_>>(),
+        "value_paths":read::<FlowValuePathObservation>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"value":r.value.hex(),"path":r.path.hex()})).collect::<Vec<_>>(),
         "conditions":conditions.rows().iter().map(|c|serde_json::json!({"id":c.id().hex(),"root":c.root.hex()})).collect::<Vec<_>>(),
         "condition_nodes":nodes.rows().iter().map(|node|match node {ConditionNode::False=>serde_json::json!({"id":node.id().hex(),"kind":"false"}),ConditionNode::True=>serde_json::json!({"id":node.id().hex(),"kind":"true"}),ConditionNode::Branch {atom,low,high}=>serde_json::json!({"id":node.id().hex(),"kind":"branch","atom":atom.hex(),"low":low.hex(),"high":high.hex()})}).collect::<Vec<_>>(),
-        "boundaries":generation.read::<SubjectBoundary>(&model,&budget)?.rows().iter().map(|b|serde_json::json!({"subject":b.subject.map(|id|id.hex()),"reason":format!("{:?}",b.reason),"detail":b.detail})).collect::<Vec<_>>()
+        "boundaries":read::<SubjectBoundary>(&workspace, &budget)?.rows().iter().map(|b|serde_json::json!({"subject":b.subject.map(|id|id.hex()),"reason":format!("{:?}",b.reason),"detail":b.detail})).collect::<Vec<_>>()
     });
     println!("{}", serde_json::to_string(&result)?);
     Ok(())
@@ -588,32 +517,12 @@ fn run() -> anyhow::Result<()> {
         Cmd::Model {
             command: ModelCommand::Describe { format },
         } => {
-            let described = model::describe(&*database::model()?);
+            let described = model::describe(&lctx_model::domain::model()?);
             match format {
                 model::Format::Json => println!("{}", serde_json::to_string_pretty(&described)?),
                 model::Format::Text => print!("{}", model::text(&described)),
             }
             Ok(())
-        }
-        Cmd::Store { command } => {
-            let database = database::Database::discover(cli.database.as_deref())?;
-            runtime()?.block_on(store::store(command, &database))
-        }
-        Cmd::Generation { command } => {
-            let database = database::Database::discover(cli.database.as_deref())?;
-            runtime()?.block_on(generation::generation(command, &database))
-        }
-        Cmd::Serving { command } => {
-            let database = database::Database::discover(cli.database.as_deref())?;
-            runtime()?.block_on(serving::serving(command, &database))
-        }
-        Cmd::Query { generation, sql } => {
-            let database = database::Database::discover(cli.database.as_deref())?;
-            runtime()?.block_on(query::query(&database, generation, &sql))
-        }
-        Cmd::Runs { command } => {
-            let database = database::Database::discover(cli.database.as_deref())?;
-            runtime()?.block_on(runs::runs(command, &database))
         }
         Cmd::Library {
             command:
@@ -670,6 +579,8 @@ fn run() -> anyhow::Result<()> {
         }
         Cmd::Compile {
             name,
+            artifact_only,
+            output,
             through,
             profile,
             task_receipt,
@@ -679,6 +590,13 @@ fn run() -> anyhow::Result<()> {
             embedding_endpoint,
             embedding_spec,
         } => {
+            if !artifact_only {
+                return Err(Unavailable("native publication is not implemented; use --artifact-only --output DIR to compile an admitted artifact").into());
+            }
+            let output = output.expect("clap requires an artifact destination");
+            if output.exists() {
+                return Err(Refused("artifact destination already exists".into()).into());
+            }
             if !matches!(
                 through.as_str(),
                 "facts" | "normalized" | "analysis" | "catalog"
@@ -707,7 +625,7 @@ fn run() -> anyhow::Result<()> {
                 &libraries,
                 &envs,
                 &sources,
-                cli.database.as_deref(),
+                &output,
             ))
         }
         Cmd::Flow {
