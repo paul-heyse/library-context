@@ -214,22 +214,25 @@ async fn stages_relocate_deterministically_and_disclose_coverage() {
             "{family:?}"
         );
     }
+    // The recognizer and independent Ruff contextual pass both disclose Lexical coverage.
     let lexical = left
         .rows
         .coverage
         .iter()
-        .find(|c| {
-            c.family == FactFamily::Lexical
+        .filter(|c| {
+            c.provider == Some(pyrefly_provider().id())
+                && c.family == FactFamily::Lexical
                 && c.scope
                     == CoverageScope::Artifact {
                         artifact: artifact(&files, "sample.py").id(),
                     }
                     .id()
         })
-        .unwrap();
+        .collect::<Vec<_>>();
+    assert_eq!(lexical.len(), 1, "one recognizer result for the captured artifact");
     assert_eq!(
-        lexical.status,
-        CoverageStatus::CompleteUnderStatedModel,
+        (lexical[0].status, lexical[0].reason),
+        (CoverageStatus::CompleteUnderStatedModel, None),
         "the recognizer covers a clean module"
     );
     assert!(left.rows.observations.iter().any(|row| row.spelling == "α"));
