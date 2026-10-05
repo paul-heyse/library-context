@@ -1,4 +1,4 @@
-//! Hand-expected scope/membership controls; native graph topology and PG publication are separate.
+//! Hand-expected scope/membership controls; workspace topology is verified separately.
 use lctx_model::domain::{
     analysis::{self, settings::AnalyticsConfiguration, structural as owner},
     attribution::*,
