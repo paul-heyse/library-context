@@ -177,7 +177,7 @@ impl Workspace {
         let frozen=self.frozen_vocabulary.lock().map_err(|_|poisoned())?.clone();
         let mut frozen_tables=BTreeMap::new();
         for ((boundary,name),source) in &frozen {
-            let table=format!("_frozen_{boundary:?}_{name}");
+            let table=format!("_frozen_{}_{name}",boundary.name().to_ascii_lowercase());
             session.register_arrow(&table,source.path.to_string_lossy(),ArrowReadOptions::default().schema(source.relation.schema().as_ref())).await.map_err(ModelError::codec)?;
             frozen_tables.insert((*boundary,*name),table);
         }

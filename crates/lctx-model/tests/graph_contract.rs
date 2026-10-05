@@ -117,3 +117,28 @@ fn graph_admission_preserves_nominal_sum_arm_obligations(){
  lookup.subtypes.insert(node_entity.id(),1);
  assert!(admit_assertion(&assertion,&lookup).is_err());
 }
+
+#[test]
+fn projection_exclusions_share_the_endpoint_category_policy() {
+    use lctx_model::domain::{normalized::entities::{EntityCategory,EntityRef},projection::{ProjectionName,ProjectionSpec}};
+    let entities = [
+        EntityRef::Module {module:id(0)},
+        EntityRef::Callable {callable:id(0)},
+        EntityRef::Class {class:id(0)},
+        EntityRef::Parameter {parameter:id(0)},
+        EntityRef::Field {field:id(0)},
+        EntityRef::Occurrence {occurrence:id(0)},
+        EntityRef::Type {term:id(0)},
+        EntityRef::Place {place:id(0)},
+    ];
+    for name in ProjectionName::ALL {
+        let policy=ProjectionSpec::builtin(name);
+        let excluded=policy.excluded_categories().collect::<Vec<_>>();
+        for (entity,category) in entities.iter().zip(EntityCategory::ALL) {
+            assert_eq!(entity.category(),category);
+            assert_eq!(policy.accepts(entity),!excluded.contains(&category));
+        }
+        assert!(excluded.contains(&EntityCategory::Type));
+        assert!(excluded.contains(&EntityCategory::Place));
+    }
+}

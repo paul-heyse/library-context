@@ -252,13 +252,13 @@ async fn reference_closure(context:&SessionContext,entities:&Path,assertions:&Pa
     context.register_arrow("graph_assertions",assertions.to_string_lossy(),ArrowReadOptions::default().schema(&schema())).await.map_err(ModelError::codec)?;
     context.register_arrow("graph_references",references.to_string_lossy(),ArrowReadOptions::default().schema(&reference_schema())).await.map_err(ModelError::codec)?;
     let result=async{
-        let sql="WITH targets AS (SELECT id, 0 AS namespace, kind, subtype, source_length FROM graph_entities UNION ALL SELECT id, 1 AS namespace, NULL AS kind, NULL AS subtype, NULL AS source_length FROM graph_assertions) SELECT r.target,r.namespace,r.expected_kind,r.expected_subtype FROM graph_references r LEFT JOIN targets t ON r.target=t.id AND r.namespace=t.namespace WHERE t.id IS NULL OR (r.expected_kind IS NOT NULL AND (t.kind IS NULL OR r.expected_kind<>t.kind)) OR (r.expected_subtype IS NOT NULL AND (t.subtype IS NULL OR r.expected_subtype<>t.subtype)) OR (r.max_end IS NOT NULL AND (t.source_length IS NULL OR r.max_end>t.source_length)) LIMIT 1";
+        let sql="WITH targets AS (SELECT id, 0 AS namespace, kind, subtype, source_length FROM graph_entities UNION ALL SELECT id, 1 AS namespace, NULL AS kind, NULL AS subtype, NULL AS source_length FROM graph_assertions) SELECT r.target,r.namespace,r.expected_kind,r.expected_subtype,t.kind,t.subtype,r.max_end,t.source_length FROM graph_references r LEFT JOIN targets t ON r.target=t.id AND r.namespace=t.namespace WHERE t.id IS NULL OR (r.expected_kind IS NOT NULL AND (t.kind IS NULL OR r.expected_kind<>t.kind)) OR (r.expected_subtype IS NOT NULL AND (t.subtype IS NULL OR r.expected_subtype<>t.subtype)) OR (r.max_end IS NOT NULL AND (t.source_length IS NULL OR r.max_end>t.source_length)) LIMIT 1";
         let mut stream=crate::sql::query(&context,sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
         while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
             if batch.num_rows()!=0 {
                 let target=batch.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().ok_or(ModelError::Schema("graph reference"))?;
                 let namespace=batch.column(1).as_any().downcast_ref::<Int16Array>().ok_or(ModelError::Schema("graph reference"))?;
-                return Err(ModelError::Invalid(format!("graph reference closure, nominal role or original span failed: {} namespace {}",ContentHash(target.value(0).try_into().map_err(ModelError::codec)?).hex(),namespace.value(0))));
+                return Err(ModelError::Invalid(format!("graph reference closure, nominal role or original span failed: {} namespace {}, expected kind/subtype {:?}/{:?}, actual {:?}/{:?}, end/length {:?}/{:?}",ContentHash(target.value(0).try_into().map_err(ModelError::codec)?).hex(),namespace.value(0),batch.column(2),batch.column(3),batch.column(4),batch.column(5),batch.column(6),batch.column(7))));
             }
         }
         Ok(())

@@ -166,19 +166,20 @@ impl ProjectionSpec {
         }
     }
     pub fn accepts(self, entity: &EntityRef) -> bool {
-        match entity {
-            EntityRef::Module { .. } | EntityRef::Callable { .. } | EntityRef::Class { .. } => true,
-            EntityRef::Occurrence { .. } => matches!(
-                self.name,
-                ProjectionName::DefinitionContainment | ProjectionName::ImportReference
-            ),
-            EntityRef::Parameter { .. } | EntityRef::Field { .. } => matches!(
-                self.name,
-                ProjectionName::ImportReference | ProjectionName::PublicExposure
-            ),
-            EntityRef::Type { .. } | EntityRef::Place { .. } => false,
+        self.accepts_category(entity.category())
+    }
+    pub fn accepts_category(self, category: EntityCategory) -> bool {
+        match category {
+            EntityCategory::Module | EntityCategory::Callable | EntityCategory::Class => true,
+            EntityCategory::Occurrence => matches!(self.name, ProjectionName::DefinitionContainment | ProjectionName::ImportReference),
+            EntityCategory::Parameter | EntityCategory::Field => matches!(self.name, ProjectionName::ImportReference | ProjectionName::PublicExposure),
+            EntityCategory::Type | EntityCategory::Place => false,
         }
     }
+    pub fn excluded_categories(self) -> impl Iterator<Item = EntityCategory> {
+        EntityCategory::ALL.into_iter().filter(move |category| !self.accepts_category(*category))
+    }
+
 }
 /// Arc identity is its typed canonical relationship, without another ID catalog or reuse hash.
 #[derive(

@@ -120,9 +120,7 @@ fn projections(workspace:&Workspace,frontier:Frontier,charge:&mut charged::State
         // These are explicit properties of ProjectionSpec::accepts and topology snapshots:
         // the snapshot stores accepted endpoints and typed arcs, while source assertions retain
         // conditions, provider qualification and original evidence.
-        let mut excluded=vec!["Type","Place"];
-        if !matches!(name,d::projection::ProjectionName::DefinitionContainment|d::projection::ProjectionName::ImportReference){excluded.push("Occurrence");}
-        if !matches!(name,d::projection::ProjectionName::ImportReference|d::projection::ProjectionName::PublicExposure){excluded.extend(["Parameter","Field"]);}
+        let mut excluded=d::projection::ProjectionSpec::builtin(name).excluded_categories().map(|category|category.label()).collect::<Vec<_>>();
         excluded.sort_unstable();
         let mut losses=vec![format!("ProjectionSpec::accepts excludes {} entities",excluded.join(", ")),"topology omits conditions, provider qualifications and source evidence retained by assertions".into()];losses.sort();
         let value=graph::ProjectionDefinition {name:format!("{name:?}"),definition:definition.content_digest(),source_membership:membership.finish(),declared_losses:losses};

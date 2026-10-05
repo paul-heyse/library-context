@@ -84,6 +84,28 @@ pub enum EntityRef {
     #[model(code = 7)]
     Place { place: Id<Place> },
 }
+/// Categories of the finite endpoint vocabulary, shared by projection policy and descriptions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+#[model(inventory)]
+pub enum EntityCategory {
+    Module = 0, Callable = 1, Class = 2, Parameter = 3,
+    Field = 4, Occurrence = 5, Type = 6, Place = 7,
+}
+impl EntityRef {
+    pub fn category(&self) -> EntityCategory {
+        match self {
+            Self::Module {..} => EntityCategory::Module,
+            Self::Callable {..} => EntityCategory::Callable,
+            Self::Class {..} => EntityCategory::Class,
+            Self::Parameter {..} => EntityCategory::Parameter,
+            Self::Field {..} => EntityCategory::Field,
+            Self::Occurrence {..} => EntityCategory::Occurrence,
+            Self::Type {..} => EntityCategory::Type,
+            Self::Place {..} => EntityCategory::Place,
+        }
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 pub enum ResolutionStatus {
