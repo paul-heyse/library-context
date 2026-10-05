@@ -7,10 +7,15 @@ use std::sync::{Arc, Mutex};
 struct Recorder {
     batches: Mutex<Vec<RecordedBatch>>,
     finished: Mutex<Vec<ProviderOutcome>>,
+    streamed_error: bool,
 }
 impl ProviderSink for Recorder {
     fn read<R: Record>(&self) -> Result<Box<dyn Iterator<Item=Result<Batch<R>, ModelError>> + Send>, ModelError> {
-        Err(ModelError::Invalid(format!("missing completed input {}", R::NAME)))
+        if self.streamed_error {
+            Ok(Box::new(std::iter::once(Err(ModelError::Invalid("injected input stream error".into())))))
+        } else {
+            Err(ModelError::Invalid(format!("missing completed input {}", R::NAME)))
+        }
     }
     fn declare<R: Record>(&self) -> Result<(), ModelError> { Ok(()) }
     fn write<R: Record>(&self, batch: Batch<R>) -> Result<(), ModelError> {
@@ -80,6 +85,29 @@ async fn ignored_refusals_do_not_complete_output() {
         assert!(result.is_err()); assert!(sink.finished.lock().unwrap().is_empty()); assert_eq!(budget.reserved(), 0);
     }
 }
+#[tokio::test]
+async fn ignored_stream_errors_poison_direct_reads_and_attachment() {
+    for attach in [false, true] {
+        let sink = Arc::new(Recorder { streamed_error: true, ..Recorder::default() });
+        let mut stage = packages();
+        stage.inputs = if attach { vec![RelationUse::of::<lctx_model::domain::source::Occurrence>()] }
+            else { vec![RelationUse::of::<Release>()] };
+        let (result, budget) = run(stage, sink.clone(), TransferLimits::default(), move |context| {
+            context.declare::<Package>()?;
+            if attach {
+                assert!(context.attacher().is_err());
+            } else {
+                let mut input = context.input::<Release>()?;
+                assert!(input.next().unwrap().is_err());
+            }
+            Ok(ProviderOutcome::Complete)
+        }).await;
+        assert!(result.is_err());
+        assert!(sink.finished.lock().unwrap().is_empty());
+        assert_eq!(budget.reserved(), 0);
+    }
+}
+
 #[tokio::test]
 async fn declared_empty_is_complete_but_omitted_output_is_refused() {
     for declare in [false, true] {
