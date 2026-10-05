@@ -152,8 +152,10 @@ async fn embeddings(workspace:&Workspace,profile:Profile,charge:&mut charged::St
         let query=format!("SELECT u.*, t.text AS consumed_text FROM {} u LEFT JOIN {} t ON u.{} = t.id",<$record>::NAME,<$text>::NAME,stringify!($field));
         let mut stream=context.sql(&query).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
         while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
-            let _decode=workspace.budget().reserve("manifest-vector-binding",batch.get_array_memory_size().saturating_mul(4))?;
-            let width=<$record>::schema().fields().len();let rows=<$record>::decode(&batch.project(&(0..width).collect::<Vec<_>>()).map_err(ModelError::codec)?)?;
+            let width=<$record>::schema().fields().len();
+            let typed=batch.project(&(0..width).collect::<Vec<_>>()).map_err(ModelError::codec)?;
+            let _decode=workspace.budget().reserve("manifest-vector-binding",decode_allowance::<$record>(&typed)?)?;
+            let rows=<$record>::decode(&typed)?;
             let texts=batch.column(width).as_any().downcast_ref::<StringArray>().ok_or(ModelError::Schema(<$text>::NAME))?;
             for (index,row) in rows.iter().enumerate(){
                 row.validate()?;if texts.is_null(index){return Err(invalid("embedding consumption lacks original text reference"));}
@@ -164,6 +166,9 @@ async fn embeddings(workspace:&Workspace,profile:Profile,charge:&mut charged::St
                 let _request=workspace.budget().reserve("manifest-vector-request",request_bytes)?;
                 let request=specification.document_text(texts.value(index));
                 if row.input!=d::embedding::value::input_hash(&request){return Err(invalid("embedding consumption input differs from exact request text"));}
+                if row.availability==d::embedding::analytic::VectorAvailability::TokenLimit && row.admitted_tokens.is_none_or(|tokens|tokens<=i64::from(specification.max_document_tokens)){
+                    return Err(invalid("embedding token-limit status does not exceed selected cap"));
+                }
                 if row.availability==d::embedding::analytic::VectorAvailability::Available{
                     let receipt=row.receipt()?;let _value=d::embedding::value::decode(specification,receipt.bytes,receipt.digest,receipt.admitted_tokens,workspace.budget())?;
                     let value=EmbeddingConsumption {specification:specification.hash(),text:row.input,dimension:specification.dimensions,values:receipt.digest};
