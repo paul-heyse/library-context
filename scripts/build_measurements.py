@@ -496,10 +496,10 @@ def run_campaign(campaign: Path, variant: str, trial: int, phase: str) -> dict:
                     "run",
                     "--no-sync",
                     "pytest",
-                    "python/lctx_mcp/tests/test_native_semantics.py",
+                    "python/lctx_mcp/tests/test_wire_contract.py",
                     "-q",
                     "-k",
-                    "test_native_condition_boundary_uses_the_rust_kernel",
+                    "test_closed_nested_requests_keep_nominal_ids_and_refuse_coercion",
                 ],
                 cargo_json=False,
             )

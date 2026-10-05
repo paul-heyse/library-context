@@ -1,4 +1,4 @@
-"""`just py-check` type-checks the served package (increment-1 deep review F6): its editable
+"""`just py-check` type-checks the transport package (increment-1 deep review F6): its editable
 install must not make pyrefly treat it as a site package and skip it."""
 
 from __future__ import annotations
@@ -17,5 +17,5 @@ def test_pyrefly_checks_the_server_source() -> None:
         [pyrefly, "dump-config"], cwd=REPO, capture_output=True, text=True, check=True
     )
     text = out.stdout + out.stderr
-    assert "python/lctx_mcp/src/lctx_mcp/server.py" in text
+    assert "python/lctx_mcp/src/lctx_mcp/wire.py" in text
     assert "Skipping include pattern" not in text

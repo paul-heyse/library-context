@@ -1,6 +1,6 @@
 [package]
 name = "cpg-core"
-description = "Typed facts orchestration and generation-bound compute (DESIGN §15)."
+description = "Store-free semantic graph compilation and artifact admission (DESIGN §15)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

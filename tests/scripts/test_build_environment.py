@@ -56,7 +56,7 @@ def test_shell_unsets_and_quotes_and_exec_propagates(tmp_path: Path) -> None:
 def native_projects(root: Path) -> tuple[Path, Path]:
     sources = root / "crates" / "model"
     sources.mkdir(parents=True)
-    for member, key in zip(("lctx_semantics", "lctx_storage"), NATIVE_INPUT_KEYS, strict=True):
+    for member, key in zip(("lctx_semantics",), NATIVE_INPUT_KEYS, strict=True):
         package = root / "python" / member
         package.mkdir(parents=True)
         (package / "pyproject.toml").write_text(
@@ -88,18 +88,17 @@ def test_native_build_keys_detect_content_and_membership_beyond_latest_timestamp
     assert normalized_env({}, tmp_path) == removed
 
 
-def test_native_build_keys_preserve_package_scope_and_shell_propagation(tmp_path):
+def test_native_build_keys_propagate_to_shell(tmp_path):
     native_projects(tmp_path)
     baseline = normalized_env({}, tmp_path)
-    (tmp_path / "python/lctx_storage/src/bridge.rs").write_text("storage effect")
+    (tmp_path / "python/lctx_semantics/src/bridge.rs").write_text("semantic contract")
     changed = normalized_env({}, tmp_path)
-    assert changed[NATIVE_INPUT_KEYS[0]] == baseline[NATIVE_INPUT_KEYS[0]]
-    assert changed[NATIVE_INPUT_KEYS[1]] != baseline[NATIVE_INPUT_KEYS[1]]
+    assert changed[NATIVE_INPUT_KEYS[0]] != baseline[NATIVE_INPUT_KEYS[0]]
     exports = shell_changes({}, changed)
     result = subprocess.check_output(
-        ["bash", "-c", exports + '\nprintf "%s" "$LCTX_NATIVE_STORAGE_INPUTS"'], text=True
+        ["bash", "-c", exports + '\nprintf "%s" "$LCTX_NATIVE_SEMANTICS_INPUTS"'], text=True
     )
-    assert result == changed[NATIVE_INPUT_KEYS[1]]
+    assert result == changed[NATIVE_INPUT_KEYS[0]]
 
 
 def test_pure_cargo_normalization_skips_native_artifact_keys(tmp_path, monkeypatch):

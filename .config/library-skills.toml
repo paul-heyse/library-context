@@ -18,6 +18,5 @@ enabled = [
   "rust-reasoning",
   "salsa",
   "serde-arrow",
-  "sqlx-postgres",
   "typer-rich",
 ]

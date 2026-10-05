@@ -1,13 +1,11 @@
 """Public MCP protocol serialization controls independent of stored domain fixtures."""
 
-import argparse
 import json
 
 import pytest
 from fastmcp.tools import ToolResult
 from mcp_types import CallToolResult, ReadResourceResult
 
-from lctx_mcp.__main__ import generation_key
 from lctx_mcp.wire import response_encodings
 
 
@@ -42,13 +40,6 @@ def test_actual_rpc_id_and_complete_tool_result_survive_both_writers(request_id)
     assert b"\\u03bb" in http
     assert "λ".encode() in stdio
     assert len(http) > len(stdio)
-
-
-def test_generation_argument_is_the_actual_16_byte_key():
-    assert generation_key("AB" * 16) == "ab" * 16
-    for invalid in ["ab" * 32, "ab" * 15, " " * 32, "gg" * 16, "a b" * 16]:
-        with pytest.raises(argparse.ArgumentTypeError):
-            generation_key(invalid)
 
 
 def test_resource_rpc_bytes_preserve_uri_mime_and_unicode_body():

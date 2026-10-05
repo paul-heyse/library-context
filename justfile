@@ -12,7 +12,7 @@ default:
     @just --list
 
 turn_end_steps := "adr-index build-features fmt"
-ready_steps := "skills-sync images-ready doctor-check"
+ready_steps := "skills-sync doctor-check"
 
 # End of a turn that changed files: regenerate the ADR index and Hakari crate, and format
 turn-end: (_bundle "turn-end" turn_end_steps)
@@ -50,6 +50,10 @@ verify-model *args:
     python3 scripts/verify.py model "$@"
 
 [positional-arguments]
+verify-compiler *args:
+    python3 scripts/verify.py compiler "$@"
+
+[positional-arguments]
 verify-analytics *args:
     python3 scripts/verify.py analytics "$@"
 
@@ -77,7 +81,7 @@ verify-tooling *args:
 qualify:
     python3 scripts/verify.py qualify
 
-# Explicit complete fixture registration over native producers and real PG comparisons.
+# Explicit complete fixture registration over actual store-free native producers.
 fixture-corpus:
     INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test fixture_corpus --no-fail-fast
 
@@ -104,15 +108,6 @@ types:
 # ADR metadata and index
 adr-lint:
     uv run python scripts/adr.py lint
-
-# The live store against this tree's lowering: build the release CLI, then `lctx store check`
-[positional-arguments]
-store-check *args:
-    cargo build --release -p lctx --quiet
-    target/release/lctx "$@" store check
-
-# `structured-eval`, `score` and `ranking-check` read served generations; they return with serving
-# (cutover phase 5).
 
 # Licences are never a rejection reason, so cargo-deny checks bans and sources only.
 # Pinned nominal families and observational forks (ADR-0117/0118); a pins row per exact pin (ADR-0125)
@@ -205,7 +200,7 @@ library-catalog:
 doctor:
     #!/usr/bin/env bash
     eval "$(python3 scripts/build_environment.py --shell)"
-    for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear cargo-hakari uv ast-grep rg git gh clang clang++ llvm-config mold sccache sqlx psql pg_dump pg_restore docker; do
+    for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear cargo-hakari uv ast-grep rg git gh clang clang++ llvm-config mold sccache; do
       printf '%-14s ' "$t"; command -v "$t" >/dev/null && "$t" --version 2>/dev/null | head -1 || echo MISSING
     done
     printf '%-14s ' ruff; uv run ruff --version
@@ -246,22 +241,4 @@ docs-test:
 # Build then serve the finished artifact; no watcher or reindex during serving
 docs-serve port="8000":
     uv run --no-project --offline --no-python-downloads python scripts/docs.py serve --port {{port}}
-
-# Fetch the exact disposable PG18 image explicitly before database qualification.
-postgres-test-setup:
-    docker pull "postgres:$(cat specs/postgres-image.txt)"
-    docker pull "$(cat specs/postgres-vector-image.txt)"
-
-# Pull a pinned PostgreSQL image only when it is missing (part of `ready`)
-images-ready:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for image in "postgres:$(cat specs/postgres-image.txt)" "$(cat specs/postgres-vector-image.txt)"; do
-      docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
-    done
-
-# Real PostgreSQL 18 (disposable containers): generation store, provider sessions, CLI
-postgres-test-ready:
-    @docker image inspect "postgres:$(cat specs/postgres-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
-    @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
 

@@ -1,17 +1,14 @@
-"""Closed Rust schemas, opaque grants and actual MCP envelope serialization."""
+"""Rust-owned schemas and MCP serialization; native serving is unavailable."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from fastmcp.exceptions import ResourceError, ToolError, ValidationError
-from fastmcp.resources import Resource, ResourceContent, ResourceResult, ResourceTemplate
-from fastmcp.server.dependencies import get_context
+from fastmcp.exceptions import ResourceError, ToolError
+from fastmcp.resources import Resource, ResourceResult, ResourceTemplate
 from fastmcp.tools import Tool, ToolResult
-from mcp.shared.exceptions import MCPError
 from mcp_types import (
-    INTERNAL_ERROR,
     SERVER_INFO_META_KEY,
     CallToolResult,
     ErrorData,
@@ -81,152 +78,11 @@ def negotiated_encodings(
     )
 
 
-class _ResourceRefusedToolError(ToolError):
-    kind: str = "resource_refused"
-
-
-async def admit_request_id(
-    service, grant, request_context, expanded: bool, byte_limits: dict[str, int]
-) -> int | str:
-    request_id = request_context.request_id
-    bound = byte_limits["expanded" if expanded else "default"]
-    # An ID alone is a lower bound on both envelopes. Avoid an unbounded copy before
-    # checking the Rust-declared limit; native admission checks both full encodings.
-    if isinstance(request_id, str) and len(request_id) > bound:
-        raise _ResourceRefusedToolError("resource_refused: final MCP request ID bytes")
-
-    def encode_id():
-        encoded = json.dumps(request_id).encode("utf-8")
-        return encoded, encoded
-
-    await service.encode_envelope(grant, encode_id, expanded)
-    return request_id
-
-
-def public_failure(exc) -> dict[str, str] | None:
-    from lctx_semantics import wire_failure
-
-    kind = getattr(exc, "kind", None)
-    if not isinstance(kind, str):
-        return None
-    try:
-        return json.loads(wire_failure(kind))
-    except ValueError:
-        return None
-
-
-def safe_storage_text(exc) -> str:
-    from lctx_semantics import wire_failure
-
-    failure = public_failure(exc) or json.loads(wire_failure("unavailable"))
-    return f"{failure['kind']}: {failure['message']}"
-
-
-async def admitted_failure(
-    service, grant, failure, request_id, protocol_version, server, expanded, *, resource
-) -> CallToolResult | ErrorData:
-    """One attempt on the original admitted grant; no recursive failure encoding."""
-    result = (
-        ErrorData(code=INTERNAL_ERROR, message=failure["message"], data=failure)
-        if resource
-        else CallToolResult.model_validate(
-            {
-                "content": [{"type": "text", "text": failure["message"]}],
-                "isError": True,
-                "_meta": {"lctx_failure": failure},
-            }
-        )
-    )
-    await service.encode_envelope(
-        grant,
-        lambda: negotiated_encodings(result, request_id, protocol_version, server),
-        expanded,
-    )
-    return result
-
-
 class SchemaTool(Tool):
     _byte_limits: dict[str, int] = PrivateAttr()
 
     async def run(self, arguments: dict[str, Any]) -> ToolResult:
-        from lctx_storage import StorageError
-
-        ctx = get_context()
-        request_context = ctx.request_context
-        if request_context is None:
-            raise ToolError("MCP request context unavailable")
-        # Capture plain values before serialization runs in the original Rust CPU worker.
-        protocol_version, server = request_context.protocol_version, ctx.fastmcp
-        served = ctx.lifespan_context["served"]
-        try:
-            grant = await served.service.admit()
-        except StorageError as exc:
-            raise ToolError(safe_storage_text(exc)) from exc
-        request_id: int | str | None = None
-        expanded = False
-        try:
-            raw = await served.service.encode_request(
-                grant,
-                arguments,
-                lambda args: json.dumps(
-                    args, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-                ),
-            )
-            info = json.loads(await served.service.request_info(grant, self.name, raw))
-            expanded = info["expanded"]
-            request_id = await admit_request_id(
-                served.service, grant, request_context, expanded, self._byte_limits
-            )
-            vector, degradation = await served.query_vector(grant, info["query"])
-            response = await served.service.dispatch(
-                grant,
-                self.name,
-                raw,
-                query_vector=vector,
-                degradation=degradation,
-                numerical_callback=served.numerical if info["query"] is not None else None,
-            )
-            rendered = await served.service.tool_result(grant, self.name, response, expanded)
-            wrapped = None
-
-            def encode_result():
-                nonlocal wrapped
-                protocol_result = CallToolResult.model_validate_json(rendered)
-                wrapped = ToolResult.from_mcp_result(protocol_result)
-                return negotiated_encodings(protocol_result, request_id, protocol_version, server)
-
-            await served.service.encode_envelope(grant, encode_result, expanded)
-            assert wrapped is not None
-            return wrapped
-        except StorageError as exc:
-            failure = public_failure(exc)
-            if request_id is not None and failure is not None:
-                try:
-                    encoded_failure = await admitted_failure(
-                        served.service,
-                        grant,
-                        failure,
-                        request_id,
-                        protocol_version,
-                        server,
-                        expanded,
-                        resource=False,
-                    )
-                    assert isinstance(encoded_failure, CallToolResult)
-                    return ToolResult.from_mcp_result(encoded_failure)
-                except StorageError, ValueError:
-                    pass
-            raise ToolError(safe_storage_text(exc)) from exc
-        except ValueError as exc:
-            if str(exc).startswith("resource_refused:"):
-                from lctx_semantics import wire_failure
-
-                failure = json.loads(wire_failure("resource_refused"))
-                raise ToolError(f"{failure['kind']}: {failure['message']}") from exc
-            raise ValidationError(str(exc)) from exc
-        finally:
-            # Native in-flight work retains its own handle until actual completion.
-            grant.release()
+        raise ToolError("unavailable: native graph serving is not implemented")
 
 
 class CapabilityResource(Resource):
@@ -234,67 +90,7 @@ class CapabilityResource(Resource):
     _byte_limits: dict[str, int] = PrivateAttr()
 
     async def read(self) -> ResourceResult:
-        from lctx_storage import StorageError
-
-        ctx = get_context()
-        request_context = ctx.request_context
-        if request_context is None:
-            raise ResourceError("MCP request context unavailable")
-        protocol_version, server = request_context.protocol_version, ctx.fastmcp
-        served = ctx.lifespan_context["served"]
-        try:
-            grant = await served.service.admit()
-        except StorageError as exc:
-            raise ResourceError(safe_storage_text(exc)) from exc
-        request_id: int | str | None = None
-        try:
-            request_id = await admit_request_id(
-                served.service, grant, request_context, True, self._byte_limits
-            )
-            uri, mime_type = self.uri, self.mime_type
-            text = await served.service.capability_resource(grant, self._capability)
-            result = None
-
-            def encode_result():
-                nonlocal result
-                result = ResourceResult([ResourceContent(text, mime_type=mime_type)])
-                return negotiated_encodings(
-                    result.to_mcp_result(uri), request_id, protocol_version, server
-                )
-
-            await served.service.encode_envelope(grant, encode_result, True)
-            assert result is not None
-            return result
-        except StorageError as exc:
-            failure = public_failure(exc)
-            if request_id is not None and failure is not None:
-                try:
-                    encoded_failure = await admitted_failure(
-                        served.service,
-                        grant,
-                        failure,
-                        request_id,
-                        protocol_version,
-                        server,
-                        True,
-                        resource=True,
-                    )
-                except StorageError, ValueError:
-                    pass
-                else:
-                    assert isinstance(encoded_failure, ErrorData)
-                    raise MCPError(
-                        code=encoded_failure.code,
-                        message=encoded_failure.message,
-                        data=encoded_failure.data,
-                    ) from exc
-            raise ResourceError(safe_storage_text(exc)) from exc
-        except ToolError as exc:
-            raise ResourceError(safe_storage_text(exc)) from exc
-        except ValueError as exc:
-            raise ValidationError(str(exc)) from exc
-        finally:
-            grant.release()
+        raise ResourceError("unavailable: native graph serving is not implemented")
 
 
 class CapabilityTemplate(ResourceTemplate):

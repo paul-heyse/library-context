@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Normalize inherited Cargo paths for recipes, SQLx and interactive shells.
+"""Normalize inherited Cargo paths for recipes and interactive shells.
 
 Use ``python3 scripts/build_environment.py --shell`` with eval in a shell, or
 ``python3 scripts/build_environment.py -- COMMAND ...``. Intentional external
@@ -18,13 +18,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET_KEYS = ("CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR")
-NATIVE_INPUT_KEYS = ("LCTX_NATIVE_SEMANTICS_INPUTS", "LCTX_NATIVE_STORAGE_INPUTS")
+NATIVE_INPUT_KEYS = ("LCTX_NATIVE_SEMANTICS_INPUTS",)
 
 
 def native_input_fingerprints(root: Path) -> dict[str, str]:
     """Key uv's native builds by the content and membership of their declared inputs."""
     fingerprints = {}
-    for member, key in zip(("lctx_semantics", "lctx_storage"), NATIVE_INPUT_KEYS, strict=True):
+    for member, key in zip(("lctx_semantics",), NATIVE_INPUT_KEYS, strict=True):
         package = root / "python" / member
         project = package / "pyproject.toml"
         if not project.is_file():
