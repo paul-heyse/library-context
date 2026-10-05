@@ -165,6 +165,26 @@ modality, evidence and applicability. Different evidence bases cannot merge beca
 match. Extents/intents, implications and enumeration diagnostics are exact under that admitted
 context, not universal runtime laws. The fcars development oracle compares concept sets.
 
+**Independent assurance — implemented / focused-Tested K1/K2, 2026-10-04.**
+`lctx-analytics/tests/implication_oracle.rs` compares production implication consequences with
+explicit finite incidence double derivation and development-only odis; fcars supplies independent
+concept-set comparison. Deterministic object/attribute bijections preserve empty/duplicate incidence.
+Cases remain bounded to eight attributes/twelve objects, with fixed finite counts. Compare semantic
+sets and closure consequences rather than basis spelling. Positive-support completeness applies
+only to starting subsets meeting the threshold; partial runs require sound retained results and
+honest examined-item bounds, never complete-basis equality. Deliberate invalid/deleted implications
+and incidence changes challenge the expectation machinery. Current budget controls retain and
+release production reservations; a finite oracle pass cannot qualify a larger production workload.
+
+The charged production kernel remains selected. Odis batch basis/iceberg and iterator paths lack
+equivalent internal examined-work, allocation and cancellation admission; post-hoc charging or
+limiting yielded output does not bound examined work. Reopen production substitution only if an
+admitted step/support/cancellation API meets that contract, or an explicit decision changes it.
+Odis and its bit-set indices stay development-only and outside canonical identity. The
+[analytical enrichment coordinator](../../plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
+retains O08 and Q1 acceptance. The replacement analytics family owns these controls; no timing,
+RSS or production-library substitution claim follows from their scoped pass.
+
 **Implemented / scoped Tested, 2026-10-03:** model-owned source-parameter correspondence
 supplies declared parameter/type incidence and bound-receiver exclusion. Native signature,
 parameter and return attributes keep their invocation role, adjustment and native receiver;

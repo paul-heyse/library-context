@@ -1,5 +1,5 @@
-# End-of-turn pipeline (scripts/after_turn.py, ADR-0110). Every step is a just recipe, and every
-# step is automatic: the hooks run no `just hygiene` check and fix nothing. Keys before any [table].
+# End-of-turn pipeline (scripts/after_turn.py, ADR-0126). Every step is a just recipe, and every
+# step is automatic: the hooks run no non-functional leaf check and fix nothing. Keys before any [table].
 
 # At stop, synchronously, in order.
 sync = ["skills-sync", "adr-index", "build-features", "fmt"]

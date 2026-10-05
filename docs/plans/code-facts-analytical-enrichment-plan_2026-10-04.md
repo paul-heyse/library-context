@@ -44,7 +44,7 @@ retrieval studies and PR6 remain separately authorized work. Do not resume the i
 | [API contracts and evidence](api-contract-and-evidence-enrichment-plan_2026-10-04.md) | O01/O02/O04/O05/O06; model-owned role/correlation/route/context operations, typed Selection and bounded packets |
 | [Guarded origins](guarded-origin-analysis-plan_2026-10-04.md) | O03; per-use native closure, inventory explanation, conditional proof usefulness decision, Local/Structural qualification |
 | [Python references](python-reference-enrichment-plan_2026-10-04.md) | O07; existing-fact incoming references and hermetic ty differential oracle, explicit production non-fit |
-| [Analytic kernel assurance](analytic-kernel-assurance-plan_2026-10-04.md) | O08; odis development oracle, independent consequence checks, retained production kernel |
+| [Analytic kernel assurance](../design/sections/analytics.md#section-9-6) | O08; odis development oracle, independent consequence checks, retained production kernel |
 
 Enduring contracts live at the [architecture owners](../design/README.md) and executable
 `lctx-model::domain` declarations. Plans do not silently amend accepted ADRs. An owner refactor

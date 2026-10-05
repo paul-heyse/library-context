@@ -644,6 +644,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fastmcp" },
     { name = "hypothesis" },
     { name = "pyrefly" },
     { name = "pytest" },
@@ -659,6 +660,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fastmcp", specifier = ">=4.0.5" },
     { name = "hypothesis", specifier = "==6.168.1" },
     { name = "pyrefly", specifier = "==1.4.0.dev3" },
     { name = "pytest", specifier = ">=8" },

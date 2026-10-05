@@ -583,7 +583,7 @@ pub mod fixtures {
     impl Small {
         pub fn new() -> Self {
             let model = Arc::new(
-                ValidatedModel::validate(vec![
+                ValidatedModel::declared(vec![
                     Relation::of::<Package>(),
                     Relation::of::<Release>(),
                 ])

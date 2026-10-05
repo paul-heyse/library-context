@@ -38,7 +38,8 @@ pub fn describe(model: &ValidatedModel) -> Value {
             described
         }).collect();
         let mut described = json!({ "name": relation.name(), "fields": fields,
-            "facts": facts.as_ref().is_some_and(|contract| contract.contains(relation.name())) });
+            "facts": facts.as_ref().is_some_and(|contract| contract.contains(relation.name())),
+            "invariant_refs": relation.invariant_refs(), "publication_refs": relation.publication_refs() });
         if let Some(family) = relation.family() { described["family"] = json!(format!("{family:?}")); }
         if let Some(sum) = relation.sum() {
             described["sum"] = json!({ "tag": sum.tag, "arms": sum.arms.iter().map(|arm| json!({ "code": arm.code,
@@ -50,11 +51,17 @@ pub fn describe(model: &ValidatedModel) -> Value {
         .invariants()
         .iter()
         .map(|invariant| {
-            json!({ "name": invariant.name,
-        "inputs": invariant.inputs.iter().map(|input| input.name()).collect::<Vec<_>>() })
+            json!({ "name": invariant.name, "revision": invariant.revision, "definition_digest": invariant.digest().hex(),
+        "inputs": invariant.inputs.iter().map(|input| json!({"relation":input.name(), "order": input.order(),
+            "prefix": input.prefix().map(|p| p.name())})).collect::<Vec<_>>() })
         })
         .collect();
-    json!({ "digest": model.digest().hex(), "relations": relations, "invariants": invariants })
+    let publication: Vec<_> = model.publication_checks().iter().map(|check| json!({
+        "name": check.name, "revision":check.revision, "definition_digest":check.digest().hex(),
+        "inputs":check.inputs.iter().map(|input| json!({"relation":input.name(),"order":input.order(),
+            "prefix":input.prefix().map(|p|p.name())})).collect::<Vec<_>>()
+    })).collect();
+    json!({ "digest": model.digest().hex(), "relations": relations, "invariants": invariants, "publication_checks":publication })
 }
 
 pub fn text(description: &Value) -> String {

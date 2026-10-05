@@ -22,6 +22,7 @@ cache-keys = [
     { file = "python/**/*.py" },
     { file = "../../Cargo.toml" },
     { file = "../../Cargo.lock" },
+    { file = "../../uv.lock" },
     { file = "../../rust-toolchain.toml" },
     { file = "../../.cargo/config.toml" },
     { file = "../../scripts/build_environment.py" },

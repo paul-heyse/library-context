@@ -41,6 +41,10 @@ pub use reader::GenerationReader;
 pub use selection::{AdmittedSelection, SELECTION_PREPARATION_BYTES};
 mod stage_validation;
 mod validation_views;
+mod audit;
+pub use audit::AuditReport;
+mod validation_session;
+pub use validation_session::ValidationStats;
 mod verify;
 mod vocabulary;
 use arrow_array::RecordBatch;
@@ -504,7 +508,7 @@ impl GenerationStore {
     fn scoped(
         &self,
         frontier: Frontier,
-    ) -> Result<(Vec<&Relation>, Vec<&lctx_model::domain::Invariant>), Error> {
+    ) -> Result<(Vec<&Relation>, Vec<lctx_model::domain::Invariant>), Error> {
         let scope = &self.scope(frontier)?.relations;
         Ok((
             self.model
@@ -729,9 +733,9 @@ const CONTROL_RECORDS: [&str; 14] = [
     "epoch_receipts",
     "publication_groups",
     "receipts",
+    "stage_read_checks",
     "validation_receipts",
     "stage_receipts",
-    "stage_read_checks",
     "planned_outputs",
     "stage_outcomes",
     "checkpoints",

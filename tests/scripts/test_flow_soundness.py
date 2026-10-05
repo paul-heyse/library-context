@@ -28,7 +28,7 @@ FLOW_BIN = ROOT / "target/release/lctx"
 def _flow_bin() -> Path:
     # The oracle challenges the release producer used by integrated compilation. Keep this
     # checkout's cache even when the operator's shell inherits another project's target.
-    env = normalized_env(dict(os.environ), ROOT)
+    env = normalized_env(dict(os.environ), ROOT, native_inputs=False)
     subprocess.run(
         [
             "cargo",

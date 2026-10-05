@@ -194,7 +194,7 @@ mod tests {
         relations.push(Relation::of::<
             assumptions_universe::AssumptionUniverseSupport,
         >());
-        let model = Arc::new(ValidatedModel::validate(relations).unwrap());
+        let model = Arc::new(ValidatedModel::declared(relations).unwrap());
         let store = GenerationStore::install(db.owner.clone(), model.clone())
             .await
             .unwrap();

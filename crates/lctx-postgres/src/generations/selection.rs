@@ -251,44 +251,12 @@ impl GenerationLease {
             sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.epoch_receipts WHERE generation_id=$1 AND epoch=$2 AND relation_name=$3").bind(self.contract.generation().0.to_vec()).bind(i16::try_from(prefix.ordinal()).map_err(|_|Error::Contract)?).bind(input.name()).fetch_optional(&mut *snapshot).await?
         };
         let expected = expected.ok_or(Error::Contract)?;
-        let mut hash = relation.content();
-        let grouped_order = input.order() != ["id"];
-        // Sealed content always uses canonical ID order. Some shared validators require a
-        // different grouped order; verify first, then stream that order on this same lease.
-        // Keep both passes bounded instead of retaining and sorting the relation in memory.
-        visit_named(
-            &mut snapshot,
-            self.contract.generation(),
-            relation,
-            &physical,
-            &["id"],
-            &self.budget,
-            |batch| {
-                relation.hash_rows(&batch, &mut hash)?;
-                if grouped_order {
-                    Ok(())
-                } else {
-                    consume(batch)
-                }
-            },
-        )
-        .await?;
-        let (rows, hash) = hash.finish();
-        if u64::try_from(expected.0).ok() != Some(rows) || expected.1 != hash.0 {
-            return Err(Error::Contract);
-        }
-        if grouped_order {
-            visit_named(
-                &mut snapshot,
-                self.contract.generation(),
-                relation,
-                &physical,
-                input.order(),
-                &self.budget,
-                consume,
-            )
-            .await?;
-        }
+        // Complete acknowledgements own immutability; corruption recomputation belongs to
+        // explicit audit. Current lease, frontier, schema and memory admission remain fresh.
+        u64::try_from(expected.0).map_err(|_| Error::Contract)?;
+        if expected.1.len() != 32 { return Err(Error::Contract); }
+        visit_named(&mut snapshot, self.contract.generation(), relation, &physical,
+            input.order(), &self.budget, &mut consume).await?;
         snapshot.commit().await?;
         Ok(())
     }
@@ -299,7 +267,7 @@ impl GenerationLease {
             ));
         }
         self.selection_live().await?;
-        let (model,physical,schedule,content,profile):(Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,String)=sqlx::query_as("SELECT model_digest,physical_digest,schedule_digest,content_digest,profile FROM lctx_model_store.generations WHERE id=$1 AND state='published' AND frontier='catalog'").bind(self.generation().0.to_vec()).fetch_one(&mut *self.connection).await?;
+        let (model,_physical,schedule,content,profile):(Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,String)=sqlx::query_as("SELECT model_digest,physical_digest,schedule_digest,content_digest,profile FROM lctx_model_store.generations WHERE id=$1 AND state='published' AND frontier='catalog'").bind(self.generation().0.to_vec()).fetch_one(&mut *self.connection).await?;
         if model != self.model.digest().0 {
             return Err(Error::Contract);
         }
@@ -307,9 +275,20 @@ impl GenerationLease {
         if admitted != Some(true) {
             return Err(Error::Contract);
         }
-        for name in selection::admission::VALIDATORS {
-            let valid:Option<bool>=sqlx::query_scalar("SELECT model_digest=$3 AND physical_digest=$4 AND content_digest=$5 FROM lctx_model_store.validation_receipts WHERE generation_id=$1 AND validator_name=$2").bind(self.generation().0.to_vec()).bind(name).bind(&model).bind(&physical).bind(&content).fetch_optional(&mut *self.connection).await?;
-            if valid != Some(true) {
+        let generation = self.contract.generation();
+        let mut session = super::validation_session::Session::for_model(
+            &self.model, &mut self.connection, generation, &self.budget).await?;
+        for invariant in self.frontier.descriptor().invariants(&self.model)? {
+            let mut frames = Vec::new();
+            for input in &invariant.inputs {
+                let relation = self.model.relation(input.name()).ok_or(Error::Contract)?;
+                frames.push(validation_views::physical(&mut self.connection, generation,
+                    input, relation, relation.name(), validation_views::Scope { upper: None, candidate: None },
+                    &self.budget).await?);
+            }
+            let binding = session.binding(&mut self.connection, invariant.digest(),
+                &invariant.inputs, &frames, false, None).await?;
+            if !session.has(&mut self.connection, binding, invariant.digest()).await? {
                 return Err(Error::Contract);
             }
         }
@@ -352,7 +331,6 @@ impl GenerationLease {
                 .len()
                 .saturating_mul(size_of::<stages::RelationUse>() + 256),
         )?;
-        let consumed = ClassificationData::inputs();
         for invocation in a.invocations.iter() {
             let bytes = a
                 .sources
@@ -388,12 +366,6 @@ impl GenerationLease {
                 {
                     return Err(Error::Contract);
                 }
-                let relation = self
-                    .model
-                    .relations()
-                    .iter()
-                    .find(|r| r.name() == declaration.name())
-                    .ok_or(Error::Contract)?;
                 let source:Option<(i64,Vec<u8>,Vec<u8>)>=sqlx::query_as("SELECT row_count,content_digest,schedule_digest FROM lctx_model_store.stage_receipts WHERE generation_id=$1 AND stage_name=$2 AND relation_name=$3").bind(self.generation().0.to_vec()).bind(stored.producer()).bind(stored.relation()).fetch_optional(&mut *self.connection).await?;
                 if source.is_none_or(|(rows, content, schedule)| {
                     rows != stored.rows()
@@ -452,23 +424,7 @@ impl GenerationLease {
                         return Err(Error::Contract);
                     }
                 }
-                // Only classifier-consumed metadata is rehashed; producer reference closure is
-                // bound by its canonical capture and validators, never hydrated as request data.
-                if consumed.iter().any(|i| i.name() == stored.relation()) {
-                    let actual = super::vocabulary::receipt(
-                        &mut self.connection,
-                        self.contract.generation(),
-                        relation,
-                        &physical,
-                        &self.budget,
-                    )
-                    .await?;
-                    if i64::try_from(actual.rows).ok() != Some(stored.rows())
-                        || actual.content != stored.content()
-                    {
-                        return Err(Error::Contract);
-                    }
-                }
+
             }
         }
         Ok(())

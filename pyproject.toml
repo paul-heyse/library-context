@@ -23,6 +23,7 @@ dev = [
     "pyrefly==1.4.0.dev3",
     # Exact: the version the python-oracles library skill indexes (docs/pins.md, Serving).
     "hypothesis==6.168.1",
+    "fastmcp>=4.0.5",
 ]
 
 [tool.uv]

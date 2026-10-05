@@ -68,10 +68,11 @@ impl GenerationStore {
             .execute(&mut *tx)
             .await?;
         }
+        let mut session = super::validation_session::Session::new(self, tx, g, budget).await?;
         if let Some(completion) = completion {
             self.check_completed_output_references(tx, g, completion)
                 .await?;
-            self.check_publication_outputs(tx, g, outputs, completion.sources(), None, budget)
+            self.check_publication_outputs_prepared(tx, g, outputs, completion.sources(), None, budget, &mut session)
                 .await?;
         }
         // The unscheduled, testing-only Harness has no declared source or StageCompletion
@@ -87,13 +88,9 @@ impl GenerationStore {
                 .iter()
                 .find(|r| r.name() == *name)
                 .ok_or(Error::Contract)?;
-            let mut content = relation.content();
-            visit_physical(tx, g, relation, &["id"], budget, |batch| {
-                relation.hash_rows(&batch, &mut content)?;
-                Ok(())
-            })
-            .await?;
-            let (rows, content) = content.finish();
+            let input = lctx_model::domain::ValidationInput::of_relation(relation, &["id"]);
+            let frozen = session.frame(tx, &input, relation.name(), true).await?;
+            let (rows, content) = (frozen.rows, frozen.content);
             sqlx::query("INSERT INTO lctx_model_store.stage_receipts VALUES($1,$2,$3,$4,$5,$6)")
                 .bind(g.0.to_vec())
                 .bind(stage)
@@ -234,91 +231,32 @@ impl GenerationStore {
         persist: bool,
     ) -> Result<(ContentHash, Option<FrontierAdmission>), Error> {
         let (relations, invariants) = self.scoped(frontier)?;
-        let physical = self.scope(frontier)?.physical;
         let mut content = KeySink::new("generation-content");
+        let mut session = super::validation_session::Session::new(self, tx, g, budget).await?;
         for relation in &relations {
-            let mut rows = relation.content();
-            visit_physical(tx, g, relation, &["id"], budget, |batch| {
-                relation.hash_rows(&batch, &mut rows)?;
-                Ok(())
-            })
-            .await?;
-            let (row_count, digest) = rows.finish();
-            let frozen: Option<(i64, Vec<u8>)> = if lctx_model::domain::stages::is_vocabulary(
-                relation.name(),
-            ) {
-                sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.epoch_receipts WHERE generation_id=$1 AND relation_name=$2 ORDER BY epoch DESC LIMIT 1").bind(g.0.to_vec()).bind(relation.name()).fetch_optional(&mut *tx).await?
-            } else {
-                sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.stage_receipts WHERE generation_id=$1 AND relation_name=$2").bind(g.0.to_vec()).bind(relation.name()).fetch_optional(&mut *tx).await?
-            };
-            if frozen.is_some_and(|(count, bytes)| {
-                u64::try_from(count).ok() != Some(row_count) || bytes != digest.0
-            }) {
-                return Err(Error::Contract);
-            }
-            content.part(relation.name().as_bytes(), &digest.0);
+            let input = lctx_model::domain::ValidationInput::of_relation(relation, &["id"]);
+            let frozen = session.frame(tx, &input, relation.name(), true).await?;
+            content.part(relation.name().as_bytes(), &frozen.content.0);
             if persist {
                 sqlx::query("INSERT INTO lctx_model_store.receipts(generation_id,relation_name,row_count,content_digest) VALUES($1,$2,$3,$4)")
-                .bind(g.0.to_vec()).bind(relation.name()).bind(i64::try_from(row_count).map_err(|_| Error::Codec("row count overflow".into()))?)
-                .bind(digest.0.to_vec()).execute(&mut *tx).await?;
-            }
-        }
-        if persist {
-            let old: Vec<(i16,String,i64,Vec<u8>)> = sqlx::query_as("SELECT epoch,relation_name,row_count,content_digest FROM lctx_model_store.epoch_receipts WHERE generation_id=$1").bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
-            let order = super::vocabulary::publication_order(tx, g).await?;
-            for (epoch, name, count, bytes) in old {
-                let epoch = order.decode(u16::try_from(epoch).map_err(|_| Error::Contract)?)?;
-                let relation = self
-                    .model
-                    .relations()
-                    .iter()
-                    .find(|r| r.name() == name)
-                    .ok_or(Error::Contract)?;
-                let actual =
-                    super::vocabulary::receipt(tx, g, relation, &epoch.view(&name), budget).await?;
-                if i64::try_from(actual.rows).ok() != Some(count)
-                    || actual.content.0 != bytes.as_slice()
-                {
-                    return Err(Error::Contract);
-                }
+                    .bind(g.0.to_vec()).bind(relation.name()).bind(i64::try_from(frozen.rows).map_err(|_|Error::Contract)?)
+                    .bind(frozen.content.0.to_vec()).execute(&mut *tx).await?;
             }
         }
         let digest = content.finish();
+        let _plan = budget.reserve("validation-input-plan", invariants.iter()
+            .map(|i| 128 + i.inputs.len().saturating_mul(512)).sum())?;
+        let mut requests = Vec::new();
         for invariant in &invariants {
-            let mut check = (invariant.create)(budget);
+            let mut frames = Vec::new();
             for input in &invariant.inputs {
-                let relation = self
-                    .model
-                    .relations()
-                    .iter()
-                    .find(|r| r.name() == input.name())
-                    .expect("validated invariant member");
-                let view = super::validation_views::physical(
-                    tx,
-                    g,
-                    input,
-                    relation,
-                    relation.name(),
-                    super::validation_views::Scope {
-                        upper: None,
-                        candidate: None,
-                    },
-                    budget,
-                )
-                .await?;
-                super::visit_named(tx, g, relation, &view, input.order(), budget, |batch| {
-                    check.visit_input(input, &batch)?;
-                    Ok(())
-                })
-                .await?;
+                let relation = self.model.relation(input.name()).ok_or(Error::Contract)?;
+                frames.push(super::validation_views::physical(tx, g, input, relation, relation.name(),
+                    super::validation_views::Scope { upper: None, candidate: None }, budget).await?);
             }
-            check.finish()?;
-            if persist {
-                sqlx::query("INSERT INTO lctx_model_store.validation_receipts(generation_id,validator_name,content_digest,model_digest,physical_digest) VALUES($1,$2,$3,$4,$5)")
-                .bind(g.0.to_vec()).bind(invariant.name).bind(digest.0.to_vec())
-                .bind(self.model.digest().0.to_vec()).bind(physical.0.to_vec()).execute(&mut *tx).await?;
-            }
+            requests.push((invariant, frames));
         }
+        session.invariants(tx, &requests, true).await?;
         let admission = match admitting {
             Some(Admitting { preflight, receipt }) => {
                 let mut check = AdmissionCheck::new(preflight.clone(), budget);
@@ -404,6 +342,7 @@ impl GenerationStore {
         tx: &mut PgConnection,
         g: GenerationId,
         admission: Option<&FrontierAdmission>,
+        budget: &ResourceBudget,
     ) -> Result<(), Error> {
         self.lock_installation(tx).await?;
         lock(tx, g, false).await?;
@@ -411,7 +350,6 @@ impl GenerationStore {
         registered.expect("validated")?;
         let frontier = registered.frontier;
         let (relations, invariants) = self.scoped(frontier)?;
-        let physical = self.scope(frontier)?.physical;
         let receipts = sqlx::query("SELECT relation_name,content_digest FROM lctx_model_store.receipts WHERE generation_id=$1 ORDER BY relation_name COLLATE \"C\"")
             .bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
         if receipts.len() != relations.len() {
@@ -433,19 +371,16 @@ impl GenerationStore {
         if stored != digest.0 {
             return Err(Error::Contract);
         }
-        let validations = sqlx::query("SELECT validator_name,content_digest,model_digest,physical_digest FROM lctx_model_store.validation_receipts WHERE generation_id=$1 ORDER BY validator_name COLLATE \"C\"")
-            .bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
-        if validations.len() != invariants.len() {
-            return Err(Error::State);
-        }
-        for (receipt, invariant) in validations.iter().zip(&invariants) {
-            if receipt.try_get::<String, _>("validator_name")? != invariant.name
-                || receipt.try_get::<Vec<u8>, _>("content_digest")? != digest.0
-                || receipt.try_get::<Vec<u8>, _>("model_digest")? != self.model.digest().0
-                || receipt.try_get::<Vec<u8>, _>("physical_digest")? != physical.0
-            {
-                return Err(Error::Contract);
+        let mut session = super::validation_session::Session::new(self, tx, g, budget).await?;
+        for invariant in &invariants {
+            let mut frames = Vec::new();
+            for input in &invariant.inputs {
+                let relation = self.model.relation(input.name()).ok_or(Error::Contract)?;
+                frames.push(super::validation_views::physical(tx, g, input, relation, relation.name(),
+                    super::validation_views::Scope { upper: None, candidate: None }, budget).await?);
             }
+            let binding = session.binding(tx, invariant.digest(), &invariant.inputs, &frames, false, None).await?;
+            if !session.has(tx, binding, invariant.digest()).await? { return Err(Error::Contract); }
         }
         let unplanned: i64 = sqlx::query_scalar("SELECT count(*) FROM (\
             (SELECT stage_name, relation_name FROM lctx_model_store.planned_outputs WHERE generation_id=$1 \

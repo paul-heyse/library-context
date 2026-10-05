@@ -57,6 +57,19 @@ content or an undeclared source refuses admission rather than becoming an empty 
 challenge injected invalid rows and independent hand-known semantics separately from generated
 structural checks.
 
+**Accepted assurance pivot, implementation in progress (2026-10-04).** One model-owned definition
+with stable ID/revision supplies each obligation's complete ordered premises. Relations and stage
+uses reference it explicitly. Existing store receipts own complete acknowledged binding conclusions;
+read-check receipts are grant evidence. A stable validation session shares compatible streams and
+charged preparation, with bounded separate execution when order/state requires it. Binding identity
+includes installation/generation, model/layout, definition, exact immutable source/prefix and relevant
+semantic configuration. Missing, failed, partial or unconfirmed conclusions never authorize a hit.
+Fresh consumer admission remains required. Normal reads trust owned immutability; explicit audit
+recomputes physical integrity and pure semantics. The [coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md)
+owns qualification and F01–F04; structural work counts alone establish no measured speed benefit.
+
+> Decision: ADR-0126
+
 **Edit guards.** A lineage rule that re-reads its edge kind's own unfiltered source cannot fail on
 the current derivation: it guards an edit, not a data condition. Such rules are declared
 apart from falsifiable data checks. Current typed derivations and their retained source rows
@@ -82,18 +95,20 @@ real-provider fixtures, served round trips) are kept separate from derived valid
 
 ### §8.1 Independent oracles (the validation lane)
 
-**Implemented and Tested in focused cases** for the runtime soundness oracle and the matched-source
-Pysa control; CrossHair is **Tested** for single model specializations; the broadened comparison
-is a **Proposed** Stage 3 order (forward plan §3.2, order 8).
+**Current controls, Interface-checked 2026-10-04.** Instruments challenge one specific claim;
+none writes facts or tunes analysis. Provider CLI agreement is parity, not independent semantics.
 
-Each instrument challenges one kind of claim and never writes facts or tunes the analysis
-(providers observe, our rules conclude; oracles only disagree).
-
-| Instrument | Checks | Where and how |
+| Instrument | Claim and expectation source | Live control |
 |---|---|---|
-| Runtime soundness oracle | Within the stated model, every executed statement's region is admitted, every observed reaching definition is present and, as summaries grow, every observed value flow is admitted. A violation is a counterexample; a finite pass is evidence, not proof | Generated programs (a seed corpus of known translation shapes plus Hypothesis-generated variants) run on the pinned CPython 3.14.7 under `sys.monitoring` with a private tool id, bounded examples, temporary storage and timeouts, in an isolated worker. `tests/scripts/test_flow_soundness.py`, part of `just check` |
-| CrossHair `diffbehavior` | A model of a pure callable agrees with the real function | Isolated worker with timeouts; only exhausted paths support equivalence; a timeout or unexplored path is inconclusive; a counterexample is replayed concretely before it becomes a fixture |
-| Pysa (pyre-check 0.10.0, pinned Pyrefly binary) | Taint-in-taint-out models against `summary_flows` on identical source, with a real source→sink rule | Offline; Pysa silence or an `obscure` model is inconclusive; its call graph is Pyrefly's, so only its TITO result is independent. The matched-source control is `pysa_tito_control_uses_the_same_source_as_finite_summary_fixture` ([evidence](../../design_review/evidence/2026-09-25_pysa-tito-rule/README.md)) |
+| Raw-flow runtime challenge | Independent bounded CPython observations challenge regions, reaching definitions and admitted flow over generated programs | `tests/scripts/test_flow_soundness.py` |
+| Served-claim runtime challenge | Independent guards/returns challenge original served refutations and exact identity transfers | Observation bundle: `tests/scripts/test_semantic_soundness.py`; actual producer/store/served comparison: `crates/lctx/tests/serving_soundness.rs` |
+| Finite analytics challenges | Authored incidence matrices, independent double derivation/concept enumeration and dev-only odis implication consequences | `crates/lctx-analytics/tests/implication_oracle.rs`; [analytics owner](analytics.md#section-9) |
+
+The former Pysa TITO control is absent from the current tree. Historical Pysa output and CrossHair
+`typing.cast`/`assert_type` specializations establish no current compiled/served coverage. They are
+retired rather than restored for an instrument count. A future TITO claim requires matched-source,
+independent bounded expectations; silence, obscure results, timeouts and unexplored paths remain
+inconclusive. Observation-only bundle success is not served correctness.
 
 **Boundaries.** Only generated programs execute; the analyzed library and `fixtures/python/`
 never do, and nothing runs with network access. Oracles stay out of compiler inputs; the gold

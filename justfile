@@ -18,6 +18,39 @@ skills-sync:
 skills-check:
     python3 scripts/library_skills.py --check
 
+# Explicit contract families. Boundary-specific filters use --command <boundary> -- <tool args>.
+[positional-arguments]
+verify-model *args:
+    python3 scripts/verify.py model "$@"
+
+[positional-arguments]
+verify-analytics *args:
+    python3 scripts/verify.py analytics "$@"
+
+[positional-arguments]
+verify-providers *args:
+    python3 scripts/verify.py providers "$@"
+
+[positional-arguments]
+verify-store *args:
+    python3 scripts/verify.py store "$@"
+
+[positional-arguments]
+verify-serving *args:
+    python3 scripts/verify.py serving "$@"
+
+[positional-arguments]
+verify-oracles *args:
+    python3 scripts/verify.py oracles "$@"
+
+[positional-arguments]
+verify-tooling *args:
+    python3 scripts/verify.py tooling "$@"
+
+# Target qualification collects independent failures and prepares the selected union once.
+qualify:
+    python3 scripts/verify.py qualify
+
 # The default functional loop: optimized cached core tests and Python tests
 check: test py-test
 
@@ -48,11 +81,11 @@ fmt:
 
 # clippy, denying warnings
 clippy:
-    cargo clippy --release --workspace --all-targets --quiet -- -D warnings
+    cargo clippy --release --workspace --all-targets --keep-going -- -D warnings
 
-# ruff lint, applying its safe auto-fixes first
+# Read-only lint; the automatic formatting hook owns safe fixes
 ruff:
-    uv run ruff check --fix --quiet
+    uv run --no-sync ruff check --quiet
 
 # pyrefly type check
 types:
@@ -63,9 +96,10 @@ adr-lint:
     uv run python scripts/adr.py lint
 
 # The live store against this tree's lowering: build the release CLI, then `lctx store check`
-store-check:
+[positional-arguments]
+store-check *args:
     cargo build --release -p lctx --quiet
-    target/release/lctx store check
+    target/release/lctx "$@" store check
 
 # Core Rust tests share the release profile with the shipped binary. Cargo rebuilds only changed
 # Rust inputs; repeated runs execute cached optimized test binaries. Tests own their data state.

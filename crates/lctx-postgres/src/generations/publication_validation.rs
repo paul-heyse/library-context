@@ -1,5 +1,5 @@
 //! Execute model-owned publication checks against the completing stage's sealed inputs.
-use super::{Error, GenerationId, GenerationStore, visit_named};
+use super::{Error, GenerationId, GenerationStore};
 use lctx_model::domain::{
     resources::ResourceBudget,
     stages::{CompletedRelation, PrefixOrdinal, Profile},
@@ -8,25 +8,26 @@ use sqlx::PgConnection;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl GenerationStore {
-    pub(super) async fn check_publication_outputs(
-        &self,
-        tx: &mut PgConnection,
-        generation: GenerationId,
-        outputs: &BTreeSet<&'static str>,
-        sources: &[CompletedRelation],
-        candidate_prefix: Option<PrefixOrdinal>,
-        budget: &ResourceBudget,
+    #[allow(clippy::too_many_arguments, reason = "Publication carries explicit frozen sources, prefix and charged session")]
+    pub(super) async fn check_publication_outputs_prepared(
+        &self, tx: &mut PgConnection, generation: GenerationId,
+        outputs: &BTreeSet<&'static str>, sources: &[CompletedRelation],
+        candidate_prefix: Option<PrefixOrdinal>, budget: &ResourceBudget,
+        session: &mut super::validation_session::Session<'_>,
     ) -> Result<(), Error> {
-        let checks: Vec<_> = self
-            .model
-            .relations()
-            .iter()
+        let _references = budget.reserve("publication-definition-refs", self.model.relations().iter()
             .filter(|relation| outputs.contains(relation.name()))
-            .flat_map(|relation| relation.publication_checks())
-            .collect();
+            .map(|relation| relation.publication_refs().len().saturating_mul(128)).sum())?;
+        let ids: BTreeSet<_> = self.model.relations().iter()
+            .filter(|relation| outputs.contains(relation.name()))
+            .flat_map(|relation| relation.publication_refs().iter().copied()).collect();
+        let checks: Vec<_> = ids.into_iter().map(|id| self.model.publication_check(id))
+            .collect::<Result<_, _>>()?;
         if checks.is_empty() {
             return Ok(());
         }
+        let _plan = budget.reserve("publication-input-plan", checks.iter()
+            .map(|i| 128 + i.inputs.len().saturating_mul(512)).sum())?;
         // The registry captured this profile when the execution schedule was registered.
         // Test harnesses also register an explicit profile; neither path trusts output metadata.
         let profile: String =
@@ -69,27 +70,10 @@ impl GenerationStore {
             }) {
                 return Err(Error::Contract);
             }
-            let relation = self
-                .model
-                .relations()
-                .iter()
-                .find(|r| r.name() == source.relation())
-                .ok_or(Error::Contract)?;
-            if super::vocabulary::receipt(
-                tx,
-                generation,
-                relation,
-                &source.physical_relation(),
-                budget,
-            )
-            .await?
-                != receipt
-            {
-                return Err(Error::Contract);
-            }
+
         }
         for invariant in checks {
-            let mut check = (invariant.create)(budget);
+            let mut frames = Vec::new();
             for input in &invariant.inputs {
                 let relation = self
                     .model
@@ -131,21 +115,9 @@ impl GenerationStore {
                     budget,
                 )
                 .await?;
-                visit_named(
-                    tx,
-                    generation,
-                    relation,
-                    &physical,
-                    input.order(),
-                    budget,
-                    |batch| {
-                        check.visit_input(input, &batch)?;
-                        Ok(())
-                    },
-                )
-                .await?;
+                frames.push(physical);
             }
-            check.finish(sources, profile)?;
+            session.publication(tx, invariant, frames, sources, profile).await?;
         }
         Ok(())
     }

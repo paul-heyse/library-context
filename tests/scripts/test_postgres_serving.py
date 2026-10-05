@@ -42,11 +42,7 @@ def test_current_bootstrap_split_credentials_and_existing_database_refusal(datab
         assert user == connection["PGUSER"]
     call(
         [
-            str(ROOT / "target/release/lctx"),
-            "--database",
-            str(folder / "postgres.json"),
-            "store",
-            "check",
+            "just", "store-check", "--database", str(folder / "postgres.json"),
         ]
     )
     with pytest.raises(subprocess.CalledProcessError) as refused:

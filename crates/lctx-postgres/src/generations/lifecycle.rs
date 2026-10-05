@@ -673,6 +673,7 @@ impl SealedAttempt {
                 lifecycle,
                 content,
                 admission,
+                budget: budget.clone(),
             }),
             Err(error) => Err(lifecycle.fail(error).await),
         }
@@ -688,6 +689,7 @@ impl SealedAttempt {
 /// A validated attempt, carrying its content digest and, for facts, its admission.
 pub struct ValidatedAttempt {
     lifecycle: Lifecycle,
+    budget: ResourceBudget,
     content: ContentHash,
     admission: Option<FrontierAdmission>,
 }
@@ -714,6 +716,7 @@ impl ValidatedAttempt {
         let Self {
             mut lifecycle,
             admission,
+            budget,
             ..
         } = self;
         let Lifecycle {
@@ -724,7 +727,7 @@ impl ValidatedAttempt {
         } = &mut lifecycle;
         let g = *generation;
         let result = transaction_on(connection, async |tx| {
-            store.publish_step(tx, g, admission.as_ref()).await
+            store.publish_step(tx, g, admission.as_ref(), &budget).await
         })
         .await;
         match result {

@@ -53,6 +53,18 @@ become Unbound; retained formulas do not authorize Entry proof. Exact validation
 grants remain distinct. Existing declared schema/identity changes and their qualification remain
 pending; plan publication does not qualify the model. The coordinator owns the transferred findings.
 
+**Accepted canonical validation target; implementation in progress, 2026-10-04 (ADR-0126).**
+Validation definitions have stable semantic IDs/revisions, complete ordered relation/prefix inputs
+and one constructor each. Records and stage uses reference definitions rather than reconstructing
+them. Definition/ref/input identity participates in model identity. Unresolved references, conflicting
+definitions and missing required premises refuse model construction; finite models do not silently
+run a smaller replay. Source-call headers, invocations and arguments reference the same replay
+obligation. Store execution/acknowledgement remains an effect of this model, never an independent
+semantic registry. [Assurance coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md)
+owns implementation and acceptance.
+
+> Decision: ADR-0126
+
 One model-owned embedding specification/value/text/admission/consumption contract serves analytics
 and retrieval. PostgreSQL retains immutable cache winners; attempts publish exact consumed values
 and consumer receipts. Replay is service-free. Fake effects qualify only that seam and cache behavior.

@@ -121,7 +121,7 @@ there is no requirement to run the retired full suite first.
 
 ## 5. Findings and current checkpoint
 
-**Sole disposition owner, 2026-10-04.** All packages are Proposed/not implemented. Source findings
+**Sole disposition owner, 2026-10-05.** The pivot is in progress; the working-tree slices below do not establish combined qualification. Source findings
 retain their original diagnosis and IDs; remedies are assessed against this selected target.
 
 | Finding | Current disposition | Responsible component and closure evidence |
@@ -132,15 +132,15 @@ retain their original diagnosis and IDs; remedies are assessed against this sele
 | F04 | Scheduled, open — P0/P4 | Validation/evaluation owner and oracle harness owners. Every current coverage claim names a live correctly classified control; obsolete Pysa/CrossHair evidence and dangling consumers are removed after active obligations move. |
 
 This coordinator does not take O08 or TA-F/LL-F disposition from other coordinators. The
-[analytic-kernel assurance plan](analytic-kernel-assurance-plan_2026-10-04.md) supplies implemented
-K1/K2 meaning and fit rationale; the analytical enrichment coordinator still owns O08. P0/P4 move
-its enduring requirements to analytics/validation owners and retain its current controls within the
-new family, then retire that supporting document when its last substantive consumer has moved.
-Existing historical qualification links alone do not require retention.
+[analytics assurance owner](../design/sections/analytics.md#section-9-6) now owns K1/K2 meaning, bounded independent controls and production fit rationale; the analytical
+enrichment coordinator still owns O08. The supporting document is retired. Existing historical
+qualification links alone do not require retention.
 
-Next executable work is P0 plus T0's contract/control mapping; P1 can then implement canonical
-definition ownership while T1 restructures pure controls. No production edits, test redesign,
-runtime proof reuse or cadence change were implemented by plan authoring.
+P0/T0's accepted contract is ADR-0126. Current model/store/validation owners carry canonical
+obligations, acknowledged immutability, explicit audit and evidence classification. The retired
+Pysa/CrossHair folders and analytic supporting plan have been removed after surviving requirements
+moved to validation/analytics. P1 model declaration migration and P2/P3 store consumers are being
+implemented; no new proof trust or enclosing acceptance is yet Tested.
 
 **Authoring verification, 2026-10-04:** `UV_NO_SYNC=1 just docs-check` **passed**, 304 canonical
 pages and zero link errors, including ADR/agent checks. Production compile/tests/qualification
@@ -179,3 +179,33 @@ owns their surviving obligation. Rebuild regenerable receipts/state under the ne
 readers before replacing any project runtime state. No old-format readers, dual gates, rollback
 assets or historical evidence archive are added. Unrelated concurrent edits and build caches remain
 preserved. Any proposed new hook/register/document must have a concrete current consumer.
+
+## 7. Current contract/control map and execution checkpoint
+
+**Implemented mapping, 2026-10-05; replacement controls still require qualification.**
+This table maps surviving guarantees, including open Q0/Q1 and Phase 5 fixture obligations, to the
+launcher selections in `scripts/verify.py`. Existing coordinators retain their finding IDs and
+real-library stop; this is no second disposition register.
+
+| Guarantee / expectation source | Required replacement family and concrete controls |
+|---|---|
+| Typed identity, complete premise/ref closure, nullable Named fields, append-only codebooks and wire/request resource meaning | Model family (`lctx-model`); reviewable CLI schema snapshot `lctx::model_describe` in the serving assembly. Snapshot changes require reviewed migration, never auto-update |
+| Bounded finite analytics semantics, support and sound partial outcomes | Analytics family; `implication_oracle` retains direct incidence, independent concepts and odis consequences. O08/Q1 remain at enrichment coordinator |
+| Current linked Ruff/ty/Pyrefly facts, source correspondence and retained Flow timing | Provider family: native `typed_flow`, `typed_calls`, `native_overload_origins`, `typed_ruff_context`, `harness` and Flow shapes/capture timing. Harness CLI comparison is parity |
+| Actual role/schema lowering, acknowledgement, delayed/queued writers, immutable prefix, cancellation, exact proof hits/misses and explicit corruption audit | Store family: generation/stage/vocabulary/read/publication/lifecycle/catalog/install/serving-shape/analysis controls, plus validation-session unit controls. Disposable PG installation checks the owned schema; default operator store is excluded |
+| Producer-to-store structural/behavioral/facts/selection and original-packet fidelity, missing/empty/partial distinctions | Serving assembly includes `cpg-core` structural/frontier/selection/validation-view/facts-generation/admission targets plus current `lctx` packet/evidence/native/admission journeys |
+| Remaining Q0/Q1 conditional/generated/Terminal/raised positive and incomplete packets | Serving assembly: `serving_packets`, `conditional_output_packets`, `terminal_question_packets`, `raised_type_selection`; isolated source/profile/seeds remain distinct |
+| Actual native conversion, MCP listing/calls, metadata and resource bytes | Serving qualification and current actual-stdio callers; Python wire/envelope/unit controls run once, without separately re-running scripts those Cargo callers already invoke |
+| Shared immutable preparation without shared request state | `serving_cohort::immutable_catalog_cohort`: default Catalog find/retrieval/mandatory-packet cases use one fixture, fresh executions and local ranking/cursors. Mutation/lifecycle/corruption cases stay isolated |
+| Independent raw-flow and original served claims | Oracle family: actual CPython raw-flow comparison and Rust `serving_soundness` producer/store/served comparison. Its observation-bundle driver is not separately counted as served correctness |
+| Readiness membership/content/lock/model/config changes, scope selection and honest failure collection | Tooling family `test_build_environment`/`test_verify`; native import/model agreement also requires actual provider/serving controls after scoped readiness |
+| Rust authority boundaries and documentation/process meaning | Compile-fail docs and affected ADR/agent/docs/Python/dependency leaves, full keep-going Clippy at assembled scope completion |
+
+**Focused launcher receipt, 2026-10-05:** `python3 scripts/build_environment.py -- uv run
+--no-sync pytest tests/scripts/test_verify.py tests/scripts/test_build_environment.py -q`
+**passed**, 15 controls. These test launcher/readiness-key behavior, not real producer/store/transport
+qualification. The targeted `python3 scripts/build_environment.py -- cargo check --release -p lctx-postgres
+--tests` is **failed / integration pending** on missing definition `digest()` methods while the
+model executor's canonical API is being implemented. New PG freeze/proof/audit/cohort controls,
+assembled qualification and full keep-going Clippy are **not_run**, pending that integration. No performance measurement
+or real-library activation is claimed.

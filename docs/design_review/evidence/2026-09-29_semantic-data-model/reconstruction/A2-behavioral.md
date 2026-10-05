@@ -123,7 +123,7 @@ Provider rows carry the schema `Fidelity` codebook (`crates/cpg-schema/src/codeb
 |---|---|---|---|---|---|
 | `model_targets`, `model_transfers`, `model_effects`, … (behavior.rs:705-763) | authored catalog `crates/cpg-schema/models/external.toml`: 8 transfer rules, all Parameter → ReturnValue, identity or transform | synthetic model (`Origin::SyntheticModel`) | per-rule `coverage = {transfers = complete / partial / unspecified …}` and `modality` | `(model_id, target, rule_id)` | modeled seeds. Not served. |
 | `model_applications`, `model_argument_bindings`, `modeled_transfer_sites`, `modeled_exact_value_transfers`, `modeled_argument_evaluations` (behavior.rs:2069-2402) | SQL over Pysa `call_targets` (Pyrefly fork `a07b7ba…`, `Cargo.toml:55`) | resolved (Pysa ReportProjection) | `status Unknown` + `reason`; `candidate_set_complete_under_model`, `has_unresolved_remainder` | keys include `pysa_fact_id` | finite modeled seeds. Not served. |
-| Pysa TITO | evaluation-only oracle (`docs/design_review/evidence/2026-09-25_pysa-tito-rule/README.md`; test `crates/cpg-core/tests/compile.rs:1981`) | external | – | – | **Not a compiler input** |
+| Pysa TITO | retired historical TITO observation; no live matched-source compiler control (validation owner §8.1) | external | – | – | **Not a compiler input** |
 
 ### 1.6 Discharge family
 

@@ -698,8 +698,11 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     damaged_h.seal().await.unwrap();
     damaged_h.validate(&budget()).await.unwrap();
     sqlx::query("UPDATE lctx_model_store.validation_receipts SET validator_name='substituted' WHERE generation_id=decode($1,'hex') AND validator_name='input_manifest_membership'").bind(damaged.hex()).execute(&owner).await.unwrap();
-    assert!(matches!(damaged_h.publish().await, Err(Error::Contract)));
-    damaged_h.abort().await.unwrap();
+    // Normal publication trusts exact definition/binding stamps. Privileged substitution
+    // of the display label is an explicit audit concern.
+    assert!(store.audit(damaged, lctx_model::domain::admission::Frontier::Conformance, None, &budget()).await.is_err());
+    damaged_h.publish().await.unwrap();
+    store.retire(damaged).await.unwrap();
     // Missing reference is caught against sealed stored contents, not a caller's batch receipt.
     let mut bad_h = Harness::begin(
         &store,

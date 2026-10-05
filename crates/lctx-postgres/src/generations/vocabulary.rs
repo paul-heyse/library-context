@@ -214,16 +214,14 @@ impl GenerationStore {
                 .iter()
                 .find(|r| r.name() == name)
                 .ok_or(Error::Contract)?;
-            let frozen = receipt(tx, g, relation, &delta, budget).await?;
             let sealed = group
                 .stages()
                 .iter()
                 .find(|s| s.completion().stage() == stage)
                 .and_then(|s| s.deltas().get(name.as_str()))
                 .ok_or(Error::Contract)?;
-            if frozen != *sealed
-                || i64::try_from(frozen.rows).ok() != Some(*count)
-                || frozen.content.0 != digest.as_slice()
+            if i64::try_from(sealed.rows).ok() != Some(*count)
+                || sealed.content.0 != digest.as_slice()
             {
                 return Err(Error::Contract);
             }
@@ -335,13 +333,13 @@ impl GenerationStore {
                 }
             }
         }
-        for invariant in self
-            .model
-            .invariants()
-            .iter()
-            .filter(|i| i.inputs.iter().all(|r| available.contains(r.name())))
-        {
-            let mut check = (invariant.create)(budget);
+        let mut session = super::validation_session::Session::new(self, tx, g, budget).await?;
+        let invariants = self.model.invariants_for_scope(&available.iter().map(String::as_str).collect())?;
+        let _plan = budget.reserve("validation-input-plan", invariants.iter()
+            .map(|i| 128 + i.inputs.len().saturating_mul(512)).sum())?;
+        let mut requests = Vec::new();
+        for invariant in &invariants {
+            let mut frames = Vec::new();
             for input in &invariant.inputs {
                 let relation = self
                     .model
@@ -362,25 +360,24 @@ impl GenerationStore {
                     budget,
                 )
                 .await?;
-                visit_named(tx, g, relation, &view, input.order(), budget, |batch| {
-                    check.visit_input(input, &batch)?;
-                    Ok(())
-                })
-                .await?;
+                frames.push(view);
             }
-            check.finish()?;
+            requests.push((invariant, frames));
+
         }
+        session.invariants(tx, &requests, true).await?;
         let mut outputs = BTreeMap::new();
         for stage in group.stages() {
             let completion = stage.completion();
             super::check_schedule(tx, g, completion.schedule()).await?;
-            self.check_publication_outputs(
+            self.check_publication_outputs_prepared(
                 tx,
                 g,
                 completion.outputs(),
                 completion.sources(),
                 Some(group.prefix()),
                 budget,
+                &mut session,
             )
             .await?;
             let mut receipts = BTreeMap::new();
@@ -391,8 +388,8 @@ impl GenerationStore {
                     .iter()
                     .find(|r| r.name() == *name)
                     .ok_or(Error::Contract)?;
-                let frozen =
-                    receipt(tx, g, relation, &physical(name, group.prefix()), budget).await?;
+                let input = lctx_model::domain::ValidationInput::of_relation(relation, &["id"]);
+                let frozen = session.frame(tx, &input, &physical(name, group.prefix()), true).await?;
                 sqlx::query(
                     "INSERT INTO lctx_model_store.stage_receipts VALUES($1,$2,$3,$4,$5,$6)",
                 )
@@ -428,14 +425,8 @@ impl GenerationStore {
             .iter()
             .filter(|r| available.contains(r.name()) && is_vocabulary(r.name()))
         {
-            let frozen = receipt(
-                tx,
-                g,
-                relation,
-                &physical(relation.name(), group.prefix()),
-                budget,
-            )
-            .await?;
+            let input = lctx_model::domain::ValidationInput::of_relation(relation, &["id"]);
+            let frozen = session.frame(tx, &input, &physical(relation.name(), group.prefix()), true).await?;
             vocabulary.insert(relation.name(), frozen);
             sqlx::query("INSERT INTO lctx_model_store.epoch_receipts VALUES($1,$2,$3,$4,$5)")
                 .bind(g.0.to_vec())

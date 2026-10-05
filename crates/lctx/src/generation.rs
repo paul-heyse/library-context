@@ -35,6 +35,12 @@ fn parse_frontier(s: &str) -> Result<Frontier, String> {
         .ok_or_else(|| format!("{s:?} is not a frontier"))
 }
 
+fn parse_boundary(s: &str) -> Result<lctx_model::domain::stages::PublicationBoundary, String> {
+    use lctx_model::domain::stages::PublicationBoundary;
+    PublicationBoundary::ALL.into_iter().find(|p| p.name() == s)
+        .ok_or_else(|| format!("{s:?} is not a publication boundary"))
+}
+
 #[derive(Debug, Subcommand)]
 pub enum GenerationCommand {
     /// Generations with their state, frontier, profile, selection, readers and writer.
@@ -53,6 +59,17 @@ pub enum GenerationCommand {
     Select {
         #[arg(value_parser = parse_generation)]
         generation: GenerationId,
+    },
+    /// Recompute acknowledged physical content and model obligations without repairing.
+    Audit {
+        #[arg(value_parser = parse_generation)]
+        generation: GenerationId,
+        #[arg(long, value_parser = parse_frontier, default_value = "catalog")]
+        frontier: Frontier,
+        #[arg(long, value_parser = parse_boundary)]
+        prefix: Option<lctx_model::domain::stages::PublicationBoundary>,
+        #[arg(long, default_value_t = 268_435_456)]
+        memory_bytes: usize,
     },
     ClearSelection,
     /// Remove an unselected published generation that no reader leases.
@@ -136,6 +153,12 @@ pub async fn generation(command: GenerationCommand, database: &Database) -> anyh
         owner_command => {
             let store = GenerationStore::open(database.owner().await?, model()?).await?;
             match owner_command {
+                GenerationCommand::Audit { generation, frontier, prefix, memory_bytes } => {
+                    let budget = lctx_model::domain::resources::ResourceBudget::fixed(memory_bytes)?;
+                    let report = store.audit(generation, frontier, prefix, &budget).await?;
+                    println!("{}", serde_json::to_string_pretty(&json!({"generation":generation.hex(),
+                        "relations":report.relations,"semantic_checks":report.semantic_checks}))?);
+                }
                 GenerationCommand::Select { generation } => {
                     store.select(generation).await?;
                     println!("selected {}", generation.hex());

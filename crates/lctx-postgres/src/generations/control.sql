@@ -13,6 +13,7 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
 $$;
 CREATE TABLE {control}.installation (
     singleton boolean PRIMARY KEY CHECK(singleton),
+    identity bytea NOT NULL CHECK(octet_length(identity)=16),
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
     physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32)
 );
@@ -41,10 +42,13 @@ CREATE TABLE {control}.receipts (
 CREATE TABLE {control}.validation_receipts (
     generation_id bytea NOT NULL REFERENCES {control}.generations(id),
     validator_name text NOT NULL,
-    content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
+    definition_digest bytea NOT NULL CHECK(octet_length(definition_digest)=32),
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
     physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32),
-    PRIMARY KEY(generation_id,validator_name)
+    binding_digest bytea NOT NULL CHECK(octet_length(binding_digest)=32),
+    -- Replay data, not live read authority; explicit audit challenges this binding independently.
+    proof_context jsonb NOT NULL,
+    PRIMARY KEY(generation_id,binding_digest)
 );
 CREATE TABLE {control}.stage_receipts (
     generation_id bytea NOT NULL REFERENCES {control}.generations(id),
@@ -90,8 +94,9 @@ CREATE TABLE {control}.stage_read_checks (
     generation_id bytea NOT NULL REFERENCES {control}.generations(id),
     consumer text NOT NULL,
     check_name text NOT NULL,
-    input_digest bytea NOT NULL CHECK(octet_length(input_digest)=32),
-    PRIMARY KEY(generation_id,consumer,check_name)
+    binding_digest bytea NOT NULL CHECK(octet_length(binding_digest)=32),
+    PRIMARY KEY(generation_id,consumer,check_name),
+    FOREIGN KEY(generation_id,binding_digest) REFERENCES {control}.validation_receipts(generation_id,binding_digest)
 );
 CREATE TABLE {control}.planned_outputs (
     generation_id bytea NOT NULL REFERENCES {control}.generations(id),

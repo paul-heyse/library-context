@@ -61,6 +61,19 @@ invariants name the original Facts prefix explicitly; no consumer invents a seco
 
 > Decision: ADR-0086, ADR-0094, ADR-0105
 
+**Accepted trust boundary, implementation in progress, 2026-10-04.** Complete acknowledgements
+are trusted under enforced owned immutability. Direct output locks drain in-flight writes before
+receipt/grant transitions. Private vocabulary deltas are drained, sealed and revoked before merge;
+closed prefix payloads, membership and view meaning remain immutable under legal service operations.
+Routine reads resolve acknowledged identities and current admission without privileged-tamper
+rehashing. `lctx generation audit` is explicit, budgeted and read-only; repair quiesces consumers and
+rebuilds under a new installation/generation identity. Candidate proof writes commit atomically with
+closure; failure/cancellation/uncertain acknowledgement supplies no usable conclusion. No global
+proof cache or compatibility receipt reader is introduced. Qualification belongs to the
+[assurance coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md).
+
+> Decision: ADR-0126
+
 ### §6.3 Schema evolution
 
 **Implemented, 2026-09-30.** Executable declarations are the schema authority. Contract snapshots

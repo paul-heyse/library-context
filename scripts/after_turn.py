@@ -9,8 +9,8 @@ The hooks run only automatic steps, in one place, when the main agent stops:
 - ``prompt`` (UserPromptSubmit hook) never waits; it shows the operator, never the model, the
   steps that failed in the last report.
 
-Non-functional checks (``just hygiene``: type errors, lint, policy and generated-file checks) are
-not run or fixed here: agents run ``just hygiene`` once at scope end and fix what fails.
+Non-functional leaf checks (type errors, lint, policy and generated-file checks) are not run or
+fixed here: agents run applicable leaves at scope end, or ``just qualify`` for assembled acceptance.
 
 Repository facts live in ``.config/after-turn.toml``; this file is the same in every repository
 (canonical copy: project-template). Nothing reaches the main agent's context and every hook exits

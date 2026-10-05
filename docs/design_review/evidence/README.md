@@ -25,9 +25,6 @@ removed and recovered from Git (ADR-0042, [historical recovery](../../README.md#
 | [`2026-09-24_test-leaf-proof-joins`](2026-09-24_test-leaf-proof-joins/README.md) | Do test leaves and entry values join to proof rows by source identity? | ADR-0082 (§3.9 test leaves) |
 | [`2026-09-24_entry-value-bridge`](2026-09-24_entry-value-bridge/README.md) | When is an entry formal stable up to a guard use? | ADR-0025 (proposed native executor) |
 | [`2026-09-24_rust-build-performance`](2026-09-24_rust-build-performance/README.md) | Which development build configuration reuses cached work? | ADR-0079; retained benchmark |
-| [`2026-09-24_typing_cast_model_oracle`](2026-09-24_typing_cast_model_oracle/README.md) | Does the `typing.cast` identity model agree with CPython? | Behavioral analysis §9.9 |
-| [`2026-09-25_typing_assert_type_model_oracle`](2026-09-25_typing_assert_type_model_oracle/README.md) | Does the `typing.assert_type` identity model agree with CPython? | Behavioral analysis §9.9 |
-| [`2026-09-25_pysa-tito-rule`](2026-09-25_pysa-tito-rule/README.md) | Does a real Pysa source→sink rule give an independent TITO control? | `cpg-core` test `pysa_tito_control_uses_the_same_source_as_finite_summary_fixture`; validation §8.1 |
 | [`2026-09-24_z3-5-migration`](2026-09-24_z3-5-migration/README.md) | Can the vLLM service's tilelang build against Z3 5? | `services/vllm` (its tilelang wheel is referenced from here) |
 | [`2026-09-25_bdd-decision-apis`](2026-09-25_bdd-decision-apis/README.md) | Which biodivine decision APIs decide what the kernel refuses? | Forward plan W6/W11 (reasoning review F01–F03) |
 | [`2026-09-25_library-fit-followup-kernel`](2026-09-25_library-fit-followup-kernel/README.md) | Actual-kernel decision refusal, support history, catalog hydration | Forward plan W6 |

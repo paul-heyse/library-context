@@ -4125,6 +4125,7 @@ dependencies = [
  "cpg-extract",
  "datafusion",
  "fs-err",
+ "futures 0.3.34",
  "insta",
  "lctx-embed",
  "lctx-model",

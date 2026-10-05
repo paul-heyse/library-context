@@ -40,7 +40,8 @@ pub(super) async fn control(
     sqlx::raw_sql(sqlx::AssertSqlSafe(ddl::control(ddl::CONTROL)))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO lctx_model_store.installation VALUES (true,$1,$2)")
+    sqlx::query("INSERT INTO lctx_model_store.installation(singleton,identity,model_digest,physical_digest) VALUES (true,$1,$2,$3)")
+        .bind(GenerationId::new()?.0.to_vec())
         .bind(model.digest().0.to_vec())
         .bind(physical.0.to_vec())
         .execute(&mut *tx)

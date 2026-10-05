@@ -197,7 +197,7 @@ impl LeaseContract {
         }
         if let Some(attempt) = &self.attempt {
             for (name, digest) in &attempt.checks {
-                let same = driver.text("SELECT (input_digest=$4)::text FROM lctx_model_store.stage_read_checks WHERE generation_id=$1 AND consumer=$2 AND check_name=$3",
+                let same = driver.text("SELECT (binding_digest=$4)::text FROM lctx_model_store.stage_read_checks WHERE generation_id=$1 AND consumer=$2 AND check_name=$3",
                     &[LeaseParam::Bytes(&g.0), LeaseParam::Text(attempt.consumer.stage()), LeaseParam::Text(name), LeaseParam::Bytes(&digest.0)]).await?;
                 if same.as_deref() != Some("true") {
                     return Err(Error::Contract);

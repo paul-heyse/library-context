@@ -1,10 +1,10 @@
 ---
 id: ADR-0110
 title: End-of-turn hooks run only automatic steps; agents run the non-functional checks at scope end
-status: accepted
+status: superseded
 date: 2026-10-01
 supersedes: [ADR-0104]
-superseded-by: null
+superseded-by: ADR-0126
 design: [§1.2]
 evidence: Tested
 revisit: A non-functional check repeatedly fails late enough at scope end to cost rework, or Claude Code or Codex changes Stop or UserPromptSubmit hook semantics.

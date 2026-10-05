@@ -50,7 +50,7 @@ def native_input_fingerprints(root: Path) -> dict[str, str]:
     return fingerprints
 
 
-def normalized_env(source: dict[str, str], root: Path = ROOT) -> dict[str, str]:
+def normalized_env(source: dict[str, str], root: Path = ROOT, *, native_inputs: bool = True) -> dict[str, str]:
     env = source.copy()
     root = root.resolve()
     for key in TARGET_KEYS:
@@ -64,7 +64,11 @@ def normalized_env(source: dict[str, str], root: Path = ROOT) -> dict[str, str]:
     if override and override.strip():
         env["CARGO_TARGET_DIR"] = str((root / override).resolve())
         env.pop("CARGO_BUILD_TARGET_DIR", None)
-    env.update(native_input_fingerprints(root))
+    if native_inputs:
+        env.update(native_input_fingerprints(root))
+    else:
+        for key in NATIVE_INPUT_KEYS:
+            env.pop(key, None)
     return env
 
 

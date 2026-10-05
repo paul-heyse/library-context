@@ -100,3 +100,14 @@ def test_native_build_keys_preserve_package_scope_and_shell_propagation(tmp_path
         ["bash", "-c", exports + '\nprintf "%s" "$LCTX_NATIVE_STORAGE_INPUTS"'], text=True
     )
     assert result == changed[NATIVE_INPUT_KEYS[1]]
+
+
+def test_pure_cargo_normalization_skips_native_artifact_keys(tmp_path, monkeypatch):
+    import build_environment
+
+    def unexpected(root):
+        raise AssertionError("pure Rust must not fingerprint unrelated Python artifacts")
+
+    monkeypatch.setattr(build_environment, "native_input_fingerprints", unexpected)
+    inherited = {key: "stale" for key in NATIVE_INPUT_KEYS}
+    assert normalized_env(inherited, tmp_path, native_inputs=False) == {}
