@@ -865,7 +865,7 @@ fn assertion_reference_target(reference:&super::SemanticReference)->Result<(Targ
     <super::symbols::SymbolSequenceMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::assumptions::AssumptionSetMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::value::LiteralSetMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
-    _=>Err(invalid("internal reference has no selected semantic graph owner")),
+    _=>Err(ModelError::Invalid(format!("internal reference {}.{} has no selected semantic graph owner",reference.target,reference.field))),
 }}
 impl From<super::flow::FlowUseObservation> for NativeValue{fn from(row:super::flow::FlowUseObservation)->Self{Self::Use(row)}}
 impl From<super::flow::FlowDefinitionObservation> for NativeValue{fn from(row:super::flow::FlowDefinitionObservation)->Self{Self::Definition(row)}}
