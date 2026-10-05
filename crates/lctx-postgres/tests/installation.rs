@@ -29,7 +29,7 @@ fn full() -> Arc<ValidatedModel> {
 fn extended() -> Arc<ValidatedModel> {
     let mut relations = model().unwrap().relations().to_vec();
     relations.push(Relation::of::<ResetProbe>());
-    Arc::new(ValidatedModel::validate(relations).unwrap())
+    Arc::new(ValidatedModel::declared(relations).unwrap())
 }
 /// A provisioned database with the service baseline applied, as production has before install.
 async fn provisioned() -> (DisposableDatabase, tempfile::TempDir) {

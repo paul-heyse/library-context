@@ -236,7 +236,7 @@ fn conjunction_resolves_union_and_missing_distinct_basis_never_becomes_empty() {
 fn lower_native_premises_validate_context_and_missing_is_distinct_from_unknown() {
     let mut f = fixture::Fixture::new(false);
     let (_, _, q) = add_basis(&mut f);
-    let invariant = AssumptionSet::invariants()[0].clone();
+    let invariant = lctx_model::domain::validation::invariants_for::<AssumptionSet>()[0].clone();
     f.base.check(&invariant).unwrap();
     let mut qs = f.base.rows::<AssertionQualification>();
     qs.retain(|r| r.id() != q.id());
@@ -360,7 +360,7 @@ fn universe_identity_changes_with_actual_pinned_definition_and_refuses_arbitrary
     f.base.put(vec![bad, support]);
     assert!(
         f.base
-            .check(&AssumptionUniverseSupport::invariants()[0])
+            .check(&lctx_model::domain::validation::invariants_for::<AssumptionUniverseSupport>()[0])
             .unwrap_err()
             .to_string()
             .contains("actual pinned definition")
@@ -486,7 +486,7 @@ fn override_premise_binds_actual_class_support_and_universe_environment() {
             ..q
         }]
     );
-    let invariant = AssumptionSet::invariants()[0].clone();
+    let invariant = lctx_model::domain::validation::invariants_for::<AssumptionSet>()[0].clone();
     f.base.check(&invariant).unwrap();
     let changed = AssumptionUniverse {
         environment: ContentHash::of(b"other environment"),

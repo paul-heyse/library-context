@@ -9,7 +9,7 @@ use std::sync::Arc;
 async fn unicode_string_values_roundtrip_through_real_postgres_without_escaping() {
     let db = DisposableDatabase::start().await;
     // This control owns literal encoding, not upper-frontier producer configuration.
-    let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap());
+    let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<Literal>()]).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

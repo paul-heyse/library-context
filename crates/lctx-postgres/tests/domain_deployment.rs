@@ -15,7 +15,7 @@ async fn captured_reports_preserve_values_and_reject_incomplete_or_foreign_evide
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -28,11 +28,11 @@ async fn captured_reports_preserve_values_and_reject_incomplete_or_foreign_evide
         }
         let valid = !foreign && !missing;
         assert_eq!(
-            fixture.check(&TaskReportSupport::invariants()[0]).is_ok(),
+            fixture.check(&lctx_model::domain::validation::invariants_for::<TaskReportSupport>()[0]).is_ok(),
             !foreign
         );
         assert_eq!(
-            fixture.check(&ReportCollection::invariants()[0]).is_ok(),
+            fixture.check(&lctx_model::domain::validation::invariants_for::<ReportCollection>()[0]).is_ok(),
             !missing
         );
         let mut generation_h = Harness::begin(

@@ -15,7 +15,7 @@ async fn declaration_links_and_call_syntax_round_trip_and_refuse_stray_parameter
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

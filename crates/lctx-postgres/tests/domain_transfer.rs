@@ -657,7 +657,7 @@ fn transfer_model() -> ValidatedModel {
         Relation::of::<normalized::entities::FieldEntity>(),
         Relation::of::<EntityRef>(),
     ]);
-    ValidatedModel::validate(relations).unwrap()
+    ValidatedModel::declared(relations).unwrap()
 }
 
 // Preserve the existing lifecycle checks while delegating every transition to real store capabilities.

@@ -293,7 +293,7 @@ async fn located_receiver_queries_keep_properties_separate_and_refuse_any_and_wr
             .iter()
             .any(|f| f.name.as_str() == "size" && f.default_term.is_some())
     );
-    let invariant = TypeObservation::invariants()
+    let invariant = lctx_model::domain::validation::invariants_for::<TypeObservation>()
         .into_iter()
         .find(|i| i.name == "selected_type_location_shapes")
         .unwrap();

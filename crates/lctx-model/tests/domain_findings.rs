@@ -28,7 +28,7 @@ fn frame<R: Record>(rows: &[R]) -> (&'static str, arrow_array::RecordBatch) {
     (R::NAME, R::encode(rows).unwrap())
 }
 fn check(frames: Vec<(&str, arrow_array::RecordBatch)>) -> Result<(), ModelError> {
-    let invariant = Finding::invariants().remove(0);
+    let invariant = lctx_model::domain::validation::invariants_for::<Finding>().remove(0);
     let rows = frames
         .into_iter()
         .collect::<std::collections::BTreeMap<_, _>>();

@@ -19,10 +19,10 @@ fn ready<T>(future: impl Future<Output = T>) -> T {
     }
 }
 fn package_release_model() -> ValidatedModel {
-    ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap()
+    ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap()
 }
 fn input_order_model() -> ValidatedModel {
-    ValidatedModel::validate(vec![
+    ValidatedModel::declared(vec![
         Relation::of::<InputRevision>(),
         Relation::of::<SourceArtifact>(),
         Relation::of::<ArtifactChunk>(),
@@ -31,7 +31,7 @@ fn input_order_model() -> ValidatedModel {
     .unwrap()
 }
 fn package_model() -> ValidatedModel {
-    ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap()
+    ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap()
 }
 fn generation<R: Record>(model: &ValidatedModel, batches: Vec<Vec<R>>) -> MemoryGeneration {
     let generation = MemoryGeneration::conformance(model, &budget());

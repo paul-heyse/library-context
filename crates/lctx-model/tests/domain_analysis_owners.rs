@@ -40,7 +40,7 @@ fn invocation(definition: &AnalysisDefinition) -> local::Invocation {
     local::Invocation::new(nominal(1), nominal(2), definition.id(), None, []).0
 }
 fn check<R: Record>(frames: Vec<(&str, arrow_array::RecordBatch)>) -> Result<(), ModelError> {
-    let invariant = R::invariants().remove(0);
+    let invariant = lctx_model::domain::validation::invariants_for::<R>().remove(0);
     let rows = frames.into_iter().collect::<BTreeMap<_, _>>();
     let mut check = (invariant.create)(&budget());
     for input in invariant.inputs {
@@ -57,7 +57,7 @@ fn owners_are_distinct_and_early_manifest_excludes_future_results() {
         local::SupportSource::NAME,
         analysis::synthesis::SupportSource::NAME
     );
-    let inputs = local::Invocation::invariants().remove(0).inputs;
+    let inputs = lctx_model::domain::validation::invariants_for::<local::Invocation>().remove(0).inputs;
     assert!(
         !inputs
             .iter()
@@ -374,10 +374,10 @@ fn native_preparation_closure_excludes_later_results_and_final_coverage() {
                 pending.push(target);
             }
         }
-        for invariant in relation.invariants() {
+        for invariant in relation.resolved_invariants(&model).unwrap() {
             pending.extend(invariant.inputs.iter().map(ValidationInput::name));
         }
-        for check in relation.publication_checks() {
+        for check in relation.resolved_publications(&model).unwrap() {
             pending.extend(check.inputs.iter().map(ValidationInput::name));
         }
     }

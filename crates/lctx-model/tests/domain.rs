@@ -90,7 +90,7 @@ struct NamedItem {
 }
 #[test]
 fn key_and_payload_conflicts_are_distinct() {
-    let model = ValidatedModel::validate(vec![Relation::of::<NamedItem>()]).unwrap();
+    let model = ValidatedModel::declared(vec![Relation::of::<NamedItem>()]).unwrap();
     let a = NamedItem {
         name: "a".into(),
         payload: "one".into(),
@@ -115,9 +115,9 @@ fn key_and_payload_conflicts_are_distinct() {
 }
 #[test]
 fn reference_membership_is_checked_and_cycles_are_allowed() {
-    assert!(ValidatedModel::validate(vec![Relation::of::<Module>()]).is_err());
+    assert!(ValidatedModel::declared(vec![Relation::of::<Module>()]).is_err());
     assert!(
-        ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Package>()])
+        ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Package>()])
             .is_err()
     );
     #[derive(Debug, Clone, PartialEq, Eq, Domain)]
@@ -127,7 +127,7 @@ fn reference_membership_is_checked_and_cycles_are_allowed() {
         name: String,
         parent: Option<Id<RecursiveNode>>,
     }
-    assert!(ValidatedModel::validate(vec![Relation::of::<RecursiveNode>()]).is_ok());
+    assert!(ValidatedModel::declared(vec![Relation::of::<RecursiveNode>()]).is_ok());
 }
 #[test]
 fn reference_and_provenance_are_orthogonal() {
@@ -239,8 +239,8 @@ fn semantic_validation_revision_changes_model_but_not_arrow_schema() {
         name: String,
     }
     assert_eq!(Before::schema(), After::schema());
-    let before = ValidatedModel::validate(vec![Relation::of::<Before>()]).unwrap();
-    let after = ValidatedModel::validate(vec![Relation::of::<After>()]).unwrap();
+    let before = ValidatedModel::declared(vec![Relation::of::<Before>()]).unwrap();
+    let after = ValidatedModel::declared(vec![Relation::of::<After>()]).unwrap();
     assert_ne!(before.digest(), after.digest());
 }
 
@@ -257,7 +257,7 @@ fn tagged_sums_preserve_active_optional_null_and_reject_inactive_payloads() {
         #[model(code = 1)]
         Present { rendered: Option<String> },
     }
-    let model = ValidatedModel::validate(vec![Relation::of::<ObservedDefault>()]).unwrap();
+    let model = ValidatedModel::declared(vec![Relation::of::<ObservedDefault>()]).unwrap();
     let rows = vec![
         ObservedDefault::Absent,
         ObservedDefault::Present { rendered: None },
@@ -310,7 +310,7 @@ fn subtype_references_require_the_right_arm() {
     }
     let mut relations = model().unwrap().relations().to_vec();
     relations.push(Relation::of::<ModuleScopeLink>());
-    let model = ValidatedModel::validate(relations).unwrap();
+    let model = ValidatedModel::declared(relations).unwrap();
     let link = ModuleScopeLink {
         scope: CoverageScopeModuleId::of(&module_scope).unwrap(),
     };
@@ -334,7 +334,7 @@ struct BinaryEvidence {
 #[test]
 fn binary_evidence_and_streamed_content_preserve_payload_and_batch_independence() {
     use lctx_model::domain::EvidenceBytes;
-    let model = ValidatedModel::validate(vec![Relation::of::<BinaryEvidence>()]).unwrap();
+    let model = ValidatedModel::declared(vec![Relation::of::<BinaryEvidence>()]).unwrap();
     let batch = Batch::new(
         &model,
         vec![
@@ -754,7 +754,7 @@ fn canonical_artifact_chunks_preserve_original_bytes_and_refuse_incomplete_proof
     assert_eq!(a.rows(), b.rows());
     assert_eq!(ArtifactChunk::decode(a.arrow()).unwrap(), a.rows());
     // This is the actual model-owned cross-relation validator, not a test-only reconstruction.
-    let invariant = SourceArtifact::invariants().remove(0);
+    let invariant = lctx_model::domain::validation::invariants_for::<SourceArtifact>().remove(0);
     for missing in [false, true] {
         let mut check = (invariant.create)(&budget());
         check
@@ -861,7 +861,7 @@ fn corpus_uses_and_distribution_verification_cannot_cross_undeclared_inputs() {
         check.visit(R::NAME, Batch::new(model, rows, &budget())?.arrow())
     }
     for linked in [false, true] {
-        let mut check = (InputAcquisition::invariants()[0].create)(&budget());
+        let mut check = (lctx_model::domain::validation::invariants_for::<InputAcquisition>()[0].create)(&budget());
         feed(
             &model,
             &mut *check,
@@ -897,7 +897,7 @@ fn corpus_uses_and_distribution_verification_cannot_cross_undeclared_inputs() {
         artifact_sha256: vec![],
     };
     for member in [false, true] {
-        let mut check = (InputAcquisition::invariants()[0].create)(&budget());
+        let mut check = (lctx_model::domain::validation::invariants_for::<InputAcquisition>()[0].create)(&budget());
         feed(&model, &mut *check, vec![origin.clone()]).unwrap();
         feed(&model, &mut *check, vec![acquired.clone()]).unwrap();
         if member {
@@ -938,7 +938,7 @@ fn borrowed_identity_and_streamed_codecs_preserve_owned_key_contracts() {
         #[model(code = 1)]
         Text { value: String, note: Option<String> },
     }
-    let m = ValidatedModel::validate(vec![
+    let m = ValidatedModel::declared(vec![
         Relation::of::<Choice>(),
         Relation::of::<Payload>(),
         Relation::of::<NamedItem>(),

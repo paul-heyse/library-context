@@ -77,7 +77,7 @@ async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
     declarations.extend(execution::summary_proof::relations());
     declarations.sort_by_key(Relation::name);
     declarations.dedup_by_key(|r| r.name());
-    let model = Arc::new(ValidatedModel::validate(declarations).unwrap());
+    let model = Arc::new(ValidatedModel::declared(declarations).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

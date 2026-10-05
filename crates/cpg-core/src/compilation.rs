@@ -878,7 +878,7 @@ mod binding_tests {
             UpperStage::ALL.iter().map(|s| s.name()).collect();
         assert_eq!(names.len(), UpperStage::ALL.len());
         let model =
-            ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()])
+            ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
                 .unwrap();
         let stage = |name, inputs, outputs| Stage {
             name,
@@ -926,7 +926,7 @@ mod binding_tests {
     fn earlier_vocabulary_prefix_does_not_depend_on_later_catalog_extension() {
         use lctx_model::domain::value::Literal;
         let model =
-            ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+            ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
                 .unwrap();
         let stage = |name, inputs, outputs| Stage {
             name,

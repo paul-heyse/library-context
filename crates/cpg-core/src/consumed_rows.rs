@@ -155,7 +155,7 @@ mod tests {
     #[tokio::test]
     async fn two_acknowledged_epochs_remain_distinct_while_same_source_aliases_coalesce() {
         let model =
-            ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+            ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
                 .unwrap();
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let stage = |name, inputs, outputs| Stage {

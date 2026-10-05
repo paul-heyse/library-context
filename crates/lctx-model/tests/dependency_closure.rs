@@ -20,7 +20,7 @@ fn order() -> PublicationOrder {
 }
 #[test]
 fn separate_epochs_and_orders_lower_by_publication_ordinal_without_erasing_requirements() {
-    let model = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
+    let model = ValidatedModel::declared(vec![Relation::of::<Literal>()]).unwrap();
     let closure = DependencyClosure::build(
         &model,
         vec![
@@ -55,7 +55,7 @@ fn separate_epochs_and_orders_lower_by_publication_ordinal_without_erasing_requi
 }
 #[test]
 fn inferred_facts_omission_preserves_explicit_inputs_and_unfinished_output_refuses() {
-    let model = ValidatedModel::validate(vec![
+    let model = ValidatedModel::declared(vec![
         Relation::of::<Probe>(),
         Relation::of::<Literal>(),
         Relation::of::<Package>(),
@@ -114,13 +114,14 @@ fn inferred_facts_omission_preserves_explicit_inputs_and_unfinished_output_refus
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="closure_epoch_probe", invariants=epoch_checks, semantic_source=include_bytes!("dependency_closure.rs"))]
+#[model(name="closure_epoch_probe", invariant_refs=epoch_checks_refs, semantic_source=include_bytes!("dependency_closure.rs"))]
 struct EpochProbe {
     #[model(key)]
     value: Id<Literal>,
 }
 fn epoch_checks() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "closure_extra_epoch_and_fact_premise",
         inputs: vec![
             ValidationInput::of::<Package>(&["id"]),
@@ -144,7 +145,7 @@ fn extra_invariant_epoch_and_fact_premise_survive_grant_projection() {
         Relation::of::<EpochProbe>(),
         Relation::of::<Package>(),
         Relation::of::<Literal>(),
-    ])
+    ], ValidationDefinitions { invariants: epoch_checks(), publication_checks: vec![] })
     .unwrap();
     let build = |direct| {
         DependencyClosure::build(
@@ -203,7 +204,7 @@ fn extra_invariant_epoch_and_fact_premise_survive_grant_projection() {
 
 #[test]
 fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
-    let model = ValidatedModel::validate(vec![
+    let model = ValidatedModel::declared(vec![
         Relation::of::<Probe>(),
         Relation::of::<Literal>(),
         Relation::of::<Package>(),
@@ -265,7 +266,7 @@ fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
         )
         .is_err()
     );
-    let partial = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
+    let partial = ValidatedModel::declared(vec![Relation::of::<Literal>()]).unwrap();
     assert!(
         DependencyClosure::grants(
             &partial,
@@ -283,7 +284,7 @@ fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
 #[test]
 fn grant_composition_inherits_empty_validators_and_refuses_distinct_nonempty_policies() {
     use lctx_model::domain::attribution::FactFamily;
-    let model = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
+    let model = ValidatedModel::declared(vec![Relation::of::<Literal>()]).unwrap();
     let use_ = RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts);
     let order = order();
     let build = |direct| {
@@ -328,8 +329,8 @@ fn sorted_name_lookup_and_grants_are_independent_of_source_order() {
         Relation::of::<Literal>(),
         Relation::of::<Package>(),
     ];
-    let first = ValidatedModel::validate(relations.clone()).unwrap();
-    let shuffled = ValidatedModel::validate(relations.into_iter().rev().collect()).unwrap();
+    let first = ValidatedModel::declared(relations.clone()).unwrap();
+    let shuffled = ValidatedModel::declared(relations.into_iter().rev().collect()).unwrap();
     assert_eq!(first.relation(Probe::NAME).unwrap().name(), Probe::NAME);
     assert!(first.relation("missing").is_none());
     for model in [&first, &shuffled] {
@@ -358,7 +359,7 @@ fn sorted_name_lookup_and_grants_are_independent_of_source_order() {
 
 #[test]
 fn local_missing_predecessor_is_a_typed_rejection() {
-    let incomplete = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
+    let incomplete = ValidatedModel::declared(vec![Relation::of::<Literal>()]).unwrap();
     for profile in Profile::ALL {
         let result = local_semantics::stage(
             profile,
@@ -369,3 +370,5 @@ fn local_missing_predecessor_is_a_typed_rejection() {
         assert!(matches!(result, Err(ModelError::Invalid(_))));
     }
 }
+
+fn epoch_checks_refs() -> Vec<&'static str> {vec!["closure_extra_epoch_and_fact_premise"]}

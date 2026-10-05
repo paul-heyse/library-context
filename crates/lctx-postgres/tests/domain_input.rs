@@ -15,7 +15,7 @@ use std::sync::Arc;
 #[tokio::test]
 async fn classified_inputs_publish_and_a_double_class_is_refused() {
     let db = DisposableDatabase::start().await;
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

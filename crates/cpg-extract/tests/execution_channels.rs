@@ -1021,9 +1021,7 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
             .iter()
             .any(|row| row.expression == req.expression)
     );
-    let invariant = Relation::of::<EvaluationRun>()
-        .invariants()
-        .iter()
+    let invariant = lctx_model::domain::validation::invariants_for::<EvaluationRun>().iter()
         .find(|check| check.name == "base_evaluation_inventory")
         .unwrap()
         .clone();
@@ -1154,7 +1152,7 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
         unrequested.outcome.status,
         analysis::AnalysisStatus::NotRequested
     );
-    let profile_check = Relation::of::<EvaluationRun>().publication_checks()[0].clone();
+    let profile_check = lctx_model::domain::validation::publication_checks_for::<EvaluationRun>()[0].clone();
     let verify_profile = |profile| {
         let mut check = (profile_check.create)(&budget);
         check
@@ -1310,9 +1308,7 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
             ));
         }
     }
-    let invariant = Relation::of::<CompletionRun>()
-        .invariants()
-        .iter()
+    let invariant = lctx_model::domain::validation::invariants_for::<CompletionRun>().iter()
         .find(|i| i.name == "base_completion_inventory")
         .unwrap()
         .clone();
@@ -1426,7 +1422,7 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
         analysis::AnalysisStatus::NotRequested
     );
     assert!(unrequested.completions.is_empty() && unrequested.boundaries.is_empty());
-    let profile_check = Relation::of::<CompletionRun>().publication_checks()[0].clone();
+    let profile_check = lctx_model::domain::validation::publication_checks_for::<CompletionRun>()[0].clone();
     let verify_profile = |profile| {
         let mut check = (profile_check.create)(&budget);
         check

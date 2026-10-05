@@ -447,7 +447,7 @@ async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
             .iter()
             .any(|v| matches!(v, execution::model_protocol::ContextEntryValue::None { .. }))
     );
-    let invariant = Relation::of::<execution::model_production::ModelRun>().invariants()[0].clone();
+    let invariant = lctx_model::domain::validation::invariants_for::<execution::model_production::ModelRun>()[0].clone();
     for mutation in 0..12 {
         let mut check = (invariant.create)(&f.budget);
         let mut shuffled = batches.clone();

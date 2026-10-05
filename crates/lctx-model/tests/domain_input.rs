@@ -15,7 +15,7 @@ fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
 }
 fn input_model() -> Result<ValidatedModel, ModelError> {
-    ValidatedModel::validate(vec![
+    ValidatedModel::declared(vec![
         Relation::of::<Package>(),
         Relation::of::<Release>(),
         Relation::of::<InputRevision>(),

@@ -21,7 +21,7 @@ fn typed_spec_reconstructs_exact_configuration_and_refuses_payload_drift() {
     let row = EmbeddingSpec::new(&spec).unwrap();
     row.validate().unwrap();
     assert_eq!(row.configuration().unwrap(), spec);
-    let model = ValidatedModel::validate(configuration_relations()).unwrap();
+    let model = ValidatedModel::declared(configuration_relations()).unwrap();
     let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
     let batch = Batch::new(&model, vec![row.clone()], &budget).unwrap();
     assert_eq!(

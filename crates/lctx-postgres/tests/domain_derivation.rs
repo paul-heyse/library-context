@@ -60,7 +60,7 @@ async fn sealed_derivations_refuse_cross_source_cycles_and_expose_only_nominal_t
     let writer = db.writer.clone();
     let reader = db.reader.clone();
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Node>(),
             Relation::of::<Step>(),
             Relation::of::<SelfStep>(),

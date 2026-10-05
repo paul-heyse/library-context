@@ -881,7 +881,7 @@ impl WitnessFixture {
     }
     pub fn check<R: Record>(&self, budget: &ResourceBudget) -> Result<(), ModelError> {
         let model = lctx_model_for_fixture();
-        for invariant in R::invariants() {
+        for invariant in lctx_model::domain::validation::invariants_for::<R>() {
             let mut check = (invariant.create)(budget);
             for input in invariant.inputs {
                 let source = if input.prefix() == Some(stages::PublicationBoundary::Facts) {

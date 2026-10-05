@@ -7,13 +7,14 @@ use lctx_postgres::{generations::GenerationStore, testing::DisposableDatabase};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
-#[model(name="validation_future_probes",publication_checks=future_check,semantic_source=include_bytes!("validation_views.rs"))]
+#[model(name="validation_future_probes",publication_refs=future_check_refs,semantic_source=include_bytes!("validation_views.rs"))]
 struct FutureProbe {
     #[model(key)]
     marker: bool,
 }
 fn future_check() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "future_view_refusal_control",
         inputs: vec![
             ValidationInput::of::<Literal>(&["id"]).at_epoch(PublicationBoundary::Dispatch),
@@ -38,7 +39,7 @@ async fn validation_cannot_widen_a_facts_grant_to_later_vocabulary_even_after_it
             ValidatedModel::validate(vec![
                 Relation::of::<Literal>(),
                 Relation::of::<FutureProbe>(),
-            ])
+            ], ValidationDefinitions { invariants: vec![], publication_checks: future_check() })
             .unwrap(),
         );
         let schedule = Schedule::build_with_publications(
@@ -120,7 +121,7 @@ async fn real_publication_and_final_replay_route_facts_and_current_views_indepen
             Relation::of::<Literal>(),
             Relation::of::<Probe>(),
             Relation::of::<ReadProbe>(),
-        ])
+        ], fixture::definitions())
         .unwrap(),
     );
     let schedule = schedule(&model);
@@ -229,7 +230,7 @@ struct OptionalProbe {
 async fn inactive_nullable_target_is_allowed_but_a_physical_future_target_is_not_authority() {
     for actual_reference in [false, true] {
         let model = Arc::new(
-            ValidatedModel::validate(vec![
+            ValidatedModel::declared(vec![
                 Relation::of::<Literal>(),
                 Relation::of::<OptionalProbe>(),
                 Relation::of::<ReadProbe>(),
@@ -316,3 +317,5 @@ async fn inactive_nullable_target_is_allowed_but_a_physical_future_target_is_not
         assert_eq!(budget.reserved(), 0);
     }
 }
+
+fn future_check_refs() -> Vec<&'static str> {vec!["future_view_refusal_control"]}

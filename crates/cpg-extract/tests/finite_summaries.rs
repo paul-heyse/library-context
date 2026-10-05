@@ -316,7 +316,7 @@ async fn native_call_paths_reach_caller_returns_and_keep_recursive_boundaries() 
             );
         }
         let invariant =
-            Relation::of::<execution::summary_proof::SummaryProofCost>().invariants()[0].clone();
+            lctx_model::domain::validation::invariants_for::<execution::summary_proof::SummaryProofCost>()[0].clone();
         for forged in [false, true] {
             if forged && output.costs.is_empty() {
                 continue;

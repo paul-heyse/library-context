@@ -145,7 +145,7 @@ fn qualified_assertions_preserve_alternatives_and_require_typed_attribution() {
     insert(&model, &mut base, vec![evidence]);
     insert(&model, &mut base, vec![assertion.clone()]);
     insert(&model, &mut base, vec![support.clone(), repeated]);
-    let invariant = SyntaxSupport::invariants().remove(0);
+    let invariant = lctx_model::domain::validation::invariants_for::<SyntaxSupport>().remove(0);
     check(&invariant, &base).unwrap();
     for case in [
         "missing-support",
@@ -415,7 +415,7 @@ fn assertion_condition_context_and_evidence_bounds_are_stored_invariants() {
             }],
         );
         assert_eq!(
-            check(&AssertionQualification::invariants()[0], &batches).is_ok(),
+            check(&lctx_model::domain::validation::invariants_for::<AssertionQualification>()[0], &batches).is_ok(),
             context == ctx.id()
         );
     }
@@ -431,7 +431,7 @@ fn assertion_condition_context_and_evidence_bounds_are_stored_invariants() {
             }],
         );
         assert_eq!(
-            check(&Evidence::invariants()[0], &batches).is_ok(),
+            check(&lctx_model::domain::validation::invariants_for::<Evidence>()[0], &batches).is_ok(),
             end == 1
         );
     }
@@ -442,20 +442,20 @@ fn super_predicate() -> Id<lctx_model::domain::value::Predicate> {
 
 #[test]
 fn assertion_model_requires_its_concrete_support_companion() {
-    let complete = ValidatedModel::validate(facts_relations()).unwrap();
+    let complete = ValidatedModel::declared(facts_relations()).unwrap();
     let without_support = complete
         .relations()
         .iter()
         .filter(|r| r.name() != SyntaxSupport::NAME)
         .cloned()
         .collect();
-    let error = ValidatedModel::validate(without_support).unwrap_err();
+    let error = ValidatedModel::declared(without_support).unwrap_err();
     assert!(
         error
             .to_string()
             .contains("requires companion relation syntax_supports")
     );
-    ValidatedModel::validate(complete.relations().to_vec()).unwrap();
+    ValidatedModel::declared(complete.relations().to_vec()).unwrap();
 }
 
 /// A fresh attempt budget; these controls do not share reservations across batches.

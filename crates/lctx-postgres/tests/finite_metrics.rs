@@ -20,7 +20,7 @@ struct Metric {
 #[tokio::test]
 async fn checked_metrics_roundtrip_and_store_refuses_noncanonical_values() {
     let db = DisposableDatabase::start().await;
-    let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Metric>()]).unwrap());
+    let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<Metric>()]).unwrap());
     let budget = resources::ResourceBudget::fixed(1 << 24).unwrap();
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await

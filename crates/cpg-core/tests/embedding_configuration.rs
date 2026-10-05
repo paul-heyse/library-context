@@ -54,7 +54,7 @@ async fn stored_selection_is_early_immutable_and_required_for_embedding_effects(
         lock_timeout_seconds: 10,
     };
     let model = Arc::new(
-        ValidatedModel::validate(
+        ValidatedModel::declared(
             embedding::configuration_relations()
                 .into_iter()
                 .chain([Relation::of::<EffectProbe>(), Relation::of::<DeniedProbe>()])

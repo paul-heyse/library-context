@@ -57,7 +57,7 @@ fn schedule(model: &ValidatedModel) -> Schedule {
 async fn closed_epochs_isolate_private_deltas_deduplicate_and_publish_results_atomically() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<ResultRow>(),
             Relation::of::<Package>(),
@@ -207,7 +207,7 @@ async fn closed_epochs_isolate_private_deltas_deduplicate_and_publish_results_at
 async fn missing_reference_rolls_back_every_group_output_and_poisoning_prevents_retry() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<ResultRow>(),
             Relation::of::<Package>(),
@@ -293,7 +293,7 @@ async fn missing_reference_rolls_back_every_group_output_and_poisoning_prevents_
 async fn cancelled_group_closure_keeps_sealed_deltas_private_and_attempt_terminal() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<ResultRow>(),
             Relation::of::<Package>(),
@@ -380,7 +380,7 @@ async fn cancelled_group_closure_keeps_sealed_deltas_private_and_attempt_termina
 async fn physically_present_future_rows_do_not_satisfy_candidate_prefix_references() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<ResultRow>(),
             Relation::of::<Package>(),
@@ -489,7 +489,7 @@ async fn physically_present_future_rows_do_not_satisfy_candidate_prefix_referenc
 async fn a_later_result_cannot_be_verified_using_an_earlier_vocabulary_target() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<ResultRow>(),
             Relation::of::<Package>(),
@@ -601,7 +601,7 @@ impl StageSink for LostAcknowledgement<'_> {
 async fn lost_group_commit_acknowledgement_never_mints_read_sources_or_allows_retry() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<ResultRow>(),
             Relation::of::<Package>(),
@@ -671,7 +671,7 @@ async fn lost_group_commit_acknowledgement_never_mints_read_sources_or_allows_re
 async fn frozen_delta_content_is_reverified_before_any_group_merge() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<ResultRow>(),
             Relation::of::<Package>(),
@@ -760,7 +760,7 @@ async fn frozen_delta_content_is_reverified_before_any_group_merge() {
 async fn inherited_prefix_is_verified_by_the_store_with_original_producer_receipt() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<ResultRow>(),
             Relation::of::<Package>(),
@@ -870,7 +870,7 @@ async fn a_closed_literal_set_cannot_gain_members_in_a_later_epoch() {
     use lctx_model::domain::value::{LiteralSet, LiteralSetMember};
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<LiteralSet>(),
             Relation::of::<LiteralSetMember>(),
@@ -979,7 +979,7 @@ async fn inserted_closes_use_registered_order_and_preserve_old_prefix_receipts()
     let db = DisposableDatabase::start().await;
     db.migrate().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+        ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
             .unwrap(),
     );
     let store = GenerationStore::install(db.owner.clone(), model.clone())
@@ -1136,7 +1136,7 @@ async fn registered_mapping_refuses_duplicate_unknown_gap_and_foreign_schedule_m
     for foreign in [false, true] {
         let db = DisposableDatabase::start().await;
         let model = Arc::new(
-            ValidatedModel::validate(vec![
+            ValidatedModel::declared(vec![
                 Relation::of::<Literal>(),
                 Relation::of::<ResultRow>(),
                 Relation::of::<Package>(),
@@ -1250,7 +1250,7 @@ async fn ordinary_outputs_preserve_transitive_prefix_and_refuse_future_refs_with
         let db = DisposableDatabase::start().await;
         db.migrate().await;
         let model = Arc::new(
-            ValidatedModel::validate(vec![
+            ValidatedModel::declared(vec![
                 Relation::of::<Literal>(),
                 Relation::of::<MarkerRow>(),
                 Relation::of::<ResultRow>(),

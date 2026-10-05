@@ -305,7 +305,7 @@ fn publication<R: Record>(
     model: &ValidatedModel,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    let descriptor = R::publication_checks()
+    let descriptor = lctx_model::domain::validation::publication_checks_for::<R>()
         .into_iter()
         .find(|c| c.name.ends_with("coverage_frontier"))
         .unwrap();

@@ -296,3 +296,11 @@ pub fn definitions() -> ValidationDefinitions {
     definitions.invariants.extend(super::assertion::support_invariants::<super::types::generics::GenericSpecializationObservation, super::types::generics::GenericSpecializationSupport>());
     definitions
 }
+
+/// Resolve a record's declared canonical checks for finite semantic controls.
+pub fn invariants_for<R: Record>() -> Vec<Invariant> {
+    definitions().required_for(&[Relation::of::<R>()]).expect("declared canonical invariant references").invariants
+}
+pub fn publication_checks_for<R: Record>() -> Vec<PublicationInvariant> {
+    definitions().required_for(&[Relation::of::<R>()]).expect("declared canonical publication references").publication_checks
+}

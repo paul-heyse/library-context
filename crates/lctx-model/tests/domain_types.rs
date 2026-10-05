@@ -16,7 +16,7 @@ fn named_callable_closures_keep_provider_context_and_function_kind() {
         for mismatch in ["none", "provider", "context", "kind"] {
             let mut f = Fixture::new(false);
             f.named_callable(mismatch, nested);
-            let result = f.base.check(&TypeSupport::invariants()[0]);
+            let result = f.base.check(&lctx_model::domain::validation::invariants_for::<TypeSupport>()[0]);
             assert_eq!(
                 result.is_ok(),
                 mismatch == "none",
@@ -89,11 +89,11 @@ fn type_structure_keeps_large_literals_variable_identity_and_recursive_restricti
 #[test]
 fn a_nested_type_variable_cannot_switch_provider_namespace() {
     let f = Fixture::new(true);
-    let error = f.base.check(&TypeSupport::invariants()[0]).unwrap_err();
+    let error = f.base.check(&lctx_model::domain::validation::invariants_for::<TypeSupport>()[0]).unwrap_err();
     assert!(error.to_string().contains("type variable belongs"));
     assert!(
         f.base
-            .check(&TypeRestrictionSupport::invariants()[0])
+            .check(&lctx_model::domain::validation::invariants_for::<TypeRestrictionSupport>()[0])
             .is_err()
     );
 }
@@ -103,12 +103,12 @@ fn type_sequences_require_complete_ordered_membership_and_kind_correct_children(
     let mut members = f.base.rows::<TypeSequenceMember>();
     members.pop();
     f.put_members(members);
-    assert!(f.base.check(&TypeSequence::invariants()[0]).is_err());
+    assert!(f.base.check(&lctx_model::domain::validation::invariants_for::<TypeSequence>()[0]).is_err());
     let mut f = Fixture::new(false);
     let mut members = f.base.rows::<TypeSequenceMember>();
     members[0].ordinal += 1;
     f.put_members(members);
-    assert!(f.base.check(&TypeSequence::invariants()[0]).is_err());
+    assert!(f.base.check(&lctx_model::domain::validation::invariants_for::<TypeSequence>()[0]).is_err());
     let mut f = Fixture::new(false);
     let wrong = TypeTerm::ParamSpec {
         variable: f.variable.id(),
@@ -116,7 +116,7 @@ fn type_sequences_require_complete_ordered_membership_and_kind_correct_children(
     let mut terms = f.base.rows::<TypeTerm>();
     terms.push(wrong);
     f.base.put(terms);
-    assert!(f.base.check(&TypeTerm::invariants()[0]).is_err());
+    assert!(f.base.check(&lctx_model::domain::validation::invariants_for::<TypeTerm>()[0]).is_err());
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn opaque_type_leaves_cannot_be_promoted_to_structural_fidelity() {
             ] {
                 let mut f = Fixture::new(false);
                 f.opaque(truncated, nested, fidelity);
-                let result = f.base.check(&TypeSupport::invariants()[0]);
+                let result = f.base.check(&lctx_model::domain::validation::invariants_for::<TypeSupport>()[0]);
                 assert_eq!(
                     result.is_ok(),
                     fidelity == Fidelity::DisplayOnly,
@@ -210,13 +210,13 @@ fn shared_type_closures_are_verified_once() {
     all.extend(members);
     f.put_members(all);
     f.base
-        .check(&TypePresentationSupport::invariants()[0])
+        .check(&lctx_model::domain::validation::invariants_for::<TypePresentationSupport>()[0])
         .unwrap();
     // The memo is keyed by fidelity: an opaque term verified for display-only support still
     // refuses a structural support of the same term.
     let mut g = Fixture::new(false);
     g.opaque(false, true, Fidelity::DisplayOnly);
-    g.base.check(&TypeSupport::invariants()[0]).unwrap();
+    g.base.check(&lctx_model::domain::validation::invariants_for::<TypeSupport>()[0]).unwrap();
     let observation = TypeObservation {
         role: TypeRole::CallResult,
         ..g.base.rows::<TypeObservation>()[0].clone()
@@ -232,7 +232,7 @@ fn shared_type_closures_are_verified_once() {
     let mut supports = g.base.rows::<TypeSupport>();
     supports.push(structural);
     g.base.put(supports);
-    let error = g.base.check(&TypeSupport::invariants()[0]).unwrap_err();
+    let error = g.base.check(&lctx_model::domain::validation::invariants_for::<TypeSupport>()[0]).unwrap_err();
     assert!(error.to_string().contains("display-only"), "{error}");
 }
 
@@ -244,10 +244,10 @@ fn refused(result: Result<(), ModelError>, why: &str, expected: &str) {
 }
 fn shapes(f: &Fixture) -> Result<(), ModelError> {
     for invariant in [
-        &TypeTerm::invariants()[0],
-        &TypeSequence::invariants()[0],
-        &CallableParameterList::invariants()[0],
-        &TypePresentationSupport::invariants()[0],
+        &lctx_model::domain::validation::invariants_for::<TypeTerm>()[0],
+        &lctx_model::domain::validation::invariants_for::<TypeSequence>()[0],
+        &lctx_model::domain::validation::invariants_for::<CallableParameterList>()[0],
+        &lctx_model::domain::validation::invariants_for::<TypePresentationSupport>()[0],
     ] {
         f.base.check(invariant)?;
     }
@@ -323,7 +323,7 @@ fn every_native_form_validates_and_keeps_its_distinctions() {
     let mut supports = f.base.rows::<TypeSupport>();
     supports.push(support);
     f.base.put(supports);
-    f.base.check(&TypeSupport::invariants()[0]).unwrap();
+    f.base.check(&lctx_model::domain::validation::invariants_for::<TypeSupport>()[0]).unwrap();
 }
 
 #[test]
@@ -395,7 +395,7 @@ fn nested_truncated_structure_is_still_display_only() {
         all.extend(slots);
         f.put_slots(all);
         f.present(&[&bound], fidelity);
-        let result = f.base.check(&TypePresentationSupport::invariants()[0]);
+        let result = f.base.check(&lctx_model::domain::validation::invariants_for::<TypePresentationSupport>()[0]);
         if fidelity == Fidelity::DisplayOnly {
             result.expect("display-only support of truncated structure");
         } else {
@@ -577,7 +577,7 @@ fn a_module_type_is_its_providers() {
         lctx_model::domain::attribution::Fidelity::NativeStructural,
     );
     refused(
-        f.base.check(&TypePresentationSupport::invariants()[0]),
+        f.base.check(&lctx_model::domain::validation::invariants_for::<TypePresentationSupport>()[0]),
         "a module another provider bundles",
         "type module belongs to another provider",
     );
@@ -590,10 +590,10 @@ fn record_fields_state_their_models_flags_in_field_order() {
     let (fields, _) = f.records();
     let stored = |f: &Fixture| -> Result<(), ModelError> {
         for invariant in [
-            &RecordFieldObservation::invariants()[0],
-            &RecordFieldSupport::invariants()[0],
-            &FunctionBodyObservation::invariants()[0],
-            &FunctionBodySupport::invariants()[0],
+            &lctx_model::domain::validation::invariants_for::<RecordFieldObservation>()[0],
+            &lctx_model::domain::validation::invariants_for::<RecordFieldSupport>()[0],
+            &lctx_model::domain::validation::invariants_for::<FunctionBodyObservation>()[0],
+            &lctx_model::domain::validation::invariants_for::<FunctionBodySupport>()[0],
         ] {
             f.base.check(invariant)?;
         }
@@ -710,8 +710,8 @@ fn record_fields_state_their_models_flags_in_field_order() {
 fn an_inherited_field_refers_to_its_declaration_in_another_module() {
     use lctx_model::domain::source::{Occurrence, SyntaxKind};
     let stored = |f: &Fixture| -> Result<(), ModelError> {
-        f.base.check(&RecordFieldObservation::invariants()[0])?;
-        f.base.check(&RecordFieldSupport::invariants()[0])
+        f.base.check(&lctx_model::domain::validation::invariants_for::<RecordFieldObservation>()[0])?;
+        f.base.check(&lctx_model::domain::validation::invariants_for::<RecordFieldSupport>()[0])
     };
     // The base class sits in `other.py`; the record class's claim stays under `example.py`'s scope.
     let declare = |f: &mut Fixture, inside_class: bool| {
@@ -759,7 +759,7 @@ fn dictionary_membership_retains_string_keys_and_refuses_corrupt_members() {
         }
         f.base.put(vec![list]);
         f.base.put(fields);
-        let result = f.base.check(&TypedDictFieldList::invariants()[0]);
+        let result = f.base.check(&lctx_model::domain::validation::invariants_for::<TypedDictFieldList>()[0]);
         assert_eq!(result.is_ok(), fault == "none", "{fault}: {result:?}");
         assert!(
             TypedDictFieldList::new(&[("".into(), true, term), ("".into(), false, term)]).is_err()
@@ -812,13 +812,13 @@ fn unavailable_expanded_type_slots_require_display_only_and_lists_refuse_empty_n
             terms.push(callable.clone());
             f.base.put(terms);
             f.present(&[&callable], fidelity);
-            let shape = f.base.check(&TypeTerm::invariants()[0]);
+            let shape = f.base.check(&lctx_model::domain::validation::invariants_for::<TypeTerm>()[0]);
             assert_eq!(
                 shape.is_ok(),
                 form == CallableForm::NativeUnavailable,
                 "{form:?}: {shape:?}"
             );
-            let closure = f.base.check(&TypePresentationSupport::invariants()[0]);
+            let closure = f.base.check(&lctx_model::domain::validation::invariants_for::<TypePresentationSupport>()[0]);
             assert_eq!(
                 closure.is_ok(),
                 form != CallableForm::NativeUnavailable || fidelity == Fidelity::DisplayOnly,
@@ -854,7 +854,7 @@ fn opaque_children_keep_typed_ports_without_structural_support() {
                 assert_eq!(
                     fixture
                         .base
-                        .check(&TypePresentationSupport::invariants()[0])
+                        .check(&lctx_model::domain::validation::invariants_for::<TypePresentationSupport>()[0])
                         .is_ok(),
                     fidelity == Fidelity::DisplayOnly && !foreign,
                     "{port}/{truncated}/{fidelity:?}/{foreign}"
@@ -876,7 +876,7 @@ fn native_signature_ports_keep_role_origin_and_qualification() {
     ] {
         let mut f = Fixture::new(false);
         f.native_signature_ports(mismatch);
-        let check = NativeSignatureObservation::invariants()
+        let check = lctx_model::domain::validation::invariants_for::<NativeSignatureObservation>()
             .into_iter()
             .find(|i| i.name == "native_signature_ports")
             .unwrap();
@@ -945,7 +945,7 @@ fn expected_argument_locations_require_exact_call_membership_and_context() {
             declared: case == "declared",
             term: f.term.id(),
         }]);
-        let result = f.base.check(&TypeObservation::invariants()[0]);
+        let result = f.base.check(&lctx_model::domain::validation::invariants_for::<TypeObservation>()[0]);
         assert_eq!(result.is_ok(), case == "exact", "{case}: {result:?}");
     }
 }

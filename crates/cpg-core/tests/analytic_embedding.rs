@@ -50,7 +50,7 @@ async fn run(mode: Mode) {
     relations.extend(embedding::relations());
     relations.sort_by_key(Relation::name);
     relations.dedup_by_key(|r| r.name());
-    let model = Arc::new(ValidatedModel::validate(relations).unwrap());
+    let model = Arc::new(ValidatedModel::declared(relations).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

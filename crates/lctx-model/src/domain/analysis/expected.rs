@@ -1048,7 +1048,7 @@ mod tests {
         let python = domain.scopes.iter().find(|r| r.scope == f.python).unwrap();
         assert_eq!(python.normalized.len(), 8);
         assert_eq!(python.native.len(), 1);
-        let inputs = crate::domain::analysis::selection::Invocation::invariants()
+        let inputs = lctx_model::domain::validation::invariants_for::<crate::domain::analysis::selection::Invocation>()
             .remove(0)
             .inputs;
         assert!(

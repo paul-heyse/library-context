@@ -72,7 +72,7 @@ async fn run(profile: Profile) {
         Relation::of::<GraphBorrowed>(),
         Relation::of::<GraphDenied>(),
     ]);
-    let model = Arc::new(ValidatedModel::validate(relations).unwrap());
+    let model = Arc::new(ValidatedModel::declared(relations).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

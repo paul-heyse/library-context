@@ -260,8 +260,8 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
     assert!(!records.invocations.is_empty());
     assert!(!records.invocation_boundaries.is_empty());
     for mutation in 0..5 {
-        let relation = Relation::of::<execution::source_call_records::SourceCallRun>();
-        let invariant = &relation.invariants()[0];
+        let definitions = lctx_model::domain::validation::invariants_for::<execution::source_call_records::SourceCallRun>();
+        let invariant = &definitions[0];
         let mut check = (invariant.create)(&f.budget);
         for input in execution::source_call_records::SourceCallData::inputs() {
             macro_rules! feed{($($field:ident:$ty:ty,)*)=>{$(if input.name()==<$ty>::NAME{let batch=<$ty as Record>::encode(&data.bindings.$field.iter().cloned().collect::<Vec<_>>()).unwrap();check.visit_input(&input,&batch).unwrap();})*};}
@@ -1004,7 +1004,7 @@ async fn modeled_return_replays_every_actual_and_then_releases_the_exact_fresh_s
         );
     }
     let invariant =
-        Relation::of::<execution::enriched_production::ExecutionRun>().invariants()[0].clone();
+        lctx_model::domain::validation::invariants_for::<execution::enriched_production::ExecutionRun>()[0].clone();
     for mutation in 0..4 {
         let mut check = (invariant.create)(&f.budget);
         for (name, batch) in f.tables.lock().unwrap().iter() {
@@ -1320,7 +1320,7 @@ async fn source_frame_releases_only_exact_bound_externally_held_actuals() {
         .find(|row| row.release == held_release.id())
         .unwrap();
     let invariant =
-        Relation::of::<execution::source_call_records::SourceCallRun>().invariants()[0].clone();
+        lctx_model::domain::validation::invariants_for::<execution::source_call_records::SourceCallRun>()[0].clone();
     for mutation in 0..3 {
         let mut check = (invariant.create)(&f.budget);
         for (name, batch) in f.tables.lock().unwrap().iter() {
@@ -1675,7 +1675,7 @@ async fn ordered_context_execution_replays_actual_entry_body_reverse_exit_and_su
         Some(&execution::enriched_records::ExecutionOutcome::Normal)
     );
     let invariant =
-        Relation::of::<execution::enriched_production::ExecutionRun>().invariants()[0].clone();
+        lctx_model::domain::validation::invariants_for::<execution::enriched_production::ExecutionRun>()[0].clone();
     for mutation in 0..5 {
         let mut check = (invariant.create)(&f.budget);
         for (name, batch) in f.tables.lock().unwrap().iter() {

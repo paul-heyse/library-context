@@ -16,7 +16,7 @@ async fn raw_flow_and_transitive_place_provenance_survive_sealed_validation() {
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -36,7 +36,7 @@ async fn raw_flow_and_transitive_place_provenance_survive_sealed_validation() {
         assert_eq!(
             fixture
                 .base
-                .check(&FlowDefinitionSupport::invariants()[0])
+                .check(&lctx_model::domain::validation::invariants_for::<FlowDefinitionSupport>()[0])
                 .is_ok(),
             !foreign
         );

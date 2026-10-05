@@ -52,7 +52,7 @@ fn mandatory_reader_inputs(profile: Profile, model: &ValidatedModel) -> Vec<Rela
             .iter()
             .filter_map(|f| f.target().map(|(_, n)| n))
             .chain(
-                row.invariants()
+                row.resolved_invariants(&model).unwrap()
                     .iter()
                     .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
             )
@@ -103,7 +103,7 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     relations.extend(catalog_runtime::relations());
     relations.sort_by_key(Relation::name);
     relations.dedup_by_key(|r| r.name());
-    let model = Arc::new(ValidatedModel::validate(relations).unwrap());
+    let model = Arc::new(ValidatedModel::declared(relations).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

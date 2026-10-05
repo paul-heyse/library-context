@@ -32,10 +32,10 @@ fn lexical_relationships_roundtrip_and_share_source_and_support_validation() {
     assert_ne!(absent.id(), fixture.binding.id());
     fixture.foreign_value();
     assert!(
-        fixture.check(&BindingSupport::invariants()[0]).is_err(),
+        fixture.check(&lctx_model::domain::validation::invariants_for::<BindingSupport>()[0]).is_err(),
         "foreign optional value cannot hide behind local evidence"
     );
-    assert!(fixture.check(&LexicalScope::invariants()[0]).is_err());
+    assert!(fixture.check(&lctx_model::domain::validation::invariants_for::<LexicalScope>()[0]).is_err());
 }
 
 #[test]
@@ -52,13 +52,13 @@ fn lexical_parents_kinds_ordinals_and_resolution_variants_are_checked() {
         ..scope
     };
     fixture.put(vec![wrong]);
-    assert!(fixture.check(&LexicalScope::invariants()[0]).is_err());
+    assert!(fixture.check(&lctx_model::domain::validation::invariants_for::<LexicalScope>()[0]).is_err());
 
     let mut fixture = Fixture::new();
     let mut rows = fixture.rows::<LexicalScopeObservation>();
     rows.iter_mut().find(|r| r.parent.is_some()).unwrap().parent = None;
     fixture.put(rows);
-    assert!(fixture.check(&LexicalScope::invariants()[0]).is_err());
+    assert!(fixture.check(&lctx_model::domain::validation::invariants_for::<LexicalScope>()[0]).is_err());
 
     let fixture = Fixture::new();
     let mut bad = fixture.binding.clone();
@@ -78,7 +78,7 @@ fn lexical_parents_kinds_ordinals_and_resolution_variants_are_checked() {
     row.captured = true;
     fixture.put(vec![builtin]);
     fixture.put(vec![row]);
-    assert!(fixture.check(&LexicalScope::invariants()[0]).is_err());
+    assert!(fixture.check(&lctx_model::domain::validation::invariants_for::<LexicalScope>()[0]).is_err());
 }
 
 // Qualification deliberately excludes provider/run: independent raw observations may disagree.
@@ -126,8 +126,8 @@ fn independent_binding_interpretations_survive_at_the_same_ordinal() {
     append!(ProviderSurface, vec![surface]);
     append!(BindingObservation, vec![alternative]);
     append!(BindingSupport, vec![support]);
-    fixture.check(&LexicalScope::invariants()[0]).unwrap();
-    fixture.check(&BindingSupport::invariants()[0]).unwrap();
+    fixture.check(&lctx_model::domain::validation::invariants_for::<LexicalScope>()[0]).unwrap();
+    fixture.check(&lctx_model::domain::validation::invariants_for::<BindingSupport>()[0]).unwrap();
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn reference_parent_requires_strict_structural_ancestry_even_for_equal_spans() {
         fixture.put(occurrences);
         fixture.put(vec![reference]);
         assert_eq!(
-            fixture.check(&LexicalScope::invariants()[0]).is_ok(),
+            fixture.check(&lctx_model::domain::validation::invariants_for::<LexicalScope>()[0]).is_ok(),
             case == 2
         );
     }

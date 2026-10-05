@@ -58,4 +58,4 @@ impl PublicationCheck for SourcePublicationCheck {
     }
 }
 
-pub(crate) fn source_publication_checks_refs() -> Vec<&'static str> { vec![owner_table!("invocation_sources"), owner_table!("coverage_frontier")] }
+pub(crate) fn source_publication_checks_refs() -> Vec<&'static str> { let mut refs = vec![owner_table!("invocation_sources")]; refs.extend(super::coverage::publication_checks_refs()); refs }

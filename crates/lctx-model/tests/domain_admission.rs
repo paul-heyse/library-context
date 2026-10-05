@@ -44,7 +44,7 @@ fn frontier_descriptors_own_relation_closure_validation_and_selection() {
     assert_eq!(contract.frontier(), Frontier::Facts);
     assert!(closure.iter().all(|name| contract.contains(name)));
 
-    let tiny = ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap();
+    let tiny = ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap();
     assert!(
         facts.relations(&tiny).is_err(),
         "an incomplete facts model is refused"
@@ -1049,7 +1049,7 @@ fn preflight_refuses_schedules_that_cannot_produce_the_frontier() {
         "model or profile differs",
     );
     // A model without the facts relations has no facts frontier.
-    let bare = ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap();
+    let bare = ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap();
     frontier_refusal(
         FrontierContract::facts(&bare, Profile::Catalog),
         "lacks facts relation",

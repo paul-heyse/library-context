@@ -305,7 +305,7 @@ async fn native_false_source_persists_exact_negative_s0_authority() {
 
     // Shared proof validator accepts the persisted complete false question and refuses missing
     // membership or Partial coverage. Reads and mutations are typed, never SQL writes.
-    let invariant = Relation::of::<ClaimProof>().invariants()[0].clone();
+    let invariant = lctx_model::domain::validation::invariants_for::<ClaimProof>()[0].clone();
     let mut proof_inputs = Vec::new();
     macro_rules! proof_input {($($t:ty),*)=>{$(for batch in batches::<$t>(&reader).await { proof_inputs.push((<$t>::NAME, batch)); })*};}
     proof_input!(

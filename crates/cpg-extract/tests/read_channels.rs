@@ -364,7 +364,7 @@ async fn actual_read_inventory_and_complete_negative_are_replayed() {
                     dynamic_shrink: bool,
                     field_forge: bool,
                     field_shrink: bool| {
-        let invariant = execution::production::EvaluationRun::invariants().remove(0);
+        let invariant = lctx_model::domain::validation::invariants_for::<execution::production::EvaluationRun>().remove(0);
         let mut check = (invariant.create)(&f.budget);
         for (name, batch) in f.tables.lock().unwrap().iter() {
             check.visit(name, batch).unwrap();

@@ -74,7 +74,7 @@ fn publication(
     sources: &[CompletedRelation],
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let descriptor = Invocation::publication_checks().remove(0);
+    let descriptor = lctx_model::domain::validation::publication_checks_for::<Invocation>().remove(0);
     let mut check = (descriptor.create)(budget);
     check.visit(
         Invocation::NAME,
@@ -224,13 +224,14 @@ fn projection_meaning_is_early_exact_and_identity_bearing() {
     );
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="publication_inventory_control",publication_checks=invalid_inventory,semantic_source=include_bytes!("analysis_sources.rs"))]
+#[model(name="publication_inventory_control",publication_refs=invalid_inventory_refs,semantic_source=include_bytes!("analysis_sources.rs"))]
 struct InventoryControl {
     #[model(key)]
     value: i64,
 }
 fn invalid_inventory() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "unknown_source_control",
         inputs: vec![ValidationInput::of::<Package>(&["id"])],
         create: std::sync::Arc::new(|_| {
@@ -240,5 +241,7 @@ fn invalid_inventory() -> Vec<PublicationInvariant> {
 }
 #[test]
 fn model_refuses_unknown_publication_input_before_activation() {
-    assert!(ValidatedModel::validate(vec![Relation::of::<InventoryControl>()]).is_err());
+    assert!(ValidatedModel::validate(vec![Relation::of::<InventoryControl>()], ValidationDefinitions { invariants: vec![], publication_checks: invalid_inventory() }).is_err());
 }
+
+fn invalid_inventory_refs() -> Vec<&'static str> {vec!["unknown_source_control"]}

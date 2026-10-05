@@ -42,7 +42,7 @@ async fn both_profiles_store_selected_catalog_and_exact_native_inventory() {
         // Qualify the early production boundary before normalized/analysis owners run. Their
         // whole-model validators require their own producers and belong to assembled controls.
         let model = Arc::new(
-            ValidatedModel::validate(
+            ValidatedModel::declared(
                 facts_relations()
                     .into_iter()
                     .chain(preparation::configuration_relations())

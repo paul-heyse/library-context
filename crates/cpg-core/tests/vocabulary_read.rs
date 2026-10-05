@@ -15,7 +15,7 @@ async fn source_bound_provider_reads_the_old_literal_prefix_after_later_publicat
     db.write_configs(directory.path()).unwrap();
     let importer = RoleConfig::load(&directory.path().join("postgres-importer.json")).unwrap();
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<Package>(),
             Relation::of::<input::Release>(),

@@ -14,7 +14,7 @@ struct Anchor {
     value: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "stage_checked", invariants = checks, semantic_source = include_bytes!("stage_validation.rs"))]
+#[model(name = "stage_checked", invariant_refs = checks_refs, semantic_source = include_bytes!("stage_validation.rs"))]
 struct Checked {
     #[model(key)]
     anchor: Id<Anchor>,
@@ -22,6 +22,7 @@ struct Checked {
 }
 fn checks() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "checked_matches_anchor",
         inputs: vec![
             ValidationInput::of::<Anchor>(&["id"]),
@@ -71,7 +72,7 @@ async fn owned_invariants_and_nominal_closure_refuse_before_a_read_capability_ex
             Relation::of::<Anchor>(),
             Relation::of::<Checked>(),
             Relation::of::<Package>(),
-        ])
+        ], lctx_model::domain::ValidationDefinitions { invariants: checks(), publication_checks: vec![] })
         .unwrap(),
     );
     let store = GenerationStore::install(db.owner.clone(), model.clone())
@@ -173,7 +174,7 @@ async fn inferred_fact_premise_requires_checkpoint_proof_or_an_explicit_source()
     use lctx_model::domain::{dependency_closure::*, input::Release};
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Package>(),
             Relation::of::<Release>(),
             Relation::of::<Anchor>(),
@@ -277,3 +278,5 @@ async fn inferred_fact_premise_requires_checkpoint_proof_or_an_explicit_source()
         attempt.abort().await.unwrap();
     }
 }
+
+fn checks_refs() -> Vec<&'static str> {vec!["checked_matches_anchor"]}

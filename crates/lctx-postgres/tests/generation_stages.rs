@@ -11,7 +11,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     let owner = db.owner.pool().clone();
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap());
+    let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

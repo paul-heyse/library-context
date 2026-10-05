@@ -15,7 +15,7 @@ async fn document_nodes_and_optional_spans_survive_sealed_postgres_validation() 
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -27,7 +27,7 @@ async fn document_nodes_and_optional_spans_survive_sealed_postgres_validation() 
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(
             fixture
-                .check(&DocumentComponentSupport::invariants()[0])
+                .check(&lctx_model::domain::validation::invariants_for::<DocumentComponentSupport>()[0])
                 .is_ok(),
             !foreign
         );

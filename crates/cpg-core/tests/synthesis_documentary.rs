@@ -53,7 +53,7 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
     relations.extend(synthesis::documentary::relations());
     relations.sort_by_key(Relation::name);
     relations.dedup_by_key(|r| r.name());
-    let model = Arc::new(ValidatedModel::validate(relations).unwrap());
+    let model = Arc::new(ValidatedModel::declared(relations).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -622,7 +622,7 @@ fn documentary_inputs(profile: Profile, model: &ValidatedModel) -> Vec<RelationU
             .iter()
             .filter_map(|f| f.target().map(|(_, n)| n))
             .chain(
-                row.invariants()
+                row.resolved_invariants(&model).unwrap()
                     .iter()
                     .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
             )

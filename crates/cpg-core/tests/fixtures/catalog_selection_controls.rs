@@ -32,6 +32,7 @@ pub fn fixture_model() -> ValidatedModel {
     relations.extend(analysis::catalog_evidence::publication_relations());
     relations.extend(analysis::selection::publication_relations());
     relations.extend(selection::relations());
+    let canonical_model = model().unwrap();
     let registry = catalog_frontier_relations()
         .into_iter()
         .map(|relation| (relation.name(), relation))
@@ -49,13 +50,11 @@ pub fn fixture_model() -> ValidatedModel {
             .fields()
             .iter()
             .filter_map(|field| field.target().map(|(_, name)| name));
-        let invariants = relation
-            .invariants()
-            .iter()
+        let resolved_invariants = relation.resolved_invariants(&canonical_model).unwrap();
+        let invariants = resolved_invariants.iter()
             .flat_map(|invariant| invariant.inputs.iter().map(ValidationInput::name));
-        let publications = relation
-            .publication_checks()
-            .iter()
+        let resolved_publications = relation.resolved_publications(&canonical_model).unwrap();
+        let publications = resolved_publications.iter()
             .flat_map(|check| check.inputs.iter().map(ValidationInput::name));
         for required in references.chain(invariants).chain(publications) {
             if selected.insert(required) {
@@ -65,7 +64,7 @@ pub fn fixture_model() -> ValidatedModel {
     }
     assert!(!selected.contains(embedding::text::TextDefinition::NAME));
     assert!(!selected.contains(embedding::analytic::AnalysisEmbeddingUse::NAME));
-    ValidatedModel::validate(
+    ValidatedModel::declared(
         selected
             .into_iter()
             .map(|name| registry[&name].clone())

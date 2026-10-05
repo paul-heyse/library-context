@@ -13,7 +13,7 @@ mod caller_fixture;
 async fn call_site_caller_ownership_is_checked_in_persisted_content() {
     use lctx_model::domain::lexical::*;
     let db = DisposableDatabase::start().await;
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -22,7 +22,7 @@ async fn call_site_caller_ownership_is_checked_in_persisted_content() {
             let fixture = caller_fixture::fixture(form, mismatch);
             assert_eq!(
                 fixture
-                    .check(&ProviderCallSiteSupport::invariants()[0])
+                    .check(&lctx_model::domain::validation::invariants_for::<ProviderCallSiteSupport>()[0])
                     .is_ok(),
                 mismatch == "none"
             );
@@ -96,7 +96,7 @@ async fn call_signature_membership_support_ownership_and_readback() {
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

@@ -42,7 +42,7 @@ fn budget() -> ResourceBudget {
 }
 #[test]
 fn vocabulary_groups_bind_epoch_reads_and_keep_unfinished_results_private() {
-    let model = ValidatedModel::validate(vec![
+    let model = ValidatedModel::declared(vec![
         Relation::of::<Literal>(),
         Relation::of::<ResultRow>(),
         Relation::of::<Package>(),
@@ -123,7 +123,7 @@ fn vocabulary_groups_bind_epoch_reads_and_keep_unfinished_results_private() {
 #[test]
 fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_dependencies() {
     let model =
-        ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+        ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
             .unwrap();
     let groups = vec![
         PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
@@ -183,7 +183,7 @@ fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_d
 #[test]
 fn epoch_schedule_filters_inactive_writers_and_refuses_two_writers_in_a_later_epoch() {
     let model =
-        ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+        ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
             .unwrap();
     let mut behavioral = stage("behavioral", vec![], vec![RelationUse::of::<Literal>()]);
     behavioral.profiles = vec![Profile::Behavioral];
@@ -213,7 +213,7 @@ fn epoch_schedule_filters_inactive_writers_and_refuses_two_writers_in_a_later_ep
 }
 #[test]
 fn later_groups_issue_inherited_prefix_sources_without_changing_the_producer() {
-    let model = ValidatedModel::validate(vec![
+    let model = ValidatedModel::declared(vec![
         Relation::of::<Literal>(),
         Relation::of::<ResultRow>(),
         Relation::of::<Package>(),
@@ -278,7 +278,7 @@ fn later_groups_issue_inherited_prefix_sources_without_changing_the_producer() {
 #[test]
 fn named_boundary_codes_are_not_publication_positions() {
     let model =
-        ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+        ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
             .unwrap();
     let boundaries = [
         PublicationBoundary::Facts,
@@ -418,7 +418,7 @@ fn registered_order_refuses_duplicates_gaps_unknown_and_foreign_prefixes() {
         .unwrap();
     assert!(order.validate(foreign).is_err());
     assert!(order.decode(1).unwrap().earlier(foreign).is_err());
-    let model = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
+    let model = ValidatedModel::declared(vec![Relation::of::<Literal>()]).unwrap();
     let stages = vec![
         stage("a", vec![], vec![RelationUse::of::<Literal>()]),
         stage("b", vec![], vec![RelationUse::of::<Literal>()]),
@@ -501,7 +501,7 @@ fn ordinary_schedule(
 #[test]
 fn ordinary_outputs_inherit_transitive_declared_prefix_not_latest_close() {
     for handoff in [false, true] {
-        let model = ValidatedModel::validate(vec![
+        let model = ValidatedModel::declared(vec![
             Relation::of::<Literal>(),
             Relation::of::<MarkerRow>(),
             Relation::of::<ResultRow>(),

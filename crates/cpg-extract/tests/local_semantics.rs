@@ -160,7 +160,7 @@ fn replay(
     mutation: u8,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let invariant = LocalAssessment::invariants().remove(0);
+    let invariant = lctx_model::domain::validation::invariants_for::<LocalAssessment>().remove(0);
     let mut check = (invariant.create)(budget);
     macro_rules! input {($($field:ident:$ty:ty,)*)=>{$({let input=ValidationInput::of::<$ty>(&["id"]);let input=if is_vocabulary(input.name()){input.at_epoch(PublicationBoundary::Facts)}else{input};check.visit_input(&input,&<$ty as Record>::encode(&data.entry.$field.iter().cloned().collect::<Vec<_>>())?)?;})*};}
     lctx_model::entry_value_inputs!(input);
@@ -638,7 +638,7 @@ fn replay_theory(
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::local_theory::*;
-    let invariant = TypeDomainAssessment::invariants().remove(0);
+    let invariant = lctx_model::domain::validation::invariants_for::<TypeDomainAssessment>().remove(0);
     let mut check = (invariant.create)(budget);
     macro_rules! entry{($($field:ident:$ty:ty,)*)=>{$({let input=ValidationInput::of::<$ty>(&["id"]);let input=if is_vocabulary(input.name()){input.at_epoch(PublicationBoundary::Facts)}else{input};check.visit_input(&input,&<$ty as Record>::encode(&data.entry.$field.iter().cloned().collect::<Vec<_>>())?)?;})*};}
     lctx_model::entry_value_inputs!(entry);
@@ -1036,7 +1036,7 @@ fn replay_fields(
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     use local_fields::*;
-    let invariant = FieldLocationAssessment::invariants().remove(0);
+    let invariant = lctx_model::domain::validation::invariants_for::<FieldLocationAssessment>().remove(0);
     let mut check = (invariant.create)(budget);
     macro_rules! entry{($($field:ident:$ty:ty,)*)=>{$({let input=ValidationInput::of::<$ty>(&["id"]);let input=if is_vocabulary(input.name()){input.at_epoch(PublicationBoundary::Facts)}else{input};check.visit_input(&input,&<$ty as Record>::encode(&data.entry.$field.iter().cloned().collect::<Vec<_>>())?)?;})*};}
     lctx_model::entry_value_inputs!(entry);

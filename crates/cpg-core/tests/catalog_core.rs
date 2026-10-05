@@ -48,7 +48,7 @@ async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipt
     relations.extend(catalog::core_relations());
     relations.sort_by_key(Relation::name);
     relations.dedup_by_key(|r| r.name());
-    let model = Arc::new(ValidatedModel::validate(relations).unwrap());
+    let model = Arc::new(ValidatedModel::declared(relations).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

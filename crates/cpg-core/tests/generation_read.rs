@@ -54,7 +54,7 @@ fn options() -> ProviderOptions {
 }
 /// The rich transport fixture contains facts; later analysis owners have not run.
 fn facts_model() -> Arc<ValidatedModel> {
-    Arc::new(ValidatedModel::validate(facts_relations()).unwrap())
+    Arc::new(ValidatedModel::declared(facts_relations()).unwrap())
 }
 async fn collect(table: Arc<dyn TableProvider>) -> datafusion::error::Result<Vec<RecordBatch>> {
     SessionContext::new().read_table(table)?.collect().await
@@ -462,7 +462,7 @@ async fn digest_and_column_mismatch_rejected_before_scan() {
     let other = {
         let mut relations = model.relations().to_vec();
         relations.push(Relation::of::<Probe>());
-        Arc::new(ValidatedModel::validate(relations).unwrap())
+        Arc::new(ValidatedModel::declared(relations).unwrap())
     };
     assert!(
         matches!(
@@ -799,7 +799,7 @@ async fn stage_session_reads_only_its_completed_source_and_admits_all_scan_insta
     db.write_configs(config_dir.path()).unwrap();
     let mut importer = RoleConfig::load(&config_dir.path().join("postgres-importer.json")).unwrap();
     let model = Arc::new(
-        ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()])
+        ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
             .unwrap(),
     );
     let store = GenerationStore::install(db.owner.clone(), model.clone())

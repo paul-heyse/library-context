@@ -13,7 +13,7 @@ fn ready<T>(future: impl Future<Output = T>) -> T {
     }
 }
 fn stage_model() -> ValidatedModel {
-    ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap()
+    ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap()
 }
 /// Hand off an explicitly empty `Package` output; its reader stage declares it as input.
 fn execution_handoff_required(stage: &mut StageAccess<'_, '_>) -> bool {
@@ -275,7 +275,7 @@ mod contributions {
         }
     }
     fn contribution_model() -> ValidatedModel {
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Package>(),
             Relation::of::<Release>(),
             Relation::of::<InputRevision>(),

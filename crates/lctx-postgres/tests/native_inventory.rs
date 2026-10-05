@@ -25,7 +25,7 @@ use std::sync::Arc;
 async fn native_inventory_roundtrips_and_refuses_omission_and_forged_status() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(
+        ValidatedModel::declared(
             facts_relations()
                 .into_iter()
                 .chain(analysis::native::relations())

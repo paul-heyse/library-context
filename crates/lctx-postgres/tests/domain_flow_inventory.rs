@@ -13,7 +13,7 @@ use std::sync::Arc;
 #[tokio::test]
 async fn per_use_inventory_publishes_truthful_limits_and_refuses_hidden_omission() {
     let db = DisposableDatabase::start().await;
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

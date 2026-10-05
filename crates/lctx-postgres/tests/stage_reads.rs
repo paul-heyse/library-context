@@ -38,7 +38,7 @@ fn schedule(model: &ValidatedModel) -> Schedule {
 async fn completion_waits_out_direct_writes_then_freezes_and_receipts_the_same_content() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()])
+        ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
             .unwrap(),
     );
     let store = GenerationStore::install(db.owner.clone(), model.clone())
@@ -161,7 +161,7 @@ async fn completion_waits_out_direct_writes_then_freezes_and_receipts_the_same_c
 async fn cancelled_completion_never_advances_execution_or_grants_partial_outputs() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()])
+        ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
             .unwrap(),
     );
     let store = GenerationStore::install(db.owner.clone(), model.clone())
@@ -218,7 +218,7 @@ async fn cancelled_completion_never_advances_execution_or_grants_partial_outputs
 async fn refused_outcome_rolls_back_receipts_and_read_grants_together() {
     let db = DisposableDatabase::start().await;
     let model = Arc::new(
-        ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()])
+        ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
             .unwrap(),
     );
     let store = GenerationStore::install(db.owner.clone(), model.clone())

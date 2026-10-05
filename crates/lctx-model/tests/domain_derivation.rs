@@ -54,7 +54,7 @@ fn validate(model: &ValidatedModel, nodes: Vec<Node>, steps: Vec<Step>) -> Resul
 #[test]
 fn targets_are_nominal_and_global_cycle_check_spans_proof_relations() {
     let model =
-        ValidatedModel::validate(vec![Relation::of::<Node>(), Relation::of::<Step>()]).unwrap();
+        ValidatedModel::declared(vec![Relation::of::<Node>(), Relation::of::<Step>()]).unwrap();
     let rule = Step::derivation().unwrap();
     assert_eq!(rule.conclusion.unwrap().target().1, Node::NAME);
     assert_eq!(rule.premises[0].target().1, Node::NAME);
@@ -113,7 +113,7 @@ fn targets_are_nominal_and_global_cycle_check_spans_proof_relations() {
     assert_ne!(step.id(), alternative.id());
     validate(&model, vec![a, b, c], vec![step, alternative]).unwrap();
     assert!(
-        ValidatedModel::validate(vec![
+        ValidatedModel::declared(vec![
             Relation::of::<Node>(),
             Relation::of::<OptionalConclusion>()
         ])
@@ -167,7 +167,7 @@ struct RightStep {
 }
 #[test]
 fn proof_source_identity_prevents_self_and_mutual_explicit_step_cycles() {
-    let model = ValidatedModel::validate(vec![
+    let model = ValidatedModel::declared(vec![
         Relation::of::<Node>(),
         Relation::of::<SelfStep>(),
         Relation::of::<LeftStep>(),

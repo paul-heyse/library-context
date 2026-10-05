@@ -15,7 +15,7 @@ async fn invoked_guards_retain_typed_origins_and_foreign_source_refusal() {
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -36,11 +36,11 @@ async fn invoked_guards_retain_typed_origins_and_foreign_source_refusal() {
         let eligible = matches!(kind, "none" | "local");
         let valid = !foreign && eligible;
         assert_eq!(
-            fixture.check(&SyntaxSupport::invariants()[0]).is_ok(),
+            fixture.check(&lctx_model::domain::validation::invariants_for::<SyntaxSupport>()[0]).is_ok(),
             !foreign
         );
         assert_eq!(
-            fixture.check(&EvaluationAtom::invariants()[0]).is_ok(),
+            fixture.check(&lctx_model::domain::validation::invariants_for::<EvaluationAtom>()[0]).is_ok(),
             eligible
         );
         assert_ne!(fixture.diagram.support()[0], fixture.origin.id());

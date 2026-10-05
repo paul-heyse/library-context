@@ -26,7 +26,7 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
+    let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -94,10 +94,10 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
         );
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(
-            fixture.base.check(&TypeSupport::invariants()[0]).is_ok()
+            fixture.base.check(&lctx_model::domain::validation::invariants_for::<TypeSupport>()[0]).is_ok()
                 && fixture
                     .base
-                    .check(&TypePresentationSupport::invariants()[0])
+                    .check(&lctx_model::domain::validation::invariants_for::<TypePresentationSupport>()[0])
                     .is_ok(),
             valid
         );

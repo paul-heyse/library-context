@@ -49,8 +49,7 @@ pub fn stage(model: &ValidatedModel, profile: Profile) -> Stage {
             .iter()
             .filter_map(|f| f.target().map(|(_, n)| n))
             .chain(
-                relation
-                    .invariants()
+                relation.resolved_invariants(&model).unwrap()
                     .iter()
                     .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
             )
@@ -113,7 +112,7 @@ pub async fn run(
     runtime: &AttemptRuntime,
     model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let invariant = Relation::of::<SummaryRun>().invariants()[0].clone();
+    let invariant = lctx_model::domain::validation::invariants_for::<SummaryRun>()[0].clone();
     let replay_inputs = summary_replay::inputs_for_profile(access.profile());
     let reader = AttemptSession::open(
         roles,

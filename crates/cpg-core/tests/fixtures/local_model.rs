@@ -12,5 +12,5 @@ pub fn model() -> ValidatedModel {
     lctx_model::local_semantic_outputs!(declared);
     relations.sort_by_key(Relation::name);
     relations.dedup_by_key(|r| r.name());
-    ValidatedModel::validate(relations).unwrap()
+    ValidatedModel::declared(relations).unwrap()
 }

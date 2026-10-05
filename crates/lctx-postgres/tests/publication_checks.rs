@@ -7,7 +7,7 @@ use lctx_postgres::{generations::GenerationStore, testing::DisposableDatabase};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="publication_audits", publication_checks=checks, semantic_source=include_bytes!("publication_checks.rs"))]
+#[model(name="publication_audits", publication_refs=checks_refs, semantic_source=include_bytes!("publication_checks.rs"))]
 struct Audit {
     #[model(key)]
     content: ContentHash,
@@ -16,6 +16,7 @@ struct Audit {
 }
 fn checks() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "publication_audit_sources",
         inputs: vec![
             ValidationInput::of::<Audit>(&["id"]),
@@ -98,7 +99,7 @@ async fn publication_callbacks_bind_old_sources_and_refuse_raw_forgery_before_ac
                     ValidatedModel::validate(vec![
                         Relation::of::<Literal>(),
                         Relation::of::<Audit>(),
-                    ])
+                    ], lctx_model::domain::ValidationDefinitions { invariants: vec![], publication_checks: checks() })
                     .unwrap(),
                 );
                 let store = GenerationStore::install(db.owner.clone(), model.clone())
@@ -260,3 +261,5 @@ async fn publication_callbacks_bind_old_sources_and_refuse_raw_forgery_before_ac
         }
     }
 }
+
+fn checks_refs() -> Vec<&'static str> {vec!["publication_audit_sources"]}

@@ -52,10 +52,10 @@ fn document_structure_and_attribution_preserve_bytes_and_typed_attribute_variant
 fn document_subjects_cannot_smuggle_foreign_optional_spans() {
     let mut fixture = Fixture::new();
     fixture.foreign_inner();
-    assert!(fixture.check(&DocumentNode::invariants()[0]).is_err());
+    assert!(fixture.check(&lctx_model::domain::validation::invariants_for::<DocumentNode>()[0]).is_err());
     assert!(
         fixture
-            .check(&DocumentComponentSupport::invariants()[0])
+            .check(&lctx_model::domain::validation::invariants_for::<DocumentComponentSupport>()[0])
             .is_err()
     );
 }
@@ -70,7 +70,7 @@ fn document_shapes_and_parent_depth_are_validated() {
         .unwrap()
         .depth = 2;
     fixture.put(components);
-    assert!(fixture.check(&DocumentNode::invariants()[0]).is_err());
+    assert!(fixture.check(&lctx_model::domain::validation::invariants_for::<DocumentNode>()[0]).is_err());
     let mut bad = fixture.component.clone();
     bad.parent = Some(bad.component);
     assert!(bad.validate().is_err());

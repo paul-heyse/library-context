@@ -62,6 +62,12 @@ impl Relation {
     pub fn publication_refs(&self) -> &[&'static str] {
         &self.publication_refs
     }
+    pub fn resolved_invariants<'m>(&self, model: &'m ValidatedModel) -> Result<Vec<&'m Invariant>, ModelError> {
+        self.invariant_refs.iter().map(|id| model.invariant(id)).collect()
+    }
+    pub fn resolved_publications<'m>(&self, model: &'m ValidatedModel) -> Result<Vec<&'m PublicationInvariant>, ModelError> {
+        self.publication_refs.iter().map(|id| model.publication_check(id)).collect()
+    }
     pub fn sum(&self) -> Option<&super::Sum> {
         self.sum.as_ref()
     }

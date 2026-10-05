@@ -29,14 +29,14 @@ fn metric_values_are_finite_and_zero_has_one_payload() {
     let changed = row(FiniteF64::new(1.0).unwrap());
     assert_eq!(row(plus).id(), changed.id());
     assert_ne!(row(plus).content_digest(), changed.content_digest());
-    let model = ValidatedModel::validate(vec![Relation::of::<Metric>()]).unwrap();
+    let model = ValidatedModel::declared(vec![Relation::of::<Metric>()]).unwrap();
     let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
     assert!(Batch::new(&model, vec![row(plus), changed], &budget).is_err());
 }
 
 #[test]
 fn finite_float_arrow_roundtrip_and_nonfinite_input_refusal() {
-    let model = ValidatedModel::validate(vec![Relation::of::<Metric>()]).unwrap();
+    let model = ValidatedModel::declared(vec![Relation::of::<Metric>()]).unwrap();
     let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
     let mut expected = [f64::MIN, -1.5, f64::from_bits(1), -0.0, f64::MAX]
         .into_iter()

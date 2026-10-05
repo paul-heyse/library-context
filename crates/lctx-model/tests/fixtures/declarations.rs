@@ -39,7 +39,7 @@ fn at(text: &str) -> i64 {
 }
 impl Fixture {
     pub fn new() -> Self {
-        let model = ValidatedModel::validate(facts_relations()).unwrap();
+        let model = ValidatedModel::declared(facts_relations()).unwrap();
         let input = InputRevision::from_entries(vec![ManifestEntry {
             path: "example.py".into(),
             content: ContentHash::of(BYTES),

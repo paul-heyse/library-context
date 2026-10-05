@@ -42,8 +42,8 @@ fn raw_flow_preserves_nominal_places_attribution_and_unbound_alternatives() {
     f.base.put(targets);
     f.base.put(vec![f.reaching.clone(), alternative]);
     f.base.put(vec![f.reaching_support.clone(), support]);
-    f.base.check(&FlowUse::invariants()[0]).unwrap();
-    f.base.check(&FlowReachingSupport::invariants()[0]).unwrap();
+    f.base.check(&lctx_model::domain::validation::invariants_for::<FlowUse>()[0]).unwrap();
+    f.base.check(&lctx_model::domain::validation::invariants_for::<FlowReachingSupport>()[0]).unwrap();
     let mut value = f.base.rows::<FlowValueObservation>().pop().unwrap();
     value.through_call = true;
     assert!(value.validate().is_err());
@@ -55,13 +55,13 @@ fn raw_flow_preserves_nominal_places_attribution_and_unbound_alternatives() {
 fn reaching_and_support_checks_include_the_definition_place_root() {
     let mut f = Fixture::new();
     f.foreign_place();
-    assert!(f.base.check(&FlowUse::invariants()[0]).is_err());
+    assert!(f.base.check(&lctx_model::domain::validation::invariants_for::<FlowUse>()[0]).is_err());
     assert!(
         f.base
-            .check(&FlowDefinitionSupport::invariants()[0])
+            .check(&lctx_model::domain::validation::invariants_for::<FlowDefinitionSupport>()[0])
             .is_err()
     );
-    assert!(f.base.check(&FlowReachingSupport::invariants()[0]).is_err());
+    assert!(f.base.check(&lctx_model::domain::validation::invariants_for::<FlowReachingSupport>()[0]).is_err());
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn broad_input_coverage_does_not_authorize_cross_file_flow_structure() {
                 change!(FlowDefinitionObservation,FlowDefinitionSupport,scope,f.base.rows::<LexicalScope>().into_iter().find(|s| s.kind == LexicalScopeKind::Module && s.id() != foreign_scope.id()).unwrap().id());
             }
         }
-        assert_eq!(f.base.check(&FlowUse::invariants()[1]).is_ok(), case == 5);
+        assert_eq!(f.base.check(&lctx_model::domain::validation::invariants_for::<FlowUse>()[1]).is_ok(), case == 5);
     }
 }
 

@@ -22,7 +22,7 @@ fn memory_final_replay_keeps_both_vocabulary_frames_and_their_reservations() {
             Relation::of::<Literal>(),
             Relation::of::<Probe>(),
             Relation::of::<ReadProbe>(),
-        ])
+        ], fixture::definitions())
         .unwrap();
         let schedule = schedule(&model);
         let budget = ResourceBudget::fixed(1 << 24).unwrap();
@@ -74,13 +74,14 @@ fn memory_final_replay_keeps_both_vocabulary_frames_and_their_reservations() {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
-#[model(name="duplicate_validation_frames",invariants=duplicate_frames,semantic_source=include_bytes!("validation_views.rs"))]
+#[model(name="duplicate_validation_frames",invariant_refs=duplicate_frames_refs,semantic_source=include_bytes!("validation_views.rs"))]
 struct DuplicateFrames {
     #[model(key)]
     marker: bool,
 }
 fn duplicate_frames() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "repeated_frame",
         inputs: vec![
             ValidationInput::of::<Literal>(&["id"]).at_epoch(PublicationBoundary::Facts),
@@ -90,13 +91,14 @@ fn duplicate_frames() -> Vec<Invariant> {
     }]
 }
 #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
-#[model(name="ordinary_validation_frame",invariants=ordinary_frame,semantic_source=include_bytes!("validation_views.rs"))]
+#[model(name="ordinary_validation_frame",invariant_refs=ordinary_frame_refs,semantic_source=include_bytes!("validation_views.rs"))]
 struct OrdinaryFrame {
     #[model(key)]
     marker: bool,
 }
 fn ordinary_frame() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "ordinary_frame",
         inputs: vec![
             ValidationInput::of::<OrdinaryFrame>(&["id"]).at_epoch(PublicationBoundary::Facts),
@@ -119,8 +121,12 @@ fn malformed_frames_refuse_before_a_schedule_can_acquire_authority() {
         ValidatedModel::validate(vec![
             Relation::of::<Literal>(),
             Relation::of::<DuplicateFrames>()
-        ])
+        ], ValidationDefinitions { invariants: duplicate_frames(), publication_checks: vec![] })
         .is_err()
     );
-    assert!(ValidatedModel::validate(vec![Relation::of::<OrdinaryFrame>()]).is_err());
+    assert!(ValidatedModel::validate(vec![Relation::of::<OrdinaryFrame>()], ValidationDefinitions { invariants: ordinary_frame(), publication_checks: vec![] }).is_err());
 }
+
+fn duplicate_frames_refs() -> Vec<&'static str> {vec!["repeated_frame"]}
+
+fn ordinary_frame_refs() -> Vec<&'static str> {vec!["ordinary_frame"]}

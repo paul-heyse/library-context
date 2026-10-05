@@ -7,8 +7,8 @@ fn declared_upper_closures_preserve_lower_owners_and_exclude_future_catalog_resu
         .iter()
         .map(Relation::name)
         .collect::<BTreeSet<_>>();
-    let analysis = ValidatedModel::validate(analysis_frontier_relations()).unwrap();
-    let catalog = ValidatedModel::validate(catalog_frontier_relations()).unwrap();
+    let analysis = ValidatedModel::declared(analysis_frontier_relations()).unwrap();
+    let catalog = ValidatedModel::declared(catalog_frontier_relations()).unwrap();
     let names = |model: &ValidatedModel| {
         model
             .relations()

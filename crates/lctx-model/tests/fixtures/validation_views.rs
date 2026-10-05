@@ -4,7 +4,7 @@ use lctx_model::domain::{
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
-#[model(name="validation_view_probes",invariants=invariants,publication_checks=publications,semantic_source=include_bytes!("validation_views.rs"))]
+#[model(name="validation_view_probes",invariant_refs=invariants_refs,publication_refs=publications_refs,semantic_source=include_bytes!("validation_views.rs"))]
 pub struct Probe {
     #[model(key)]
     pub marker: bool,
@@ -24,6 +24,7 @@ fn inputs() -> Vec<ValidationInput> {
 }
 fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        revision: 1,
         name: "frozen_and_current_vocabulary",
         inputs: inputs(),
         create: Arc::new(|budget| Box::new(Check::new(budget))),
@@ -31,6 +32,7 @@ fn invariants() -> Vec<Invariant> {
 }
 fn publications() -> Vec<PublicationInvariant> {
     vec![PublicationInvariant {
+        revision: 1,
         name: "published_frozen_and_current_vocabulary",
         inputs: inputs(),
         create: Arc::new(|budget| Box::new(Check::new(budget))),
@@ -156,3 +158,9 @@ pub fn schedule(model: &ValidatedModel) -> Schedule {
     )
     .unwrap()
 }
+
+fn invariants_refs() -> Vec<&'static str> {vec!["frozen_and_current_vocabulary"]}
+
+fn publications_refs() -> Vec<&'static str> {vec!["published_frozen_and_current_vocabulary"]}
+
+pub fn definitions() -> ValidationDefinitions { ValidationDefinitions { invariants: invariants(), publication_checks: publications() } }

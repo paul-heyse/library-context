@@ -165,7 +165,7 @@ impl Fixture {
             frame(&[condition]),
             frame(&nodes),
         ];
-        let invariant = summary::DischargeEvidence::invariants().remove(0);
+        let invariant = lctx_model::domain::validation::invariants_for::<summary::DischargeEvidence>().remove(0);
         let mut check = (invariant.create)(&budget());
         for (name, batch) in frames {
             if !(omit_subject && name == local::ObligationSubject::NAME) {
@@ -196,7 +196,7 @@ fn predecessor_questions_keep_nominal_owner_and_discharge_is_its_own_conclusion(
             [derivation::RowRef::of(fixture.obligation.id())]
         );
         assert!(
-            !local::DischargeEvidence::invariants()[0]
+            !lctx_model::domain::validation::invariants_for::<local::DischargeEvidence>()[0]
                 .inputs
                 .iter()
                 .any(|i| i.name() == summary::Obligation::NAME)

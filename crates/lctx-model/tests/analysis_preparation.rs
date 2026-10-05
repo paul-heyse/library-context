@@ -44,7 +44,7 @@ fn configuration_has_nominal_catalog_closure_and_refuses_foreign_selection() {
     let changed =
         Catalog::parse("other.toml", "version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
     assert!(Configuration::new(&changed, [(p, d)], &budget).is_err());
-    let model = ValidatedModel::validate(configuration_relations()).unwrap();
+    let model = ValidatedModel::declared(configuration_relations()).unwrap();
     for profile in Profile::ALL {
         Schedule::build(&model, vec![rows.declaration()], &[], profile).unwrap();
     }
