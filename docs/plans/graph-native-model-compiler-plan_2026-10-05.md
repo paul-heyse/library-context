@@ -1,6 +1,6 @@
 # Graph-native model and store-free compiler
 
-**Proposed, 2026-10-05.** Supporting plan for the [replacement coordinator](graph-native-pivot-plan_2026-10-05.md).
+**Accepted target / implementation in progress, 2026-10-05 (ADR-0128).** Supporting plan for the [replacement coordinator](graph-native-pivot-plan_2026-10-05.md).
 It develops M1, C1, C2-N and C2-U. The coordinator owns package state, cross-plan dependencies
 and finding disposition. The design basis is its two named reviews, not another model review.
 
@@ -184,5 +184,5 @@ selected analytical outcomes, not only a tiny facts demonstration. The publisher
 roundtrip and actual serving are additional integration obligations at Q0. Real-library scale,
 live vectors and activation remain the coordinator's explicitly authorized Q1 work.
 
-No current implementation or runtime outcome is claimed by this plan. Package state and current
-finding disposition remain at the coordinator.
+Package state, actual current-tree verification and finding disposition remain at the coordinator.
+The complete compiler stage is authorized; native persistence/publication/serving are subsequent work.

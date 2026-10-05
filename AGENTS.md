@@ -5,21 +5,23 @@ correct use** (ADR-0071; DESIGN §1 and §14). Agents should find built-in APIs,
 configuration, examples and deployment evidence, and see precise support and uncertainty. Existing
 behavioral analyses are enrichment; general semantic completion no longer gates the first product.
 The detailed target is `docs/design/sections/api-and-evidence-product.md`; new capabilities there
-remain Proposed until implemented. Existing FastMCP operation/brief tools remain the current interface.
+remain Proposed until implemented. FastMCP operation/brief contracts remain Rust-owned; native serving is pending.
 
-**Current work: the semantic model cutover** (ADR-0085/0083/0084, accepted 2026-09-29). The target is
-one declared relation model with a single owner per semantic question (`lctx-model`), PostgreSQL as
-the single relational store, and DataFusion as in-process compute (DESIGN §15). The
-[cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md) runs it as hard layers:
-0. core;
-1. store;
-2. facts;
-3. normalized relations;
-4. analysis and catalog;
-5. serving.
+**Current work: the graph-native hard pivot** (ADR-0128, accepted 2026-10-05).
+The [coordinator](docs/plans/graph-native-pivot-plan_2026-10-05.md) owns dependencies,
+acceptance and finding disposition. The first execution scope is the complete
+[model/compiler stage](docs/plans/graph-native-model-compiler-plan_2026-10-05.md), including
+compiler-side projections and selected analysis effects. Rust owns the semantic graph;
+`cpg-core` is the sole store-free compiler. SurrealDB native persistence, querying and serving
+are selected target responsibilities scheduled after this compiler scope.
 
-Legacy code is removed at the ownership boundary; no compatibility adapters, legacy IDs or dual stores.
-Phases 0–3 are implemented within their recorded qualification boundaries. Phase 4 typed analysis/catalog and cumulative compilation are implemented; mapped legacy retirement and Q0 acceptance are complete within the recorded scope, 2026-10-01. Phase 5 current serving is implemented in the working tree; qualification and operator activation are pending. Product work (PR6, new features) pauses until phase 5. STATUS and the current Phase 5 plan own acceptance, not an implementation label alone.
+The PostgreSQL backend and its clients are retired. No legacy readers, old-ID bridges, dual
+stores or historical runtime retention are required. Compiler integration/admission is in progress;
+compile checks alone do not establish a completed frontier or admitted artifact.
+`lctx compile --artifact-only --output DIR` is the artifact route under implementation.
+Ordinary compile requires the future native publisher and reports unavailable before acquisition.
+MCP startup is unavailable until native serving is implemented. Product features pause during
+this cut; STATUS and the coordinator own its current evidence and remaining work.
 
 The pieces:
 - **Extraction:** the accepted code-facts target links independent latest Ruff/ty and native
@@ -28,10 +30,11 @@ The pieces:
   Migration is in progress: current pins/acceptance are in docs/pins and the code-facts coordinator. The
   Pyrefly CLI is only a parity-test oracle. Catalog compilation is the default (ADR-0078);
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
-- **Facts:** the typed model (`lctx-model::domain`) is the contract and PostgreSQL generations
-  store it (ADR-0086); `lctx-postgres` owns the generation store and the retained
-  cache/operation services. The Delta store was removed in cutover phase 1 (P1.3/P1.4). Compilation is implemented through `lctx compile --through facts|normalized|analysis|catalog`, without selecting the generation; qualification
-  receipts and remaining work are in the cutover plan.
+- **Facts:** independent native providers stream bounded typed batches into an attempt-owned,
+  spillable Arrow/DataFusion workspace. Completed immutable streams feed normalization and analyses;
+  graph admission and export are separate from native publication (ADR-0128). The model owns
+  identities, roles, qualifications, coverage and graph meaning. Internal typed record views do
+  not dictate the published physical schema.
 - **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
   pinned models and finite summaries composed over petgraph SCCs; five verdicts, never a null.
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
@@ -54,8 +57,8 @@ of repeating the root's general orientation. Follow discovered dependencies as n
 preservation and testing rules still apply.
 
 1. Read `STATUS.md`: where we are and what's next.
-2. For the cutover, read the [cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md)
-   (phases, work packages, qualification, §8 finding disposition) and DESIGN §15.
+2. For the pivot, read the [coordinator](docs/plans/graph-native-pivot-plan_2026-10-05.md)
+   and the task-relevant supporting plan, then DESIGN §15.
 3. For product context, read the forward plan
    (`docs/plans/behavioral-model-forward-plan_2026-09-24.md`): §1 current state and qualification
    boundary, §3.0 product PR0–PR6 queue and §6 findings. The retained Stage 3–5 sequence is a
@@ -90,17 +93,17 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 
 | When | Run |
 |---|---|
-| During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on touched crates) and focused affected contract controls through `just verify-model`, `verify-analytics`, `verify-providers`, `verify-store`, `verify-serving`, `verify-oracles` or `verify-tooling`. Select the family and filters explicitly; no assembled gate after a slice or commit. |
-| At functional scope completion | Run affected family controls and applicable non-functional leaf checks once. Use `just qualify` for this assurance pivot, a changed shared model/receipt/trust/transport contract, or uncertainty that focused controls cannot resolve: all required families, representative real-PG/native/MCP journeys, compile-fail/doc contracts, full keep-going Clippy and applicable leaves for one tree. Fix failures and rerun affected controls or the failed `just <id>`; minor unrelated docs/library changes do not automatically trigger qualification. |
-| The real library, end to end | `lctx compile fastmcp --through facts|normalized|analysis|catalog --profile catalog|behavioral`; reports an unselected generation. Run real-library qualification only when authorized. Upper-frontier fixture qualification passed within the Phase 4 receipt; real-library upper pilots are not_run; serving code is implemented, with activation and real-library qualification stopped. |
-| The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
+| During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on touched crates) and focused affected contract controls through `just verify-model`, `verify-compiler`, `verify-analytics`, `verify-providers`, `verify-store`, `verify-serving`, `verify-oracles` or `verify-tooling`. Select the family and filters explicitly; no assembled gate after a slice or commit. |
+| At functional scope completion | Run affected family controls and applicable non-functional leaf checks once. Use `just qualify` for this assurance pivot, a changed shared model/receipt/trust/transport contract, or uncertainty that focused controls cannot resolve: all required families, representative actual native-store/native/MCP journeys, compile-fail/doc contracts, full keep-going Clippy and applicable leaves for one tree. Fix failures and rerun affected controls or the failed `just <id>`; minor unrelated docs/library changes do not automatically trigger qualification. |
+| The real library, end to end | `lctx compile fastmcp --artifact-only --output DIR --through facts|normalized|analysis|catalog --profile catalog|behavioral`; artifact path remains under integration. Run real-library qualification only when authorized. Compiler evidence is scoped in the graph-native coordinator; native serving, live vectors and real-library operator adoption remain not_run. |
+| Native publication and serving | Pending the realization/serving stages; no default operator actions are implied by compiler checks. |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Dependency policy | `just deps`, the dependency-policy leaf check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, every exact Cargo pin or git rev has a `docs/pins.md` row, cargo-deny bans and sources, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Move dependencies to the latest | `just upgrade` (root `uv.lock` and `Cargo.lock`) at your discretion, then the affected tests; `libraries/*` and `services/vllm` move only deliberately (above, and their pins rows) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; `just turn-end` regenerates the index; agents run `just adr-lint` for affected decision metadata at scope end |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for affected publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
-| End of a turn that changed files | The root agent runs `just turn-end` (ADR index, `build-features`, formatting with ruff's safe auto-fixes). Subagents don't. Clippy, pyrefly, lint, rules, ADR and agent lint, fixtures, gold, `docs-check` and `deps` findings are yours through applicable leaves at scope end. Disposable store checks belong to `verify-store`/`qualify`; inspecting the default operator store with `just store-check` is an explicit operator action |
-| After a dependency, toolchain or skill-selection change, or an environment-shaped failure | `just ready` (skills sync, PostgreSQL images, tool check) |
+| End of a turn that changed files | The root agent runs `just turn-end` (ADR index, `build-features`, formatting with ruff's safe auto-fixes). Subagents don't. Clippy, pyrefly, lint, rules, ADR and agent lint, fixtures, gold, `docs-check` and `deps` findings are yours through applicable leaves at scope end. Native disposable store checks return with the realization stage; compiler qualification implies no operator action |
+| After a dependency, toolchain or skill-selection change, or an environment-shaped failure | `just ready` (skills sync and tool check) |
 | Tools present? | `just doctor`, or `just ready` |
 
 The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0079).
@@ -125,20 +128,11 @@ The build-environment wrapper also derives each native Python adapter's content/
 key from its declared uv inputs. Test readiness synchronizes those adapters before Rust fixtures
 invoke Python with `--no-sync`; a successful cached build alone does not prove model agreement.
 
-## PostgreSQL superuser access for agents
+## Operator state
 
-The operator has granted agents full superuser access to the local PostgreSQL 18 cluster
-(port 5432), to use however they see fit. Everything in it is regenerable from pinned inputs, and
-no other data lives there. This covers all databases (`lctx`, `pse` and the `pse_test_*` leftovers)
-and any administration: create, alter, drop, inspect, repair.
-- Connect as `lctx_superuser`; `~/.pgpass` supplies the password:
-  `psql -h 127.0.0.1 -U lctx_superuser -d lctx` (use `-d postgres` for cluster-level work).
-- The same credential as a URL is in `~/.config/library-context/postgres-superuser.json`
-  (`{"url": ...}`, mode 0600), for authorized local administration.
-- This is the agents' own access. The four service roles (`lctx_migrator`, `lctx_app`,
-  `lctx_importer`, `lctx_serving`) stay non-superuser, and `lctx store check` still enforces that.
-  Product code and runtime configuration never use the superuser.
-- Never print the password or commit either file.
+This compiler stage does not inspect, reset or activate operator databases or client registrations.
+Native SurrealDB persistence, publication and serving follow the graph-native coordinator; operator
+adoption is a separately authorized package. Store-free compiler controls require no database.
 
 ## Writing code against libraries
 
@@ -193,9 +187,6 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
 - `datafusion-tracing` (DataFusion planning, execution and object-store spans, metrics, exporters)
 - `salsa` (0.28.4 index; the workspace pins 0.28.5, so check before transferring a claim: macro
   options, durability, backdating, cycles, cancellation)
-- `sqlx-postgres` (sqlx 0.9 with PostgreSQL, plus sea-query, pgpq, pgvector, testcontainers-modules
-  and the DataFusion table-provider fork: `AssertSqlSafe`, `query!`/`.sqlx`, pools, COPY
-  finish/abort, migrations, disposable PG18; executed probes against PostgreSQL 18)
 - `pydantic` (2.13.5 / pydantic-core 2.46.5): strict wire models, JSON/schema and byte contracts.
 - `pyo3` (pyo3 0.29.2 and pyo3-async-runtimes 0.29.0: attach/detach, `Bound`/`Py`, macro options,
   exceptions, the async bridge, the obsolete-API catalog)
@@ -255,8 +246,8 @@ capability is absent.
   tests and publication. Don't write test-only copies.
 - **Fixtures** go under `fixtures/python/<case>/`. Intentional syntax-error cases go under
   an `_invalid/` subdirectory there.
-- **Store tests** go through the generation store against real disposable PostgreSQL 18, never
-  around it.
+- **Store tests** exercise the actual native persistent realization when that implementation exists.
+  Compiler artifact controls require no database; they do not establish persistence or serving.
 
 ## Reporting
 

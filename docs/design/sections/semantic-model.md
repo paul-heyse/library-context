@@ -1,136 +1,63 @@
 <a id="section-15"></a>
 
-# §15 Semantic relation model
+# §15 Semantic graph model
 
-This page owns the **target** representation of the analyzed codebase:
-- one declared relation model, with a single owner for every semantic question;
-- PostgreSQL as the single relational store;
-- DataFusion as the in-process compute engine.
+**Accepted target / implementation in progress, 2026-10-05 (ADR-0128).** One Rust-owned semantic
+graph governs entities, attributed observations/assertions, roles, source correspondence, conditions,
+obligations, domain outcomes and derivations. Typed Arrow records remain useful internal views.
+Compilation uses completed inputs in a private spillable workspace and returns an admitted graph;
+it requires no database, publication grant or persisted compiler checkpoint.
 
-**What this page decides.** It states the vocabulary (entities, occurrences, places, calls, bindings,
-transfers, conditions, obligations and derivations), the declaration contract every relation
-satisfies, the named semantic policies, the transfer algebra, and the store and serving contract.
+Logical identities, captured bytes, semantic compatibility, producer implementations, graph content
+and native physical realization have separate scopes. Semantic compatibility is declared structure
+and explicit policy/invariant revisions, not broad source-comment or lockfile hashing. Codebooks
+remain append-only. Provider disagreement and unresolved/conflicting observations remain visible.
+Original evidence, scoped negative premises and five-way verdict semantics retain their authority.
 
-**Status, 2026-10-01.** Accepted single-model/store target under ADR-0085/0086/0087.
-Facts storage and producers are **Implemented / Tested** within the
-[2026-09-30 facts receipt](../../design_review/evidence/2026-09-30_facts-qualification/README.md).
-Normalized relations and runtime foundations are **Implemented / focused-Tested** with the
-[Phase 3 qualification](../../design_review/evidence/2026-09-30_phase3-qualification/README.md);
-its automated gate excludes stopped library comparisons and measurements.
+The [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns execution,
+finding disposition and acceptance. The first stage completes all compiler frontiers/profiles and
+compiler-side selected analytics. Managed SurrealDB persistence, publication and native serving
+follow their respective packages. Native querying is already selected; efficient operations follow
+first principles and library capabilities, not performance proofs or detailed work accounting.
 
-Phase 4 analysis/catalog, immutable vocabulary groups, typed Local/execution/models/Summary,
-structural/optional analytics, catalog/evidence/selection, synthesis and retrieval are
-**Implemented / Tested within the accepted Phase 4 scope**, 2026-10-01. Mapped ownership retirement and Q0 acceptance are complete; the
-[current qualification receipt](../../design_review/evidence/2026-10-01_phase4-qualification/README.md)
-records the complete functional gate and composite hygiene. Bounded antecedent receipts
-are in the [Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md).
-The [foundation review](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
-is **Accept scoped**. The [P4B3-F01 corrective reinspection](../../design_review/reviews/design_review_phase4-symbolic-reinspection_2026-10-01.md)
-and [assembled Design/Target review](../../design_review/reviews/design_review_phase4-assembled_2026-10-01.md)
-are **Accept scoped**, 2026-10-01; Q0 passed within the recorded finite envelope.
-Phase 5 current serving is **Implemented / scoped qualification; real-library qualification stopped**, 2026-10-02. No live embedding, real-library upper-frontier
-pilot, comparative product, hydration-cost or total-RSS measurement is claimed.
+Catalog construction remains independent of optional analysis and briefs. Captured native
+Bound/unattached formulas remain distinguishable from unavailable attachment; they do not create
+Entry proof. Exact source/effective defaults, signature variants, predicate-domain closure and
+original source/context association remain typed. Source-field location does not establish runtime
+allocation, mutation, alias or temporal identity. One exact embedding specification governs both
+analytics and retrieval; exact consumed values enter the artifact, with service-free reconstruction.
+Persistent cache deployment and operator activation are subsequent work.
 
-**Current state.** PostgreSQL is the sole canonical relational store; DataFusion supplies in-process
-compute. `lctx compile --through facts|normalized|analysis|catalog` is implemented for either profile
-and never selects the generation. Upper-frontier runtime controls passed within the recorded scope, 2026-10-01. Catalog Flow
-is `NotRequested`; behavioral uncertainty remains explicit. `lctx-model` owns all semantic contracts;
-extraction/native flow have no `cpg-schema` dependency. Legacy Phase 4 engine retirement is complete within the exact mapped scope after independent
-replacement controls; Q0 passed within the recorded scope, 2026-10-01. Phase 5 has retired `cpg-schema`, the dormant `cpg-core::bundle` and their obsolete serving/IPC consumers; current qualification is pending.
+Previous PostgreSQL receipts bound that implementation only. No replacement runtime, real-library
+acceptance or Measured performance claim follows from this accepted decision.
 
-**Execution owner.** The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
-owns layer sequencing, cross-phase finding disposition and deletion obligations. The Phase 5 and incremental alignment plans
-own their current qualification and remaining work; STATUS is the restart/handoff entrypoint. Canonical
-catalog construction is independent of optional analysis success and brief selection. Exact
-source/effective defaults, signature variants, predicate-specific selection closure and original
-evidence remain typed. Symbolic source associations retain Unknown/no-proof reader outcomes;
-known field location never establishes allocation, alias, mutation or temporal value identity.
-
-**Implemented / Tested incremental foundations; Q0 fixture composite passed, 2026-10-05:** the [target-alignment series](../../plans/target-implementation-alignment-plan_2026-10-04.md)
-integrates faithful native Bound/unattached candidate formulas, finite publication/closure expansion,
-one physical-layout owner and explicit identity encodings. Candidate attachment failure must not
-become Unbound; retained formulas do not authorize Entry proof. Exact validation epochs and sufficient
-grants remain distinct. Reviewed schema/identity changes and actual fixture/native/store/MCP
-qualification passed within the coordinator's composite boundary. Real-library activation remains stopped.
-The coordinator owns the transferred findings.
-
-**Implemented / Tested canonical validation, 2026-10-05 (ADR-0126); model-family scope.**
-Validation definitions have stable semantic IDs/revisions, complete ordered relation/prefix inputs
-and one constructor each. Records and stage uses reference definitions rather than reconstructing
-them. Definition/ref/input identity participates in model identity. Unresolved references, conflicting
-definitions and missing required premises refuse model construction; finite models do not silently
-run a smaller replay. Source-call headers, invocations and arguments reference the same replay
-obligation. Store execution/acknowledgement remains an effect of this model, never an independent
-semantic registry. [Assurance coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md)
-owns the passing integrated composite fixture acceptance; model-family controls passed with the repair receipt.
-
-> Decision: ADR-0126
-
-One model-owned embedding specification/value/text/admission/consumption contract serves analytics
-and retrieval. PostgreSQL retains immutable cache winners; attempts publish exact consumed values
-and consumer receipts. Replay is service-free. Fake effects qualify only that seam and cache behavior.
-
-**Where the requirement came from.** The
-[semantic data model target review](../../design_review/reviews/design_review_semantic-data-model_2026-09-29.md)
-supplies it, F01–F13 especially:
-- the same semantic decision is made independently at 2–8 places each;
-- places and transfers have no shared representation;
-- conditions exist in two representations;
-- the serving schema is a second, hand-written authority.
-
-The review's evidence folder holds the probes.
-
-> Decision: ADR-0085, ADR-0086, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100, ADR-0121
+> Decision: ADR-0128, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126
 
 <a id="section-15-1"></a>
 
 ## §15.1 Layers, owners and mechanisms
 
-Every relation belongs to exactly one layer and one semantic production owner. Ordinary relations
-have exactly one producing stage. **Implemented / focused-Tested, 2026-10-01 (ADR-0105):** the finite shared vocabulary has one assembly owner and
-one writer per declared immutable epoch. Ordinary relations retain one producing stage;
-§15.11 specifies the publication/read boundary.
+**Accepted target / implementation in progress, 2026-10-05.** `lctx-model` owns semantic
+records, graph mappings, canonical keys, conditions, domain operations and invariants. `cpg-extract`
+and `cpg-flow` own independent native observations; `cpg-core` owns cumulative store-free
+compilation and artifact admission. `lctx-analytics` supplies pure charged kernels. `lctx-embed`
+is an explicit external effect. Python owns transport and presentation.
 
-**Implemented / focused-Tested, 2026-10-01 (ADR-0108):** shared analysis contracts have finite nominal
-instances at immutable producing owners. Preflight-known definitions remain early one-shot rows;
-late invocation, support, coverage and proof records belong to their actual publication boundary.
-Mechanical declarations share semantic operations. Their reference sums and invariant inputs name
-only native evidence, completed predecessors and their own finite proof occurrences.
+The compiler uses attempt-private Arrow IPC streams and spillable DataFusion preparation.
+Completed immutable inputs follow semantic dependencies; one producer owns ordinary output.
+Declared shared-vocabulary contributions merge into their assembly owner. No persisted epochs,
+database roles, generation grants or store readback coordinate compilation.
 
-| Layer | Holds | Producer |
-|---|---|---|
-| **L0 observations** | Source artifacts and occurrences; attributed provider assertions, provider conditions and coverage: syntax, declarations, Pysa call facts, ty flow facts, types, documents, package metadata and invocation context | `cpg-extract`, `cpg-flow` |
-| **L1 normalized relations** | Normalized entities and occurrence ownership, places, call sites/targets/resolutions and call-policy views, effective callables, signatures, call bindings | Pure model normalization/one binder; model-owned relational membership views |
-| **L2 derived semantic relations** | Transfers, control influences, derived conditions over the shared atom vocabulary, obligations, analysis coverage, the derivation index, analysis invocations and findings | Pure model and `lctx-analytics` kernels; selected model-owned relational compute |
-| **L3 product relations** | Catalog contracts, requirements, associations, scenarios, deployment evidence, selection domains, retrieval units | Catalog and retrieval stages |
-| **L4 serving** | Generated views, grants and indexes over one pinned generation; derived artifact caches | Generated from declarations |
+Facts, Normalized, Analysis and Catalog are cumulative requested frontiers. Both catalog and
+behavioral profiles preserve native coverage and uncertainty. Selected upper operations require
+their actual Local, execution, Model, source-call or vector predecessors. Projection preparation
+is shared where its topology and lifetime permit. Catalog availability does not require optional
+analytics or brief seeds.
 
-**Rules for the layers**
-- L2 and L3 relations are canonical, published relations. Later stages consume them exactly like L1.
-- Projections, operators and caches are **execution mechanisms**, not layers.
-- Three graphs stay distinct:
-  - program projections (§15.10);
-  - the derivation index (§15.9);
-  - the stage table (§15.11).
+SurrealDB persistence/publication and native querying consume the admitted graph after compilation.
+Their contracts are accepted targets; their implementation and assembled Q0 acceptance are pending.
 
-**Crate owners**
-- **`lctx-model`** owns the pure contracts: relation declarations and registry, identity kinds,
-  vocabulary types, named policies, transfer algebra, the condition kernel, the obligation and verdict
-  policies, the derivation-source registry, the stage table, and validated model metadata. PostgreSQL lowering belongs to `lctx-postgres`.
-- **`lctx-postgres`** owns all PostgreSQL effects: the generation lifecycle, COPY, constraints, roles,
-  and reader leases. `cpg-core` owns DataFusion provider registration so the Python storage wheel
-  does not link the compute engine.
-- **`cpg-core`** orchestrates stages, adapts charged inputs/outputs and registers DataFusion providers/logical views. Pure model operations own current semantic derivations and validators; suitable relational lowerings remain model-owned alternatives.
-- **`lctx-analytics`** keeps pure native concept, ranking, neighbour and SCC kernels; model-owned contracts govern their inputs and results.
-- **Python** is a thin validated transport and numerical library adapter. `lctx-model::domain::serving` owns wire mappings, cursors and ranking; `native_requests` owns finite exact-input semantics. `lctx-postgres::generations` owns their generation-bound effects.
-
-**Phase 3 generation closure (Implemented / focused-Tested, 2026-09-30; automated gate passed; pilot measurements unqualified).** Facts contains L0; Normalized contains
-L0+L1 in one self-contained generation. A model-owned frontier descriptor declares relation
-closure, coverage, checkpoints and admission. Fresh normalized compilation runs the combined
-schedule without intermediate publication or selection. P4/P5 extend the declared closure;
-external linked generations are not a P3 input mechanism.
-
-> Decision: ADR-0085, ADR-0086, ADR-0105, ADR-0108
+> Decision: ADR-0128, ADR-0085, ADR-0117
 
 <a id="section-15-2"></a>
 
@@ -147,12 +74,14 @@ field properties. Reference collections become first-class relationships. Tagged
 inactive arms from present optional values and reject malformed payloads. Subtype references enforce
 subtype membership. Same-key conflicting payload is an error unless an explicit model merge owns it.
 
-`lctx-postgres` lowers the validated model into ordinary tables in each generation schema, with
-qualified keys, references, checks and indexes. Explicit Arrow schemas drive `serde_arrow`; no sample
-inference defines a contract. Codebooks remain append-only Int16 values. Semantic validators and
-computations stay handwritten where they express actual behavior, consuming the same typed contracts.
+The finite graph vocabulary selects independently meaningful entities, attributed assertions,
+role-labelled participants and derivations from these records. Internal Arrow declarations are
+computation views, not the physical published schema. Source/context, reused values and semantic
+assertions remain addressable. Model-owned mappings reject unknown internal targets; unresolved
+Python references carry typed external uncertainty. Explicit Arrow schemas drive codecs; sample
+inference never defines a contract. Codebooks remain append-only.
 
-> Decision: ADR-0085, ADR-0086
+> Decision: ADR-0128, ADR-0085
 
 <a id="section-15-3"></a>
 
@@ -201,15 +130,16 @@ identify atoms. An atom names its actual evaluation occurrence and predicate. Pa
 include the discriminator that separates them. Transfer aggregation keys exclude the accumulating
 condition; the owned merge joins conditions and retains all support.
 
-Generation IDs identify attempts. Model, physical schema, producer and content digests have separate
-meanings. Content equality excludes runtime timestamps and measurement data.
+Attempt identity does not define graph content. Semantic contract, producer implementation, captured
+source, graph content and physical realization have separate scopes. Content equality excludes runtime
+timestamps and measurement data.
 
 **Implemented / Tested alignment contract, 2026-10-05; Q0 composite fixture qualification.** Declaration and
 mapping/preparation compatibility use explicit framed scalar/role/reference/code/sum encodings,
 with versioned namespaces. Fields retain declaration order and sum arms numeric-code order.
-Incidental Arrow presentation metadata does not define a semantic contract. The conservative
-artifact fingerprint still includes raw Rust sources, manifests and lockfile; formatting and
-revision changes can invalidate it. Existing ordered whitespace-free embedding-specification JSON
+Incidental Arrow presentation metadata does not define a semantic contract. Implementation fingerprints retain relevant Rust/dependency changes; semantic compatibility uses
+declared structure and explicit policy/invariant revisions. Source comments do not define semantic
+rule identity. Existing ordered whitespace-free embedding-specification JSON
 remains its byte identity contract. Native candidate kind/formulas survive attachment failure;
 no Bound/unattached evidence becomes Unbound or an Entry witness.
 
@@ -767,254 +697,62 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 
 <a id="section-15-11"></a>
 
-## §15.11 Store, compute and stages
+## §15.11 Compilation and physical realization
 
-**The store.** PostgreSQL 18 is the single relational store. Each generation owns an ordinary
-schema, without parent partitions. A stable control schema owns lifecycle state, manifests and selection.
-Generation-qualified local references support cycles; tables/keys are created before foreign keys.
+**Accepted target / implementation in progress, 2026-10-05.** The compiler owns bounded batches,
+immutable completed-input segments, spillable bulk operations, cancellation/drain and shared compact
+analytical topology. Producers read their actual completed predecessors. Completion validates local
+shape, canonical keys, reference closure, domain outcomes and necessary cross-element invariants.
+Shared vocabulary is assembled privately; no persisted epoch/grant/receipt protocol is required.
 
-**Lifecycle:** staging → sealed → validated → published; failed and retired are terminal. Selection
-is a separate pointer. Seal waits for active writes and revokes writer access. Required validators
-inspect stored sealed contents; receipts bind the exact contents and complete validator set.
-Publication changes state and reader grants atomically. Readers verify digests and hold leases;
-retirement requires an unselected generation and exclusive access, then drops its schema atomically.
-Every generation belongs to the attempt that registers it: only that attempt advances it, its
-lifecycle connection holds the attempt lock until the attempt ends, and a refusal at any step records
-the generation failed (terminal, abort only) with a typed class. A failed attempt publishes nothing
-and retry creates a new generation; a generation whose attempt vanished is listed as interrupted.
-A facts generation lowers only the facts relations, and readers verify its digests and live columns
-before any scan. `store check` compares the live catalog with a rolled-back shadow lowering; `store
-reset` removes one generation per transaction and is resumable.
+The result is a versioned admitted artifact containing canonical graph streams, original chunks,
+coverage, method definitions and exact consumed vectors. Semantic hashes are independent of batch
+boundaries and Arrow IPC container bytes. Partial producer output remains provisional. Failed or
+cancelled attempts expose no complete artifact; restart from captured inputs rather than resume an
+arbitrary database stage. The library interface carries no store credentials.
 
-**Compute — Implemented / source-inspected, 2026-10-04; current Q0 fixture composite passed 2026-10-05.** Most
-current derivations and semantic validators invoke pure model kernels over admitted charged typed
-Rows. Model-owned validated-membership SQL is installed in PostgreSQL; DataFusion logical-view
-registration has bounded inspected test consumers. DataFusion reads published relations through
-the owned PostgreSQL table-provider fork with admitted pushdown; `lctx query` runs SQL over a
-pinned generation. Model-owned in-memory Arrow/DataFusion plans remain suitable for selected
-bulk operations when order, multiplicity, nulls, decoding, caps and refusals are qualified.
+`lctx compile --artifact-only --output <directory>` supplies this independent compiler route.
+Ordinary compile-and-publish remains unavailable until P2 exists; it must not silently use
+PostgreSQL or reinterpret the default as artifact-only. Publication consumes the artifact without
+rerunning producers, installs the declared native realization, reconciles persisted content once,
+drains writers, seals definitions and publishes separately from selection. All serving handles pin
+both semantic content and executable realization.
 
-**Scoped CI-07 SHOULD rationale, source assessment 2026-10-04.** For existing finite nominal
-semantic operations, pure charged kernels preserve typed refusals, deterministic work bounds and
-store-free testing with less integration burden than a query-engine rewrite. Alternative:
-model-owned in-memory relational lowering, eligible where it simplifies an actual operation.
-Consequence: bespoke kernels remain, with shared model validators and independent finite/native
-controls as compensating checks. Accountable owner: the model operation/compute owner. Reopen on
-a named bulk-operation gap or measured attempt-budget/maintenance cost. This rationale waives no
-MUST and is neither a blanket DataFusion exclusion nor an exemption for generic duplicates.
-The [foundation plan](../../plans/model-contract-execution-alignment-plan_2026-10-04.md)
-coordinates the remaining contract consolidations and bounded mechanism comparisons.
-
-**Artifacts.** Arrow IPC artifacts are only derived, content-addressed caches for bulk consumers, such
-as native executor inputs, with their manifests in PostgreSQL. They are never canonical.
-
-**The stage table (Implemented / focused-Tested, 2026-10-01).** A typed **stage table** is the sole writer authority and names each stage's input relations, output relations,
-contributions, effect class and code identity. From it:
-- the scheduler is derived;
-- every ordinary output has exactly one writer; vocabulary has one assembly owner and one writer
-  per declared immutable epoch;
-- a read before its writer runs is an error;
-- publication groups close declared private vocabulary deltas and ordinary results atomically,
-  with no read authority before group acknowledgement (§15.11).
-
-**Implemented, qualification in progress, 2026-10-03.** Scheduled extraction coverage names the
-actual provider per fact family through `FamilyCoverage`; one stage can coordinate canonical
-Ruff syntax and native Pyrefly typing without merging their support identities. Admission derives
-exact scope/family/provider expectations and reconciles the joint stage outcome. Relation writers
-remain singular; no provider discovery registry is introduced.
-
-> Decision: ADR-0119
-
-
-**The facts frontier** (`domain::admission`). A facts generation publishes only facts relations,
-which reference only facts relations. One table states, for each family:
-- its grain: once per input, or once per input artifact of a class (Python source or document);
-- the profiles that request it: Flow in the behavioral profile only;
-- whether facts are admissible when it is entirely unavailable: Artifacts and Syntax are required.
-
-*Preflight* refuses a schedule before any store effect when:
-- it reads or writes above the frontier;
-- it attempts a family its profile does not request;
-- it leaves a requested family uncovered;
-- a family's assertions are written by a stage that does not report that family's coverage, or an
-  unrequested family's assertions are written at all;
-- it has no coverage writer.
-
-*Admission* reads the sealed inputs, artifacts and coverage and requires exactly the expected rows:
-- one row per scope, requested family and covering provider;
-- one `NotRequested` row per scope of an unrequested family;
-- no missing, extra or duplicate row, and no `Failed` status.
-
-Each stage's reported outcome must agree with the coverage its provider stated. Each family's
-availability is recorded as Complete, Partial, Unavailable, NotRequested, or no scope. The
-admission record binds the contract, model, schedule, coverage and content digests, and only
-admission constructs it.
-
-Reuse keeps recompute-and-compare admission. Skipping on key stays behind ADR-0081's trigger.
-
-**Performance** of publication and provider reads is measured at phase exits and tuned later. It is
-not a decision gate.
-
-**Compile outcomes (Implemented, ADR-0094).** The generation registry, failure record and live
-attempt lock own new compile outcomes. `cpg-core::facts` never writes the retained `lctx_ops`
-attempt/events; `runs` reads those historical records. `generation list|show` reports current
-compilation. Required producer failure removes its generation and every registry record;
-preflight refusal has no generation. Publication never selects. No durable history is promised
-for a removed generation or an acquisition failure before registration.
-
-**Completed-stage reads (Implemented / focused-Tested, 2026-09-30; automated gate passed; pilot measurements unqualified).** A cumulative attempt freezes each completed
-stage's outputs atomically with receipts and importer read grants, after draining readers/writers.
-An immutable validated facts checkpoint precedes normalization. Private source-bound input
-capabilities carry completed content and scoped availability; published-reader authorization stays
-separate. Read leases last through drain, and query execution admits the full physical plan's scan
-capacity before any scan starts. One attempt budget covers acquisition through publication.
-The [detailed protocol](../../plans/semantic-model-phase3-detailed-plan_2026-09-30.md#6-cumulative-frontiers-and-private-stage-reads)
-owns the implementation sequence and controls; none of this is included in P0–P2 qualification.
-
-**P4 vocabulary publication (Implemented / focused-Tested, 2026-09-30; ADR-0105/0108).** Analysis creates vocabulary already closed at the
-facts checkpoint. Private typed deltas plus one atomic publication group close a declared new
-prefix together with ordinary results referencing it. Computed-stage receipts grant no reads;
-group closure drains writers, revokes delta grants, merges and validates stored contents, then
-issues completed receipts atomically. Existing rows never change. Lower readers see immutable
-security-barrier views with literal prefix bounds, never a growing canonical table. Old receipts
-verify their original prefix. Failed/unconfirmed closes poison the attempt; final seal requires
-every group closed. [Plan §3](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#3-prerequisite-immutable-shared-vocabulary)
-owns the finite whitelist, schedule and migration. Named publication boundaries map to contiguous,
-schedule-bound physical prefix ordinals; their append-only domain codes do not determine execution
-order. Ordinary outputs inherit the maximum prefix of their declared acknowledged inputs, including
-completed handoffs. Completion validates vocabulary references against that bound and any narrower
-explicit input prefix before granting reads. An unrelated later close cannot widen this authority.
-A runtime permit can narrow an acknowledged vocabulary grant to an earlier closed prefix from
-the same attempt and schedule. It cannot widen that grant or supply a receipt of its own; the
-provider reads the selected immutable view. This also lets one consumer use Facts-bound native
-semantics and a later derived vocabulary without conflating their authority.
-The [R0/R1 foundation review](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
-is **Accept scoped, 2026-10-01**. Scoped Phase 4 acceptance passed, 2026-10-01.
-
-**Implemented foundation, 2026-10-01 (ADR-0108).** The finite nominal owner graph follows
-actual stored-read dependencies, including execution sub-stages and catalog core → evidence →
-selection → synthesis → retrieval. New vocabulary closes occur only where those consumers need
-new predecessor vocabulary; ordinary results can complete against the existing prefix. No global
-proof reference sum may pull future owners into an earlier stage's invariant dependencies. Final
-frontier coverage has a separate one-shot writer checking the independently declared expected
-owners/outcomes (**Implemented / focused-Tested, 2026-10-01**); actual cumulative publication
-controls passed within the recorded scope, 2026-10-01. Catalog construction remains independent of optional analysis success.
-
-> Decision: ADR-0105, ADR-0108
-
-**Normalized availability (Implemented / Tested within the recorded scope, 2026-10-01).** A final writer
-records capability/scope/context outcomes independently of successful computation. Model-owned
-capabilities declare anchor and dependency families. Shared input/context/family premise sets
-retain original scoped coverage once; outcomes and their producing-stage receipts refer to these
-sets. Local unavailable and unrequested anchors remain explicit even with zero observations.
-Complete requires complete dependency coverage across the input, preserving cross-source target
-uncertainty. Frontier admission checks exact scoped membership and acknowledged output receipts.
-The same scoped operation is available over the private facts checkpoint before final assembly.
-
-> Decision: ADR-0086, ADR-0089, ADR-0094, ADR-0105
-
-**Execution alignment (Implemented, 2026-10-02; ADR-0116).** Model dependency closure retains
-exact relation/publication-prefix/stream-order requirements and lowers a separate sufficient
-grant using scheduler ordinals. Direct facts and explicit invariant epochs survive inference;
-unfinished ordinary outputs refuse. C1/C2, Analytic and S0 consume this operation. The compiler's
-finite upper-stage binding supplies declaration, phase, publication membership, graph needs and
-runner; preflight checks routes and cross-phase dependencies before effects. Actual adapters read
-acknowledged sources in separate sessions, coalescing only identical source universes.
-
-> Decision: ADR-0116
+> Decision: ADR-0128
 
 <a id="section-15-12"></a>
 
 ## §15.12 Serving
 
-**One pinned generation.** A server process pins one published generation and reads it directly.
-- Serving shapes are generated views over canonical relations, with grants and lookup indexes. They are
-  not copied tables.
-- Wire DTOs derive from relation rows or declared mappings.
-- The native executor reads its inputs from the generation, optionally through a derived artifact
-  cache.
+**Accepted target / not implemented, 2026-10-05.** Rust owns operation meaning, predicate-specific
+selection, scope and uncertainty. SurrealQL functions/native queries realize fixed evidence paths,
+eligible-occurrence retrieval and coarse hydration. A server pins one complete sealed realization;
+resources and continuations cannot silently switch it. Exact originals and consumed vectors are
+content-authoritative; indexes are derived. Shared text/vector identity does not collapse semantic
+occurrences or channel witnesses. Complex authoritative kernels remain in Rust where appropriate.
 
-**Integrity rules**
-- There is no second schema authority and no import pipeline.
-- A missing or corrupt required relation or artifact is a refusal, never an empty answer.
-- Explanations follow model-declared canonical derivation sources with bounded node/edge/depth budgets.
-  Source receipts are verified; damaged browsing views cannot hide canonical proof premises.
+The [native serving plan](../../plans/graph-native-serving-plan_2026-10-05.md) owns implementation.
+The compiler stage removes PostgreSQL-serving effects. Ordinary compilation and MCP dispatch report
+unavailable until their native successors exist. Retained pure schemas/serialization are contracts,
+not an operational serving implementation. Native querying is selected; efficient operation design
+uses library capabilities and first principles. Metrics and query plans are optional diagnostics.
 
-**Accepted target, 2026-10-02:** [ADR-0114](../../adr/0114-generation-serving-contracts.md)
-and the [Phase 5 detailed plan](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md)
-develop a serving-role process guard, generation-prepared classification and one ranking owner.
-Semantic shapes remain generated views. A narrow disposable vector-only PostgreSQL artifact is
-accepted for the existing exact profile, derived through the canonical byte codec and explicitly
-prepared outside read-only startup; it is not a copied semantic serving schema. Its validation,
-atomic preparation and generation cleanup are required. No new semantic frontier or readiness
-registry is added. These contracts are implemented in the current tree; Phase 5 composite
-qualification and operator activation remain pending.
-
-**Implemented foundations, 2026-10-02:** the
-[foundation enhancement scope](../../plans/semantic-model-foundation-enhancements_2026-10-01.md)
-provides one model-owned expected-domain dispatch and owned Local/Summary consumed inventories
-with epoch-aware typed streaming; their composite focused controls passed on 2026-10-01.
-Selection now owns narrow classification data and charged indexes while retaining strict broad
-C2 replay. A serving-role canonical reader shares the existing generation lease protocol without
-provisioning credentials. Its opaque selection owner verifies consumed content and producer
-source/epoch receipts on the original leased connection, retains the lease and memory through
-shared ownership, and terminally refuses classification after guard loss. Pure selection controls
-and both-profile actual Catalog admission controls passed on 2026-10-02; foundation qualification passed with the composite receipt in companion §5.4. The later hook
-formatting belongs to Phase 5’s fresh current-tree qualification. This is the reusable foundation consumer; Phase 5 implements process admission, route mappings,
-ranking, native reconstruction and MCP with scoped receipts. Real-library qualification remains stopped.
-
-> Decision: ADR-0086; ADR-0114
-
-**Prepared native owner (Implemented, 2026-10-02; ADR-0116).** `native_requests::PreparationInputs`
-names typed hydrated relations; `PreparedNativeSemantics` owns Entry replay, full structural
-correspondence, checked atoms, Local/rebase/Summary/path composition and exact refused contexts.
-Its independently prepared public formal domain includes valid defaulted formals even when exact
-assignment is unsupported. Refusals preserve the constructor's actual cause. Storage owns shared
-validator execution, content/epoch receipts, actual proof membership, retained charges and the
-original guard; it releases the lease mutex before pure CPU preparation and reconfirms that guard
-before publishing state. Pure helper agreement never admits a generation or invented proof row.
-
-**Startup execution (Implemented / Tested; both-profile native/MCP fixtures, 2026-10-05).** Selection,
-native semantics, retrieval indexes and numerical initialization share the original guard's CPU
-capacity. Startup admission has a finite wait; preparation uses the preparation allowance and
-does not inherit a request deadline. Tracked blocking workers retain the slot, guard and charges
-until actual completion even after caller cancellation. Shutdown fences new startup registration,
-drains request and startup workers, then releases the original canonical session. Numerical
-buffers retained by the service keep their preparation reservation until shutdown clears them.
-The [target coordinator](../../plans/target-implementation-alignment-plan_2026-10-04.md#7-current-disposition--sole-owner-for-transferred-review-obligations)
-owns the passing IS2 lifecycle controls and stopped real-library activation.
-
-**Existing extension routes (Implemented guidance, 2026-10-02).** A new finite model extends its
-checked construction, declared typed inputs and production/replay path; an independent matching
-and refused-context twin challenges it. A new selection predicate extends the finite model
-vocabulary, classification/evaluation algebra and generated schema; supported, unresolved and
-conflicting results remain separate. A new packet composes its typed output binding and canonical
-hydrator with attempted-read controls. Do not add a second Python meaning table or generic extension
-registry. [§4.3](acquisition-and-extraction.md#section-4-3) owns the analogous fact-family route.
-
-> Decision: ADR-0116
+> Decision: ADR-0128
 
 <a id="section-15-13"></a>
 
 ## §15.13 Migration boundary
 
-**Hard layered cutover.** The cutover is layered and hard. Its phases are:
-1. core contracts;
-2. store;
-3. facts;
-4. normalized relations;
-5. analysis and catalog;
-6. serving.
+**Accepted target / implementation in progress, 2026-10-05.** This is a direct design-phase
+replacement. Compiler outputs are rebuilt from captured pinned inputs. PostgreSQL backend/binding,
+old generation commands and checkpoint/grant readers are retired at their ownership boundary.
+No old-format reader, old-ID bridge, dual write or historical runtime archive is retained.
 
-A layer is complete only when it contains no legacy code.
-
-**Clean reconstruction.** No adapters, legacy-ID side relations, compatibility flags or dual
-stores are retained. Phases 0–2 restore model/store/facts; phases 3–5 reconstruct normalized,
-analysis/catalog and serving layers in order. The Phase 4 driver passed its scoped cumulative publication controls, 2026-10-01; Phase 5 current MCP is implemented, with qualification pending. Availability is recorded per generation; missing capabilities never become empty
-answers. Independent semantic expectations and protected evidence survive implementation deletion.
-Deleting an engine does not retire its capability obligation; that needs a separate consumer decision.
-
-> Decision: ADR-0087
+The [coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns package state and surviving
+obligations. Compiler acceptance is focused store-free functional acceptance; complete native
+publication/serving plus assembled Q0 and separately authorized Q1 operator adoption remain later
+work. Historical PostgreSQL receipts establish no graph-native acceptance. Operator database/client
+state is not changed merely by editing compiler code.
 
 ### Facts scope and native identity (Accepted target, 2026-09-30)
 

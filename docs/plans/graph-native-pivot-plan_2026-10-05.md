@@ -1,10 +1,10 @@
 # Graph-native replacement — implementation coordinator
 
-**Proposed, 2026-10-05.** Replace the PostgreSQL-centered compilation and serving architecture
+**Accepted target / implementation in progress, 2026-10-05 (ADR-0128).** Replace the PostgreSQL-centered compilation and serving architecture
 directly with a Rust-admitted graph and SurrealDB-native persistence, querying and search. This
 coordinator owns the combined execution sequence, shared decisions, finding disposition and
 completion boundary. Supporting plans develop their respective designs; they do not create
-another task ledger. Authoring this series does not implement or activate the replacement.
+another task ledger. Package evidence below distinguishes implementation from functional acceptance and activation.
 
 ## 1. Basis, baseline and intended outcome
 
@@ -103,7 +103,9 @@ concurrency if needed. A refusal at realistic size is not the performance object
 
 ## 4. Coherent packages and dependency order
 
-All packages are **not_started**. Supporting plans supply implementation detail and focused
+The complete compiler stage is authorized and **in_progress**. G0 adopts ADR-0128; M1/C1/C2-N/C2-U
+and compiler-side A1/A2 are being integrated. S1 supplies the agreed native operation contracts;
+P1/P2/S2/S3, published exports, assembled Q0 and operator Q1 remain **not_started**. Supporting plans supply implementation detail and focused
 controls; this table owns current package state. Root owns shared declarations, manifests,
 architectural decisions and integration. Independent investigation may run in parallel; ordinary
 edits remain on shared main unless genuinely concurrent production edits justify worktrees.
@@ -220,25 +222,38 @@ deployment are consumer-triggered. No canonical lightweight edges replace attrib
 
 ## 8. Current checkpoint
 
-**Plan authored; implementation not_started, 2026-10-05.** The foundation assessment inspected
-the current compiler/store, typed selection, artifacts/projections and shared identity, plus the
-comprehensive SurrealDB skill and decisive 3.3 source. The serving plan records the user-directed
-native-query/performance correction. Source inspection is Interface-checked at those boundaries;
-no compiler/store/embedding runtime or performance probe ran while authoring.
+**Complete compiler stage: in_progress, 2026-10-05.** Authorization covers M1, C1, C2-N, C2-U,
+compiler-side A1/A2 and their G0/S1 interfaces. `cpg-core` is the sole compiler; `lctx-model` owns
+finite graph types, nominal references, participant roles and semantic policies. Completed Arrow
+IPC inputs replace store reads. Ordinary output completion is atomic; declared vocabulary
+contributions merge into their assembly owner. DataFusion shares one charged spillable runtime.
 
-Next: G0 records this one replacement, then M1 and S1 settle the executable graph/native-operation
-contract together. C1 and P1 can proceed once their consumed slices are available. Actual command
-receipts belong here when implementation begins, with `passed`/`failed`/`blocked`/`not_run`, dates
-and explicit scope. STATUS links here rather than copying the disposition ledger.
+The working tree contains graph artifact lowering, canonical family ordering, bulk reference/span
+closure, original-byte copying and exact manifest outcomes/configuration/projection/vector binding.
+Artifact-only CLI export is integrated. Ordinary compile reports unavailable before acquisition;
+PG backend/binding, old generation/store/query commands and obsolete serving effects are retired.
+These are implemented slices; actual all-frontier artifact acceptance is still pending.
 
-Focused independent authoring advice, 2026-10-05, found two corrections: actual C2-U semantic/vector
-predecessors must precede their A2 consumers, and retained exact-symbol/family-member/RRF-K60
-meaning needs explicit selection despite changed native channels. Both are incorporated. The
-advice judged the corrected set suitable without another source review, probe campaign or
-native-query adoption gate. This assesses plan coherence, not implementation acceptance.
+Focused verification, 2026-10-05:
 
-Authoring publication check: `just docs-check` **passed**, 2026-10-05, with 315 canonical pages
-and zero link errors; its ADR/agent checks passed. Concurrent guidance edits were present and
-preserved. `just qualify`, product families, real-library runs and performance probes are
-**not_run** for this documentation scope. Root scope-end generation/formatting follows the
-handoff; no historical product receipt is promoted to acceptance of this plan's implementation.
+- `cargo check -p cpg-core --tests` with isolated build directory: **passed** at the fixture
+  migration boundary (22.18s). Later artifact/model changes require their own rerun.
+- Selected release extraction `bundle`, `acquisition`, `typed_conformance`: **passed**, 22 controls,
+  after provisional native contributions were adopted into their declared owner.
+- Selected release `typed_flow`, `typed_calls`, `native_overload_origins`, `typed_ruff_context`,
+  `harness` plus compiler embedding-configuration/runtime controls: **passed**, 27 controls.
+- First selected extraction+upper run: **failed**, 26 passed and 18 failed. The upper fixtures
+  exposed backing-capacity decode overcharges; logical-slice decode and the catalog profile's
+  explicit unrequested-flow validation premises are repaired. Upper rerun remains **in_progress**.
+- `uv run --no-sync pytest tests/scripts/test_verify.py tests/scripts/test_build_environment.py -q`:
+  **passed**, 20 controls. Verification now selects actual compiler/native boundaries; future
+  store/serving prerequisites are explicitly unavailable.
+- Artifact all-frontier/profile roundtrip, integrity/original controls, CLI controls and final
+  model/analytics controls: **not_run to completion**; source/API integration remains in progress.
+- `just qualify`, actual native persistent store/MCP, real-library/live vectors, operator activation
+  and Measured performance: **not_run**. Q0 requires later integrated publication/serving; Q1 needs
+  its separate authorization. No earlier PostgreSQL receipt is replacement acceptance.
+
+Next: finish graph mapping/reference/derivation closure and retired model-runtime consumers, pass
+all-frontier artifact and focused upper controls, then applicable leaves and root `just turn-end`.
+The remaining native publisher/serving packages consume that admitted boundary afterward.

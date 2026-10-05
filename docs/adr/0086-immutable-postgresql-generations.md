@@ -1,10 +1,10 @@
 ---
 id: ADR-0086
 title: Publish immutable PostgreSQL generation schemas from the model
-status: accepted
+status: superseded
 date: 2026-09-29
 supersedes: [ADR-0083]
-superseded-by: null
+superseded-by: ADR-0128
 design: [§15, §1.2, §B2, §B6, §B7, §B12, §B13, §B14, §3.1, §3.2, §3.3, §3.4, §3.4.1, §3.5, §3.7, §3.8, §4.0, §4.1, §4.3, §5, §6, §6.4, §6.5, §8, §9, §10, §10.5]
 evidence: Proposed
 ---

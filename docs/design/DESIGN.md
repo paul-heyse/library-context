@@ -6,7 +6,7 @@
 (§13); focused owners hold the rest. Labels distinguish implemented behavior from accepted
 targets: an accepted target is not an implementation claim. Current ADRs say why and what was
 rejected ([index](../adr/README.md)); the
-[cutover plan](../plans/semantic-model-cutover-plan_2026-09-29.md) owns current layer execution and cross-phase findings; the
+[graph-native coordinator](../plans/graph-native-pivot-plan_2026-10-05.md) owns replacement execution and cross-package findings; the
 [forward plan](../plans/behavioral-model-forward-plan_2026-09-24.md) retains the product sequence and its findings.
 
 **Changing a section.** Change a governed section in the same commit as the ADR that decides it
@@ -64,21 +64,20 @@ scenarios/deployment, typed retrieval, agent usability and comparative confirmat
 Earlier product receipts retain their recorded boundaries; they do not qualify the reconstructed
 pipeline. Remaining research is activated only by an exposed claim or a named product task.
 
-**Current increment: the semantic model cutover (accepted 2026-09-29; ADR-0085/0083/0084).** The
-[cutover plan](../plans/semantic-model-cutover-plan_2026-09-29.md) runs these phases in order:
-0. core contracts;
-1. the store (PostgreSQL replaces Delta);
-2. facts;
-3. normalized relations;
-4. analysis and catalog;
-5. serving.
+**Current increment: graph-native replacement (accepted target, 2026-10-05; ADR-0128).**
+The [coordinator](../plans/graph-native-pivot-plan_2026-10-05.md) owns G0/M1/C1/C2, native realization,
+serving, projections and assembled acceptance. The first implementation scope is the complete
+store-free compiler, including query-facing contract design and compiler-side projections/analytics.
+Its output is an admitted artifact; SurrealDB publication and serving follow separately.
 
-Each phase exits only with no legacy code in its layer. PR6 and new product features pause until phase
-5. [§15](sections/semantic-model.md) owns the reconstructed layers. Phase 4 implementation and
-retirement qualification are in progress; Phase 5 contracts remain explicitly unavailable.
+This is a hard pivot: remove replaced runtime/code at its ownership boundary, rebuild from pinned
+inputs, and retain no compatibility reader, ID bridge, intermediate PostgreSQL repair or dual write.
+Pure typed semantics, source fidelity and independent functional expectations remain. Mandatory
+catalog construction is independent of optional analytics and brief availability. Native SurrealDB
+querying is selected; FP-07/A4 guide efficient physical design without detailed accounting or
+performance proof requirements. Operator reconstruction and activation remain separate Q1 work.
 
-The CPG precedes its analytics (ADR-0086). Canonical facts keep their identity and provenance;
-mandatory catalog construction is independent of optional analysis. Libraries remain pinned
+Libraries remain pinned
 uv projects (ADR-0117). ADR-0040 owns review cadence. ADR-0079 owns the current-tree editable development loop on dated nightly Cargo,
 workspace feature unification, a CLI-only Hakari crate and shared intermediates with fine-grain
 locking. Final artifacts stay in local `target/`: workspace O2 with incremental compilation,
@@ -274,50 +273,30 @@ in-process extraction/CLI parity receipts retain their original scope.
 
 <a id="section-b2"></a>
 
-### §B2 Typed relation declarations are the authoritative data contract
+### §B2 Typed graph declarations own the data contract
 
-**Implemented; Phase 4 qualification in progress, 2026-10-01.** `lctx-model` domain structs and
-attributed tagged enums own relations, nominal identities, codebooks, keys/references, provenance,
-coverage, policies and shared validation ([§15.2](sections/semantic-model.md#section-15-2)).
-A validated model supplies the one registry/inventory. Derived Rust metadata and explicit Arrow
-codecs lower those declarations; `lctx-postgres` lowers the same model to physical tables,
-constraints and indexes. No independent row DSL or schema inventory supplies semantic meaning.
+**Accepted target / implementation in progress, 2026-10-05.** `lctx-model` owns nominal entities,
+attributed assertions, participant roles, provenance, coverage, policies and shared validation.
+Typed Arrow views support computation; the old relation registry is not the published schema.
+Generate codecs and envelopes from one declaration owner. No first batch, JSON sample or embedding
+response defines a schema. Codebooks remain append-only; snapshot changes are explicit migrations.
+Semantic compatibility uses canonical declarations and policy/invariant revisions, separately from
+implementation provenance and physical realization. Original bytes remain authoritative.
 
-- **No inferred schemas:** neither JSON, a first batch nor an embedding response defines a
-  canonical contract. Arrow is the explicit transport/compute representation, not a second owner.
-- **Reviewed evolution:** a schema snapshot change is a declared migration; stored codebook codes
-  are never renumbered or reordered.
-- **Pure contract ownership:** effectful loading, SQLx codecs, COPY and transport stay outside
-  domain policy. Handwritten computations/validators express behavior against the same types.
-- **Implemented in the Phase 5 working tree; qualification pending, 2026-10-02:** wire DTOs and serving views derive from declarations
-  or explicit mappings; Rust owns request classification and contextual validation. Schemars
-  derives wire schemas, with independent offline conformance tests. Schema validity does not
-  establish evidence closure. [§14.7/§14.11](sections/api-and-evidence-product.md#section-14-7)
-  own the retained query/library contract.
-
-Phase 5 has retired the `cpg-schema` wire owner and re-homed independent controls under
-`lctx-model` and the real canonical-generation serving fixtures. No compatibility reader remains.
-
-> Decision: ADR-0085, ADR-0086, ADR-0073
+> Decision: ADR-0128, ADR-0085, ADR-0088
 
 <a id="section-b3"></a>
 
-### §B3 Model validators and selected relational compute
+### §B3 Completed inputs and shared semantic operations
 
-**Implemented / source-inspected, 2026-10-04; current full qualification pending.** Pure model
-operations and charged typed Rows implement most current normalization/analysis and semantic
-validation. DataFusion supplies generation-bound SQL/provider compute and model-owned logical
-views; PostgreSQL installs the model-owned validated-membership join in production. Suitable
-in-memory relational lowerings remain available, without becoming another semantic authority.
-`cpg-core` registers providers and orchestrates declared adapters; it does not currently run all
-semantic derivations or validators as DataFusion queries.
+**Accepted target / implementation in progress, 2026-10-05.** Pure model operations and useful
+native kernels retain their semantic ownership. The compiler consumes completed attempt-local
+streams and spillable Arrow/DataFusion views without database roles, grants or readback. Share
+ordered inputs and analytical topology; perform meaningful completion checks over their actual
+required inputs. Tests and admission use the same semantic validators. Do not replay every producer
+or turn design principles into an accounting/proof subsystem.
 
-Cross-relation invariants use shared model validators and, where selected, suitable relational queries
-([§8](sections/validation-and-evaluation.md#section-8)). Tests and stored publication invoke the
-same validation contract. Complete read grants and invariant/reference closure are required;
-missing required input cannot be interpreted as a valid empty relation.
-
-> Decision: ADR-0085, ADR-0086
+> Decision: ADR-0128, ADR-0126
 
 <a id="section-b4"></a>
 
@@ -415,31 +394,15 @@ rendered text and presentation limits cannot strengthen it.
 
 <a id="section-b7"></a>
 
-### §B7 PostgreSQL generations are the canonical store
+### §B7 Separate admitted content from its native realization
 
-**Implemented for store/facts/normalized generations; Phase 4 qualification in progress,
-2026-10-01.** PostgreSQL 18 is the single relational store.
-- Each generation owns an ordinary schema generated from the typed model, with keys, references
-  and generated constraints.
-- An attempt writes by binary COPY.
-- Publication happens after the database constraints and the model's validators pass over the
-  stored, sealed contents.
-- Published relations are read-only by privilege.
-- Readers pin one generation ([§15.11](sections/semantic-model.md#section-15-11)).
+**Accepted target; runtime realization pending, 2026-10-05.** Compilation returns an immutable
+admitted graph without a database. The publisher separately realizes it in strict per-snapshot
+SurrealDB databases on the selected managed local RocksDB server. Checked bulk writes, one complete
+stored reconciliation after writers drain, ready indexes/functions and sealed executable definitions
+precede visibility. Publication does not select; readers pin one complete realization.
 
-**Implemented (plan P1.5–P1.12, focused-Tested 2026-09-29):**
-- the service baseline and the verified, non-elevated owner;
-- the generated install with a live-catalog `store check` and a phased, resumable reset;
-- the attempt-owned lifecycle: failed and interrupted states, facts admission, frontier-scoped
-  schemas;
-- the generation catalog;
-- generation-bound provider sessions over a driver-neutral lease;
-- the `lctx store|generation|query` commands and the operator transition.
-
-The Delta store was removed at P1.3/P1.4. Facts and normalized generations are implemented;
-upper-frontier qualification is in progress. Publication never selects a generation.
-
-> Decision: ADR-0086
+> Decision: ADR-0128
 
 <a id="section-b8"></a>
 
@@ -514,36 +477,28 @@ templates and extractive selection; the generative-model trigger remains **Propo
 
 <a id="section-b12"></a>
 
-### §B12 Canonical store vs serving projections
+### §B12 One semantic graph and derived projections
 
-**Implemented / Tested for facts and normalized storage; Phase 4 qualification in progress,
-2026-10-01.** PostgreSQL is the single canonical relational store. Typed declarations generate
-generation tables and validation; immutable vocabulary prefixes and completed receipts bound reads.
-There is no Delta store, bundle import or canonical serving copy. Numerical caches are disposable
-physical derivatives of canonical exact vector values.
+**Accepted target / implementation in progress, 2026-10-05.** Rust-admitted graph content is realized
+in SurrealDB; native queries operate over that content. Attempt-local Arrow segments, prepared
+petgraph topology, search indexes and analytical/export views are derived, not parallel semantic
+stores. Projection contracts state their universe, identity, multiplicity, roles, lineage and losses.
+No PostgreSQL runtime or canonical serving copy remains after its ownership cut.
 
-**Implemented in the Phase 5 working tree; qualification pending, 2026-10-02:** serving reads the same pinned canonical generation through
-generated views, grants and indexes ([§15.12](sections/semantic-model.md#section-15-12)). Missing or
-corrupt required relations refuse admission; derived caches cannot replace semantic authority.
-
-> Decision: ADR-0086, ADR-0077
+> Decision: ADR-0128, ADR-0077
 
 <a id="section-b13"></a>
 
-### §B13 FastMCP pins one immutable generation; Rust owns PostgreSQL effects
+### §B13 FastMCP pins one complete realization
 
-**Implemented in the Phase 5 working tree; qualification pending, 2026-10-02.** The pinned generation is the
-canonical PostgreSQL generation. Wire DTOs derive from declarations; Rust validates requests,
-evaluates bounded semantic queries and hydrates complete evidence. Python is the thin validated
-FastMCP adapter and repeats no selection, condition, verdict or discharge policy.
+**Accepted target; native serving pending, 2026-10-05.** Rust owns operation meaning and typed
+requests/responses. Native SurrealQL may be the sole executor of a model-owned operation. Use
+indexed native restriction and coarse connected hydration; retain complex kernels where simpler.
+Python stays a thin FastMCP adapter with no second classifier. Resources/cursors pin content and
+executable realization. Native deadlines/cancellation and response limits retain honest partial
+outcomes; no fictitious exact engine-work ceiling is exposed. Activation remains stopped until Q1.
 
-The old schema, bundle and native IPC authorities are retired. Current model contracts and real
-store/native/MCP controls retain their independent expectations. Activation follows the
-[Phase 5 qualification](../plans/semantic-model-phase5-detailed-plan_2026-10-01.md). Row, node, pair-work, depth and response
-budgets retain explicit refusal/truncation semantics. [§11.3](sections/synthesis-and-serving.md#section-11-3)
-and [§14.9](sections/api-and-evidence-product.md#section-14-9) own that serving boundary.
-
-> Decision: ADR-0114, ADR-0078, ADR-0025, ADR-0073, ADR-0086
+> Decision: ADR-0128, ADR-0114, ADR-0116
 
 <a id="section-b14"></a>
 
@@ -556,21 +511,18 @@ and [§14.9](sections/api-and-evidence-product.md#section-14-9) own that serving
   format-2 spec identity includes launch admission and reduction. Rust and Python retain their
   shared conformance oracle.
 - `lctx-model::domain::embedding` owns specification, exact value codec, text membership, availability
-  and analytic/retrieval consumption. PostgreSQL retains one immutable winner per specification and
-  input hash. Each attempt publishes the exact consumed value, including analytics-only inputs;
+  and analytic/retrieval consumption. Optional cache/service effects provide winning values outside
+  compilation transactions. Each artifact binds the exact consumed value, including analytics-only inputs;
   value digests enter content identity.
 - Snapshot-local values and consumer receipts replay without a cache/provider effect. Fake-service
   controls qualify that seam and cache behavior; live embedding and retrieval quality are unqualified.
-  Phase 5 MCP must pin a ready generation and exact profile; database discovery cannot authorize an
-  unpublished generation.
-- [§6.5](sections/storage-and-publication.md#section-6-5) owns database effects and conditional
-  capabilities. The [PostgreSQL workstream](../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns
-  current qualification; W9/W16 retain live-client and endpoint-identity boundaries.
-- Consumed-vector receipts and exact values are canonical typed PostgreSQL relations in the
-  generation and enter its content digest. Phase 4 qualification remains in progress; no live
-  provider or retrieval-quality claim follows from service-free replay.
+  Native MCP will pin a sealed realization and exact profile; publication/serving remain pending.
+- [§6.5](sections/storage-and-publication.md#section-6-5) and the
+  [native realization plan](../plans/graph-native-surrealdb-realization-plan_2026-10-05.md) own
+  subsequent cache/persistence effects. Consumed vectors and exact values enter canonical graph
+  content. Service-free seam checks do not establish live provider usability or retrieval quality.
 
-> Decision: ADR-0078, ADR-0086
+> Decision: ADR-0128, ADR-0078
 
 ---
 
@@ -642,11 +594,11 @@ Owner: [Storage and publication](sections/storage-and-publication.md#section-6).
 
 ## §7 Pinned dependency family
 
-**Implemented; Phase 4 qualification in progress, 2026-10-01** (typed model records flow through generation-bound DataFusion providers;
-`just deps` checks single versions, the declared extra families and the Pyrefly fork).
+**Implemented dependency policy, 2026-10-05.** Typed records flow through private compiler streams;
+`just deps` checks single versions, declared nominal families and the Pyrefly fork.
 
 DataFusion, Arrow/Parquet and object_store resolve to exactly one version each in the core
-workspace (§B9). The owned PostgreSQL table-provider fork is pinned by revision without federation. Extra families are allowed only when declared in `scripts/check_family.py`
+workspace (§B9). PostgreSQL provider dependencies are retired. Extra families are allowed only when declared in `scripts/check_family.py`
 with version and nominal Cargo source scopes. The accepted analyzer target uses one latest
 Ruff/ty fork revision in extraction/flow and a separate registry Ruff family only inside the
 Pyrefly adapter; salsa's three crates are pinned exactly for the ty graph. M1 owns adoption.
