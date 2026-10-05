@@ -2,12 +2,13 @@
 use super::{Output, build::invalid, frames::Context};
 use crate::domain::{
     analysis::{AnalysisCapability, AnalysisMethod, AnalysisStatus, structural as owner},
-    normalized::Rows,
+    normalized::{Rows, coverage::EvidenceAvailability},
+    source::CoverageScope,
     obligation::ObligationKind,
     resources::ResourceBudget,
     *,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub fn capability(method: AnalysisMethod) -> Result<AnalysisCapability, ModelError> {
     match method {
@@ -29,11 +30,13 @@ pub fn derive(
         .len()
         .checked_add(output.control_traversals.len())
         .and_then(|n| n.checked_add(context.invocations.len()))
+        .and_then(|n| n.checked_add(context.local.len()))
+        .and_then(|n| n.checked_add(context.local_coverage.len()))
         .ok_or_else(|| invalid("Structural outcome index size overflow"))?;
     let _charge = budget.reserve(
         "structural outcome indexes",
         entries
-            .checked_mul(96)
+            .checked_mul(128)
             .ok_or_else(|| invalid("Structural outcome allocation overflow"))?,
     )?;
     let delegation_stopped: BTreeSet<_> = output
@@ -48,6 +51,27 @@ pub fn derive(
         .filter(|r| r.stop.is_some())
         .map(|r| r.frame)
         .collect();
+    // Controls and Transfers share the declared Python artifact domain, but not their
+    // nonempty completeness rules. Only an acknowledged empty Local root can close Controls.
+    let mut local_roots = BTreeMap::new();
+    for local in context.local.iter().filter(|local| local.subject.is_none()) {
+        local_roots.entry((local.input, local.context))
+            .and_modify(|root| *root = None)
+            .or_insert(Some(local.id()));
+    }
+    let mut empty_local = BTreeSet::new();
+    for coverage in context.local_coverage.iter() {
+        let Some(local) = context.local.get(coverage.invocation) else { continue; };
+        if local.subject.is_none()
+            && coverage.capability == AnalysisCapability::Transfers
+            && coverage.context == local.context
+            && coverage.scope == (CoverageScope::Input { input: local.input }).id()
+            && coverage.availability == EvidenceAvailability::NoScope
+            && coverage.reason.is_none()
+        {
+            empty_local.insert(local.id());
+        }
+    }
     let mut seen = BTreeSet::new();
     let mut outcomes = Rows::new(budget);
     for frame in output.frames.iter() {
@@ -82,10 +106,15 @@ pub fn derive(
                 } else if bounded {
                     (AnalysisStatus::Partial, Some(ObligationKind::BudgetReached))
                 } else if method == AnalysisMethod::Controls {
-                    (
-                        AnalysisStatus::Partial,
-                        Some(ObligationKind::IncompleteDomain),
-                    )
+                    if local_roots.get(&(invocation.input, invocation.context))
+                        .and_then(|root| *root).is_some_and(|root| empty_local.contains(&root)) {
+                        (AnalysisStatus::Completed, None)
+                    } else {
+                        (
+                            AnalysisStatus::Partial,
+                            Some(ObligationKind::IncompleteDomain),
+                        )
+                    }
                 } else {
                     (AnalysisStatus::Completed, None)
                 };

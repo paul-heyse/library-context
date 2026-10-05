@@ -16,6 +16,7 @@ pub struct Context {
     pub parameters: Rows<analysis::MethodParameters>,
     pub local: Rows<analysis::local::Invocation>,
     pub local_outcomes: Rows<analysis::local::AnalysisOutcome>,
+    pub local_coverage: Rows<analysis::local::AnalysisCoverage>,
     pub outcomes: Rows<owner::AnalysisOutcome>,
     pub graphs: ProjectionOutput,
     pub invocations: Rows<owner::Invocation>,
@@ -30,6 +31,7 @@ impl Context {
             parameters: Rows::new(b),
             local: Rows::new(b),
             local_outcomes: Rows::new(b),
+            local_coverage: Rows::new(b),
             outcomes: Rows::new(b),
             graphs: ProjectionOutput::new(b),
             invocations: Rows::new(b),
@@ -42,7 +44,7 @@ impl Context {
             return Ok(true);
         }
         macro_rules! rows {($($f:ident:$ty:ty,)*)=>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*};}
-        rows! {settings:AnalyticsConfiguration,definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,local:analysis::local::Invocation,local_outcomes:analysis::local::AnalysisOutcome,outcomes:owner::AnalysisOutcome,invocations:owner::Invocation,sources:owner::InvocationSource,inputs:owner::AnalysisInput,}
+        rows! {settings:AnalyticsConfiguration,definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,local:analysis::local::Invocation,local_outcomes:analysis::local::AnalysisOutcome,local_coverage:analysis::local::AnalysisCoverage,outcomes:owner::AnalysisOutcome,invocations:owner::Invocation,sources:owner::InvocationSource,inputs:owner::AnalysisInput,}
         Ok(false)
     }
     pub fn configuration(&self) -> Result<&AnalyticsConfiguration, ModelError> {
@@ -64,6 +66,7 @@ impl Context {
             ValidationInput::of::<analysis::MethodParameters>(&["id"]),
             ValidationInput::of::<analysis::local::Invocation>(&["id"]),
             ValidationInput::of::<analysis::local::AnalysisOutcome>(&["id"]),
+            ValidationInput::of::<analysis::local::AnalysisCoverage>(&["id"]),
             ValidationInput::of::<owner::AnalysisOutcome>(&["id"]),
             ValidationInput::of::<owner::Invocation>(&["id"]),
             ValidationInput::of::<owner::InvocationSource>(&["id"]),

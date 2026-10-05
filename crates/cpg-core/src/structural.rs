@@ -98,6 +98,7 @@ pub async fn produce_with_sink<S: StageSink>(
         analysis::MethodParameters,
         analysis::local::Invocation,
         analysis::local::AnalysisOutcome,
+        analysis::local::AnalysisCoverage,
         assumptions::AssumptionSet,
         assumptions::AssumptionSetMember,
         assumptions::Assumption,
