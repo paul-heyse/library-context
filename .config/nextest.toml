@@ -4,34 +4,8 @@ status-level = "fail"
 final-status-level = "slow"
 slow-timeout = { period = "60s", terminate-after = 5 }
 
-# This integration control runs six real native/PostgreSQL CLI compilations.
-# The 2026-10-01 focused receipt took 505s with concurrent frontier controls.
-[[profile.default.overrides]]
-filter = 'test(binary_catalog_with_briefs_replays_shared_embedding_winners)'
-slow-timeout = { period = "60s", terminate-after = 15 }
-
-# Actual native frontier publication and validation passed in 440s on 2026-10-04;
-# its single journey exceeds the generic 300s harness limit under concurrency.
+# This cumulative behavioral journey compiles multiple native frontiers and replays their
+# scoped domain controls. Allow time for the complete journey under concurrent execution.
 [[profile.default.overrides]]
 filter = 'test(behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins)'
 slow-timeout = { period = "60s", terminate-after = 15 }
-
-# Actual PostgreSQL Catalog compilation plus all Terminal packet positives and
-# unknown twins passed in 493s on 2026-10-04. Request/resource limits are unchanged.
-[[profile.default.overrides]]
-filter = 'test(terminal_questions_reach_actual_catalog_briefs_without_completion_authority)'
-slow-timeout = { period = "60s", terminate-after = 15 }
-
-# This cumulative frontier control runs four real native/PostgreSQL CLI compilations.
-# Full Q0 run on 2026-10-01 exceeded the generic 300s test limit under concurrency.
-[[profile.default.overrides]]
-filter = 'test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'
-slow-timeout = { period = "60s", terminate-after = 15 }
-
-# This independent oracle compiles nine grouped behavioral programs (52 functions), then
-# challenges their original native paths. The 2026-10-02 concurrent focused run exceeded the
-# generic 300s harness limit. The expanded 2026-10-04 direct run passed all 52 functions
-# in 1101s. Product request deadlines and memory limits remain unchanged.
-[[profile.default.overrides]]
-filter = 'test(generated_cpython_observations_challenge_original_served_paths)'
-slow-timeout = { period = "60s", terminate-after = 30 }
