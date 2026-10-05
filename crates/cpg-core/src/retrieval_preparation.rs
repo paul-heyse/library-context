@@ -28,7 +28,7 @@ pub async fn mandatory(
     runtime: &Workspace,
     model: &Arc<ValidatedModel>,
 ) -> Result<(Data, Output), ModelError> {
-    let session = runtime.session(access);
+    let session = access.session(runtime).await?;
     let mut data = Data::new(runtime.budget());
     macro_rules! core {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;load(&session,&mut data.source.core.$f).await?;)*};}
     lctx_model::catalog_inputs!(core);

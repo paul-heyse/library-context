@@ -115,7 +115,7 @@ pub struct StageContext<S: ProviderSink + 'static> {
     attacher: Option<Attacher>,
     outputs: Vec<(TypeId, Mode, Box<dyn Flush<S>>)>,
     contributions: Vec<(TypeId, Box<dyn Flush<S>>)>,
-    failed: bool,
+    failed: Arc<AtomicBool>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -235,7 +235,11 @@ impl<S: ProviderSink + 'static> StageContext<S> {
             if !context.stage.reads::<R>() {
                 return Err(ModelError::Invalid(format!("{} does not consume {}", context.stage.name, R::NAME)));
             }
-            context.sink.read::<R>()
+            let stream = context.sink.read::<R>()?;
+            let failed = context.failed.clone();
+            Ok(Box::new(stream.inspect(move |batch| {
+                if batch.is_err() { failed.store(true, Ordering::Release); }
+            })) as Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>)
         })
     }
     /// The attachment index over this stage's handed-off occurrences, built on first use.
@@ -254,7 +258,7 @@ impl<S: ProviderSink + 'static> StageContext<S> {
         &mut self,
         operation: impl FnOnce(&mut Self) -> Result<T, ModelError>,
     ) -> Result<T, ModelError> {
-        if self.failed || self.cancelled.load(Ordering::Acquire) {
+        if self.failed.load(Ordering::Acquire) || self.cancelled.load(Ordering::Acquire) {
             return Err(ModelError::Invalid(format!(
                 "{} refused an earlier operation; the attempt fails",
                 self.stage.name
@@ -291,7 +295,7 @@ impl<S: ProviderSink + 'static> StageContext<S> {
         result: Result<ProviderOutcome, ModelError>,
     ) -> Result<ProviderOutcome, ModelError> {
         let outcome = result?;
-        if self.failed {
+        if self.failed.load(Ordering::Acquire) || self.cancelled.load(Ordering::Acquire) {
             return Err(ModelError::Invalid(format!(
                 "{} ignored a refused operation",
                 self.stage.name
@@ -346,7 +350,7 @@ pub async fn run_provider<S: ProviderSink>(
     let mut context = StageContext {
         stage, profile, model, budget, limits, captured, sink,
         cancelled: cancelled.clone(), attacher: None, outputs: Vec::new(),
-        contributions: Vec::new(), failed: false,
+        contributions: Vec::new(), failed: Arc::new(AtomicBool::new(false)),
     };
     let thread = std::thread::Builder::new()
         .name(format!("lctx-{name}"))

@@ -28,7 +28,7 @@ pub async fn documentary(
     runtime: &Workspace,
     model: &Arc<ValidatedModel>,
 ) -> Result<(Data, Output), ModelError> {
-    let session = runtime.session(access);
+    let session = access.session(runtime).await?;
     let mut data = Data::new(runtime.budget());
     macro_rules! read{($($field:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;load(&session,&mut data.$field).await?;)*};}
     lctx_model::synthesis_documentary_inputs!(read);
@@ -47,7 +47,7 @@ pub async fn code_blocks(
     runtime: &Workspace,
     model: &Arc<ValidatedModel>,
 ) -> Result<Rows<documents::CodeBlockObservation>, ModelError> {
-    let session = runtime.session(access);
+    let session = access.session(runtime).await?;
     let permit = access.read::<documents::CodeBlockObservation>()?;
     
     let mut rows = Rows::new(runtime.budget());
@@ -60,7 +60,7 @@ pub async fn source_setup(
     runtime: &Workspace,
     model: &Arc<ValidatedModel>,
 ) -> Result<synthesis::source_setup::Data, ModelError> {
-    let session = runtime.session(access);
+    let session = access.session(runtime).await?;
     let mut rows = synthesis::source_setup::Data::new(runtime.budget());
     macro_rules! read{($($field:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;load(&session,&mut rows.$field).await?;)*};}
     lctx_model::synthesis_setup_inputs!(read);
