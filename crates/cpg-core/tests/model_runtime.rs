@@ -1,233 +1,29 @@
-use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions, StageTable};
-use lctx_model::domain::{input::*, stages::*, *};
+//! Completed input catalogs are isolated and share the compiler allocation pool.
+use cpg_core::workspace::{Workspace,WorkspaceOptions};
+use lctx_model::domain::{input::Package,stages::{Profile,ProviderOutcome},*};
 use std::sync::Arc;
 #[tokio::test]
-async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
-    let model = model().unwrap();
-    let schedule = Schedule::build(
-        &model,
-        vec![
-            Stage {
-                name: "source",
-                inputs: vec![],
-                outputs: vec![RelationUse::of::<Package>()],
-                contributes: vec![],
-                coverage: vec![],
-                profiles: vec![Profile::Catalog, Profile::Behavioral],
-                effect: Effect::Pure,
-                code: ContentHash::of(b"test-producer"),
-                configuration: ContentHash::of(b"test-config"),
-            },
-            Stage {
-                name: "consumer",
-                inputs: vec![RelationUse::of::<Package>()],
-                outputs: vec![RelationUse::of::<Release>()],
-                contributes: vec![],
-                coverage: vec![],
-                profiles: vec![Profile::Catalog, Profile::Behavioral],
-                effect: Effect::Pure,
-                code: ContentHash::of(b"test-producer"),
-                configuration: ContentHash::of(b"test-config"),
-            },
-        ],
-        &[],
-        Profile::Catalog,
-    )
-    .unwrap();
-    let runtime = AttemptRuntime::new(RuntimeOptions::default()).unwrap();
-    let mut execution = schedule.execute();
-    let mut source = execution.begin("source").unwrap();
-    source.write::<Package, _>(async |_| Ok(())).await.unwrap();
-    source
-        .retain(Arc::new(
-            Batch::<Package>::new(
-                &model,
-                vec![Package {
-                    name: "demo".into(),
-                }],
-                &budget(),
-            )
-            .unwrap(),
-        ))
-        .unwrap();
-    source.finish(ProviderOutcome::Complete).unwrap();
-    let consumer = execution.begin("consumer").unwrap();
-    let permit = consumer.read::<Package>().unwrap();
-    let first = runtime.session(&consumer);
-    let second = runtime.session(&consumer);
-    first
-        .register(&permit, StageTable::handoff(&consumer).unwrap())
-        .unwrap();
-    assert_eq!(
-        first
-            .query("SELECT * FROM packages")
-            .await
-            .unwrap()
-            .collect()
-            .await
-            .unwrap()[0]
-            .num_rows(),
-        1
-    );
-    assert!(second.query("SELECT * FROM packages").await.is_err());
-    assert!(
-        first
-            .register(&permit, StageTable::handoff(&consumer).unwrap())
-            .is_err()
-    );
-    for sql in [
-        "CREATE TABLE leak AS SELECT * FROM packages",
-        "DROP TABLE packages",
-        "SET datafusion.execution.target_partitions = 1",
-    ] {
-        assert!(first.query(sql).await.is_err(), "{sql}");
-    }
-    let mut another = schedule.execute();
-    let mut source = another.begin("source").unwrap();
-    source.write::<Package, _>(async |_| Ok(())).await.unwrap();
-    source
-        .retain(Arc::new(
-            Batch::<Package>::new(&model, vec![], &budget()).unwrap(),
-        ))
-        .unwrap();
-    source.finish(ProviderOutcome::Complete).unwrap();
-    let different = another.begin("consumer").unwrap();
-    assert!(
-        second
-            .register(
-                &different.read::<Package>().unwrap(),
-                StageTable::handoff(&consumer).unwrap()
-            )
-            .is_err()
-    );
-    second
-        .register(&permit, StageTable::handoff(&consumer).unwrap())
-        .unwrap();
-    assert!(second.query("SELECT * FROM packages").await.is_ok());
+async fn completed_input_sessions_are_isolated_and_detached_queries_retain_sources() {
+ let workspace=Workspace::new(Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap()),WorkspaceOptions::default()).unwrap();
+ let empty=workspace.inputs("source",Profile::Catalog,[]).unwrap();
+ let output=workspace.output("source",Profile::Catalog,ContentHash::of(b"source"),empty.clone());
+ output.declare::<Package>().unwrap();output.push(Package{name:"retained".into()}).await.unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();
+ assert!(!empty.contains::<Package>());assert!(empty.read::<Package>().is_err());
+ let inputs=workspace.inputs("consumer",Profile::Catalog,[Package::NAME]).unwrap();
+ let first=inputs.session(&workspace).await.unwrap();let second=empty.session(&workspace).await.unwrap();
+ assert!(second.sql("SELECT * FROM packages").await.is_err());
+ let query=first.sql("SELECT * FROM packages").await.unwrap();drop(first);drop(inputs);
+ let batches=query.collect().await.unwrap();assert_eq!(batches.iter().map(|b|b.num_rows()).sum::<usize>(),1);
 }
 #[tokio::test]
-async fn compute_and_external_reservations_share_one_attempt_pool() {
-    let model = model().unwrap();
-    let schedule = Schedule::build(
-        &model,
-        vec![Stage {
-            name: "s",
-            inputs: vec![],
-            outputs: vec![RelationUse::of::<Package>()],
-            contributes: vec![],
-            coverage: vec![],
-            profiles: vec![Profile::Catalog, Profile::Behavioral],
-            effect: Effect::Pure,
-            code: ContentHash::of(b"test-producer"),
-            configuration: ContentHash::of(b"test-config"),
-        }],
-        &[],
-        Profile::Catalog,
-    )
-    .unwrap();
-    let mut execution = schedule.execute();
-    let stage = execution.begin("s").unwrap();
-    let limit = 32 * 1024 * 1024; // Includes DataFusion's 10 MiB sort-spill reservation.
-    let runtime = AttemptRuntime::new(RuntimeOptions {
-        memory_bytes: limit,
-        partitions: 1,
-    })
-    .unwrap();
-    let first = runtime.session(&stage);
-    let second = runtime.session(&stage);
-    let allocation = runtime.budget().reserve("producer", limit).unwrap();
-    assert!(runtime.budget().reserve("validator", 1).is_err());
-    let query = "SELECT v FROM generate_series(1, 20000) AS t(v) ORDER BY v DESC";
-    assert!(first.query(query).await.unwrap().collect().await.is_err());
-    drop(allocation);
-    let rows = second.query(query).await.unwrap().collect().await.unwrap();
-    assert_eq!(rows.iter().map(|b| b.num_rows()).sum::<usize>(), 20000);
-    assert!(
-        runtime.budget().reserved() > 0,
-        "collected query output retains its reservation"
-    );
-    drop(rows);
-    assert_eq!(runtime.budget().reserved(), 0);
-}
-
-/// A fresh attempt budget; these controls do not share reservations across batches.
-fn budget() -> lctx_model::domain::resources::ResourceBudget {
-    lctx_model::domain::resources::ResourceBudget::fixed(
-        lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-    )
-    .unwrap()
-}
-
-#[tokio::test]
-async fn prepared_handoff_retains_source_reservations_after_its_stage_finishes() {
-    let model = model().unwrap();
-    let stage = |name, inputs, outputs| Stage {
-        name,
-        inputs,
-        outputs,
-        contributes: vec![],
-        coverage: vec![],
-        profiles: vec![Profile::Catalog],
-        effect: Effect::Pure,
-        code: ContentHash::of(b"handoff lifetime"),
-        configuration: ContentHash::of(b"test"),
-    };
-    let schedule = Schedule::build(
-        &model,
-        vec![
-            stage("source", vec![], vec![RelationUse::of::<Package>()]),
-            stage(
-                "consumer",
-                vec![RelationUse::of::<Package>()],
-                vec![RelationUse::of::<Release>()],
-            ),
-        ],
-        &[],
-        Profile::Catalog,
-    )
-    .unwrap();
-    let runtime = AttemptRuntime::new(RuntimeOptions::default()).unwrap();
-    let mut execution = schedule.execute();
-    let mut source = execution.begin("source").unwrap();
-    source.write::<Package, _>(async |_| Ok(())).await.unwrap();
-    source
-        .retain(Arc::new(
-            Batch::new(
-                &model,
-                vec![Package {
-                    name: "retained".into(),
-                }],
-                runtime.budget(),
-            )
-            .unwrap(),
-        ))
-        .unwrap();
-    source.finish(ProviderOutcome::Complete).unwrap();
-    let mut consumer = execution.begin("consumer").unwrap();
-    let session = runtime.session(&consumer);
-    session
-        .register(
-            &consumer.read::<Package>().unwrap(),
-            StageTable::handoff(&consumer).unwrap(),
-        )
-        .unwrap();
-    let query = session.query("SELECT * FROM packages").await.unwrap();
-    drop(session);
-    consumer
-        .write::<Release, _>(async |_| Ok(()))
-        .await
-        .unwrap();
-    consumer.finish(ProviderOutcome::Complete).unwrap();
-    execution.finish().unwrap();
-    assert!(
-        runtime.budget().reserved() > 0,
-        "the detached physical plan owns the charged source"
-    );
-    let stream = query.execute_stream().await.unwrap();
-    assert!(
-        runtime.budget().reserved() > 0,
-        "execution retains that owner too"
-    );
-    drop(stream);
-    assert_eq!(runtime.budget().reserved(), 0);
+async fn compute_and_external_reservations_share_one_compiler_pool() {
+ let workspace=Workspace::new(Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap()),WorkspaceOptions{memory_bytes:32*1024*1024,partitions:1,..Default::default()}).unwrap();
+ let budget=workspace.budget().clone();let empty=workspace.inputs("compute",Profile::Catalog,[]).unwrap();
+ let first=empty.session(&workspace).await.unwrap();let second=empty.session(&workspace).await.unwrap();
+ let allocation=budget.reserve("producer",budget.limit()).unwrap();assert!(budget.reserve("validator",1).is_err());
+ let query="SELECT v FROM generate_series(1, 20000) AS t(v) ORDER BY v DESC";
+ assert!(first.sql(query).await.unwrap().collect().await.is_err());drop(allocation);
+ let rows=second.sql(query).await.unwrap().collect().await.unwrap();assert_eq!(rows.iter().map(|b|b.num_rows()).sum::<usize>(),20000);
+ drop(rows);let retained=budget.reserve("fixture-retained",8*1024*1024).unwrap();
+ let rows=second.sql("SELECT v FROM generate_series(1, 2000000) AS t(v) ORDER BY v DESC").await.unwrap().collect().await.unwrap();assert_eq!(rows.iter().map(|b|b.num_rows()).sum::<usize>(),2000000);assert_eq!(budget.reserved(),8*1024*1024,"external reservation survives bounded compute");drop(rows);drop(retained);drop(first);drop(second);drop(empty);drop(workspace);assert_eq!(budget.reserved(),0);
 }

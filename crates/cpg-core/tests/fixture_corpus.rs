@@ -6,6 +6,7 @@ use cpg_extract::{
     capture::CapturedInput,
 };
 use lctx_model::domain::{ContentHash, resources::ResourceBudget, stages::Profile};
+use cpg_core::workspace::{Workspace, WorkspaceOptions};
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 const CASES: &[&str] = &[
     "behavioral_frontiers",
@@ -133,7 +134,7 @@ fn capture(case: &str, profile: Profile, resources: &ResourceBudget) -> Arc<Capt
         .cloned()
         .collect::<Vec<_>>();
     let frozen =
-        CapturedInput::capture_derived(&root, &paths, &budget(), &documents, derive_blocks)
+        CapturedInput::capture_derived(&root, &paths, resources, &documents, derive_blocks)
             .unwrap();
     Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(frozen, case)],
@@ -153,20 +154,19 @@ async fn every_fixture_is_registered_and_both_profiles_use_the_real_facts_fronti
     for case in CASES {
         for profile in Profile::ALL {
             let resources = budget();
-            let result = cpg_core::facts::memory(
-                capture(case, profile, &resources),
-                resources.clone(),
-                profile,
-                ContentHash::of(b"fixture-corpus"),
-            )
-            .await;
+            let result = async {
+                let workspace = Workspace::with_budget(Arc::new(lctx_model::domain::model()?), WorkspaceOptions { memory_bytes: resources.limit(), ..Default::default() }, resources.clone())?;
+                cpg_core::facts::compile_facts(&workspace, &capture(case, profile, &resources), profile, cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")), Default::default()).await?;
+                workspace.validate().await?;
+                workspace.facts_availability(profile)?;
+                workspace.content()
+            }.await;
             match result {
-                Ok(admission) => {
-                    assert_eq!(admission.profile(), profile);
+                Ok(content) => {
                     println!(
                         "passed {case} {} {}",
                         profile.name(),
-                        admission.content().hex()
+                        content.hex()
                     );
                 }
                 Err(error) => failures.push(format!("{case} {}: {error}", profile.name())),
@@ -177,45 +177,20 @@ async fn every_fixture_is_registered_and_both_profiles_use_the_real_facts_fronti
 }
 
 #[tokio::test]
-async fn representative_fixtures_have_equal_memory_and_postgresql_content() {
-    use lctx_postgres::{generations::GenerationStore, testing::DisposableDatabase};
-    let db = DisposableDatabase::start().await;
-    let store = GenerationStore::install(
-        db.owner.clone(),
-        Arc::new(lctx_model::domain::model().unwrap()),
-    )
-    .await
-    .unwrap();
+async fn representative_fixtures_preserve_semantics_across_workspace_batching_and_partitions() {
     for case in ["flow_call_paths", "semantic_documents", "type_shapes"] {
         for profile in Profile::ALL {
-            let resources = budget();
-            let configuration = ContentHash::of(b"fixture-corpus");
-            let memory = cpg_core::facts::memory(
-                capture(case, profile, &resources),
-                resources.clone(),
-                profile,
-                configuration,
-            )
-            .await
-            .unwrap();
-            let published = cpg_core::facts::publish(
-                &store,
-                db.writer.clone(),
-                capture(case, profile, &resources),
-                resources.clone(),
-                profile,
-                configuration,
-            )
-            .await
-            .unwrap();
-            assert_eq!(
-                published.content,
-                memory.content(),
-                "{case} {}",
-                profile.name()
-            );
-            assert_eq!(published.availability, *memory.availability());
-            store.retire(published.generation).await.unwrap();
+            let mut contents = Vec::new();
+            for (partitions, batch_rows) in [(1, 1), (4, 4096)] {
+                let resources = budget();
+                let workspace = Workspace::with_budget(Arc::new(lctx_model::domain::model().unwrap()), WorkspaceOptions { memory_bytes: resources.limit(), partitions, batch_rows }, resources.clone()).unwrap();
+                cpg_core::facts::compile_facts(&workspace, &capture(case, profile, &resources), profile, cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")), Default::default()).await.unwrap();
+                workspace.validate().await.unwrap();
+                contents.push(workspace.content().unwrap());
+                drop(workspace);
+                assert_eq!(resources.reserved(), 0);
+            }
+            assert_eq!(contents[0], contents[1], "{case} {}", profile.name());
         }
     }
 }

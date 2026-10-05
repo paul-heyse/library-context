@@ -1,257 +1,31 @@
-//! The cumulative frontier uses a private facts checkpoint and one atomic publication.
-use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
-use cpg_extract::{acquisition::AcquiredInput, bundle::CapturedInputs, capture::CapturedInput};
-use lctx_model::domain::{
-    admission::{Frontier, FrontierContract},
-    stages::Profile,
-    *,
-};
-use lctx_postgres::{
-    generations::{GenerationCatalog, GenerationStore, ListFilter},
-    roles::{Role, RoleConfig},
-    testing::DisposableDatabase,
-};
-use std::sync::Arc;
-fn captured(budget: &resources::ResourceBudget, profile: Profile) -> Arc<CapturedInputs> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/python/normalized_projections");
-    Arc::new(CapturedInputs::new(
-        vec![AcquiredInput::tree(
-            CapturedInput::capture(&root, &["graph.py".into(), "helper.py".into()], budget)
-                .unwrap(),
-            "normalized-generation",
-        )],
-        cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
-    ))
-}
-fn config(db: &DisposableDatabase) -> RoleConfig {
-    RoleConfig {
-        format: 1,
-        role: Role::Importer,
-        url: db.url("lctx_importer"),
-        max_connections: 6,
-        provider_connections: 4,
-        acquire_timeout_seconds: 5,
-        statement_timeout_seconds: 60,
-        lock_timeout_seconds: 10,
-    }
+//! Cumulative normalization is repeatable and retains explicit scope outcomes.
+#[path = "fixtures/catalog_runtime.rs"] mod catalog_runtime;
+use lctx_model::domain::{admission::Frontier,stages::Profile,*};
+#[tokio::test]
+async fn normalized_is_self_contained_and_repeatable() {
+ let mut previous=None;
+ for profile in [Profile::Catalog,Profile::Behavioral,Profile::Behavioral] {
+  let fixture=catalog_runtime::compile("normalized_projections",profile,Frontier::Normalized,catalog_runtime::settings("graph"),None).await;
+  if profile==Profile::Behavioral {let content=fixture.workspace.content().unwrap();if let Some(previous)=previous {assert_eq!(previous,content);}previous=Some(content);}
+  let counts:(i64,i64,i64)=catalog_runtime::one(&fixture,"SELECT (SELECT count(*) FROM projection_snapshots),(SELECT count(*) FROM call_binding_attempts),(SELECT count(*) FROM source_artifacts)").await;
+  assert_eq!(counts.0,4);assert!(counts.1>0);assert_eq!(counts.2,2);
+  let availability:Vec<i16>=catalog_runtime::query(&fixture,"SELECT c.availability FROM normalization_coverage c JOIN normalization_computations n ON c.computation=n.id WHERE n.capability=10").await;
+  assert_eq!(availability.len(),2,"one flow outcome per Python artifact");
+  assert!(availability.iter().all(|a|(*a==3)==(profile==Profile::Catalog)));
+ }
 }
 #[tokio::test]
-async fn normalized_is_self_contained_repeatable_and_never_selects() {
-    let db = DisposableDatabase::start().await;
-    db.migrate().await;
-    let model = Arc::new(model().unwrap());
-    let store = GenerationStore::install(db.owner.clone(), model.clone())
-        .await
-        .unwrap();
-    let catalog = GenerationCatalog::new(db.reader.clone());
-    let runtime = AttemptRuntime::new(RuntimeOptions {
-        memory_bytes: 1 << 30,
-        partitions: 2,
-    })
-    .unwrap();
-    let config = config(&db);
-    let mut previous = None;
-    for profile in [Profile::Catalog, Profile::Behavioral, Profile::Behavioral] {
-        let published = cpg_core::normalize::publish(
-            &store,
-            &config,
-            db.writer.clone(),
-            captured(runtime.budget(), profile),
-            &runtime,
-            profile,
-            ContentHash::of(b"normalized-generation"),
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            published.measurements.len(),
-            if profile == Profile::Catalog { 14 } else { 15 }
-        );
-        for producer in ["normalize_receivers", "normalize_callable_aspects"] {
-            assert_eq!(
-                published
-                    .measurements
-                    .iter()
-                    .filter(|m| m.stage == producer)
-                    .count(),
-                1,
-                "the added normalized producer must execute exactly once: {producer}"
-            );
-        }
-        let detail = catalog.show(published.generation).await.unwrap().unwrap();
-        assert!(!detail.summary.selected);
-        assert_eq!(detail.summary.frontier, Frontier::Normalized);
-        if profile == Profile::Behavioral {
-            if let Some(content) = previous {
-                assert_eq!(content, published.content);
-            }
-            previous = Some(published.content);
-        }
-        let counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.projection_snapshots),(SELECT count(*) FROM {}.call_binding_attempts),(SELECT count(*) FROM {}.source_artifacts)",published.generation.schema(),published.generation.schema(),published.generation.schema()))).fetch_one(db.owner.pool()).await.unwrap();
-        let availability: Vec<i16> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT c.availability FROM {}.normalization_coverage c JOIN {}.normalization_computations n ON c.computation=n.id WHERE n.capability=10",published.generation.schema(),published.generation.schema()))).fetch_all(db.owner.pool()).await.unwrap();
-        assert_eq!(
-            availability.len(),
-            2,
-            "one flow scope outcome per captured Python artifact, even without observations"
-        );
-        assert!(
-            availability
-                .iter()
-                .all(|a| (*a == 3) == (profile == Profile::Catalog))
-        );
-        let mismatches:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.normalization_output_receipts n JOIN {}.normalization_computations c ON n.computation=c.id LEFT JOIN lctx_model_store.stage_receipts s ON s.generation_id=decode($1,'hex') AND s.relation_name=n.relation AND s.stage_name=c.producer WHERE s.content_digest IS DISTINCT FROM n.content OR s.row_count IS DISTINCT FROM n.rows",published.generation.schema(),published.generation.schema()))).bind(published.generation.hex()).fetch_one(db.owner.pool()).await.unwrap();
-        assert_eq!(mismatches, 0);
-        assert_eq!(counts.0, 4);
-        assert!(counts.1 > 0);
-        assert_eq!(counts.2, 2);
-        store.retire(published.generation).await.unwrap();
-        assert_eq!(runtime.budget().reserved(), 0);
-    }
-    assert!(
-        catalog
-            .list(&ListFilter::default())
-            .await
-            .unwrap()
-            .is_empty()
-    );
-}
-#[tokio::test]
-async fn failed_normalization_removes_private_facts_and_preserves_selected_generation() {
-    let db = DisposableDatabase::start().await;
-    db.migrate().await;
-    let model = Arc::new(model().unwrap());
-    let store = GenerationStore::install(db.owner.clone(), model.clone())
-        .await
-        .unwrap();
-    let catalog = GenerationCatalog::new(db.reader.clone());
-    let runtime = AttemptRuntime::new(RuntimeOptions {
-        memory_bytes: 1 << 30,
-        partitions: 2,
-    })
-    .unwrap();
-    let prior = cpg_core::facts::publish(
-        &store,
-        db.writer.clone(),
-        captured(runtime.budget(), Profile::Catalog),
-        runtime.budget().clone(),
-        Profile::Catalog,
-        ContentHash::of(b"prior"),
-    )
-    .await
-    .unwrap();
-    store.select(prior.generation).await.unwrap();
-    let mut invalid = config(&db);
-    invalid.url = "postgres://lctx_importer:invalid@127.0.0.1:1/unreachable".into();
-    let failed = cpg_core::normalize::publish(
-        &store,
-        &invalid,
-        db.writer.clone(),
-        captured(runtime.budget(), Profile::Catalog),
-        &runtime,
-        Profile::Catalog,
-        ContentHash::of(b"failure"),
-    )
-    .await;
-    assert!(failed.is_err());
-    assert_eq!(runtime.budget().reserved(), 0);
-    let listed = catalog.list(&ListFilter::default()).await.unwrap();
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].id, prior.generation);
-    assert!(listed[0].selected);
-    store.clear_selection().await.unwrap();
-    store.retire(prior.generation).await.unwrap();
-    assert!(
-        GenerationStore::check(&db.owner, &model)
-            .await
-            .unwrap()
-            .clean()
-    );
-}
-#[test]
-fn normalized_preflight_requires_all_snapshot_producers() {
-    let model = model().unwrap();
-    let profile = Profile::Catalog;
-    let providers = cpg_core::facts::providers::<lctx_postgres::generations::GenerationAttempt>(
-        ContentHash::of(b"preflight"),
-    );
-    let schedule = cpg_core::normalize::schedule(&model, &providers, profile).unwrap();
-    let contract = FrontierContract::for_frontier(&model, profile, Frontier::Normalized).unwrap();
-    assert!(contract.preflight(&schedule).is_ok());
-    let missing = stages::Schedule::build(
-        &model,
-        schedule
-            .stages()
-            .iter()
-            .filter(|s| !matches!(s.name, "normalize_projections" | "normalize_coverage"))
-            .cloned()
-            .collect(),
-        &[],
-        profile,
-    )
-    .unwrap();
-    assert!(
-        contract
-            .preflight(&missing)
-            .unwrap_err()
-            .to_string()
-            .contains("no scheduled stage writes normalized relation")
-    );
-    assert!(
-        FrontierContract::facts(&model, profile)
-            .unwrap()
-            .preflight(&schedule)
-            .is_err()
-    );
-}
-
-#[tokio::test]
-async fn empty_captured_scope_publishes_explicit_no_scope_and_empty_snapshots() {
-    let db = DisposableDatabase::start().await;
-    db.migrate().await;
-    let model = Arc::new(model().unwrap());
-    let store = GenerationStore::install(db.owner.clone(), model)
-        .await
-        .unwrap();
-    let runtime = AttemptRuntime::new(RuntimeOptions {
-        memory_bytes: 1 << 30,
-        partitions: 2,
-    })
-    .unwrap();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/python/normalized_projections");
-    let captured = Arc::new(CapturedInputs::new(
-        vec![AcquiredInput::tree(
-            CapturedInput::capture(&root, &[], runtime.budget()).unwrap(),
-            "empty-normalized",
-        )],
-        cpg_extract::native_context::NativeContextConfig::committed(
-            lctx_model::domain::stages::Profile::Catalog,
-            runtime.budget(),
-        )
-        .unwrap(),
-    ));
-    let published = cpg_core::normalize::publish(
-        &store,
-        &config(&db),
-        db.writer.clone(),
-        captured,
-        &runtime,
-        Profile::Catalog,
-        ContentHash::of(b"empty-normalized"),
-    )
-    .await
-    .unwrap();
-    let outcomes: Vec<(i16, i16)> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT capability,availability FROM {}.normalization_computations WHERE capability IN (0,8,10,16) ORDER BY capability", published.generation.schema()))).fetch_all(db.owner.pool()).await.unwrap();
-    assert_eq!(outcomes, vec![(0, 4), (8, 4), (10, 3), (16, 3)]);
-    let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT count(*) FROM {}.projection_source_assessments WHERE vertices=0 AND arcs=0",
-        published.generation.schema()
-    )))
-    .fetch_one(db.owner.pool())
-    .await
-    .unwrap();
-    assert_eq!(count, 4);
-    store.retire(published.generation).await.unwrap();
-    assert_eq!(runtime.budget().reserved(), 0);
+async fn empty_captured_scope_completes_explicit_no_scope_and_empty_snapshots() {
+ use cpg_core::{compilation,workspace::{Workspace,WorkspaceOptions}};
+ use cpg_extract::{acquisition::AcquiredInput,bundle::CapturedInputs,capture::CapturedInput};
+ use std::sync::Arc;
+ let workspace=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions::default()).unwrap();
+ let captured=Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(CapturedInput::capture(&catalog_runtime::root("normalized_projections"),&[],workspace.budget()).unwrap(),"empty-normalized")],cpg_extract::native_context::NativeContextConfig::committed(Profile::Catalog,workspace.budget()).unwrap()));
+ compilation::compile(&workspace,captured,Profile::Catalog,ContentHash::of(b"empty-normalized"),Frontier::Normalized,None,None,None).await.unwrap();
+ workspace.validate().await.unwrap();
+ let completed=workspace.completed_relations().unwrap();let inputs=workspace.inputs("inspect",Profile::Catalog,completed.iter().map(|r|r.name())).unwrap();
+ let fixture=catalog_runtime::Fixture{session:inputs.session(&workspace).await.unwrap(),workspace};
+ let outcomes:Vec<(i16,i16)>=catalog_runtime::query(&fixture,"SELECT capability,availability FROM normalization_computations WHERE capability IN (0,8,10,16) ORDER BY capability").await;
+ assert_eq!(outcomes,vec![(0,4),(8,4),(10,3),(16,3)]);
+ let count:i64=catalog_runtime::one(&fixture,"SELECT count(*) FROM projection_source_assessments WHERE vertices=0 AND arcs=0").await;assert_eq!(count,4);
 }

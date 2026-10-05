@@ -4,6 +4,19 @@ use lctx_model::domain::{
     admission::*, attribution::*, resources::ResourceBudget, stages::Profile, *,
 };
 use std::sync::Arc;
+use cpg_core::workspace::{Workspace, WorkspaceOptions};
+async fn compile(captured: Arc<CapturedInputs>, budget: ResourceBudget, profile: Profile) -> Arc<Workspace> {
+    let workspace = Workspace::with_budget(Arc::new(model().unwrap()), WorkspaceOptions { memory_bytes: budget.limit(), ..Default::default() }, budget).unwrap();
+    cpg_core::facts::compile_facts(&workspace, &captured, profile, cpg_core::facts::providers(ContentHash::of(b"fixture")), Default::default()).await.unwrap();
+    workspace.validate().await.unwrap();
+    workspace
+}
+fn availability(admission: &ScopedAvailability, family: FactFamily) -> Vec<Availability> {
+    let mut values = admission.evidence().iter().filter(|row| row.family == family).map(|row| row.availability).collect::<Vec<_>>();
+    if let Some(empty) = admission.empty_universe(family) {values.push(empty);}
+    values.dedup();
+    values
+}
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
 }
@@ -22,7 +35,7 @@ fn captured(
     }
     Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(
-            CapturedInput::capture(root.path(), &paths, &budget()).unwrap(),
+            CapturedInput::capture(root.path(), &paths, resources).unwrap(),
             "facts-admission",
         )],
         cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap(),
@@ -32,55 +45,38 @@ fn captured(
 async fn complete_frontier_is_admitted_with_profile_owned_availability() {
     for profile in Profile::ALL {
         let resources = budget();
-        let admission = cpg_core::facts::memory(
+        let workspace = compile(
             captured(b"def f(x):\n    return x\n", true, profile, &resources),
             resources.clone(),
             profile,
-            ContentHash::of(b"fixture"),
         )
-        .await
-        .unwrap();
-        assert_eq!(admission.profile(), profile);
+        .await;
+        let admission = workspace.facts_availability(profile).unwrap();
         assert_eq!(
-            admission.availability()[&FactFamily::Artifacts],
-            Availability::Complete
+            availability(&admission, FactFamily::Artifacts),
+            vec![Availability::Complete]
         );
         assert_eq!(
-            admission.availability()[&FactFamily::Docs],
-            Availability::Complete
+            availability(&admission, FactFamily::Docs),
+            vec![Availability::Complete]
         );
         assert_eq!(
-            admission.availability()[&FactFamily::Flow],
+            availability(&admission, FactFamily::Flow),
             if profile == Profile::Catalog {
-                Availability::NotRequested
+                vec![Availability::NotRequested]
             } else {
-                Availability::Complete
+                vec![Availability::Complete]
             }
         );
     }
     let resources = budget();
-    let (_, memory, _) = cpg_core::facts::inspect(
-        captured(b"def f(x): return x\n", false, Profile::Catalog, &resources),
-        resources.clone(),
-        Profile::Catalog,
-    )
-    .await
-    .unwrap();
-    let model = model().unwrap();
+    let workspace = compile(captured(b"def f(x): return x\n", false, Profile::Catalog, &resources), resources.clone(), Profile::Catalog).await;
     assert!(
-        !memory
-            .read::<Provider>(&model, &budget())
-            .unwrap()
-            .rows()
-            .iter()
+        !rows::<Provider>(&workspace).iter()
             .any(|p| p.tool == "ty")
     );
     assert!(
-        !memory
-            .read::<ProviderCoverage>(&model, &budget())
-            .unwrap()
-            .rows()
-            .iter()
+        !rows::<ProviderCoverage>(&workspace).iter()
             .filter(|c| c.family == FactFamily::Flow)
             .any(|c| c.provider.is_some() || c.run.is_some())
     );
@@ -88,20 +84,21 @@ async fn complete_frontier_is_admitted_with_profile_owned_availability() {
 #[tokio::test]
 async fn syntax_failure_and_no_document_scope_have_distinct_availability() {
     let resources = budget();
-    let admission = cpg_core::facts::memory(
+    let workspace = compile(
         captured(b"def f(:\n", false, Profile::Catalog, &resources),
         resources.clone(),
         Profile::Catalog,
-        ContentHash::of(b"fixture"),
     )
-    .await
-    .unwrap();
+    .await;
+    let admission = workspace.facts_availability(Profile::Catalog).unwrap();
     assert_eq!(
-        admission.availability()[&FactFamily::Syntax],
-        Availability::Partial
+        availability(&admission, FactFamily::Syntax),
+        vec![Availability::Partial]
     );
     assert_eq!(
-        admission.availability()[&FactFamily::Docs],
-        Availability::NoScope
+        availability(&admission, FactFamily::Docs),
+        vec![Availability::NoScope]
     );
 }
+
+fn rows<R:Record>(workspace:&Workspace)->Vec<R>{workspace.completed::<R>().unwrap().batches().unwrap().flat_map(|batch|R::decode(&batch.unwrap()).unwrap()).collect()}
