@@ -33,7 +33,7 @@ def pruned(flag):
 def looping(values):
     value = 0
     for element in values:
-        value = element
+        value = value + element
         observed = value
     return value
 

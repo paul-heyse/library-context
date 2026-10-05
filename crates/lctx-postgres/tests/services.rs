@@ -199,13 +199,14 @@ async fn failed_migration_discards_its_session_lock_and_repeat_install_recovers(
     let s = services().await;
     let migrator = s.config.connect_migrator().await.unwrap();
     migrator.migrate().await.unwrap();
-    let checksum: Vec<u8> =
-        sqlx::query_scalar("SELECT checksum FROM public._sqlx_migrations ORDER BY version LIMIT 1")
+    let (version, checksum): (i64, Vec<u8>) =
+        sqlx::query_as("SELECT version, checksum FROM public._sqlx_migrations ORDER BY version LIMIT 1")
             .fetch_one(s.db.owner.pool())
             .await
             .unwrap();
-    sqlx::query("UPDATE public._sqlx_migrations SET checksum = $1")
+    sqlx::query("UPDATE public._sqlx_migrations SET checksum = $1 WHERE version = $2")
         .bind(vec![0u8])
+        .bind(version)
         .execute(s.db.owner.pool())
         .await
         .unwrap();
@@ -218,8 +219,9 @@ async fn failed_migration_discards_its_session_lock_and_repeat_install_recovers(
             "a failed migration must not retain its session lock in the pool"
         );
     }
-    sqlx::query("UPDATE public._sqlx_migrations SET checksum = $1")
+    sqlx::query("UPDATE public._sqlx_migrations SET checksum = $1 WHERE version = $2")
         .bind(checksum)
+        .bind(version)
         .execute(s.db.owner.pool())
         .await
         .unwrap();
