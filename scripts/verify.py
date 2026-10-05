@@ -61,7 +61,7 @@ FAMILIES = {
     "compiler": Family(
         (
             rust("-p", "cpg-core", "--lib", "--tests"),
-            rust("-p", "lctx", "--test", "acquire", "--test", "model_describe", "--test", "compile_artifact"),
+            rust("-p", "lctx", "--bin", "lctx", "--test", "acquire", "--test", "model_describe", "--test", "compile_artifact"),
         ),
         frozenset({"tools"}),
     ),

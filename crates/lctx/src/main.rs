@@ -689,31 +689,17 @@ mod tests {
             "db",
             "snapshots",
             "generations",
+            "runs",
             "compile-fixture",
         ] {
             assert!(parse(&[retired]).is_err(), "{retired}");
         }
-        // Compile parses any arguments so that it can refuse them all.
+        // Ordinary compilation parses before the native-publisher availability boundary.
         assert!(matches!(
             parse(&["compile", "fastmcp", "--through", "facts"])
                 .unwrap()
                 .command,
             Cmd::Compile { .. }
         ));
-    }
-
-    /// The hand parsers accepted a sign (`from_str_radix` reads `+f`) and panicked slicing
-    /// non-ASCII input (H1 C4).
-    #[test]
-    fn an_attempt_id_is_exactly_32_hex_digits() {
-        for bad in [
-            "+f".repeat(16),
-            "é".repeat(16),
-            "ab".repeat(15),
-            "zz".repeat(16),
-        ] {
-            assert!(parse(&["runs", "show", &bad]).is_err(), "{bad}");
-        }
-        assert!(parse(&["runs", "show", &"AB".repeat(16)]).is_ok());
     }
 }
