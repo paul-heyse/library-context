@@ -128,18 +128,24 @@ pub async fn run(
         lctx_model::local_theory_outputs!(theory_write);
         macro_rules! fields_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.fields.$field.iter(){output.push(row.clone()).await?;})*};}
         lctx_model::local_field_outputs!(fields_write);
+        let (status, reason) = if profile == Profile::Catalog {
+            (
+                analysis::AnalysisStatus::NotRequested,
+                Some(ObligationKind::NotRequested),
+            )
+        } else if coverage.scopes().iter().all(|scope| scope.expectation().no_scope) {
+            // The admitted input domain, rather than absence of produced rows, proves emptiness.
+            (analysis::AnalysisStatus::Completed, None)
+        } else {
+            (
+                analysis::AnalysisStatus::Partial,
+                Some(ObligationKind::IncompleteDomain),
+            )
+        };
         let outcome = publication::AnalysisOutcome {
             invocation: invocation.id(),
-            status: if profile == Profile::Behavioral {
-                analysis::AnalysisStatus::Partial
-            } else {
-                analysis::AnalysisStatus::NotRequested
-            },
-            reason: Some(if profile == Profile::Behavioral {
-                ObligationKind::IncompleteDomain
-            } else {
-                ObligationKind::NotRequested
-            }),
+            status,
+            reason,
         };
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;

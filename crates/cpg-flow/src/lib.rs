@@ -403,6 +403,10 @@ pub fn rename(text: &str) -> Result<(String, u32), String> {
 /// Index every module. A module ty cannot index gets an `error` and no facts; the others are
 /// unaffected.
 pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
+    // Document-only inputs have no Python modules or virtual import root.
+    if inputs.is_empty() {
+        return Vec::new();
+    }
     let mut db = FlowDb::new();
     let mut prepared = Vec::with_capacity(inputs.len());
     for input in inputs {
@@ -1642,6 +1646,15 @@ mod settings_tests {
     };
     use ruff_db::system::DbWithWritableSystem;
     use ty_module_resolver::{ModuleName, resolve_module_confident};
+
+    #[test]
+    fn empty_module_inventory_needs_no_virtual_import_root() {
+        let context = RuntimeContext {
+            python_version: (3, 14, 0),
+            platform: "linux".to_owned(),
+        };
+        assert!(index(&[], &context).is_empty());
+    }
 
     #[test]
     fn virtual_import_root_and_python_version_affect_resolution() {

@@ -491,9 +491,10 @@ async fn assert_selected_analytics(fixture: &ServingFixture) {
             targets,
             members
                 .iter()
-                .filter(|u| u.graph)
+                .filter(|u| u.release_scope)
                 .map(|u| u.entity)
-                .collect()
+                .collect(),
+            "PageRank covers every selected release callable, including isolates"
         );
         let communities = results
             .rows()
@@ -702,7 +703,7 @@ node = q.source_functions(original)['api']
 schema = json.loads(q.wire_tool('get_operation'))['output_schema']
 q.check_signature(core, node, schema)
 wrong_default = copy.deepcopy(core)
-default_id = next(p['default']['literal'] for s in wrong_default['signatures'] for p in s['parameters'] if p['name'] == 'flag')
+default_id = next(p['default']['literal'] for s in wrong_default['signatures'] if s['role'] == q.code(schema, 'calls_SignatureRole', 'source') for p in s['parameters'] if p['name'] == 'flag' and p['default']['kind'] == 'literal')
 next(l for l in wrong_default['literal_values'] if l['literal'] == default_id)['value'] = {'kind':'bool','value':True}
 wrong_channel = copy.deepcopy(ranked)
 wrong_channel['channels']['vector'] = {'status':'available'}

@@ -55,9 +55,10 @@ records failures/repairs and their boundaries; focused receipts are not assemble
 | Definition/vocabulary/checkpoint premise controls | **passed**, 29; checkpoint-only inputs retain exact authority and missing-premise refusal |
 | Structural/selection producer family | **composite passed**, 18; eight affected controls passed after Catalog premise and typed fixture repairs |
 | `NEXTEST_TEST_THREADS=8 just verify-serving --command python` | **passed**, 25 MCP controls after actual adapter rebuild/imports |
-| `NEXTEST_TEST_THREADS=8 just verify-serving --command serving` | **passed**21 / **failed**1; schema snapshot, admission, packets/evidence, native both-profile, cohort, conditional/Terminal/raised journeys passed. Qualification fixture's Corpus/Installed frame distinction repaired; targeted rerun pending |
+| `NEXTEST_TEST_THREADS=8 just verify-serving --command serving` | **passed**21 / **failed**1; reviewed schema migration, admission, packets/evidence, native both-profile, cohort, conditional/Terminal/raised journeys passed. Remaining qualification repairs are described below |
 | `NEXTEST_TEST_THREADS=8 just verify-store --command python` | **passed**, two controls |
 | Corpus correspondence and affected normalization/definition/schedule controls | **passed**, 39; integrated model/CLI test compile also passed |
+| Release `cpg-flow` library, `flow_shapes` and `capture_timing` controls | **passed**, 43; document-only empty inventory no longer requires a virtual import root |
 | Optional comparable timings / total RSS | **not_run**; structural scan/setup counts establish no Measured speed claim |
 | Real-library reconstruction/activation, live vectors, product comparisons and heldout | **not_run / stopped**, outside this pivot |
 
@@ -68,13 +69,13 @@ above, rather than static judgment, establish their Tested boundaries.
 
 ## Next
 
-The independent served oracle passed again. The stdio qualification fixture's Corpus/Installed
-frame distinction is repaired; its rerun exposed missing official-document co-mention propagation.
-Normalization does not yet consume `CorpusLibrary`, and analytics rejects the Corpus context before
-checking its exact link. The accepted target requires this path: normalization and analytics repairs
-retain original contexts, ambiguity and exact link/ownership gates. Integrated compile and39 pure
-controls passed; actual PG/native/MCP qualification, reviewed changed description and full keep-going Clippy
-remain. No positive assertion is weakened. Update F01–F04 and applicable Q0/Q1 owners only from
+The independent served oracle and reviewed description assertion passed. Official Corpus
+co-mention propagation now retains original contexts, ambiguity and exact link/ownership gates;
+39 affected model controls and all earlier provenance counterexamples passed. The qualification
+fixture now uses the release ranking universe and source-role literal defaults. Catalog stdio
+qualification passed; Behavioral then exposed an empty-module virtual-root panic. The provider
+repair passed43 focused controls; both-profile qualification and full keep-going Clippy remain.
+No positive assertion is weakened. Update F01–F04 and applicable Q0/Q1 owners only from
 actual evidence. The root owns scope-end formatting/generation through `just turn-end`.
 
 The [target coordinator](docs/plans/target-implementation-alignment-plan_2026-10-04.md)

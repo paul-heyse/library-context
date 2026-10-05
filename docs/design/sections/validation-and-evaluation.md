@@ -95,7 +95,7 @@ real-provider fixtures, served round trips) are kept separate from derived valid
 
 ### §8.1 Independent oracles (the validation lane)
 
-**Current controls, Interface-checked 2026-10-04.** Instruments challenge one specific claim;
+**Current controls, Tested within the bounded receipts, 2026-10-05.** Instruments challenge one specific claim;
 none writes facts or tunes analysis. Provider CLI agreement is parity, not independent semantics.
 
 | Instrument | Claim and expectation source | Live control |
@@ -115,8 +115,10 @@ never do, and nothing runs with network access. Oracles stay out of compiler inp
 stays out of analysis. The current runtime oracle checks raw flow over a small generated corpus;
 its broader exclusions remain separate. The Phase 5 generated CPython oracle challenges
 original served path-local refutations and exact identity transfers using independently observed
-guards and returns. Its driver is `crates/lctx/tests/serving_soundness.rs`; actual qualification
-is pending. May-compatible answers are never interpreted as established identity.
+guards and returns. Its driver is `crates/lctx/tests/serving_soundness.rs`; the actual
+producer/store/served comparison **passed**, 2026-10-05, in the assembled oracle family and
+again on the affected release rerun. The [assurance coordinator](../../plans/testing-architecture-pivot-plan_2026-10-04.md#7-current-contractcontrol-map-and-execution-checkpoint)
+owns those command receipts. May-compatible answers are never interpreted as established identity.
 
 **Implemented and focused Tested (2026-09-27):** the raw-flow runtime oracle builds and drives
 this checkout's release `lctx` binary, overriding an inherited target directory. `uv run --no-sync

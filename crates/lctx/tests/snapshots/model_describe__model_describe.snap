@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "8fd1dfdf69d81de8bc6bff3fa1fd82d2678922009713326668ed395cb4b337e6",
+  "digest": "c7e5f039b26a4251efde0b45253fab0e297bcf11c3368145282e78a6bb27a9b6",
   "relations": [
     {
       "name": "access_paths",
@@ -114223,7 +114223,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "call_composition_frames",
       "revision": 1,
-      "definition_digest": "51c60dc890ea1c9d68fb15d0cb939a6a5a9b3d6242d7f4420d8f23c3a7553732",
+      "definition_digest": "591c592372b4170d4b606ac62e40d0aab436add18387da0802c0e802ac69d438",
       "inputs": [
         {
           "relation": "assertion_qualifications",
@@ -115095,6 +115095,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "prefix": null
         },
         {
+          "relation": "corpus_libraries",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
           "relation": "modules",
           "order": [
             "id"
@@ -115650,13 +115657,6 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "model_analysis_invocations",
-          "order": [
-            "id"
-          ],
-          "prefix": null
-        },
-        {
-          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -124119,7 +124119,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "context_entry_binding_replay",
       "revision": 1,
-      "definition_digest": "7e093a76d04e8d7448a9c5cde6e02833e689b54872ff0e05f91a2144052b6b2b",
+      "definition_digest": "4d3bcf093650920516f2f4bf572fbbf1b93ee35e68202002ea8ecb6f67b5e761",
       "inputs": [
         {
           "relation": "access_paths",
@@ -124571,6 +124571,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "context_executions",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -126058,7 +126065,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "context_execution_replay",
       "revision": 1,
-      "definition_digest": "0cb8a51fc080c3311292d763bc1b5c771d9b0d667a97f5bb1cd2b361ce27dfc5",
+      "definition_digest": "6bfdb286311e528d854ae5c8d224aa6fa13c576d0d370b5bf1c72df52299ff97",
       "inputs": [
         {
           "relation": "access_paths",
@@ -126510,6 +126517,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "context_executions",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -128410,7 +128424,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "definition_evaluation_replay",
       "revision": 1,
-      "definition_digest": "847c99df03ca604f3e308dd0c9f459800d5dd17f7c1cb21584c98514f7480d35",
+      "definition_digest": "662bd014949cf862d121b1eff374c63b5534878b2c38090f76efda4d8e3ffc29",
       "inputs": [
         {
           "relation": "access_paths",
@@ -128862,6 +128876,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "context_executions",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -133135,7 +133156,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "enriched_execution_inventory",
       "revision": 1,
-      "definition_digest": "2947d09075f3c9c9dfe408d928fc590594965420a1addae56ec8e4f25f944c03",
+      "definition_digest": "37a66fa39514d788316958a61539ea935b514897cf245fbd4d8e2fefd7113daa",
       "inputs": [
         {
           "relation": "access_paths",
@@ -133587,6 +133608,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "context_executions",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -135074,7 +135102,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "enriched_modeled_call_replay",
       "revision": 1,
-      "definition_digest": "7324e8a41b3228ce504dbe95e22086c582ff38f46c37ff44c4f69f693005c939",
+      "definition_digest": "f4f26e84e4eafe41ca13bdfa3363c7a64f346172ef5f32e36c4f42331fb1ddf6",
       "inputs": [
         {
           "relation": "access_paths",
@@ -135526,6 +135554,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "context_executions",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -137013,7 +137048,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "enriched_statement_replay",
       "revision": 1,
-      "definition_digest": "3867e702bd1d4265edb2c2b66bc6e98cfaca1214bc556fb98e260582b6db5242",
+      "definition_digest": "46e8fb53f82fc78cb4041bbd9104557ed068348aa830e8a5542070f3cc92d4be",
       "inputs": [
         {
           "relation": "access_paths",
@@ -137465,6 +137500,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "context_executions",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -140151,7 +140193,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "finite_summary_inventory_replay",
       "revision": 1,
-      "definition_digest": "16e8df8a21cd241e71a8325a4bbae9f5e6c6a079883be7ebf7d476ae37377d91",
+      "definition_digest": "67af339f54362f433c56a298b4ca1a49e080caa79083af68a2b0928eb5f565c4",
       "inputs": [
         {
           "relation": "access_paths",
@@ -140565,6 +140607,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             "id"
           ],
           "prefix": "Model"
+        },
+        {
+          "relation": "corpus_libraries",
+          "order": [
+            "id"
+          ],
+          "prefix": null
         },
         {
           "relation": "coverage_scopes",
@@ -145314,7 +145363,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "guard_substitution_replay",
       "revision": 1,
-      "definition_digest": "6e0097677f227bf382778038a4d6d2dc537382b2d16ccaab413bec2fbae236c4",
+      "definition_digest": "4269bbc3761dbe50747bcda38f9695e1cbbb4db7332f70ee99faa9dc108f14bb",
       "inputs": [
         {
           "relation": "access_paths",
@@ -145577,6 +145626,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "conditions",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -151219,7 +151275,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "model_inventory_replay",
       "revision": 1,
-      "definition_digest": "dd13e4bc79d9526fbbce3cc9ff4c4ba85a6a58ad80abe4e02786dc84d81ae67e",
+      "definition_digest": "3aa0e59fe6a28830a29e4db1c32db164b01cc8366c51f616dba1df0806fa9eb6",
       "inputs": [
         {
           "relation": "access_paths",
@@ -151748,6 +151804,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "context_executions",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -156611,7 +156674,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "normalized_binding_closure",
       "revision": 1,
-      "definition_digest": "7aeb35e9b2dae7698d442ec1f344581b2fe7df89e5e8a6be1495bdfd2d32ea1d",
+      "definition_digest": "8ab243820b9029e090d3e23dfc0ad2715d2c191f1a52c1d61d2e2c314dc10bfe",
       "inputs": [
         {
           "relation": "signature_enumeration_observations",
@@ -157294,6 +157357,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "source_artifacts",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -160328,7 +160398,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "normalized_relationship_closure",
       "revision": 1,
-      "definition_digest": "aa5a5d45b141a00df6610ffa690ae35938f5496656c66e7ac23380855016b2b7",
+      "definition_digest": "3fd95cd1352232069ae54bfe6313a44ed4c0c6800b37c932383e55b118814b65",
       "inputs": [
         {
           "relation": "assertion_qualifications",
@@ -160381,6 +160451,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "relation": "class_trait_observations",
+          "order": [
+            "id"
+          ],
+          "prefix": null
+        },
+        {
+          "relation": "corpus_libraries",
           "order": [
             "id"
           ],
@@ -168013,7 +168090,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "source_call_replay",
       "revision": 1,
-      "definition_digest": "147eed1935093c6951f8721f76eccceb06df1f5c1489e82a9438bf60bba004f1",
+      "definition_digest": "5520c4a1f2ed84ab36f6ba0a01128702ec52b3df81f0ced1dfcfc7d01f7587e1",
       "inputs": [
         {
           "relation": "access_paths",
@@ -168364,6 +168441,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             "id"
           ],
           "prefix": "Facts"
+        },
+        {
+          "relation": "corpus_libraries",
+          "order": [
+            "id"
+          ],
+          "prefix": null
         },
         {
           "relation": "coverage_scopes",
