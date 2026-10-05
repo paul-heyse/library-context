@@ -695,7 +695,7 @@ mod tests {
         }).await.unwrap();
 
         // An admission returned inside a transaction is unusable after its rollback.
-        let mut tx = store.owner.pool().begin().await.unwrap();
+        let mut tx = store.owner.begin().await.unwrap();
         let rolled_back = store.checkpoint_step(&mut tx, generation, &budget, &preflight, &receipt).await.unwrap();
         tx.rollback().await.unwrap();
         super::super::transaction(&store.owner, async |tx| {
@@ -796,6 +796,8 @@ mod tests {
         let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM lctx_model_store.checkpoint_frame_receipts WHERE generation_id=$1")
             .bind(generation.0.to_vec()).fetch_one(&db.superuser).await.unwrap();
         assert_eq!(remaining, 0, "generation cleanup removes checkpoint frame conclusions");
+        drop(admission);
+        drop(rolled_back);
         assert_eq!(budget.reserved(), 0);
     }
 
