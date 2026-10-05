@@ -74,6 +74,13 @@ preservation and testing rules still apply.
 
 ## Repository navigation
 
+Use the [design principles](docs/design_review/design_principles/core/design-principles.md)
+together with the [Heuristics for Efficient Architecture](docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+when making consequential architectural and implementation choices. Consider relevant execution
+patterns before committing to physical organization, interfaces, preparation, assurance and
+lifecycles; address material mismatches while the design remains easy to change. Apply them
+qualitatively, without an exhaustive checklist, cost model or additional proof machinery.
+
 The [documentation task routes and repository map](docs/README.md) identify owners and paths.
 Fixtures under `fixtures/python/` are input data, never executed or linted. Evaluation heldout data
 remain sealed until increment 5. Add ast-grep rules only from design-review findings. Optional review evidence uses one dated topic folder under

@@ -20,7 +20,8 @@ declared cadence. Ordinary implementation work does not itself initiate a domain
 ## Load the standard
 
 Find `standard.toml` at the location named by repository instructions. Read the declared core
-principles and template, each profile and its companion skill, then the repository binding.
+principles, template and the declared heuristics companion, each profile and its companion skill,
+then the repository binding.
 The manifest owns versions and paths; the binding owns local cadence, authority and disposition
 routes. If the manifest is absent, use an available core and state the limitation. If the core is
 missing, report the missing prerequisite.
@@ -28,6 +29,10 @@ missing, report the missing prerequisite.
 Profiles add or tighten constraints; they do not replace architectural assessment or waive a
 core MUST. State which authority governs a known conflict and whether it affects the decision.
 Historical reviews use their recorded version and are not retroactively certified.
+
+Use the [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+with the principles to assess relevant execution choices before they become fixed. The companion
+informs existing scenario/alternative judgments; it creates no extra verdict table or checklist.
 
 ## Scope
 

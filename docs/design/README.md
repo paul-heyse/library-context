@@ -38,6 +38,11 @@ architectural conformance.
 
 ## Reading and extending
 
+Use the [design principles](../design_review/design_principles/core/design-principles.md) with
+the [Heuristics for Efficient Architecture](../design_review/design_principles/core/efficient-architecture-heuristics.md)
+when choosing the physical realization. Consider relevant patterns before the mechanism becomes
+costly to replace; this does not require reopening settled reviews for ordinary implementation.
+
 For a change, identify the semantic owner, its consumer contract and the expected extension axis.
 Read that owner plus affected consumers, then the ADR that governs the section
 ([index](../adr/README.md)); reuse or compose existing capabilities where their semantics fit.

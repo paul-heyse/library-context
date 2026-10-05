@@ -231,6 +231,12 @@ cost models, runtime accounting, execution-planning machinery, instrumentation o
 such mechanisms need a separate concrete functional or operational requirement. No additional proof
 artifact, mandatory benchmark, extra checklist or standing implementation review is introduced.
 
+The [Heuristics for Efficient Architecture](../design_review/design_principles/core/efficient-architecture-heuristics.md)
+(version 1.0, Implemented guidance, 2026-10-05) accompany the principles under FP-07/A4.
+Use relevant patterns during design and planning before material physical choices become fixed,
+and for consequential choices left open during implementation. Existing principles and lenses
+remain; this companion adds no independent acceptance rules or recurring review obligation.
+
 The library-context binding maps §B decisions to the standard and owns review cadence and
 finding disposition. Changing a §B decision needs an ADR and a design/target review. Library
 selection follows the owned capability, expected changes and total integration burden.

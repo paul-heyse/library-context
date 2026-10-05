@@ -20,6 +20,11 @@ approach. Distinguish the implemented baseline, accepted decisions and proposed 
 
 ## Assess the foundations the plan will use
 
+Use the design principles together with the [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+before settling material physical organization, interfaces, preparation, assurance or lifecycle
+choices. Select relevant patterns and address material mismatches while the design remains easy
+to change; qualitative reasoning is sufficient, without an exhaustive checklist or cost proof.
+
 As part of developing the plan, assess the existing components and contracts on which the
 proposed work will depend. Consider whether the intended capabilities reveal opportunities to
 improve those foundations, clarify responsibilities or simplify the combined design. Use the

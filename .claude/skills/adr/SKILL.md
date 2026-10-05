@@ -5,6 +5,11 @@ description: Record, supersede or check an architectural decision, including own
 
 # ADR
 
+When comparing material architectural alternatives, use the design principles and the
+[Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md) together.
+Consider relevant execution patterns before fixing the decision; record consequential tradeoffs
+in the existing rationale without a separate heuristic checklist or proof artifact.
+
 DESIGN.md plus `docs/design/sections/` owns accepted architecture and labeled targets; ADRs own why and what was rejected.
 Read the generated `docs/adr/README.md` for current decisions and open choices; retired records
 are recovered from Git, never read as a chain (ADR-0042).

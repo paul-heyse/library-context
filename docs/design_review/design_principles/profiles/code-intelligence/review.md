@@ -5,6 +5,9 @@ each slot of the [core review template](../../core/design-review-template.md). T
 within the core slots; no slot is added or removed. Each applies only where the subject touches
 the behaviour concerned.
 
+Ground relevant execution choices in the [Heuristics for Efficient Architecture](../../core/efficient-architecture-heuristics.md)
+as well as the principles; retain all independent domain-fidelity obligations and existing slots.
+
 | Core slot | Profile addition |
 |---|---|
 | 1 Scope and outcome | Name the fact families, analyses and served answers in scope, and the workloads considered (principles: *Functional target*). |

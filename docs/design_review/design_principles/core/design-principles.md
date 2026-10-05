@@ -10,11 +10,16 @@ supporting rules; §I records the version lineage. Domain profiles supply additi
 
 ## 0. How to use this document
 
+Use these principles together with the [Heuristics for Efficient Architecture](efficient-architecture-heuristics.md)
+when making consequential architectural and implementation choices. Consider the relevant
+patterns before physical organization and lifecycle mechanisms become expensive to change.
+The companion supports qualitative judgment; it adds no exhaustive checklist or proof obligation.
+
 **Layers.** This is the core of a layered standard:
 
 | Layer | Holds | May reference |
 |---|---|---|
-| Core (this document and the core review template) | Foundations `FP-01`–`FP-07`, architectural judgments `A1`–`A4`, supporting rules `DP-01`–`DP-24`, gates `G1`–`G8`, evidence vocabulary, review contract | Nothing outside the core |
+| Core (this document, the core review template and its heuristic companion) | Foundations `FP-01`–`FP-07`, architectural judgments `A1`–`A4`, supporting rules `DP-01`–`DP-24`, gates `G1`–`G8`, evidence vocabulary, review contract | Nothing outside the core |
 | Domain profile | Principles and gates for a class of system (IDs with the profile's own prefix), plus review additions | The core |
 | Repository binding | No principles. Maps profile roles to one repository's authorities, commands, routes and local policies | Core, profiles, repository |
 
@@ -181,6 +186,9 @@ local behavior should not require unrelated acquisition, storage or serving infr
 exercised through its contract? Is uncertainty visible rather than hidden in ambient state?
 
 ### FP-07 — Execution fits the workload
+
+The [Heuristics for Efficient Architecture](efficient-architecture-heuristics.md) give recognizable
+patterns for applying this foundation before material execution choices become fixed.
 
 Choose representations, algorithms, access paths, execution placement and lifecycle granularity
 for the operations and input sizes the system supports. Work should follow necessary data and
@@ -738,6 +746,10 @@ the product to convenient fixtures. Place this premise in the existing scope/sce
 it is not a new artifact or standing review obligation.
 
 The following lenses guide judgment where material; they are not twelve mandatory checks:
+
+Consult the [Heuristics for Efficient Architecture](efficient-architecture-heuristics.md) alongside these
+lenses. Existing principles and acceptance judgments govern; the companion supplies concrete
+assessment patterns without replacing this guidance.
 
 | Lens | Architectural choice to assess |
 |---|---|

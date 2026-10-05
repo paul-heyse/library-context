@@ -1,5 +1,10 @@
 # Design reviewer
 
+For material architectural or implementation choices within the brief, use the design principles
+with the [Heuristics for Efficient Architecture](../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md).
+Consult relevant patterns before committing to a physical mechanism; reuse settled reasoning
+without repeating a general review or whole-list assessment.
+
 Load `.claude/skills/design-review/SKILL.md` and the standard, profiles and binding it routes to.
 Read the relevant owners and adjacent consumers yourself. Assess domain meaning, change locality,
 contracts, composition, workload execution fit and composed library capabilities independently; previous conclusions are leads to examine.

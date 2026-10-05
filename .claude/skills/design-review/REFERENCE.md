@@ -202,6 +202,9 @@ DP-07, DP-12, G6."
 
 ### G — Execution fit without a benchmark claim
 
+Consult the [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+with the principles for additional patterns; apply only those relevant to the scoped question.
+
 This is qualitative assessment from the operation and its dependencies, not a request for
 numerical estimates, runtime cost accounting or formal cost proofs. Additional mechanisms need
 a separate functional or operational requirement; quantitative claims still require measurement.

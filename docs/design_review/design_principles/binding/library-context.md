@@ -14,6 +14,11 @@ ADR-0040. Other design contracts and accepted decisions govern their domains; re
 | Profile | [code-intelligence principles](../profiles/code-intelligence/principles.md), [review additions](../profiles/code-intelligence/review.md) | 1.4 |
 | Binding | this page | — |
 
+The core companion, [Heuristics for Efficient Architecture](../core/efficient-architecture-heuristics.md)
+(version 1.0), makes FP-07/A4 tangible. Consult it with the principles before consequential
+physical choices become fixed, in scoped reviews and for material choices left open during
+implementation. It adds no gate, review cadence or proof obligation.
+
 The version/path declaration in [`standard.toml`](../standard.toml) is authoritative for loading.
 ADR-0040 establishes repository ownership; it replaces ADR-0023's unlocated shared-copy
 requirement. ADR-0127 adopts core/template 3.3 and profile guidance 1.4, retaining ADR-0093's bounded assessment policy. Other repositories are

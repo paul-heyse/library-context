@@ -17,6 +17,10 @@ implementation separately from the proposed target.
 
 ## Options
 
+Use the design principles and [Heuristics for Efficient Architecture](../design_review/design_principles/core/efficient-architecture-heuristics.md)
+together for material execution choices. Explain relevant tradeoffs before fixing the mechanism;
+no exhaustive checklist, cost model or additional proof artifact is implied.
+
 1. **The simplest viable alternative** — say why it loses or wins.
 2. Other meaningful choices. Compare change propagation, semantic ownership, composition,
    isolated testing and total library/bespoke integration burden where relevant.

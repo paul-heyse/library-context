@@ -30,6 +30,7 @@ Paths in this reference table are relative to the repository root.
 | `docs/plans/` | The Proposed graph-native replacement series, implemented-baseline cutover/assurance owners and product/research forward plan; finished or superseded plans are removed once their obligations move |
 | `docs/adr/` | Current decision records (accepted and open proposals), a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: seven foundations (FP-01–07), including execution fit for the intended workload; independent architectural judgments A1–A4, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040/0127) |
+| [Heuristics for Efficient Architecture](design_review/design_principles/core/efficient-architecture-heuristics.md) | Companion to the design principles: use relevant qualitative patterns during design, planning and consequential implementation choices, before physical mechanisms become entrenched |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
 | `docs/design_review/evidence/` | Optional probes, spikes and investigations behind decisions. When created, use one `YYYY-MM-DD_<topic>/` folder with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. This location convention does not require a review to create or run probes |
 | `docs/pins.md` | Deliberate pins only, each with its reason and when to revisit it |

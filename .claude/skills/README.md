@@ -1,5 +1,9 @@
 # Skills
 
+Architecture, planning and consequential implementation choices use the design principles
+together with the [Heuristics for Efficient Architecture](../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md).
+Consult relevant patterns early, before physical choices become expensive to change.
+
 Two kinds live here. Both are visible to Codex through the `.agents/skills` symlink.
 
 ## Process skills (tracked in this repo)

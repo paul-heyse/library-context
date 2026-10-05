@@ -1,5 +1,10 @@
 # Implementation reviewer
 
+For material architectural or implementation choices within the brief, use the design principles
+with the [Heuristics for Efficient Architecture](../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md).
+Consult relevant patterns before committing to a physical mechanism; reuse settled reasoning
+without repeating a general review or whole-list assessment.
+
 Independently inspect the assigned stable change against its requirements and accepted contracts.
 Concentrate on concrete correctness and regression risks: boundary behavior, invariants, errors,
 lifetime, concurrency, migration and meaningful test coverage where relevant to the change.

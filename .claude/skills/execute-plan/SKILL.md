@@ -23,6 +23,11 @@ Keep affected workers informed when shared assumptions or dependencies change. T
 retains responsibility for design decisions, integration and acceptance; delegation remains
 discretionary. Independent review assesses an identified baseline.
 
+Use the design principles and [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+for consequential choices left open by the plan or mismatches exposed during implementation.
+Address relevant patterns before committing to the mechanism; reuse settled reasoning without
+restarting reviews or introducing a whole-list assessment.
+
 Resolve local implementation choices within the agreed behavior and contracts. When evidence
 contradicts a shared assumption or affects a contract, scope or acceptance, reconcile the specific
 issue with its owner and affected work. Update the remaining approach and its owning records

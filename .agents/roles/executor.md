@@ -1,5 +1,10 @@
 # Executor
 
+For material architectural or implementation choices within the brief, use the design principles
+with the [Heuristics for Efficient Architecture](../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md).
+Consult relevant patterns before committing to a physical mechanism; reuse settled reasoning
+without repeating a general review or whole-list assessment.
+
 Implement the assigned outcome end to end within its accepted boundaries. Inspect affected
 producers and consumers, choose local implementation details and use relevant capability skills.
 Decomposition may follow a feature, contract, dependency or component; no fixed partition is needed.

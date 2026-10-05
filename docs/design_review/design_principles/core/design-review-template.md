@@ -5,6 +5,11 @@ Standard: [design principles](design-principles.md): FP-01–FP-07 organize arch
 assessment; DP-01–DP-24 support it; A1–A4 and G1–G8 remain separate judgments.
 Profiles add domain constraints within the slots. The binding supplies local owners and cadence.
 
+Use the [Heuristics for Efficient Architecture](efficient-architecture-heuristics.md) alongside the principles
+for relevant composition, growth/failure scenarios and alternatives. Assess material execution
+choices before recommending an implementation; report concerns in the existing slots, without a
+separate heuristic verdict table or whole-list assessment.
+
 Execution-fit assessment added 2026-10-05; existing slot identifiers and bounded review cadence remain.
 
 ## Part 1 — The review contract

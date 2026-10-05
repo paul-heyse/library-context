@@ -7,6 +7,7 @@ owner = "repository"
 version = "3.3"
 principles = "core/design-principles.md"
 template = "core/design-review-template.md"
+heuristics = "core/efficient-architecture-heuristics.md"
 
 [[profiles]]
 name = "code-intelligence"

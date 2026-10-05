@@ -31,6 +31,11 @@ chooses how to conduct it without repeating an assessment already supported by r
 
 ## Investigate consequential decisions in a useful order
 
+Use the design principles together with the [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+before settling material physical organization, interfaces, preparation, assurance or lifecycle
+choices. Select relevant patterns and address material mismatches while the design remains easy
+to change; qualitative reasoning is sufficient, without an exhaustive checklist or cost proof.
+
 Some questions shape many later choices: who owns a meaning, whether an existing foundation
 supports the new consumers, or whether a library capability fits the required semantics.
 Qualitative execution-fit questions may also shape the target: access paths, optimizer visibility, data

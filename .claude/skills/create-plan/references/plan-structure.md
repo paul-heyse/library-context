@@ -123,6 +123,10 @@ local explanation suffices.
 
 ## Transitions, evidence and current state
 
+Use the design principles and [Heuristics for Efficient Architecture](../../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+together when choosing a physical route. Address material concerns in the target and its
+dependencies before implementation, using qualitative reasoning rather than new proof artifacts.
+
 For consequential transitions, explain the intermediate system states and the path to adoption.
 Identify any required consumer coordination, data migration, activation or derived-artifact
 rebuild. Describe useful pause points or required coordinated cutovers, including recovery where

@@ -7,6 +7,9 @@ evidence-backed answers served to people and coding agents. Refines the
 adds and tightens; it never relaxes a core principle. It names no specific analyzer or library —
 the repository binding does that.
 
+Use the [Heuristics for Efficient Architecture](../../core/efficient-architecture-heuristics.md)
+with the core principles when choosing physical realizations of these domain contracts.
+
 Version 1.4 retains CI-01–CI-13 and CI-G1–CI-G3, applying core 3.3's execution-fit judgment
 without prescribing a storage engine or execution runtime. Bounded assessment and discretionary
 investigation remain; historical reviews retain their versions. Core FP-01–FP-07 and A1–A4

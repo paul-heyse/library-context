@@ -18,6 +18,11 @@ The considerations below guide attention, not required stages or an exhaustive c
 
 ## Frame questions that could change the judgment
 
+Use the design principles together with the [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+before settling material physical organization, interfaces, preparation, assurance or lifecycle
+choices. Select relevant patterns and address material mismatches while the design remains easy
+to change; qualitative reasoning is sufficient, without an exhaustive checklist or cost proof.
+
 Identify what the review should help someone decide and which uncertainties could materially
 affect that decision. Consider plausible explanations and what evidence would support or
 undermine them. Prior findings are useful leads; keep the inquiry open to an adequate existing

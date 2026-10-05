@@ -66,6 +66,8 @@ def active_standard(root: Path) -> set[Path]:
     base = root / "docs/design_review/design_principles"
     manifest = tomllib.loads((base / "standard.toml").read_text())
     names = [manifest["core"][key] for key in ("principles", "template")]
+    if heuristics := manifest["core"].get("heuristics"):
+        names.append(heuristics)
     names += [manifest["binding"]["path"]]
     names += [profile[key] for profile in manifest["profiles"] for key in ("principles", "review")]
     return {(base / name).relative_to(root) for name in names}

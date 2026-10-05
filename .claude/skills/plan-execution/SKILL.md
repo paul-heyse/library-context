@@ -22,6 +22,11 @@ or another plan template.
 
 ## Allocate advance thought by consequence
 
+Use the design principles and [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+for consequential choices left open by the plan or mismatches exposed during implementation.
+Address relevant patterns before committing to the mechanism. Reuse settled reasoning; this does
+not restart design reviews or require a whole-list assessment during ordinary work.
+
 Consider a decision's reach, reversibility and cost of learning later. Resolve questions early
 when they constrain several assignments, determine whether work can begin, or could cause
 substantial rework. Shared failure semantics may need agreement before delegation; an internal
