@@ -30,18 +30,6 @@ impl ConsumedInputs {
         Ok(())
     }
 }
-pub async fn stream<R: Record>(
-    input: &CompletedInput<R>, session: &SessionContext,
-    mut consume: impl FnMut(&CompletedInput<R>, &arrow_array::RecordBatch)->Result<(),ModelError>,
-) -> Result<(), ModelError> {
-    let mut batches = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME)).await.map_err(ModelError::codec)?
-        .execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = batches.try_next().await.map_err(ModelError::codec)? {
-        consume(input, &batch)?;
-        tokio::task::yield_now().await;
-    }
-    Ok(())
-}
 pub async fn stream_at<R:Record>(
     input:&CompletedInput<R>,declaration:&ValidationInput,inputs:&CompletedInputs,session:&SessionContext,
     mut consume:impl FnMut(&CompletedInput<R>,&arrow_array::RecordBatch)->Result<(),ModelError>,
