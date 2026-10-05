@@ -444,9 +444,11 @@ obsolete implementation-specific remedies superseded.
 | GN02: serving needs indexed, bounded graph requests | Rust application service and SurrealDB adapter; incorporates F04/F13 | A representative deep claim-to-source journey whose work excludes unrelated graph records; truncation and missing-evidence cases |
 | GN03: export semantics must be explicit | Projection consumers; future Neo4j/relational adapters are consumer-triggered | Preserved identity, parallel edges, isolates, role mappings and declared losses on the first actual export |
 
-These are **Deferred to pivot implementation**, owned here until a plan consumes them; the trigger
-is acceptance of the target, with GN03 external adapters triggered by their actual consumer.
-No additional register is needed. Subsequent ADR/DESIGN edits should replace the old operational
+**Planning follow-up, 2026-10-05:** GN01–GN03 are scheduled by the
+[graph-native replacement coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities),
+which owns their current execution disposition. Corrections remain Proposed; authoring the plan
+does not close or qualify them. GN03 external adapters retain their actual-consumer trigger.
+Subsequent ADR/DESIGN edits should replace the old operational
 architecture coherently; they are decision recording, not evidence that the target already works.
 This requested review changes no accepted ADR or production code.
 

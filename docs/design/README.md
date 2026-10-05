@@ -5,8 +5,13 @@
 focused owners below hold each responsibility's contracts, accepted targets and known limits.
 Evidence labels distinguish accepted targets from implemented behavior. [STATUS](../../STATUS.md)
 locates current completion claims. The
-[target-alignment coordinator](../plans/target-implementation-alignment-plan_2026-10-04.md)
-owns the new review corrections and combined acceptance; the
+[graph-native replacement coordinator](../plans/graph-native-pivot-plan_2026-10-05.md)
+owns the Proposed hard-pivot series grounded in the graph-native target and SurrealDB capability
+reviews. Native querying is selected in that proposal; execution-fit principles guide efficient
+design rather than introducing accounting proofs or adoption gates. Production still implements
+the PostgreSQL architecture below until its decision/implementation boundaries change.
+The [target-alignment coordinator](../plans/target-implementation-alignment-plan_2026-10-04.md)
+owns the implemented baseline's correction/qualification receipt; the
 [forward plan](../plans/behavioral-model-forward-plan_2026-09-24.md) retains product/research dispositions.
 
 | Responsibility | Owner | Source entry / adjacent consumer |

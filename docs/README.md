@@ -6,10 +6,11 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 | Task | Start here |
 |---|---|
 | Understand the system | [Architecture map](design/README.md) → relevant owner |
-| Resume work | [STATUS](../STATUS.md) → [target-alignment coordinator](plans/target-implementation-alignment-plan_2026-10-04.md) (current proposed corrections and combined acceptance) → [forward plan](plans/behavioral-model-forward-plan_2026-09-24.md) (product/research queue) |
+| Resume work | [STATUS](../STATUS.md) → [graph-native replacement coordinator](plans/graph-native-pivot-plan_2026-10-05.md) (Proposed direct replacement, contracts, dependencies and acceptance) → [forward plan](plans/behavioral-model-forward-plan_2026-09-24.md) (product/research queue) |
 | Change conditions, models or summaries | [Semantic owner §15.6–§15.9](design/sections/semantic-model.md#section-15-6) → affected model producer/consumer → [cutover findings §8](plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition) |
 | Change schemas or identity | [Facts and identity](design/sections/facts-and-identity.md) → [model owner](../crates/lctx-model/src/lib.rs) → governing ADR |
 | Change serving, retrieval or embeddings | [Synthesis and serving](design/sections/synthesis-and-serving.md) → [storage and publication §6.4](design/sections/storage-and-publication.md) |
+| Implement the graph-native replacement | [Coordinator](plans/graph-native-pivot-plan_2026-10-05.md) → its model/compiler, SurrealDB realization, native serving and projection plans; the two nominated target/capability reviews are its design basis |
 | Build the differentiated API/evidence product | [Target design §14](design/sections/api-and-evidence-product.md) → [current PR0–PR6 queue](plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution) |
 | Deploy or integrate PostgreSQL | [PostgreSQL workstream](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) → [storage §6.5](design/sections/storage-and-publication.md#section-6-5); [forward plan §3.4](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) coordinates sequencing and §6.1 owns finding status |
 | Review a design or implementation | [Review skill](../.claude/skills/design-review/SKILL.md) → [repository binding](design_review/design_principles/binding/library-context.md); for library fit, start from [library utilization](library-utilization.md) |
@@ -26,7 +27,7 @@ Paths in this reference table are relative to the repository root.
 |---|---|
 | `docs/design/DESIGN.md`, `docs/design/sections/` | Architectural collection; stable § IDs. DESIGN §2 holds §B1–§B14 |
 | `docs/README.md`, `docs/publishing.md` | Task routes and isolated documentation commands; site navigation/search is derived |
-| `docs/plans/` | The semantic model cutover plan (current execution) and the product/research forward plan; finished or superseded plans are removed once their obligations move |
+| `docs/plans/` | The Proposed graph-native replacement series, implemented-baseline cutover/assurance owners and product/research forward plan; finished or superseded plans are removed once their obligations move |
 | `docs/adr/` | Current decision records (accepted and open proposals), a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: seven foundations (FP-01–07), including execution fit for the intended workload; independent architectural judgments A1–A4, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040/0127) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |

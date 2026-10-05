@@ -1,0 +1,146 @@
+# Named graph projections, analytics and export
+
+**Proposed, 2026-10-05.** Supporting plan for A1/A2 in the
+[replacement coordinator](graph-native-pivot-plan_2026-10-05.md). It consumes the
+[compiler's graph/workspace](graph-native-model-compiler-plan_2026-10-05.md) and, for published
+consumers, the [SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md).
+The coordinator owns package state, combined dependencies and finding disposition.
+
+## 1. Foundation assessment and target
+
+The current `domain::projection::{normalization,snapshot,native}` owns universe, directions,
+roles, multiplicity, gaps and canonical vertex/arc lineage. `cpg-core::analysis_graphs` hydrates
+stored graphs, while the pure `lctx-analytics` and model-owned kernels supply scheduling/SCC,
+ranking, concepts and exact neighbors. Preserve these semantic contracts and useful kernels;
+replace their completed-store/receipt/permit inputs and redundant persisted topology formats.
+
+An admitted evidence graph is not one interchangeable algorithm topology. Containment, candidate
+calls, derivations, source mentions and similarity have different meanings. A named projection
+selects the required universe and edges under its owned policy, then supplies a compact computational
+representation or typed stream. It is rebuildable from the admitted graph, never a second write
+authority. A display selector does not shrink the universe a global result depends on.
+
+A1 enables compilation over closed workspace inputs before publication. The same projection
+contract also supports published diagnostic/export consumers. There is no requirement for the
+compiler to publish, reread and decode a SurrealDB copy before running its analyses.
+
+## 2. Projection contract and physical route — A1
+
+Each projection names its exact source graph/completed-input view, semantic kinds and endpoint
+roles, contexts/admission, vertex universe, direction, parallel-edge and self-loop policy,
+weights, coverage/gaps, required provenance and declared simplifications/losses. The algorithm
+invocation additionally identifies method/revision/settings/seed and output selector. These are
+one owned operation definition, not separately authored policies in each exporter.
+
+Stream vertices **independently of edges** so isolates survive. Map semantic IDs to dense private
+petgraph indices once. Attach assertion IDs/qualifications or a canonical source-membership mapping
+to arcs; an endpoint pair is not assertion identity. Preserve parallel arcs unless the named
+algorithm intentionally collapses them, recording the aggregate weight and original members.
+Weights are declared numerical semantics; an ArcId is not a numerical weight.
+
+Use canonical ordering for deterministic mappings/ties. Retain unresolved/non-admitted side
+records where the projection's coverage requires them. A missing internal mapped endpoint is an
+error, not an isolate silently dropped. Reuse the existing branded/native borrowing model where
+it protects lifetime and graph identity, but delete store-read-grant dependencies. Dense indices
+and library labels never escape as domain identities.
+
+Workspace consumers share prepared topology across compatible SCC/Structural/Summary/ranking
+work. Keep only IDs, incidence, weights and data that the algorithm actually needs; hydrate rich
+evidence after results map back. Release views when no consumer needs them. Whole-topology methods
+have genuine memory needs; avoid materializing several copies or unrelated corpus payloads.
+Spill preprocessing/sorting where useful, rather than wrapping a whole resident copy in a budget
+that predictably refuses normal inputs. Do not introduce a universal graph-cache service.
+
+Published consumers use native indexed projection queries and typed incremental SDK streams.
+Nodes/edges become a usable export only after successful terminal results and manifest closure;
+late errors keep the receiving artifact provisional. A declared local subgraph can be partial
+with its boundary inventory, but it cannot claim global completeness or automatically become a
+valid compiler input. Algorithms that need global input obtain that universe explicitly.
+
+## 3. Analytics consumers and result meaning — A2
+
+| Consumer | Required input and preserved result contract |
+|---|---|
+| Scheduling/SCC and finite summaries | Named invocation topology and exact source/boundary distinctions; canonical SCC membership/condensation, finite transfer model and explicit unknown/cutoff. Conservative candidates are not proved callees. |
+| Structural traversal/controls/handoff | Qualified assertion roles and original premises, direct/derived identity versus influence, exact target alternatives and unfollowed boundary/stop inventory. |
+| Communities | Named layers, weighting/symmetrization/parallel collapse, actual resolution/seed runs and convergence/diagnostics; partitions compared by membership, labels private and heuristic. |
+| PageRank/direct usage | Declared weights/dangling/damping/tolerance and residual diagnostics; direct usage counts the semantic occurrence/target-sharing policy, not arbitrary arc degree. |
+| FCA/RCA | Exact object/attribute universe and applicability/evidence, equal bitset domain lengths, support/enumeration status; one declared relational scaling step and no accidental ontology expansion. |
+| Exact kNN | Admitted canonical vectors with equal dimensions/spec, finite values, threshold/top-k/canonical ties. Native approximate search cannot replace this analytical contract. |
+
+Retain the current model-owned method policy and explicitly selected technique set. Defaults
+continue to leave optional communities/PageRank/FCA/RCA/analytic kNN and extra layers off. Enabled
+methods produce their actual outcome; disabled methods are NotRequested. Their source/spec/settings
+and computation universe participate in identity. Missing vectors, incomplete source coverage or
+failed convergence do not become an empty successful analytic result.
+
+Pure native kernels keep their semantic owner; adapters only obtain inputs, schedule effects and
+map results. Native SurrealDB querying supplies efficient published projection access, but the
+absence of a native graph-algorithm family does not justify implementing those algorithms in
+SurrealQL. A selected shared Rust/WASM kernel can be evaluated at its actual consumer, without
+porting the entire analyzer/Arrow dependency closure or making modules a first-product gate.
+
+Store analysis results as attributed assertions/artifacts linked to projection/method/input and
+premises. They remain derived/heuristic/conservative as declared. Do not attach a community or
+neighbor result as an intrinsic entity property or allow it to prove a behavioral requirement.
+Reuse projections/settings separately from result retention: a changed display selector or
+physical index need not rerun extraction; changed input/policy requires affected recomputation.
+
+## 4. Initial exports and consumer-triggered destinations
+
+Implement the **petgraph adapter** and **canonical typed projection export** now. The export
+contains a manifest, independently emitted vertices and identity-bearing assertions/participant
+roles with source references, qualification/coverage and declared losses. Use a bounded typed
+stream; Arrow/Parquet are suitable interchange when useful, not mandatory additional persistence.
+One projection definition selects the export; destination mappings do not reinterpret it.
+
+The initial CLI capability is `lctx snapshot export <handle> --projection <name> --output <path>`.
+It identifies the source realization, projection and output completeness. A closed diagnostic
+neighborhood names roots, included roles and frontier gaps; it is not an archive of old snapshots.
+Keep the file only for its current consumer. Database-native logical export/restore belongs to
+the realization plan and is distinct from this semantic export.
+
+| Destination | Adoption trigger and required mapping |
+|---|---|
+| Neo4j/GDS | A real graph exploration/algorithm consumer. Binary assertions may be relationships; n-ary/assertion-referencing structures need reification. Preserve IDs, parallel assertions, isolates, role/evidence context and nested/unknown-value losses. Results identify source/projection/method; no back-write. |
+| PostgreSQL/relational reporting | A named report/join/external consumer. Lower only selected facts into explicit keys/types, not the entire old relation layout. It is a disposable export, never a revived runtime dependency or dual canonical store. |
+| Arrow/DataFusion/Parquet | A concrete bulk computation or external interchange consumer. Explicit schema/codecs preserve nominal roles, bytes and complete source manifest. Workspace Arrow computation does not require persisting a second graph. |
+| Other algorithm/library | A supported method not served adequately by existing kernels. Compose a projection adapter under the same contract; compare semantics and total machinery, not library availability alone. |
+
+External destination adapters are not required to claim GN03 closure for the first actual
+petgraph/canonical export. Their named triggers and fidelity obligations remain explicit; adding
+all destinations now would create machinery without a consumer. PostgreSQL wire protocol is
+neither this relational lowering nor pgvector compatibility, and ISO GQL syntax is not a full
+Cypher port. Native MCP/Studio can support operator inspection without replacing product envelopes.
+
+## 5. Packages and focused functional controls
+
+A1 has two consumer slices. Workspace projection construction depends on M1 and C2-N's closed
+normalized inputs; published export depends on P1/P2. A2 integrates each method only after its
+actual semantic inputs exist: Summary needs Local/Model/Enriched/SourceCall frames, Structural
+needs the Local outcome even when NotRequested, and analytic kNN needs consumed vectors. Those
+are completed C2-U predecessor slices. A2 outputs then enter final C2-U admission/publication.
+Neither normalization alone nor an agreed interface establishes all analytical readiness. This
+is a shared-input dependency, not a circular whole-document dependency or new durable stage.
+
+| Package | Delivered behavior and revealing control |
+|---|---|
+| A1 workspace | Canonical semantic-to-dense mapping, borrowed/reused topology and side inventory. Authored graph with isolate, parallel arcs, self-loop, unknown target and output-selector-only subset. Shuffled/batched input preserves semantic result. |
+| A1 published | Native source query/stream and canonical export mapping. Same known graph via actual store; n-ary/ordered-premise roles survive; late stream failure cannot finalize export. |
+| A2 compiler consumers | Every current scheduling/Structural/Summary/analytics adapter consumes its declared graph/input contract. Exact and heuristic statuses, method settings/seeds, vector spec and original lineage survive. |
+| A2 outputs/debug | Results map back to original assertion/entity IDs; bounded diagnostic neighborhood exposes its frontier. Export roundtrip preserves declared meaning without claiming an intentionally lossy destination is lossless. |
+
+Use hand-authored SCC/weighted graph/incidence/vector known answers and the existing independent
+CPython/FCA controls where they challenge the retained semantic claim. A deterministic result
+does not establish truth; producer replay is not independent evidence. Remove obsolete receipt/
+grant/topology-format tests once their replacement semantic/lifecycle controls exist.
+
+Run touched-crate compile checks and focused `verify-model`, `verify-analytics` and applicable
+`verify-store`/`verify-oracles` controls; Q0 owns assembled acceptance. Structural cost reasoning
+can justify topology reuse and removed crossings. No detailed allocation/edge accounting,
+mandatory per-projection benchmark or Measured benefit follows from this plan. Inspect native
+query diagnostics only for a concrete access-path uncertainty.
+
+Completion means all current analytical consumers have migrated and the first actual export has
+explicit universe/fidelity/lineage. It is not just a standalone petgraph demo. Actual package state
+and any deferred destination trigger remain at the coordinator.

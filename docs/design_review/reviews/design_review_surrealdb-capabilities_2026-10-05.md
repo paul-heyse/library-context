@@ -531,8 +531,9 @@ FP-04, A2, G2/G6 and CI-09/11.
 The retrieval owner must define the contribution key, collapse, canonical ties and witness inventory
 once. Use native fusion only with the adaptations in §3.3, or retain the small authoritative fold.
 Closure: duplicate-occurrence and tied-cutoff independent cases produce the declared member results
-and witnesses through the real operation. Current disposition: **Deferred to the graph replacement
-plan**, trigger adoption of native fusion; raw native top-k fusion is excluded from supported scope.
+and witnesses through the real operation. Current execution disposition belongs to the
+[replacement coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities).
+Raw native top-k fusion is excluded from supported scope; the correction remains Proposed.
 
 <a id="F02"></a>
 
@@ -545,9 +546,10 @@ while returning an apparent error. DP-03/18/19, FP-05, G3/G4/G5 apply.
 
 The operation owner must generate bounded, authorized handlers and use actual execution errors for
 rollback. Prefer ordinary function invocation until an HTTP consumer exists. Closure: allowed/denied
-snapshot identities and write-then-fail cases through the actual endpoint. Current disposition:
-**Deferred**, trigger DEFINE API adoption; relying on table permissions or response status as its
-security/rollback contract is excluded.
+snapshot identities and write-then-fail cases through the actual endpoint. The
+[replacement coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
+owns conditional disposition, triggered by DEFINE API adoption. Relying on table permissions or
+response status as its security/rollback contract is excluded.
 
 <a id="F03"></a>
 
@@ -560,8 +562,9 @@ FP-02/04/05, A2, G1/G5/G6 and CI-13 apply.
 
 The realization/publisher owner must bind operation definitions, index/analyzer specs and optional
 module bytes to the served handle. Closure: an attempted mismatched realization is refused or exposed
-as a deliberate new realization, never silently substituted. Current disposition: **Deferred to the
-graph replacement plan**, trigger first native operation publication. §2.2 supplies the target remedy.
+as a deliberate new realization, never silently substituted. Current execution disposition belongs
+to the [replacement coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities).
+§2.2 supplies the Proposed remedy; planning does not establish implementation or closure.
 
 | Architectural judgment | Proposed target verdict | Reason |
 |---|---|---|
