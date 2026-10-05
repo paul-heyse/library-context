@@ -997,6 +997,8 @@ impl InvariantCheck for Check {
     }
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["programmatic_assertion_replay"] }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1539,5 +1541,3 @@ raise ValueError('flag required')
         );
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["programmatic_assertion_replay"] }

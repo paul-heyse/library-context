@@ -471,6 +471,9 @@ macro_rules! final_frontier_inputs{($apply:ident)=>{$apply!{
  $crate::domain::analysis::retrieval::AnalysisInvocation,$crate::domain::analysis::retrieval::AnalysisOutcome,$crate::domain::analysis::retrieval::AnalysisCoverage,
  $crate::domain::analysis::frontier::AnalysisAssessment,$crate::domain::analysis::frontier::AnalysisMember,
 }};}
+pub(crate) fn analysis_checks_refs() -> Vec<&'static str> { vec!["complete_analysis_frontier"] }
+pub(crate) fn catalog_checks_refs() -> Vec<&'static str> { vec!["complete_catalog_frontier"] }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -725,6 +728,3 @@ mod tests {
         );
     }
 }
-
-pub(crate) fn analysis_checks_refs() -> Vec<&'static str> { vec!["complete_analysis_frontier"] }
-pub(crate) fn catalog_checks_refs() -> Vec<&'static str> { vec!["complete_catalog_frontier"] }

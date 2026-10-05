@@ -323,6 +323,8 @@ impl InvariantCheck for TransformCheck {
     }
 }
 
+pub(crate) fn transform_invariants_refs() -> Vec<&'static str> { vec!["native_transform_specifier_shape"] }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,5 +370,3 @@ mod tests {
         }
     }
 }
-
-pub(crate) fn transform_invariants_refs() -> Vec<&'static str> { vec!["native_transform_specifier_shape"] }

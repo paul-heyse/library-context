@@ -108,6 +108,8 @@ impl InvariantCheck for Check {
     }
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["authored_model_catalog"] }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +159,3 @@ mod tests {
         assert!(catalog.validate().is_err());
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["authored_model_catalog"] }

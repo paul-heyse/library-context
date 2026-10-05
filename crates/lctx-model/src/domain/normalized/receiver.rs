@@ -713,6 +713,8 @@ impl InvariantCheck for Check {
     }
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_receiver_closure"] }
+
 #[cfg(test)]
 mod tests {
     use super::super::signature_applicability::{Application, BindingAuthority, establish};
@@ -987,5 +989,3 @@ mod tests {
         }
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_receiver_closure"] }

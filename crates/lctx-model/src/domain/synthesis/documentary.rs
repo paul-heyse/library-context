@@ -1064,6 +1064,8 @@ fn passage_outcomes(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<()
     Ok(())
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_documentary_replay"] }
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1770,5 +1772,3 @@ pub(crate) mod tests {
         assert_eq!(build(&d, &b).unwrap().conclusions.len(), 1);
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_documentary_replay"] }

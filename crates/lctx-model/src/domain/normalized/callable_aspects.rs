@@ -1029,6 +1029,8 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_callable_aspects"] }
+
 #[cfg(test)]
 mod span_index_controls {
     use super::*;
@@ -1148,5 +1150,3 @@ mod span_index_controls {
         assert!(scan(&index, &empty, nominal(99)).unwrap().is_empty());
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_callable_aspects"] }

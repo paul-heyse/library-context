@@ -304,6 +304,8 @@ impl InvariantCheck for Check {
     }
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_configured_seed_replay"] }
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
@@ -454,5 +456,3 @@ pub(super) mod tests {
         );
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_configured_seed_replay"] }

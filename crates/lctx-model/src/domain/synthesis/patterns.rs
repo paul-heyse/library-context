@@ -697,6 +697,8 @@ impl InvariantCheck for Check {
     }
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["authored_original_statement_replay"] }
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1238,5 +1240,3 @@ pub(crate) mod tests {
         }
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["authored_original_statement_replay"] }

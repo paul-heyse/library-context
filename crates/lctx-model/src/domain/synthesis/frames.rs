@@ -438,6 +438,12 @@ impl InvariantCheck for Check {
     }
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> {
+    let mut refs = vec!["synthesis_fixed_native_frames"];
+    refs.extend(super::observations::invariants_refs());
+    refs
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -738,10 +744,4 @@ pub(crate) mod tests {
             assert!(parents(&d, &b).is_err());
         }
     }
-}
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> {
-    let mut refs = vec!["synthesis_fixed_native_frames"];
-    refs.extend(super::observations::invariants_refs());
-    refs
 }

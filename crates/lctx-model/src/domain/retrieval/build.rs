@@ -974,6 +974,8 @@ pub fn stage(
     })
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["retrieval_canonical_rendering"] }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1123,5 +1125,3 @@ mod tests {
         assert!(build(&d, &b).is_err());
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["retrieval_canonical_rendering"] }

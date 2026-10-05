@@ -519,6 +519,8 @@ pub fn text(
     ))
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_exact_summary_facets"] }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -830,5 +832,3 @@ mod tests {
         }
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["synthesis_exact_summary_facets"] }

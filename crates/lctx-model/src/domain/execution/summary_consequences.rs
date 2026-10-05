@@ -1232,6 +1232,8 @@ impl InvariantCheck for RefutationCheck {
     }
 }
 
+pub(crate) fn refutation_invariants_refs() -> Vec<&'static str> { vec!["checked_finite_refutation_membership"] }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1466,5 +1468,3 @@ mod tests {
         assert!(matches!(decisions.decide(1), Standing::Proved { proof: 7 }));
     }
 }
-
-pub(crate) fn refutation_invariants_refs() -> Vec<&'static str> { vec!["checked_finite_refutation_membership"] }

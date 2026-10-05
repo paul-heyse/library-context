@@ -829,6 +829,8 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
 }
 
+pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_projection_closure"] }
+
 #[cfg(test)]
 mod tests {
     use super::super::snapshot::*;
@@ -1156,5 +1158,3 @@ mod tests {
         assert_eq!(budget.reserved(), 0);
     }
 }
-
-pub(crate) fn invariants_refs() -> Vec<&'static str> { vec!["normalized_projection_closure"] }
