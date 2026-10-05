@@ -46,7 +46,7 @@ records failures/repairs and their boundaries; focused receipts are not assemble
 | `cargo nextest run --release -p lctx-postgres --test lifecycle --test generation_catalog --no-fail-fast --no-tests=fail` | **passed**, 14. Catalog fixtures now declare exact typed premises; state-only controls use a separate minimal model |
 | Final held-empty-vocabulary and exact audit-frame controls | **passed**, two |
 | Scoped union readiness within `NEXTEST_TEST_THREADS=8 just qualify` | **passed**, both adapters rebuilt; actual MCP/semantics/storage imports and PG image readiness passed |
-| `NEXTEST_TEST_THREADS=8 just qualify` | **failed** initially; analytics, oracles and tooling passed. Provider/store/producer/serving failures were repaired; affected reruns remain pending. Full keep-going Clippy also requires its repair rerun |
+| `NEXTEST_TEST_THREADS=8 just qualify` | **failed** initially; analytics, oracles and tooling passed. Provider/store/producer repairs passed on affected reruns. Serving qualification remains pending below |
 | Focused checkpoint/install/stage/budget controls | **composite passed**, 12; checkpoint acknowledgement, writer exclusion, rollback and admission-lifetime controls retained |
 | `UV_NO_SYNC=1 just ruff types lint-agents adr-lint docs-check` | **passed** after the authorized existing Stop hook; 300 canonical pages, no link errors |
 | `NEXTEST_TEST_THREADS=8 just verify-model` plus `-- -E 'binary(serving_contracts)'` | **composite passed**, 623 controls; two response fixtures omitted mandatory domains, repaired with missing-domain refusal retained; affected target21 passed |
@@ -59,6 +59,9 @@ records failures/repairs and their boundaries; focused receipts are not assemble
 | `NEXTEST_TEST_THREADS=8 just verify-store --command python` | **passed**, two controls |
 | Corpus correspondence and affected normalization/definition/schedule controls | **passed**, 39; integrated model/CLI test compile also passed |
 | Release `cpg-flow` library, `flow_shapes` and `capture_timing` controls | **passed**, 43; document-only empty inventory no longer requires a virtual import root |
+| Structural/handoff/closure/schedule/definition controls | **composite passed**, 32; three new fixtures repaired, complete Structural target8 passed on rerun |
+| Actual PG compatible-stream/proof-reuse/audit receipt control | **passed**, one after Clippy's named receipt-row repair |
+| `UV_NO_SYNC=1 just clippy` | **passed**, full release workspace/all-targets/keep-going, warnings denied; four harness findings repaired |
 | Optional comparable timings / total RSS | **not_run**; structural scan/setup counts establish no Measured speed claim |
 | Real-library reconstruction/activation, live vectors, product comparisons and heldout | **not_run / stopped**, outside this pivot |
 
@@ -73,8 +76,12 @@ The independent served oracle and reviewed description assertion passed. Officia
 co-mention propagation now retains original contexts, ambiguity and exact link/ownership gates;
 39 affected model controls and all earlier provenance counterexamples passed. The qualification
 fixture now uses the release ranking universe and source-role literal defaults. Catalog stdio
-qualification passed; Behavioral then exposed an empty-module virtual-root panic. The provider
-repair passed43 focused controls; both-profile qualification and full keep-going Clippy remain.
+qualification passed; Behavioral exposed empty flow/Local/Controls domain propagation defects.
+The provider repair passed43 controls; Local now uses the admitted empty domain, and model-owned
+Structural replay uses the exact Local NoScope receipt. Its32 controls passed after fixture repairs;
+full keep-going Clippy and the affected PG audit control passed. Refreshed native adapters/imports
+passed. Finish actual both-profile qualification and review/assert the added Structural premise
+description, then publish the composite receipt and clean up integrated assurance worktrees.
 No positive assertion is weakened. Update F01–F04 and applicable Q0/Q1 owners only from
 actual evidence. The root owns scope-end formatting/generation through `just turn-end`.
 

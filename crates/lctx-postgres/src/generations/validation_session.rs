@@ -1178,7 +1178,16 @@ mod tests {
         .execute(&db.superuser)
         .await
         .unwrap();
-        let saved: Vec<(String, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, serde_json::Value)> = sqlx::query_as("SELECT validator_name,definition_digest,model_digest,physical_digest,binding_digest,proof_context FROM lctx_model_store.validation_receipts WHERE generation_id=$1")
+        #[derive(sqlx::FromRow)]
+        struct SavedValidationReceipt {
+            validator_name: String,
+            definition_digest: Vec<u8>,
+            model_digest: Vec<u8>,
+            physical_digest: Vec<u8>,
+            binding_digest: Vec<u8>,
+            proof_context: serde_json::Value,
+        }
+        let saved: Vec<SavedValidationReceipt> = sqlx::query_as("SELECT validator_name,definition_digest,model_digest,physical_digest,binding_digest,proof_context FROM lctx_model_store.validation_receipts WHERE generation_id=$1")
             .bind(generation.0.to_vec()).fetch_all(&db.superuser).await.unwrap();
         sqlx::query("DELETE FROM lctx_model_store.validation_receipts WHERE generation_id=$1")
             .bind(generation.0.to_vec())
@@ -1197,9 +1206,9 @@ mod tests {
                 .is_err(),
             "deleting complete conclusions is an audit discrepancy"
         );
-        for (name, definition, model, physical, binding, context) in saved {
+        for receipt in saved {
             sqlx::query("INSERT INTO lctx_model_store.validation_receipts(generation_id,validator_name,definition_digest,model_digest,physical_digest,binding_digest,proof_context) VALUES($1,$2,$3,$4,$5,$6,$7)")
-                .bind(generation.0.to_vec()).bind(name).bind(definition).bind(model).bind(physical).bind(binding).bind(context).execute(&db.superuser).await.unwrap();
+                .bind(generation.0.to_vec()).bind(receipt.validator_name).bind(receipt.definition_digest).bind(receipt.model_digest).bind(receipt.physical_digest).bind(receipt.binding_digest).bind(receipt.proof_context).execute(&db.superuser).await.unwrap();
         }
         store
             .audit(

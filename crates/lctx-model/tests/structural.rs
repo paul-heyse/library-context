@@ -444,13 +444,17 @@ fn static_conclusions_retain_exact_source_and_refuse_promotion_or_erasure() {
 
 fn requested_controls() -> (ResourceBudget, Data, Context, Output, analysis::local::AnalysisCoverage) {
     let (budget, data, mut context) = fixture();
+    let mut output = produce(&data, &context, &budget);
     let local = context.local.iter().next().unwrap().clone();
     context.local_outcomes = Rows::new(&budget);
     context.local_outcomes.insert(analysis::local::AnalysisOutcome {
         invocation: local.id(), status: analysis::AnalysisStatus::Completed, reason: None,
     }).unwrap();
-    let output = produce(&data, &context, &budget);
-    let (receipt, premises) = analysis::local::assess(&analysis::local::CoverageExpectation {
+    let mut frame = output.frames.iter().next().unwrap().clone();
+    frame.controls_requested = true;
+    output.frames = Rows::new(&budget);
+    output.frames.insert(frame).unwrap();
+    let (receipt, premises) = analysis::local::coverage::assess(&analysis::local::coverage::CoverageExpectation {
         invocation: local.id(), capability: analysis::AnalysisCapability::Transfers,
         scope: (CoverageScope::Input { input: local.input }).id(), context: local.context,
         requested: true, no_scope: true, sources: vec![],

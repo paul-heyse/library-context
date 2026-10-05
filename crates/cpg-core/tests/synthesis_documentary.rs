@@ -622,7 +622,7 @@ fn documentary_inputs(profile: Profile, model: &ValidatedModel) -> Vec<RelationU
             .iter()
             .filter_map(|f| f.target().map(|(_, n)| n))
             .chain(
-                row.resolved_invariants(&model)
+                row.resolved_invariants(model)
                     .unwrap()
                     .iter()
                     .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
