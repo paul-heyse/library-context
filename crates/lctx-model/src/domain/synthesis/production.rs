@@ -49,6 +49,16 @@ impl Data {
         let patterns = self.patterns.visit(n, b)?;
         Ok(f || d || a || p || o || summary || terminal || patterns || controls)
     }
+    /// Native source checks and retained conclusions have distinct completed vocabulary owners.
+    pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{
+        let n=input.name();
+        if !is_vocabulary(n){return self.visit(n,b);}
+        match input.prefix(){
+            Some(PublicationBoundary::Facts)=>{let docs=self.documentary.visit(n,b)?;let patterns=self.patterns.visit(n,b)?;Ok(docs||patterns)},
+            Some(PublicationBoundary::Analytic)=>{let observations=self.observations.visit(n,b)?;let terminal=self.terminal.visit(n,b)?;Ok(observations||terminal)},
+            _=>Err(ModelError::Invalid(format!("synthesis input {n} changes its completed vocabulary view")))
+        }
+    }
     pub fn consumed_inputs(profile: Profile) -> Vec<ValidationInput> {
         let mut inputs = Self::inputs(profile);
         inputs.extend(analysis::expected::inputs(
@@ -58,10 +68,10 @@ impl Data {
     }
     pub fn inputs(profile: Profile) -> Vec<ValidationInput> {
         let mut rows = frames::Data::inputs();
-        rows.extend(documentary::Data::validation_inputs());
+        rows.extend(documentary::Data::validation_inputs().into_iter().map(|i|if is_vocabulary(i.name()){i.at_epoch(PublicationBoundary::Facts)}else{i}));
         rows.extend(automatic::Data::inputs());
         rows.extend(frames::AnalyticParents::inputs());
-        rows.extend(super::observations::Data::inputs());
+        rows.extend(super::observations::Data::inputs().into_iter().map(|i|if is_vocabulary(i.name()){i.at_epoch(PublicationBoundary::Analytic)}else{i}));
         rows.extend(
             super::assertions::ControlData::inputs()
                 .into_iter()
@@ -75,8 +85,8 @@ impl Data {
                 }),
         );
         rows.extend(super::summary::Data::inputs());
-        rows.extend(super::terminal::Data::inputs());
-        rows.extend(super::patterns::Data::inputs(profile));
+        rows.extend(super::terminal::Data::inputs().into_iter().map(|i|if is_vocabulary(i.name()){i.at_epoch(PublicationBoundary::Analytic)}else{i}));
+        rows.extend(super::patterns::Data::inputs(profile).into_iter().map(|i|if is_vocabulary(i.name()){i.at_epoch(PublicationBoundary::Facts)}else{i}));
         rows.push(ValidationInput::of::<structural::PublicCandidate>(&["id"]));
         rows.sort_by_key(|r| (r.name(), r.prefix(), r.order().to_vec()));
         rows.dedup_by(|a, b| {

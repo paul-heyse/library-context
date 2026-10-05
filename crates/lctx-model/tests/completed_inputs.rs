@@ -34,7 +34,11 @@ fn exact_completed_inputs_are_independent_of_physical_store_and_schedule() {
     capture.include(&input).unwrap();
     assert_eq!(capture.digest(), digest);
     let changed = CompletedInput::<First>::new("producer", ContentHash([1;32]), ContentHash([4;32]), ContentHash([3;32]), 2).unwrap();
-    assert!(capture.include(&changed).is_err());
+    capture.include(&changed).unwrap();
+    assert_ne!(capture.digest(),digest);
+    let both=capture.digest();
+    capture.include(&changed).unwrap();
+    assert_eq!(capture.digest(),both);
     let other = CapturedSources::capture(Profile::Catalog, [changed.snapshot()], &budget).unwrap();
     assert_ne!(other.digest(), digest);
     let wire = serde_json::to_value(input.snapshot()).unwrap();
@@ -124,4 +128,23 @@ fn upper_native_collectors_preserve_facts_and_summary_routes_model_vocabulary_se
  assert!(summary.visit_input(&ValidationInput::of::<value::Place>(&["id"]),&later_batch).is_err());
  let views=SummaryData::consumed_inputs(Profile::Behavioral).into_iter().filter(|i|i.name()==value::Place::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
  assert_eq!(views,[Some(View::Facts),Some(View::Model)].into_iter().collect());
+}
+
+#[test]
+fn synthesis_native_entry_and_conclusion_vocabulary_are_isolated(){
+ use stages::PublicationBoundary as View;
+ let budget=budget();let mut data=synthesis::production::Data::new(&budget);
+ let native=conditions::Condition{root:conditions::ConditionNode::False.id()};
+ let derived=conditions::Condition{root:conditions::ConditionNode::True.id()};
+ let facts=ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Facts);
+ let analytic=ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Analytic);
+ data.visit_input(&facts,&conditions::Condition::encode(std::slice::from_ref(&native)).unwrap()).unwrap();
+ data.visit_input(&analytic,&conditions::Condition::encode(&[native.clone(),derived.clone()]).unwrap()).unwrap();
+ assert_eq!(data.patterns.flow.entry.conditions.len(),1);
+ assert!(data.patterns.flow.entry.conditions.get(derived.id()).is_none());
+ assert_eq!(data.observations.conditions.len(),2);
+ assert!(data.observations.conditions.get(derived.id()).is_some());
+ assert!(data.visit_input(&ValidationInput::of::<conditions::Condition>(&["id"]),&conditions::Condition::encode(&[derived]).unwrap()).is_err());
+ let selected=synthesis::production::Data::consumed_inputs(Profile::Behavioral).into_iter().filter(|i|i.name()==conditions::Condition::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
+ assert_eq!(selected,[Some(View::Facts),Some(View::Analytic)].into_iter().collect());
 }
