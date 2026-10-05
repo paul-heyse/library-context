@@ -1,109 +1,82 @@
 # Status
 
-_Updated 2026-10-04 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-05 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Target-alignment foundations are implemented; assembled Q0 acceptance remains open.**
-The [target coordinator](docs/plans/target-implementation-alignment-plan_2026-10-04.md)
-owns the sole disposition register for TA-F01–F03, LL-F01–F10/O1–O4 and retained investigations.
-F1–F6, A1/A2/A4, S1–S4, T0 and enabled IS2 corrections are integrated. Conditional
-A3/IF1–IF4/IA/IS alternatives have explicit retain/defer decisions and reopening triggers.
-Implementation does not establish the full series' Tested acceptance.
-The practical propagation audit covered all scheduled foundations and repaired captured-boundary
-identities, documentary input admission, comparison ambiguity, float undercharge and stale consumers;
-its coverage and retained IA4 limits are in coordinator §8/§7, with no separate review document.
+**Testing, validation and verification pivot implemented; assembled acceptance in progress.**
+The [assurance coordinator](docs/plans/testing-architecture-pivot-plan_2026-10-04.md)
+owns F01–F04 and the current contract/control map. ADR-0126 replaces broad gate cadence and
+routine privileged-tamper checking with explicit contract families, owned immutable proof reuse
+and independent read-only audit. The supporting validation/verification plans own detailed scope.
 
-**Testing architecture pivot planned — Proposed, 2026-10-04.** The
-[assurance coordinator](docs/plans/testing-architecture-pivot-plan_2026-10-04.md)
-owns scheduled F01–F04 from the [review](docs/design_review/reviews/design_review_test-validation-oracle-architecture_2026-10-04.md).
-Supporting validation/verification plans specify canonical obligations, owned immutable proof reuse,
-scoped preparation/cohorts and replacement gates. No old-green baseline or historical retention is
-required. Production remediation and gate-policy replacement are not implemented.
+`lctx-model` owns one definition per semantic question, explicit relation/stage references,
+revision/digest and complete ordered premises. Source-call header/invocation/run independently
+reference one replay. Missing premises refuse; scoped generated derivation checks are model-owned.
+PostgreSQL receipts bind installation/generation, model/layout, definition, profile/configuration
+and exact acknowledged sources/prefixes. Grant receipts refer to conclusions; current admission
+remains required on a hit. Failed, partial, interrupted or unconfirmed execution supplies no hit.
 
-Native Bound/unattached observations retain their pre-pruning formulas without fabricated Unbound
-or Entry proof. Requested libraries resolve over admitted first-party captures; unknown names refuse,
-known-empty succeeds, omitted search filters use the admitted union, and exact multi-release ambiguity
-survives. Grouped coverage carries exact counts and representative provenance identities.
-Resources retain authored bytes with generation/capability/process-scope metadata. Owned rendering
-preserves arbitrary integers, bytes, signed zero, special-float bits and default-status distinctions;
-large executable integers use hexadecimal to respect Python decimal limits. Extreme finite floats
-reserve their formatting buffer before allocation.
-Finite publication/closure expansions, explicit identity encodings, one PG physical-layout owner,
-charged lookup/support helpers and dedicated migration connections replace duplicated mechanics.
-Startup CPU work shares the original guard's capacity, retains actual-worker charges through
-cancellation and drains before shutdown. Attempt-specific numerical cancellation cleanup prevents
-cancelled startup results from becoming reusable; actual native callback controls remain pending.
+Validation sessions share resolved receipts and compatible streams within pure/publication groups,
+fuse compatible candidate digests, and fall back to bounded separate execution. Every checker
+finishes before any group result is acknowledged. Final frozen empty relations use final receipts
+without producer-stage authority. Ordinary output and delta locks drain writers and revoke further
+mutation before acknowledgement; later legal appends preserve earlier prefix bodies and membership.
+`lctx generation audit` challenges body/aggregate identity, nominal references, proof bindings and
+required pure/publication semantics without repair, grants or new acknowledgements.
 
-ADR-0124 records alignment contracts. Concurrent dependency-policy work (ADR-0125 and following
-commits) is preserved; no broad dependency upgrade or additional policy rewrite is implied here.
-Ruff's narrow supplier fork is now immutable `9080ee7a82a4ec7359ba2ade60839ef1108a2968`, removing
-unused supplemental Export/Branch facts while retaining consumed native Export/reference contexts.
-The hook refreshed Hakari to the matching fork and regenerated the ADR index. Its committed-input
-trigger repair is integrated. Minor parallel dependency upgrades are settled and preserved;
-their current lockfile is part of the ongoing Q0 qualification.
-Shared analyzer skills now contain independent capability contracts; current wiring lives in repository
-owners. Pydantic reference routing is enabled; mismatched vLLM guidance remains discovery-only.
+Seven `verify-*` families prepare only their declared tools/adapters/store/CLI closure. `qualify`
+prepares their union once and collects independent family/leaf failures, including keep-going
+Clippy. Legacy broad gate aliases are deleted. Read-only Catalog find/retrieval/packet/audit cases
+share one immutable seed, fresh requests and named failure collection; mutation cases remain isolated.
+Obsolete Pysa/CrossHair evidence is deleted; finite analytic assurance rationale lives at its owner.
+No persistent test-pass cache, compatibility receipt readers or historical runtime archive is added.
 
-## Last verified — 2026-10-04
+## Last verified — 2026-10-05
 
-Commands below use the normalized build environment and retain their package/source scope.
-The full Clippy and affected Rust/PG controls pass on the repaired pre-hook source. Earlier serving
-and adapter receipts retain their pre-Clippy artifact scope. Detailed failures, repairs and commands are in [coordinator §8](docs/plans/target-implementation-alignment-plan_2026-10-04.md#8-receipts-and-current-execution-checkpoint).
+Commands use `python3 scripts/build_environment.py -- …` or its normalized `--shell` environment.
+The [coordinator receipt](docs/plans/testing-architecture-pivot-plan_2026-10-04.md#7-current-contractcontrol-map-and-execution-checkpoint)
+records failures/repairs and their boundaries; focused receipts are not assembled acceptance.
 
 | Command / boundary | Outcome |
 |---|---|
-| `INSTA_UPDATE=no cargo check --release -p lctx-model -p lctx-postgres -p cpg-extract -p cpg-flow -p lctx-storage -p lctx --tests` | **passed** after foundation/grouping/new-fork integration, before final scoped repairs and concurrent policy commits; composite development receipt |
-| `INSTA_UPDATE=no cargo check --release -p lctx-storage` | **passed**, revised numerical cancellation protocol; final callback-allocation error cleanup added afterward |
-| Filtered release model/PG unit controls in coordinator §8 | **passed**, 12 controls, including all three former failures, boundary byte vectors and extreme-float reservation/Python bit roundtrips; initial failures retained in coordinator |
-| Release model admission/closure/publication/schedule/stages/vocabulary targets | **passed**, 33/33 across six binaries on identified executor sources |
-| A1 model inventory/handoff/stability/serving targets | **passed**, 46/46 on identified pre-new-fork A1 sources; Entry5/5 and cached typed Bound1/1 additionally passed |
-| `INSTA_UPDATE=no cargo test --release -p lctx --test serving_packets original_evidence -- --nocapture` | **passed**, 2/2 actual PG raw-origin readback/damaged-row refusal on pre-new-fork A1 sources |
-| A2 five-case retained-fact/node/actual lint-diagnostic comparison | **passed**, byte-identical old/new observer output; linked current-fork consumer rerun pending |
-| Final-fork extractor / native / actual PG controls | **passed**, extractor15, native37, epochs/stages13, raw-origin2 and migration-recovery1. LoopHeader fixture and checksum-restoration test failures repaired without weakening assertions; source scope in coordinator |
-| Real serving admission / metadata decode controls | **passed**, serving3 (includes native/MCP admission) and model15; current pre-Clippy source. Matching adapters passed readiness before later mechanical source repairs |
-| Full `cargo clippy --release --workspace --all-targets --keep-going -- -D warnings` | **composite passed** after repairs, fourth full pass; post-Clippy unit12/model31/native37/migration1 reruns passed |
-| ADR/documentation resolver controls | **passed**, ADR35/docs58. Post-hook `UV_NO_SYNC=1 just docs-check` **passed**, 300 canonical pages and zero link errors; accepted ADR bytes remain unchanged |
-| Hook refresh regression controls | **passed**, 11 including committed edits, generator rewrites and retry |
-| Shared analyzer skill maintenance / conditional mechanisms | **composite passed** maintenance10/10; bounded BDD768 and CPython policy8 controls passed. These are investigation decisions, not product acceptance |
-| Narrow IS2 and F3/F4/S3 independent reviews | **passed** static scope after identified P2 repairs; no whole-series or measurement claim |
-| Post-hook Named/candidate snapshot migration and native readiness | Reviewed and accepted the migration. Refreshed CLI description differs only by settled-lockfile digest; accepted `fcd1fe42…`; all relations/codebooks equal. `just native-adapter-ready` **passed**, both adapters rebuilt; snapshot assertion pending |
-| Coordinator `NEXTEST_TEST_THREADS=8 just test-all` | **not_run / cancelled by operator**, exit130 during workspace test compilation, before tests launched. Release CLI build **passed** in 15m41s; no test failures reported. Receipt `q0-test-all.log`; build cache preserved |
-| Full keep-going Clippy, hygiene and disposable-store acceptance | **not_run / pending** for Q0 |
-| Real-library reconstruction/activation, live vectors, PR6, confirmation and measurements | **not_run / stopped**; quality, speed and total RSS unmeasured |
-| `python3 scripts/build_environment.py -- uv run --no-sync python tests/scripts/test_semantic_soundness.py --bundle` | **passed**, three bounded observation-only runs (0.507–0.659s), 52 generated functions each; no producer/store/serving comparison or qualification |
-| Assurance plan publication: `UV_NO_SYNC=1 just docs-check` | **passed**, 304 canonical pages, zero link errors and ADR/agent checks; production tests **not_run** for this documentation-only scope |
+| `uv run --no-sync pytest tests/scripts/test_verify.py tests/scripts/test_build_environment.py -q` | **passed**, 20 scheduling/readiness-key controls; mocked launcher controls do not certify actual families |
+| Focused release `lctx-model` definitions/views/closure/sources/expected targets | **passed**, 24; explicit source-check selection repaired before rerun |
+| `cargo check --release -p lctx-postgres -p lctx -p cpg-core --tests` | **passed** at integration checkpoint; later focused store runs compiled newer changes |
+| Actual PG proof hit/miss, delayed/queued writer and immutable-prefix controls | **composite passed**; harness visibility/dedup mistakes corrected without weakening guarantees |
+| Generation/publication/audit controls | **passed**, four; includes registry-only aggregate damage and bounded publication fallback |
+| `cargo nextest run --release -p lctx-postgres --test lifecycle --test generation_catalog --no-fail-fast --no-tests=fail` | **passed**, 14. Catalog fixtures now declare exact typed premises; state-only controls use a separate minimal model |
+| Final held-empty-vocabulary and exact audit-frame controls | **passed**, two |
+| Scoped union readiness within `NEXTEST_TEST_THREADS=8 just qualify` | **passed**, both adapters rebuilt; actual MCP/semantics/storage imports and PG image readiness passed |
+| `NEXTEST_TEST_THREADS=8 just qualify` | **in progress**, `/tmp/assurance-qualify.log`; release CLI preparation running, subsequent families/leaves pending |
+| Optional comparable timings / total RSS | **not_run**; structural scan/setup counts establish no Measured speed claim |
+| Real-library reconstruction/activation, live vectors, product comparisons and heldout | **not_run / stopped**, outside this pivot |
 
-The initial stale-dependency unit build and earlier development compile failures are retained in
-`/home/paul/.cache/lctx-target-alignment/`. Prior enrichment and expansion failures/repairs remain in
-their existing coordinators. Historical full gates do not qualify the current source.
+Independent implementation review found and prompted repairs to scoped DAG registration, stable
+proof-frame persistence, source snapshot acknowledgement checks, audit frame contracts and aggregate
+identity. Review of publication fanout/fallback found no additional defects; functional receipts
+above, rather than static judgment, establish their Tested boundaries.
 
-## Next — testing architecture pivot and qualification boundary
+## Next
 
-Execute assurance P0/T0: declare the current assurance/trust contract, map open semantic acceptance
-to replacement controls and retire unsupported oracle claims/evidence. P1 canonical model obligations
-and independent pure/readiness work follow. Store proof reuse waits for verified writer freeze and
-exact prefix bindings. Existing gate policy changes with T4's ADR/owner/recipe migration.
+Complete the running replacement qualification, inspect/accept the CLI schema snapshot migration,
+repair failures and rerun affected families/leaves. Full keep-going Clippy belongs to that run.
+Formatting/generators remain owned by the automatic Stop hook; an explicit scope-end hook exception
+has been requested to finish generated-file checks before this turn ends. No hook is manually run
+without that answer. Update F01–F04 and applicable Q0/Q1 owners only from actual replacement evidence.
 
-The operator cancelled the full test run during compilation; no replacement run is started.
-Q0 qualification remains open. The pivot maps its snapshot, Q0/Q1 PG/native/MCP and remaining
-fixture requirements to new controls; no historical receipt closes them. T4 replaces the old gate
-requirements together with their qualification owners; P5 then runs new assembled acceptance and
-full keep-going Clippy. Model/native agreement and real **disposable** PG remain required; no
-operator-store reset, real-library activation or manual formatter/generator is implied.
-Executor worktrees and logs retain current qualification consumers; assess cleanup after integration
-acceptance. Build caches stay intact; Cargo jobs16/frontend1 and Nextest8 remain the local policy.
+The [target coordinator](docs/plans/target-implementation-alignment-plan_2026-10-04.md)
+retains TA-F/LL-F disposition and its implemented foundations. The new assurance control map carries
+its surviving fixture/native/MCP obligations; earlier cancelled compilation does not qualify them.
+O08 remains with the [enrichment coordinator](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md).
 
 ## Preserved operator state and authority
 
 **Phase 5 real-library activation remains stopped at the operator's review pivot.**
 [Phase 5 §10](docs/plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state)
 owns activation/serving limits; [cutover §8](docs/plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
-owns older cutover findings. The [enrichment coordinator](docs/plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
-and [expansion coordinator](docs/plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
-retain historical acceptance and surviving obligations linked to Q0. Incremental alignment remains
-complete only within its older scoped Tested receipt.
+owns older cutover findings. Default store, client registrations, live vectors, gold and heldout
+are untouched by this scope. New receipt/install schemas are exercised only in owned disposable
+stores; default-store reconstruction is required before later authorized activation.
 
-Staging `d3a3fa026a1237a1c4e175b9b1019eeb` retains 204 receipts, no readers/writer and is unselected.
-Default store, client registrations, live vectors, gold and heldout remain untouched by this work.
-The stop receipt is `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`.
-Earlier worktree recovery remains under
-`/home/paul/.local/share/library-context/worktree-recovery/2026-10-04/`.
+Current integration worktrees/logs remain until acceptance; clean up fully integrated worktrees
+then. Old qualification worktrees retain their existing current consumers. Shared build caches,
+Cargo jobs16/frontend1 and Nextest8 are preserved; no `cargo clean` or broad reset was run.

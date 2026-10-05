@@ -1,6 +1,6 @@
 # Validation execution pivot
 
-**Proposed, 2026-10-04.** Supporting design for the
+**Implemented / focused-Tested; assembled qualification in progress, 2026-10-05.** Supporting design for the
 [testing architecture coordinator](testing-architecture-pivot-plan_2026-10-04.md), which owns
 F01–F04 disposition and combined acceptance. This document owns model validation registration,
 physical preparation, acknowledged result reuse and the runtime/audit trust boundary.
@@ -8,19 +8,17 @@ It does not own test-run scheduling or the meaning of individual domain rules.
 
 ## 1. Current foundation and changes in responsibility
 
-`lctx-model` declares relations and pure validators; `ValidatedModel` collects the relation-attached
-invariants, checks their names/input closure and records them in model identity. Stage read uses
-resolve relation invariants plus explicit `validated_by` requirements. The three factories in
-`crates/lctx-model/src/domain/execution/source_call_records.rs` reconstruct the same source-call
-universe and replay under three names. Current collection makes repeated names an error, so simple
-name deduplication or deleting two attachments is not a complete design.
+`lctx-model` owns canonical semantic definitions and complete ordered premises. `ValidatedModel`
+resolves explicit relation references and records definitions/revisions in model identity. The
+source-call header, invocation and run retain their references to one `source_call_replay` definition.
+Generated derivation validation is also scoped and model-owned; unsupported partial models refuse.
 
-`lctx-postgres::generations` owns SQL lowering, completion and validation receipts, stage read
-grants and selection. `publication_validation.rs`, `stage_validation.rs`, `receipts.rs`,
-`vocabulary.rs` and `selection.rs` repeat physical digest/input preparation and checks at several
-boundaries. `stage_read_checks` currently records checks already performed for a grant; it does not
-provide a reusable proof lookup. The hard-coded selection admission validator list is another
-consumer of current names and must migrate.
+`lctx-postgres::generations::validation_session` resolves acknowledged frames and exact conclusions.
+Existing `validation_receipts` records complete binding contexts; `stage_read_checks` references them
+as grant evidence. Publication, closure, stage reads and selection use this shared owner. Final
+receipts also acknowledge held empty relations after seal/validation, without inventing producer
+stage authority. `generations::audit` independently challenges body and aggregate digests, nominal
+references, exact proof contexts and required pure/publication semantics without issuing grants.
 
 Useful freeze premises already exist: ordinary completion takes exclusive relation locks before
 its receipt/grant transition; lifecycle operations hold the generation lock; vocabulary closure

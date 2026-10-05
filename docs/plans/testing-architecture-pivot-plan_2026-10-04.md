@@ -1,11 +1,11 @@
 # Testing architecture pivot — coordinated implementation plan
 
-**Proposed, 2026-10-04.** This plan schedules the full testing, validation and oracle architecture
+**Implemented; assembled qualification in progress, 2026-10-05.** This plan schedules the full testing, validation and oracle architecture
 pivot requested after the [source review](../design_review/reviews/design_review_test-validation-oracle-architecture_2026-10-04.md).
 It owns the combined target, execution dependencies and sole current disposition of F01–F04.
 The [validation plan](validation-execution-pivot-plan_2026-10-04.md) owns runtime validation design;
 the [verification plan](verification-execution-pivot-plan_2026-10-04.md) owns test execution design.
-Authoring these documents does not establish implementation or Tested acceptance.
+The current implementation and receipts below distinguish focused controls from assembled acceptance.
 
 ## 1. Purpose and authority
 
@@ -29,7 +29,7 @@ It is **Interface-checked** within those inspected boundaries, not an enclosing 
 Architectural ownership remains with [semantic model §15](../design/sections/semantic-model.md),
 [storage](../design/sections/storage-and-publication.md),
 [validation/evaluation](../design/sections/validation-and-evaluation.md) and their decisions.
-The plans describe Proposed changes to those contracts and the execution policy.
+ADR-0126 accepts the pivot; these plans specify its implementation and acceptance boundary.
 
 Existing Q0/Q1 and Phase 5 acceptance remain open at their existing coordinators. Their outstanding
 semantic and integration obligations must be mapped to the replacement controls during P0/P5.
@@ -139,8 +139,9 @@ qualification links alone do not require retention.
 P0/T0's accepted contract is ADR-0126. Current model/store/validation owners carry canonical
 obligations, acknowledged immutability, explicit audit and evidence classification. The retired
 Pysa/CrossHair folders and analytic supporting plan have been removed after surviving requirements
-moved to validation/analytics. P1 model declaration migration and P2/P3 store consumers are being
-implemented; no new proof trust or enclosing acceptance is yet Tested.
+moved to validation/analytics. P1–P4 implementation is integrated: model-owned definitions, exact owned acknowledgements, bounded
+stream groups, explicit audit, scoped preparation and read-only cohorts. Focused controls establish
+the recorded model/store boundaries; enclosing acceptance is pending the new P5 qualification.
 
 **Authoring verification, 2026-10-04:** `UV_NO_SYNC=1 just docs-check` **passed**, 304 canonical
 pages and zero link errors, including ADR/agent checks. Production compile/tests/qualification
@@ -208,7 +209,14 @@ real-library stop; this is no second disposition register.
 - **passed:** `cargo test --release -p lctx-model --test validation_definitions --test validation_views --test dependency_closure --test analysis_sources --test analysis_expected --no-fail-fast`, 24 controls after explicit source-check selection repair.
 - **passed:** `cargo check --release -p lctx-postgres -p lctx -p cpg-core --tests`, integrated model/store/CLI compile; subsequent focused controls compiled the newer session/audit changes.
 - **composite passed:** actual disposable PG new proof reuse, delayed/queued writer and immutable prefix controls. The first run exposed two harness mistakes (prefix views hide introduction metadata; duplicate IDs collapse); corrected row/body assertions passed on rerun.
-- **failed / fixture propagation in progress:** focused store run selected session unit, writer/prefix, stage-validation, publication-check and lifecycle targets: 19 run, 15 passed, four lifecycle failures. The lifecycle fixture omitted `ArtifactChunk`, a required complete premise. The new resolver correctly refuses incomplete validation; fixture declarations/writes are being migrated rather than restoring inputs-fit omission.
-- **not_run:** replacement assembled qualification, full keep-going Clippy and actual native/cohort/CLI snapshot migration on the final integrated source. T4 policy commits are integrated; legacy command aliases are removed with their current consumers. Remaining publication stream grouping and complete lifecycle fixture propagation precede P5.
+- **composite passed:** generation/publication/audit controls, four tests; lifecycle/catalog controls, 14 tests. Complete typed Catalog premises use the model-owned inventory and exact dependency closure in one five-producer Facts group. State-only conformance uses a separate minimal model. Earlier failures exposed omitted premises, unrequested Flow writers and a missing authored assumption set; checks/preflight were retained, fixtures corrected. Final held-empty relation acknowledgements now resolve through final receipts without producer-stage authority.
+- **passed:** two final-empty-vocabulary/audit-frame controls; grouped vocabulary retains exact prefix identity, while held empty vocabulary without an epoch receipt uses its acknowledged final frame.
+- **in progress:** `NEXTEST_TEST_THREADS=8 just qualify` on integrated production sources, including union native readiness, independent families, reviewed CLI snapshot migration and full keep-going Clippy. T4 policy and legacy-alias deletion are integrated.
+
+Publication checks share compatible ordered streams within a publication group; pure checks share
+within their pure group. Both use the same prepared receipt session. Cross-kind row fanout is not
+claimed: distinct finish/source contexts keep the two groups separate. Candidate ID digests join
+compatible checker streams. Focused two-check controls assert one scan and exact reused questions
+assert zero scans/executions. These work counts do not establish a timing benefit.
 
 No Measured speed claim or real-library activation is made.
