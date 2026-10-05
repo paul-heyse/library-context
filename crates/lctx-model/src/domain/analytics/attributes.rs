@@ -311,9 +311,7 @@ pub fn mention_layer(
         .filter(|a| a.status == ResolutionStatus::Resolved)
     {
         let mention = need(&d.native.mentions, a.observation)?;
-        if mention.class != documents::MentionClass::Exact
-            || !context(d, mention.qualification, parent.context)?
-        {
+        if mention.class != documents::MentionClass::Exact {
             continue;
         }
         let q = need(&d.native.qualifications, mention.qualification)?;
@@ -327,12 +325,18 @@ pub fn mention_layer(
         let Some(artifact) = artifact else {
             continue;
         };
-        if !d.uses.iter().any(|u| {
-            (u.input == parent.input
-                || d.corpus_libraries
-                    .iter()
-                    .any(|link| link.corpus == u.input && link.library == parent.input))
-                && u.artifact == artifact
+        let document_input = need(&d.native.artifacts, artifact)?.input;
+        let admitted_input = if document_input == parent.input {
+            q.context == parent.context
+        } else {
+            d.corpus_libraries.iter().any(|link| {
+                link.corpus == document_input && link.library == parent.input
+            })
+        };
+        // A corpus link admits documentary correspondence, not native context equality.
+        // The candidate resolution below must still belong to this exact analytic context.
+        if !admitted_input || !d.uses.iter().any(|u| {
+            u.input == document_input && u.artifact == artifact
                 && u.role == input::SourceRole::Document
         }) {
             continue;

@@ -132,9 +132,13 @@ and layer membership are typed outputs. Compare partitions by membership, not al
 labels. Optional type, mention and neighbor layers require their own admitted evidence and
 parameters. Official document co-mentions use either the frame's own input or a corpus explicitly
 linked to that library through `CorpusLibrary`; input names or shared generation do not establish
-membership. Exact analysis context, resolved entity universe and one vote per passage/entity
-remain required. This association correction is **Implemented**, 2026-10-03; actual split-input
-qualification is pending in the code-facts coordinator §7.
+membership. Corpus observations retain their own source context. Normalization follows the
+declared input link while retaining every target exposure/symbol context and candidate; it never
+equates contexts. Same-input correspondence still requires exact context. An analytic vote requires
+the resolution's exact frame context and release entity universe, actual document ownership/use,
+and one vote per passage/entity. The N2/N5 declared premises include the acknowledged acquisition
+link. This association correction is **Implemented**, 2026-10-05; actual split-input qualification
+is pending in the code-facts coordinator §7.
 A community label is a deterministic description; membership remains heuristic and
 cannot assert behavior or capability identity.
 

@@ -52,6 +52,12 @@ records failures/repairs and their boundaries; focused receipts are not assemble
 | `NEXTEST_TEST_THREADS=8 just verify-model` plus `-- -E 'binary(serving_contracts)'` | **composite passed**, 623 controls; two response fixtures omitted mandatory domains, repaired with missing-domain refusal retained; affected target21 passed |
 | Package-name normalization control | **passed**, one; explicit empty-name refusal retained |
 | `NEXTEST_TEST_THREADS=8 just verify-store --command rust` | **passed**, 59 disposable PostgreSQL controls |
+| Definition/vocabulary/checkpoint premise controls | **passed**, 29; checkpoint-only inputs retain exact authority and missing-premise refusal |
+| Structural/selection producer family | **composite passed**, 18; eight affected controls passed after Catalog premise and typed fixture repairs |
+| `NEXTEST_TEST_THREADS=8 just verify-serving --command python` | **passed**, 25 MCP controls after actual adapter rebuild/imports |
+| `NEXTEST_TEST_THREADS=8 just verify-serving --command serving` | **passed**21 / **failed**1; schema snapshot, admission, packets/evidence, native both-profile, cohort, conditional/Terminal/raised journeys passed. Qualification fixture's Corpus/Installed frame distinction repaired; targeted rerun pending |
+| `NEXTEST_TEST_THREADS=8 just verify-store --command python` | **passed**, two controls |
+| Corpus correspondence and affected normalization/definition/schedule controls | **passed**, 39; integrated model/CLI test compile also passed |
 | Optional comparable timings / total RSS | **not_run**; structural scan/setup counts establish no Measured speed claim |
 | Real-library reconstruction/activation, live vectors, product comparisons and heldout | **not_run / stopped**, outside this pivot |
 
@@ -62,13 +68,14 @@ above, rather than static judgment, establish their Tested boundaries.
 
 ## Next
 
-Model623, provider repair1 and store59 are composite/passed. Producer rerun18 passed11 and
-failed7: Catalog vocabulary closure omitted checkpoint-qualified empty premises; five structural
-mutation cases used a stale sum column. Typed fixture and coordinated premise planning now compile;
-29 definition/vocabulary/checkpoint controls passed. Eight affected producer cases are rebuilding,
-then native/MCP, serving, CLI schema migration and full keep-going Clippy remain. Full keep-going Clippy belongs to that run.
-Formatting/generators remain owned by the existing Stop hook. The operator authorized invoking
-that hook at scope end; it has run, with formatting and generators completed. Verify affected checks. Update F01–F04 and applicable Q0/Q1 owners only from actual replacement evidence.
+The independent served oracle passed again. The stdio qualification fixture's Corpus/Installed
+frame distinction is repaired; its rerun exposed missing official-document co-mention propagation.
+Normalization does not yet consume `CorpusLibrary`, and analytics rejects the Corpus context before
+checking its exact link. The accepted target requires this path: normalization and analytics repairs
+retain original contexts, ambiguity and exact link/ownership gates. Integrated compile and39 pure
+controls passed; actual PG/native/MCP qualification, reviewed changed description and full keep-going Clippy
+remain. No positive assertion is weakened. Update F01–F04 and applicable Q0/Q1 owners only from
+actual evidence. The root owns scope-end formatting/generation through `just turn-end`.
 
 The [target coordinator](docs/plans/target-implementation-alignment-plan_2026-10-04.md)
 retains TA-F/LL-F disposition and its implemented foundations. The new assurance control map carries

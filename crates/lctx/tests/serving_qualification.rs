@@ -97,6 +97,8 @@ async fn assert_selected_analytics(fixture: &ServingFixture) {
             .iter()
             .any(|u| u.artifact == document.id() && u.role == SourceRole::Document)
     );
+    let mut installed_frames = 0;
+    let mut corpus_frames = 0;
     for frame in frames.rows() {
         assert_eq!(frame.configuration, configuration.id());
         let predecessor = structural
@@ -104,6 +106,25 @@ async fn assert_selected_analytics(fixture: &ServingFixture) {
             .iter()
             .find(|s| s.id() == frame.structural)
             .unwrap();
+        let parent = structural_invocations
+            .rows()
+            .iter()
+            .find(|i| i.id() == predecessor.invocation)
+            .unwrap();
+        // Native frames include the official document corpus, even when it has no code roots.
+        // Its CorpusLibrary link admits evidence to the installed frame, not release endpoints
+        // into the corpus frame itself.
+        if parent.input == document.input {
+            corpus_frames += 1;
+            assert!(!public.rows().iter().any(|p| p.frame == frame.structural));
+            assert!(!universe.rows().iter().any(|u| u.frame == frame.id()));
+            assert!(!selectors.rows().iter().any(|s| s.frame == frame.id()));
+            assert!(!pairs.rows().iter().any(|p| p.frame == frame.id()));
+            assert!(!contributions.rows().iter().any(|c| c.frame == frame.id()));
+            assert!(!combined.rows().iter().any(|p| p.frame == frame.id()));
+            continue;
+        }
+        installed_frames += 1;
         let candidates = public
             .rows()
             .iter()
@@ -159,11 +180,6 @@ async fn assert_selected_analytics(fixture: &ServingFixture) {
         );
         // Actual Installed and Corpus inputs remain distinct. The exact recorded linkage is
         // the only cross-input admission authority; lexical matches cannot supply that link.
-        let parent = structural_invocations
-            .rows()
-            .iter()
-            .find(|i| i.id() == predecessor.invocation)
-            .unwrap();
         assert_ne!(parent.input, document.input);
         assert!(
             corpus_libraries
@@ -186,6 +202,7 @@ async fn assert_selected_analytics(fixture: &ServingFixture) {
         retain!(data.native.qualifications, qualifications);
         retain!(data.native.scopes, coverage_scopes);
         retain!(data.native.modules, modules);
+        retain!(data.native.artifacts, artifacts);
         retain!(data.native.mentions, mentions);
         retain!(
             data.native.relation_mention_entity_assessments,
@@ -269,6 +286,50 @@ async fn assert_selected_analytics(fixture: &ServingFixture) {
                 "a wrong corpus or library identity must not admit the original document"
             );
         }
+        data.corpus_libraries = Rows::new(&budget);
+        retain!(data.corpus_libraries, corpus_libraries);
+        let corpus_frame = frames.rows().iter().find(|candidate| {
+            structural.rows().iter().any(|s| s.id() == candidate.structural
+                && structural_invocations.rows().iter().any(|i| i.id() == s.invocation
+                    && i.input == document.input))
+        }).unwrap();
+        let corpus_structural = structural.rows().iter()
+            .find(|s| s.id() == corpus_frame.structural).unwrap();
+        let corpus_parent = structural_invocations.rows().iter()
+            .find(|i| i.id() == corpus_structural.invocation).unwrap();
+        assert_ne!(corpus_parent.context, parent.context);
+        let PairSource::Mention { left, right } = original_source else {
+            panic!("official document pair requires mention provenance");
+        };
+        for observation in [left, right] {
+            let mention = mentions.rows().iter().find(|m| m.id() == *observation).unwrap();
+            let qualification = qualifications.rows().iter()
+                .find(|q| q.id() == mention.qualification).unwrap();
+            assert_eq!(qualification.context, corpus_parent.context,
+                "official document observations retain their original Corpus context");
+        }
+        data.structural.frames.insert(corpus_structural.clone()).unwrap();
+        data.structural_invocations.insert(corpus_parent.clone()).unwrap();
+        let mut foreign_context = Output::new(&budget);
+        lctx_model::domain::analytics::mention_layer(
+            &data, corpus_frame, &scope, &mut foreign_context, &budget,
+        ).unwrap();
+        assert!(foreign_context.contributions.is_empty() && foreign_context.pair_sources.is_empty(),
+            "Corpus context cannot borrow Installed resolutions even with supplied release entities");
+        drop(foreign_context);
+        data.uses = Rows::new(&budget);
+        data.uses.insert(ArtifactUse {
+            input: parent.input,
+            artifact: document.id(),
+            role: SourceRole::Document,
+        }).unwrap();
+        let mut wrong_owner = Output::new(&budget);
+        lctx_model::domain::analytics::mention_layer(
+            &data, frame, &scope, &mut wrong_owner, &budget,
+        ).unwrap();
+        assert!(wrong_owner.contributions.is_empty() && wrong_owner.pair_sources.is_empty(),
+            "ArtifactUse cannot replace the document artifact's actual input ownership");
+        drop(wrong_owner);
         drop(data);
         for (method, on) in [
             (M::Communities, true),
@@ -512,6 +573,8 @@ async fn assert_selected_analytics(fixture: &ServingFixture) {
             "two active unit layers retain their authored quarter weights"
         );
     }
+    assert!(installed_frames > 0, "installed analytics frames must be challenged");
+    assert!(corpus_frames > 0, "official corpus must retain its own analytics frame");
     let mismatches: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(*) FROM {}.analytic_source_receipts r LEFT JOIN lctx_model_store.stage_receipts c ON c.generation_id=decode($1,'hex') AND c.relation_name=r.relation AND c.stage_name=r.producer WHERE c.content_digest IS DISTINCT FROM r.content OR c.row_count IS DISTINCT FROM r.rows",
         fixture.generation.schema()))).bind(fixture.generation.hex()).fetch_one(fixture.db.owner.pool()).await.unwrap();
