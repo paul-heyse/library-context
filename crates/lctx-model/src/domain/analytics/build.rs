@@ -146,7 +146,7 @@ macro_rules! data{($($f:ident:$t:ty,)*)=>{
  pub struct Data{pub native:BindingData,pub structural:structural::Output,pub vectors:embedding::analytic::ConsumptionData,pub graphs:projection::normalization::ProjectionOutput,$(pub $f:Rows<$t>,)*}
  impl Data{pub fn new(b:&ResourceBudget)->Self{Self{native:BindingData::new(b),structural:structural::Output::new(b),vectors:embedding::analytic::ConsumptionData::new(b),graphs:projection::normalization::ProjectionOutput::new(b),$($f:Rows::new(b),)*}}
  pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{let a=self.native.visit(n,b)?;let c=self.structural.visit(n,b)?;let d=self.vectors.visit(n,b)?;let e=self.graphs.visit(n,b)?;$(if n==<$t>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(a||c||d||e)}
- pub fn validation_inputs()->Vec<ValidationInput>{let mut v=BindingData::validation_inputs();v.extend(structural::Output::validation_inputs());v.extend(projection::normalization::ProjectionOutput::validation_inputs());v.extend(vec![$(ValidationInput::of::<$t>(&["id"]),)*]);v.extend(vector_inputs());v.sort_by_key(|i|(i.name(),i.prefix()));v.dedup_by_key(|i|(i.name(),i.prefix()));v}
+ pub fn validation_inputs()->Vec<ValidationInput>{let mut v=BindingData::validation_inputs();v.extend(structural::Output::validation_inputs().into_iter().map(|input|if stages::is_vocabulary(input.name()){input.at_epoch(stages::PublicationBoundary::Structural)}else{input}));v.extend(projection::normalization::ProjectionOutput::validation_inputs());v.extend(vec![$(ValidationInput::of::<$t>(&["id"]),)*]);v.extend(vector_inputs());v.sort_by_key(|i|(i.name(),i.prefix()));v.dedup_by_key(|i|(i.name(),i.prefix()));v}
  pub fn configuration(&self)->Result<&AnalyticsConfiguration,ModelError>{let mut i=self.settings.iter();let s=i.next().ok_or_else(||invalid("analytic selected settings absent"))?;if i.next().is_some(){return Err(invalid("analytic selected settings ambiguous"));}s.validate()?;Ok(s)}
  }
 };}
@@ -179,9 +179,12 @@ impl Data {
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
         if stages::is_vocabulary(input.name()) {
-            self.native.visit(input.name(), batch)?;
-        }
-        self.visit(input.name(), batch)?;
+            match input.prefix() {
+                Some(stages::PublicationBoundary::Facts)=>{self.native.visit(input.name(), batch)?;},
+                Some(stages::PublicationBoundary::Structural)=>{self.structural.visit(input.name(), batch)?;},
+                _=>return Err(invalid(format!("analytic input {} changes its completed vocabulary view",input.name()))),
+            }
+        } else { self.visit(input.name(), batch)?; }
         Ok(())
     }
 }

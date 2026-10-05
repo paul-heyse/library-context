@@ -169,6 +169,27 @@ fn structural_native_entry_and_local_conclusion_vocabulary_are_isolated(){
 }
 
 #[test]
+fn analytic_native_and_structural_vocabulary_are_isolated(){
+ use stages::PublicationBoundary as View;
+ let budget=budget();let mut data=analytics::build::Data::new(&budget);
+ fn nominal<R>(n:u8)->Id<R>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+ let native=assertion::AssertionQualification{context:nominal(1),scope:nominal(2),condition:conditions::Diagram::always().id(),modality:attribution::Modality::Definite,approximation:assertion::Approximation::Exact,assumptions:assumptions::AssumptionSet::empty_id()};
+ let derived=assertion::AssertionQualification{modality:attribution::Modality::Candidate,..native.clone()};
+ let facts=ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Facts);
+ let structural=ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Structural);
+ data.visit_input(&facts,&assertion::AssertionQualification::encode(std::slice::from_ref(&native)).unwrap()).unwrap();
+ data.visit_input(&structural,&assertion::AssertionQualification::encode(&[native.clone(),derived.clone()]).unwrap()).unwrap();
+ assert_eq!(data.native.qualifications.len(),1);
+ assert!(data.native.qualifications.get(derived.id()).is_none());
+ assert_eq!(data.structural.conclusion_qualifications.len(),2);
+ for profile in Profile::ALL {
+  let selected=analytics::build::Data::consumed_inputs(profile).into_iter().filter(|i|i.name()==assertion::AssertionQualification::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
+  assert_eq!(selected,[Some(View::Facts),Some(View::Structural)].into_iter().collect());
+ }
+ assert!(data.visit_input(&ValidationInput::of::<assertion::AssertionQualification>(&["id"]),&assertion::AssertionQualification::encode(&[derived]).unwrap()).is_err());
+}
+
+#[test]
 fn catalog_evidence_native_and_local_qualification_views_survive_reuse(){
  use stages::PublicationBoundary as View;
  let budget=budget();

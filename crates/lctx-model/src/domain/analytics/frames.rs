@@ -193,7 +193,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|i| (i.name(), i.prefix()));
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
-        revision: 1,
+        revision: 2,
         name: "analytic_replay",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -213,6 +213,9 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+        if stages::is_vocabulary(input.name()) && input.prefix().is_some(){self.data.visit_input(input,batch)}else{self.visit(input.name(),batch)}
+    }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if self.data.visit(n, b)? || self.context.visit(n, b)? || self.output.visit(n, b)? {
             Ok(())
