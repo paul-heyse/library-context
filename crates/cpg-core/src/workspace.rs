@@ -87,22 +87,27 @@ impl Workspace {
         owner.budget=budget;
         Ok(workspace)
     }
-    pub fn rows<R:Record>(&self)->Result<Vec<R>,ModelError> {
+    fn coverage_rows<R:Record>(&self)->Result<(Vec<R>,StateCharge),ModelError> {
         let mut rows=Vec::new();
-        for batch in self.completed::<R>()?.read::<R>(self.model.clone(),self.budget.clone())? {rows.extend(batch?.rows().iter().cloned());}
-        Ok(rows)
+        let mut charge=StateCharge::new(&self.budget,"facts-coverage-input");
+        for batch in self.completed::<R>()?.read::<R>(self.model.clone(),self.budget.clone())? {
+            for row in batch?.rows() {charge.grow(row.row_bytes().saturating_add(size_of::<R>()))?;rows.push(row.clone());}
+        }
+        Ok((rows,charge))
     }
     pub fn facts_availability(&self,profile:Profile)->Result<lctx_model::domain::admission::ScopedAvailability,ModelError> {
         use lctx_model::domain::{admission::{FrontierContract,Expected,ScopedAvailability},input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::ProviderCoverage,stages::Schedule};
         let providers=crate::facts::providers(ContentHash::of(b"facts-coverage-contract"));
         let schedule=Schedule::build(&self.model,providers.iter().map(|p|p.declaration(profile)).collect(),&[],profile)?;
         let contract=FrontierContract::facts(&self.model,profile)?.preflight(&schedule)?;
-        let inputs=self.rows::<InputRevision>()?;
-        let artifacts=self.rows::<SourceArtifact>()?;
-        let uses=self.rows::<ArtifactUse>()?;
+        let (inputs,_inputs)=self.coverage_rows::<InputRevision>()?;
+        let (artifacts,_artifacts)=self.coverage_rows::<SourceArtifact>()?;
+        let (uses,_uses)=self.coverage_rows::<ArtifactUse>()?;
         let expected=contract.expected_coverage(&inputs,&artifacts,&uses)?.into_keys().collect::<std::collections::BTreeSet<Expected>>();
-        let scopes=self.rows::<CoverageScope>()?.into_iter().map(|r|(r.id(),r)).collect();
-        ScopedAvailability::from_completed(profile,&expected,&self.rows::<ProviderCoverage>()?,&scopes,&self.budget)
+        let (scope_rows,_scopes)=self.coverage_rows::<CoverageScope>()?;
+        let scopes=scope_rows.into_iter().map(|r|(r.id(),r)).collect();
+        let (rows,_rows)=self.coverage_rows::<ProviderCoverage>()?;
+        ScopedAvailability::from_completed(profile,&expected,&rows,&scopes,&self.budget)
     }
     /// Semantic content over the actual completed typed streams, independent of IPC bytes.
     pub fn content(&self)->Result<ContentHash,ModelError> {
@@ -250,10 +255,10 @@ impl Workspace {
         let table = format!("input_{}", self.next.fetch_add(1, Ordering::Relaxed));
         // Union only explicitly contributed vocabulary, never silently replace an owned output.
         let mut paths = vec![pending.path.to_string_lossy().into_owned()];
-        if pending.contribution {
-            if let Ok(previous) = self.relation(name) { paths.push(previous.path.to_string_lossy().into_owned()); }
-        } else if self.relation(name).is_ok() {
-            return Err(ModelError::Invalid(format!("completed output {name} already has an owner")));
+        if let Ok(previous)=self.relation(name) {
+            if pending.contribution || previous.contribution {
+                paths.push(previous.path.to_string_lossy().into_owned());
+            } else {return Err(ModelError::Invalid(format!("completed output {name} already has an owner")));}
         }
         let frame = self.context.read_arrow(paths, ArrowReadOptions::default().schema(pending.relation.schema().as_ref()))
             .await.map_err(ModelError::codec)?;
@@ -295,7 +300,7 @@ impl Workspace {
             self.cancellation.check()?;
             let (rows, content) = content.finish();
             Ok(Arc::new(CompletedRelation { relation: pending.relation, producer, implementation,
-                contract: self.model.digest(), content, rows, inputs, profile, snapshot: (pending.snapshot)(producer, self.model.digest(), implementation, content, rows)?, path, _files: self.files.clone() }))
+                contract: self.model.digest(), content, rows, inputs, profile, contribution:pending.contribution, snapshot: (pending.snapshot)(producer, self.model.digest(), implementation, content, rows)?, path, _files: self.files.clone() }))
         }.await;
         self.context.deregister_table(&table).map_err(ModelError::codec)?;
         result
@@ -314,6 +319,7 @@ pub struct CompletedRelation {
     path: PathBuf,
     inputs: Arc<[lctx_model::domain::analysis::sources::SourceSnapshot]>,
     profile: Profile,
+    contribution: bool,
     snapshot: lctx_model::domain::analysis::sources::SourceSnapshot,
     _files: Arc<WorkspaceFiles>,
 }
@@ -419,8 +425,16 @@ impl ProducerOutput {
         }
         Ok(())
     }
+    fn guarded<T>(&self,operation:impl FnOnce()->Result<T,ModelError>)->Result<T,ModelError> {
+        let result=self.check().and_then(|_|operation());
+        if result.is_err() {self.failed.store(true,Ordering::Release);}
+        result
+    }
     pub fn declare<R: Record>(&self) -> Result<(), ModelError> { self.declare_kind::<R>(lctx_model::domain::stages::is_vocabulary(R::NAME)) }
     fn declare_kind<R: Record>(&self, contribution: bool) -> Result<(), ModelError> {
+        self.guarded(||self.declare_kind_inner::<R>(contribution))
+    }
+    fn declare_kind_inner<R: Record>(&self, contribution: bool) -> Result<(), ModelError> {
         self.check()?;
         if self.allowed.as_ref().is_some_and(|names|!names.contains(R::NAME)) {self.failed.store(true,Ordering::Release);return Err(ModelError::Invalid(format!("{} did not declare {}",self.name,R::NAME)));}
         self.workspace.model.require::<R>()?;
@@ -433,6 +447,9 @@ impl ProducerOutput {
         Ok(())
     }
     pub fn write<R: Record>(&self, batch: &Batch<R>) -> Result<(), ModelError> {
+        self.guarded(||self.write_inner(batch))
+    }
+    fn write_inner<R: Record>(&self, batch: &Batch<R>) -> Result<(), ModelError> {
         self.check()?;
         let mut writers = self.writers.lock().map_err(|_| poisoned())?;
         let writer = writers.get_mut(R::NAME).and_then(|w| w.as_any_mut().downcast_mut::<Writer<R>>()).ok_or_else(|| ModelError::Invalid(format!("output {} was not declared", R::NAME)))?;
@@ -519,6 +536,7 @@ impl Reservation for WorkspaceReservation {
 
 impl cpg_extract::bundle::ProviderSink for ProducerOutput {
     fn read<R: Record>(&self) -> Result<Box<dyn Iterator<Item=Result<Batch<R>, ModelError>> + Send>, ModelError> {
+        self.check()?;
         Ok(Box::new(self.inputs.relation::<R>()?.read::<R>(self.workspace.model.clone(), self.workspace.budget.clone())?))
     }
     fn declare<R: Record>(&self) -> Result<(), ModelError> { ProducerOutput::declare::<R>(self) }
@@ -604,6 +622,21 @@ mod tests {
         assert!(matches!(output.finish(ProviderOutcome::Complete).await,Err(ModelError::Conflict(_))));
         assert!(workspace.completed::<Package>().is_err());
         assert!(workspace.completed::<SourceArtifact>().is_err());
+    }
+    #[tokio::test]
+    async fn ordinary_owner_adopts_native_contributions_then_refuses_another_owner() {
+        let workspace=Workspace::new(model(),WorkspaceOptions::default()).unwrap();
+        let contributed=workspace.output("native",Profile::Catalog,ContentHash::of(b"native"),workspace.inputs("native",Profile::Catalog,[]).unwrap());
+        let batch=Batch::new(workspace.model(),vec![Package {name:"package".into()}],workspace.budget()).unwrap();
+        contributed.contribute(&batch).unwrap();drop(batch);
+        contributed.finish(ProviderOutcome::Complete).await.unwrap();
+        let owner=workspace.output("assembly",Profile::Catalog,ContentHash::of(b"assembly"),workspace.inputs("assembly",Profile::Catalog,[]).unwrap());
+        owner.declare::<Package>().unwrap();owner.finish(ProviderOutcome::Complete).await.unwrap();
+        assert_eq!(workspace.completed::<Package>().unwrap().rows(),1);
+        let duplicate=workspace.output("duplicate",Profile::Catalog,ContentHash::of(b"duplicate"),workspace.inputs("duplicate",Profile::Catalog,[]).unwrap());
+        duplicate.declare::<Package>().unwrap();
+        assert!(duplicate.finish(ProviderOutcome::Complete).await.is_err());
+        assert_eq!(workspace.completed::<Package>().unwrap().producer(),"assembly");
     }
     #[tokio::test]
     async fn nominal_reference_closure_reuses_completed_streams_and_refuses_missing_targets() {
