@@ -200,7 +200,7 @@ reports the missing prerequisite and still permits unrelated families to run.
 
 Update AGENTS, binding, justfile, command comments, affected plan/runbook consumers and the governing
 ADR together before replacement acceptance. Supersede the relevant ADR-0110 cadence rather than
-editing its accepted bytes; keep hook formatting/generator ownership. Existing Q0/Q1 owners map
+editing its accepted bytes; the root owns formatting/generation through scope-end `just turn-end`. Existing Q0/Q1 owners map
 outstanding acceptance to required replacement families, retaining open status until actual evidence
 passes. This is a deliberate gate-policy change, not a claim that focused checks equal old full gates.
 
