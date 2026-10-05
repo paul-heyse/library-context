@@ -41,7 +41,11 @@ macro_rules! inputs {
             pub fn stage_inputs() -> Vec<stages::RelationUse> {
                 let mut inputs = EntityData::stage_inputs();
                 inputs.extend(entity_stage_inputs());
-                inputs.extend([$(stages::RelationUse::stored::<$ty>().availability(FactFamily::$family, stages::AvailabilityPolicy::ObserveAvailability),)*]); inputs
+                inputs.extend([$(stages::RelationUse::stored::<$ty>().availability(FactFamily::$family, stages::AvailabilityPolicy::ObserveAvailability),)*]);
+                // Captured links are acknowledged acquisition metadata, not provider claims.
+                inputs.retain(|row| row.name() != input::CorpusLibrary::NAME);
+                inputs.push(stages::RelationUse::stored::<input::CorpusLibrary>());
+                inputs
             }
         }
     }
@@ -262,7 +266,7 @@ fn references(
     }
     Ok(())
 }
-type QualifiedPath = (Id<AnalysisContext>, Id<input::InputRevision>, String);
+type QualifiedPath = (Id<input::InputRevision>, String);
 type QualifiedImportAlias = (
     Id<AnalysisContext>,
     Id<input::InputRevision>,
@@ -398,6 +402,10 @@ fn mentions(
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "mention-exposure-index");
+    let mut linked_inputs: ChargedMap<Id<input::InputRevision>, Vec<Id<input::InputRevision>>> = Default::default();
+    for link in data.corpus_libraries.iter() {
+        linked_inputs.update(&mut charge, link.corpus, |inputs| inputs.push(link.library))?;
+    }
     let mut exposures: ChargedMap<QualifiedPath, Vec<&PublicExposure>> = Default::default();
     for exposure in data.entities.exposures.iter() {
         let module = need(&data.facts.modules, exposure.access)?;
@@ -405,7 +413,6 @@ fn mentions(
         exposures.update(
             &mut charge,
             (
-                exposure.context,
                 need(&data.artifacts, module.source)?.input,
                 format!("{}.{}", module.qualified_name, name.name),
             ),
@@ -463,7 +470,6 @@ fn mentions(
         qualified.update(
             &mut charge,
             (
-                symbol.context,
                 input(data, row.qualification)?,
                 format!("{module}.{}", names.join(".")),
             ),
@@ -479,12 +485,12 @@ fn mentions(
             .into_iter()
             .flatten()
         {
-            for exposure in exposures
-                .get(&(context, input, spelling.clone()))
-                .into_iter()
-                .flatten()
-            {
-                candidates.insert(&mut held, exposure.id(), exposure)?;
+            for target in std::iter::once(&input).chain(linked_inputs.get(&input).into_iter().flatten()) {
+                for exposure in exposures.get(&(*target, spelling.clone())).into_iter().flatten() {
+                    if *target != input || exposure.context == context {
+                        candidates.insert(&mut held, exposure.id(), exposure)?;
+                    }
+                }
             }
         }
         let mut entities: ChargedSet<Id<EntityRef>> = Default::default();
@@ -502,18 +508,20 @@ fn mentions(
         let mut symbol_candidates: ChargedMap<Id<SymbolObservation>, &SymbolObservation> =
             Default::default();
         if let Some(name) = &mention.qualified_name {
-            for row in qualified
-                .get(&(context, input, name.clone()))
-                .into_iter()
-                .flatten()
-            {
-                symbol_candidates.insert(&mut held, row.id(), row)?;
-                let resolution = index.resolution(row.symbol)?;
-                if resolution.status == ResolutionStatus::Unresolved {
-                    unresolved = true;
-                }
-                for entity in resolved_members.get(&resolution.id()).into_iter().flatten() {
-                    entities.insert(&mut held, *entity)?;
+            for target in std::iter::once(&input).chain(linked_inputs.get(&input).into_iter().flatten()) {
+                for row in qualified.get(&(*target, name.clone())).into_iter().flatten() {
+                    let symbol = need(&data.facts.symbols, row.symbol)?;
+                    if *target == input && symbol.context != context {
+                        continue;
+                    }
+                    symbol_candidates.insert(&mut held, row.id(), row)?;
+                    let resolution = index.resolution(row.symbol)?;
+                    if resolution.status == ResolutionStatus::Unresolved {
+                        unresolved = true;
+                    }
+                    for entity in resolved_members.get(&resolution.id()).into_iter().flatten() {
+                        entities.insert(&mut held, *entity)?;
+                    }
                 }
             }
         }

@@ -30,6 +30,7 @@ macro_rules! normalized_relation_inputs {
             coverage: $crate::domain::attribution::ProviderCoverage => Artifacts,
             scopes: $crate::domain::source::CoverageScope => Artifacts,
             artifacts: $crate::domain::source::SourceArtifact => Artifacts,
+            corpus_libraries: $crate::domain::input::CorpusLibrary => Artifacts,
         }
     };
 }

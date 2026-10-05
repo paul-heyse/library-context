@@ -100,6 +100,7 @@ macro_rules! normalized_binding_inputs {
         syntax: $crate::domain::calls::CallSyntax,
         arguments: $crate::domain::calls::CallArgument,
         artifacts: $crate::domain::source::SourceArtifact,
+        corpus_libraries: $crate::domain::input::CorpusLibrary,
         modules: $crate::domain::source::Module,
         signature_supports: $crate::domain::calls::SignatureSupport,
         entity_declarations: $crate::domain::declarations::SymbolDeclaration,
