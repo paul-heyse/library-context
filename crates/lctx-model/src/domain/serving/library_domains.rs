@@ -106,6 +106,14 @@ impl ResolvedLibraryDomain<'_> {
             .flat_map(|d| &d.captures)
             .any(|c| c.release.release == release)
     }
+    /// Subjectless evidence is admitted by a captured first-party input or its corpus.
+    /// Explicit member/release subjects still require their narrower attribution.
+    pub fn contains_input(&self, input: Id<input::InputRevision>) -> bool {
+        self.domains
+            .iter()
+            .flat_map(|d| &d.captures)
+            .any(|c| c.release.input == input || c.corpora.contains(&input))
+    }
     pub fn contains_corpus(&self, input: Id<input::InputRevision>) -> bool {
         self.domains
             .iter()

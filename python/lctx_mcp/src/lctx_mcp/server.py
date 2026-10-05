@@ -16,8 +16,10 @@ INSTRUCTIONS = (
     "A version-pinned API and evidence catalog. Read the structured result's support, "
     "uncertainty, coverage and original evidence before relying on a discovery result. "
     "Relevance ranks results; it does not prove a requirement. Value-path refutations "
-    "apply only to the cited path under the supplied input model. Each request names its "
-    "library explicitly and uses the generation pinned when this service starts."
+    "apply only to the cited path under the supplied input model. search_operations, "
+    "search_evidence and search_capabilities may omit library to search the admitted "
+    "library union; other library-scoped requests name their library explicitly. "
+    "All requests use the generation pinned when this service starts."
 )
 
 

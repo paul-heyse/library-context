@@ -77,7 +77,7 @@ impl CatalogService {
             OperationResolution::Missing {
                 coverage: Availability::Available {},
             }
-        } else if members.len() > 1 || resolved.iter().any(|c| c.releases.len() > 1) {
+        } else if super::catalog_service::ambiguous_candidates(&resolved) {
             OperationResolution::Ambiguous {
                 candidates: resolved,
             }

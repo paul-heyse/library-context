@@ -29,6 +29,13 @@ struct State {
 pub struct CatalogService {
     state: Arc<State>,
 }
+/// A canonical member exposed by multiple captures is not a unique release operation.
+pub(super) fn ambiguous_candidates(candidates: &[OperationCandidate]) -> bool {
+    candidates.iter().any(|c| c.releases.len() > 1)
+        || candidates.first().is_some_and(|first| {
+            candidates.iter().any(|c| c.member != first.member)
+        })
+}
 pub(super) fn wire_error(e: WireError) -> Error {
     match e {
         WireError::ResourceRefused(_) => Error::ResourceRefused("serving representation"),
@@ -793,12 +800,7 @@ impl CatalogService {
                         candidates.push(c.clone());
                     }
                 }
-                let ambiguous = candidates
-                    .iter()
-                    .map(|c| c.member)
-                    .collect::<BTreeSet<_>>()
-                    .len()
-                    > 1;
+                let ambiguous = ambiguous_candidates(&candidates);
                 operations.push(ComparisonEntry {
                     requested,
                     candidates,

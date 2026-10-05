@@ -58,6 +58,8 @@ fn explicit_captures_admit_empty_domains_preserve_all_releases_and_exclude_depen
     assert!(demo.contains_capture(a.0, a.1) && demo.contains_capture(z.0, z.1));
     assert!(!demo.contains_capture(a.0, z.1) && !demo.contains_release(dependency.1));
     assert!(!demo.contains_capture(other.0, other.1));
+    assert!(demo.contains_input(a.0) && demo.contains_input(z.0));
+    assert!(!demo.contains_input(dependency.0) && !demo.contains_input(other.0));
     assert!(
         demo.domains()[0]
             .captures
@@ -143,6 +145,7 @@ fn corpus_only_evidence_is_admitted_without_members_and_coverage_keeps_collectio
     let index = PreparedLibraryDomains::prepare(&d, &b).unwrap();
     let partial = index.resolve(Some(&Name::new("partial").unwrap())).unwrap();
     assert!(partial.contains_corpus(corpus));
+    assert!(partial.contains_input(corpus));
     assert!(!partial.contains_corpus(missing.0));
     let capture = &partial.domains()[0].captures[0];
     assert_eq!(capture.corpora, [corpus]);

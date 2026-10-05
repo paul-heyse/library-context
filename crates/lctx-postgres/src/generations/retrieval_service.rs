@@ -327,7 +327,7 @@ impl RetrievalService {
         if associated {
             explicit
         } else {
-            domain.contains_corpus(unit.input)
+            domain.contains_input(unit.input)
         }
     }
     pub async fn request(
