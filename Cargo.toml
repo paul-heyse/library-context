@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "python/lctx_semantics", "python/lctx_storage"]
+members = ["crates/*", "python/lctx_semantics"]
 exclude = ["third_party/allocative"]
 
 [workspace.package]

@@ -1,2 +1,0 @@
-# maturin editable build artifacts belong to the local Python environment.
-python/lctx_storage/_storage*.so
