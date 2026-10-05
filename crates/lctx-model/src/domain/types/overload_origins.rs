@@ -172,7 +172,7 @@ pub(crate) fn trace_invariants() -> Vec<Invariant> {
             ValidationInput::of::<SyntaxPlacement>(&["id"]),
             ValidationInput::of::<TypeObservation>(&["id"]),
             ValidationInput::of::<NativeOverloadObservation>(&["id"]),
-            ValidationInput::of::<NativeOverloadCandidate>(&["trace", "ordinal"]),
+            ValidationInput::of::<NativeOverloadCandidate>(&["trace", "ordinal", "id"]),
         ],
         create: std::sync::Arc::new(|budget| {
             Box::new(Check {

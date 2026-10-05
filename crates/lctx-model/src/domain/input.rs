@@ -177,7 +177,7 @@ pub(crate) fn input_invariants() -> Vec<Invariant> {
         name: "input_manifest_membership",
         inputs: vec![
             ValidationInput::of::<InputRevision>(&["id"]),
-            ValidationInput::of::<super::source::SourceArtifact>(&["input", "path"]),
+            ValidationInput::of::<super::source::SourceArtifact>(&["input", "path", "id"]),
         ],
         create: std::sync::Arc::new(|budget| {
             Box::new(InputManifestCheck {
@@ -422,7 +422,7 @@ pub(crate) fn class_invariants() -> Vec<Invariant> {
         inputs: vec![
             ValidationInput::of::<InputAcquisition>(&["id"]),
             ValidationInput::of::<super::source::SourceArtifact>(&["id"]),
-            ValidationInput::of::<ArtifactOwnership>(&["artifact"]),
+            ValidationInput::of::<ArtifactOwnership>(&["artifact", "id"]),
             ValidationInput::of::<UnownedArtifact>(&["id"]),
             ValidationInput::of::<DerivedArtifact>(&["id"]),
         ],

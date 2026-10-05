@@ -243,7 +243,7 @@ pub(crate) fn occurrence_invariants() -> Vec<super::Invariant> {
         name: "occurrence_source_bounds",
         inputs: vec![
             super::ValidationInput::of::<SourceArtifact>(&["id"]),
-            super::ValidationInput::of::<Occurrence>(&["source", "start", "end"]),
+            super::ValidationInput::of::<Occurrence>(&["source", "start", "end", "id"]),
         ],
         create: std::sync::Arc::new(|budget| {
             Box::new(OccurrenceBounds {

@@ -625,10 +625,10 @@ pub(crate) fn flow_path_invariants() -> Vec<Invariant> {
             ValidationInput::of::<FlowCallPath>(&["id"]),
             ValidationInput::of::<super::calls::CallSyntax>(&["id"]),
             ValidationInput::of::<super::calls::CallArgument>(&["id"]),
-            ValidationInput::of::<FlowCallStep>(&["path", "ordinal"]),
+            ValidationInput::of::<FlowCallStep>(&["path", "ordinal", "id"]),
             ValidationInput::of::<FlowUse>(&["id"]),
             ValidationInput::of::<FlowValueObservation>(&["id"]),
-            ValidationInput::of::<FlowValuePathObservation>(&["value"]),
+            ValidationInput::of::<FlowValuePathObservation>(&["value", "id"]),
         ],
         create: std::sync::Arc::new(|budget| {
             Box::new(PathCheck {

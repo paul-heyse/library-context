@@ -584,7 +584,7 @@ pub(crate) fn boundary_invariants() -> Vec<Invariant> {
             ValidationInput::of::<ProviderCoverage>(&["id"]),
             ValidationInput::of::<SubjectBoundary>(&["id"]),
             ValidationInput::of::<AttachmentOutcome>(&["id"]),
-            ValidationInput::of::<AttachmentCandidate>(&["outcome"]),
+            ValidationInput::of::<AttachmentCandidate>(&["outcome", "id"]),
         ],
         create: std::sync::Arc::new(|budget| {
             Box::new(BoundaryCheck {
