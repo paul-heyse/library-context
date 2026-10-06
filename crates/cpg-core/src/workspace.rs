@@ -1177,6 +1177,11 @@ pub struct CheckedInputs {
 }
 impl CheckedInputs {
     pub fn inputs(&self) -> &CompletedInputs { &self.inputs }
+    /// Project an admitted authority onto an exact immutable dependency subset. No rows are
+    /// read again; the selected descriptors retain the same attempt and admission policy.
+    pub fn select(&self, required: &[lctx_model::domain::ValidationInput]) -> Result<Self, ModelError> {
+        Ok(Self { inputs: self.inputs.select(required)?, attempt: self.attempt.clone(), policy: self.policy })
+    }
     pub fn require(&self, workspace: &Workspace, inputs: &CompletedInputs) -> Result<(), ModelError> {
         if self.inputs.relations.len() != inputs.relations.len() { return Err(ModelError::Conflict("checked compiler input domain")); }
         self.require_subset(workspace, inputs)
