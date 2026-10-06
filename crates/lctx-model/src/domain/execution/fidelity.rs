@@ -18,7 +18,7 @@ pub struct ExecutionMembership {
 #[derive(Clone, Copy)]
 pub enum ExecutionMembershipContext { EnrichedInvocation, EnrichedContextItem }
 #[derive(Clone, Copy)]
-enum Kind { Expression, Statement, Body, Header, Release, Invocation, EnrichedStatement, EnrichedBody, Fresh, Modeled, Definition, ContextBinding, Context, Capture }
+enum Kind { Expression, Statement, Body, Header, Release, Invocation, EnrichedStatement, EnrichedBody, Fresh, Modeled, Definition, ContextBinding, Context, Capture, EnrichedFrames }
 mod enriched;
 impl Kind {
     fn name(self) -> &'static str { match self {
@@ -60,6 +60,7 @@ impl Kind {
         ExecutionScope { root: self.root(), memberships,joins:Vec::new() }
     }
     fn inputs(self) -> Vec<ValidationInput> {
+        if matches!(self,Self::EnrichedFrames) {return enriched::frame_inputs();}
         let mut inputs = vec![self.root(), ValidationInput::of::<AssertionQualification>(&["id"]),
             ValidationInput::of::<CoverageScope>(&["id"]), ValidationInput::of::<Occurrence>(&["id"]),
             ValidationInput::of::<SourceArtifact>(&["id"]), ValidationInput::of::<input::ArtifactUse>(&["id"]), ValidationInput::of::<Module>(&["id"]),
@@ -119,7 +120,7 @@ macro_rules! fields {($apply:ident) => {$apply! {
     contexts:super::context_execution::ContextExecution, context_sources:super::context_execution::ContextSource,
     context_members:super::context_execution::ContextMember, context_items:super::context_execution::ContextItem,
     captured:super::capture_bridge::CapturedEntryBinding, captured_values:super::capture_bridge::CapturedValueSource,
-    placements:lexical::SyntaxPlacement, call_arguments:CallArgument, provider_symbols:ProviderSymbol, parameter_entities:ParameterEntity, call_targets:CallTarget, call_destinations:CallDestination, signature_enumerations:SignatureEnumerationObservation,
+    placements:lexical::SyntaxPlacement, call_arguments:CallArgument, provider_symbols:ProviderSymbol, parameter_entities:ParameterEntity, call_targets:CallTarget, call_destinations:CallDestination, signature_enumerations:SignatureEnumerationObservation, enriched_inputs:analysis::enriched_execution::AnalysisInput, enriched_parents:analysis::enriched_execution::InvocationSource,
 }};}
 macro_rules! data {($($field:ident:$ty:ty,)*) => {
     struct Check {kind:Kind, budget:ResourceBudget, $( $field:Rows<$ty>, )*}
@@ -261,7 +262,7 @@ impl Check {
 }
 impl InvariantCheck for Check {
     fn visit(&mut self, name:&str, batch:&arrow_array::RecordBatch) -> Result<(), ModelError> { Check::visit(self, name, batch) }
-    fn execution_scope(&self) -> Option<ExecutionScope> {Some(self.kind.scope())}
+    fn execution_scope(&self) -> Option<ExecutionScope> {if matches!(self.kind,Kind::EnrichedFrames) {None}else{Some(self.kind.scope())}}
     fn visit_input(&mut self, input:&ValidationInput, batch:&arrow_array::RecordBatch) -> Result<(), ModelError> {
         // The workspace enforces the selected immutable epoch. Admission reads the
         // advertised final vocabulary, including qualifications authored after Facts.
@@ -370,7 +371,7 @@ impl InvariantCheck for Check {
     }
 }
 pub fn invariants() -> Vec<Invariant> {
-    [Kind::Expression, Kind::Statement, Kind::Body, Kind::Header, Kind::Release, Kind::Invocation, Kind::EnrichedStatement, Kind::EnrichedBody, Kind::Fresh, Kind::Modeled, Kind::Definition, Kind::ContextBinding, Kind::Context, Kind::Capture].into_iter().map(|kind| Invariant {
+    [Kind::Expression, Kind::Statement, Kind::Body, Kind::Header, Kind::Release, Kind::Invocation, Kind::EnrichedStatement, Kind::EnrichedBody, Kind::Fresh, Kind::Modeled, Kind::Definition, Kind::ContextBinding, Kind::Context, Kind::Capture, Kind::EnrichedFrames].into_iter().map(|kind| Invariant {
         purpose:InvariantPurpose::Admission, name:kind.name(), revision:1, inputs:kind.inputs(),
         create:std::sync::Arc::new(move |budget| Box::new(Check::new(kind, budget))),
     }).collect()
@@ -575,6 +576,27 @@ mod fidelity_controls {
         let mut header=check.headers.iter().next().unwrap().clone();header.attempt=attempt.id();
         check.attempts=Rows::new(&check.budget);check.attempts.insert(attempt).unwrap();check.headers=Rows::new(&check.budget);check.headers.insert(header).unwrap();
         let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("binding is not Bound"),"{error}");
+    }
+
+    fn enriched_frames()->Check {
+        let mut check=enriched_statement();check.kind=Kind::EnrichedFrames;
+        let source_definition=super::super::configuration::source_calls().1;
+        let source=analysis::source_call::AnalysisInvocation::new(id(1),id(2),source_definition.id(),None,[]).0;
+        let parent=analysis::enriched_execution::InvocationSource::SourceCallAnalysis {invocation:source.id()};
+        let definition=check.enriched_frames.iter().next().unwrap().definition;
+        let (frame,inputs)=analysis::enriched_execution::AnalysisInvocation::new(id(1),id(2),definition,None,[parent.id()]);
+        check.definitions.insert(source_definition).unwrap();check.source.insert(source).unwrap();check.enriched_parents.insert(parent).unwrap();check.enriched_frames=Rows::new(&check.budget);check.enriched_frames.insert(frame).unwrap();for input in inputs {check.enriched_inputs.insert(input).unwrap();}check
+    }
+    #[test]
+    fn portable_enriched_frame_inventory_checks_omitted_parent_and_absent_whole_frame() {
+        assert!(Box::new(enriched_frames()).finish().is_ok());
+        let mut check=enriched_frames();let frame=check.enriched_frames.iter().next().unwrap();let omitted=analysis::enriched_execution::AnalysisInvocation::new(frame.input,frame.context,frame.definition,None,[]).0;
+        check.enriched_frames=Rows::new(&check.budget);check.enriched_frames.insert(omitted).unwrap();check.enriched_inputs=Rows::new(&check.budget);
+        let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("complete SourceCall parent domain"),"{error}");
+        let mut check=enriched_frames();check.enriched_frames=Rows::new(&check.budget);check.enriched_inputs=Rows::new(&check.budget);
+        let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("complete actual frame domain"),"{error}");
+        let mut check=enriched_frames();let mut extra=check.source.iter().next().unwrap().clone();extra.sources=ContentHash::of(b"another actual same-context source capture");check.source.insert(extra).unwrap();
+        let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("complete SourceCall parent domain"),"{error}");
     }
 
 }

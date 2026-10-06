@@ -6,13 +6,13 @@ pub(super) fn name(kind:Kind)->&'static str {match kind {
     Kind::EnrichedStatement=>"enriched_statement_fidelity",Kind::EnrichedBody=>"enriched_body_fidelity",
     Kind::Fresh=>"enriched_fresh_fidelity",Kind::Modeled=>"enriched_modeled_fidelity",
     Kind::Definition=>"enriched_definition_fidelity",Kind::ContextBinding=>"enriched_binding_fidelity",
-    Kind::Context=>"enriched_context_fidelity",Kind::Capture=>"enriched_capture_fidelity",_=>unreachable!(),
+    Kind::Context=>"enriched_context_fidelity",Kind::Capture=>"enriched_capture_fidelity",Kind::EnrichedFrames=>"enriched_frame_fidelity",_=>unreachable!(),
 }}
 pub(super) fn root(kind:Kind)->ValidationInput {match kind {
     Kind::EnrichedStatement=>ValidationInput::of::<e::StatementExecution>(&["id"]),Kind::EnrichedBody=>ValidationInput::of::<e::BodyExecution>(&["id"]),
     Kind::Fresh=>ValidationInput::of::<e::SourceExecutionInvocation>(&["id"]),Kind::Modeled=>ValidationInput::of::<m::ModeledCallEvaluation>(&["id"]),
     Kind::Definition=>ValidationInput::of::<d::DefinitionEvaluation>(&["id"]),Kind::ContextBinding=>ValidationInput::of::<b::ContextEntryBinding>(&["id"]),
-    Kind::Context=>ValidationInput::of::<c::ContextExecution>(&["id"]),Kind::Capture=>ValidationInput::of::<capture::CapturedEntryBinding>(&["id"]),_=>unreachable!(),
+    Kind::Context=>ValidationInput::of::<c::ContextExecution>(&["id"]),Kind::Capture=>ValidationInput::of::<capture::CapturedEntryBinding>(&["id"]),Kind::EnrichedFrames=>ValidationInput::of::<analysis::enriched_execution::AnalysisInvocation>(&["id"]),_=>unreachable!(),
 }}
 pub(super) fn scope(kind:Kind)->ExecutionScope {
     let mut memberships=vec![
@@ -51,8 +51,8 @@ pub(super) fn inputs(kind:Kind)->Vec<ValidationInput> {
 }
 impl Check {
     fn enriched_frame(&self,id:Id<analysis::enriched_execution::AnalysisInvocation>)->Result<(&analysis::enriched_execution::AnalysisInvocation,Id<models::ModelCatalog>),ModelError> {
-        // Exact complete SourceCall-parent membership belongs to independent invocation/expected
-        // owner admission, selected for fresh and detached artifacts; do not replay its inventory here.
+        // The independent compact enriched_frame_fidelity admission owns complete parent
+        // membership, including absent Enriched frames. Per-value checks only borrow that frame.
         let frame=need(&self.enriched_frames,id)?;let definition=need(&self.definitions,frame.definition)?;
         let parameters=need(&self.method_parameters,definition.parameters)?;
         let catalog=parameters.model_catalog.ok_or_else(||invalid("Enriched catalog absent"))?;
@@ -124,6 +124,7 @@ impl Check {
     pub(super) fn finish_enriched(&self)->Result<(),ModelError> {
         let _scratch=self.budget.reserve("enriched-fidelity-members",self.member_allowance()?)?;
         match self.kind {
+            Kind::EnrichedFrames=>self.finish_enriched_frames()?,
             Kind::EnrichedStatement=>for row in self.enriched_statements.iter() {
                 let frame=self.enriched_site(row.invocation,row.qualification,row.statement,row.owner)?;
                 if !crate::domain::execution::completion_production::is_statement(need(&self.occurrences,row.statement)?.syntax_kind) {return Err(invalid("Enriched statement source kind"));}
@@ -225,5 +226,39 @@ impl Check {
         let mut items_digest=KeySink::new("context-items");
         for item in items {item.item.encode(&mut items_digest);item.site.encode(&mut items_digest);item.class.encode(&mut items_digest);item.protocol.encode(&mut items_digest);item.allocation.encode(&mut items_digest);item.initialization.encode(&mut items_digest);item.enumeration.encode(&mut items_digest);item.entry_actual.encode(&mut items_digest);item.exit_input.encode(&mut items_digest);item.exit_output.encode(&mut items_digest);item.suppressed.encode(&mut items_digest);}
         if items_digest.finish()!=row.items || ordered_digest("context-sources",sources)!=row.sources {return Err(invalid("Enriched context ordered member digest"));}Ok(())
+    }
+}
+
+/// Complete frame topology is compact; it must run even with no advertised Enriched rows.
+pub(super) fn frame_inputs()->Vec<ValidationInput> {
+    vec![ValidationInput::of::<analysis::enriched_execution::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::enriched_execution::AnalysisInput>(&["id"]),ValidationInput::of::<analysis::enriched_execution::InvocationSource>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),ValidationInput::of::<analysis::MethodParameters>(&["id"])]
+}
+impl Check {
+    fn finish_enriched_frames(&self)->Result<(),ModelError> {
+        let count=self.source.len().checked_add(self.enriched_frames.len()).and_then(|n|n.checked_add(self.enriched_inputs.len())).ok_or_else(||invalid("Enriched frame allowance"))?;
+        let _scratch=self.budget.reserve("enriched-fidelity-frame-topology",count.checked_mul(256).ok_or_else(||invalid("Enriched frame allowance"))?)?;
+        let mut expected=std::collections::BTreeMap::<_,std::collections::BTreeSet<_>>::new();
+        for source in self.source.iter() {
+            self.definition(source.definition,super::super::configuration::source_calls().1)?;
+            if source.subject.is_some() {return Err(invalid("Enriched predecessor is not whole SourceCall frame"));}
+            expected.entry((source.input,source.context)).or_default().insert(analysis::enriched_execution::InvocationSource::SourceCallAnalysis {invocation:source.id()}.id());
+        }
+        let mut actual=std::collections::BTreeSet::new();
+        for frame in self.enriched_frames.iter() {
+            self.enriched_frame(frame.id())?;
+            let key=(frame.input,frame.context);
+            if !actual.insert(key) {return Err(invalid("Enriched frame domain duplicate"));}
+            let parents=expected.get(&key).ok_or_else(||invalid("Enriched frame has no SourceCall frame"))?;
+            let mut observed=std::collections::BTreeSet::new();
+            for input in self.enriched_inputs.iter().filter(|input|input.invocation==frame.id()) {
+                let analysis::enriched_execution::InvocationSource::SourceCallAnalysis {invocation}=need(&self.enriched_parents,input.parent)? else {return Err(invalid("Enriched parent is not SourceCallAnalysis"));};
+                if need(&self.source,*invocation).is_err() || !observed.insert(input.parent) {return Err(invalid("Enriched parent missing or duplicate"));}
+            }
+            let mut digest=KeySink::new("analysis-invocation-inputs");for parent in parents {parent.encode(&mut digest);}
+            if &observed!=parents || digest.finish()!=frame.inputs {return Err(invalid("Enriched exact complete SourceCall parent domain"));}
+        }
+        if actual.len()!=expected.len() || expected.keys().any(|key|!actual.contains(key)) {return Err(invalid("Enriched complete actual frame domain"));}
+        if self.enriched_inputs.iter().any(|input|self.enriched_frames.get(input.invocation).is_none()) {return Err(invalid("Enriched parent membership has no invocation"));}
+        Ok(())
     }
 }
