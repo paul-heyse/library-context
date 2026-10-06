@@ -453,7 +453,7 @@ fn describe_indexed(
             })?;
             if row.status != CoverageStatus::CompleteUnderStatedModel {
                 out.gap(
-                    ProjectionGapSubject::Coverage { coverage: row.id() },
+                    ProjectionGapSubject::Coverage { coverage: row.id },
                     ProjectionGapReason::IncompleteCoverage,
                 )?;
             }

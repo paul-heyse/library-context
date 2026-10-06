@@ -409,8 +409,9 @@ impl Workspace {
                 if !nonempty {continue;}
             }
             let normalization_scope=check.normalization_scope();
-            if let Some(scope)=normalization_scope {
-                let declared_roots=scope.roots();
+            let projection_scope=check.projection_scope();
+            let applicability_roots=normalization_scope.map(|scope|scope.roots()).or_else(||projection_scope.map(|scope|scope.roots()));
+            if let Some(declared_roots)=applicability_roots {
                 // A missing requested candidate stream cannot establish an empty domain.
                 // Only actual complete-empty roots and declared unrequested flow roots do.
                 if declared_roots.iter().all(|root|names.contains(root.name())||unrequested.contains(root.name())) {
@@ -428,6 +429,18 @@ impl Workspace {
             }
             if let Some(input)=invariant.inputs.iter().find(|input|!names.contains(input.name())&&!unrequested.contains(input.name())) {
                 return Err(ModelError::Invalid(format!("{} requires validation premise {} outside scope",invariant.name,input.name())));
+            }
+            if let Some(scope)=projection_scope {
+                drop(check);
+                let mut tables=Vec::with_capacity(invariant.inputs.len());
+                for input in &invariant.inputs {
+                    let alias=if unrequested.contains(input.name()){input.name().to_owned()}
+                        else if let Some(inputs)=selected{inputs.validation_table(input)?}
+                        else{Self::validation_table(input,&frozen_tables)?.to_owned()};
+                    tables.push(crate::consumed_rows::ClosureTable{relation:self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias});
+                }
+                crate::normalize::validate_projections(scope,&invariant,tables,&session,self.budget(),&self.cancellation).await?;
+                continue;
             }
             if let Some(scope)=normalization_scope {
                 drop(check);
@@ -1556,16 +1569,18 @@ struct Writer<R: Record> {
     path: PathBuf,
     pending: Vec<R>,
     bytes: usize,
-    charge: StateCharge,
+    charge: Box<dyn Reservation>,
     limits: TransferLimits,
     contribution: bool,
 }
 impl<R: Record> Writer<R> {
     fn flush(&mut self, model: &ValidatedModel, budget: &ResourceBudget) -> Result<(), ModelError> {
         if !self.pending.is_empty() {
-            let batch = Batch::new(model, std::mem::take(&mut self.pending), budget)?;
+            // Transfer the existing row reservation into encoding; these are the same rows,
+            // rather than an additional resident copy of the pending batch.
+            let charge=std::mem::replace(&mut self.charge,budget.reserve(R::NAME,0)?);
+            let batch = Batch::with_reservation(model, std::mem::take(&mut self.pending), charge)?;
             self.ipc.write(batch.arrow()).map_err(ModelError::codec)?;
-            self.charge = StateCharge::new(budget, R::NAME);
             self.bytes = 0;
         }
         Ok(())
@@ -1682,7 +1697,7 @@ impl ProducerOutput {
                 path,
                 pending: Vec::new(),
                 bytes: 0,
-                charge: StateCharge::new(self.workspace.budget(), R::NAME),
+                charge: self.workspace.budget().reserve(R::NAME,0)?,
                 limits: TransferLimits {
                     rows: self.workspace.options.batch_rows,
                     ..Default::default()
@@ -1747,7 +1762,7 @@ impl ProducerOutput {
             {
                 writer.flush(&self.workspace.model, self.workspace.budget())?;
             }
-            writer.charge.grow(bytes)?;
+            writer.charge.try_resize(writer.charge.size().saturating_add(bytes))?;
             writer.pending.push(row);
             writer.bytes += bytes;
             Ok(())
@@ -1794,9 +1809,11 @@ impl ProducerOutput {
             )));
         }
         let input_snapshots: Arc<[_]> = self.inputs.snapshots().collect::<Vec<_>>().into();
+        // Seal every pending typed batch before external ordering starts. Keeping the other
+        // output writers alive here otherwise retains unrelated rich rows during each sort.
+        let pending=writers.into_values().map(|writer|writer.close(&self.workspace.model,self.workspace.budget())).collect::<Result<Vec<_>,_>>()?;
         let mut completed = Vec::new();
-        for (_, writer) in writers {
-            let pending = writer.close(&self.workspace.model, self.workspace.budget())?;
+        for pending in pending {
             completed.push(
                 self.workspace
                     .order(

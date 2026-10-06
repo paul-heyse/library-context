@@ -213,7 +213,7 @@ async fn run(data:&CallableData,memory:usize,batch_rows:usize)->Arc<Workspace> {
     assert!(workspace.budget().reserved()<1<<20);workspace
 }
 async fn check_admission(workspace:&Workspace,replace:impl FnOnce(&datafusion::prelude::SessionContext,&[cpg_core::consumed_rows::ClosureTable]))->Result<(),ModelError> {
-    let model=model()?;let invariant=invariants().into_iter().find(|invariant|invariant.purpose==InvariantPurpose::Admission).unwrap();
+    let model=model()?;let invariant=lctx_model::domain::normalized::callable_normalization::invariants().into_iter().find(|invariant|invariant.purpose==InvariantPurpose::Admission).unwrap();
     let inputs=workspace.inputs("callable-admission-fixture",stages::Profile::Catalog,invariant.inputs.iter().map(ValidationInput::name))?;
     let session=inputs.session(workspace).await?;
     let tables=invariant.inputs.iter().map(|input| {let relation=model.relation(input.name()).unwrap().clone();let alias=inputs.table_for(&ValidationInput::of_relation(&relation,&["id"]))?;Ok(cpg_core::consumed_rows::ClosureTable {relation,alias})}).collect::<Result<Vec<_>,ModelError>>()?;
@@ -328,7 +328,7 @@ async fn decorator_container_keeps_all_direct_children_before_recognition() {
     use lctx_model::domain::{lexical::*,normalized::links::*};
     for multiple in [false,true] {
         let (mut data,budget,_,q)=fixture();
-        let native=data.traits.iter().next().unwrap().clone();data.traits=Rows::new(&budget);data.traits.insert(FunctionTraitObservation {staticmethod:true,..native}).unwrap();
+        let native=data.traits.iter().next().unwrap().clone();data.traits=Rows::new(&budget);data.traits.insert(FunctionTraitObservation {staticmethod:true,defining_class:Some(id(95)),..native}).unwrap();
         let root=data.occurrences.iter().find(|row|row.syntax_kind==SyntaxKind::StmtFunctionDef).unwrap().clone();
         let decorator=Occurrence {start:1,end:4,syntax_kind:SyntaxKind::Decorator,role:OccurrenceRole::Syntax,structural_path:vec![0,0,2],..root.clone()};data.occurrences.insert(decorator.clone()).unwrap();
         let bare=Occurrence {start:2,end:3,syntax_kind:SyntaxKind::ExprName,role:OccurrenceRole::Read,structural_path:vec![0,0,2,0],..root.clone()};data.occurrences.insert(bare.clone()).unwrap();

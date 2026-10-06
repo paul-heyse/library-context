@@ -604,7 +604,7 @@ impl<R: Record> Batch<R> {
         Self::with_reservation(model, rows, reservation)
     }
     /// `reservation` already covers `rows`; it grows before encoding and settles on the encoded size.
-    pub(crate) fn with_reservation(
+    pub fn with_reservation(
         model: &ValidatedModel,
         mut rows: Vec<R>,
         mut reservation: Box<dyn Reservation>,

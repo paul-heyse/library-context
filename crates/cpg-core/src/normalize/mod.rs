@@ -35,21 +35,6 @@ impl<T> ProducedNormalization<T> {
 fn selected_premises(access: &CompletedInputs, inputs: Vec<ValidationInput>) -> Result<CompletedInputs, ModelError> {
     access.select(&inputs.into_iter().filter(|input| access.table_for(input).is_ok()).collect::<Vec<_>>())
 }
-/// One transfer-bounded stream at a time. The typed collector admits every retained row; the
-/// source-bound session and PreparedQuery own remote scan admission and stream lifetime.
-async fn load<R: Record>(
-    session: &datafusion::prelude::SessionContext,
-    rows: &mut Rows<R>,
-) -> Result<(), ModelError> {
-    let query = crate::sql::query(session, &format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        rows.decode(&batch)?;
-    }
-    Ok(())
-}
 // A compact exact-key work list closes a semantic kernel's premises without retaining a copy of
 // any other scope. Reverse candidate selection is SQL; forward nominal references use bounded
 // key reads against the immutable, qualified workspace views.
@@ -520,8 +505,6 @@ pub(crate) async fn receivers_produced(
     let table = access.table_for(&declaration)?;
     macro_rules! declare {($($field:ident: $ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
     lctx_model::normalized_receiver_outputs!(declare);
-    let mut emitted = charged::ChargedSet::default();
-    let mut emitted_charge = charged::StateCharge::new(runtime.budget(), "receiver-emitted-ids");
     let mut stream = crate::sql::query(&session, &format!("SELECT * FROM {} ORDER BY id", crate::consumed_rows::identifier(&table)))
         .await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
@@ -531,7 +514,7 @@ pub(crate) async fn receivers_produced(
             let data = scopes.data(&access, target.id(), runtime.budget()).await?;
             let (rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || receiver::normalize_target_produced(&data, target.id(), runtime.budget()))?;
             verified.append(authority)?;
-            macro_rules! write {($($field:ident: $ty:ty,)*) => {$(for row in rows.$field.iter() {if emitted.insert(&mut emitted_charge, (<$ty>::NAME, *row.id().bytes()))? { output.push(row.clone()).await?; }})*};}
+            macro_rules! write {($($field:ident: $ty:ty,)*) => {$(for row in rows.$field.iter() {output.push(row.clone()).await?;})*};}
             lctx_model::normalized_receiver_outputs!(write);
             tokio::task::yield_now().await;
         }
@@ -541,8 +524,8 @@ pub(crate) async fn receivers_produced(
     Ok(ProducedNormalization { premises, outputs, value: verified })
 }
 
-async fn emit_event_rows(rows:&normalized::event_normalization::EventOutput,output:&ProducerOutput,emitted:&mut charged::ChargedSet<(&'static str,[u8;16])>,charge:&mut charged::StateCharge)->Result<(),ModelError>{
-    macro_rules! write {($($field:ident:$record:ty,)*)=>{$(for row in rows.$field.iter(){if emitted.insert(charge,(<$record>::NAME,*row.id().bytes()))?{output.push(row.clone()).await?;}})*};}
+async fn emit_event_rows(rows:&normalized::event_normalization::EventOutput,output:&ProducerOutput)->Result<(),ModelError>{
+    macro_rules! write {($($field:ident:$record:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
     lctx_model::normalized_event_outputs!(write);Ok(())
 }
 
@@ -559,8 +542,6 @@ pub(crate) async fn events_produced(
     let mut verified = event_normalization::normalize_events_produced(&EventData::new(runtime.budget()), receivers, runtime.budget())?.1;
     let mut seen: charged::ChargedSet<EventKey> = Default::default();
     let mut charge = charged::StateCharge::new(runtime.budget(), "event-root-keys");
-    let mut emitted = charged::ChargedSet::default();
-    let mut emitted_charge = charged::StateCharge::new(runtime.budget(), "event-output-ids");
     macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
     lctx_model::normalized_event_outputs!(declare);
     // Every provider site, target and resolution is a root, including unsupported/empty sets.
@@ -585,7 +566,7 @@ pub(crate) async fn events_produced(
                 let data = scopes.event_data(&access, root.id(), runtime.budget()).await?;
                 let (rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || event_normalization::normalize_event_produced(&data, key, receivers, runtime.budget()))?;
                 verified.append(authority)?;
-                emit_event_rows(&rows,&output,&mut emitted,&mut emitted_charge).await?;
+                emit_event_rows(&rows,&output).await?;
                 tokio::task::yield_now().await;
             }
         }
@@ -620,8 +601,6 @@ pub(crate) async fn bindings_prepared(
     let session = access.session(runtime).await?;
     let scopes = call_scope::CallScopes::prepare(&access, &session, model, runtime.budget(), true).await?;
     let mut application = binding_normalization::normalize_produced(&BindingData::new(runtime.budget()), receivers, events, runtime.budget())?.1;
-    let mut emitted = charged::ChargedSet::default();
-    let mut charge = charged::StateCharge::new(runtime.budget(), "binding-output-ids");
     macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
     lctx_model::normalized_binding_outputs!(declare);
     let input = ValidationInput::of::<normalized::events::NormalizedCallEvent>(&["id"]);
@@ -634,7 +613,7 @@ pub(crate) async fn bindings_prepared(
             let data = scopes.binding_data(&access, event.id(), runtime.budget()).await?;
             let (rows, verified) = crate::stage_runtime::borrowed_cpu(access.name(), || binding_normalization::normalize_event_produced(&data, event.id(), receivers, events, runtime.budget()))?;
             application.append(verified)?;
-            macro_rules! write {($($field:ident:$ty:ty,)*) => {$(for row in rows.$field.iter() { if emitted.insert(&mut charge, (<$ty>::NAME, *row.id().bytes()))? { output.push(row.clone()).await?; } })*};}
+            macro_rules! write {($($field:ident:$ty:ty,)*) => {$(for row in rows.$field.iter() { output.push(row.clone()).await?; })*};}
             lctx_model::normalized_binding_outputs!(write);
             tokio::task::yield_now().await;
         }
@@ -662,11 +641,9 @@ pub async fn projections(
     let prepared=data.prepare(runtime.budget())?;
     macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
     lctx_model::projection_outputs!(declare);
-    let mut emitted=charged::ChargedSet::default();
-    let mut charge=charged::StateCharge::new(runtime.budget(),"projection-output-ids");
     for key in prepared.keys(){
         let rows=crate::stage_runtime::borrowed_cpu(access.name(),||prepared.produce(key,runtime.budget()))?;
-        macro_rules! write {($($field:ident:$ty:ty,)*) => {$(for row in rows.$field.iter(){if emitted.insert(&mut charge,(<$ty>::NAME,*row.id().bytes()))?{output.push(row.clone()).await?;}})*};}
+        macro_rules! write {($($field:ident:$ty:ty,)*) => {$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
         lctx_model::projection_outputs!(write);
         drop(rows);
         tokio::task::yield_now().await;
@@ -675,16 +652,6 @@ pub async fn projections(
 }
 
 pub(crate) mod pipeline;
-
-async fn compute<D: Send + 'static, O: Send + 'static>(
-    data: D,
-    budget: &lctx_model::domain::resources::ResourceBudget,
-    operation: impl FnOnce(&D, &lctx_model::domain::resources::ResourceBudget) -> Result<O, ModelError>
-    + Send
-    + 'static,
-) -> Result<O, ModelError> {
-    crate::stage_runtime::borrowed_cpu("normalization", || operation(&data, budget))
-}
 
 /// Assemble exact normalized scope outcomes over the private, admitted facts checkpoint.
 pub async fn coverage(

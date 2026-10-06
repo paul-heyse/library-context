@@ -130,13 +130,13 @@ mod projection_scope_controls {
         let (run,_)=ProviderRun::new(provider,context,input,ContentHash::of(b"projection"),[FactFamily::Calls]).unwrap();
         let coverage=ProviderCoverage{scope:scope.id(),provider:Some(provider),context,family:FactFamily::Calls,run:Some(run.id()),status:CoverageStatus::CompleteUnderStatedModel,reason:None,diagnostic:Some("d".repeat(256<<10))};
         let mut batches=BTreeMap::new();
-        macro_rules! batch {($ty:ty,$values:expr)=>{batches.insert(<$ty>::NAME,<$ty>::encode(&$values).unwrap());};}
+        macro_rules! batch {($ty:ty,$values:expr)=>{batches.insert(<$ty>::NAME,<$ty as Record>::encode(&$values).unwrap());};}
         batch!(SourceArtifact,[artifact]);batch!(Module,[module.clone()]);batch!(Occurrence,[occurrence.clone()]);
         batch!(CoverageScope,[scope]);batch!(ProviderRun,[run]);batch!(ProviderCoverage,[coverage]);
         batch!(normalized::entities::EntityRef,[normalized::entities::EntityRef::Module{module:module.id()},normalized::entities::EntityRef::Occurrence{occurrence:occurrence.id()}]);
         let mut compact=CompactProjectionData::new(&budget);
         macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({
-            let batch=batches.remove(<$ty>::NAME).unwrap_or_else(||<$ty>::encode(&[]).unwrap());
+            let batch=batches.remove(<$ty>::NAME).unwrap_or_else(||<$ty as Record>::encode(&[]).unwrap());
             let indices=compact_columns(<$ty>::NAME).map(|fields|fields.iter().map(|field|batch.schema().index_of(field).unwrap()).collect::<Vec<_>>());
             compact.visit(<$ty>::NAME,&match indices{Some(indices)=>batch.project(&indices).unwrap(),None=>batch.clone()}).unwrap();
             register(&session,<$ty>::NAME,batch);
@@ -156,7 +156,7 @@ mod projection_scope_controls {
             for row in produced.gaps.iter(){stored.gaps.insert(row.clone()).unwrap();}
             for row in produced.coverage.iter(){stored.coverage.insert(row.clone()).unwrap();}
         }
-        macro_rules! outputs {($($field:ident:$ty:ty,)*)=>{$(register(&session,<$ty>::NAME,<$ty>::encode(&stored.$field.iter().cloned().collect::<Vec<_>>()).unwrap());)*};}
+        macro_rules! outputs {($($field:ident:$ty:ty,)*)=>{$(register(&session,<$ty>::NAME,<$ty as Record>::encode(&stored.$field.iter().cloned().collect::<Vec<_>>()).unwrap());)*};}
         lctx_model::projection_outputs!(outputs);
         let model=model().unwrap();
         for invariant in projection::normalization::invariants(){
@@ -169,6 +169,6 @@ mod projection_scope_controls {
         let bad=ProjectionSourceAssessment{vertices:3,..missing.assessments.iter().next().unwrap().clone()};
         missing.assessments=Rows::new(&budget);missing.assessments.insert(bad).unwrap();
         assert!(prepared.validate_key(&missing,key,true,&budget).is_err());
-        drop((missing,stored,prepared,compact));assert_eq!(budget.reserved(),0);
+        drop((missing,stored,prepared));drop(compact);assert_eq!(budget.reserved(),0);
     }
 }
