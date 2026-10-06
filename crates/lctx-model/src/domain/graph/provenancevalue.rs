@@ -269,10 +269,20 @@ pub enum ProvenanceValue {
     CatalogDiagnosticUseTarget(crate::domain::catalog::evidence::DiagnosticUseTarget),
     NormalizedCallEventSource(crate::domain::normalized::events::CallEventSource),
     NormalizedCallEventSourceEvidence(crate::domain::normalized::events::CallEventSourceEvidence),
+    SelectionFieldLocationLink(crate::domain::catalog::evidence::FieldLocationLink),
+    SelectionConstructorCandidateLink(crate::domain::catalog::evidence::ConstructorCandidateLink),
+    SelectionFieldAccessAssessment(crate::domain::catalog::evidence::FieldAccessAssessment),
+    SelectionFieldLocation(crate::domain::local_fields::FieldLocation),
+    SelectionFieldLocationCandidate(crate::domain::local_fields::FieldLocationCandidate),
 }
 impl Key for ProvenanceValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
+            Self::SelectionFieldLocationLink(row)=>{sink.part(b"variant",&136u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SelectionConstructorCandidateLink(row)=>{sink.part(b"variant",&137u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SelectionFieldAccessAssessment(row)=>{sink.part(b"variant",&138u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SelectionFieldLocation(row)=>{sink.part(b"variant",&139u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SelectionFieldLocationCandidate(row)=>{sink.part(b"variant",&140u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::NormalizedCallEventSource(row)=>{sink.part(b"variant",&134u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::NormalizedCallEventSourceEvidence(row)=>{sink.part(b"variant",&135u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::CatalogSourceCharacterization(row)=>{sink.part(b"variant",&127u16.to_le_bytes());row.content_digest().encode(sink);},
@@ -1124,6 +1134,11 @@ impl Key for ProvenanceValue {
 impl ProvenanceValue {
     pub fn validate(&self) -> Result<(), ModelError> {
         match self {
+            Self::SelectionFieldLocationLink(row)=>row.validate(),
+            Self::SelectionConstructorCandidateLink(row)=>row.validate(),
+            Self::SelectionFieldAccessAssessment(row)=>row.validate(),
+            Self::SelectionFieldLocation(row)=>row.validate(),
+            Self::SelectionFieldLocationCandidate(row)=>row.validate(),
             Self::NormalizedCallEventSource(row)=>row.validate(),
             Self::NormalizedCallEventSourceEvidence(row)=>row.validate(),
             Self::CatalogSourceCharacterization(row)=>row.validate(),
@@ -1312,6 +1327,11 @@ impl ProvenanceValue {
     }
     pub fn references(&self) -> Vec<super::super::SemanticReference> {
         match self {
+            Self::SelectionFieldLocationLink(row)=>row.references(),
+            Self::SelectionConstructorCandidateLink(row)=>row.references(),
+            Self::SelectionFieldAccessAssessment(row)=>row.references(),
+            Self::SelectionFieldLocation(row)=>row.references(),
+            Self::SelectionFieldLocationCandidate(row)=>row.references(),
             Self::NormalizedCallEventSource(row)=>row.references(),
             Self::NormalizedCallEventSourceEvidence(row)=>row.references(),
             Self::CatalogSourceCharacterization(row)=>row.references(),
@@ -1500,6 +1520,11 @@ impl ProvenanceValue {
     }
     pub fn semantic_key(&self) -> SemanticKey {
         match self {
+            Self::SelectionFieldLocationLink(row)=>SemanticKey::of(row.id()),
+            Self::SelectionConstructorCandidateLink(row)=>SemanticKey::of(row.id()),
+            Self::SelectionFieldAccessAssessment(row)=>SemanticKey::of(row.id()),
+            Self::SelectionFieldLocation(row)=>SemanticKey::of(row.id()),
+            Self::SelectionFieldLocationCandidate(row)=>SemanticKey::of(row.id()),
             Self::NormalizedCallEventSource(row)=>SemanticKey::of(row.id()),
             Self::NormalizedCallEventSourceEvidence(row)=>SemanticKey::of(row.id()),
             Self::CatalogSourceCharacterization(row)=>SemanticKey::of(row.id()),

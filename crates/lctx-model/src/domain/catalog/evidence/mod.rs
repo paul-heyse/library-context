@@ -186,7 +186,7 @@ pub enum FieldAccessKind {
     Augment = 3,
 }
 /// Source access is retained with unknown receiver applicability; earlier exact witnesses own promotion.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_field_access_assessments")]
 pub struct FieldAccessAssessment {
     #[model(key)]

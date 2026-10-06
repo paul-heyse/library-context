@@ -669,6 +669,16 @@ pub fn reference_target(
     reference: &super::SemanticReference,
 ) -> Result<(Target, Option<EntityKind>), ModelError> {
     match reference.target {
+    <super::catalog::evidence::FieldLocationLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::ConstructorCandidateLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::FieldAccessAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::local_fields::FieldLocation as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::local_fields::FieldLocationCandidate as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::selection::Context as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::selection::Witness as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::selection::DomainContext as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::selection::DomainClosure as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::selection::DomainEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::normalized::events::CallEventSource as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::normalized::events::CallEventSourceEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::catalog::evidence::SourceCharacterization as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
@@ -9881,6 +9891,16 @@ impl GraphAssertionRecord for super::symbols::ModuleResolutionSupport {
 // Selected analytics retain their computation universe, weights, memberships, availability and
 // provenance. QualityStep iteration traces have no semantic/serving consumer and remain private.
 macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
+    SelectionFieldLocationLink:$crate::domain::catalog::evidence::FieldLocationLink,
+    SelectionConstructorCandidateLink:$crate::domain::catalog::evidence::ConstructorCandidateLink,
+    SelectionFieldAccessAssessment:$crate::domain::catalog::evidence::FieldAccessAssessment,
+    SelectionFieldLocation:$crate::domain::local_fields::FieldLocation,
+    SelectionFieldLocationCandidate:$crate::domain::local_fields::FieldLocationCandidate,
+    SelectionContext:$crate::domain::selection::Context,
+    SelectionWitness:$crate::domain::selection::Witness,
+    SelectionDomainContext:$crate::domain::selection::DomainContext,
+    SelectionDomainClosure:$crate::domain::selection::DomainClosure,
+    SelectionDomainEvidence:$crate::domain::selection::DomainEvidence,
     NormalizedCallEventSource:$crate::domain::normalized::events::CallEventSource,
     NormalizedCallEventSourceEvidence:$crate::domain::normalized::events::CallEventSourceEvidence,
     CatalogSourceCharacterization:$crate::domain::catalog::evidence::SourceCharacterization,
@@ -17306,4 +17326,33 @@ catalog_source_assertions! {
  CatalogDiagnosticUseLink:super::catalog::evidence::DiagnosticUseLink,
  CatalogDiagnosticUsePath:super::catalog::evidence::DiagnosticUsePath,
  CatalogDiagnosticUseTarget:super::catalog::evidence::DiagnosticUseTarget,
+}
+
+// Finite selection declarations and owned membership are part of the transported domain.
+// Digest-only parents cannot reconstruct their local universe without these exact children.
+macro_rules! selection_assertions {
+ ($($variant:ident:$ty:ty=>$payload:ident,$family:ident,$kind:ident),* $(,)?)=>{$(
+  impl From<$ty> for $payload{fn from(row:$ty)->Self{Self::$variant(row)}}
+  impl GraphAssertionRecord for $ty{
+   const GRAPH_KIND:AssertionKind=AssertionKind::$kind;
+   fn graph_payload(row:Self)->Assertion{
+    let qualification=row.references().into_iter().find(|r|r.target==super::assertion::AssertionQualification::NAME)
+      .map(|r|Qualification::Ref(entity_key(EntityKind::Qualification,r.target,&r.key))).unwrap_or(Qualification::Payload);
+    Assertion{source:Some(SemanticKey::of(row.id())),kind:Self::GRAPH_KIND,participants:vec![],qualification,
+      run:None,evidence:vec![],value:AssertionValue::$family(row.into()),derivation:None}
+   }
+  }
+ )*};
+}
+selection_assertions! {
+ SelectionContext:super::selection::Context=>AnalysisValue,Analysis,PredicateDomain,
+ SelectionWitness:super::selection::Witness=>AnalysisValue,Analysis,EvidenceAssociation,
+ SelectionDomainContext:super::selection::DomainContext=>MembershipValue,Membership,StructuralMembership,
+ SelectionDomainClosure:super::selection::DomainClosure=>MembershipValue,Membership,StructuralMembership,
+ SelectionDomainEvidence:super::selection::DomainEvidence=>MembershipValue,Membership,StructuralMembership,
+ SelectionFieldLocationLink:super::catalog::evidence::FieldLocationLink=>ProvenanceValue,Provenance,EvidenceAssociation,
+ SelectionConstructorCandidateLink:super::catalog::evidence::ConstructorCandidateLink=>ProvenanceValue,Provenance,EvidenceAssociation,
+ SelectionFieldAccessAssessment:super::catalog::evidence::FieldAccessAssessment=>ProvenanceValue,Provenance,EvidenceAssociation,
+ SelectionFieldLocation:super::local_fields::FieldLocation=>ProvenanceValue,Provenance,DerivedConclusion,
+ SelectionFieldLocationCandidate:super::local_fields::FieldLocationCandidate=>ProvenanceValue,Provenance,DeclarationCorrespondence,
 }

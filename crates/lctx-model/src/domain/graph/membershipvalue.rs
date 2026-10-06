@@ -14,10 +14,16 @@ pub enum MembershipValue {
     AnalyticConceptExtent(crate::domain::analytics::ConceptExtent),
     AnalyticConceptIntent(crate::domain::analytics::ConceptIntent),
     AnalyticImplicationMember(crate::domain::analytics::ImplicationMember),
+    SelectionDomainContext(crate::domain::selection::DomainContext),
+    SelectionDomainClosure(crate::domain::selection::DomainClosure),
+    SelectionDomainEvidence(crate::domain::selection::DomainEvidence),
 }
 impl Key for MembershipValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
+            Self::SelectionDomainContext(row)=>{sink.part(b"variant",&12u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SelectionDomainClosure(row)=>{sink.part(b"variant",&13u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SelectionDomainEvidence(row)=>{sink.part(b"variant",&14u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::TypeSequenceMember(row) => {
                 sink.part(b"variant", &(0u16).to_le_bytes());
                 row.content_digest().encode(sink);
@@ -73,6 +79,9 @@ impl Key for MembershipValue {
 impl MembershipValue {
     pub fn validate(&self) -> Result<(), ModelError> {
         match self {
+            Self::SelectionDomainContext(row)=>row.validate(),
+            Self::SelectionDomainClosure(row)=>row.validate(),
+            Self::SelectionDomainEvidence(row)=>row.validate(),
             Self::TypeSequenceMember(row) => row.validate(),
             Self::SymbolSequenceMember(row) => row.validate(),
             Self::AssumptionMember(row) => row.validate(),
@@ -90,6 +99,9 @@ impl MembershipValue {
     }
     pub fn references(&self) -> Vec<super::super::SemanticReference> {
         match self {
+            Self::SelectionDomainContext(row)=>row.references(),
+            Self::SelectionDomainClosure(row)=>row.references(),
+            Self::SelectionDomainEvidence(row)=>row.references(),
             Self::TypeSequenceMember(row) => row.references(),
             Self::SymbolSequenceMember(row) => row.references(),
             Self::AssumptionMember(row) => row.references(),
@@ -107,6 +119,9 @@ impl MembershipValue {
     }
     pub fn semantic_key(&self) -> SemanticKey {
         match self {
+            Self::SelectionDomainContext(row)=>SemanticKey::of(row.id()),
+            Self::SelectionDomainClosure(row)=>SemanticKey::of(row.id()),
+            Self::SelectionDomainEvidence(row)=>SemanticKey::of(row.id()),
             Self::TypeSequenceMember(row) => SemanticKey::of(row.id()),
             Self::SymbolSequenceMember(row) => SemanticKey::of(row.id()),
             Self::AssumptionMember(row) => SemanticKey::of(row.id()),

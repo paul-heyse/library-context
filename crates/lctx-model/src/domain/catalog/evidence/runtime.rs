@@ -9,7 +9,7 @@ use crate::domain::{
     normalized::Rows,
     *,
 };
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_field_location_links")]
 pub struct FieldLocationLink {
     #[model(key)]
@@ -23,7 +23,7 @@ pub struct FieldLocationLink {
     pub state: obligation::ObligationKind,
 }
 /// Earlier normalized constructor target/binding evidence is a source candidate, not execution.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_constructor_candidate_links")]
 pub struct ConstructorCandidateLink {
     #[model(key)]

@@ -55,10 +55,14 @@ pub enum AnalysisValue {
     AnalyticCommunityLabelAssessment(crate::domain::analytics::CommunityLabelAssessment),
     AnalyticLayerResult(crate::domain::analytics::LayerResult),
     AnalyticLayerNeighbour(crate::domain::analytics::LayerNeighbour),
+    SelectionContext(crate::domain::selection::Context),
+    SelectionWitness(crate::domain::selection::Witness),
 }
 impl Key for AnalysisValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
+            Self::SelectionContext(row)=>{sink.part(b"variant",&56u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SelectionWitness(row)=>{sink.part(b"variant",&57u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::RetrievalEmbeddingUse(row)=>{sink.part(b"variant",&54u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::RetrievalUnitRoot(row)=>{sink.part(b"variant",&55u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::LocalAssessment(row) => {
@@ -260,6 +264,8 @@ impl Key for AnalysisValue {
 impl AnalysisValue {
     pub fn validate(&self) -> Result<(), ModelError> {
         match self {
+            Self::SelectionContext(row)=>row.validate(),
+            Self::SelectionWitness(row)=>row.validate(),
             Self::RetrievalEmbeddingUse(row)=>row.validate(),
             Self::RetrievalUnitRoot(row)=>row.validate(),
             Self::LocalAssessment(row) => row.validate(),
@@ -318,6 +324,8 @@ impl AnalysisValue {
 impl AnalysisValue {
     pub fn references(&self) -> Vec<super::super::SemanticReference> {
         match self {
+            Self::SelectionContext(row)=>row.references(),
+            Self::SelectionWitness(row)=>row.references(),
             Self::RetrievalEmbeddingUse(row)=>row.references(),
             Self::RetrievalUnitRoot(row)=>row.references(),
             Self::LocalAssessment(row) => row.references(),
@@ -376,6 +384,8 @@ impl AnalysisValue {
 impl AnalysisValue {
     pub fn semantic_key(&self) -> super::SemanticKey {
         match self {
+            Self::SelectionContext(row)=>SemanticKey::of(row.id()),
+            Self::SelectionWitness(row)=>SemanticKey::of(row.id()),
             Self::RetrievalEmbeddingUse(row)=>super::SemanticKey::of(row.id()),
             Self::RetrievalUnitRoot(row)=>super::SemanticKey::of(row.id()),
             Self::LocalAssessment(row) => super::SemanticKey::of(row.id()),

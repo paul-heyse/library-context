@@ -74,7 +74,7 @@ pub struct FieldLocationAssessment {
     pub reason: FieldLocationReason,
 }
 /// One read-shaped location under its actual receiver read domain. State remains explicitly open.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "local_field_locations", rule = "receiver_entry_field_location")]
 pub struct FieldLocation {
     #[model(key)]
@@ -99,7 +99,7 @@ pub struct FieldLocation {
     pub state: FieldStateBoundary,
 }
 /// The declared field is a source typing candidate; it is not an allocated object-state identity.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "local_field_location_candidates",
     rule = "source_class_field_candidate"
