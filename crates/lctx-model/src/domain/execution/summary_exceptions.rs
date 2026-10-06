@@ -148,7 +148,8 @@ fn filter_sink(
     let reason = obligation::ObligationKind::UnsupportedControlFlow;
     let _iteration = budget.reserve(
         "summary-raise-handler-filter",
-        data.occurrence_values().count()
+        data.occurrence_values()
+            .count()
             .saturating_mul(size_of::<Id<source::Occurrence>>())
             .saturating_add(outcomes.len().saturating_mul(64)),
     )?;
@@ -240,7 +241,16 @@ mod tests {
         }
         let mut outcomes = Rows::new(&b);
         let run = |data: &SummaryData, rows: &Rows<SummaryExceptionOutcome>| {
-            filter_sink(data, rows, id(3), id(4), id(5), &source::properties::OccurrenceProperties::from_row(&sink), &b).unwrap()
+            filter_sink(
+                data,
+                rows,
+                id(3),
+                id(4),
+                id(5),
+                &source::properties::OccurrenceProperties::from_row(&sink),
+                &b,
+            )
+            .unwrap()
         };
         assert_eq!(
             run(&data, &outcomes),

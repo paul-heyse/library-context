@@ -407,29 +407,34 @@ pub(super) fn emit(
     catalog: &Catalog,
     verified: &VerifiedBindings,
     invocation: &analysis::model::AnalysisInvocation,
-    scope:super::model_production::ProductionScope,
+    scope: super::model_production::ProductionScope,
     out: &mut ModelRecords,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    emit_with_inputs(data,catalog,verified,invocation,scope,out,budget,None)
+    emit_with_inputs(
+        data, catalog, verified, invocation, scope, out, budget, None,
+    )
 }
 pub(super) fn emit_with_inputs(
     data: &ModelData,
     catalog: &Catalog,
     verified: &VerifiedBindings,
     invocation: &analysis::model::AnalysisInvocation,
-    scope:super::model_production::ProductionScope,
+    scope: super::model_production::ProductionScope,
     out: &mut ModelRecords,
     budget: &ResourceBudget,
     prepared: Option<&super::model_construction::PreparedConstructionInputs<'_>>,
 ) -> Result<(), ModelError> {
-    if let Some(prepared)=prepared {prepared.require(&data.early,budget)?;}
+    if let Some(prepared) = prepared {
+        prepared.require(&data.early, budget)?;
+    }
     let b = &data.early.bindings;
     let extra = &data.protocol.target;
     for t in b.targets.iter().filter(|t| {
-        scope.target(data,t) && b.qualifications
-            .get(t.qualification)
-            .is_some_and(|q| q.context == invocation.context)
+        scope.target(data, t)
+            && b.qualifications
+                .get(t.qualification)
+                .is_some_and(|q| q.context == invocation.context)
             && b.occurrences
                 .get(t.site)
                 .and_then(|o| b.artifacts.get(o.source))
@@ -448,13 +453,14 @@ pub(super) fn emit_with_inputs(
         })?;
     }
     for attempt in data.bindings.attempts.iter().filter(|a| {
-        scope.attempt(data,a.id()) && b.event_events.get(a.event).is_some_and(|e| {
-            e.context == invocation.context
-                && b.occurrences
-                    .get(e.site)
-                    .and_then(|o| b.artifacts.get(o.source))
-                    .is_some_and(|a| a.input == invocation.input)
-        })
+        scope.attempt(data, a.id())
+            && b.event_events.get(a.event).is_some_and(|e| {
+                e.context == invocation.context
+                    && b.occurrences
+                        .get(e.site)
+                        .and_then(|o| b.artifacts.get(o.source))
+                        .is_some_and(|a| a.input == invocation.input)
+            })
     }) {
         let mut assessment = ClosedTargetAssessment {
             invocation: invocation.id(),
@@ -557,9 +563,10 @@ pub(super) fn emit_with_inputs(
         out.closed_targets.insert(assessment)?;
     }
     for obs in data.protocol.terminals.iter().filter(|o| {
-        scope.terminal(data,o) && b.qualifications
-            .get(o.qualification)
-            .is_some_and(|q| q.context == invocation.context)
+        scope.terminal(data, o)
+            && b.qualifications
+                .get(o.qualification)
+                .is_some_and(|q| q.context == invocation.context)
             && b.occurrences
                 .get(o.subject)
                 .and_then(|o| b.artifacts.get(o.source))
@@ -697,14 +704,16 @@ pub(super) fn emit_with_inputs(
 fn emit_exits(
     data: &ModelData,
     invocation: &analysis::model::AnalysisInvocation,
-    scope:super::model_production::ProductionScope,
+    scope: super::model_production::ProductionScope,
     out: &mut ModelRecords,
 ) -> Result<(), ModelError> {
     let b = &data.early.bindings;
     for obs in data.protocol.exits.iter().filter(|o| {
-        (scope==super::model_production::ProductionScope::All || scope==super::model_production::ProductionScope::Exit(o.id())) && b.qualifications
-            .get(o.qualification)
-            .is_some_and(|q| q.context == invocation.context)
+        (scope == super::model_production::ProductionScope::All
+            || scope == super::model_production::ProductionScope::Exit(o.id()))
+            && b.qualifications
+                .get(o.qualification)
+                .is_some_and(|q| q.context == invocation.context)
             && b.occurrences
                 .get(o.subject)
                 .and_then(|o| b.artifacts.get(o.source))

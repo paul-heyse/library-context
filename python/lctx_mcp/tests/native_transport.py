@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import contextlib
 import json
 import os
 import urllib.request
@@ -50,7 +51,9 @@ class ResponseGate:
         try:
             if self.unavailable:
                 return
-            reader, upstream = await asyncio.open_connection(self.upstream.hostname, self.upstream.port)
+            reader, upstream = await asyncio.open_connection(
+                self.upstream.hostname, self.upstream.port
+            )
             self.writers.update([client, upstream])
 
             async def requests():
@@ -72,7 +75,7 @@ class ResponseGate:
 
             forwarding = [asyncio.create_task(requests()), asyncio.create_task(responses())]
             await asyncio.wait(forwarding, return_when=asyncio.FIRST_COMPLETED)
-        except (OSError, asyncio.IncompleteReadError):
+        except OSError, asyncio.IncompleteReadError:
             pass
         finally:
             for child in forwarding:
@@ -82,10 +85,8 @@ class ResponseGate:
                 if writer is not None:
                     self.writers.discard(writer)
                     writer.close()
-                    try:
+                    with contextlib.suppress(OSError):
                         await writer.wait_closed()
-                    except OSError:
-                        pass
             self.tasks.discard(task)
 
     async def __aexit__(self, *exc):
@@ -124,5 +125,7 @@ def fixture_query(selected, sql):
     )
     with urllib.request.urlopen(request, timeout=20) as response:
         rows = json.load(response)
-    assert isinstance(rows, list) and all(row["status"] == "OK" for row in rows), "owned fault injection failed"
+    assert isinstance(rows, list) and all(row["status"] == "OK" for row in rows), (
+        "owned fault injection failed"
+    )
     return rows

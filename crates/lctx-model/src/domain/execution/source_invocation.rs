@@ -39,22 +39,47 @@ pub struct CheckedSourceInvocation {
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct ProducedInvocationPayload {
-    event:Id<normalized::events::NormalizedCallEvent>,callee:Id<normalized::entities::EntityRef>,
-    qualification:Id<assertion::AssertionQualification>,outcome:InvocationOutcome,
-    status:EvidenceStatus,arguments:Vec<InvocationArgument>,release:ReleaseSafety,
+    event: Id<normalized::events::NormalizedCallEvent>,
+    callee: Id<normalized::entities::EntityRef>,
+    qualification: Id<assertion::AssertionQualification>,
+    outcome: InvocationOutcome,
+    status: EvidenceStatus,
+    arguments: Vec<InvocationArgument>,
+    release: ReleaseSafety,
 }
 impl ProducedInvocationPayload {
-    pub(super) fn hydrate(self,budget:&ResourceBudget)->Result<CheckedSourceInvocation,ModelError> {
-        let mut charge=charged::StateCharge::new(budget,"actual-source-invocation");
-        charge.grow(size_of::<CheckedSourceInvocation>()+self.arguments.capacity()*size_of::<InvocationArgument>())?;
-        Ok(CheckedSourceInvocation {event:self.event,callee:self.callee,qualification:self.qualification,
-            outcome:self.outcome,status:self.status,arguments:self.arguments,release:self.release,_charge:charge})
+    pub(super) fn hydrate(
+        self,
+        budget: &ResourceBudget,
+    ) -> Result<CheckedSourceInvocation, ModelError> {
+        let mut charge = charged::StateCharge::new(budget, "actual-source-invocation");
+        charge.grow(
+            size_of::<CheckedSourceInvocation>()
+                + self.arguments.capacity() * size_of::<InvocationArgument>(),
+        )?;
+        Ok(CheckedSourceInvocation {
+            event: self.event,
+            callee: self.callee,
+            qualification: self.qualification,
+            outcome: self.outcome,
+            status: self.status,
+            arguments: self.arguments,
+            release: self.release,
+            _charge: charge,
+        })
     }
 }
 impl CheckedSourceInvocation {
-    pub(super) fn produced(self)->ProducedInvocationPayload {
-        ProducedInvocationPayload {event:self.event,callee:self.callee,qualification:self.qualification,
-            outcome:self.outcome,status:self.status,arguments:self.arguments,release:self.release}
+    pub(super) fn produced(self) -> ProducedInvocationPayload {
+        ProducedInvocationPayload {
+            event: self.event,
+            callee: self.callee,
+            qualification: self.qualification,
+            outcome: self.outcome,
+            status: self.status,
+            arguments: self.arguments,
+            release: self.release,
+        }
     }
     pub fn event(&self) -> Id<normalized::events::NormalizedCallEvent> {
         self.event
@@ -97,16 +122,23 @@ impl CheckedSourceInvocation {
         Self::derive_with_values(data, header, body, earlier, captures, budget, None)
     }
     pub fn derive_produced(
-        data: &EvaluationData, header: &CheckedSourceBinding, body: &CheckedSourceBody,
-        earlier: &CompletedEvaluations, budget: &ResourceBudget,
+        data: &EvaluationData,
+        header: &CheckedSourceBinding,
+        body: &CheckedSourceBody,
+        earlier: &CompletedEvaluations,
+        budget: &ResourceBudget,
         evaluations: &super::production::ProducedEvaluations,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         Self::derive_with_values(data, header, body, earlier, &[], budget, Some(evaluations))
     }
     pub(super) fn derive_with_values(
-        data: &EvaluationData, header: &CheckedSourceBinding, body: &CheckedSourceBody,
-        earlier: &CompletedEvaluations, captures: &[super::capture_bridge::CheckedCapturedEntry],
-        budget: &ResourceBudget, evaluations: Option<&super::production::ProducedEvaluations>,
+        data: &EvaluationData,
+        header: &CheckedSourceBinding,
+        body: &CheckedSourceBody,
+        earlier: &CompletedEvaluations,
+        captures: &[super::capture_bridge::CheckedCapturedEntry],
+        budget: &ResourceBudget,
+        evaluations: Option<&super::production::ProducedEvaluations>,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         let h = header.request();
         if captures.iter().any(|c| {
@@ -293,21 +325,34 @@ impl CheckedSourceInvocation {
         }))
     }
 }
-pub(super) fn checked_value(base: &super::records::BaseCheck, row: &super::records::ExpressionEvaluation,
+pub(super) fn checked_value(
+    base: &super::records::BaseCheck,
+    row: &super::records::ExpressionEvaluation,
     values: Option<&super::production::ProducedEvaluations>,
 ) -> Result<std::sync::Arc<super::evaluation::CheckedEvaluation>, ModelError> {
     match values {
-        Some(values) => values.get(row, base.invocations.get(row.invocation)
-            .ok_or(ModelError::Conflict("produced argument frame absent"))?,base),
+        Some(values) => values.get(
+            row,
+            base.invocations
+                .get(row.invocation)
+                .ok_or(ModelError::Conflict("produced argument frame absent"))?,
+            base,
+        ),
         None => base.replay(row).map(std::sync::Arc::new),
     }
 }
-pub(super) fn held_formal(base: &super::records::BaseCheck, row: &super::records::ExpressionEvaluation,
+pub(super) fn held_formal(
+    base: &super::records::BaseCheck,
+    row: &super::records::ExpressionEvaluation,
     values: Option<&super::production::ProducedEvaluations>,
 ) -> Result<Option<Id<calls::SignatureParameter>>, ModelError> {
     match values {
-        Some(values) => values.held_formal(row, base.invocations.get(row.invocation)
-            .ok_or(ModelError::Conflict("produced holder frame absent"))?),
+        Some(values) => values.held_formal(
+            row,
+            base.invocations
+                .get(row.invocation)
+                .ok_or(ModelError::Conflict("produced holder frame absent"))?,
+        ),
         None => base.held_formal(row),
     }
 }

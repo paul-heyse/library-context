@@ -58,28 +58,56 @@ impl RuntimeConfig {
             .map_err(ModelError::codec)
     }
     fn selection_path(&self) -> Result<PathBuf, ModelError> {
-        let parent = self.selection.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let parent = self
+            .selection
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
         std::fs::create_dir_all(parent).map_err(ModelError::codec)?;
-        let name = self.selection.file_name().ok_or(ModelError::Schema("snapshot selection path"))?;
-        Ok(std::fs::canonicalize(parent).map_err(ModelError::codec)?.join(name))
+        let name = self
+            .selection
+            .file_name()
+            .ok_or(ModelError::Schema("snapshot selection path"))?;
+        Ok(std::fs::canonicalize(parent)
+            .map_err(ModelError::codec)?
+            .join(name))
     }
     fn lock_file(&self) -> Result<(std::fs::File, PathBuf), ModelError> {
         use std::os::unix::fs::OpenOptionsExt;
         let selection = self.selection_path()?;
-        let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600)
-            .open(selection.with_extension("selection.lock")).map_err(ModelError::codec)?;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(selection.with_extension("selection.lock"))
+            .map_err(ModelError::codec)?;
         Ok((file, selection))
     }
     /// Serialize lifecycle operations across processes without parking an async executor thread.
     pub async fn lock_selection(&self) -> Result<SelectionGuard, ModelError> {
         let (file, selection) = self.lock_file()?;
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(lctx_model::domain::serving::ResourceLimits::default().request_deadline_ms);
+        let deadline = tokio::time::Instant::now()
+            + std::time::Duration::from_millis(
+                lctx_model::domain::serving::ResourceLimits::default().request_deadline_ms,
+            );
         loop {
             match file.try_lock() {
-                Ok(()) => return Ok(SelectionGuard { _file: file, selection }),
+                Ok(()) => {
+                    return Ok(SelectionGuard {
+                        _file: file,
+                        selection,
+                    });
+                }
                 Err(std::fs::TryLockError::Error(error)) => return Err(ModelError::codec(error)),
                 Err(std::fs::TryLockError::WouldBlock) => {
-                    if tokio::time::Instant::now() >= deadline { return Err(ModelError::infrastructure(lctx_model::domain::Infrastructure::Contention, "selection lifecycle lock deadline")); }
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(ModelError::infrastructure(
+                            lctx_model::domain::Infrastructure::Contention,
+                            "selection lifecycle lock deadline",
+                        ));
+                    }
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 }
             }
@@ -90,36 +118,79 @@ impl RuntimeConfig {
     pub fn select(&self, handle: &SnapshotHandle) -> Result<(), ModelError> {
         let (file, selection) = self.lock_file()?;
         file.lock().map_err(ModelError::codec)?;
-        self.select_locked(handle, &SelectionGuard { _file: file, selection })
+        self.select_locked(
+            handle,
+            &SelectionGuard {
+                _file: file,
+                selection,
+            },
+        )
     }
-    pub fn select_locked(&self, handle: &SnapshotHandle, guard: &SelectionGuard) -> Result<(), ModelError> {
-        self.commit_selection(handle, guard, |parent| std::fs::File::open(parent)?.sync_all())
+    pub fn select_locked(
+        &self,
+        handle: &SnapshotHandle,
+        guard: &SelectionGuard,
+    ) -> Result<(), ModelError> {
+        self.commit_selection(handle, guard, |parent| {
+            std::fs::File::open(parent)?.sync_all()
+        })
     }
-    fn commit_selection(&self, handle: &SnapshotHandle, guard: &SelectionGuard,
-        sync_parent: impl FnOnce(&Path) -> std::io::Result<()>) -> Result<(), ModelError> {
+    fn commit_selection(
+        &self,
+        handle: &SnapshotHandle,
+        guard: &SelectionGuard,
+        sync_parent: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> Result<(), ModelError> {
         use std::io::Write;
-        if guard.selection != self.selection_path()? { return Err(ModelError::Conflict("selection lifecycle guard")); }
+        if guard.selection != self.selection_path()? {
+            return Err(ModelError::Conflict("selection lifecycle guard"));
+        }
         let selection = &guard.selection;
-        let parent = selection.parent().ok_or(ModelError::Schema("snapshot selection parent"))?;
-        let viewer = ViewerConfig { endpoint: self.endpoint.clone(), username: self.viewer_username.clone(), password: self.viewer_password.clone(), selection: selection.clone() };
+        let parent = selection
+            .parent()
+            .ok_or(ModelError::Schema("snapshot selection parent"))?;
+        let viewer = ViewerConfig {
+            endpoint: self.endpoint.clone(),
+            username: self.viewer_username.clone(),
+            password: self.viewer_password.clone(),
+            selection: selection.clone(),
+        };
         let serving_path = self.selection.with_extension("serving.json");
         if serving_path.try_exists().map_err(ModelError::codec)? {
-            if ViewerConfig::read(&serving_path)? != viewer { return Err(ModelError::Conflict("static serving configuration changed; reinstall it explicitly")); }
+            if ViewerConfig::read(&serving_path)? != viewer {
+                return Err(ModelError::Conflict(
+                    "static serving configuration changed; reinstall it explicitly",
+                ));
+            }
         } else {
             let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(ModelError::codec)?;
-            staged.write_all(&serde_json::to_vec(&viewer).map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+            staged
+                .write_all(&serde_json::to_vec(&viewer).map_err(ModelError::codec)?)
+                .map_err(ModelError::codec)?;
             staged.as_file().sync_all().map_err(ModelError::codec)?;
-            staged.persist_noclobber(&serving_path).map_err(|error| ModelError::codec(error.error))?;
-            std::fs::File::open(parent).map_err(ModelError::codec)?.sync_all().map_err(ModelError::codec)?;
+            staged
+                .persist_noclobber(&serving_path)
+                .map_err(|error| ModelError::codec(error.error))?;
+            std::fs::File::open(parent)
+                .map_err(ModelError::codec)?
+                .sync_all()
+                .map_err(ModelError::codec)?;
         }
         let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(ModelError::codec)?;
-        staged.write_all(&serde_json::to_vec_pretty(handle).map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+        staged
+            .write_all(&serde_json::to_vec_pretty(handle).map_err(ModelError::codec)?)
+            .map_err(ModelError::codec)?;
         staged.as_file().sync_all().map_err(ModelError::codec)?;
-        staged.persist(selection).map_err(|error| ModelError::codec(error.error))?;
-        sync_parent(parent).map_err(|error| ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed,
-            format!("selection was committed; directory durability is uncertain: {error}")))
+        staged
+            .persist(selection)
+            .map_err(|error| ModelError::codec(error.error))?;
+        sync_parent(parent).map_err(|error| {
+            ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed,
+                format!("selection was committed; directory durability is uncertain: {error}"),
+            )
+        })
     }
-
 }
 
 /// Minimal serving credentials: no administrator or cache writer secret crosses this boundary.
@@ -138,7 +209,8 @@ impl ViewerConfig {
     }
     /// New launches read the one atomic handle. Existing sessions retain their immutable pin.
     pub fn selected(&self) -> Result<SnapshotHandle, ModelError> {
-        serde_json::from_slice(&std::fs::read(&self.selection).map_err(ModelError::codec)?).map_err(ModelError::codec)
+        serde_json::from_slice(&std::fs::read(&self.selection).map_err(ModelError::codec)?)
+            .map_err(ModelError::codec)
     }
     pub fn credentials(&self) -> Credentials {
         Credentials::Database {
@@ -149,45 +221,96 @@ impl ViewerConfig {
 }
 
 /// Held from candidate validation through commit/removal. Closing the file releases the lock.
-pub struct SelectionGuard { _file: std::fs::File, selection: PathBuf }
+pub struct SelectionGuard {
+    _file: std::fs::File,
+    selection: PathBuf,
+}
 
 #[cfg(test)]
 mod selection_controls {
     use super::*;
     use lctx_model::domain::{ContentHash, Infrastructure, serving::DatabaseIdentity};
     fn config(root: &Path) -> RuntimeConfig {
-        RuntimeConfig { endpoint: "grpc://127.0.0.1:9999".into(), username:"installer".into(),password:"private".into(), viewer_username:"viewer".into(),viewer_password:"viewer-private".into(), namespace:Name::new("fixture").unwrap(),cache_database:Name::new("cache").unwrap(),selection:root.join("selected.json") }
+        RuntimeConfig {
+            endpoint: "grpc://127.0.0.1:9999".into(),
+            username: "installer".into(),
+            password: "private".into(),
+            viewer_username: "viewer".into(),
+            viewer_password: "viewer-private".into(),
+            namespace: Name::new("fixture").unwrap(),
+            cache_database: Name::new("cache").unwrap(),
+            selection: root.join("selected.json"),
+        }
     }
     fn handle(label: &str) -> SnapshotHandle {
-        SnapshotHandle { semantic:ContentHash::of(label.as_bytes()),realization:ContentHash::of(b"realization"),database:DatabaseIdentity {namespace:Name::new("fixture").unwrap(),database:Name::new(label).unwrap()} }
+        SnapshotHandle {
+            semantic: ContentHash::of(label.as_bytes()),
+            realization: ContentHash::of(b"realization"),
+            database: DatabaseIdentity {
+                namespace: Name::new("fixture").unwrap(),
+                database: Name::new(label).unwrap(),
+            },
+        }
     }
     #[tokio::test]
     async fn atomic_selection_is_one_authority_and_lifecycle_is_serialized() {
-        let scratch=tempfile::tempdir().unwrap(); let cfg=config(scratch.path());
-        let old=handle("old"); let new=handle("new"); cfg.select(&old).unwrap();
-        let viewer=ViewerConfig::read(&cfg.selection.with_extension("serving.json")).unwrap();
-        let pinned=viewer.selected().unwrap();
-        let held=cfg.lock_selection().await.unwrap();
-        let competitor=config(scratch.path());
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(30),competitor.lock_selection()).await.is_err());
-        cfg.select_locked(&new,&held).unwrap(); drop(held);
-        let second=competitor.lock_selection().await.unwrap();
-        assert_eq!(competitor.selected().unwrap(),new);
-        assert_eq!(viewer.selected().unwrap(),new);
-        assert_eq!(pinned,old);
-        let alien=tempfile::tempdir().unwrap();
-        assert!(config(alien.path()).select_locked(&old,&second).is_err());
+        let scratch = tempfile::tempdir().unwrap();
+        let cfg = config(scratch.path());
+        let old = handle("old");
+        let new = handle("new");
+        cfg.select(&old).unwrap();
+        let viewer = ViewerConfig::read(&cfg.selection.with_extension("serving.json")).unwrap();
+        let pinned = viewer.selected().unwrap();
+        let held = cfg.lock_selection().await.unwrap();
+        let competitor = config(scratch.path());
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(30),
+                competitor.lock_selection()
+            )
+            .await
+            .is_err()
+        );
+        cfg.select_locked(&new, &held).unwrap();
+        drop(held);
+        let second = competitor.lock_selection().await.unwrap();
+        assert_eq!(competitor.selected().unwrap(), new);
+        assert_eq!(viewer.selected().unwrap(), new);
+        assert_eq!(pinned, old);
+        let alien = tempfile::tempdir().unwrap();
+        assert!(config(alien.path()).select_locked(&old, &second).is_err());
     }
     #[tokio::test]
     async fn precommit_failure_keeps_selection_and_postcommit_uncertainty_keeps_new_handle() {
-        let scratch=tempfile::tempdir().unwrap(); let cfg=config(scratch.path());
-        let old=handle("old"); let new=handle("new"); cfg.select(&old).unwrap();
-        let mut changed=config(scratch.path());changed.endpoint="grpc://127.0.0.1:9998".into();
-        assert!(changed.select(&new).is_err());assert_eq!(cfg.selected().unwrap(),old);
-        let guard=cfg.lock_selection().await.unwrap();
-        let error=cfg.commit_selection(&new,&guard,|_|Err(std::io::Error::other("injected directory sync failure"))).unwrap_err();
-        assert!(matches!(error,ModelError::Infrastructure {class:Infrastructure::Unconfirmed,..}));
-        assert_eq!(cfg.selected().unwrap(),new);
-        assert_eq!(ViewerConfig::read(&cfg.selection.with_extension("serving.json")).unwrap().selected().unwrap(),new);
+        let scratch = tempfile::tempdir().unwrap();
+        let cfg = config(scratch.path());
+        let old = handle("old");
+        let new = handle("new");
+        cfg.select(&old).unwrap();
+        let mut changed = config(scratch.path());
+        changed.endpoint = "grpc://127.0.0.1:9998".into();
+        assert!(changed.select(&new).is_err());
+        assert_eq!(cfg.selected().unwrap(), old);
+        let guard = cfg.lock_selection().await.unwrap();
+        let error = cfg
+            .commit_selection(&new, &guard, |_| {
+                Err(std::io::Error::other("injected directory sync failure"))
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ModelError::Infrastructure {
+                class: Infrastructure::Unconfirmed,
+                ..
+            }
+        ));
+        assert_eq!(cfg.selected().unwrap(), new);
+        assert_eq!(
+            ViewerConfig::read(&cfg.selection.with_extension("serving.json"))
+                .unwrap()
+                .selected()
+                .unwrap(),
+            new
+        );
     }
 }

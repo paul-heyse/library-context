@@ -198,18 +198,55 @@ pub struct CheckedEvaluation {
 /// Primitive result minted by the actual evaluator. Ordered evidence is already carried by
 /// its emitted rows; this private value lets later owners hydrate those exact bytes without
 /// running an earlier producer or retaining its rich proof vectors for the whole attempt.
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy)]
 pub(crate) struct ProducedValue {
-    request:ExpressionRequest,value:Value,release:ReleaseSafety,call_source:Option<CallOrigin>,
-    exception:Option<(Id<Occurrence>,super::ExactRuntimeException)>,
-    qualification:Id<AssertionQualification>,status:analysis::policy::EvidenceStatus,
+    request: ExpressionRequest,
+    value: Value,
+    release: ReleaseSafety,
+    call_source: Option<CallOrigin>,
+    exception: Option<(Id<Occurrence>, super::ExactRuntimeException)>,
+    qualification: Id<AssertionQualification>,
+    status: analysis::policy::EvidenceStatus,
 }
 impl ProducedValue {
-    pub(crate) fn of(proof:&CheckedEvaluation)->Self {Self {request:proof.request,value:proof.value,release:proof.release,call_source:proof.call_source,exception:proof.exception,qualification:proof.qualification,status:proof.status}}
-    pub(crate) fn hydrate(self,native:Vec<Id<NativeAssertionPremise>>,operands:Vec<Id<Occurrence>>,entries:Vec<Id<conditions::entry::EntryValueWitness>>,budget:&ResourceBudget)->Result<CheckedEvaluation,ModelError> {
-        let mut charge=charged::StateCharge::new(budget,"actual-evaluation-hydration");
-        charge.grow(native.capacity()*size_of::<Id<NativeAssertionPremise>>()+operands.capacity()*size_of::<Id<Occurrence>>()+entries.capacity()*size_of::<Id<conditions::entry::EntryValueWitness>>())?;
-        Ok(CheckedEvaluation {request:self.request,value:self.value,release:self.release,call_source:self.call_source,exception:self.exception,native,operands,entries,_entry_charges:Vec::new(),qualification:self.qualification,status:self.status,_charge:charge})
+    pub(crate) fn of(proof: &CheckedEvaluation) -> Self {
+        Self {
+            request: proof.request,
+            value: proof.value,
+            release: proof.release,
+            call_source: proof.call_source,
+            exception: proof.exception,
+            qualification: proof.qualification,
+            status: proof.status,
+        }
+    }
+    pub(crate) fn hydrate(
+        self,
+        native: Vec<Id<NativeAssertionPremise>>,
+        operands: Vec<Id<Occurrence>>,
+        entries: Vec<Id<conditions::entry::EntryValueWitness>>,
+        budget: &ResourceBudget,
+    ) -> Result<CheckedEvaluation, ModelError> {
+        let mut charge = charged::StateCharge::new(budget, "actual-evaluation-hydration");
+        charge.grow(
+            native.capacity() * size_of::<Id<NativeAssertionPremise>>()
+                + operands.capacity() * size_of::<Id<Occurrence>>()
+                + entries.capacity() * size_of::<Id<conditions::entry::EntryValueWitness>>(),
+        )?;
+        Ok(CheckedEvaluation {
+            request: self.request,
+            value: self.value,
+            release: self.release,
+            call_source: self.call_source,
+            exception: self.exception,
+            native,
+            operands,
+            entries,
+            _entry_charges: Vec::new(),
+            qualification: self.qualification,
+            status: self.status,
+            _charge: charge,
+        })
     }
 }
 impl CheckedEvaluation {
@@ -375,7 +412,7 @@ impl PreparedSyntax {
 }
 pub(crate) struct Evaluator<'a> {
     index: &'a PreparedSyntax,
-    metadata:Option<&'a PreparedEvaluationMetadata>,
+    metadata: Option<&'a PreparedEvaluationMetadata>,
     data: &'a EvaluationData,
     request: ExpressionRequest,
     remaining: usize,
@@ -454,7 +491,10 @@ impl Evaluator<'_> {
         }
         let declaration = need(&self.data.declarations, declarations[0]).map_err(boundary)?;
         if declaration.kind != syntax::DeclarationKind::Function
-            || self.index.lazy_owners.contains(&self.request.owner) || self.metadata.is_some_and(|metadata|metadata.lazy.contains(&self.request.owner))
+            || self.index.lazy_owners.contains(&self.request.owner)
+            || self
+                .metadata
+                .is_some_and(|metadata| metadata.lazy.contains(&self.request.owner))
         {
             return Err(boundary(ObligationKind::ScopeBoundary));
         }
@@ -784,18 +824,22 @@ impl Evaluator<'_> {
                     }
                     return Err(boundary(UNSUPPORTED));
                 };
-                if self.data.literals.get(literal).is_none() && self.data.opaque_literals.contains(&literal) {
+                if self.data.literals.get(literal).is_none()
+                    && self.data.opaque_literals.contains(&literal)
+                {
                     Value::Literal
-                } else {match need(&self.data.literals, literal).map_err(boundary)? {
-                    Literal::None => Value::None,
-                    Literal::Bool { value } => Value::Bool(*value),
-                    Literal::Integer { decimal } => decimal
-                        .parse::<i64>()
-                        .map(Value::Int)
-                        .unwrap_or(Value::Literal),
-                    Literal::Float { bits } => Value::Float(f64::from_bits(*bits as u64)),
-                    Literal::String { .. } | Literal::Bytes { .. } => Value::Literal,
-                }}
+                } else {
+                    match need(&self.data.literals, literal).map_err(boundary)? {
+                        Literal::None => Value::None,
+                        Literal::Bool { value } => Value::Bool(*value),
+                        Literal::Integer { decimal } => decimal
+                            .parse::<i64>()
+                            .map(Value::Int)
+                            .unwrap_or(Value::Literal),
+                        Literal::Float { bits } => Value::Float(f64::from_bits(*bits as u64)),
+                        Literal::String { .. } | Literal::Bytes { .. } => Value::Literal,
+                    }
+                }
             }
             SyntaxKind::ExprEllipsisLiteral if children.is_empty() => Value::Literal,
             SyntaxKind::ExprAttribute => {
@@ -1075,19 +1119,35 @@ pub(crate) fn with_completion_syntax<T>(
 /// Complete projected owner uncertainty for one immutable execution frame. This index retains
 /// only nominal owner IDs; selected kernels need not decode unrelated Yield source payloads.
 pub struct PreparedEvaluationMetadata {
-    input:Id<input::InputRevision>,context:Id<AnalysisContext>,
-    lazy:charged::ChargedSet<Id<EntityRef>>,charge:charged::StateCharge,
+    input: Id<input::InputRevision>,
+    context: Id<AnalysisContext>,
+    lazy: charged::ChargedSet<Id<EntityRef>>,
+    charge: charged::StateCharge,
 }
 impl PreparedEvaluationMetadata {
-    pub fn new(input:Id<input::InputRevision>,context:Id<AnalysisContext>,budget:&ResourceBudget)->Self {Self {input,context,lazy:Default::default(),charge:charged::StateCharge::new(budget,"execution-owner-metadata")}}
-    pub fn lazy_owner(&mut self,owner:Id<EntityRef>)->Result<(),ModelError> {self.lazy.insert(&mut self.charge,owner)?;Ok(())}
+    pub fn new(
+        input: Id<input::InputRevision>,
+        context: Id<AnalysisContext>,
+        budget: &ResourceBudget,
+    ) -> Self {
+        Self {
+            input,
+            context,
+            lazy: Default::default(),
+            charge: charged::StateCharge::new(budget, "execution-owner-metadata"),
+        }
+    }
+    pub fn lazy_owner(&mut self, owner: Id<EntityRef>) -> Result<(), ModelError> {
+        self.lazy.insert(&mut self.charge, owner)?;
+        Ok(())
+    }
 }
 pub struct PreparedExecution<'a> {
     data: &'a EvaluationData,
     input: Id<input::InputRevision>,
     context: Id<AnalysisContext>,
     index: PreparedSyntax,
-    metadata:Option<&'a PreparedEvaluationMetadata>,
+    metadata: Option<&'a PreparedEvaluationMetadata>,
     budget: ResourceBudget,
 }
 impl<'a> PreparedExecution<'a> {
@@ -1102,13 +1162,23 @@ impl<'a> PreparedExecution<'a> {
             input,
             context,
             index: PreparedSyntax::new(data, context, budget)?,
-            metadata:None,
+            metadata: None,
             budget: budget.clone(),
         })
     }
-    pub fn with_metadata(data:&'a EvaluationData,input:Id<input::InputRevision>,context:Id<AnalysisContext>,budget:&ResourceBudget,metadata:&'a PreparedEvaluationMetadata)->Result<Self,ModelError> {
-        if (metadata.input,metadata.context)!=(input,context){return Err(ModelError::Conflict("execution metadata frame changed"));}
-        let mut prepared=Self::new(data,input,context,budget)?;prepared.metadata=Some(metadata);Ok(prepared)
+    pub fn with_metadata(
+        data: &'a EvaluationData,
+        input: Id<input::InputRevision>,
+        context: Id<AnalysisContext>,
+        budget: &ResourceBudget,
+        metadata: &'a PreparedEvaluationMetadata,
+    ) -> Result<Self, ModelError> {
+        if (metadata.input, metadata.context) != (input, context) {
+            return Err(ModelError::Conflict("execution metadata frame changed"));
+        }
+        let mut prepared = Self::new(data, input, context, budget)?;
+        prepared.metadata = Some(metadata);
+        Ok(prepared)
     }
     pub(crate) fn data(&self) -> &EvaluationData {
         self.data
@@ -1128,7 +1198,7 @@ impl<'a> PreparedExecution<'a> {
         }
         let mut syntax = Evaluator {
             index: &self.index,
-            metadata:self.metadata,
+            metadata: self.metadata,
             data: self.data,
             request,
             remaining: super::completion::COMPLETION_WORK_LIMIT,
@@ -1167,7 +1237,7 @@ fn evaluate_prepared(
     let budget = &prepared.budget;
     let mut evaluator = Evaluator {
         index: &prepared.index,
-        metadata:prepared.metadata,
+        metadata: prepared.metadata,
         data,
         request,
         remaining: EXPRESSION_WORK_LIMIT,

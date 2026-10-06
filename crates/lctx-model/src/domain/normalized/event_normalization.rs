@@ -192,20 +192,32 @@ pub struct VerifiedEvents {
 }
 impl VerifiedEvents {
     pub fn append(&mut self, other: Self) -> Result<(), ModelError> {
-        if !self._charge.budget().expect("owner budget").shares_pool(other._charge.budget().expect("owner budget")) {
+        if !self
+            ._charge
+            .budget()
+            .expect("owner budget")
+            .shares_pool(other._charge.budget().expect("owner budget"))
+        {
             return Err(ModelError::Conflict("event authority budget"));
         }
         for (key, events) in other.flow.iter() {
-            if self.flow.contains_key(key) { return Err(ModelError::Conflict("flow event authority domain")); }
+            if self.flow.contains_key(key) {
+                return Err(ModelError::Conflict("flow event authority domain"));
+            }
             self.flow.insert(&mut self._charge, *key, events.clone())?;
         }
         for (event, proof) in other.complete.iter() {
-            if self.complete.contains_key(event) { return Err(ModelError::Conflict("event authority domain")); }
+            if self.complete.contains_key(event) {
+                return Err(ModelError::Conflict("event authority domain"));
+            }
             self.complete.insert(&mut self._charge, *event, *proof)?;
         }
         for (alternative, proof) in other.dispatch.iter() {
-            if self.dispatch.contains_key(alternative) { return Err(ModelError::Conflict("dispatch authority domain")); }
-            self.dispatch.insert(&mut self._charge, *alternative, *proof)?;
+            if self.dispatch.contains_key(alternative) {
+                return Err(ModelError::Conflict("dispatch authority domain"));
+            }
+            self.dispatch
+                .insert(&mut self._charge, *alternative, *proof)?;
         }
         Ok(())
     }
@@ -234,120 +246,271 @@ pub(super) fn verify(
 /// Build only consumer admissions from immutable completed event rows. Event production and
 /// diagnostic replay remain separate: this path neither emits alternatives nor calls evaluate.
 pub(super) fn prepare(
-    data: &EventData, stored: &EventOutput, budget: &ResourceBudget,
+    data: &EventData,
+    stored: &EventOutput,
+    budget: &ResourceBudget,
 ) -> Result<VerifiedEvents, ModelError> {
     prepare_selected(data, stored, None, budget)
 }
 /// Necessary predicates for one complete actual candidate/advertised event domain.
-pub fn admit_event(data: &EventData, stored: &EventOutput, key: EventKey, budget: &ResourceBudget) -> Result<(), ModelError> {
+pub fn admit_event(
+    data: &EventData,
+    stored: &EventOutput,
+    key: EventKey,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     prepare_selected(data, stored, Some(&[key]), budget).map(|_| ())
 }
-pub(super) fn prepare_consumed(data: &EventData, stored: &EventOutput, budget: &ResourceBudget) -> Result<VerifiedEvents, ModelError> {
+pub(super) fn prepare_consumed(
+    data: &EventData,
+    stored: &EventOutput,
+    budget: &ResourceBudget,
+) -> Result<VerifiedEvents, ModelError> {
     let mut charge = StateCharge::new(budget, "consumed-event-root-keys");
     let mut keys = Vec::new();
-    for event in stored.events.iter() { charge.grow(size_of::<EventKey>())?; keys.push((event.site, event.origin, event.context)); }
+    for event in stored.events.iter() {
+        charge.grow(size_of::<EventKey>())?;
+        keys.push((event.site, event.origin, event.context));
+    }
     prepare_selected(data, stored, Some(&keys), budget)
 }
-fn prepare_selected(data: &EventData, stored: &EventOutput, selected: Option<&[EventKey]>, budget: &ResourceBudget) -> Result<VerifiedEvents, ModelError> {
+fn prepare_selected(
+    data: &EventData,
+    stored: &EventOutput,
+    selected: Option<&[EventKey]>,
+    budget: &ResourceBudget,
+) -> Result<VerifiedEvents, ModelError> {
     let index = Index::new(data, budget)?;
     let receiver_proofs = receiver_proofs(data, budget)?;
-    let mut tokens = VerifiedEvents { flow: Default::default(), complete: Default::default(), dispatch: Default::default(),
-        _charge: StateCharge::new(budget, "prepared-event-admissions") };
-    for key in index.universe.iter().filter(|key| selected.is_none_or(|selected| selected.contains(key))) {
-        let mut events = stored.events.iter().filter(|event| (event.site, event.origin, event.context) == *key);
-        let event = events.next().ok_or_else(|| invalid("captured call event has no required normalized outcome"))?;
-        if events.next().is_some() { return Err(invalid("captured call event has ambiguous normalized identity")); }
-        let mut assessments = stored.assessments.iter().filter(|assessment| assessment.event == event.id());
-        if assessments.next().is_none() || assessments.next().is_some() { return Err(invalid("event has no exact assessment domain")); }
+    let mut tokens = VerifiedEvents {
+        flow: Default::default(),
+        complete: Default::default(),
+        dispatch: Default::default(),
+        _charge: StateCharge::new(budget, "prepared-event-admissions"),
+    };
+    for key in index
+        .universe
+        .iter()
+        .filter(|key| selected.is_none_or(|selected| selected.contains(key)))
+    {
+        let mut events = stored
+            .events
+            .iter()
+            .filter(|event| (event.site, event.origin, event.context) == *key);
+        let event = events
+            .next()
+            .ok_or_else(|| invalid("captured call event has no required normalized outcome"))?;
+        if events.next().is_some() {
+            return Err(invalid(
+                "captured call event has ambiguous normalized identity",
+            ));
+        }
+        let mut assessments = stored
+            .assessments
+            .iter()
+            .filter(|assessment| assessment.event == event.id());
+        if assessments.next().is_none() || assessments.next().is_some() {
+            return Err(invalid("event has no exact assessment domain"));
+        }
         for policy in CallPolicy::ALL {
-            let mut policies = stored.policy_assessments.iter().filter(|assessment| assessment.event == event.id() && assessment.policy == policy);
-            if policies.next().is_none() || policies.next().is_some() { return Err(invalid("event lacks its exact consumer policy outcome domain")); }
+            let mut policies = stored
+                .policy_assessments
+                .iter()
+                .filter(|assessment| assessment.event == event.id() && assessment.policy == policy);
+            if policies.next().is_none() || policies.next().is_some() {
+                return Err(invalid(
+                    "event lacks its exact consumer policy outcome domain",
+                ));
+            }
         }
     }
     if let Some(selected) = selected {
-        for key in selected { if !index.universe.contains(key) { return Err(invalid("advertised event has no captured candidate domain")); } }
-        if stored.events.iter().any(|event| !selected.contains(&(event.site,event.origin,event.context))) {
+        for key in selected {
+            if !index.universe.contains(key) {
+                return Err(invalid("advertised event has no captured candidate domain"));
+            }
+        }
+        if stored
+            .events
+            .iter()
+            .any(|event| !selected.contains(&(event.site, event.origin, event.context)))
+        {
             return Err(invalid("event grain contains another advertised root"));
         }
     }
     for assessment in stored.assessments.iter() {
-        if assessment.policy != policy_revision() { return Err(invalid("foreign event policy")); }
+        if assessment.policy != policy_revision() {
+            return Err(invalid("foreign event policy"));
+        }
         let event = need(&stored.events, assessment.event)?;
         let key = (event.site, event.origin, event.context);
-        if !index.universe.contains(&key) || !index.owners.get(&event.site).is_some_and(|owner| owner.id() == event.owner) {
+        if !index.universe.contains(&key)
+            || !index
+                .owners
+                .get(&event.site)
+                .is_some_and(|owner| owner.id() == event.owner)
+        {
             return Err(invalid("event is outside captured owner universe"));
         }
         admit_native_domain(data, stored, event, &index, budget)?;
         let mut digest = KeySink::new("complete-normalized-event");
         for site in index.sites.get(&key).into_iter().flatten() {
-            let source = CallEventSource { event: event.id(), observation: site.id() };
-            if stored.sources.get(source.id()) != Some(&source) { return Err(invalid("event source lineage is incomplete")); }
+            let source = CallEventSource {
+                event: event.id(),
+                observation: site.id(),
+            };
+            if stored.sources.get(source.id()) != Some(&source) {
+                return Err(invalid("event source lineage is incomplete"));
+            }
             source.id().encode(&mut digest);
             for support in index.site_supports.get(&site.id()).into_iter().flatten() {
-                let evidence = CallEventSourceEvidence { source: source.id(), support: support.id() };
-                if stored.source_evidence.get(evidence.id()) != Some(&evidence) { return Err(invalid("event source evidence is incomplete")); }
+                let evidence = CallEventSourceEvidence {
+                    source: source.id(),
+                    support: support.id(),
+                };
+                if stored.source_evidence.get(evidence.id()) != Some(&evidence) {
+                    return Err(invalid("event source evidence is incomplete"));
+                }
                 evidence.id().encode(&mut digest);
             }
         }
         for resolution in index.resolutions.get(&key).into_iter().flatten() {
-            let member = CallEventResolution { event: event.id(), resolution: resolution.id() };
-            if stored.resolutions.get(member.id()) != Some(&member) { return Err(invalid("event resolution lineage is incomplete")); }
+            let member = CallEventResolution {
+                event: event.id(),
+                resolution: resolution.id(),
+            };
+            if stored.resolutions.get(member.id()) != Some(&member) {
+                return Err(invalid("event resolution lineage is incomplete"));
+            }
             member.id().encode(&mut digest);
-            for support in index.resolution_supports.get(&resolution.id()).into_iter().flatten() {
-                let evidence = CallEventResolutionEvidence { resolution: member.id(), support: support.id() };
-                if stored.resolution_evidence.get(evidence.id()) != Some(&evidence) { return Err(invalid("event resolution evidence is incomplete")); }
+            for support in index
+                .resolution_supports
+                .get(&resolution.id())
+                .into_iter()
+                .flatten()
+            {
+                let evidence = CallEventResolutionEvidence {
+                    resolution: member.id(),
+                    support: support.id(),
+                };
+                if stored.resolution_evidence.get(evidence.id()) != Some(&evidence) {
+                    return Err(invalid("event resolution evidence is incomplete"));
+                }
                 evidence.id().encode(&mut digest);
             }
-            if matches!(need(&data.channels, resolution.channel)?, CallChannel::Direct) {
+            if matches!(
+                need(&data.channels, resolution.channel)?,
+                CallChannel::Direct
+            ) {
                 for target in index.members.get(&resolution.id()).into_iter().flatten() {
-                    if let Some(proof) = receiver_proofs.get(target.id()) { proof.assessment().encode(&mut digest); }
+                    if let Some(proof) = receiver_proofs.get(target.id()) {
+                        proof.assessment().encode(&mut digest);
+                    }
                 }
             }
         }
-        for alternative in stored.alternatives.iter().filter(|alternative| alternative.event == event.id()) {
+        for alternative in stored
+            .alternatives
+            .iter()
+            .filter(|alternative| alternative.event == event.id())
+        {
             alternative.id().encode(&mut digest);
-            for support in index.supports.get(&need(&stored.alternative_sources, alternative.source)?.target()).into_iter().flatten() {
+            for support in index
+                .supports
+                .get(&need(&stored.alternative_sources, alternative.source)?.target())
+                .into_iter()
+                .flatten()
+            {
                 support.id().encode(&mut digest);
             }
         }
-        for dispatch in stored.dispatch_assessments.iter().filter(|dispatch| dispatch.event == event.id()) {
-            dispatch.id().encode(&mut digest); dispatch.members.encode(&mut digest);
+        for dispatch in stored
+            .dispatch_assessments
+            .iter()
+            .filter(|dispatch| dispatch.event == event.id())
+        {
+            dispatch.id().encode(&mut digest);
+            dispatch.members.encode(&mut digest);
         }
-        if assessment.members != digest.finish() { return Err(invalid("event admission has foreign input/evidence membership")); }
+        if assessment.members != digest.finish() {
+            return Err(invalid(
+                "event admission has foreign input/evidence membership",
+            ));
+        }
         // Only the complete, exact, unique event grants shape/composition authority. Recheck
         // its actual candidate and provider domain, rather than trusting stored booleans.
-        if assessment.complete && assessment.unique && assessment.exact && assessment.known_receivers {
+        if assessment.complete
+            && assessment.unique
+            && assessment.exact
+            && assessment.known_receivers
+        {
             let mut charge = StateCharge::new(budget, "event-admission-closure");
-            let mut declared: ChargedSet<(Id<ProviderRun>, Id<source::CoverageScope>)> = Default::default();
-            let mut resolved: ChargedSet<(Id<ProviderRun>, Id<source::CoverageScope>)> = Default::default();
+            let mut declared: ChargedSet<(Id<ProviderRun>, Id<source::CoverageScope>)> =
+                Default::default();
+            let mut resolved: ChargedSet<(Id<ProviderRun>, Id<source::CoverageScope>)> =
+                Default::default();
             let mut reported: ChargedSet<Id<CallTarget>> = Default::default();
             let mut groups: ChargedSet<PhaseGroup> = Default::default();
-            let mut phases: ChargedMap<CallPhase, std::collections::BTreeSet<Id<EntityRef>>> = Default::default();
+            let mut phases: ChargedMap<CallPhase, std::collections::BTreeSet<Id<EntityRef>>> =
+                Default::default();
             let mut direct_count = 0;
             for site in index.sites.get(&key).into_iter().flatten() {
                 let q = qualification(data, site.qualification)?;
-                let supports = index.site_supports.get(&site.id()).filter(|rows| !rows.is_empty())
+                let supports = index
+                    .site_supports
+                    .get(&site.id())
+                    .filter(|rows| !rows.is_empty())
                     .ok_or_else(|| invalid("admitted event site has no support"))?;
-                for support in supports { declared.insert(&mut charge, (support.run, q.scope))?; }
+                for support in supports {
+                    declared.insert(&mut charge, (support.run, q.scope))?;
+                }
             }
             for resolution in index.resolutions.get(&key).into_iter().flatten() {
                 let q = qualification(data, resolution.qualification)?;
-                let direct = matches!(need(&data.channels, resolution.channel)?, CallChannel::Direct);
-                let candidates = index.members.get(&resolution.id()).map(Vec::as_slice).unwrap_or(&[]);
+                let direct = matches!(
+                    need(&data.channels, resolution.channel)?,
+                    CallChannel::Direct
+                );
+                let candidates = index
+                    .members
+                    .get(&resolution.id())
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
                 let mut values = Vec::with_capacity(candidates.len());
-                for target in candidates { charge.admit(*target)?; values.push((*target).clone()); }
-                let (expected, _) = CallResolution::new(q, event.site, event.origin, resolution.channel,
-                    resolution.phase, resolution.complete, &values)?;
-                if expected != **resolution { return Err(invalid("event candidate closure is incomplete")); }
-                if !direct { continue; }
+                for target in candidates {
+                    charge.admit(*target)?;
+                    values.push((*target).clone());
+                }
+                let (expected, _) = CallResolution::new(
+                    q,
+                    event.site,
+                    event.origin,
+                    resolution.channel,
+                    resolution.phase,
+                    resolution.complete,
+                    &values,
+                )?;
+                if expected != **resolution {
+                    return Err(invalid("event candidate closure is incomplete"));
+                }
+                if !direct {
+                    continue;
+                }
                 direct_count += 1;
                 if !resolution.complete || !exact(q) || candidates.is_empty() {
-                    return Err(invalid("complete event has an open or uncertain direct resolution"));
+                    return Err(invalid(
+                        "complete event has an open or uncertain direct resolution",
+                    ));
                 }
                 groups.insert(&mut charge, PhaseGroup::of(resolution.phase))?;
-                let supports = index.resolution_supports.get(&resolution.id()).filter(|rows| !rows.is_empty())
+                let supports = index
+                    .resolution_supports
+                    .get(&resolution.id())
+                    .filter(|rows| !rows.is_empty())
                     .ok_or_else(|| invalid("complete event resolution has no support"))?;
-                for support in supports { resolved.insert(&mut charge, (support.run, q.scope))?; }
+                for support in supports {
+                    resolved.insert(&mut charge, (support.run, q.scope))?;
+                }
                 for target in candidates {
                     reported.insert(&mut charge, target.id())?;
                     let tq = qualification(data, target.qualification)?;
@@ -356,34 +519,73 @@ fn prepare_selected(data: &EventData, stored: &EventOutput, selected: Option<&[E
                     }
                     let destination = need(&data.destinations, target.destination)?;
                     if !matches!(destination, CallDestination::Resolved { .. }) {
-                        return Err(invalid("complete event has unresolved or dispatched target"));
+                        return Err(invalid(
+                            "complete event has unresolved or dispatched target",
+                        ));
                     }
-                    let (correspondence, entity, status, _) = correspondence(data, &index, destination)?;
-                    let entity = entity.filter(|_| status == ResolutionStatus::Resolved)
-                        .ok_or_else(|| invalid("complete event has no unique entity correspondence"))?;
-                    let mapping = need(&data.symbol_resolutions, correspondence.ok_or_else(|| invalid("event correspondence absent"))?)?;
-                    if mapping.context != event.context { return Err(invalid("event correspondence crosses context")); }
-                    if receiver_proofs.get(target.id()).is_none() && matches!(need(&data.receivers, target.receiver)?, Receiver::Unknown { .. }) {
+                    let (correspondence, entity, status, _) =
+                        correspondence(data, &index, destination)?;
+                    let entity = entity
+                        .filter(|_| status == ResolutionStatus::Resolved)
+                        .ok_or_else(|| {
+                            invalid("complete event has no unique entity correspondence")
+                        })?;
+                    let mapping = need(
+                        &data.symbol_resolutions,
+                        correspondence.ok_or_else(|| invalid("event correspondence absent"))?,
+                    )?;
+                    if mapping.context != event.context {
+                        return Err(invalid("event correspondence crosses context"));
+                    }
+                    if receiver_proofs.get(target.id()).is_none()
+                        && matches!(
+                            need(&data.receivers, target.receiver)?,
+                            Receiver::Unknown { .. }
+                        )
+                    {
                         return Err(invalid("complete event has unknown receiver"));
                     }
                     let mut alternatives = stored.alternatives.iter().filter(|a| a.event == event.id()
                         && a.resolution == Some(resolution.id())
                         && stored.alternative_sources.get(a.source).is_some_and(|s| matches!(s, CallAlternativeSource::Native { target: id } if *id == target.id())));
-                    let alternative = alternatives.next().ok_or_else(|| invalid("complete event target alternative missing"))?;
-                    if alternatives.next().is_some() || alternative.entity != Some(entity) || alternative.correspondence != correspondence {
+                    let alternative = alternatives
+                        .next()
+                        .ok_or_else(|| invalid("complete event target alternative missing"))?;
+                    if alternatives.next().is_some()
+                        || alternative.entity != Some(entity)
+                        || alternative.correspondence != correspondence
+                    {
                         return Err(invalid("event alternative correspondence is ambiguous"));
                     }
-                    phases.update(&mut charge, target.phase, |entities| { entities.insert(entity); })?;
+                    phases.update(&mut charge, target.phase, |entities| {
+                        entities.insert(entity);
+                    })?;
                 }
             }
-            if direct_count == 0 || !declared.iter().all(|run| resolved.contains(run))
-                || groups.len() != 1 || phases.values().any(|entities| entities.len() != 1)
-                || index.targets.get(&key).into_iter().flatten().any(|target|
-                    data.channels.get(target.channel).is_some_and(|channel| matches!(channel, CallChannel::Direct)) && !reported.contains(&target.id()))
-            { return Err(invalid("complete event lacks its closed unique provider/phase domain")); }
-            tokens.complete.insert(&mut tokens._charge, event.id(), CompleteEvent {
-                event: event.id(), assessment: assessment.id(), members: assessment.members,
-            })?;
+            if direct_count == 0
+                || !declared.iter().all(|run| resolved.contains(run))
+                || groups.len() != 1
+                || phases.values().any(|entities| entities.len() != 1)
+                || index.targets.get(&key).into_iter().flatten().any(|target| {
+                    data.channels
+                        .get(target.channel)
+                        .is_some_and(|channel| matches!(channel, CallChannel::Direct))
+                        && !reported.contains(&target.id())
+                })
+            {
+                return Err(invalid(
+                    "complete event lacks its closed unique provider/phase domain",
+                ));
+            }
+            tokens.complete.insert(
+                &mut tokens._charge,
+                event.id(),
+                CompleteEvent {
+                    event: event.id(),
+                    assessment: assessment.id(),
+                    members: assessment.members,
+                },
+            )?;
         }
     }
     // Dispatch membership also conveys eligibility. Check its bounded target/ancestry group
@@ -393,116 +595,328 @@ fn prepare_selected(data: &EventData, stored: &EventOutput, selected: Option<&[E
         let target = need(&data.targets, assessment.target)?;
         let q = qualification(data, target.qualification)?;
         if (target.site, target.origin, q.context) != (event.site, event.origin, event.context) {
-            return Err(invalid("dispatch target crosses the normalized event frame"));
+            return Err(invalid(
+                "dispatch target crosses the normalized event frame",
+            ));
         }
         let mut expected = EventOutput::new(budget);
         let members = super::dispatch::assess(data, event.id(), target, &mut expected, budget)?;
         if expected.dispatch_assessments.get(assessment.id()) != Some(assessment)
-            || members.members.iter().any(|member| stored.dispatch_members.get(member.id()) != Some(member))
-            || stored.dispatch_members.iter().filter(|member| member.assessment == assessment.id()).count() != members.members.len()
-            || expected.dispatch_evidence.iter().any(|evidence| stored.dispatch_evidence.get(evidence.id()) != Some(evidence))
-            || expected.dispatch_premises.iter().any(|premise| stored.dispatch_premises.get(premise.id()) != Some(premise))
-        { return Err(invalid("dispatch admission exceeds the actual target/ancestry predicate")); }
+            || members
+                .members
+                .iter()
+                .any(|member| stored.dispatch_members.get(member.id()) != Some(member))
+            || stored
+                .dispatch_members
+                .iter()
+                .filter(|member| member.assessment == assessment.id())
+                .count()
+                != members.members.len()
+            || expected
+                .dispatch_evidence
+                .iter()
+                .any(|evidence| stored.dispatch_evidence.get(evidence.id()) != Some(evidence))
+            || expected
+                .dispatch_premises
+                .iter()
+                .any(|premise| stored.dispatch_premises.get(premise.id()) != Some(premise))
+        {
+            return Err(invalid(
+                "dispatch admission exceeds the actual target/ancestry predicate",
+            ));
+        }
     }
     for alternative in stored.alternatives.iter() {
         let event = need(&stored.events, alternative.event)?;
         let source = need(&stored.alternative_sources, alternative.source)?;
         let member = match source {
-            CallAlternativeSource::DerivedDispatch { member, .. } => Some(need(&stored.dispatch_members, *member)?),
-            CallAlternativeSource::Native { target } => stored.dispatch_members.iter().find(|member| member.named && stored.dispatch_assessments.get(member.assessment).is_some_and(|a| a.event == event.id() && a.target == *target)),
+            CallAlternativeSource::DerivedDispatch { member, .. } => {
+                Some(need(&stored.dispatch_members, *member)?)
+            }
+            CallAlternativeSource::Native { target } => {
+                stored.dispatch_members.iter().find(|member| {
+                    member.named
+                        && stored
+                            .dispatch_assessments
+                            .get(member.assessment)
+                            .is_some_and(|a| a.event == event.id() && a.target == *target)
+                })
+            }
         };
         if let Some(member) = member {
             let assessment = need(&stored.dispatch_assessments, member.assessment)?;
             let mapping = need(&data.symbol_resolutions, member.correspondence)?;
-            if assessment.policy != policy_revision() || assessment.event != event.id() || assessment.target != source.target()
-                || mapping.symbol != member.symbol || mapping.context != event.context || mapping.entity != Some(member.entity)
-                || mapping.status != ResolutionStatus::Resolved || (member.named && assessment.named != member.symbol)
-            { return Err(invalid("dispatch admission differs from checked correspondence")); }
-            tokens.dispatch.insert(&mut tokens._charge, alternative.id(), super::dispatch::ApplicableDispatch::from_member(member, assessment, event.context))?;
+            if assessment.policy != policy_revision()
+                || assessment.event != event.id()
+                || assessment.target != source.target()
+                || mapping.symbol != member.symbol
+                || mapping.context != event.context
+                || mapping.entity != Some(member.entity)
+                || mapping.status != ResolutionStatus::Resolved
+                || (member.named && assessment.named != member.symbol)
+            {
+                return Err(invalid(
+                    "dispatch admission differs from checked correspondence",
+                ));
+            }
+            tokens.dispatch.insert(
+                &mut tokens._charge,
+                alternative.id(),
+                super::dispatch::ApplicableDispatch::from_member(member, assessment, event.context),
+            )?;
         }
     }
     for policy in stored.policy_assessments.iter() {
         let event = need(&stored.events, policy.event)?;
         let assessment = need(&stored.assessments, policy.event_assessment)?;
-        if assessment.event != event.id() { return Err(invalid("event policy refers to another event assessment")); }
+        if assessment.event != event.id() {
+            return Err(invalid("event policy refers to another event assessment"));
+        }
         let mut charge = StateCharge::new(budget, "event-policy-admission-domain");
         let mut expected: ChargedSet<Id<NormalizedCallAlternative>> = Default::default();
-        for alternative in stored.alternatives.iter().filter(|alternative| alternative.event == event.id()) {
-            if admits(policy.policy, data, &index, alternative, tokens.get(event.id()), stored)? {
+        for alternative in stored
+            .alternatives
+            .iter()
+            .filter(|alternative| alternative.event == event.id())
+        {
+            if admits(
+                policy.policy,
+                data,
+                &index,
+                alternative,
+                tokens.get(event.id()),
+                stored,
+            )? {
                 expected.insert(&mut charge, alternative.id())?;
             }
         }
         let mut digest = KeySink::new("call-policy-members");
         for id in expected.iter() {
             id.encode(&mut digest);
-            if !stored.admissions.iter().any(|admission| admission.assessment == policy.id() && admission.alternative == *id) {
-                return Err(invalid("eligible event alternative is missing its required policy admission"));
+            if !stored.admissions.iter().any(|admission| {
+                admission.assessment == policy.id() && admission.alternative == *id
+            }) {
+                return Err(invalid(
+                    "eligible event alternative is missing its required policy admission",
+                ));
             }
         }
-        if policy.admitted != expected.len() as i64 || policy.members != digest.finish()
-            || stored.admissions.iter().filter(|admission| admission.assessment == policy.id()).count() != expected.len()
-        { return Err(invalid("event policy closed alternative domain differs")); }
+        if policy.admitted != expected.len() as i64
+            || policy.members != digest.finish()
+            || stored
+                .admissions
+                .iter()
+                .filter(|admission| admission.assessment == policy.id())
+                .count()
+                != expected.len()
+        {
+            return Err(invalid("event policy closed alternative domain differs"));
+        }
     }
     for admission in stored.admissions.iter() {
         let assessment = need(&stored.policy_assessments, admission.assessment)?;
         let alternative = need(&stored.alternatives, admission.alternative)?;
-        if assessment.event != alternative.event || !admits(assessment.policy, data, &index, alternative, tokens.get(alternative.event), stored)? {
-            return Err(invalid("event policy admission exceeds eligible alternatives"));
+        if assessment.event != alternative.event
+            || !admits(
+                assessment.policy,
+                data,
+                &index,
+                alternative,
+                tokens.get(alternative.event),
+                stored,
+            )?
+        {
+            return Err(invalid(
+                "event policy admission exceeds eligible alternatives",
+            ));
         }
     }
     Ok(tokens)
 }
 
-fn admit_native_domain(data: &EventData, stored: &EventOutput, event: &NormalizedCallEvent, index: &Index<'_>, budget: &ResourceBudget) -> Result<(), ModelError> {
-    let key = (event.site,event.origin,event.context);
+fn admit_native_domain(
+    data: &EventData,
+    stored: &EventOutput,
+    event: &NormalizedCallEvent,
+    index: &Index<'_>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let key = (event.site, event.origin, event.context);
     let mut charge = StateCharge::new(budget, "event-native-source-domain");
     let mut reported = ChargedSet::default();
     let mut expected = Rows::<NormalizedCallAlternative>::new(budget);
     let mut evidence = Rows::<CallAlternativeEvidence>::new(budget);
-    let mut native = |target: &CallTarget, resolution: Option<Id<CallResolution>>| -> Result<(), ModelError> {
-        let q = qualification(data,target.qualification)?;
-        if (target.site,target.origin,q.context) != key { return Err(invalid("native event target crosses qualified source frame")); }
-        let (correspondence,entity,status,reason) = correspondence(data,index,need(&data.destinations,target.destination)?)?;
-        let source = CallAlternativeSource::Native {target:target.id()};
-        if stored.alternative_sources.get(source.id()) != Some(&source) { return Err(invalid("native alternative source absent")); }
-        let row = NormalizedCallAlternative {event:event.id(),source:source.id(),resolution,correspondence,entity,status,reason};
-        let alternative = expected.insert(row)?;
-        let supports = index.supports.get(&target.id()).filter(|supports| !supports.is_empty()).ok_or_else(|| invalid("native event target support absent"))?;
-        for support in supports { evidence.insert(CallAlternativeEvidence {alternative,support:support.id()})?; }
-        if matches!(need(&data.destinations,target.destination)?, CallDestination::Overrides {..}) {
-            let mut assessments = stored.dispatch_assessments.iter().filter(|assessment| assessment.event==event.id() && assessment.target==target.id());
-            let assessment = assessments.next().ok_or_else(|| invalid("native dispatch eligibility assessment absent"))?;
-            if assessments.next().is_some() { return Err(invalid("native dispatch eligibility assessment ambiguous")); }
-            for member in stored.dispatch_members.iter().filter(|member| member.assessment==assessment.id() && !member.named) {
-                let source = CallAlternativeSource::DerivedDispatch {target:target.id(),member:member.id()};
-                if stored.alternative_sources.get(source.id()) != Some(&source) { return Err(invalid("dispatch alternative source absent")); }
-                let alternative = expected.insert(NormalizedCallAlternative {event:event.id(),source:source.id(),resolution,correspondence:Some(member.correspondence),entity:Some(member.entity),status:ResolutionStatus::Resolved,reason:LinkReason::ExplicitIdentity})?;
-                for support in supports { evidence.insert(CallAlternativeEvidence {alternative,support:support.id()})?; }
+    let mut native =
+        |target: &CallTarget, resolution: Option<Id<CallResolution>>| -> Result<(), ModelError> {
+            let q = qualification(data, target.qualification)?;
+            if (target.site, target.origin, q.context) != key {
+                return Err(invalid(
+                    "native event target crosses qualified source frame",
+                ));
             }
-        }
-        Ok(())
-    };
+            let (correspondence, entity, status, reason) =
+                correspondence(data, index, need(&data.destinations, target.destination)?)?;
+            let source = CallAlternativeSource::Native {
+                target: target.id(),
+            };
+            if stored.alternative_sources.get(source.id()) != Some(&source) {
+                return Err(invalid("native alternative source absent"));
+            }
+            let row = NormalizedCallAlternative {
+                event: event.id(),
+                source: source.id(),
+                resolution,
+                correspondence,
+                entity,
+                status,
+                reason,
+            };
+            let alternative = expected.insert(row)?;
+            let supports = index
+                .supports
+                .get(&target.id())
+                .filter(|supports| !supports.is_empty())
+                .ok_or_else(|| invalid("native event target support absent"))?;
+            for support in supports {
+                evidence.insert(CallAlternativeEvidence {
+                    alternative,
+                    support: support.id(),
+                })?;
+            }
+            if matches!(
+                need(&data.destinations, target.destination)?,
+                CallDestination::Overrides { .. }
+            ) {
+                let mut assessments = stored.dispatch_assessments.iter().filter(|assessment| {
+                    assessment.event == event.id() && assessment.target == target.id()
+                });
+                let assessment = assessments
+                    .next()
+                    .ok_or_else(|| invalid("native dispatch eligibility assessment absent"))?;
+                if assessments.next().is_some() {
+                    return Err(invalid("native dispatch eligibility assessment ambiguous"));
+                }
+                for member in stored
+                    .dispatch_members
+                    .iter()
+                    .filter(|member| member.assessment == assessment.id() && !member.named)
+                {
+                    let source = CallAlternativeSource::DerivedDispatch {
+                        target: target.id(),
+                        member: member.id(),
+                    };
+                    if stored.alternative_sources.get(source.id()) != Some(&source) {
+                        return Err(invalid("dispatch alternative source absent"));
+                    }
+                    let alternative = expected.insert(NormalizedCallAlternative {
+                        event: event.id(),
+                        source: source.id(),
+                        resolution,
+                        correspondence: Some(member.correspondence),
+                        entity: Some(member.entity),
+                        status: ResolutionStatus::Resolved,
+                        reason: LinkReason::ExplicitIdentity,
+                    })?;
+                    for support in supports {
+                        evidence.insert(CallAlternativeEvidence {
+                            alternative,
+                            support: support.id(),
+                        })?;
+                    }
+                }
+            }
+            Ok(())
+        };
     for resolution in index.resolutions.get(&key).into_iter().flatten() {
-        let q = qualification(data,resolution.qualification)?;
-        let targets = index.members.get(&resolution.id()).map(Vec::as_slice).unwrap_or(&[]);
+        let q = qualification(data, resolution.qualification)?;
+        let targets = index
+            .members
+            .get(&resolution.id())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
         let mut values = Vec::new();
         for target in targets {
-            charge.admit(*target)?; values.push((*target).clone());
-            let tq = qualification(data,target.qualification)?;
-            if tq.context!=event.context || tq.scope!=q.scope { return Err(invalid("native event resolution crosses qualification context or scope")); }
+            charge.admit(*target)?;
+            values.push((*target).clone());
+            let tq = qualification(data, target.qualification)?;
+            if tq.context != event.context || tq.scope != q.scope {
+                return Err(invalid(
+                    "native event resolution crosses qualification context or scope",
+                ));
+            }
         }
-        if CallResolution::new(q,event.site,event.origin,resolution.channel,resolution.phase,resolution.complete,&values)?.0 != **resolution { return Err(invalid("native event resolution member domain differs")); }
-        for target in targets { reported.insert(&mut charge,target.id())?; native(target,Some(resolution.id()))?; }
+        if CallResolution::new(
+            q,
+            event.site,
+            event.origin,
+            resolution.channel,
+            resolution.phase,
+            resolution.complete,
+            &values,
+        )?
+        .0 != **resolution
+        {
+            return Err(invalid("native event resolution member domain differs"));
+        }
+        for target in targets {
+            reported.insert(&mut charge, target.id())?;
+            native(target, Some(resolution.id()))?;
+        }
     }
-    for target in index.targets.get(&key).into_iter().flatten().filter(|target| !reported.contains(&target.id())) { native(target,None)?; }
-    if expected.iter().any(|row| stored.alternatives.get(row.id()) != Some(row))
-        || stored.alternatives.iter().filter(|row| row.event==event.id()).count()!=expected.len()
-        || evidence.iter().any(|row| stored.alternative_evidence.get(row.id()) != Some(row))
-        || stored.alternative_evidence.iter().filter(|row| stored.alternatives.get(row.alternative).is_some_and(|alternative| alternative.event==event.id())).count()!=evidence.len()
-    { return Err(invalid("native event alternative/source member domain differs")); }
-    if stored.sources.iter().filter(|source| source.event==event.id()).count()!=index.sites.get(&key).map_or(0,Vec::len)
-        || stored.resolutions.iter().filter(|resolution| resolution.event==event.id()).count()!=index.resolutions.get(&key).map_or(0,Vec::len)
-    { return Err(invalid("native event site/resolution source domain differs")); }
+    for target in index
+        .targets
+        .get(&key)
+        .into_iter()
+        .flatten()
+        .filter(|target| !reported.contains(&target.id()))
+    {
+        native(target, None)?;
+    }
+    if expected
+        .iter()
+        .any(|row| stored.alternatives.get(row.id()) != Some(row))
+        || stored
+            .alternatives
+            .iter()
+            .filter(|row| row.event == event.id())
+            .count()
+            != expected.len()
+        || evidence
+            .iter()
+            .any(|row| stored.alternative_evidence.get(row.id()) != Some(row))
+        || stored
+            .alternative_evidence
+            .iter()
+            .filter(|row| {
+                stored
+                    .alternatives
+                    .get(row.alternative)
+                    .is_some_and(|alternative| alternative.event == event.id())
+            })
+            .count()
+            != evidence.len()
+    {
+        return Err(invalid(
+            "native event alternative/source member domain differs",
+        ));
+    }
+    if stored
+        .sources
+        .iter()
+        .filter(|source| source.event == event.id())
+        .count()
+        != index.sites.get(&key).map_or(0, Vec::len)
+        || stored
+            .resolutions
+            .iter()
+            .filter(|resolution| resolution.event == event.id())
+            .count()
+            != index.resolutions.get(&key).map_or(0, Vec::len)
+    {
+        return Err(invalid(
+            "native event site/resolution source domain differs",
+        ));
+    }
     Ok(())
 }
 
@@ -682,19 +1096,31 @@ fn evaluate(
 }
 /// One complete event candidate domain. Dependency events are not additional output roots.
 /// Receiver authority comes from its owning normalization, never a stored assessment conversion.
-pub fn normalize_events_produced(data: &EventData, receivers: &super::receiver::VerifiedReceivers,
-    budget: &ResourceBudget) -> Result<(EventOutput, VerifiedEvents), ModelError>
-{ evaluate_selected(data, None, receivers, budget) }
-pub fn normalize_event_produced(data: &EventData, key: EventKey,
-    receivers: &super::receiver::VerifiedReceivers, budget: &ResourceBudget,
+pub fn normalize_events_produced(
+    data: &EventData,
+    receivers: &super::receiver::VerifiedReceivers,
+    budget: &ResourceBudget,
+) -> Result<(EventOutput, VerifiedEvents), ModelError> {
+    evaluate_selected(data, None, receivers, budget)
+}
+pub fn normalize_event_produced(
+    data: &EventData,
+    key: EventKey,
+    receivers: &super::receiver::VerifiedReceivers,
+    budget: &ResourceBudget,
 ) -> Result<(EventOutput, VerifiedEvents), ModelError> {
     evaluate_selected(data, Some(key), receivers, budget)
 }
-fn evaluate_selected(data: &EventData, selected: Option<EventKey>,
-    receiver_proofs: &super::receiver::VerifiedReceivers, budget: &ResourceBudget,
+fn evaluate_selected(
+    data: &EventData,
+    selected: Option<EventKey>,
+    receiver_proofs: &super::receiver::VerifiedReceivers,
+    budget: &ResourceBudget,
 ) -> Result<(EventOutput, VerifiedEvents), ModelError> {
     let index = Index::new(data, budget)?;
-    if selected.is_some_and(|key| !index.universe.contains(&key)) { return Err(invalid("event root absent from actual candidate universe")); }
+    if selected.is_some_and(|key| !index.universe.contains(&key)) {
+        return Err(invalid("event root absent from actual candidate universe"));
+    }
     let mut output = EventOutput::new(budget);
     let mut tokens = VerifiedEvents {
         flow: Default::default(),
@@ -702,7 +1128,11 @@ fn evaluate_selected(data: &EventData, selected: Option<EventKey>,
         dispatch: Default::default(),
         _charge: StateCharge::new(budget, "complete-event-tokens"),
     };
-    for &(site, origin, ctx) in index.universe.iter().filter(|key| selected.is_none_or(|selected| selected == **key)) {
+    for &(site, origin, ctx) in index
+        .universe
+        .iter()
+        .filter(|key| selected.is_none_or(|selected| selected == **key))
+    {
         let key = (site, origin, ctx);
         let owner = index
             .owners
@@ -715,7 +1145,11 @@ fn evaluate_selected(data: &EventData, selected: Option<EventKey>,
             owner: owner.id(),
         })?;
         if origin == CallOrigin::explicit() {
-            tokens.flow.update(&mut tokens._charge, (site, ctx), |events| events.push(event))?;
+            tokens
+                .flow
+                .update(&mut tokens._charge, (site, ctx), |events| {
+                    events.push(event)
+                })?;
         }
         let mut held = StateCharge::new(budget, "complete-event-members");
         let mut digest = KeySink::new("complete-normalized-event");
@@ -1128,35 +1562,61 @@ fn flow_links(
 }
 /// Link one observed path only after the complete owning event normalization has finished.
 /// Admission of a path's source/event correspondence uses its complete actual stored event bag.
-pub fn admit_flow_path(data: &EventData, stored: &EventOutput, path: Id<FlowValuePathObservation>, budget: &ResourceBudget) -> Result<(), ModelError> {
+pub fn admit_flow_path(
+    data: &EventData,
+    stored: &EventOutput,
+    path: Id<FlowValuePathObservation>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     need(&data.paths, path)?;
     let mut index = ChargedMap::default();
     let mut charge = StateCharge::new(budget, "admitted-flow-event-index");
-    for event in stored.events.iter().filter(|event| event.origin == CallOrigin::explicit()) {
-        index.update(&mut charge, (event.site, event.context), |events: &mut Vec<Id<NormalizedCallEvent>>| events.push(event.id()))?;
+    for event in stored
+        .events
+        .iter()
+        .filter(|event| event.origin == CallOrigin::explicit())
+    {
+        index.update(
+            &mut charge,
+            (event.site, event.context),
+            |events: &mut Vec<Id<NormalizedCallEvent>>| events.push(event.id()),
+        )?;
     }
     let mut expected = EventOutput::new(budget);
     flow_links_with(data, &mut expected, &index, Some(path), budget)?;
-    if !stored.flow_links.same(&expected.flow_links) { return Err(invalid("flow event source/domain correspondence differs")); }
+    if !stored.flow_links.same(&expected.flow_links) {
+        return Err(invalid("flow event source/domain correspondence differs"));
+    }
     Ok(())
 }
-pub fn normalize_flow_path(data: &EventData, path: Id<FlowValuePathObservation>,
-    events: &VerifiedEvents, budget: &ResourceBudget) -> Result<EventOutput, ModelError> {
+pub fn normalize_flow_path(
+    data: &EventData,
+    path: Id<FlowValuePathObservation>,
+    events: &VerifiedEvents,
+    budget: &ResourceBudget,
+) -> Result<EventOutput, ModelError> {
     need(&data.paths, path)?;
     let mut output = EventOutput::new(budget);
     flow_links_with(data, &mut output, &events.flow, Some(path), budget)?;
     Ok(output)
 }
-fn flow_links_with(data: &EventData, output: &mut EventOutput,
+fn flow_links_with(
+    data: &EventData,
+    output: &mut EventOutput,
     events: &ChargedMap<(Id<Occurrence>, Id<AnalysisContext>), Vec<Id<NormalizedCallEvent>>>,
-    selected: Option<Id<FlowValuePathObservation>>, budget: &ResourceBudget,
+    selected: Option<Id<FlowValuePathObservation>>,
+    budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "flow-event-path-grain");
     let mut steps: ChargedMap<Id<FlowCallPath>, Vec<&FlowCallStep>> = Default::default();
     for row in data.steps.iter() {
         steps.update(&mut charge, row.path, |v| v.push(row))?;
     }
-    for path in data.paths.iter().filter(|path| selected.is_none_or(|selected| selected == path.id())) {
+    for path in data
+        .paths
+        .iter()
+        .filter(|path| selected.is_none_or(|selected| selected == path.id()))
+    {
         let context = qualification(data, path.qualification)?.context;
         for step in steps.get(&path.path).into_iter().flatten() {
             let events = events
@@ -1194,31 +1654,36 @@ fn flow_links_with(data: &EventData, output: &mut EventOutput,
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = EventData::validation_inputs();
     inputs.extend(EventOutput::validation_inputs());
-    vec![Invariant {
-        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 1,
-        name: "normalized_event_closure",
-        inputs: inputs.clone(),
-        create: std::sync::Arc::new(|budget| {
-            Box::new(EventCheck {
-                data: EventData::new(budget),
-                output: EventOutput::new(budget),
-                budget: budget.clone(),
-                admission: false,
-            })
-        }),
-    }, Invariant {
-        purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
-        name: "normalized_event_admission",
-        inputs,
-        create: std::sync::Arc::new(|budget| Box::new(EventCheck {
-            data: EventData::new(budget),
-            output: EventOutput::new(budget),
-            budget: budget.clone(),
-            admission: true,
-        })),
-    }]
+    vec![
+        Invariant {
+            purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
+            revision: 1,
+            name: "normalized_event_closure",
+            inputs: inputs.clone(),
+            create: std::sync::Arc::new(|budget| {
+                Box::new(EventCheck {
+                    data: EventData::new(budget),
+                    output: EventOutput::new(budget),
+                    budget: budget.clone(),
+                    admission: false,
+                })
+            }),
+        },
+        Invariant {
+            purpose: crate::domain::InvariantPurpose::Admission,
+            revision: 1,
+            name: "normalized_event_admission",
+            inputs,
+            create: std::sync::Arc::new(|budget| {
+                Box::new(EventCheck {
+                    data: EventData::new(budget),
+                    output: EventOutput::new(budget),
+                    budget: budget.clone(),
+                    admission: true,
+                })
+            }),
+        },
+    ]
 }
 struct EventCheck {
     data: EventData,
@@ -1241,7 +1706,9 @@ impl InvariantCheck for EventCheck {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        if self.admission { return prepare(&self.data, &self.output, &self.budget).map(|_| ()); }
+        if self.admission {
+            return prepare(&self.data, &self.output, &self.budget).map(|_| ());
+        }
         verify(&self.data, &self.output, &self.budget).map(|_| ())
     }
 }
@@ -1281,32 +1748,125 @@ pub(crate) fn invariants_refs() -> Vec<&'static str> {
 mod preparation_controls {
     use super::*;
     fn nominal<T>(byte: u8) -> Id<T> {
-        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([byte; 16].into_iter()))
+        .unwrap()
     }
-    fn case() -> (EventData, EventOutput, ResourceBudget, Id<NormalizedCallEvent>) {
+    fn case() -> (
+        EventData,
+        EventOutput,
+        ResourceBudget,
+        Id<NormalizedCallEvent>,
+    ) {
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let mut data = EventData::new(&budget);
-        let q = AssertionQualification { assumptions: crate::domain::assumptions::AssumptionSet::empty_id(), context: nominal(1), scope: nominal(2), condition: crate::domain::conditions::Diagram::always().id(), modality: Modality::Definite, approximation: Approximation::Exact };
-        let symbol = ProviderSymbol { provider: nominal(3), context: q.context, module: nominal(4), native_key: "function:f".into(), name: "f".into(), kind: SymbolKind::Function };
-        let entity = EntityRef::Callable { callable: super::super::entities::CallableEntity::External { symbol: symbol.id() }.id() };
-        let destination = CallDestination::Resolved { symbol: symbol.id() };
+        let q = AssertionQualification {
+            assumptions: crate::domain::assumptions::AssumptionSet::empty_id(),
+            context: nominal(1),
+            scope: nominal(2),
+            condition: crate::domain::conditions::Diagram::always().id(),
+            modality: Modality::Definite,
+            approximation: Approximation::Exact,
+        };
+        let symbol = ProviderSymbol {
+            provider: nominal(3),
+            context: q.context,
+            module: nominal(4),
+            native_key: "function:f".into(),
+            name: "f".into(),
+            kind: SymbolKind::Function,
+        };
+        let entity = EntityRef::Callable {
+            callable: super::super::entities::CallableEntity::External {
+                symbol: symbol.id(),
+            }
+            .id(),
+        };
+        let destination = CallDestination::Resolved {
+            symbol: symbol.id(),
+        };
         let channel = CallChannel::Direct;
         let receiver = Receiver::None;
-        let target = CallTarget { qualification: q.id(), site: nominal(5), destination: destination.id(), channel: channel.id(), phase: CallPhase::Call, receiver: receiver.id(), implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: Some(ReceiverPassing::NotPassed), class_method: None, static_method: None };
-        let (resolution, members) = CallResolution::new(&q, target.site, target.origin, target.channel, target.phase, true, &[target.clone()]).unwrap();
+        let target = CallTarget {
+            qualification: q.id(),
+            site: nominal(5),
+            destination: destination.id(),
+            channel: channel.id(),
+            phase: CallPhase::Call,
+            receiver: receiver.id(),
+            implicit: false,
+            origin: CallOrigin::explicit(),
+            receiver_class: None,
+            passing: Some(ReceiverPassing::NotPassed),
+            class_method: None,
+            static_method: None,
+        };
+        let (resolution, members) = CallResolution::new(
+            &q,
+            target.site,
+            target.origin,
+            target.channel,
+            target.phase,
+            true,
+            &[target.clone()],
+        )
+        .unwrap();
         data.qualifications.insert(q.clone()).unwrap();
         data.symbols.insert(symbol.clone()).unwrap();
         data.refs.insert(entity.clone()).unwrap();
-        data.symbol_resolutions.insert(SymbolEntityResolution { symbol: symbol.id(), context: q.context, policy: policy_revision(), status: ResolutionStatus::Resolved, entity: Some(entity.id()), reason: super::super::entities::EntityReason::ProviderExternal }).unwrap();
-        let owner = EntityRef::Occurrence { occurrence: target.site };
-        data.owners.insert(super::super::entities::OccurrenceOwnership { occurrence: target.site, owner: target.site, entity: owner.id() }).unwrap();
+        data.symbol_resolutions
+            .insert(SymbolEntityResolution {
+                symbol: symbol.id(),
+                context: q.context,
+                policy: policy_revision(),
+                status: ResolutionStatus::Resolved,
+                entity: Some(entity.id()),
+                reason: super::super::entities::EntityReason::ProviderExternal,
+            })
+            .unwrap();
+        let owner = EntityRef::Occurrence {
+            occurrence: target.site,
+        };
+        data.owners
+            .insert(super::super::entities::OccurrenceOwnership {
+                occurrence: target.site,
+                owner: target.site,
+                entity: owner.id(),
+            })
+            .unwrap();
         data.refs.insert(owner).unwrap();
-        data.destinations.insert(destination).unwrap(); data.channels.insert(channel).unwrap(); data.receivers.insert(receiver).unwrap();
+        data.destinations.insert(destination).unwrap();
+        data.channels.insert(channel).unwrap();
+        data.receivers.insert(receiver).unwrap();
         data.targets.insert(target.clone()).unwrap();
-        data.target_supports.insert(CallTargetSupport { assertion: target.id(), run: nominal(6), surface: nominal(7), evidence: nominal(8), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural }).unwrap();
+        data.target_supports
+            .insert(CallTargetSupport {
+                assertion: target.id(),
+                run: nominal(6),
+                surface: nominal(7),
+                evidence: nominal(8),
+                origin: Origin::AnalyzerAssertion,
+                mode: ExtractionMode::NativeTraversal,
+                fidelity: Fidelity::NativeStructural,
+            })
+            .unwrap();
         data.resolutions.insert(resolution.clone()).unwrap();
-        data.resolution_supports.insert(CallResolutionSupport { assertion: resolution.id(), run: nominal(6), surface: nominal(7), evidence: nominal(8), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural }).unwrap();
-        for member in members { data.members.insert(member).unwrap(); }
+        data.resolution_supports
+            .insert(CallResolutionSupport {
+                assertion: resolution.id(),
+                run: nominal(6),
+                surface: nominal(7),
+                evidence: nominal(8),
+                origin: Origin::AnalyzerAssertion,
+                mode: ExtractionMode::NativeTraversal,
+                fidelity: Fidelity::NativeStructural,
+            })
+            .unwrap();
+        for member in members {
+            data.members.insert(member).unwrap();
+        }
         let output = normalize(&data, &budget).unwrap();
         let event = output.events.iter().next().unwrap().id();
         (data, output, budget, event)
@@ -1315,7 +1875,10 @@ mod preparation_controls {
     fn completed_event_preparation_retains_exact_admission_and_refuses_missing_candidate() {
         let (mut data, output, budget, event) = case();
         let tokens = prepare(&data, &output, &budget).unwrap();
-        assert_eq!(tokens.get(event).unwrap().assessment(), output.assessments.iter().next().unwrap().id());
+        assert_eq!(
+            tokens.get(event).unwrap().assessment(),
+            output.assessments.iter().next().unwrap().id()
+        );
         drop(tokens);
         data.members = Rows::new(&budget);
         assert!(prepare(&data, &output, &budget).is_err());

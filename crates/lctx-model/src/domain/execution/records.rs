@@ -397,24 +397,88 @@ impl BaseCheck {
     /// Rehydrate the actual owner's primitive result against its exact immutable evidence.
     /// The issuer checks row/frame bytes before reaching this private operation. No evaluator,
     /// entry derivation, native provider or upstream producer executes here.
-    pub(crate) fn hydrate_actual(&self,row:&ExpressionEvaluation,value:ProducedValue)->Result<CheckedEvaluation,ModelError> {
-        let invalid=|message:&str|ModelError::Invalid(message.into());
-        if self.evaluations.get(row.id())!=Some(row) {return Err(invalid("actual evaluation membership row changed"));}
-        let count=self.members.iter().filter(|member|member.evaluation==row.id()).count()+self.operands.iter().filter(|operand|operand.evaluation==row.id()).count();
-        let _scratch=self.budget.reserve("actual-evaluation-membership",count.checked_mul(128).ok_or_else(||invalid("actual evaluation membership allowance overflow"))?)?;
-        let mut members=self.members.iter().filter(|member|member.evaluation==row.id()).collect::<Vec<_>>();members.sort_by_key(|member|member.ordinal);
-        let mut native=Vec::new();let mut entries=Vec::new();let mut source_ids=Vec::new();
-        for (ordinal,member) in members.into_iter().enumerate() {
-            if member.ordinal!=ordinal as i64 {return Err(invalid("actual evaluation source order differs"));}
-            let source=self.sources.get(member.source).ok_or_else(||invalid("actual evaluation source absent"))?;source_ids.push(source.id());
-            match source {EvaluationSource::Native {premise}=>native.push(*premise),EvaluationSource::Entry {witness}=>entries.push(*witness)}
+    pub(crate) fn hydrate_actual(
+        &self,
+        row: &ExpressionEvaluation,
+        value: ProducedValue,
+    ) -> Result<CheckedEvaluation, ModelError> {
+        let invalid = |message: &str| ModelError::Invalid(message.into());
+        if self.evaluations.get(row.id()) != Some(row) {
+            return Err(invalid("actual evaluation membership row changed"));
         }
-        if ordered_digest("base-evaluation-sources",source_ids.into_iter())!=row.sources {return Err(invalid("actual evaluation sources differ from owner receipt"));}
-        let mut selected=self.operands.iter().filter(|operand|operand.evaluation==row.id()).collect::<Vec<_>>();selected.sort_by_key(|operand|operand.ordinal);
-        let mut operands=Vec::with_capacity(selected.len());for (ordinal,operand) in selected.into_iter().enumerate() {if operand.ordinal!=ordinal as i64 {return Err(invalid("actual evaluation operand order differs"));}operands.push(operand.expression);}
-        if ordered_digest("base-evaluation-operands",operands.iter().copied())!=row.operands {return Err(invalid("actual evaluation operands differ from owner receipt"));}
-        let proof=value.hydrate(native,operands,entries,&self.budget)?;
-        if !EvaluationFacts::of(&proof).matches(row,self.invocations.get(row.invocation).ok_or_else(||invalid("actual evaluation frame absent"))?) {return Err(invalid("actual evaluation primitive differs from owner receipt"));}
+        let count = self
+            .members
+            .iter()
+            .filter(|member| member.evaluation == row.id())
+            .count()
+            + self
+                .operands
+                .iter()
+                .filter(|operand| operand.evaluation == row.id())
+                .count();
+        let _scratch = self.budget.reserve(
+            "actual-evaluation-membership",
+            count
+                .checked_mul(128)
+                .ok_or_else(|| invalid("actual evaluation membership allowance overflow"))?,
+        )?;
+        let mut members = self
+            .members
+            .iter()
+            .filter(|member| member.evaluation == row.id())
+            .collect::<Vec<_>>();
+        members.sort_by_key(|member| member.ordinal);
+        let mut native = Vec::new();
+        let mut entries = Vec::new();
+        let mut source_ids = Vec::new();
+        for (ordinal, member) in members.into_iter().enumerate() {
+            if member.ordinal != ordinal as i64 {
+                return Err(invalid("actual evaluation source order differs"));
+            }
+            let source = self
+                .sources
+                .get(member.source)
+                .ok_or_else(|| invalid("actual evaluation source absent"))?;
+            source_ids.push(source.id());
+            match source {
+                EvaluationSource::Native { premise } => native.push(*premise),
+                EvaluationSource::Entry { witness } => entries.push(*witness),
+            }
+        }
+        if ordered_digest("base-evaluation-sources", source_ids.into_iter()) != row.sources {
+            return Err(invalid(
+                "actual evaluation sources differ from owner receipt",
+            ));
+        }
+        let mut selected = self
+            .operands
+            .iter()
+            .filter(|operand| operand.evaluation == row.id())
+            .collect::<Vec<_>>();
+        selected.sort_by_key(|operand| operand.ordinal);
+        let mut operands = Vec::with_capacity(selected.len());
+        for (ordinal, operand) in selected.into_iter().enumerate() {
+            if operand.ordinal != ordinal as i64 {
+                return Err(invalid("actual evaluation operand order differs"));
+            }
+            operands.push(operand.expression);
+        }
+        if ordered_digest("base-evaluation-operands", operands.iter().copied()) != row.operands {
+            return Err(invalid(
+                "actual evaluation operands differ from owner receipt",
+            ));
+        }
+        let proof = value.hydrate(native, operands, entries, &self.budget)?;
+        if !EvaluationFacts::of(&proof).matches(
+            row,
+            self.invocations
+                .get(row.invocation)
+                .ok_or_else(|| invalid("actual evaluation frame absent"))?,
+        ) {
+            return Err(invalid(
+                "actual evaluation primitive differs from owner receipt",
+            ));
+        }
         Ok(proof)
     }
     pub(crate) fn replay(
@@ -547,5 +611,8 @@ impl BaseCheck {
 }
 
 pub(crate) fn base_invariants_refs() -> Vec<&'static str> {
-    vec!["base_closed_expression_replay", "execution_expression_fidelity"]
+    vec![
+        "base_closed_expression_replay",
+        "execution_expression_fidelity",
+    ]
 }

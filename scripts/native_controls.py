@@ -13,7 +13,11 @@ from surrealdb_fixture import fixture
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("boundary", choices=("store", "serving", "mcp"))
-    parser.add_argument("--cli", action="store_true", help="Build and exercise the native selection CLI in the publication journey")
+    parser.add_argument(
+        "--cli",
+        action="store_true",
+        help="Build and exercise the native selection CLI in the publication journey",
+    )
     options, filters = parser.parse_known_args()
     if filters[:1] == ["--"]:
         filters = filters[1:]

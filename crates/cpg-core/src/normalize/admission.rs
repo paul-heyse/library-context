@@ -1,17 +1,33 @@
 //! Required normalized owner predicates over one candidate/advertised domain at a time.
-use super::{receiver_scope::ReceiverScopes, call_scope::CallScopes};
-use crate::{consumed_rows::{ClosureTable, PreparedClosure, identifier}, workspace::Cancellation};
-use futures::TryStreamExt;
+use super::{call_scope::CallScopes, receiver_scope::ReceiverScopes};
+use crate::{
+    consumed_rows::{ClosureTable, PreparedClosure, identifier},
+    workspace::Cancellation,
+};
 use arrow_array::Array;
-use lctx_model::domain::{*, normalized::{Rows, receiver, event_normalization, binding_normalization}};
+use futures::TryStreamExt;
+use lctx_model::domain::{
+    normalized::{Rows, binding_normalization, event_normalization, receiver},
+    *,
+};
 use std::any::TypeId;
 
-async fn feed(scope: &PreparedClosure, inputs: &[ValidationInput], cancellation: &Cancellation,
+async fn feed(
+    scope: &PreparedClosure,
+    inputs: &[ValidationInput],
+    cancellation: &Cancellation,
     mut visit: impl FnMut(&str, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     for (table, input) in inputs.iter().enumerate() {
-        let mut stream = crate::sql::query(scope.session(), &format!("{} ORDER BY id", scope.select(table)?)).await.map_err(ModelError::codec)?
-            .execute_stream().await.map_err(ModelError::codec)?;
+        let mut stream = crate::sql::query(
+            scope.session(),
+            &format!("{} ORDER BY id", scope.select(table)?),
+        )
+        .await
+        .map_err(ModelError::codec)?
+        .execute_stream()
+        .await
+        .map_err(ModelError::codec)?;
         while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
             cancellation.check()?;
             visit(input.name(), &batch)?;
@@ -19,44 +35,90 @@ async fn feed(scope: &PreparedClosure, inputs: &[ValidationInput], cancellation:
     }
     Ok(())
 }
-fn input_table<R: Record>(invariant: &Invariant, tables: &[ClosureTable]) -> Result<String, ModelError> {
-    let index = invariant.inputs.iter().position(|input| input.type_id() == TypeId::of::<R>()).ok_or(ModelError::Schema(R::NAME))?;
-    tables.get(index).map(|table| identifier(&table.alias)).ok_or(ModelError::Schema(R::NAME))
+fn input_table<R: Record>(
+    invariant: &Invariant,
+    tables: &[ClosureTable],
+) -> Result<String, ModelError> {
+    let index = invariant
+        .inputs
+        .iter()
+        .position(|input| input.type_id() == TypeId::of::<R>())
+        .ok_or(ModelError::Schema(R::NAME))?;
+    tables
+        .get(index)
+        .map(|table| identifier(&table.alias))
+        .ok_or(ModelError::Schema(R::NAME))
 }
 
-pub async fn validate_receivers(invariant: &Invariant, tables: Vec<ClosureTable>, session: &datafusion::prelude::SessionContext,
-    budget: &resources::ResourceBudget, cancellation: &Cancellation,
+pub async fn validate_receivers(
+    invariant: &Invariant,
+    tables: Vec<ClosureTable>,
+    session: &datafusion::prelude::SessionContext,
+    budget: &resources::ResourceBudget,
+    cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
-    let scopes = ReceiverScopes::from_tables(invariant.inputs.clone(), tables.clone(), session, budget).await?;
+    let scopes =
+        ReceiverScopes::from_tables(invariant.inputs.clone(), tables.clone(), session, budget)
+            .await?;
     // Stored assessment roots are independent of candidate eligibility, so dishonest existing
     // non-candidate targets cannot disappear merely because the producer would skip them.
-    macro_rules! roots {($ty:ty) => {{
-        let table = input_table::<$ty>(invariant, &tables)?;
-        let mut stream = crate::sql::query(session, &format!("SELECT id FROM {table} ORDER BY id")).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-            let ids = batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema(<$ty>::NAME))?;
-            for ordinal in 0..ids.len() {
-                cancellation.check()?;
-                let scope = scopes.root_grain(TypeId::of::<$ty>(), ids.value(ordinal), budget).await?;
-                let mut data = receiver::ReceiverData::new(budget);
-                let mut stored = receiver::ReceiverOutput::new(budget);
-                feed(&scope, scopes.inputs(), cancellation, |name, batch| {
-                    if !data.visit(name, batch)? && !stored.visit(name, batch)? { return Err(ModelError::Schema("receiver admission input")); }
-                    Ok(())
-                }).await?;
-                receiver::admit(&data, &stored, budget)?;
-                tokio::task::yield_now().await;
+    macro_rules! roots {
+        ($ty:ty) => {{
+            let table = input_table::<$ty>(invariant, &tables)?;
+            let mut stream =
+                crate::sql::query(session, &format!("SELECT id FROM {table} ORDER BY id"))
+                    .await
+                    .map_err(ModelError::codec)?
+                    .execute_stream()
+                    .await
+                    .map_err(ModelError::codec)?;
+            while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+                let ids = batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+                    .ok_or(ModelError::Schema(<$ty>::NAME))?;
+                for ordinal in 0..ids.len() {
+                    cancellation.check()?;
+                    let scope = scopes
+                        .root_grain(TypeId::of::<$ty>(), ids.value(ordinal), budget)
+                        .await?;
+                    let mut data = receiver::ReceiverData::new(budget);
+                    let mut stored = receiver::ReceiverOutput::new(budget);
+                    feed(&scope, scopes.inputs(), cancellation, |name, batch| {
+                        if !data.visit(name, batch)? && !stored.visit(name, batch)? {
+                            return Err(ModelError::Schema("receiver admission input"));
+                        }
+                        Ok(())
+                    })
+                    .await?;
+                    receiver::admit(&data, &stored, budget)?;
+                    tokio::task::yield_now().await;
+                }
             }
-        }
-    }};}
-    roots!(calls::CallTarget); roots!(receiver::ReceiverAssessment);
+        }};
+    }
+    roots!(calls::CallTarget);
+    roots!(receiver::ReceiverAssessment);
     Ok(())
 }
 
-pub async fn validate_events(invariant: &Invariant, tables: Vec<ClosureTable>, session: &datafusion::prelude::SessionContext,
-    budget: &resources::ResourceBudget, cancellation: &Cancellation,
+pub async fn validate_events(
+    invariant: &Invariant,
+    tables: Vec<ClosureTable>,
+    session: &datafusion::prelude::SessionContext,
+    budget: &resources::ResourceBudget,
+    cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
-    let scopes = CallScopes::from_tables(invariant.inputs.clone(), tables.clone(), session, budget, false, true).await?;
+    let scopes = CallScopes::from_tables(
+        invariant.inputs.clone(),
+        tables.clone(),
+        session,
+        budget,
+        false,
+        true,
+    )
+    .await?;
     let qualifications = input_table::<assertion::AssertionQualification>(invariant, &tables)?;
     let mut seen = charged::ChargedSet::default();
     let mut root_charge = charged::StateCharge::new(budget, "event-admission-root-keys");
@@ -87,17 +149,36 @@ pub async fn validate_events(invariant: &Invariant, tables: Vec<ClosureTable>, s
             }
         }
     }};}
-    roots!(calls::ProviderCallSite, false); roots!(calls::CallTarget, false); roots!(calls::CallResolution, false);
+    roots!(calls::ProviderCallSite, false);
+    roots!(calls::CallTarget, false);
+    roots!(calls::CallResolution, false);
     roots!(normalized::events::NormalizedCallEvent, true);
     if let Ok(table) = input_table::<flow::FlowValuePathObservation>(invariant, &tables) {
-        let mut stream = crate::sql::query(session, &format!("SELECT * FROM {table} ORDER BY id")).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        let mut stream = crate::sql::query(session, &format!("SELECT * FROM {table} ORDER BY id"))
+            .await
+            .map_err(ModelError::codec)?
+            .execute_stream()
+            .await
+            .map_err(ModelError::codec)?;
         while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-            let mut roots = Rows::<flow::FlowValuePathObservation>::new(budget); roots.decode(&batch)?;
+            let mut roots = Rows::<flow::FlowValuePathObservation>::new(budget);
+            roots.decode(&batch)?;
             for root in roots.iter() {
-                let scope = scopes.root_grain(TypeId::of::<flow::FlowValuePathObservation>(), root.id().bytes(), budget).await?;
+                let scope = scopes
+                    .root_grain(
+                        TypeId::of::<flow::FlowValuePathObservation>(),
+                        root.id().bytes(),
+                        budget,
+                    )
+                    .await?;
                 let mut data = event_normalization::EventData::new(budget);
                 let mut stored = event_normalization::EventOutput::new(budget);
-                feed(&scope, scopes.inputs(), cancellation, |name, batch| { data.visit(name,batch)?; stored.visit(name,batch)?; Ok(()) }).await?;
+                feed(&scope, scopes.inputs(), cancellation, |name, batch| {
+                    data.visit(name, batch)?;
+                    stored.visit(name, batch)?;
+                    Ok(())
+                })
+                .await?;
                 event_normalization::admit_flow_path(&data, &stored, root.id(), budget)?;
             }
         }
@@ -105,20 +186,49 @@ pub async fn validate_events(invariant: &Invariant, tables: Vec<ClosureTable>, s
     Ok(())
 }
 
-pub async fn validate_bindings(invariant: &Invariant, tables: Vec<ClosureTable>, session: &datafusion::prelude::SessionContext,
-    budget: &resources::ResourceBudget, cancellation: &Cancellation,
+pub async fn validate_bindings(
+    invariant: &Invariant,
+    tables: Vec<ClosureTable>,
+    session: &datafusion::prelude::SessionContext,
+    budget: &resources::ResourceBudget,
+    cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
-    let scopes = CallScopes::from_tables(invariant.inputs.clone(), tables.clone(), session, budget, true, true).await?;
+    let scopes = CallScopes::from_tables(
+        invariant.inputs.clone(),
+        tables.clone(),
+        session,
+        budget,
+        true,
+        true,
+    )
+    .await?;
     let table = input_table::<normalized::events::NormalizedCallEvent>(invariant, &tables)?;
-    let mut stream = crate::sql::query(session, &format!("SELECT * FROM {table} ORDER BY id")).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+    let mut stream = crate::sql::query(session, &format!("SELECT * FROM {table} ORDER BY id"))
+        .await
+        .map_err(ModelError::codec)?
+        .execute_stream()
+        .await
+        .map_err(ModelError::codec)?;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        let mut roots = Rows::<normalized::events::NormalizedCallEvent>::new(budget); roots.decode(&batch)?;
+        let mut roots = Rows::<normalized::events::NormalizedCallEvent>::new(budget);
+        roots.decode(&batch)?;
         for event in roots.iter() {
             cancellation.check()?;
-            let scope = scopes.root_grain(TypeId::of::<normalized::events::NormalizedCallEvent>(), event.id().bytes(), budget).await?;
+            let scope = scopes
+                .root_grain(
+                    TypeId::of::<normalized::events::NormalizedCallEvent>(),
+                    event.id().bytes(),
+                    budget,
+                )
+                .await?;
             let mut data = binding_normalization::BindingData::new(budget);
             let mut stored = binding_normalization::BindingOutput::new(budget);
-            feed(&scope, scopes.inputs(), cancellation, |name,batch| { data.visit(name,batch)?; stored.visit(name,batch)?; Ok(()) }).await?;
+            feed(&scope, scopes.inputs(), cancellation, |name, batch| {
+                data.visit(name, batch)?;
+                stored.visit(name, batch)?;
+                Ok(())
+            })
+            .await?;
             binding_normalization::admit_event(&data, &stored, event.id(), budget)?;
             tokio::task::yield_now().await;
         }

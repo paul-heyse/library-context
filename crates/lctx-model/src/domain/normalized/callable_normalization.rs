@@ -401,7 +401,11 @@ fn derive_assessments(
     selected: Option<CallableContext>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    for &(callable, ctx) in index.universe.iter().filter(|key| selected.is_none_or(|selected| selected == **key)) {
+    for &(callable, ctx) in index
+        .universe
+        .iter()
+        .filter(|key| selected.is_none_or(|selected| selected == **key))
+    {
         let mut held = StateCharge::new(budget, "effective-callable-premises");
         let mut premises = Vec::new();
         let traits = index
@@ -689,13 +693,22 @@ pub fn derive_assessment(
 ) -> Result<CallableOutput, ModelError> {
     let index = Index::new(data, budget)?;
     if !index.universe.contains(&(callable, context)) {
-        return Err(invalid("callable assessment grain has no admitted source universe"));
+        return Err(invalid(
+            "callable assessment grain has no admitted source universe",
+        ));
     }
     let mut output = CallableOutput::new(budget);
     let mut assessments = Default::default();
     let mut charge = StateCharge::new(budget, "callable-assessment-grain");
-    derive_assessments(data, &index, &mut output, &mut assessments, &mut charge,
-        Some((callable, context)), budget)?;
+    derive_assessments(
+        data,
+        &index,
+        &mut output,
+        &mut assessments,
+        &mut charge,
+        Some((callable, context)),
+        budget,
+    )?;
     Ok(output)
 }
 /// Check the actual source-owned descriptor/body/signature claims with the same local kernel
@@ -708,19 +721,33 @@ pub fn admit_assessment(
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let expected = derive_assessment(data, callable, context, budget)?;
-    stored.assessments.same(&expected.assessments).then_some(())
+    stored
+        .assessments
+        .same(&expected.assessments)
+        .then_some(())
         .ok_or_else(|| invalid("callable owner claims differ from selected source premises"))?;
-    if !stored.decorators.same(&expected.decorators) || !stored.premises.same(&expected.premises)
-        || !stored.evidence.same(&expected.evidence) {
-        return Err(invalid("callable owner evidence differs from selected source premises"));
+    if !stored.decorators.same(&expected.decorators)
+        || !stored.premises.same(&expected.premises)
+        || !stored.evidence.same(&expected.evidence)
+    {
+        return Err(invalid(
+            "callable owner evidence differs from selected source premises",
+        ));
     }
     Ok(())
 }
-fn derive_variants(data:&CallableData,index:&Index<'_>,output:&mut CallableOutput,
-    assessments:&ChargedMap<CallableContext,Id<EffectiveCallableAssessment>>,
-    selected:Option<&ChargedSet<Id<Signature>>>,
-)->Result<(),ModelError> {
-    for signature in data.signatures.iter().filter(|row| selected.is_none_or(|selected| selected.contains(&row.id()))) {
+fn derive_variants(
+    data: &CallableData,
+    index: &Index<'_>,
+    output: &mut CallableOutput,
+    assessments: &ChargedMap<CallableContext, Id<EffectiveCallableAssessment>>,
+    selected: Option<&ChargedSet<Id<Signature>>>,
+) -> Result<(), ModelError> {
+    for signature in data
+        .signatures
+        .iter()
+        .filter(|row| selected.is_none_or(|selected| selected.contains(&row.id())))
+    {
         let resolution = index
             .resolutions
             .get(&signature.symbol)
@@ -772,14 +799,23 @@ fn derive_variants(data:&CallableData,index:&Index<'_>,output:&mut CallableOutpu
     }
     Ok(())
 }
-fn derive_slots(data:&CallableData,output:&mut CallableOutput,selected:Option<&ChargedSet<Id<Signature>>>,budget:&ResourceBudget)->Result<(),ModelError> {
-    let mut charge=StateCharge::new(budget,"callable-signature-slots");
+fn derive_slots(
+    data: &CallableData,
+    output: &mut CallableOutput,
+    selected: Option<&ChargedSet<Id<Signature>>>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let mut charge = StateCharge::new(budget, "callable-signature-slots");
     let mut variants: ChargedMap<Id<Signature>, Id<SignatureVariant>> = Default::default();
     for row in output.variants.iter() {
         variants.insert(&mut charge, row.signature, row.id())?;
     }
     let mut slots: ChargedMap<Id<SignatureParameter>, Id<SignatureSlot>> = Default::default();
-    for parameter in data.parameters.iter().filter(|row| selected.is_none_or(|selected| selected.contains(&row.signature))) {
+    for parameter in data
+        .parameters
+        .iter()
+        .filter(|row| selected.is_none_or(|selected| selected.contains(&row.signature)))
+    {
         let shape = need(&data.shapes, parameter.shape)?;
         let signature = need(&data.signatures, parameter.signature)?;
         let default = if matches!(
@@ -805,7 +841,11 @@ fn derive_slots(data:&CallableData,output:&mut CallableOutput,selected:Option<&C
         })?;
         slots.insert(&mut charge, parameter.id(), slot)?;
     }
-    for link in data.parameter_links.iter().filter(|row| selected.is_none() || slots.contains_key(&row.parameter)) {
+    for link in data
+        .parameter_links
+        .iter()
+        .filter(|row| selected.is_none() || slots.contains_key(&row.parameter))
+    {
         output.slot_entities.insert(SignatureSlotEntity {
             slot: *slots
                 .get(&link.parameter)
@@ -816,7 +856,9 @@ fn derive_slots(data:&CallableData,output:&mut CallableOutput,selected:Option<&C
     for observation in data.signature_types.iter() {
         match need(&data.signature_type_subjects, observation.subject)? {
             SignatureTypeSubject::Parameter { parameter } => {
-                if selected.is_some() && !slots.contains_key(parameter) {continue;}
+                if selected.is_some() && !slots.contains_key(parameter) {
+                    continue;
+                }
                 output.slot_types.insert(SignatureSlotType {
                     slot: *slots
                         .get(parameter)
@@ -825,7 +867,9 @@ fn derive_slots(data:&CallableData,output:&mut CallableOutput,selected:Option<&C
                 })?;
             }
             SignatureTypeSubject::Return { signature } => {
-                if selected.is_some() && !variants.contains_key(signature) {continue;}
+                if selected.is_some() && !variants.contains_key(signature) {
+                    continue;
+                }
                 output.return_types.insert(SignatureReturnType {
                     variant: *variants
                         .get(signature)
@@ -840,70 +884,178 @@ fn derive_slots(data:&CallableData,output:&mut CallableOutput,selected:Option<&C
 /// Complete alternatives for one source callable, across its admitted context frames. This
 /// constructs only the assessment/evidence family; unrelated signatures and slots are outputs
 /// of their own selected kernel.
-pub fn normalize_callable(data:&CallableData,selected:Id<CallableEntity>,budget:&ResourceBudget)->Result<CallableOutput,ModelError> {
-    let index=Index::new(data,budget)?;let mut output=CallableOutput::new(budget);
-    let mut assessments=Default::default();let mut charge=StateCharge::new(budget,"callable-family-assessments");
-    for key in index.universe.iter().filter(|(callable,_)|*callable==selected) {
-        derive_assessments(data,&index,&mut output,&mut assessments,&mut charge,Some(*key),budget)?;
+pub fn normalize_callable(
+    data: &CallableData,
+    selected: Id<CallableEntity>,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
+    let index = Index::new(data, budget)?;
+    let mut output = CallableOutput::new(budget);
+    let mut assessments = Default::default();
+    let mut charge = StateCharge::new(budget, "callable-family-assessments");
+    for key in index
+        .universe
+        .iter()
+        .filter(|(callable, _)| *callable == selected)
+    {
+        derive_assessments(
+            data,
+            &index,
+            &mut output,
+            &mut assessments,
+            &mut charge,
+            Some(*key),
+            budget,
+        )?;
     }
     Ok(output)
 }
 /// Compare only one actual callable's owner claims across its complete context candidate domain.
 /// The stored family must be selected by actual callable membership, including missing/extra rows.
-pub fn admit_callable(data:&CallableData,stored:&CallableOutput,selected:Id<CallableEntity>,budget:&ResourceBudget)->Result<(),ModelError> {
-    let expected=normalize_callable(data,selected,budget)?;
-    if !stored.assessments.same(&expected.assessments) || !stored.decorators.same(&expected.decorators)
-        || !stored.premises.same(&expected.premises) || !stored.evidence.same(&expected.evidence) {
-        return Err(invalid("selected callable owner claims differ from actual source premises"));
+pub fn admit_callable(
+    data: &CallableData,
+    stored: &CallableOutput,
+    selected: Id<CallableEntity>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let expected = normalize_callable(data, selected, budget)?;
+    if !stored.assessments.same(&expected.assessments)
+        || !stored.decorators.same(&expected.decorators)
+        || !stored.premises.same(&expected.premises)
+        || !stored.evidence.same(&expected.evidence)
+    {
+        return Err(invalid(
+            "selected callable owner claims differ from actual source premises",
+        ));
     }
     Ok(())
 }
-fn signature_assessment(data:&CallableData,index:&Index<'_>,signature:&Signature,output:&mut CallableOutput,
-    assessments:&mut ChargedMap<CallableContext,Id<EffectiveCallableAssessment>>,charge:&mut StateCharge,budget:&ResourceBudget,
-)->Result<(),ModelError> {
-    let resolution=index.resolutions.get(&signature.symbol).ok_or_else(||invalid("signature has no total symbol resolution"))?;
-    let ctx=context(data,signature.qualification)?;
-    if ctx==resolution.context && let Some(callable)=callable(data,resolution) && !assessments.contains_key(&(callable,ctx)) {
-        derive_assessments(data,index,output,assessments,charge,Some((callable,ctx)),budget)?;
+fn signature_assessment(
+    data: &CallableData,
+    index: &Index<'_>,
+    signature: &Signature,
+    output: &mut CallableOutput,
+    assessments: &mut ChargedMap<CallableContext, Id<EffectiveCallableAssessment>>,
+    charge: &mut StateCharge,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let resolution = index
+        .resolutions
+        .get(&signature.symbol)
+        .ok_or_else(|| invalid("signature has no total symbol resolution"))?;
+    let ctx = context(data, signature.qualification)?;
+    if ctx == resolution.context
+        && let Some(callable) = callable(data, resolution)
+        && !assessments.contains_key(&(callable, ctx))
+    {
+        derive_assessments(
+            data,
+            index,
+            output,
+            assessments,
+            charge,
+            Some((callable, ctx)),
+            budget,
+        )?;
     }
     Ok(())
 }
 /// A signature's variant, defaults, native slots and attributed types. Its target callable
 /// assessment is derived from complete alternatives solely to obtain the canonical reference
 /// and descriptor adjustment; that assessment is published by the callable kernel.
-pub fn normalize_signature(data:&CallableData,selected:Id<Signature>,budget:&ResourceBudget)->Result<CallableOutput,ModelError> {
-    let index=Index::new(data,budget)?;let signature=need(&data.signatures,selected)?;
-    let mut output=CallableOutput::new(budget);let mut assessments=Default::default();let mut charge=StateCharge::new(budget,"callable-signature-grain");
-    signature_assessment(data,&index,signature,&mut output,&mut assessments,&mut charge,budget)?;
-    let mut roots=ChargedSet::default();roots.insert(&mut charge,selected)?;
-    derive_variants(data,&index,&mut output,&assessments,Some(&roots))?;
-    derive_slots(data,&mut output,Some(&roots),budget)?;
-    output.assessments=Rows::new(budget);output.decorators=Rows::new(budget);output.premises=Rows::new(budget);output.evidence=Rows::new(budget);
+pub fn normalize_signature(
+    data: &CallableData,
+    selected: Id<Signature>,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
+    let index = Index::new(data, budget)?;
+    let signature = need(&data.signatures, selected)?;
+    let mut output = CallableOutput::new(budget);
+    let mut assessments = Default::default();
+    let mut charge = StateCharge::new(budget, "callable-signature-grain");
+    signature_assessment(
+        data,
+        &index,
+        signature,
+        &mut output,
+        &mut assessments,
+        &mut charge,
+        budget,
+    )?;
+    let mut roots = ChargedSet::default();
+    roots.insert(&mut charge, selected)?;
+    derive_variants(data, &index, &mut output, &assessments, Some(&roots))?;
+    derive_slots(data, &mut output, Some(&roots), budget)?;
+    output.assessments = Rows::new(budget);
+    output.decorators = Rows::new(budget);
+    output.premises = Rows::new(budget);
+    output.evidence = Rows::new(budget);
     Ok(output)
 }
 /// One complete native overload trace and every original origin/context/run/surface alternative.
 /// Scope selection must not supply another trace; candidate count/digest verification remains
 /// the model owner's actual association kernel.
-pub fn normalize_overload(data:&CallableData,selected:Id<types::NativeOverloadObservation>,budget:&ResourceBudget)->Result<CallableOutput,ModelError> {
-    if data.overload_traces.len()!=1 || data.overload_traces.get(selected).is_none() {return Err(invalid("overload kernel needs exactly its selected complete trace"));}
-    let index=Index::new(data,budget)?;let mut output=CallableOutput::new(budget);
-    let mut assessments=Default::default();let mut charge=StateCharge::new(budget,"callable-overload-grain");let mut roots=ChargedSet::default();
-    for signature in data.signatures.iter().filter(|row|row.role==SignatureRole::EffectiveTyped) {
-        roots.insert(&mut charge,signature.id())?;
-        signature_assessment(data,&index,signature,&mut output,&mut assessments,&mut charge,budget)?;
+pub fn normalize_overload(
+    data: &CallableData,
+    selected: Id<types::NativeOverloadObservation>,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
+    if data.overload_traces.len() != 1 || data.overload_traces.get(selected).is_none() {
+        return Err(invalid(
+            "overload kernel needs exactly its selected complete trace",
+        ));
     }
-    derive_variants(data,&index,&mut output,&assessments,Some(&roots))?;
-    super::overload_association::associate(data,&mut output,budget)?;
-    output.assessments=Rows::new(budget);output.decorators=Rows::new(budget);output.premises=Rows::new(budget);output.evidence=Rows::new(budget);output.variants=Rows::new(budget);
+    let index = Index::new(data, budget)?;
+    let mut output = CallableOutput::new(budget);
+    let mut assessments = Default::default();
+    let mut charge = StateCharge::new(budget, "callable-overload-grain");
+    let mut roots = ChargedSet::default();
+    for signature in data
+        .signatures
+        .iter()
+        .filter(|row| row.role == SignatureRole::EffectiveTyped)
+    {
+        roots.insert(&mut charge, signature.id())?;
+        signature_assessment(
+            data,
+            &index,
+            signature,
+            &mut output,
+            &mut assessments,
+            &mut charge,
+            budget,
+        )?;
+    }
+    derive_variants(data, &index, &mut output, &assessments, Some(&roots))?;
+    super::overload_association::associate(data, &mut output, budget)?;
+    output.assessments = Rows::new(budget);
+    output.decorators = Rows::new(budget);
+    output.premises = Rows::new(budget);
+    output.evidence = Rows::new(budget);
+    output.variants = Rows::new(budget);
     Ok(output)
 }
-pub fn normalize(data:&CallableData,budget:&ResourceBudget)->Result<CallableOutput,ModelError> {
-    let index=Index::new(data,budget)?;let mut output=CallableOutput::new(budget);
-    let mut assessments=Default::default();let mut charge=StateCharge::new(budget,"callable-assessment-map");
-    derive_assessments(data,&index,&mut output,&mut assessments,&mut charge,None,budget)?;
-    derive_variants(data,&index,&mut output,&assessments,None)?;
-    derive_slots(data,&mut output,None,budget)?;
-    super::overload_association::associate(data,&mut output,budget)?;Ok(output)
+pub fn normalize(
+    data: &CallableData,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
+    let index = Index::new(data, budget)?;
+    let mut output = CallableOutput::new(budget);
+    let mut assessments = Default::default();
+    let mut charge = StateCharge::new(budget, "callable-assessment-map");
+    derive_assessments(
+        data,
+        &index,
+        &mut output,
+        &mut assessments,
+        &mut charge,
+        None,
+        budget,
+    )?;
+    derive_variants(data, &index, &mut output, &assessments, None)?;
+    derive_slots(data, &mut output, None, budget)?;
+    super::overload_association::associate(data, &mut output, budget)?;
+    Ok(output)
 }
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = CallableData::validation_inputs();
@@ -915,29 +1067,36 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<EffectiveCallablePremise>(&["id"]),
         ValidationInput::of::<EffectiveCallableEvidence>(&["id"]),
     ]);
-    vec![Invariant {
-        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 1,
-        name: "normalized_callable_closure",
-        inputs,
-        create: std::sync::Arc::new(|budget| {
-            Box::new(CallableCheck {
-                data: CallableData::new(budget),
-                output: CallableOutput::new(budget),
-                budget: budget.clone(),
-                admission: false,
-            })
-        }),
-    }, Invariant {
-        purpose: InvariantPurpose::Admission,
-        revision: 1,
-        name: "normalized_callable_admission",
-        inputs: owner_inputs,
-        create: std::sync::Arc::new(|budget| Box::new(CallableCheck {
-            data: CallableData::new(budget), output: CallableOutput::new(budget),
-            budget: budget.clone(), admission: true,
-        })),
-    }]
+    vec![
+        Invariant {
+            purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
+            revision: 1,
+            name: "normalized_callable_closure",
+            inputs,
+            create: std::sync::Arc::new(|budget| {
+                Box::new(CallableCheck {
+                    data: CallableData::new(budget),
+                    output: CallableOutput::new(budget),
+                    budget: budget.clone(),
+                    admission: false,
+                })
+            }),
+        },
+        Invariant {
+            purpose: InvariantPurpose::Admission,
+            revision: 1,
+            name: "normalized_callable_admission",
+            inputs: owner_inputs,
+            create: std::sync::Arc::new(|budget| {
+                Box::new(CallableCheck {
+                    data: CallableData::new(budget),
+                    output: CallableOutput::new(budget),
+                    budget: budget.clone(),
+                    admission: true,
+                })
+            }),
+        },
+    ]
 }
 struct CallableCheck {
     admission: bool,
@@ -946,7 +1105,9 @@ struct CallableCheck {
     budget: ResourceBudget,
 }
 impl InvariantCheck for CallableCheck {
-    fn normalization_scope(&self)->Option<super::admission::Scope> {self.admission.then_some(super::admission::Scope::Callables)}
+    fn normalization_scope(&self) -> Option<super::admission::Scope> {
+        self.admission.then_some(super::admission::Scope::Callables)
+    }
     fn visit(
         &mut self,
         relation: &str,
@@ -963,12 +1124,23 @@ impl InvariantCheck for CallableCheck {
             let mut expected = CallableOutput::new(&self.budget);
             let mut assessments = Default::default();
             let mut charge = StateCharge::new(&self.budget, "callable-owner-admission");
-            derive_assessments(&self.data, &index, &mut expected, &mut assessments, &mut charge, None, &self.budget)?;
+            derive_assessments(
+                &self.data,
+                &index,
+                &mut expected,
+                &mut assessments,
+                &mut charge,
+                None,
+                &self.budget,
+            )?;
             if !self.output.assessments.same(&expected.assessments)
                 || !self.output.decorators.same(&expected.decorators)
                 || !self.output.premises.same(&expected.premises)
-                || !self.output.evidence.same(&expected.evidence) {
-                return Err(invalid("callable owner admission differs from actual source premises"));
+                || !self.output.evidence.same(&expected.evidence)
+            {
+                return Err(invalid(
+                    "callable owner admission differs from actual source premises",
+                ));
             }
             Ok(())
         } else {
@@ -1000,14 +1172,21 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
 }
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {
-    vec!["normalized_callable_closure", "normalized_callable_admission"]
+    vec![
+        "normalized_callable_closure",
+        "normalized_callable_admission",
+    ]
 }
 
 #[cfg(test)]
 mod callable_grain_controls {
     use super::*;
     fn id<R: Record>(byte: u8) -> Id<R> {
-        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([byte; 16].into_iter()))
+        .unwrap()
     }
     #[test]
     fn selected_claims_require_actual_local_premises_and_omit_other_callable() {
@@ -1018,15 +1197,30 @@ mod callable_grain_controls {
         let other = CallableEntity::External { symbol: id(3) };
         for row in [&first, &other] {
             data.callables.insert(row.clone()).unwrap();
-            let entity = data.refs.insert(EntityRef::Callable { callable: row.id() }).unwrap();
-            let CallableEntity::External { symbol } = row else { unreachable!() };
-            data.resolutions.insert(SymbolEntityResolution { symbol:*symbol, context,
-                policy:policy_revision(), status:ResolutionStatus::Resolved, entity:Some(entity),
-                reason:EntityReason::ProviderExternal }).unwrap();
+            let entity = data
+                .refs
+                .insert(EntityRef::Callable { callable: row.id() })
+                .unwrap();
+            let CallableEntity::External { symbol } = row else {
+                unreachable!()
+            };
+            data.resolutions
+                .insert(SymbolEntityResolution {
+                    symbol: *symbol,
+                    context,
+                    policy: policy_revision(),
+                    status: ResolutionStatus::Resolved,
+                    entity: Some(entity),
+                    reason: EntityReason::ProviderExternal,
+                })
+                .unwrap();
         }
         let actual = derive_assessment(&data, first.id(), context, &budget).unwrap();
         assert_eq!(actual.assessments.len(), 1);
-        assert_eq!(actual.assessments.iter().next().unwrap().callable, first.id());
+        assert_eq!(
+            actual.assessments.iter().next().unwrap().callable,
+            first.id()
+        );
         admit_assessment(&data, &actual, first.id(), context, &budget).unwrap();
         let mut false_claim = CallableOutput::new(&budget);
         let mut row = actual.assessments.iter().next().unwrap().clone();

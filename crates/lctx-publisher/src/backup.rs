@@ -59,7 +59,11 @@ pub async fn backup(
         handle.clone(),
     )
     .await?;
-    viewer.client().invalidate().await.map_err(ModelError::codec)?;
+    viewer
+        .client()
+        .invalidate()
+        .await
+        .map_err(ModelError::codec)?;
     drop(viewer);
     if output.exists() {
         return Err(ModelError::Conflict("backup destination already exists"));
@@ -254,7 +258,9 @@ async fn copy(
             if references {
                 fresh.loader.entity_references(&rows).await?
             } else {
-                for row in &rows { admission.entity(row.clone())?; }
+                for row in &rows {
+                    admission.entity(row.clone())?;
+                }
                 fresh.loader.entities(&rows).await?
             }
             after = last;
@@ -268,7 +274,9 @@ async fn copy(
             if references {
                 fresh.loader.assertion_references(&rows).await?
             } else {
-                for row in &rows { admission.assertion(row.clone())?; }
+                for row in &rows {
+                    admission.assertion(row.clone())?;
+                }
                 fresh.loader.assertions(&rows).await?
             }
             after = last;
@@ -300,11 +308,26 @@ async fn copy(
         }
         file.rewind().map_err(ModelError::codec)?;
         let mut bindings = Variables::new();
-        bindings.insert("source", lctx_surrealdb::reader::target_id(Target::Entity(original.source)));
-        let headers: Vec<Bytes> = source.query("SELECT VALUE canonical FROM entity WHERE id=$source", bindings).await?;
-        let entity: Entity = serde_json::from_slice(headers.first().filter(|_| headers.len() == 1)
-            .ok_or(ModelError::Schema("restored original source"))?).map_err(ModelError::codec)?;
-        let Entity::Source(header) = entity else { return Err(ModelError::Schema("restored original source")); };
+        bindings.insert(
+            "source",
+            lctx_surrealdb::reader::target_id(Target::Entity(original.source)),
+        );
+        let headers: Vec<Bytes> = source
+            .query(
+                "SELECT VALUE canonical FROM entity WHERE id=$source",
+                bindings,
+            )
+            .await?;
+        let entity: Entity = serde_json::from_slice(
+            headers
+                .first()
+                .filter(|_| headers.len() == 1)
+                .ok_or(ModelError::Schema("restored original source"))?,
+        )
+        .map_err(ModelError::codec)?;
+        let Entity::Source(header) = entity else {
+            return Err(ModelError::Schema("restored original source"));
+        };
         admission.original_stream(&header, &mut file)?;
         file.rewind().map_err(ModelError::codec)?;
         fresh
@@ -422,32 +445,79 @@ mod tests {
     async fn backup_sdk_file_export_faults_never_publish_provisional_bytes() {
         use super::grpc_export_fixture::{Fault, Fixture, PARTIAL};
         use lctx_surrealdb::Credentials;
-        for fault in [Fault::LateEngineError, Fault::LateTaskError, Fault::MissingTrailer, Fault::ByteCountMismatch, Fault::TransportClose] {
+        for fault in [
+            Fault::LateEngineError,
+            Fault::LateTaskError,
+            Fault::MissingTrailer,
+            Fault::ByteCountMismatch,
+            Fault::TransportClose,
+        ] {
             let fixture = Fixture::start(fault).await;
             let scratch = tempfile::tempdir().unwrap();
             let staged = tempfile::NamedTempFile::new_in(scratch.path()).unwrap();
             let provisional = staged.path().to_owned();
             let output = scratch.path().join("snapshot.surql");
-            let client = lctx_surrealdb::reader::connect(&fixture.endpoint, &Credentials::Root { username: "fixture".into(), password: "fixture".into() }, "injected_export", "fixture").await.unwrap();
-            let exporting = client.clone(); let path = provisional.clone();
-            let mut export = tokio::spawn(async move { exporting.export(&path).await.map_err(ModelError::codec) });
+            let client = lctx_surrealdb::reader::connect(
+                &fixture.endpoint,
+                &Credentials::Root {
+                    username: "fixture".into(),
+                    password: "fixture".into(),
+                },
+                "injected_export",
+                "fixture",
+            )
+            .await
+            .unwrap();
+            let exporting = client.clone();
+            let path = provisional.clone();
+            let mut export =
+                tokio::spawn(
+                    async move { exporting.export(&path).await.map_err(ModelError::codec) },
+                );
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 loop {
-                    if tokio::fs::read(&provisional).await.unwrap() == PARTIAL { break; }
-                    assert!(!export.is_finished(), "{fault:?} must be injected after actual partial file bytes");
+                    if tokio::fs::read(&provisional).await.unwrap() == PARTIAL {
+                        break;
+                    }
+                    assert!(
+                        !export.is_finished(),
+                        "{fault:?} must be injected after actual partial file bytes"
+                    );
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 }
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
             assert!(!export.is_finished());
-            if matches!(fault, Fault::TransportClose) { fixture.disconnect(); } else { fixture.release_terminal(); }
-            let result = tokio::time::timeout(std::time::Duration::from_secs(5), &mut export).await.unwrap().unwrap();
+            if matches!(fault, Fault::TransportClose) {
+                fixture.disconnect();
+            } else {
+                fixture.release_terminal();
+            }
+            let result = tokio::time::timeout(std::time::Duration::from_secs(5), &mut export)
+                .await
+                .unwrap()
+                .unwrap();
             assert!(result.is_err(), "real SDK must refuse {fault:?}");
             assert_eq!(tokio::fs::read(&provisional).await.unwrap(), PARTIAL);
-            let drained = tokio::time::timeout(std::time::Duration::from_secs(5), async { client.invalidate().await }).await.unwrap().map_err(ModelError::codec);
+            let drained = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                client.invalidate().await
+            })
+            .await
+            .unwrap()
+            .map_err(ModelError::codec);
             drop(client);
-            assert!(complete_backup(staged, &output, result, drained, |_| panic!("failed protocol export must not publish")).is_err());
+            assert!(
+                complete_backup(staged, &output, result, drained, |_| panic!(
+                    "failed protocol export must not publish"
+                ))
+                .is_err()
+            );
             assert!(!output.exists(), "{fault:?} left a completed destination");
-            assert!(!provisional.exists(), "{fault:?} retained provisional bytes");
+            assert!(
+                !provisional.exists(),
+                "{fault:?} retained provisional bytes"
+            );
             fixture.close().await;
         }
     }
@@ -465,13 +535,35 @@ mod tests {
         // /dev/full is a device, not operator data; no production injection hook is involved.
         std::fs::remove_file(&provisional).unwrap();
         std::os::unix::fs::symlink("/dev/full", &provisional).unwrap();
-        let client = lctx_surrealdb::reader::connect(&fixture.endpoint, &Credentials::Root { username: "fixture".into(), password: "fixture".into() }, "injected_export", "fixture").await.unwrap();
+        let client = lctx_surrealdb::reader::connect(
+            &fixture.endpoint,
+            &Credentials::Root {
+                username: "fixture".into(),
+                password: "fixture".into(),
+            },
+            "injected_export",
+            "fixture",
+        )
+        .await
+        .unwrap();
         fixture.release_terminal();
-        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async { client.export(&provisional).await }).await.unwrap().map_err(ModelError::codec);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            client.export(&provisional).await
+        })
+        .await
+        .unwrap()
+        .map_err(ModelError::codec);
         assert!(result.is_err(), "actual SDK destination write must fail");
-        let drained = client.invalidate().await.map_err(ModelError::codec); drop(client);
-        assert!(complete_backup(staged, &output, result, drained, |_| panic!("failed destination write must not publish")).is_err());
-        assert!(!output.exists()); assert!(!provisional.exists());
+        let drained = client.invalidate().await.map_err(ModelError::codec);
+        drop(client);
+        assert!(
+            complete_backup(staged, &output, result, drained, |_| panic!(
+                "failed destination write must not publish"
+            ))
+            .is_err()
+        );
+        assert!(!output.exists());
+        assert!(!provisional.exists());
         fixture.close().await;
     }
 
@@ -483,11 +575,30 @@ mod tests {
         let scratch = tempfile::tempdir().unwrap();
         let staged = tempfile::NamedTempFile::new_in(scratch.path()).unwrap();
         let output = scratch.path().join("snapshot.surql");
-        let client = lctx_surrealdb::reader::connect(&fixture.endpoint, &Credentials::Root { username: "fixture".into(), password: "fixture".into() }, "injected_export", "fixture").await.unwrap();
+        let client = lctx_surrealdb::reader::connect(
+            &fixture.endpoint,
+            &Credentials::Root {
+                username: "fixture".into(),
+                password: "fixture".into(),
+            },
+            "injected_export",
+            "fixture",
+        )
+        .await
+        .unwrap();
         fixture.release_terminal();
-        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async { client.export(staged.path()).await }).await.unwrap().map_err(ModelError::codec);
-        let drained = client.invalidate().await.map_err(ModelError::codec); drop(client);
-        complete_backup(staged, &output, result, drained, |parent| std::fs::File::open(parent)?.sync_all()).unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            client.export(staged.path()).await
+        })
+        .await
+        .unwrap()
+        .map_err(ModelError::codec);
+        let drained = client.invalidate().await.map_err(ModelError::codec);
+        drop(client);
+        complete_backup(staged, &output, result, drained, |parent| {
+            std::fs::File::open(parent)?.sync_all()
+        })
+        .unwrap();
         assert_eq!(std::fs::read(output).unwrap(), PARTIAL);
         fixture.close().await;
     }
@@ -523,14 +634,16 @@ mod tests {
         let staged = partial_dump(scratch.path());
         let provisional = staged.path().to_owned();
         let output = scratch.path().join("snapshot.surql");
-        assert!(complete_backup(
-            staged,
-            &output,
-            Ok(()),
-            Err(ModelError::Codec("session cleanup failure".into())),
-            |_| panic!("failed session drain must not publish or sync directory"),
-        )
-        .is_err());
+        assert!(
+            complete_backup(
+                staged,
+                &output,
+                Ok(()),
+                Err(ModelError::Codec("session cleanup failure".into())),
+                |_| panic!("failed session drain must not publish or sync directory"),
+            )
+            .is_err()
+        );
         assert!(!output.exists());
         assert!(!provisional.exists());
     }
@@ -542,10 +655,12 @@ mod tests {
         let provisional = staged.path().to_owned();
         let output = scratch.path().join("snapshot.surql");
         std::fs::write(&output, b"preexisting backup").unwrap();
-        assert!(complete_backup(staged, &output, Ok(()), Ok(()), |_| {
-            panic!("failed publication must not sync directory")
-        })
-        .is_err());
+        assert!(
+            complete_backup(staged, &output, Ok(()), Ok(()), |_| {
+                panic!("failed publication must not sync directory")
+            })
+            .is_err()
+        );
         assert_eq!(std::fs::read(output).unwrap(), b"preexisting backup");
         assert!(!provisional.exists());
     }
@@ -556,10 +671,12 @@ mod tests {
         let staged = partial_dump(scratch.path());
         let provisional = staged.path().to_owned();
         let output = scratch.path().join("missing-parent/snapshot.surql");
-        assert!(complete_backup(staged, &output, Ok(()), Ok(()), |_| {
-            panic!("failed publication must not sync directory")
-        })
-        .is_err());
+        assert!(
+            complete_backup(staged, &output, Ok(()), Ok(()), |_| {
+                panic!("failed publication must not sync directory")
+            })
+            .is_err()
+        );
         assert!(!output.exists());
         assert!(!provisional.exists());
     }
@@ -578,18 +695,33 @@ mod tests {
             class: Infrastructure::Unconfirmed,
             detail,
         } if detail.contains("was published") && detail.contains("durability is uncertain")));
-        assert_eq!(std::fs::read(&output).unwrap(), b"-- partial streamed dump\n");
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            b"-- partial streamed dump\n"
+        );
         assert!(!provisional.exists());
-        assert!(complete_backup(partial_dump(scratch.path()), &output, Ok(()), Ok(()), |_| {
-            panic!("retry must not overwrite the committed destination")
-        })
-        .is_err());
-        assert_eq!(std::fs::read(output).unwrap(), b"-- partial streamed dump\n");
+        assert!(
+            complete_backup(
+                partial_dump(scratch.path()),
+                &output,
+                Ok(()),
+                Ok(()),
+                |_| { panic!("retry must not overwrite the committed destination") }
+            )
+            .is_err()
+        );
+        assert_eq!(
+            std::fs::read(output).unwrap(),
+            b"-- partial streamed dump\n"
+        );
     }
 
     #[tokio::test]
     async fn backup_grpc_file_export_on_owned_persistent_fixture() {
-        use lctx_model::domain::{ContentHash, serving::{DatabaseIdentity, Name}};
+        use lctx_model::domain::{
+            ContentHash,
+            serving::{DatabaseIdentity, Name},
+        };
 
         let fixture_path = std::env::var("LCTX_SURREAL_TEST_CONFIG")
             .expect("owned disposable native server required");
@@ -646,7 +778,12 @@ mod tests {
         assert!(!config.selection.exists());
         assert!(backup(&config, &handle, &output).await.is_err());
         assert_eq!(std::fs::read_to_string(output).unwrap(), dump);
-        client.query("REMOVE DATABASE backup_fixture").await.unwrap().check().unwrap();
+        client
+            .query("REMOVE DATABASE backup_fixture")
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
         client.invalidate().await.unwrap();
     }
 }

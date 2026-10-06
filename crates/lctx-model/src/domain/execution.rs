@@ -3,9 +3,9 @@ use crate::DomainCode;
 pub mod completion;
 pub mod completion_records;
 pub mod evaluation;
+pub mod fidelity;
 pub mod outcome;
 pub mod records;
-pub mod fidelity;
 
 pub fn relations() -> Vec<crate::domain::Relation> {
     let mut relations = records::relations();

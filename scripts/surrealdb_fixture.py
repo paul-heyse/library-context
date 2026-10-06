@@ -183,7 +183,17 @@ def fixture() -> Iterator[SurrealFixture]:
         instance = SurrealFixture(scratch, "lctx-surrealdb-fixture-" + suffix)
         password = secrets.token_urlsafe(32)
         env_file = scratch / "server.env"
-        env_file.write_text("SURREAL_USER=fixture_admin\nSURREAL_PASS=" + password + "\n")
+        # Deliberate fixture allocation policy for the selected server. Keep the
+        # default durable Every sync mode and background maintenance behavior.
+        # The tracked-memory threshold complements the container RSS boundary;
+        # neither is a claim about peak RSS or a universal tuning prescription.
+        env_file.write_text(
+            "SURREAL_USER=fixture_admin\nSURREAL_PASS=" + password + "\n"
+            "SURREAL_ROCKSDB_BLOCK_CACHE_SIZE=67108864\n"
+            "SURREAL_ROCKSDB_WRITE_BUFFER_SIZE=33554432\n"
+            "SURREAL_ROCKSDB_MAX_WRITE_BUFFER_NUMBER=2\n"
+            "SURREAL_MEMORY_THRESHOLD=512MiB\n"
+        )
         env_file.chmod(0o600)
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
@@ -192,6 +202,8 @@ def fixture() -> Iterator[SurrealFixture]:
             instance.container_id = _docker(
                 "run",
                 "--detach",
+                "--memory",
+                "1g",
                 "--name",
                 instance.container,
                 "--user",

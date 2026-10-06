@@ -32,19 +32,41 @@ pub async fn produce(
     definition: &analysis::AnalysisDefinition,
     graphs: Option<&PreparedGraphs>,
     bindings: Option<&crate::analysis_bindings::PreparedBindings>,
-    local:Option<&crate::local_semantics::PreparedLocal>,
+    local: Option<&crate::local_semantics::PreparedLocal>,
 ) -> Result<(), ModelError> {
     let application = if access.profile() == Profile::Behavioral {
-        Some(bindings.ok_or_else(|| ModelError::Invalid("normalized application authority absent".into()))?.application(&access, runtime)?)
-    } else { None };
-    let actual=if access.profile()==Profile::Behavioral{Some(local.ok_or_else(||ModelError::Invalid("Summary actual Local owner absent".into()))?.guards(&access,runtime)?)}else{None};
+        Some(
+            bindings
+                .ok_or_else(|| {
+                    ModelError::Invalid("normalized application authority absent".into())
+                })?
+                .application(&access, runtime)?,
+        )
+    } else {
+        None
+    };
+    let actual = if access.profile() == Profile::Behavioral {
+        Some(
+            local
+                .ok_or_else(|| ModelError::Invalid("Summary actual Local owner absent".into()))?
+                .guards(&access, runtime)?,
+        )
+    } else {
+        None
+    };
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut coverage = CoverageAdmission::new(&sources, budget)?;
     let mut data = SummaryData::new(budget);
     let session = access.session(runtime).await?;
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
-        {let mut inputs=summary_replay::production_inputs(Profile::Catalog);inputs.extend(analysis::expected::inputs(analysis::AnalysisMethod::Summaries));inputs},
+        {
+            let mut inputs = summary_replay::production_inputs(Profile::Catalog);
+            inputs.extend(analysis::expected::inputs(
+                analysis::AnalysisMethod::Summaries,
+            ));
+            inputs
+        },
         budget,
     )?;
     macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
@@ -57,7 +79,11 @@ pub async fn produce(
     })*};}
     decoder_inputs!(inputs);
     consumed.finish(access.name())?;
-    let scopes=if access.profile()==Profile::Behavioral{Some(scope::SummaryScopes::prepare(&access,&session,_model,budget).await?)}else{None};
+    let scopes = if access.profile() == Profile::Behavioral {
+        Some(scope::SummaryScopes::prepare(&access, &session, _model, budget).await?)
+    } else {
+        None
+    };
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
 
@@ -77,8 +103,14 @@ pub async fn produce(
             name: projection::ProjectionName::CallableInvocation,
         };
         let graph = if access.profile() == Profile::Behavioral {
-            Some(graphs.ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?.graph(&access, runtime, key)?)
-        } else { None };
+            Some(
+                graphs
+                    .ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?
+                    .graph(&access, runtime, key)?,
+            )
+        } else {
+            None
+        };
         let (invocation, inputs, receipts, projections) = owner::AnalysisInvocation::admitted(
             run.input,
             run.context,
@@ -86,15 +118,23 @@ pub async fn produce(
             None,
             parents.iter().map(Record::id),
             &sources,
-            graph.map(|_| analysis::ProjectionDefinition::builtin(
-                projection::ProjectionName::CallableInvocation,
-            ).id()),
+            graph.map(|_| {
+                analysis::ProjectionDefinition::builtin(
+                    projection::ProjectionName::CallableInvocation,
+                )
+                .id()
+            }),
             budget,
         )?;
-        let _frame = budget.reserve("summary-output-frame",
-            4096 + receipts.iter().map(|row| size_of::<owner::SourceReceipt>() + row.heap_bytes()).sum::<usize>()
+        let _frame = budget.reserve(
+            "summary-output-frame",
+            4096 + receipts
+                .iter()
+                .map(|row| size_of::<owner::SourceReceipt>() + row.heap_bytes())
+                .sum::<usize>()
                 + inputs.len() * size_of::<owner::AnalysisInput>()
-                + projections.len() * size_of::<owner::ProjectionInput>())?;
+                + projections.len() * size_of::<owner::ProjectionInput>(),
+        )?;
         let coverage = owner::coverage::admit(
             &invocation,
             definition,
@@ -102,9 +142,22 @@ pub async fn produce(
             &coverage,
             budget,
         )?;
-        let grain=if let Some(scopes)=&scopes{Some(scopes.frame(run.id(),budget).await?)}else{None};
-        let selected=if let(Some(scopes),Some(grain))=(&scopes,&grain){Some(scopes.load(&access,grain,budget).await?)}else{None};
-        let frame_data=match access.profile(){Profile::Behavioral=>selected.as_ref().ok_or_else(||ModelError::Invalid("Summary selected frame absent".into()))?,Profile::Catalog=>&data};
+        let grain = if let Some(scopes) = &scopes {
+            Some(scopes.frame(run.id(), budget).await?)
+        } else {
+            None
+        };
+        let selected = if let (Some(scopes), Some(grain)) = (&scopes, &grain) {
+            Some(scopes.load(&access, grain, budget).await?)
+        } else {
+            None
+        };
+        let frame_data = match access.profile() {
+            Profile::Behavioral => selected
+                .as_ref()
+                .ok_or_else(|| ModelError::Invalid("Summary selected frame absent".into()))?,
+            Profile::Catalog => &data,
+        };
         let mut result = crate::stage_runtime::borrowed_cpu(access.name(), || {
             execution::summary_production::produce_prepared(
                 frame_data,
@@ -117,7 +170,8 @@ pub async fn produce(
                 actual,
             )
         })?;
-        drop(selected);drop(grain);
+        drop(selected);
+        drop(grain);
         tokio::task::yield_now().await;
         let mut actual_coverage = normalized::Rows::new(budget);
         let mut actual_premises = normalized::Rows::new(budget);
@@ -183,7 +237,9 @@ mod decoder_tests {
         macro_rules! collect {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
         decoder_inputs!(collect);
         lctx_model::summary_projection_inputs!(collect);
-        decoders.insert(std::any::TypeId::of::<analysis::native::NativeAssertionPremise>());
+        decoders.insert(std::any::TypeId::of::<
+            analysis::native::NativeAssertionPremise,
+        >());
         for profile in Profile::ALL {
             crate::consumed_rows::assert_decoder_reachability(
                 SummaryData::consumed_inputs(profile),

@@ -169,8 +169,10 @@ impl ArtifactClass {
     /// A declared use requests analysis only for its admitted artifact class.
     pub fn requested_by(self, role: SourceRole) -> bool {
         match self {
-            Self::PythonSource => matches!(role,
-                SourceRole::Release | SourceRole::Example | SourceRole::Test | SourceRole::DocBlock),
+            Self::PythonSource => matches!(
+                role,
+                SourceRole::Release | SourceRole::Example | SourceRole::Test | SourceRole::DocBlock
+            ),
             Self::Document => role == SourceRole::Document,
         }
     }
@@ -196,8 +198,8 @@ pub fn analysis_roots(
         let artifact = by_id
             .get(&usage.artifact)
             .ok_or_else(|| refuse("an artifact use names an absent artifact"))?;
-        let requested = ArtifactClass::of(&artifact.path)
-            .is_some_and(|class| class.requested_by(usage.role));
+        let requested =
+            ArtifactClass::of(&artifact.path).is_some_and(|class| class.requested_by(usage.role));
         if requested {
             selected.insert(artifact.id());
         }

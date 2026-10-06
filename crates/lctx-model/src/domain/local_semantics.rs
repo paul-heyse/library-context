@@ -645,14 +645,53 @@ macro_rules! local_semantic_outputs {
     };
 }
 /// Actual owner values retained as compact receipts, without native flow rows or decoded BDDs.
-pub struct ProducedLocal {entries:conditions::entry::produced::ProducedEntries,stability:conditions::stability::ProducedStability}
+pub struct ProducedLocal {
+    entries: conditions::entry::produced::ProducedEntries,
+    stability: conditions::stability::ProducedStability,
+}
 impl ProducedLocal {
-    pub fn empty(budget:&resources::ResourceBudget)->Self{Self{entries:conditions::entry::produced::ProducedEntries::new(budget),stability:conditions::stability::ProducedStability::new(budget)}}
-    pub fn entry(&self,witness:&EntryValueWitness,source:&EntryAccessSource,budget:&resources::ResourceBudget)->Result<DerivedEntryValue,ModelError>{self.entries.get(witness,source,budget)}
-    pub fn require_entry(&self,witness:&EntryValueWitness,source:&EntryAccessSource,budget:&resources::ResourceBudget)->Result<(),ModelError>{self.entries.require(witness,source,budget)}
-    pub fn guard(&self,witness:&StabilityWitness,budget:&resources::ResourceBudget)->Result<CheckedStability,ModelError>{self.stability.get(witness,budget)}
-    pub fn append(&mut self,other:Self)->Result<(),ModelError>{self.entries.append(other.entries)?;self.stability.append(other.stability)}
-    pub fn unrequested(invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,budget:&resources::ResourceBudget)->Result<Self,ModelError>{check_definition(definition)?;check_invocation(invocation)?;Ok(Self::empty(budget))}
+    pub fn empty(budget: &resources::ResourceBudget) -> Self {
+        Self {
+            entries: conditions::entry::produced::ProducedEntries::new(budget),
+            stability: conditions::stability::ProducedStability::new(budget),
+        }
+    }
+    pub fn entry(
+        &self,
+        witness: &EntryValueWitness,
+        source: &EntryAccessSource,
+        budget: &resources::ResourceBudget,
+    ) -> Result<DerivedEntryValue, ModelError> {
+        self.entries.get(witness, source, budget)
+    }
+    pub fn require_entry(
+        &self,
+        witness: &EntryValueWitness,
+        source: &EntryAccessSource,
+        budget: &resources::ResourceBudget,
+    ) -> Result<(), ModelError> {
+        self.entries.require(witness, source, budget)
+    }
+    pub fn guard(
+        &self,
+        witness: &StabilityWitness,
+        budget: &resources::ResourceBudget,
+    ) -> Result<CheckedStability, ModelError> {
+        self.stability.get(witness, budget)
+    }
+    pub fn append(&mut self, other: Self) -> Result<(), ModelError> {
+        self.entries.append(other.entries)?;
+        self.stability.append(other.stability)
+    }
+    pub fn unrequested(
+        invocation: &publication::AnalysisInvocation,
+        definition: &analysis::AnalysisDefinition,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        check_definition(definition)?;
+        check_invocation(invocation)?;
+        Ok(Self::empty(budget))
+    }
 }
 macro_rules! output {($($field:ident:$ty:ty,)*)=>{pub struct LocalRecords {pub actual:ProducedLocal,pub theory:crate::domain::local_theory::TheoryRecords,pub fields:crate::domain::local_fields::FieldRecords,$(pub $field:Rows<$ty>,)*}impl LocalRecords {pub fn new(budget:&resources::ResourceBudget)->Self {Self {actual:ProducedLocal::empty(budget),theory:crate::domain::local_theory::TheoryRecords::new(budget),fields:crate::domain::local_fields::FieldRecords::new(budget),$($field:Rows::new(budget),)*}}}};}
 crate::local_semantic_outputs!(output);
@@ -664,24 +703,58 @@ pub fn produce(
     definition: &analysis::AnalysisDefinition,
     budget: &resources::ResourceBudget,
 ) -> Result<LocalRecords, ModelError> {
-    produce_selected(data,invocation,definition,None,budget)
+    produce_selected(data, invocation, definition, None, budget)
 }
 /// Produce only this source's actual primary Local domain; referenced sources remain premises.
-pub fn produce_source(data:&LocalData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,source:Id<SourceArtifact>,budget:&resources::ResourceBudget)->Result<LocalRecords,ModelError>{
- if !data.entry.artifacts.get(source).is_some_and(|row|row.input==invocation.input){return Err(invalid("Local selected source absent or foreign"));}
- produce_selected(data,invocation,definition,Some(source),budget)
+pub fn produce_source(
+    data: &LocalData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    source: Id<SourceArtifact>,
+    budget: &resources::ResourceBudget,
+) -> Result<LocalRecords, ModelError> {
+    if !data
+        .entry
+        .artifacts
+        .get(source)
+        .is_some_and(|row| row.input == invocation.input)
+    {
+        return Err(invalid("Local selected source absent or foreign"));
+    }
+    produce_selected(data, invocation, definition, Some(source), budget)
 }
-fn selected_occurrence(data:&EntryData,source:Option<Id<SourceArtifact>>,occurrence:Id<Occurrence>)->bool{
- source.is_none() || data.occurrences.get(occurrence).is_some_and(|row|Some(row.source)==source)
+fn selected_occurrence(
+    data: &EntryData,
+    source: Option<Id<SourceArtifact>>,
+    occurrence: Id<Occurrence>,
+) -> bool {
+    source.is_none()
+        || data
+            .occurrences
+            .get(occurrence)
+            .is_some_and(|row| Some(row.source) == source)
 }
-fn produce_selected(data:&LocalData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,source:Option<Id<SourceArtifact>>,budget:&resources::ResourceBudget)->Result<LocalRecords,ModelError>{
+fn produce_selected(
+    data: &LocalData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    source: Option<Id<SourceArtifact>>,
+    budget: &resources::ResourceBudget,
+) -> Result<LocalRecords, ModelError> {
     check_definition(definition)?;
     check_invocation(invocation)?;
     if definition.id() != invocation.definition {
         return Err(invalid("Local producer changes definition"));
     }
     let mut records = LocalRecords::new(budget);
-    for support in data.entry.value_supports.iter().filter(|support|source.is_none() || data.entry.values.get(support.assertion).is_some_and(|row|selected_occurrence(&data.entry,source,row.sink))) {
+    for support in data.entry.value_supports.iter().filter(|support| {
+        source.is_none()
+            || data
+                .entry
+                .values
+                .get(support.assertion)
+                .is_some_and(|row| selected_occurrence(&data.entry, source, row.sink))
+    }) {
         let Some(a) = support.attribution() else {
             continue;
         };
@@ -784,7 +857,9 @@ fn produce_selected(data:&LocalData,invocation:&publication::AnalysisInvocation,
     produce_symbolic_stores(data, invocation, &mut records, source, budget)?;
     produce_guards(data, invocation, definition, &mut records, source, budget)?;
     crate::domain::atom_decision::produce(data, invocation, definition, &mut records, budget)?;
-    if source.is_some(){return Ok(records);}
+    if source.is_some() {
+        return Ok(records);
+    }
     // Each transfer condition is decoded once. The secondary support index serves the
     // repeated influence/alternative membership query, retaining nominal sorted atom IDs.
     let mut support_index = charged::ChargedMap::default();
@@ -1261,10 +1336,18 @@ fn produce_entry_reads(
     data: &LocalData,
     invocation: &publication::AnalysisInvocation,
     rows: &mut LocalRecords,
-    source:Option<Id<SourceArtifact>>,
+    source: Option<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    for support in data.entry.use_supports.iter().filter(|support|source.is_none() || data.entry.use_observations.get(support.assertion).and_then(|observation|data.entry.uses.get(observation.use_)).is_some_and(|row|selected_occurrence(&data.entry,source,row.occurrence))) {
+    for support in data.entry.use_supports.iter().filter(|support| {
+        source.is_none()
+            || data
+                .entry
+                .use_observations
+                .get(support.assertion)
+                .and_then(|observation| data.entry.uses.get(observation.use_))
+                .is_some_and(|row| selected_occurrence(&data.entry, source, row.occurrence))
+    }) {
         let Some(attribution) = support.attribution() else {
             continue;
         };
@@ -1318,10 +1401,17 @@ fn produce_guards(
     invocation: &publication::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition,
     rows: &mut LocalRecords,
-    source:Option<Id<SourceArtifact>>,
+    source: Option<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    for support in data.entry.leaf_supports.iter().filter(|support|source.is_none() || data.entry.leaves.get(support.assertion).is_some_and(|row|selected_occurrence(&data.entry,source,row.test))) {
+    for support in data.entry.leaf_supports.iter().filter(|support| {
+        source.is_none()
+            || data
+                .entry
+                .leaves
+                .get(support.assertion)
+                .is_some_and(|row| selected_occurrence(&data.entry, source, row.test))
+    }) {
         let Some(a) = support.attribution() else {
             continue;
         };
@@ -1419,7 +1509,7 @@ fn produce_symbolic_stores(
     data: &LocalData,
     invocation: &publication::AnalysisInvocation,
     records: &mut LocalRecords,
-    source:Option<Id<SourceArtifact>>,
+    source: Option<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     let input = crate::domain::local_fields::FieldData {
@@ -1427,7 +1517,12 @@ fn produce_symbolic_stores(
         theory: &data.theory,
         inventory: &data.fields,
     };
-    for store in data.fields.symbolic_stores.iter().filter(|store|selected_occurrence(&data.entry,source,store.target)) {
+    for store in data
+        .fields
+        .symbolic_stores
+        .iter()
+        .filter(|store| selected_occurrence(&data.entry, source, store.target))
+    {
         for support in data.entry.value_supports.iter() {
             let Some(value) = data.entry.values.get(support.assertion) else {
                 continue;
@@ -1464,7 +1559,7 @@ fn produce_fields(
     data: &LocalData,
     invocation: &publication::AnalysisInvocation,
     records: &mut LocalRecords,
-    source:Option<Id<SourceArtifact>>,
+    source: Option<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     use crate::domain::local_fields::*;
@@ -1473,7 +1568,14 @@ fn produce_fields(
         theory: &data.theory,
         inventory: &data.fields,
     };
-    for native in data.fields.load_supports.iter().filter(|support|source.is_none() || data.fields.loads.get(support.assertion).is_some_and(|row|selected_occurrence(&data.entry,source,row.occurrence))) {
+    for native in data.fields.load_supports.iter().filter(|support| {
+        source.is_none()
+            || data
+                .fields
+                .loads
+                .get(support.assertion)
+                .is_some_and(|row| selected_occurrence(&data.entry, source, row.occurrence))
+    }) {
         if !data
             .entry
             .runs

@@ -1,6 +1,6 @@
 //! Normalized semantic identities and total attributed relationships (ADR-0103).
-pub(crate) mod binding_inventory;
 pub mod admission;
+pub(crate) mod binding_inventory;
 pub mod binding_normalization;
 pub mod bindings;
 pub mod callable_aspects;

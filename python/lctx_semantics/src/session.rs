@@ -2,9 +2,7 @@
 use lctx_model::domain::serving::ResourceLimits;
 use lctx_serving::NativeService;
 use lctx_surrealdb::{NativeReader, config::ViewerConfig};
-use pyo3::{
-    prelude::*,
-};
+use pyo3::prelude::*;
 use std::sync::{Arc, Condvar, Mutex};
 struct State {
     service: Option<Arc<NativeService>>,
@@ -71,16 +69,16 @@ impl NativeSession {
     ) -> PyResult<String> {
         py.detach(|| {
             let service = {
-                let mut state = self
-                    .shared
-                    .state
-                    .lock()
-                    .map_err(|_| crate::unavailable())?;
+                let mut state = self.shared.state.lock().map_err(|_| crate::unavailable())?;
                 if state.closing {
                     return Err(crate::unavailable());
                 }
                 if state.active >= 2 {
-                    return Err(crate::public_error(lctx_model::domain::serving::PublicFailure::new(lctx_model::domain::serving::FailureKind::ResourceRefused)));
+                    return Err(crate::public_error(
+                        lctx_model::domain::serving::PublicFailure::new(
+                            lctx_model::domain::serving::FailureKind::ResourceRefused,
+                        ),
+                    ));
                 }
                 let service = state
                     .service
@@ -98,7 +96,11 @@ impl NativeSession {
                 query_vector_json
                     .map(|raw| serde_json::from_str(&raw))
                     .transpose()
-                    .map_err(|_| crate::public_error(lctx_model::domain::serving::PublicFailure::new(lctx_model::domain::serving::FailureKind::Incompatible)))?
+                    .map_err(|_| {
+                        crate::public_error(lctx_model::domain::serving::PublicFailure::new(
+                            lctx_model::domain::serving::FailureKind::Incompatible,
+                        ))
+                    })?
             };
             let remaining =
                 remaining_deadline_ms.unwrap_or(ResourceLimits::default().request_deadline_ms);
@@ -108,17 +110,12 @@ impl NativeSession {
         })
     }
     fn handle_json(&self) -> PyResult<String> {
-        serde_json::to_string(self.reader.handle())
-            .map_err(|_| crate::unavailable())
+        serde_json::to_string(self.reader.handle()).map_err(|_| crate::unavailable())
     }
     /// Drain admitted calls before invalidating the one server session.
     fn close(&self, py: Python<'_>) -> PyResult<()> {
         py.detach(|| {
-            let mut state = self
-                .shared
-                .state
-                .lock()
-                .map_err(|_| crate::unavailable())?;
+            let mut state = self.shared.state.lock().map_err(|_| crate::unavailable())?;
             state.closing = true;
             while state.active > 0 {
                 state = self

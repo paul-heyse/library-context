@@ -92,39 +92,114 @@ impl RetrievalEmbeddingUse {
 }
 /// Availability is retained once per native frame; no fragment text or vector survives its unit.
 #[derive(Default)]
-pub struct Disposition { reason:Option<ObligationKind> }
+pub struct Disposition {
+    reason: Option<ObligationKind>,
+}
 impl Disposition {
-    pub fn observe_availability(&mut self,availability:VectorAvailability){
-        self.reason=crate::domain::obligation::first(self.reason.into_iter().chain(match availability{VectorAvailability::Available=>None,VectorAvailability::ServiceUnavailable=>Some(ObligationKind::EmbeddingServiceUnavailable),VectorAvailability::TokenLimit=>Some(ObligationKind::EmbeddingTokenLimit)}));
+    pub fn observe_availability(&mut self, availability: VectorAvailability) {
+        self.reason =
+            crate::domain::obligation::first(self.reason.into_iter().chain(match availability {
+                VectorAvailability::Available => None,
+                VectorAvailability::ServiceUnavailable => {
+                    Some(ObligationKind::EmbeddingServiceUnavailable)
+                }
+                VectorAvailability::TokenLimit => Some(ObligationKind::EmbeddingTokenLimit),
+            }));
     }
-    pub fn observe(&mut self,uses:&Rows<RetrievalEmbeddingUse>){
-        self.reason=crate::domain::obligation::first(self.reason.into_iter().chain(uses.iter().filter_map(|row|match row.availability{
-            VectorAvailability::Available=>None,VectorAvailability::ServiceUnavailable=>Some(ObligationKind::EmbeddingServiceUnavailable),VectorAvailability::TokenLimit=>Some(ObligationKind::EmbeddingTokenLimit),
-        })));
+    pub fn observe(&mut self, uses: &Rows<RetrievalEmbeddingUse>) {
+        self.reason = crate::domain::obligation::first(self.reason.into_iter().chain(
+            uses.iter().filter_map(|row| match row.availability {
+                VectorAvailability::Available => None,
+                VectorAvailability::ServiceUnavailable => {
+                    Some(ObligationKind::EmbeddingServiceUnavailable)
+                }
+                VectorAvailability::TokenLimit => Some(ObligationKind::EmbeddingTokenLimit),
+            }),
+        ));
     }
-    pub fn outcome(&self,invocation:&AnalysisInvocation)->AnalysisOutcome{AnalysisOutcome{invocation:invocation.id(),status:if self.reason.is_some(){analysis::AnalysisStatus::Partial}else{analysis::AnalysisStatus::Completed},reason:self.reason}}
+    pub fn outcome(&self, invocation: &AnalysisInvocation) -> AnalysisOutcome {
+        AnalysisOutcome {
+            invocation: invocation.id(),
+            status: if self.reason.is_some() {
+                analysis::AnalysisStatus::Partial
+            } else {
+                analysis::AnalysisStatus::Completed
+            },
+            reason: self.reason,
+        }
+    }
 }
 /// Necessary vector properties for one actual unit, using the same canonical request/value
 /// admission as the independent ordered cross-consumer winner check.
-pub fn verify_uses(output:&Output,invocation:&AnalysisInvocation,specification:Option<&EmbeddingSpec>,uses:&Rows<RetrievalEmbeddingUse>,b:&ResourceBudget)->Result<(),ModelError>{
-    let Some(specification)=specification else{if !uses.is_empty(){return Err(invalid("retrieval has unrequested vector uses"));}return Ok(());};
-    let spec=specification.configuration()?;let mut winners=Winners::new(b);let mut expected=charged::ChargedSet::default();let mut charge=charged::StateCharge::new(b,"retrieval-unit-use-membership");
-    for fragment in output.fragments.iter().filter(|fragment|output.units.iter().any(|unit|unit.corpus==fragment.corpus && unit.input==invocation.input && unit.context==invocation.context)){
-        let id=Id::of(&RetrievalEmbeddingUseKey{invocation:invocation.id(),fragment:fragment.id()});expected.insert(&mut charge,id)?;let row=need(uses,id)?;row.validate()?;
-        if row.specification!=specification.id(){return Err(invalid("retrieval use changed selected specification"));}
-        let bound=fragment.text.len().checked_mul(spec.document_template.matches("{text}").count()).and_then(|n|n.checked_add(spec.document_template.len())).and_then(|n|n.checked_mul(2)).ok_or_else(||invalid("retrieval request overflow"))?;
-        let _request=b.reserve("retrieval-consumption-request",bound)?;
-        if row.input!=value::input_hash(&spec.document_text(fragment.text.as_str())){return Err(invalid("retrieval input differs from completed fragment"));}
-        match row.availability{
-            VectorAvailability::Available=>{drop(winners.replay(&spec,fragment.text.as_str(),row.receipt()?)?);},
-            VectorAvailability::TokenLimit if row.admitted_tokens.is_none_or(|n|n<=i64::from(spec.max_document_tokens))=>return Err(invalid("retrieval token refusal within selected cap")),_=>{}
+pub fn verify_uses(
+    output: &Output,
+    invocation: &AnalysisInvocation,
+    specification: Option<&EmbeddingSpec>,
+    uses: &Rows<RetrievalEmbeddingUse>,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let Some(specification) = specification else {
+        if !uses.is_empty() {
+            return Err(invalid("retrieval has unrequested vector uses"));
+        }
+        return Ok(());
+    };
+    let spec = specification.configuration()?;
+    let mut winners = Winners::new(b);
+    let mut expected = charged::ChargedSet::default();
+    let mut charge = charged::StateCharge::new(b, "retrieval-unit-use-membership");
+    for fragment in output.fragments.iter().filter(|fragment| {
+        output.units.iter().any(|unit| {
+            unit.corpus == fragment.corpus
+                && unit.input == invocation.input
+                && unit.context == invocation.context
+        })
+    }) {
+        let id = Id::of(&RetrievalEmbeddingUseKey {
+            invocation: invocation.id(),
+            fragment: fragment.id(),
+        });
+        expected.insert(&mut charge, id)?;
+        let row = need(uses, id)?;
+        row.validate()?;
+        if row.specification != specification.id() {
+            return Err(invalid("retrieval use changed selected specification"));
+        }
+        let bound = fragment
+            .text
+            .len()
+            .checked_mul(spec.document_template.matches("{text}").count())
+            .and_then(|n| n.checked_add(spec.document_template.len()))
+            .and_then(|n| n.checked_mul(2))
+            .ok_or_else(|| invalid("retrieval request overflow"))?;
+        let _request = b.reserve("retrieval-consumption-request", bound)?;
+        if row.input != value::input_hash(&spec.document_text(fragment.text.as_str())) {
+            return Err(invalid("retrieval input differs from completed fragment"));
+        }
+        match row.availability {
+            VectorAvailability::Available => {
+                drop(winners.replay(&spec, fragment.text.as_str(), row.receipt()?)?);
+            }
+            VectorAvailability::TokenLimit
+                if row
+                    .admitted_tokens
+                    .is_none_or(|n| n <= i64::from(spec.max_document_tokens)) =>
+            {
+                return Err(invalid("retrieval token refusal within selected cap"));
+            }
+            _ => {}
         }
     }
-    if expected.len()!=uses.len(){return Err(invalid("retrieval use domain missing or unexpected rows"));}Ok(())
+    if expected.len() != uses.len() {
+        return Err(invalid("retrieval use domain missing or unexpected rows"));
+    }
+    Ok(())
 }
 /// One necessary E0 admission dispatch, with fixed frames and fresh actual-unit kernels.
-#[derive(Debug,Clone,Copy)]
-pub enum Scope { Consumption }
+#[derive(Debug, Clone, Copy)]
+pub enum Scope {
+    Consumption,
+}
 
 pub struct ConsumptionData {
     pub render: Data,
@@ -230,17 +305,77 @@ impl ConsumptionData {
         })
     }
     /// Exact finite frame and parent metadata, independent of the number of rendered units.
-    pub fn verify_frames(&self,invocations:&Rows<AnalysisInvocation>,outcomes:&Rows<AnalysisOutcome>,expected_outcomes:&Rows<AnalysisOutcome>,b:&ResourceBudget)->Result<(),ModelError>{
-        let mut charge=charged::StateCharge::new(b,"retrieval-frame-membership");let mut frames=charged::ChargedSet::default();let mut actual=charged::ChargedSet::default();
-        for run in self.render.source.facts.runs.iter(){frames.insert(&mut charge,(run.input,run.context))?;}
-        let mut sources=Rows::new(b);let mut parents=Rows::new(b);
-        for invocation in invocations.iter(){
-            if invocation.definition!=build::definition().1.id() || invocation.subject.is_some() || !frames.contains(&(invocation.input,invocation.context)) || !actual.insert(&mut charge,(invocation.input,invocation.context))?{return Err(invalid("retrieval invocation differs from fixed native frame"));}
-            let mut ids=[None;2];for (ordinal,source) in self.render.parents(invocation.input,invocation.context)?.into_iter().enumerate(){let id=sources.insert(source)?;ids[ordinal]=Some(id);parents.insert(crate::domain::analysis::retrieval::AnalysisInput{invocation:invocation.id(),parent:id})?;}
-            if invocation.inputs!=AnalysisInvocation::new(invocation.input,invocation.context,invocation.definition,None,ids.into_iter().flatten()).0.inputs{return Err(invalid("retrieval parent digest differs from exact S0/C1 frames"));}
-            let outcome=outcomes.iter().find(|outcome|outcome.invocation==invocation.id()).ok_or_else(||invalid("retrieval outcome absent"))?;outcome.validate()?;
+    pub fn verify_frames(
+        &self,
+        invocations: &Rows<AnalysisInvocation>,
+        outcomes: &Rows<AnalysisOutcome>,
+        expected_outcomes: &Rows<AnalysisOutcome>,
+        b: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let mut charge = charged::StateCharge::new(b, "retrieval-frame-membership");
+        let mut frames = charged::ChargedSet::default();
+        let mut actual = charged::ChargedSet::default();
+        for run in self.render.source.facts.runs.iter() {
+            frames.insert(&mut charge, (run.input, run.context))?;
         }
-        if !sources.same(&self.sources) || !parents.same(&self.parents) || frames.len()!=actual.len() || outcomes.len()!=invocations.len() || !outcomes.same(expected_outcomes){return Err(invalid("retrieval frame/outcome domain missing or unexpected rows"));}Ok(())
+        let mut sources = Rows::new(b);
+        let mut parents = Rows::new(b);
+        for invocation in invocations.iter() {
+            if invocation.definition != build::definition().1.id()
+                || invocation.subject.is_some()
+                || !frames.contains(&(invocation.input, invocation.context))
+                || !actual.insert(&mut charge, (invocation.input, invocation.context))?
+            {
+                return Err(invalid(
+                    "retrieval invocation differs from fixed native frame",
+                ));
+            }
+            let mut ids = [None; 2];
+            for (ordinal, source) in self
+                .render
+                .parents(invocation.input, invocation.context)?
+                .into_iter()
+                .enumerate()
+            {
+                let id = sources.insert(source)?;
+                ids[ordinal] = Some(id);
+                parents.insert(crate::domain::analysis::retrieval::AnalysisInput {
+                    invocation: invocation.id(),
+                    parent: id,
+                })?;
+            }
+            if invocation.inputs
+                != AnalysisInvocation::new(
+                    invocation.input,
+                    invocation.context,
+                    invocation.definition,
+                    None,
+                    ids.into_iter().flatten(),
+                )
+                .0
+                .inputs
+            {
+                return Err(invalid(
+                    "retrieval parent digest differs from exact S0/C1 frames",
+                ));
+            }
+            let outcome = outcomes
+                .iter()
+                .find(|outcome| outcome.invocation == invocation.id())
+                .ok_or_else(|| invalid("retrieval outcome absent"))?;
+            outcome.validate()?;
+        }
+        if !sources.same(&self.sources)
+            || !parents.same(&self.parents)
+            || frames.len() != actual.len()
+            || outcomes.len() != invocations.len()
+            || !outcomes.same(expected_outcomes)
+        {
+            return Err(invalid(
+                "retrieval frame/outcome domain missing or unexpected rows",
+            ));
+        }
+        Ok(())
     }
     pub fn verify(
         &self,
@@ -417,7 +552,9 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn retrieval_scope(&self)->Option<Scope>{Some(Scope::Consumption)}
+    fn retrieval_scope(&self) -> Option<Scope> {
+        Some(Scope::Consumption)
+    }
     fn visit_input(
         &mut self,
         input: &ValidationInput,

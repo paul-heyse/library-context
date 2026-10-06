@@ -35,28 +35,35 @@ from pydantic import PrivateAttr
 
 def _failure(kind: str) -> dict:
     from lctx_semantics import wire_failure
+
     return json.loads(wire_failure(kind))
+
 
 def native_failure(exc: Exception) -> dict:
     from lctx_semantics import NativeFailure
+
     if isinstance(exc, NativeFailure):
         try:
             value = json.loads(exc.lctx_failure_json)
             expected = _failure(value["kind"])
             if value == expected:
                 return expected
-        except (AttributeError, KeyError, TypeError, ValueError):
+        except AttributeError, KeyError, TypeError, ValueError:
             pass
     return _failure("unavailable")
+
 
 def failure_result(failure: dict) -> CallToolResult:
     return CallToolResult(
         content=[TextContent(type="text", text=failure["message"])],
-        is_error=True, meta={"lctx_failure": failure},
+        is_error=True,
+        meta={"lctx_failure": failure},
     )
+
 
 def failure_error(failure: dict) -> MCPError:
     return MCPError(code=INTERNAL_ERROR, message=failure["message"], data={"lctx_failure": failure})
+
 
 def checked_resource_error(exc: MCPError) -> MCPError:
     """Only exact model-owned failure data may cross the resource error boundary."""
@@ -65,7 +72,7 @@ def checked_resource_error(exc: MCPError) -> MCPError:
         expected = _failure(failure["kind"])
         if exc.error.data == {"lctx_failure": expected} and failure == expected:
             return failure_error(expected)
-    except (AttributeError, KeyError, TypeError, ValueError):
+    except AttributeError, KeyError, TypeError, ValueError:
         pass
     return failure_error(_failure("unavailable"))
 
@@ -200,12 +207,10 @@ class EnvelopeAdmission(Middleware):
         try:
             result = await call_next(context)
         except (FastMCPError, NotFoundError, DisabledError) as exc:
-            result = ToolResult.from_mcp_result(
-                failure_result(native_failure(exc))
-            )
+            result = ToolResult.from_mcp_result(failure_result(native_failure(exc)))
         try:
             self._admit(context, result.to_mcp_result(), expanded)
-        except (ValueError, RuntimeError):
+        except ValueError, RuntimeError:
             refusal = self._refusal()
             self._admit(context, refusal, expanded)
             return ToolResult.from_mcp_result(refusal)
@@ -217,10 +222,14 @@ class EnvelopeAdmission(Middleware):
         try:
             result = await call_next(context)
         except (FastMCPError, NotFoundError, DisabledError, MCPError) as exc:
-            error = checked_resource_error(exc) if isinstance(exc, MCPError) else failure_error(_failure("unavailable"))
+            error = (
+                checked_resource_error(exc)
+                if isinstance(exc, MCPError)
+                else failure_error(_failure("unavailable"))
+            )
             try:
                 self._admit(context, error.error, expanded)
-            except (ValueError, RuntimeError):
+            except ValueError, RuntimeError:
                 error = failure_error(_failure("resource_refused"))
                 self._admit(context, error.error, expanded)
             raise error from exc

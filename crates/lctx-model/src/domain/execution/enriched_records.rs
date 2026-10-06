@@ -489,5 +489,9 @@ pub struct SourceExecutionArgument {
     pub evaluation: Id<super::records::ExpressionEvaluation>,
 }
 
-pub(crate) fn body_fidelity_refs()->Vec<&'static str> {vec!["enriched_body_fidelity"]}
-pub(crate) fn fresh_fidelity_refs()->Vec<&'static str> {vec!["enriched_fresh_fidelity"]}
+pub(crate) fn body_fidelity_refs() -> Vec<&'static str> {
+    vec!["enriched_body_fidelity"]
+}
+pub(crate) fn fresh_fidelity_refs() -> Vec<&'static str> {
+    vec!["enriched_fresh_fidelity"]
+}

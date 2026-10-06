@@ -105,7 +105,9 @@ impl Field {
         self.scalar
     }
     /// Logical text is independent of its Arrow storage representation.
-    pub fn textual(&self) -> bool { self.textual }
+    pub fn textual(&self) -> bool {
+        self.textual
+    }
     pub fn nullable(&self) -> bool {
         self.nullable
     }

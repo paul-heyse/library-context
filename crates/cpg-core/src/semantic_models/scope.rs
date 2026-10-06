@@ -1,30 +1,91 @@
 //! Explicit publication roots over one immutable externally prepared nominal edge projection.
-use crate::{consumed_rows::{ClosureTable,PreparedClosure,identifier},normalize::call_scope::CallScopes,workspace::CompletedInputs};
-use lctx_model::domain::{*,execution::model_production::{ModelData,SelectedCatalog,ProductionScope}};
-use std::{any::TypeId,sync::Arc};
-pub(super) struct ModelScopes{catalog:Id<models::ModelCatalog>,calls:CallScopes,frame:usize,targets:Vec<(Id<models::AuthoredModel>,usize)>,contexts:usize,terminals:usize,exits:usize}
-fn quote(value:&str)->String{format!("'{}'",value.replace('\'',"''"))}
-pub(super) fn hex<R:Record>(id:Id<R>)->String{format!("X'{}'",id.bytes().iter().map(|b|format!("{b:02x}")).collect::<String>())}
-impl ModelScopes{
- pub(super) async fn prepare(access:&CompletedInputs,session:&datafusion::prelude::SessionContext,model:&Arc<ValidatedModel>,catalog:&SelectedCatalog,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
-  let inputs=ModelData::inputs();
-  let tables=inputs.iter().map(|input|Ok(ClosureTable{relation:model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias:access.table_for(input)?})).collect::<Result<Vec<_>,ModelError>>()?;
-  Self::from_tables(inputs,tables,session,catalog,budget).await
- }
- async fn from_tables(inputs:Vec<ValidationInput>,mut tables:Vec<ClosureTable>,session:&datafusion::prelude::SessionContext,catalog:&SelectedCatalog,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
-  let real=tables.len();
-  let index=|kind:TypeId|tables[..real].iter().position(|t|t.relation.type_id()==kind).ok_or_else(||ModelError::Invalid("Model scope root absent".into()));
-  let frame_source=index(TypeId::of::<attribution::ProviderRun>())?;
-  let context_source=index(TypeId::of::<execution::context_execution::ContextExecution>())?;
-  let terminal_source=index(TypeId::of::<protocols::NativeTerminalObservation>())?;
-  let exit_source=index(TypeId::of::<protocols::NativeExitObservation>())?;
-  let frame=tables.len();tables.push(tables[frame_source].clone());
-  let contexts=tables.len();tables.push(tables[context_source].clone());
-  let terminals=tables.len();tables.push(tables[terminal_source].clone());
-  let exits=tables.len();tables.push(tables[exit_source].clone());
-  let mut targets=Vec::new();
-  for compiled in catalog.catalog().models(){let root=tables.len();tables.push(tables[frame_source].clone());targets.push((compiled.declaration().id(),root));}
-  let calls=CallScopes::from_tables_with(inputs,tables,session,budget,true,false,|plan,tables|{
+use crate::{
+    consumed_rows::{ClosureTable, PreparedClosure, identifier},
+    normalize::call_scope::CallScopes,
+    workspace::CompletedInputs,
+};
+use lctx_model::domain::{
+    execution::model_production::{ModelData, ProductionScope, SelectedCatalog},
+    *,
+};
+use std::{any::TypeId, sync::Arc};
+pub(super) struct ModelScopes {
+    catalog: Id<models::ModelCatalog>,
+    calls: CallScopes,
+    frame: usize,
+    targets: Vec<(Id<models::AuthoredModel>, usize)>,
+    contexts: usize,
+    terminals: usize,
+    exits: usize,
+}
+fn quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+pub(super) fn hex<R: Record>(id: Id<R>) -> String {
+    format!(
+        "X'{}'",
+        id.bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    )
+}
+impl ModelScopes {
+    pub(super) async fn prepare(
+        access: &CompletedInputs,
+        session: &datafusion::prelude::SessionContext,
+        model: &Arc<ValidatedModel>,
+        catalog: &SelectedCatalog,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let inputs = ModelData::inputs();
+        let tables = inputs
+            .iter()
+            .map(|input| {
+                Ok(ClosureTable {
+                    relation: model
+                        .relation(input.name())
+                        .ok_or(ModelError::Schema(input.name()))?
+                        .clone(),
+                    alias: access.table_for(input)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ModelError>>()?;
+        Self::from_tables(inputs, tables, session, catalog, budget).await
+    }
+    async fn from_tables(
+        inputs: Vec<ValidationInput>,
+        mut tables: Vec<ClosureTable>,
+        session: &datafusion::prelude::SessionContext,
+        catalog: &SelectedCatalog,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let real = tables.len();
+        let index = |kind: TypeId| {
+            tables[..real]
+                .iter()
+                .position(|t| t.relation.type_id() == kind)
+                .ok_or_else(|| ModelError::Invalid("Model scope root absent".into()))
+        };
+        let frame_source = index(TypeId::of::<attribution::ProviderRun>())?;
+        let context_source = index(TypeId::of::<execution::context_execution::ContextExecution>())?;
+        let terminal_source = index(TypeId::of::<protocols::NativeTerminalObservation>())?;
+        let exit_source = index(TypeId::of::<protocols::NativeExitObservation>())?;
+        let frame = tables.len();
+        tables.push(tables[frame_source].clone());
+        let contexts = tables.len();
+        tables.push(tables[context_source].clone());
+        let terminals = tables.len();
+        tables.push(tables[terminal_source].clone());
+        let exits = tables.len();
+        tables.push(tables[exit_source].clone());
+        let mut targets = Vec::new();
+        for compiled in catalog.catalog().models() {
+            let root = tables.len();
+            tables.push(tables[frame_source].clone());
+            targets.push((compiled.declaration().id(), root));
+        }
+        let calls=CallScopes::from_tables_with(inputs,tables,session,budget,true,false,|plan,tables|{
    let idx=|kind:TypeId|tables[..real].iter().position(|t|t.relation.type_id()==kind);
    let alias=|kind:TypeId|idx(kind).map(|i|identifier(&tables[i].alias));
    macro_rules! own{($member:ty,$field:literal,$owner:ty)=>{if let(Some(member),Some(owner))=(idx(TypeId::of::<$member>()),idx(TypeId::of::<$owner>())){plan.own(member,$field,owner)?;}};}
@@ -107,69 +168,312 @@ impl ModelScopes{
    }
    Ok(())
   }).await?;
-  Ok(Self{catalog:catalog.catalog().declaration().id(),calls,frame,targets,contexts,terminals,exits})
- }
- pub(super) async fn frame(&self,run:Id<attribution::ProviderRun>,budget:&resources::ResourceBudget)->Result<PreparedClosure,ModelError>{self.calls.edges().grain(self.frame,&format!("id={}",hex(run)),budget).await}
- pub(super) async fn selected(&self,scope:ProductionScope,run:Id<attribution::ProviderRun>,budget:&resources::ResourceBudget)->Result<PreparedClosure,ModelError>{
-  let(root,key)=match scope{ProductionScope::Target(model)=>(self.targets.iter().find(|(id,_)|*id==model).ok_or(ModelError::Schema(models::AuthoredModel::NAME))?.1,hex(run)),ProductionScope::Context(id)=>(self.contexts,hex(id)),ProductionScope::Terminal(id)=>(self.terminals,hex(id)),ProductionScope::Exit(id)=>(self.exits,hex(id)),ProductionScope::Frame=>return self.frame(run,budget).await,ProductionScope::Event(id)=>return self.calls.grain(id,budget).await,_=>return Err(ModelError::Invalid("Model requires selected root".into()))};
-  self.calls.edges().grain(root,&format!("id={key}"),budget).await
- }
- fn select(&self,grain:&PreparedClosure,table:usize,input:&ValidationInput)->Result<String,ModelError>{
-  let sql=grain.select(table)?;
-  // Compact configuration dependencies may reference another catalog. They remain declared
-  // inputs, but only the captured selected source language belongs to this model kernel.
-  Ok(if input.type_id()==TypeId::of::<models::ModelCatalog>(){format!("SELECT * FROM ({sql}) captured_catalog WHERE id={}",hex(self.catalog))}else{sql})
- }
- pub(super) async fn load(&self,access:&CompletedInputs,grain:&PreparedClosure,budget:&resources::ResourceBudget)->Result<ModelData,ModelError>{
-  let mut data=ModelData::new(budget);
-  macro_rules! read{($($field:ident:$ty:ty,)*)=>{$({for(table,input)in self.calls.inputs().iter().enumerate().filter(|(_,input)|input.type_id()==TypeId::of::<$ty>()){
+        Ok(Self {
+            catalog: catalog.catalog().declaration().id(),
+            calls,
+            frame,
+            targets,
+            contexts,
+            terminals,
+            exits,
+        })
+    }
+    pub(super) async fn frame(
+        &self,
+        run: Id<attribution::ProviderRun>,
+        budget: &resources::ResourceBudget,
+    ) -> Result<PreparedClosure, ModelError> {
+        self.calls
+            .edges()
+            .grain(self.frame, &format!("id={}", hex(run)), budget)
+            .await
+    }
+    pub(super) async fn selected(
+        &self,
+        scope: ProductionScope,
+        run: Id<attribution::ProviderRun>,
+        budget: &resources::ResourceBudget,
+    ) -> Result<PreparedClosure, ModelError> {
+        let (root, key) = match scope {
+            ProductionScope::Target(model) => (
+                self.targets
+                    .iter()
+                    .find(|(id, _)| *id == model)
+                    .ok_or(ModelError::Schema(models::AuthoredModel::NAME))?
+                    .1,
+                hex(run),
+            ),
+            ProductionScope::Context(id) => (self.contexts, hex(id)),
+            ProductionScope::Terminal(id) => (self.terminals, hex(id)),
+            ProductionScope::Exit(id) => (self.exits, hex(id)),
+            ProductionScope::Frame => return self.frame(run, budget).await,
+            ProductionScope::Event(id) => return self.calls.grain(id, budget).await,
+            _ => return Err(ModelError::Invalid("Model requires selected root".into())),
+        };
+        self.calls
+            .edges()
+            .grain(root, &format!("id={key}"), budget)
+            .await
+    }
+    fn select(
+        &self,
+        grain: &PreparedClosure,
+        table: usize,
+        input: &ValidationInput,
+    ) -> Result<String, ModelError> {
+        let sql = grain.select(table)?;
+        // Compact configuration dependencies may reference another catalog. They remain declared
+        // inputs, but only the captured selected source language belongs to this model kernel.
+        Ok(if input.type_id() == TypeId::of::<models::ModelCatalog>() {
+            format!(
+                "SELECT * FROM ({sql}) captured_catalog WHERE id={}",
+                hex(self.catalog)
+            )
+        } else {
+            sql
+        })
+    }
+    pub(super) async fn load(
+        &self,
+        access: &CompletedInputs,
+        grain: &PreparedClosure,
+        budget: &resources::ResourceBudget,
+    ) -> Result<ModelData, ModelError> {
+        let mut data = ModelData::new(budget);
+        macro_rules! read{($($field:ident:$ty:ty,)*)=>{$({for(table,input)in self.calls.inputs().iter().enumerate().filter(|(_,input)|input.type_id()==TypeId::of::<$ty>()){
    let permit=access.read_at::<$ty>(input.prefix())?;crate::consumed_rows::stream_query_at(&permit,input,grain.session(),&self.select(grain,table,input)?,|_,batch|data.visit_input(input,batch)).await?;
   }})*};}
-  lctx_model::normalized_binding_inputs!(read);lctx_model::normalized_binding_outputs!(read);lctx_model::model_pin_inputs!(read);lctx_model::execution_evaluation_inputs!(read);lctx_model::entry_value_inputs!(read);
-  read!{catalogs:models::ModelCatalog,parameters:analysis::MethodParameters,definitions:analysis::AnalysisDefinition,enriched:analysis::enriched_execution::AnalysisInvocation,source_calls:analysis::source_call::AnalysisInvocation,local:analysis::local::AnalysisInvocation,runs:attribution::ProviderRun,members:class_metadata::ClassMemberObservation,metadata:class_metadata::ClassMetadataObservation,origins:calls::CallOrigin,origin_steps:calls::CallOriginStep,terminals:protocols::NativeTerminalObservation,exits:protocols::NativeExitObservation,literals:value::Literal,
-  entries:conditions::entry::EntryValueWitness,entry_sources:conditions::entry::EntryAccessSource,evaluations:execution::records::ExpressionEvaluation,sources:execution::records::EvaluationSource,members:execution::records::EvaluationMember,operands:execution::records::EvaluationOperand,base:analysis::base_evaluation::AnalysisInvocation,bodies:execution::body_records::SourceBodyCompletion,body_frames:analysis::base_completion::AnalysisInvocation,headers:execution::source_call_records::SourceCallHeader,header_members:execution::source_call_records::HeaderMember,boundaries:execution::source_call_records::SourceCallBoundary,runs:execution::source_call_records::SourceCallRun,invocations:execution::source_call_records::SourceInvocation,releases:execution::source_call_records::SourceFrameRelease,arguments:execution::source_call_records::SourceFrameArgument,syntax:syntax::ParameterSyntaxObservation,outcomes:execution::source_call_records::SourceCallOutcome,boundaries:execution::source_call_records::InvocationBoundary,outcomes:analysis::source_call::AnalysisOutcome,modeled:execution::modeled_call::ModeledCallEvaluation,modeled_args:execution::modeled_call::ModeledCallArgument,modeled_native:execution::modeled_call::ModeledCallNative,bindings:execution::context_binding::ContextEntryBinding,binding_sources:execution::context_binding::BindingSource,binding_members:execution::context_binding::BindingMember,contexts:execution::context_execution::ContextExecution,items:execution::context_execution::ContextItem,sources:execution::context_execution::ContextSource,members:execution::context_execution::ContextMember,outcomes:execution::enriched_records::ExecutionOutcome,}
-  Ok(data)
- }
+        lctx_model::normalized_binding_inputs!(read);
+        lctx_model::normalized_binding_outputs!(read);
+        lctx_model::model_pin_inputs!(read);
+        lctx_model::execution_evaluation_inputs!(read);
+        lctx_model::entry_value_inputs!(read);
+        read! {catalogs:models::ModelCatalog,parameters:analysis::MethodParameters,definitions:analysis::AnalysisDefinition,enriched:analysis::enriched_execution::AnalysisInvocation,source_calls:analysis::source_call::AnalysisInvocation,local:analysis::local::AnalysisInvocation,runs:attribution::ProviderRun,members:class_metadata::ClassMemberObservation,metadata:class_metadata::ClassMetadataObservation,origins:calls::CallOrigin,origin_steps:calls::CallOriginStep,terminals:protocols::NativeTerminalObservation,exits:protocols::NativeExitObservation,literals:value::Literal,
+        entries:conditions::entry::EntryValueWitness,entry_sources:conditions::entry::EntryAccessSource,evaluations:execution::records::ExpressionEvaluation,sources:execution::records::EvaluationSource,members:execution::records::EvaluationMember,operands:execution::records::EvaluationOperand,base:analysis::base_evaluation::AnalysisInvocation,bodies:execution::body_records::SourceBodyCompletion,body_frames:analysis::base_completion::AnalysisInvocation,headers:execution::source_call_records::SourceCallHeader,header_members:execution::source_call_records::HeaderMember,boundaries:execution::source_call_records::SourceCallBoundary,runs:execution::source_call_records::SourceCallRun,invocations:execution::source_call_records::SourceInvocation,releases:execution::source_call_records::SourceFrameRelease,arguments:execution::source_call_records::SourceFrameArgument,syntax:syntax::ParameterSyntaxObservation,outcomes:execution::source_call_records::SourceCallOutcome,boundaries:execution::source_call_records::InvocationBoundary,outcomes:analysis::source_call::AnalysisOutcome,modeled:execution::modeled_call::ModeledCallEvaluation,modeled_args:execution::modeled_call::ModeledCallArgument,modeled_native:execution::modeled_call::ModeledCallNative,bindings:execution::context_binding::ContextEntryBinding,binding_sources:execution::context_binding::BindingSource,binding_members:execution::context_binding::BindingMember,contexts:execution::context_execution::ContextExecution,items:execution::context_execution::ContextItem,sources:execution::context_execution::ContextSource,members:execution::context_execution::ContextMember,outcomes:execution::enriched_records::ExecutionOutcome,}
+        Ok(data)
+    }
 }
 
 #[cfg(test)]
-mod model_scope_controls{
- use super::*;
- use lctx_model::domain::normalized::Rows;
- fn nominal<R>(value:u8)->Id<R>{serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([value;16].into_iter())).unwrap()}
- #[tokio::test]
- async fn target_closure_preserves_absence_and_same_context_candidates_without_foreign_payload(){
-  let model=model().unwrap();let session=datafusion::prelude::SessionContext::new();let budget=resources::ResourceBudget::fixed(16<<20).unwrap();
-  let catalog=models::Catalog::parse("external.toml",include_str!("../../../lctx-model/models/external.toml")).unwrap();
-  let parsed=SelectedCatalog::read(&catalog.declaration(),&budget).unwrap();
-  let inputs=ModelData::inputs();let tables:Vec<_>=inputs.iter().enumerate().map(|(i,input)|ClosureTable{relation:model.relation(input.name()).unwrap().clone(),alias:format!("model_scope_{i}")}).collect();
-  for table in &tables{session.register_batch(&table.alias,arrow_array::RecordBatch::new_empty(table.relation.schema().clone())).unwrap();}
-  fn replace<R:Record>(session:&datafusion::prelude::SessionContext,inputs:&[ValidationInput],tables:&[ClosureTable],rows:&[R]){for(index,_)in inputs.iter().enumerate().filter(|(_,input)|input.type_id()==TypeId::of::<R>()){session.deregister_table(&tables[index].alias).unwrap();session.register_batch(&tables[index].alias,R::encode(rows).unwrap()).unwrap();}}
-  let selected=source::SourceArtifact::from_bytes(nominal(1),"selected.py".into(),b"x").unwrap();
-  let foreign=source::SourceArtifact::from_bytes(nominal(1),format!("{}.py","z".repeat(256<<10)),b"x").unwrap();
-  let run=attribution::ProviderRun{provider:nominal(2),context:nominal(3),input:selected.input,configuration:ContentHash::of(b"run"),requested_families:ContentHash::of(b"families")};
-  let module=calls::ProviderModule::Bundled{provider:run.provider,bundle:calls::ModuleBundle::Typeshed,name:"typing".into()};
-  let symbol=calls::ProviderSymbol{provider:run.provider,context:run.context,module:module.id(),native_key:"cast".into(),name:"cast".into(),kind:calls::SymbolKind::Function};
-  let other=calls::ProviderSymbol{context:nominal(4),native_key:"foreign".repeat(65536),..symbol.clone()};
-  replace(&session,&inputs,&tables,&[selected.clone(),foreign]);replace(&session,&inputs,&tables,&[input::ArtifactUse{artifact:selected.id(),input:selected.input,role:input::SourceRole::Release}]);replace(&session,&inputs,&tables,&[run.clone()]);replace(&session,&inputs,&tables,&[module]);replace(&session,&inputs,&tables,&[symbol.clone(),other]);
-  let selected_catalog=catalog.declaration();let source=format!("{}\n#{}",selected_catalog.source,"unused".repeat(1<<20));
-  let unused_catalog=models::ModelCatalog{source_name:"unused.toml".into(),content:ContentHash::of(source.as_bytes()),source,..selected_catalog.clone()};
-  let unused_parameters=analysis::MethodParameters{depth:None,proof_steps:None,work:None,members:None,seed:None,iterations:None,threshold:None,resolution:None,damping:None,model_catalog:Some(unused_catalog.id())};
-  replace(&session,&inputs,&tables,&[selected_catalog.clone(),unused_catalog]);replace(&session,&inputs,&tables,&[unused_parameters]);
-  let scopes=ModelScopes::from_tables(inputs.clone(),tables,&session,&parsed,&budget).await.unwrap();
-  let tiny=resources::ResourceBudget::fixed(96<<10).unwrap();
-  let cast=parsed.catalog().models().iter().find(|compiled|matches!(&compiled.model().target,models::Target::Stdlib{callable,..}if callable=="cast")).unwrap();
-  let grain=scopes.selected(ProductionScope::Target(cast.declaration().id()),run.id(),&tiny).await.unwrap();
-  let catalog_table=inputs.iter().position(|input|input.type_id()==TypeId::of::<models::ModelCatalog>()).unwrap();let mut catalogs=Rows::<models::ModelCatalog>::new(&tiny);
-  let mut stream=crate::sql::query(grain.session(),&scopes.select(&grain,catalog_table,&inputs[catalog_table]).unwrap()).await.unwrap().execute_stream().await.unwrap();while let Some(batch)=stream.try_next().await.unwrap(){catalogs.decode(&batch).unwrap();}
-  assert_eq!(catalogs.len(),1);assert_eq!(catalogs.get(selected_catalog.id()),Some(selected_catalog));drop(catalogs);drop(stream);
-  let mut selected_symbols=Rows::<calls::ProviderSymbol>::new(&tiny);let table=inputs.iter().position(|input|input.type_id()==TypeId::of::<calls::ProviderSymbol>()).unwrap();
-  let mut stream=crate::sql::query(grain.session(),&grain.select(table).unwrap()).await.unwrap().execute_stream().await.unwrap();use futures::TryStreamExt;while let Some(batch)=stream.try_next().await.unwrap(){selected_symbols.decode(&batch).unwrap();}
-  assert_eq!(selected_symbols.len(),1);assert_eq!(selected_symbols.get(symbol.id()),Some(&symbol));drop(selected_symbols);drop(stream);drop(grain);
-  let absent=parsed.catalog().models().iter().find(|compiled|matches!(&compiled.model().target,models::Target::Stdlib{callable,..}if callable=="assert_type")).unwrap();
-  let grain=scopes.selected(ProductionScope::Target(absent.declaration().id()),run.id(),&tiny).await.unwrap();
-  let mut stream=crate::sql::query(grain.session(),&grain.select(table).unwrap()).await.unwrap().execute_stream().await.unwrap();while let Some(batch)=stream.try_next().await.unwrap(){assert_eq!(batch.num_rows(),0);}
-  let table=inputs.iter().position(|input|input.type_id()==TypeId::of::<source::SourceArtifact>()).unwrap();let mut artifacts=Rows::<source::SourceArtifact>::new(&tiny);
-  let mut stream=crate::sql::query(grain.session(),&grain.select(table).unwrap()).await.unwrap().execute_stream().await.unwrap();while let Some(batch)=stream.try_next().await.unwrap(){artifacts.decode(&batch).unwrap();}assert_eq!(artifacts.len(),1);assert_eq!(artifacts.get(selected.id()),Some(&selected));
- }
+mod model_scope_controls {
+    use super::*;
+    use lctx_model::domain::normalized::Rows;
+    fn nominal<R>(value: u8) -> Id<R> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([value; 16].into_iter()))
+        .unwrap()
+    }
+    #[tokio::test]
+    async fn target_closure_preserves_absence_and_same_context_candidates_without_foreign_payload()
+    {
+        let model = model().unwrap();
+        let session = datafusion::prelude::SessionContext::new();
+        let budget = resources::ResourceBudget::fixed(16 << 20).unwrap();
+        let catalog = models::Catalog::parse(
+            "external.toml",
+            include_str!("../../../lctx-model/models/external.toml"),
+        )
+        .unwrap();
+        let parsed = SelectedCatalog::read(&catalog.declaration(), &budget).unwrap();
+        let inputs = ModelData::inputs();
+        let tables: Vec<_> = inputs
+            .iter()
+            .enumerate()
+            .map(|(i, input)| ClosureTable {
+                relation: model.relation(input.name()).unwrap().clone(),
+                alias: format!("model_scope_{i}"),
+            })
+            .collect();
+        for table in &tables {
+            session
+                .register_batch(
+                    &table.alias,
+                    arrow_array::RecordBatch::new_empty(table.relation.schema().clone()),
+                )
+                .unwrap();
+        }
+        fn replace<R: Record>(
+            session: &datafusion::prelude::SessionContext,
+            inputs: &[ValidationInput],
+            tables: &[ClosureTable],
+            rows: &[R],
+        ) {
+            for (index, _) in inputs
+                .iter()
+                .enumerate()
+                .filter(|(_, input)| input.type_id() == TypeId::of::<R>())
+            {
+                session.deregister_table(&tables[index].alias).unwrap();
+                session
+                    .register_batch(&tables[index].alias, R::encode(rows).unwrap())
+                    .unwrap();
+            }
+        }
+        let selected =
+            source::SourceArtifact::from_bytes(nominal(1), "selected.py".into(), b"x").unwrap();
+        let foreign = source::SourceArtifact::from_bytes(
+            nominal(1),
+            format!("{}.py", "z".repeat(256 << 10)),
+            b"x",
+        )
+        .unwrap();
+        let run = attribution::ProviderRun {
+            provider: nominal(2),
+            context: nominal(3),
+            input: selected.input,
+            configuration: ContentHash::of(b"run"),
+            requested_families: ContentHash::of(b"families"),
+        };
+        let module = calls::ProviderModule::Bundled {
+            provider: run.provider,
+            bundle: calls::ModuleBundle::Typeshed,
+            name: "typing".into(),
+        };
+        let symbol = calls::ProviderSymbol {
+            provider: run.provider,
+            context: run.context,
+            module: module.id(),
+            native_key: "cast".into(),
+            name: "cast".into(),
+            kind: calls::SymbolKind::Function,
+        };
+        let other = calls::ProviderSymbol {
+            context: nominal(4),
+            native_key: "foreign".repeat(65536),
+            ..symbol.clone()
+        };
+        replace(&session, &inputs, &tables, &[selected.clone(), foreign]);
+        replace(
+            &session,
+            &inputs,
+            &tables,
+            &[input::ArtifactUse {
+                artifact: selected.id(),
+                input: selected.input,
+                role: input::SourceRole::Release,
+            }],
+        );
+        replace(&session, &inputs, &tables, &[run.clone()]);
+        replace(&session, &inputs, &tables, &[module]);
+        replace(&session, &inputs, &tables, &[symbol.clone(), other]);
+        let selected_catalog = catalog.declaration();
+        let source = format!("{}\n#{}", selected_catalog.source, "unused".repeat(1 << 20));
+        let unused_catalog = models::ModelCatalog {
+            source_name: "unused.toml".into(),
+            content: ContentHash::of(source.as_bytes()),
+            source,
+            ..selected_catalog.clone()
+        };
+        let unused_parameters = analysis::MethodParameters {
+            depth: None,
+            proof_steps: None,
+            work: None,
+            members: None,
+            seed: None,
+            iterations: None,
+            threshold: None,
+            resolution: None,
+            damping: None,
+            model_catalog: Some(unused_catalog.id()),
+        };
+        replace(
+            &session,
+            &inputs,
+            &tables,
+            &[selected_catalog.clone(), unused_catalog],
+        );
+        replace(&session, &inputs, &tables, &[unused_parameters]);
+        let scopes = ModelScopes::from_tables(inputs.clone(), tables, &session, &parsed, &budget)
+            .await
+            .unwrap();
+        let tiny = resources::ResourceBudget::fixed(96 << 10).unwrap();
+        let cast=parsed.catalog().models().iter().find(|compiled|matches!(&compiled.model().target,models::Target::Stdlib{callable,..}if callable=="cast")).unwrap();
+        let grain = scopes
+            .selected(
+                ProductionScope::Target(cast.declaration().id()),
+                run.id(),
+                &tiny,
+            )
+            .await
+            .unwrap();
+        let catalog_table = inputs
+            .iter()
+            .position(|input| input.type_id() == TypeId::of::<models::ModelCatalog>())
+            .unwrap();
+        let mut catalogs = Rows::<models::ModelCatalog>::new(&tiny);
+        let mut stream = crate::sql::query(
+            grain.session(),
+            &scopes
+                .select(&grain, catalog_table, &inputs[catalog_table])
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .execute_stream()
+        .await
+        .unwrap();
+        while let Some(batch) = stream.try_next().await.unwrap() {
+            catalogs.decode(&batch).unwrap();
+        }
+        assert_eq!(catalogs.len(), 1);
+        assert_eq!(catalogs.get(selected_catalog.id()), Some(selected_catalog));
+        drop(catalogs);
+        drop(stream);
+        let mut selected_symbols = Rows::<calls::ProviderSymbol>::new(&tiny);
+        let table = inputs
+            .iter()
+            .position(|input| input.type_id() == TypeId::of::<calls::ProviderSymbol>())
+            .unwrap();
+        let mut stream = crate::sql::query(grain.session(), &grain.select(table).unwrap())
+            .await
+            .unwrap()
+            .execute_stream()
+            .await
+            .unwrap();
+        use futures::TryStreamExt;
+        while let Some(batch) = stream.try_next().await.unwrap() {
+            selected_symbols.decode(&batch).unwrap();
+        }
+        assert_eq!(selected_symbols.len(), 1);
+        assert_eq!(selected_symbols.get(symbol.id()), Some(&symbol));
+        drop(selected_symbols);
+        drop(stream);
+        drop(grain);
+        let absent=parsed.catalog().models().iter().find(|compiled|matches!(&compiled.model().target,models::Target::Stdlib{callable,..}if callable=="assert_type")).unwrap();
+        let grain = scopes
+            .selected(
+                ProductionScope::Target(absent.declaration().id()),
+                run.id(),
+                &tiny,
+            )
+            .await
+            .unwrap();
+        let mut stream = crate::sql::query(grain.session(), &grain.select(table).unwrap())
+            .await
+            .unwrap()
+            .execute_stream()
+            .await
+            .unwrap();
+        while let Some(batch) = stream.try_next().await.unwrap() {
+            assert_eq!(batch.num_rows(), 0);
+        }
+        let table = inputs
+            .iter()
+            .position(|input| input.type_id() == TypeId::of::<source::SourceArtifact>())
+            .unwrap();
+        let mut artifacts = Rows::<source::SourceArtifact>::new(&tiny);
+        let mut stream = crate::sql::query(grain.session(), &grain.select(table).unwrap())
+            .await
+            .unwrap()
+            .execute_stream()
+            .await
+            .unwrap();
+        while let Some(batch) = stream.try_next().await.unwrap() {
+            artifacts.decode(&batch).unwrap();
+        }
+        assert_eq!(artifacts.len(), 1);
+        assert_eq!(artifacts.get(selected.id()), Some(&selected));
+    }
 }

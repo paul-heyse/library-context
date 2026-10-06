@@ -521,19 +521,48 @@ async fn browse(
 ) -> Result<BrowseLibraryResponse, ModelError> {
     let domains = crate::library::resolve(reader, Some(&r.library), b).await?;
     if let BrowseScope::Module { module } = r.scope {
-        let modules = reader.records::<source::Module>(RecordSelection::Keys(vec![*module.bytes()])).await?;
-        let module = modules.first().ok_or(ModelError::Serving(FailureKind::Incompatible))?;
-        let sources = reader.records::<source::SourceArtifact>(RecordSelection::Keys(vec![*module.source.bytes()])).await?;
-        let source = sources.first().ok_or(ModelError::Serving(FailureKind::Corrupt))?;
-        if !domains.iter().flat_map(|domain| &domain.captures).any(|capture| capture.release.input == source.input) {
+        let modules = reader
+            .records::<source::Module>(RecordSelection::Keys(vec![*module.bytes()]))
+            .await?;
+        let module = modules
+            .first()
+            .ok_or(ModelError::Serving(FailureKind::Incompatible))?;
+        let sources = reader
+            .records::<source::SourceArtifact>(RecordSelection::Keys(vec![*module.source.bytes()]))
+            .await?;
+        let source = sources
+            .first()
+            .ok_or(ModelError::Serving(FailureKind::Corrupt))?;
+        if !domains
+            .iter()
+            .flat_map(|domain| &domain.captures)
+            .any(|capture| capture.release.input == source.input)
+        {
             return Err(ModelError::Serving(FailureKind::Incompatible));
         }
     }
     let d = chosen(reader, &r.library, None, &r.selection.0, b).await?;
     let data = d.prepared.data();
     if let BrowseScope::Class { member } = r.scope {
-        let admitted = data.source.catalog.members.get(member).is_some_and(|member| domains.iter().flat_map(|domain| &domain.captures).any(|capture| capture.release.input == member.input));
-        if !admitted || !data.source.catalog.classes.iter().any(|class| class.member == member) {
+        let admitted = data
+            .source
+            .catalog
+            .members
+            .get(member)
+            .is_some_and(|member| {
+                domains
+                    .iter()
+                    .flat_map(|domain| &domain.captures)
+                    .any(|capture| capture.release.input == member.input)
+            });
+        if !admitted
+            || !data
+                .source
+                .catalog
+                .classes
+                .iter()
+                .any(|class| class.member == member)
+        {
             return Err(ModelError::Serving(FailureKind::Incompatible));
         }
     }
@@ -541,40 +570,74 @@ async fn browse(
     let mut values = Vec::new();
     // Build direct ownership once. Candidate paths can repeat a member; all counts use member
     // identity, while classifications retain their distinct analysis contexts.
-    let mut owners = std::collections::BTreeMap::<Id<catalog::CatalogMember>, std::collections::BTreeSet<Id<catalog::CatalogMember>>>::new();
+    let mut owners = std::collections::BTreeMap::<
+        Id<catalog::CatalogMember>,
+        std::collections::BTreeSet<Id<catalog::CatalogMember>>,
+    >::new();
     let mut members_by_path = std::collections::BTreeMap::new();
     for candidate in data.source.catalog.candidates.iter() {
         if let Some(path) = candidate.path
             && let Some(exposure) = data.source.catalog.exposures.get(candidate.exposure)
-        { members_by_path.entry(path).or_insert_with(std::collections::BTreeSet::new).insert(exposure.member); }
+        {
+            members_by_path
+                .entry(path)
+                .or_insert_with(std::collections::BTreeSet::new)
+                .insert(exposure.member);
+        }
     }
     for path in data.source.catalog.paths.iter() {
-        let Some(parent) = data.source.catalog.candidates.get(path.parent)
-            .and_then(|candidate| data.source.catalog.exposures.get(candidate.exposure)) else { continue; };
+        let Some(parent) = data
+            .source
+            .catalog
+            .candidates
+            .get(path.parent)
+            .and_then(|candidate| data.source.catalog.exposures.get(candidate.exposure))
+        else {
+            continue;
+        };
         if let Some(members) = members_by_path.get(&path.id()) {
-            for child in members { owners.entry(*child).or_default().insert(parent.member); }
+            for child in members {
+                owners.entry(*child).or_default().insert(parent.member);
+            }
         }
     }
     let mut unknown_members = std::collections::BTreeSet::new();
     let mut eligible = Vec::new();
     for candidate in d.selected.eligible() {
-        let member = data.source.catalog.members.get(candidate.member).ok_or(ModelError::Schema("browse member"))?;
+        let member = data
+            .source
+            .catalog
+            .members
+            .get(candidate.member)
+            .ok_or(ModelError::Schema("browse member"))?;
         let include = match r.scope {
             BrowseScope::Library {} => true,
             BrowseScope::Module { module } => member.access == module,
             BrowseScope::Class { member: class } => {
                 let owned = owners.get(&candidate.member);
-                if owned.is_none_or(|parents| parents.is_empty()) { unknown_members.insert(candidate.member); }
+                if owned.is_none_or(|parents| parents.is_empty()) {
+                    unknown_members.insert(candidate.member);
+                }
                 owned.is_some_and(|parents| parents.contains(&class))
             }
         };
-        if include { eligible.push(candidate); }
+        if include {
+            eligible.push(candidate);
+        }
     }
-    let scoped_members = eligible.iter().map(|candidate| candidate.member).collect::<std::collections::BTreeSet<_>>();
+    let scoped_members = eligible
+        .iter()
+        .map(|candidate| candidate.member)
+        .collect::<std::collections::BTreeSet<_>>();
     unknown = unknown_members.len() as u64;
     let mut emitted_groups = std::collections::BTreeSet::new();
     for c in &eligible {
-        let member = data.source.catalog.members.get(c.member).ok_or(ModelError::Schema("browse member"))?;
+        let member = data
+            .source
+            .catalog
+            .members
+            .get(c.member)
+            .ok_or(ModelError::Schema("browse member"))?;
         let p = candidates::packet(c, data, &domains)?;
         match r.view {
             BrowseView::Members => values.push((
@@ -602,7 +665,14 @@ async fn browse(
                         BrowseEntry::Class {
                             member: member.id(),
                             name: p.name,
-                            members: scoped_members.iter().filter(|child| owners.get(child).is_some_and(|parents| parents.contains(&member.id()))).count() as u64,
+                            members: scoped_members
+                                .iter()
+                                .filter(|child| {
+                                    owners
+                                        .get(child)
+                                        .is_some_and(|parents| parents.contains(&member.id()))
+                                })
+                                .count() as u64,
                         },
                     ));
                 }
@@ -621,7 +691,16 @@ async fn browse(
                         BrowseEntry::Module {
                             module: module.id(),
                             name: Name::new(module.qualified_name.clone()).map_err(wire)?,
-                            members: scoped_members.iter().filter(|id| data.source.catalog.members.get(**id).is_some_and(|member| member.access == module.id())).count() as u64,
+                            members: scoped_members
+                                .iter()
+                                .filter(|id| {
+                                    data.source
+                                        .catalog
+                                        .members
+                                        .get(**id)
+                                        .is_some_and(|member| member.access == module.id())
+                                })
+                                .count() as u64,
                         },
                     ));
                 }
@@ -676,7 +755,9 @@ async fn browse(
             None,
             Availability::Available {},
         )?,
-        extent: SelectionExtent::CompleteDomain { total: scoped_members.len() as u64 },
+        extent: SelectionExtent::CompleteDomain {
+            total: scoped_members.len() as u64,
+        },
         unknown_ownership: unknown,
     })
 }

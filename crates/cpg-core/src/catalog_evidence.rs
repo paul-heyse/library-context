@@ -1,6 +1,7 @@
 //! C1 contextual evidence consumes completed C0 and typed original facts, independently of brief seeds.
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use datafusion::execution::context::SessionContext;
+use futures::TryStreamExt;
 use lctx_model::domain::stages::ProviderOutcome;
 use lctx_model::domain::{
     analysis::{self, catalog_evidence::*},
@@ -12,7 +13,6 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
-use futures::TryStreamExt;
 // The semantic owner declares exact views; these macros provide typed decoders.
 macro_rules! decoder_inputs {
     ($apply:ident) => {
@@ -39,9 +39,15 @@ fn consumed_inputs(_profile: stages::Profile) -> Vec<ValidationInput> {
     declarations
 }
 fn is_frame(name: &str) -> bool {
-    [attribution::ProviderRun::NAME, analysis::catalog_core::Invocation::NAME,
-        analysis::local::Invocation::NAME, analysis::local::AnalysisOutcome::NAME,
-        analysis::source_call::Invocation::NAME, analysis::source_call::AnalysisOutcome::NAME].contains(&name)
+    [
+        attribution::ProviderRun::NAME,
+        analysis::catalog_core::Invocation::NAME,
+        analysis::local::Invocation::NAME,
+        analysis::local::AnalysisOutcome::NAME,
+        analysis::source_call::Invocation::NAME,
+        analysis::source_call::AnalysisOutcome::NAME,
+    ]
+    .contains(&name)
 }
 async fn load<R: Record>(
     access: &CompletedInputs,
@@ -51,7 +57,11 @@ async fn load<R: Record>(
     mut visit: impl FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     while let Some((input, permit)) = consumed.next::<R>(access)? {
-        if crate::consumed_rows::stream_artifact_admission(access,&input,session,admission).await? {continue;}
+        if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+            .await?
+        {
+            continue;
+        }
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
             admission.visit_if_expected(permit, batch)?;
             visit(&input, batch)
@@ -178,19 +188,51 @@ pub async fn produce(
     drop(frames);
     drop(definitions);
     drop(parameters);
-    let scopes = crate::catalog_evidence_scope::EvidenceScopes::prepare(&access, model, &session, runtime.budget()).await?;
+    let scopes = crate::catalog_evidence_scope::EvidenceScopes::prepare(
+        &access,
+        model,
+        &session,
+        runtime.budget(),
+    )
+    .await?;
     let artifacts = access.table_for(&ValidationInput::of::<source::SourceArtifact>(&["id"]))?;
-    let mut roots = crate::sql::query(&session, &format!("SELECT id FROM {} ORDER BY id", crate::consumed_rows::identifier(&artifacts)))
-        .await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+    let mut roots = crate::sql::query(
+        &session,
+        &format!(
+            "SELECT id FROM {} ORDER BY id",
+            crate::consumed_rows::identifier(&artifacts)
+        ),
+    )
+    .await
+    .map_err(ModelError::codec)?
+    .execute_stream()
+    .await
+    .map_err(ModelError::codec)?;
     while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
-        let ids = batch.column_by_name("id").and_then(|column| column.as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>())
+        let ids = batch
+            .column_by_name("id")
+            .and_then(|column| {
+                column
+                    .as_any()
+                    .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+            })
             .ok_or(ModelError::Schema("C1 artifact root identity"))?;
         for index in 0..batch.num_rows() {
             runtime.cancellation().check()?;
-            let predicate = format!("id=X'{}'", ids.value(index).iter().map(|byte| format!("{byte:02x}")).collect::<String>());
-            let scope = scopes.edges.grain(scopes.root, &predicate, runtime.budget()).await?;
+            let predicate = format!(
+                "id=X'{}'",
+                ids.value(index)
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            );
+            let scope = scopes
+                .edges
+                .grain(scopes.root, &predicate, runtime.budget())
+                .await?;
             let mut data = EvidenceData::new(runtime.budget());
-            let mut consumed = crate::consumed_rows::ConsumedInputs::new(scopes.inputs.clone(), runtime.budget())?;
+            let mut consumed =
+                crate::consumed_rows::ConsumedInputs::new(scopes.inputs.clone(), runtime.budget())?;
             macro_rules! scoped_inputs {($($field:ident:$ty:ty,)*)=>{$(
                 while let Some((input, permit)) = consumed.next::<$ty>(&access)? {
                     let table = scopes.inputs.iter().position(|candidate| candidate.type_id()==input.type_id() && candidate.prefix()==input.prefix())
@@ -205,11 +247,14 @@ pub async fn produce(
             drop(scope);
             let budget = runtime.budget().clone();
             let rows = tokio::task::spawn_blocking(move || build::build(&data, &budget))
-                .await.map_err(ModelError::codec)??;
+                .await
+                .map_err(ModelError::codec)??;
             macro_rules! write {($($f:ident:$ty:ty,)*)=>{$(for row in rows.$f.iter() {output.push(row.clone()).await?;})*};}
             lctx_model::catalog_evidence_outputs!(write);
             let links = build::invocation_links(&rows, &invocations, runtime.budget())?;
-            for row in links.iter() { output.push(row.clone()).await?; }
+            for row in links.iter() {
+                output.push(row.clone()).await?;
+            }
             drop(links);
             drop(rows);
         }

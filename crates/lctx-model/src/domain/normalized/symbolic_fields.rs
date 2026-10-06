@@ -394,16 +394,17 @@ fn covered(d: &AspectData, class: Id<Occurrence>, context: Id<AnalysisContext>) 
 /// its declared memberships/coverage, never an unrelated sibling merely sharing an input.
 struct ClassInventory<'a> {
     data: &'a AspectData,
-    nodes: Vec<((&'static str, [u8;16]), ContentHash)>,
-    indices: std::collections::BTreeMap<(&'static str,[u8;16]),usize>,
+    nodes: Vec<((&'static str, [u8; 16]), ContentHash)>,
+    indices: std::collections::BTreeMap<(&'static str, [u8; 16]), usize>,
     edges: Vec<Vec<usize>>,
-    body_members: std::collections::BTreeMap<[u8;16],Vec<usize>>,
+    body_members: std::collections::BTreeMap<[u8; 16], Vec<usize>>,
     budget: ResourceBudget,
     _reservation: Box<dyn crate::domain::resources::Reservation>,
 }
 impl<'a> ClassInventory<'a> {
     fn prepare(d: &'a AspectData, budget: &ResourceBudget) -> Result<Self, ModelError> {
-        let mut count=0usize; let mut references=0usize;
+        let mut count = 0usize;
+        let mut references = 0usize;
         macro_rules! count_rows {($($field:ident:$ty:ty,)*)=>{$(
             count=count.saturating_add(d.$field.len());
             for row in d.$field.iter(){let _scratch=budget.reserve("source-class-reference-count",row.row_bytes().saturating_mul(16).saturating_add(4096))?;references=references.saturating_add(row.references().len());}
@@ -411,17 +412,32 @@ impl<'a> ClassInventory<'a> {
         crate::callable_aspect_inputs!(count_rows);
         // Admits compact nodes, BTree bookkeeping, forward/reverse adjacency and one-row
         // reference scratch before allocation. No labels, source bodies or rich rows are copied.
-        let reservation=budget.reserve("source-class-inventory",count.saturating_mul(512).saturating_add(references.saturating_mul(256)).saturating_add(1024))?;
-        let mut nodes=Vec::with_capacity(count);let mut indices=std::collections::BTreeMap::new();
+        let reservation = budget.reserve(
+            "source-class-inventory",
+            count
+                .saturating_mul(512)
+                .saturating_add(references.saturating_mul(256))
+                .saturating_add(1024),
+        )?;
+        let mut nodes = Vec::with_capacity(count);
+        let mut indices = std::collections::BTreeMap::new();
         macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(
             for row in d.$field.iter(){let key=(<$ty>::NAME,*row.id().bytes());indices.insert(key,nodes.len());nodes.push((key,row.content_digest()));}
         )*};}
         crate::callable_aspect_inputs!(rows);
-        let mut edges=vec![Vec::new();count];let mut body_members:std::collections::BTreeMap<[u8;16],Vec<usize>>=std::collections::BTreeMap::new();
-        let mut memberships=super::callable_aspects::aspect_scope().memberships.into_iter().map(|(member,field,owner)|(member.name(),field,owner.name())).collect::<Vec<_>>();
-        for invariant in crate::domain::model()?.invariants(){
-            let check=(invariant.create)(budget);
-            if let Some(scope)=check.support_scope(){memberships.push((scope.support.name(),"assertion",scope.assertion.name()));}
+        let mut edges = vec![Vec::new(); count];
+        let mut body_members: std::collections::BTreeMap<[u8; 16], Vec<usize>> =
+            std::collections::BTreeMap::new();
+        let mut memberships = super::callable_aspects::aspect_scope()
+            .memberships
+            .into_iter()
+            .map(|(member, field, owner)| (member.name(), field, owner.name()))
+            .collect::<Vec<_>>();
+        for invariant in crate::domain::model()?.invariants() {
+            let check = (invariant.create)(budget);
+            if let Some(scope) = check.support_scope() {
+                memberships.push((scope.support.name(), "assertion", scope.assertion.name()));
+            }
         }
         macro_rules! dependencies {($($field:ident:$ty:ty,)*)=>{$(
             let scalar_occurrences=<$ty>::fields().into_iter().filter(|field| !field.list() && field.target().is_some_and(|(_,name)|name==Occurrence::NAME)).map(|field|field.name()).collect::<Vec<_>>();
@@ -438,38 +454,128 @@ impl<'a> ClassInventory<'a> {
         )*};}
         crate::callable_aspect_inputs!(dependencies);
         // Complete provider coverage is owned by qualification scope AND context.
-        let mut coverage_by_owner=std::collections::BTreeMap::new();
-        for coverage in d.symbolic_coverage.iter(){coverage_by_owner.entry((coverage.scope,coverage.context)).or_insert_with(Vec::new).push(indices[&(ProviderCoverage::NAME,*coverage.id().bytes())]);}
-        for q in d.qualifications.iter(){
-            let source=indices[&(AssertionQualification::NAME,*q.id().bytes())];
-            if let Some(coverage)=coverage_by_owner.get(&(q.scope,q.context)){edges[source].extend(coverage);}
+        let mut coverage_by_owner = std::collections::BTreeMap::new();
+        for coverage in d.symbolic_coverage.iter() {
+            coverage_by_owner
+                .entry((coverage.scope, coverage.context))
+                .or_insert_with(Vec::new)
+                .push(indices[&(ProviderCoverage::NAME, *coverage.id().bytes())]);
         }
-        for targets in &mut edges {targets.sort_unstable();targets.dedup();}
-        Ok(Self {data:d,nodes,indices,edges,body_members,budget:budget.clone(),_reservation:reservation})
-    }
-    fn for_class(&self,class:Id<Occurrence>,context:Id<AnalysisContext>,symbol:Id<ProviderSymbol>)->Result<ContentHash,ModelError>{
-        let _scratch=self.budget.reserve("source-class-owner-inventory",self.nodes.len().saturating_mul(32).saturating_add(1024))?;
-        let mut seen=vec![false;self.nodes.len()];let mut pending=Vec::new();
-        fn enqueue(index:usize,seen:&mut [bool],pending:&mut Vec<usize>){if !seen[index]{seen[index]=true;pending.push(index);}}
-        let seed=|key:(&'static str,[u8;16]),seen:&mut [bool],pending:&mut Vec<usize>|{if let Some(&index)=self.indices.get(&key){enqueue(index,seen,pending);}};
-        seed((Occurrence::NAME,*class.bytes()),&mut seen,&mut pending);
-        seed((ProviderSymbol::NAME,*symbol.bytes()),&mut seen,&mut pending);
-        for declaration in self.data.declarations.iter().filter(|r|r.declaration==class && r.kind==DeclarationKind::Class && self.data.qualifications.get(r.qualification).is_some_and(|q|q.context==context)){
-            seed((DeclarationObservation::NAME,*declaration.id().bytes()),&mut seen,&mut pending);
-        }
-        if let Some(owner)=self.data.occurrences.get(class){
-            for row in self.data.occurrences.iter().filter(|row|row.source==owner.source && row.start>=owner.start && row.end<=owner.end && row.structural_path.starts_with(&owner.structural_path)){
-                seed((Occurrence::NAME,*row.id().bytes()),&mut seen,&mut pending);
-                if let Some(members)=self.body_members.get(row.id().bytes()){for &index in members{enqueue(index,&mut seen,&mut pending);}}
+        for q in d.qualifications.iter() {
+            let source = indices[&(AssertionQualification::NAME, *q.id().bytes())];
+            if let Some(coverage) = coverage_by_owner.get(&(q.scope, q.context)) {
+                edges[source].extend(coverage);
             }
         }
-        for field in self.data.fields.iter().filter(|field|self.data.field_syntax.get(field.declaration).is_some_and(|syntax|syntax.class==class)){
-            seed((super::entities::FieldDeclarationLink::NAME,*field.id().bytes()),&mut seen,&mut pending);
+        for targets in &mut edges {
+            targets.sort_unstable();
+            targets.dedup();
         }
-        while let Some(index)=pending.pop(){for &next in &self.edges[index]{enqueue(next,&mut seen,&mut pending);}}
-        let mut sink=KeySink::new("source-field-class-owner-inventory-v2");class.encode(&mut sink);context.encode(&mut sink);symbol.encode(&mut sink);
+        Ok(Self {
+            data: d,
+            nodes,
+            indices,
+            edges,
+            body_members,
+            budget: budget.clone(),
+            _reservation: reservation,
+        })
+    }
+    fn for_class(
+        &self,
+        class: Id<Occurrence>,
+        context: Id<AnalysisContext>,
+        symbol: Id<ProviderSymbol>,
+    ) -> Result<ContentHash, ModelError> {
+        let _scratch = self.budget.reserve(
+            "source-class-owner-inventory",
+            self.nodes.len().saturating_mul(32).saturating_add(1024),
+        )?;
+        let mut seen = vec![false; self.nodes.len()];
+        let mut pending = Vec::new();
+        fn enqueue(index: usize, seen: &mut [bool], pending: &mut Vec<usize>) {
+            if !seen[index] {
+                seen[index] = true;
+                pending.push(index);
+            }
+        }
+        let seed = |key: (&'static str, [u8; 16]), seen: &mut [bool], pending: &mut Vec<usize>| {
+            if let Some(&index) = self.indices.get(&key) {
+                enqueue(index, seen, pending);
+            }
+        };
+        seed((Occurrence::NAME, *class.bytes()), &mut seen, &mut pending);
+        seed(
+            (ProviderSymbol::NAME, *symbol.bytes()),
+            &mut seen,
+            &mut pending,
+        );
+        for declaration in self.data.declarations.iter().filter(|r| {
+            r.declaration == class
+                && r.kind == DeclarationKind::Class
+                && self
+                    .data
+                    .qualifications
+                    .get(r.qualification)
+                    .is_some_and(|q| q.context == context)
+        }) {
+            seed(
+                (DeclarationObservation::NAME, *declaration.id().bytes()),
+                &mut seen,
+                &mut pending,
+            );
+        }
+        if let Some(owner) = self.data.occurrences.get(class) {
+            for row in self.data.occurrences.iter().filter(|row| {
+                row.source == owner.source
+                    && row.start >= owner.start
+                    && row.end <= owner.end
+                    && row.structural_path.starts_with(&owner.structural_path)
+            }) {
+                seed(
+                    (Occurrence::NAME, *row.id().bytes()),
+                    &mut seen,
+                    &mut pending,
+                );
+                if let Some(members) = self.body_members.get(row.id().bytes()) {
+                    for &index in members {
+                        enqueue(index, &mut seen, &mut pending);
+                    }
+                }
+            }
+        }
+        for field in self.data.fields.iter().filter(|field| {
+            self.data
+                .field_syntax
+                .get(field.declaration)
+                .is_some_and(|syntax| syntax.class == class)
+        }) {
+            seed(
+                (
+                    super::entities::FieldDeclarationLink::NAME,
+                    *field.id().bytes(),
+                ),
+                &mut seen,
+                &mut pending,
+            );
+        }
+        while let Some(index) = pending.pop() {
+            for &next in &self.edges[index] {
+                enqueue(next, &mut seen, &mut pending);
+            }
+        }
+        let mut sink = KeySink::new("source-field-class-owner-inventory-v2");
+        class.encode(&mut sink);
+        context.encode(&mut sink);
+        symbol.encode(&mut sink);
         // Declaration macro order and nominal ID order remain canonical within the owner set.
-        for (index,((relation,id),digest)) in self.nodes.iter().enumerate(){if seen[index]{sink.part(b"relation",relation.as_bytes());sink.part(b"id",id);digest.encode(&mut sink);}}
+        for (index, ((relation, id), digest)) in self.nodes.iter().enumerate() {
+            if seen[index] {
+                sink.part(b"relation", relation.as_bytes());
+                sink.part(b"id", id);
+                digest.encode(&mut sink);
+            }
+        }
         Ok(sink.finish())
     }
 }
@@ -1268,95 +1374,260 @@ fn record_gate(
 }
 /// Necessary fidelity and ownership of declared source-field properties. Classification helpers
 /// are shared with the writer; admission never regenerates a normalization output inventory.
-pub(super) fn admit(d: &AspectData, out: &AspectOutput, b: &ResourceBudget) -> Result<(), ModelError> {
-    if out.symbolic_classes.len()+out.symbolic_stores.len()+out.symbolic_readers.len()+out.symbolic_associations.len()+out.symbolic_links.len()==0 {return Ok(());}
+pub(super) fn admit(
+    d: &AspectData,
+    out: &AspectOutput,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
+    if out.symbolic_classes.len()
+        + out.symbolic_stores.len()
+        + out.symbolic_readers.len()
+        + out.symbolic_associations.len()
+        + out.symbolic_links.len()
+        == 0
+    {
+        return Ok(());
+    }
     let inventory = ClassInventory::prepare(d, b)?;
-    let bad = || ModelError::Invalid("source field property disagrees with its owner/premises".into());
+    let bad =
+        || ModelError::Invalid("source field property disagrees with its owner/premises".into());
     let frame = |class: Id<Occurrence>, qualification: Id<AssertionQualification>| {
         let q = d.qualifications.get(qualification).ok_or_else(bad)?;
-        let symbol = symbol_for(d,class,q.context).ok_or_else(bad)?;
-        let declaration = d.declarations.iter().find(|row| row.declaration==class && row.qualification==qualification && row.kind==DeclarationKind::Class).ok_or_else(bad)?;
-        if !exact(d,qualification,q.context) || !source(d,declaration,&d.symbolic_declaration_supports,q.context) { return Err(bad()); }
-        Ok((q,symbol,inventory.for_class(class,q.context,symbol)?))
+        let symbol = symbol_for(d, class, q.context).ok_or_else(bad)?;
+        let declaration = d
+            .declarations
+            .iter()
+            .find(|row| {
+                row.declaration == class
+                    && row.qualification == qualification
+                    && row.kind == DeclarationKind::Class
+            })
+            .ok_or_else(bad)?;
+        if !exact(d, qualification, q.context)
+            || !source(d, declaration, &d.symbolic_declaration_supports, q.context)
+        {
+            return Err(bad());
+        }
+        Ok((q, symbol, inventory.for_class(class, q.context, symbol)?))
     };
     for row in out.symbolic_classes.iter() {
-        let (q,symbol,expected_inventory) = frame(row.class,row.qualification)?;
+        let (q, symbol, expected_inventory) = frame(row.class, row.qualification)?;
         let traits = d.symbolic_class_traits.get(row.traits).ok_or_else(bad)?;
         let support = d.symbolic_class_supports.get(row.support).ok_or_else(bad)?;
-        let eligible = d.symbolic_class_traits.iter().filter(|candidate| candidate.symbol==symbol && exact(d,candidate.qualification,q.context) && source(d,*candidate,&d.symbolic_class_supports,q.context)).count();
-        let reason = if traits.dataclass && !traits.synthesized { record_gate(d,row.class,symbol,q.context,out) } else { Some(ObligationKind::IncompleteDomain) };
-        if eligible!=1 || traits.symbol!=symbol || !exact(d,traits.qualification,q.context)
-            || support.assertion!=row.traits || !support.source_fidelity()
-            || d.symbolic_runs.get(support.run).is_none_or(|run| run.context!=q.context)
-            || row.reason!=reason || row.supported_record!=reason.is_none() || row.inventory!=expected_inventory { return Err(bad()); }
+        let eligible = d
+            .symbolic_class_traits
+            .iter()
+            .filter(|candidate| {
+                candidate.symbol == symbol
+                    && exact(d, candidate.qualification, q.context)
+                    && source(d, *candidate, &d.symbolic_class_supports, q.context)
+            })
+            .count();
+        let reason = if traits.dataclass && !traits.synthesized {
+            record_gate(d, row.class, symbol, q.context, out)
+        } else {
+            Some(ObligationKind::IncompleteDomain)
+        };
+        if eligible != 1
+            || traits.symbol != symbol
+            || !exact(d, traits.qualification, q.context)
+            || support.assertion != row.traits
+            || !support.source_fidelity()
+            || d.symbolic_runs
+                .get(support.run)
+                .is_none_or(|run| run.context != q.context)
+            || row.reason != reason
+            || row.supported_record != reason.is_none()
+            || row.inventory != expected_inventory
+        {
+            return Err(bad());
+        }
     }
     for row in out.symbolic_stores.iter() {
-        let (q,symbol,expected_inventory) = frame(row.class,row.qualification)?;
-        let constructor = d.declarations.iter().find(|m| m.declaration==row.constructor && m.parent.is_some_and(|p| same(d,p,row.class)) && m.kind==DeclarationKind::Function && exact(d,m.qualification,q.context)).ok_or_else(bad)?;
-        let receiver = receiver(d,row.constructor,q.context).ok_or_else(bad)?;
-        let traits = method(d,row.constructor,symbol,q.context).ok_or_else(bad)?;
+        let (q, symbol, expected_inventory) = frame(row.class, row.qualification)?;
+        let constructor = d
+            .declarations
+            .iter()
+            .find(|m| {
+                m.declaration == row.constructor
+                    && m.parent.is_some_and(|p| same(d, p, row.class))
+                    && m.kind == DeclarationKind::Function
+                    && exact(d, m.qualification, q.context)
+            })
+            .ok_or_else(bad)?;
+        let receiver = receiver(d, row.constructor, q.context).ok_or_else(bad)?;
+        let traits = method(d, row.constructor, symbol, q.context).ok_or_else(bad)?;
         let placement = d.placements.get(row.placement).ok_or_else(bad)?;
-        let formal = d.symbolic_parameter_declarations.get(row.formal).ok_or_else(bad)?;
-        let statement = placement.parent.and_then(|id| d.occurrences.get(id)).ok_or_else(bad)?;
-        let rhs = child(d,statement.id(),SyntaxField::Value,q.context).ok_or_else(bad)?;
-        let is_init = d.spellings.iter().any(|s| same(d,s.occurrence,constructor.name) && s.spelling.as_str()=="__init__");
-        if !source(d,constructor,&d.symbolic_declaration_supports,q.context) || !source(d,placement,&d.symbolic_placement_supports,q.context) || !is_init || row.receiver!=receiver.id() || row.traits!=traits.id() || row.inventory!=expected_inventory
-            || placement.occurrence!=row.target || placement.field!=SyntaxField::Target || !contains(d,row.constructor,row.target)
-            || !exact(d,placement.qualification,q.context) || statement.syntax_kind!=SyntaxKind::StmtAssign || rhs.occurrence!=row.value
-            || attribute(d,row.target,receiver,q.context).as_deref()!=Some(row.name.as_str())
-            || !contains(d,row.constructor,formal.declaration) || same(d,formal.declaration,receiver.parameter)
-            || !formal_read(d,row.value,formal.declaration,q.context) || !exact(d,formal.qualification,q.context)
-            || !source(d,formal,&d.symbolic_parameter_supports,q.context)
-            || row.plain_initializer!=plain_init(d,row.constructor,symbol,q.context,receiver) { return Err(bad()); }
+        let formal = d
+            .symbolic_parameter_declarations
+            .get(row.formal)
+            .ok_or_else(bad)?;
+        let statement = placement
+            .parent
+            .and_then(|id| d.occurrences.get(id))
+            .ok_or_else(bad)?;
+        let rhs = child(d, statement.id(), SyntaxField::Value, q.context).ok_or_else(bad)?;
+        let is_init = d
+            .spellings
+            .iter()
+            .any(|s| same(d, s.occurrence, constructor.name) && s.spelling.as_str() == "__init__");
+        if !source(d, constructor, &d.symbolic_declaration_supports, q.context)
+            || !source(d, placement, &d.symbolic_placement_supports, q.context)
+            || !is_init
+            || row.receiver != receiver.id()
+            || row.traits != traits.id()
+            || row.inventory != expected_inventory
+            || placement.occurrence != row.target
+            || placement.field != SyntaxField::Target
+            || !contains(d, row.constructor, row.target)
+            || !exact(d, placement.qualification, q.context)
+            || statement.syntax_kind != SyntaxKind::StmtAssign
+            || rhs.occurrence != row.value
+            || attribute(d, row.target, receiver, q.context).as_deref() != Some(row.name.as_str())
+            || !contains(d, row.constructor, formal.declaration)
+            || same(d, formal.declaration, receiver.parameter)
+            || !formal_read(d, row.value, formal.declaration, q.context)
+            || !exact(d, formal.qualification, q.context)
+            || !source(d, formal, &d.symbolic_parameter_supports, q.context)
+            || row.plain_initializer != plain_init(d, row.constructor, symbol, q.context, receiver)
+        {
+            return Err(bad());
+        }
     }
     for row in out.symbolic_readers.iter() {
-        let (q,symbol,expected_inventory) = frame(row.class,row.qualification)?;
-        let declaration = d.declarations.iter().find(|m| m.declaration==row.reader && m.parent.is_some_and(|p| same(d,p,row.class)) && m.kind==DeclarationKind::Function && exact(d,m.qualification,q.context)).ok_or_else(bad)?;
-        let receiver = receiver(d,row.reader,q.context).ok_or_else(bad)?;
-        let traits = method(d,row.reader,symbol,q.context).ok_or_else(bad)?;
+        let (q, symbol, expected_inventory) = frame(row.class, row.qualification)?;
+        let declaration = d
+            .declarations
+            .iter()
+            .find(|m| {
+                m.declaration == row.reader
+                    && m.parent.is_some_and(|p| same(d, p, row.class))
+                    && m.kind == DeclarationKind::Function
+                    && exact(d, m.qualification, q.context)
+            })
+            .ok_or_else(bad)?;
+        let receiver = receiver(d, row.reader, q.context).ok_or_else(bad)?;
+        let traits = method(d, row.reader, symbol, q.context).ok_or_else(bad)?;
         let placement = d.placements.get(row.placement).ok_or_else(bad)?;
-        let is_init = d.spellings.iter().any(|s| same(d,s.occurrence,declaration.name) && s.spelling.as_str()=="__init__");
-        if !source(d,declaration,&d.symbolic_declaration_supports,q.context) || !source(d,placement,&d.symbolic_placement_supports,q.context) || is_init || row.receiver!=receiver.id() || row.traits!=traits.id() || row.inventory!=expected_inventory
-            || placement.occurrence!=row.access || placement.field==SyntaxField::Target || !contains(d,row.reader,row.access)
-            || !exact(d,placement.qualification,q.context)
-            || attribute(d,row.access,receiver,q.context).as_deref()!=Some(row.name.as_str()) { return Err(bad()); }
+        let is_init = d
+            .spellings
+            .iter()
+            .any(|s| same(d, s.occurrence, declaration.name) && s.spelling.as_str() == "__init__");
+        if !source(d, declaration, &d.symbolic_declaration_supports, q.context)
+            || !source(d, placement, &d.symbolic_placement_supports, q.context)
+            || is_init
+            || row.receiver != receiver.id()
+            || row.traits != traits.id()
+            || row.inventory != expected_inventory
+            || placement.occurrence != row.access
+            || placement.field == SyntaxField::Target
+            || !contains(d, row.reader, row.access)
+            || !exact(d, placement.qualification, q.context)
+            || attribute(d, row.access, receiver, q.context).as_deref() != Some(row.name.as_str())
+        {
+            return Err(bad());
+        }
     }
     for row in out.symbolic_associations.iter() {
         let class = out.symbolic_classes.get(row.class).ok_or_else(bad)?;
-        let (q,symbol,expected_inventory) = frame(class.class,class.qualification)?;
+        let (q, symbol, expected_inventory) = frame(class.class, class.qualification)?;
         let field = d.symbolic_record_fields.get(row.field).ok_or_else(bad)?;
         let parameter = d.symbolic_parameters.get(row.parameter).ok_or_else(bad)?;
-        if !class.supported_record || field.class!=symbol || !exact(d,field.qualification,q.context)
-            || row.qualification!=class.qualification || row.inventory!=expected_inventory { return Err(bad()); }
+        if !class.supported_record
+            || field.class != symbol
+            || !exact(d, field.qualification, q.context)
+            || row.qualification != class.qualification
+            || row.inventory != expected_inventory
+        {
+            return Err(bad());
+        }
         match row.kind {
             SourceStorageKind::PlainInitializer => {
-                let store = row.store.and_then(|id| out.symbolic_stores.get(id)).ok_or_else(bad)?;
-                let formal = d.symbolic_parameter_declarations.get(store.formal).ok_or_else(bad)?;
-                if !store.plain_initializer || !same(d,store.class,class.class) || store.name!=field.name.as_str() || formal.parameter!=row.parameter { return Err(bad()); }
-            },
+                let store = row
+                    .store
+                    .and_then(|id| out.symbolic_stores.get(id))
+                    .ok_or_else(bad)?;
+                let formal = d
+                    .symbolic_parameter_declarations
+                    .get(store.formal)
+                    .ok_or_else(bad)?;
+                if !store.plain_initializer
+                    || !same(d, store.class, class.class)
+                    || store.name != field.name.as_str()
+                    || formal.parameter != row.parameter
+                {
+                    return Err(bad());
+                }
+            }
             SourceStorageKind::GeneratedRecord => {
-                let signature = d.symbolic_signatures.get(parameter.signature).ok_or_else(bad)?;
-                let init = initializer(d,symbol,q.context).ok_or_else(bad)?;
-                let source_initializer = d.declarations.iter().any(|m| m.parent.is_some_and(|p| same(d,p,class.class)) && d.spellings.iter().any(|s| same(d,s.occurrence,m.name) && s.spelling.as_str()=="__init__"));
-                if row.store.is_some() || source_initializer || field.init!=Some(true) || init.origin!=FunctionOrigin::Synthesized
-                    || init.symbol!=signature.symbol || !exact(d,signature.qualification,q.context) || !source(d,signature,&d.symbolic_signature_supports,q.context)
-                    || d.symbolic_parameter_shapes.get(parameter.shape).is_none_or(|shape| shape.name.as_ref().is_none_or(|name| name.as_str()!=field.name.as_str())) { return Err(bad()); }
-            },
+                let signature = d
+                    .symbolic_signatures
+                    .get(parameter.signature)
+                    .ok_or_else(bad)?;
+                let init = initializer(d, symbol, q.context).ok_or_else(bad)?;
+                let source_initializer = d.declarations.iter().any(|m| {
+                    m.parent.is_some_and(|p| same(d, p, class.class))
+                        && d.spellings.iter().any(|s| {
+                            same(d, s.occurrence, m.name) && s.spelling.as_str() == "__init__"
+                        })
+                });
+                if row.store.is_some()
+                    || source_initializer
+                    || field.init != Some(true)
+                    || init.origin != FunctionOrigin::Synthesized
+                    || init.symbol != signature.symbol
+                    || !exact(d, signature.qualification, q.context)
+                    || !source(d, signature, &d.symbolic_signature_supports, q.context)
+                    || d.symbolic_parameter_shapes
+                        .get(parameter.shape)
+                        .is_none_or(|shape| {
+                            shape
+                                .name
+                                .as_ref()
+                                .is_none_or(|name| name.as_str() != field.name.as_str())
+                        })
+                {
+                    return Err(bad());
+                }
+            }
         }
     }
     for row in out.symbolic_links.iter() {
-        let association = out.symbolic_associations.get(row.association).ok_or_else(bad)?;
-        let class = out.symbolic_classes.get(association.class).ok_or_else(bad)?;
-        let field = d.symbolic_record_fields.get(association.field).ok_or_else(bad)?;
+        let association = out
+            .symbolic_associations
+            .get(row.association)
+            .ok_or_else(bad)?;
+        let class = out
+            .symbolic_classes
+            .get(association.class)
+            .ok_or_else(bad)?;
+        let field = d
+            .symbolic_record_fields
+            .get(association.field)
+            .ok_or_else(bad)?;
         let reader = out.symbolic_readers.get(row.reader).ok_or_else(bad)?;
-        if !same(d,reader.class,class.class) || reader.name!=field.name.as_str() || reader.qualification!=association.qualification { return Err(bad()); }
+        if !same(d, reader.class, class.class)
+            || reader.name != field.name.as_str()
+            || reader.qualification != association.qualification
+        {
+            return Err(bad());
+        }
     }
     Ok(())
 }
-pub(super) fn normalize(d: &AspectData, out: &mut AspectOutput, b: &ResourceBudget) -> Result<(), ModelError> {
+pub(super) fn normalize(
+    d: &AspectData,
+    out: &mut AspectOutput,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
     normalize_owner(d, out, None, b)
 }
-pub(super) fn normalize_class(d: &AspectData, out: &mut AspectOutput, owner: Id<DeclarationObservation>, b: &ResourceBudget) -> Result<(), ModelError> {
+pub(super) fn normalize_class(
+    d: &AspectData,
+    out: &mut AspectOutput,
+    owner: Id<DeclarationObservation>,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
     normalize_owner(d, out, Some(owner), b)
 }
 fn normalize_owner(
@@ -1379,7 +1650,7 @@ fn normalize_owner(
     for declaration in d
         .declarations
         .iter()
-        .filter(|r| r.kind == DeclarationKind::Class && owner.is_none_or(|owner| owner==r.id()))
+        .filter(|r| r.kind == DeclarationKind::Class && owner.is_none_or(|owner| owner == r.id()))
     {
         let Some(q) = d.qualifications.get(declaration.qualification) else {
             continue;
@@ -1440,7 +1711,7 @@ fn normalize_owner(
             r.parent.is_some_and(|p| same(d, p, class))
                 && r.kind == DeclarationKind::Function
                 && exact(d, r.qualification, q.context)
-                && source(d,*r,&d.symbolic_declaration_supports,q.context)
+                && source(d, *r, &d.symbolic_declaration_supports, q.context)
         }) {
             let Some(traits) = method(d, function.declaration, symbol, q.context) else {
                 continue;
@@ -1456,7 +1727,7 @@ fn normalize_owner(
             for p in d.placements.iter().filter(|p| {
                 contains(d, function.declaration, p.occurrence)
                     && exact(d, p.qualification, q.context)
-                    && source(d,*p,&d.symbolic_placement_supports,q.context)
+                    && source(d, *p, &d.symbolic_placement_supports, q.context)
             }) {
                 let Some(name) = attribute(d, p.occurrence, receiver, q.context) else {
                     continue;
@@ -1607,19 +1878,68 @@ mod inventory_controls {
     }
     #[test]
     fn owner_inventory_excludes_siblings_and_tracks_complete_body_members() {
-        let budget=ResourceBudget::fixed(4<<20).unwrap();let mut data=AspectData::new(&budget);
-        let owner=Occurrence {source:nominal(4),start:0,end:10,syntax_kind:SyntaxKind::StmtClassDef,structural_path:vec![1],role:OccurrenceRole::Syntax};
-        let class=owner.id();let context=nominal(2);let symbol=nominal(3);data.occurrences.insert(owner).unwrap();
-        let digest=|data:&AspectData|ClassInventory::prepare(data,&budget).unwrap().for_class(class,context,symbol).unwrap();
-        let before=digest(&data);let usage=budget.reserved();assert!(usage>0);
-        data.occurrences.insert(Occurrence {source:nominal(4),start:20,end:30,syntax_kind:SyntaxKind::ExprName,structural_path:vec![2],role:OccurrenceRole::Syntax}).unwrap();
-        assert_eq!(before,digest(&data));
-        let member=Occurrence {source:nominal(4),start:3,end:5,syntax_kind:SyntaxKind::StmtPass,structural_path:vec![1,0],role:OccurrenceRole::Syntax};
-        data.occurrences.insert(member.clone()).unwrap();let added=digest(&data);assert_ne!(before,added);
+        let budget = ResourceBudget::fixed(4 << 20).unwrap();
+        let mut data = AspectData::new(&budget);
+        let owner = Occurrence {
+            source: nominal(4),
+            start: 0,
+            end: 10,
+            syntax_kind: SyntaxKind::StmtClassDef,
+            structural_path: vec![1],
+            role: OccurrenceRole::Syntax,
+        };
+        let class = owner.id();
+        let context = nominal(2);
+        let symbol = nominal(3);
+        data.occurrences.insert(owner).unwrap();
+        let digest = |data: &AspectData| {
+            ClassInventory::prepare(data, &budget)
+                .unwrap()
+                .for_class(class, context, symbol)
+                .unwrap()
+        };
+        let before = digest(&data);
+        let usage = budget.reserved();
+        assert!(usage > 0);
+        data.occurrences
+            .insert(Occurrence {
+                source: nominal(4),
+                start: 20,
+                end: 30,
+                syntax_kind: SyntaxKind::ExprName,
+                structural_path: vec![2],
+                role: OccurrenceRole::Syntax,
+            })
+            .unwrap();
+        assert_eq!(before, digest(&data));
+        let member = Occurrence {
+            source: nominal(4),
+            start: 3,
+            end: 5,
+            syntax_kind: SyntaxKind::StmtPass,
+            structural_path: vec![1, 0],
+            role: OccurrenceRole::Syntax,
+        };
+        data.occurrences.insert(member.clone()).unwrap();
+        let added = digest(&data);
+        assert_ne!(before, added);
         // Unsupported syntax is still part of the complete body inventory.
-        let mut changed=member;changed.syntax_kind=SyntaxKind::StmtIf;data.occurrences.insert(changed).unwrap();assert_ne!(added,digest(&data));
-        let rows_usage=budget.reserved();{let _prepared=ClassInventory::prepare(&data,&budget).unwrap();}assert_eq!(budget.reserved(),rows_usage);
-        let tiny=ResourceBudget::fixed(1).unwrap();assert!(matches!(ClassInventory::prepare(&data,&tiny),Err(ModelError::Resource{..})));assert_eq!(tiny.reserved(),0);
-        drop(data);assert_eq!(budget.reserved(),0);
+        let mut changed = member;
+        changed.syntax_kind = SyntaxKind::StmtIf;
+        data.occurrences.insert(changed).unwrap();
+        assert_ne!(added, digest(&data));
+        let rows_usage = budget.reserved();
+        {
+            let _prepared = ClassInventory::prepare(&data, &budget).unwrap();
+        }
+        assert_eq!(budget.reserved(), rows_usage);
+        let tiny = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            ClassInventory::prepare(&data, &tiny),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(tiny.reserved(), 0);
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
     }
 }

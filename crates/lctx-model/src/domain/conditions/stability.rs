@@ -66,28 +66,103 @@ impl CheckedStability {
         self.root
     }
 }
-#[derive(Clone,Debug,PartialEq)]
-struct StabilityReceipt {witness:StabilityWitness,parameter:Id<calls::SignatureParameter>,root:Id<PlaceRoot>,context:Id<attribution::AnalysisContext>}
+#[derive(Clone, Debug, PartialEq)]
+struct StabilityReceipt {
+    witness: StabilityWitness,
+    parameter: Id<calls::SignatureParameter>,
+    root: Id<PlaceRoot>,
+    context: Id<attribution::AnalysisContext>,
+}
 impl HeapSize for StabilityReceipt {}
-pub struct ProducedStability {values:charged::ChargedMap<Id<StabilityWitness>,StabilityReceipt>,charge:charged::StateCharge}
+pub struct ProducedStability {
+    values: charged::ChargedMap<Id<StabilityWitness>, StabilityReceipt>,
+    charge: charged::StateCharge,
+}
 impl ProducedStability {
-    pub(crate) fn new(budget:&resources::ResourceBudget)->Self{Self{values:Default::default(),charge:charged::StateCharge::new(budget,"actual-local-stability-receipts")}}
-    pub(crate) fn capture(&mut self,value:&CheckedStability)->Result<(),ModelError>{
-        let receipt=StabilityReceipt{witness:value.witness.clone(),parameter:value.parameter,root:value.root,context:value.context};
-        if self.values.get(&receipt.witness.id()).is_some_and(|previous|previous!=&receipt){return Err(ModelError::Conflict("actual Local stability receipt"));}
-        self.values.insert(&mut self.charge,receipt.witness.id(),receipt)?;Ok(())
+    pub(crate) fn new(budget: &resources::ResourceBudget) -> Self {
+        Self {
+            values: Default::default(),
+            charge: charged::StateCharge::new(budget, "actual-local-stability-receipts"),
+        }
     }
-    pub fn get(&self,witness:&StabilityWitness,budget:&resources::ResourceBudget)->Result<CheckedStability,ModelError>{
-        if !self.charge.budget().is_some_and(|owner|owner.shares_pool(budget)){return Err(ModelError::Invalid("actual Local stability belongs to another attempt budget".into()));}
-        let receipt=self.values.get(&witness.id()).ok_or_else(||ModelError::Invalid("stability has no actual Local issuer".into()))?;
-        if &receipt.witness!=witness{return Err(ModelError::Conflict("actual Local stability descriptor"));}
-        let mut charge=charged::StateCharge::new(budget,"actual-local-stability-hydration");charge.grow(size_of::<CheckedStability>())?;
-        Ok(CheckedStability{witness:receipt.witness.clone(),parameter:receipt.parameter,root:receipt.root,context:receipt.context,_entry_allowance:std::sync::Arc::new(charge)})
+    pub(crate) fn capture(&mut self, value: &CheckedStability) -> Result<(), ModelError> {
+        let receipt = StabilityReceipt {
+            witness: value.witness.clone(),
+            parameter: value.parameter,
+            root: value.root,
+            context: value.context,
+        };
+        if self
+            .values
+            .get(&receipt.witness.id())
+            .is_some_and(|previous| previous != &receipt)
+        {
+            return Err(ModelError::Conflict("actual Local stability receipt"));
+        }
+        self.values
+            .insert(&mut self.charge, receipt.witness.id(), receipt)?;
+        Ok(())
     }
-    pub(crate) fn append(&mut self,other:Self)->Result<(),ModelError>{
-        if !self.charge.budget().zip(other.charge.budget()).is_some_and(|(a,b)|a.shares_pool(b)){return Err(ModelError::Invalid("actual Local stability crosses attempt budgets".into()));}
-        let Self{mut values,mut charge}=other;
-        loop{let Some(id)=values.keys().next().copied()else{break;};let value=values.remove(&mut charge,&id).expect("stability");if self.values.get(&id).is_some_and(|previous|previous!=&value){return Err(ModelError::Conflict("actual Local stability receipt"));}self.values.insert(&mut self.charge,id,value)?;}
+    pub fn get(
+        &self,
+        witness: &StabilityWitness,
+        budget: &resources::ResourceBudget,
+    ) -> Result<CheckedStability, ModelError> {
+        if !self
+            .charge
+            .budget()
+            .is_some_and(|owner| owner.shares_pool(budget))
+        {
+            return Err(ModelError::Invalid(
+                "actual Local stability belongs to another attempt budget".into(),
+            ));
+        }
+        let receipt = self
+            .values
+            .get(&witness.id())
+            .ok_or_else(|| ModelError::Invalid("stability has no actual Local issuer".into()))?;
+        if &receipt.witness != witness {
+            return Err(ModelError::Conflict("actual Local stability descriptor"));
+        }
+        let mut charge = charged::StateCharge::new(budget, "actual-local-stability-hydration");
+        charge.grow(size_of::<CheckedStability>())?;
+        Ok(CheckedStability {
+            witness: receipt.witness.clone(),
+            parameter: receipt.parameter,
+            root: receipt.root,
+            context: receipt.context,
+            _entry_allowance: std::sync::Arc::new(charge),
+        })
+    }
+    pub(crate) fn append(&mut self, other: Self) -> Result<(), ModelError> {
+        if !self
+            .charge
+            .budget()
+            .zip(other.charge.budget())
+            .is_some_and(|(a, b)| a.shares_pool(b))
+        {
+            return Err(ModelError::Invalid(
+                "actual Local stability crosses attempt budgets".into(),
+            ));
+        }
+        let Self {
+            mut values,
+            mut charge,
+        } = other;
+        loop {
+            let Some(id) = values.keys().next().copied() else {
+                break;
+            };
+            let value = values.remove(&mut charge, &id).expect("stability");
+            if self
+                .values
+                .get(&id)
+                .is_some_and(|previous| previous != &value)
+            {
+                return Err(ModelError::Conflict("actual Local stability receipt"));
+            }
+            self.values.insert(&mut self.charge, id, value)?;
+        }
         Ok(())
     }
 }

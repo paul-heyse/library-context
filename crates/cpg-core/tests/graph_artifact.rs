@@ -876,11 +876,27 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
 
 #[tokio::test]
 async fn remediation_detached_admission_refuses_unsupported_facts_with_consistent_hashes() {
-    use datafusion::arrow::{array::{Array, BinaryArray, FixedSizeBinaryArray, UInt32Array}, compute::take, ipc::{reader::FileReader, writer::FileWriter}, record_batch::RecordBatch};
-    use lctx_model::domain::{Record, graph::{Assertion, FamilyHasher, Manifest}, source::SyntaxSupport};
+    use datafusion::arrow::{
+        array::{Array, BinaryArray, FixedSizeBinaryArray, UInt32Array},
+        compute::take,
+        ipc::{reader::FileReader, writer::FileWriter},
+        record_batch::RecordBatch,
+    };
+    use lctx_model::domain::{
+        Record,
+        graph::{Assertion, FamilyHasher, Manifest},
+        source::SyntaxSupport,
+    };
     use std::fs::File;
     let admitted = compiled(Profile::Catalog, Frontier::Facts, 1 << 30, 256).await;
-    let runtime = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()), WorkspaceOptions { memory_bytes: 1 << 30, ..Default::default() }).unwrap();
+    let runtime = Workspace::new(
+        Arc::new(lctx_model::domain::model().unwrap()),
+        WorkspaceOptions {
+            memory_bytes: 1 << 30,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let directory = tempfile::tempdir().unwrap();
     let output = directory.path().join("graph");
     admitted.export(&output).unwrap();
@@ -894,39 +910,88 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     let mut removed = 0;
     for batch in reader {
         let batch = batch.unwrap();
-        let payloads = batch.column(2).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let ids = batch.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
-        let contents = batch.column(1).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
+        let payloads = batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        let ids = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<FixedSizeBinaryArray>()
+            .unwrap();
+        let contents = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<FixedSizeBinaryArray>()
+            .unwrap();
         let mut keep = Vec::new();
         for index in 0..batch.num_rows() {
             let row: Assertion = serde_json::from_slice(payloads.value(index)).unwrap();
-            if row.source.as_ref().is_some_and(|source| source.domain() == SyntaxSupport::NAME) {
+            if row
+                .source
+                .as_ref()
+                .is_some_and(|source| source.domain() == SyntaxSupport::NAME)
+            {
                 removed += 1;
             } else {
                 keep.push(index as u32);
-                hasher.push(ContentHash(ids.value(index).try_into().unwrap()), ContentHash(contents.value(index).try_into().unwrap())).unwrap();
+                hasher
+                    .push(
+                        ContentHash(ids.value(index).try_into().unwrap()),
+                        ContentHash(contents.value(index).try_into().unwrap()),
+                    )
+                    .unwrap();
             }
         }
         let indices = UInt32Array::from(keep);
-        let columns = batch.columns().iter().map(|column| take(column.as_ref(), &indices, None).unwrap()).collect();
-        writer.write(&RecordBatch::try_new(schema.clone(), columns).unwrap()).unwrap();
+        let columns = batch
+            .columns()
+            .iter()
+            .map(|column| take(column.as_ref(), &indices, None).unwrap())
+            .collect();
+        writer
+            .write(&RecordBatch::try_new(schema.clone(), columns).unwrap())
+            .unwrap();
     }
     assert!(removed > 0);
     writer.finish().unwrap();
     drop(writer);
     std::fs::rename(replacement, &file).unwrap();
-    let mut manifest: Manifest = serde_json::from_slice(&std::fs::read(output.join("manifest.json")).unwrap()).unwrap();
-    *manifest.families.iter_mut().find(|f| f.family == GraphFamily::Assertions).unwrap() = hasher.finish();
+    let mut manifest: Manifest =
+        serde_json::from_slice(&std::fs::read(output.join("manifest.json")).unwrap()).unwrap();
+    *manifest
+        .families
+        .iter_mut()
+        .find(|f| f.family == GraphFamily::Assertions)
+        .unwrap() = hasher.finish();
     manifest.validate().unwrap();
-    std::fs::write(output.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
-    let error = match artifact::verify_export(&output, &runtime).await { Ok(_) => panic!("unsupported facts admitted"), Err(error) => error };
-    assert!(error.to_string().contains("assertion has no attributed support"), "{error}");
+    std::fs::write(
+        output.join("manifest.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    let error = match artifact::verify_export(&output, &runtime).await {
+        Ok(_) => panic!("unsupported facts admitted"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("assertion has no attributed support"),
+        "{error}"
+    );
 }
 
 #[tokio::test]
 async fn remediation_detached_admission_all_frontiers_and_profiles_without_producer_replay() {
     for profile in Profile::ALL {
-        for frontier in [Frontier::Facts, Frontier::Normalized, Frontier::Analysis, Frontier::Catalog] {
+        for frontier in [
+            Frontier::Facts,
+            Frontier::Normalized,
+            Frontier::Analysis,
+            Frontier::Catalog,
+        ] {
             let admitted = compiled(profile, frontier, 1 << 30, 128).await;
             let directory = tempfile::tempdir().unwrap();
             let export = directory.path().join("export");
@@ -934,9 +999,17 @@ async fn remediation_detached_admission_all_frontiers_and_profiles_without_produ
             let semantic = admitted.manifest().content();
             drop(admitted);
             // This workspace has no providers, captured inputs, producer receipts or grants.
-            let importer = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),
-                WorkspaceOptions { memory_bytes:1 << 30, batch_rows:31, ..Default::default() }).unwrap();
-            let imported = artifact::verify_export(&export, &importer).await
+            let importer = Workspace::new(
+                Arc::new(lctx_model::domain::model().unwrap()),
+                WorkspaceOptions {
+                    memory_bytes: 1 << 30,
+                    batch_rows: 31,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let imported = artifact::verify_export(&export, &importer)
+                .await
                 .unwrap_or_else(|error| panic!("{profile:?}/{frontier:?}: {error}"));
             assert_eq!(imported.manifest().content(), semantic);
         }
@@ -950,19 +1023,38 @@ async fn remediation_detached_admission_refuses_equal_count_foreign_outcome_doma
     let directory = tempfile::tempdir().unwrap();
     let export = directory.path().join("export");
     admitted.export(&export).unwrap();
-    let mut manifest: Manifest = serde_json::from_slice(&std::fs::read(export.join("manifest.json")).unwrap()).unwrap();
+    let mut manifest: Manifest =
+        serde_json::from_slice(&std::fs::read(export.join("manifest.json")).unwrap()).unwrap();
     let count = manifest.outcomes.len();
     let key = manifest.outcomes[0].key.clone();
     manifest.outcomes[0].key.domain = ContentHash::of(b"foreign-outcome-domain");
     let replacement = manifest.outcomes[0].key.clone();
-    *manifest.required_outcomes.iter_mut().find(|required| **required == key).unwrap() = replacement;
+    *manifest
+        .required_outcomes
+        .iter_mut()
+        .find(|required| **required == key)
+        .unwrap() = replacement;
     manifest.required_outcomes.sort();
-    manifest.outcomes.sort_by(|a,b| a.key.cmp(&b.key));
+    manifest.outcomes.sort_by(|a, b| a.key.cmp(&b.key));
     assert_eq!(manifest.outcomes.len(), count);
     manifest.validate().unwrap();
-    std::fs::write(export.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
-    let importer = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()), WorkspaceOptions {memory_bytes:1 << 30, ..Default::default()}).unwrap();
-    let error = match artifact::verify_export(&export, &importer).await {Ok(_)=>panic!("foreign outcome domain admitted"),Err(error)=>error};
+    std::fs::write(
+        export.join("manifest.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    let importer = Workspace::new(
+        Arc::new(lctx_model::domain::model().unwrap()),
+        WorkspaceOptions {
+            memory_bytes: 1 << 30,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let error = match artifact::verify_export(&export, &importer).await {
+        Ok(_) => panic!("foreign outcome domain admitted"),
+        Err(error) => error,
+    };
     assert!(error.to_string().contains("semantic outcome"), "{error}");
 }
 
@@ -970,9 +1062,21 @@ async fn remediation_detached_admission_refuses_equal_count_foreign_outcome_doma
 /// admission owner is selected from the same complete declared frontier, including empty tables.
 mod enriched_graph_adversaries {
     use super::*;
-    use datafusion::arrow::{array::{BinaryArray, FixedSizeBinaryArray, UInt32Array}, compute::take, ipc::{reader::FileReader, writer::FileWriter}, record_batch::RecordBatch};
-    use lctx_model::domain::{self as d, Record, graph::{Assertion, Entity, FamilyHasher, Manifest, Target}};
-    use std::{collections::{BTreeSet, HashSet}, fs::File, path::Path};
+    use datafusion::arrow::{
+        array::{BinaryArray, FixedSizeBinaryArray, UInt32Array},
+        compute::take,
+        ipc::{reader::FileReader, writer::FileWriter},
+        record_batch::RecordBatch,
+    };
+    use lctx_model::domain::{
+        self as d, Record,
+        graph::{Assertion, Entity, FamilyHasher, Manifest, Target},
+    };
+    use std::{
+        collections::{BTreeSet, HashSet},
+        fs::File,
+        path::Path,
+    };
 
     #[derive(Default)]
     struct Compact {
@@ -989,10 +1093,17 @@ mod enriched_graph_adversaries {
         for (file, intrinsic) in [("entities.arrow", true), ("assertions.arrow", false)] {
             for batch in FileReader::try_new(File::open(path.join(file)).unwrap(), None).unwrap() {
                 let batch = batch.unwrap();
-                let payloads = batch.column(2).as_any().downcast_ref::<BinaryArray>().unwrap();
+                let payloads = batch
+                    .column(2)
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .unwrap();
                 for row in 0..batch.num_rows() {
-                    if intrinsic { entities.push(serde_json::from_slice(payloads.value(row)).unwrap()); }
-                    else { assertions.push(serde_json::from_slice(payloads.value(row)).unwrap()); }
+                    if intrinsic {
+                        entities.push(serde_json::from_slice(payloads.value(row)).unwrap());
+                    } else {
+                        assertions.push(serde_json::from_slice(payloads.value(row)).unwrap());
+                    }
                 }
             }
         }
@@ -1007,12 +1118,15 @@ mod enriched_graph_adversaries {
                 Entity::EnrichedExecutionParent(row) => rows.parents.push(row.clone()),
                 Entity::AnalysisDefinition(row) => rows.definitions.push(row.clone()),
                 Entity::MethodParameters(row) => rows.parameters.push(row.clone()),
-                _ => {},
+                _ => {}
             }
         }
         for assertion in assertions {
-            if assertion.source.as_ref().is_some_and(|source| source.domain() == d::analysis::enriched_execution::AnalysisInput::NAME) {
-                rows.inputs.push(d::graph::record::assertion_record(assertion).unwrap());
+            if assertion.source.as_ref().is_some_and(|source| {
+                source.domain() == d::analysis::enriched_execution::AnalysisInput::NAME
+            }) {
+                rows.inputs
+                    .push(d::graph::record::assertion_record(assertion).unwrap());
             }
         }
         rows
@@ -1020,152 +1134,293 @@ mod enriched_graph_adversaries {
     fn check(rows: &Compact) -> Result<(), d::ModelError> {
         let model = d::model().unwrap();
         // SemanticImport declares the whole frontier, even when an owned family has no rows.
-        let names = d::analysis_frontier_relations().iter().map(d::Relation::name).collect::<BTreeSet<_>>();
+        let names = d::analysis_frontier_relations()
+            .iter()
+            .map(d::Relation::name)
+            .collect::<BTreeSet<_>>();
         assert!(names.contains(d::analysis::enriched_execution::AnalysisInvocation::NAME));
         let candidates = model.admission_candidates_for_scope(&names).unwrap();
-        let invariant = candidates.iter().find(|invariant| invariant.name == "enriched_frame_fidelity")
+        let invariant = candidates
+            .iter()
+            .find(|invariant| invariant.name == "enriched_frame_fidelity")
             .expect("complete detached frontier must select necessary Enriched frame admission");
         assert_eq!(invariant.purpose, d::InvariantPurpose::Admission);
         let budget = d::resources::ResourceBudget::fixed(128 << 20).unwrap();
         let mut checker = (invariant.create)(&budget);
-        macro_rules! visit {($field:ident,$ty:ty)=>{{
-            let input = invariant.inputs.iter().find(|input| input.name() == <$ty>::NAME).unwrap();
-            checker.visit_input(input, &<$ty>::encode(&rows.$field)?)?;
-        }};}
-        visit!(frames,d::analysis::enriched_execution::AnalysisInvocation);
-        visit!(sources,d::analysis::source_call::AnalysisInvocation);
-        visit!(inputs,d::analysis::enriched_execution::AnalysisInput);
-        visit!(parents,d::analysis::enriched_execution::InvocationSource);
-        visit!(definitions,d::analysis::AnalysisDefinition);
-        visit!(parameters,d::analysis::MethodParameters);
+        macro_rules! visit {
+            ($field:ident,$ty:ty) => {{
+                let input = invariant
+                    .inputs
+                    .iter()
+                    .find(|input| input.name() == <$ty>::NAME)
+                    .unwrap();
+                checker.visit_input(input, &<$ty>::encode(&rows.$field)?)?;
+            }};
+        }
+        visit!(frames, d::analysis::enriched_execution::AnalysisInvocation);
+        visit!(sources, d::analysis::source_call::AnalysisInvocation);
+        visit!(inputs, d::analysis::enriched_execution::AnalysisInput);
+        visit!(parents, d::analysis::enriched_execution::InvocationSource);
+        visit!(definitions, d::analysis::AnalysisDefinition);
+        visit!(parameters, d::analysis::MethodParameters);
         checker.finish()
     }
     fn key(target: &Target) -> Option<(u8, ContentHash)> {
         match target {
-            Target::Entity(id) => Some((0,id.0)),
-            Target::Assertion(id) => Some((1,id.0)),
-            Target::External {..} => None,
+            Target::Entity(id) => Some((0, id.0)),
+            Target::Assertion(id) => Some((1, id.0)),
+            Target::External { .. } => None,
         }
     }
     /// Delete the selected Enriched frames and only graph rows that actually refer to removed
     /// endpoints. Kept identities, payloads and role-labelled edges remain byte-for-byte exact.
     fn remove_frames(path: &Path, entities: &[Entity], assertions: &[Assertion]) {
-        let mut removed = entities.iter().filter(|entity| matches!(entity, Entity::EnrichedExecutionRun(_)))
-            .map(|entity| (0,entity.id().0)).collect::<HashSet<_>>();
+        let mut removed = entities
+            .iter()
+            .filter(|entity| matches!(entity, Entity::EnrichedExecutionRun(_)))
+            .map(|entity| (0, entity.id().0))
+            .collect::<HashSet<_>>();
         assert!(!removed.is_empty());
         loop {
             let before = removed.len();
             for entity in entities {
-                if entity.references().unwrap().iter().any(|(target,_)| key(target).is_some_and(|key| removed.contains(&key))) {
-                    removed.insert((0,entity.id().0));
+                if entity
+                    .references()
+                    .unwrap()
+                    .iter()
+                    .any(|(target, _)| key(target).is_some_and(|key| removed.contains(&key)))
+                {
+                    removed.insert((0, entity.id().0));
                 }
             }
             for assertion in assertions {
-                if assertion.references().unwrap().iter().any(|(target,_)| key(target).is_some_and(|key| removed.contains(&key))) {
-                    removed.insert((1,assertion.id().0));
+                if assertion
+                    .references()
+                    .unwrap()
+                    .iter()
+                    .any(|(target, _)| key(target).is_some_and(|key| removed.contains(&key)))
+                {
+                    removed.insert((1, assertion.id().0));
                 }
             }
-            if removed.len() == before { break; }
+            if removed.len() == before {
+                break;
+            }
         }
-        let mut manifest: Manifest = serde_json::from_slice(&std::fs::read(path.join("manifest.json")).unwrap()).unwrap();
-        for (file, family, kind) in [("entities.arrow",GraphFamily::Entities,0), ("assertions.arrow",GraphFamily::Assertions,1)] {
+        let mut manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(path.join("manifest.json")).unwrap()).unwrap();
+        for (file, family, kind) in [
+            ("entities.arrow", GraphFamily::Entities, 0),
+            ("assertions.arrow", GraphFamily::Assertions, 1),
+        ] {
             let file = path.join(file);
-            let reader = FileReader::try_new(File::open(&file).unwrap(),None).unwrap();
+            let reader = FileReader::try_new(File::open(&file).unwrap(), None).unwrap();
             let schema = reader.schema();
             let replacement = file.with_extension("changed.arrow");
-            let mut writer = FileWriter::try_new(File::create(&replacement).unwrap(),&schema).unwrap();
+            let mut writer =
+                FileWriter::try_new(File::create(&replacement).unwrap(), &schema).unwrap();
             let mut hasher = FamilyHasher::new(family);
             for batch in reader {
                 let batch = batch.unwrap();
-                let ids = batch.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
-                let contents = batch.column(1).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
+                let ids = batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<FixedSizeBinaryArray>()
+                    .unwrap();
+                let contents = batch
+                    .column(1)
+                    .as_any()
+                    .downcast_ref::<FixedSizeBinaryArray>()
+                    .unwrap();
                 let mut keep = Vec::new();
                 for row in 0..batch.num_rows() {
                     let id = ContentHash(ids.value(row).try_into().unwrap());
-                    if !removed.contains(&(kind,id)) {
-                        hasher.push(id,ContentHash(contents.value(row).try_into().unwrap())).unwrap();
+                    if !removed.contains(&(kind, id)) {
+                        hasher
+                            .push(id, ContentHash(contents.value(row).try_into().unwrap()))
+                            .unwrap();
                         keep.push(row as u32);
                     }
                 }
                 let indices = UInt32Array::from(keep);
-                let columns = batch.columns().iter().map(|column| take(column.as_ref(),&indices,None).unwrap()).collect();
-                writer.write(&RecordBatch::try_new(schema.clone(),columns).unwrap()).unwrap();
+                let columns = batch
+                    .columns()
+                    .iter()
+                    .map(|column| take(column.as_ref(), &indices, None).unwrap())
+                    .collect();
+                writer
+                    .write(&RecordBatch::try_new(schema.clone(), columns).unwrap())
+                    .unwrap();
             }
             writer.finish().unwrap();
             drop(writer);
-            std::fs::rename(replacement,file).unwrap();
-            *manifest.families.iter_mut().find(|content| content.family == family).unwrap() = hasher.finish();
+            std::fs::rename(replacement, file).unwrap();
+            *manifest
+                .families
+                .iter_mut()
+                .find(|content| content.family == family)
+                .unwrap() = hasher.finish();
         }
         manifest.validate().unwrap();
-        std::fs::write(path.join("manifest.json"),serde_json::to_vec(&manifest).unwrap()).unwrap();
+        std::fs::write(
+            path.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn remediation_detached_enriched_frame_admission_uses_actual_compact_graph_domain() {
-        let admitted = compiled(Profile::Catalog,Frontier::Analysis,1 << 30,128).await;
+        let admitted = compiled(Profile::Catalog, Frontier::Analysis, 1 << 30, 128).await;
         let directory = tempfile::tempdir().unwrap();
         let export = directory.path().join("export");
         admitted.export(&export).unwrap();
         drop(admitted);
-        let (entities,assertions) = graph(&export);
-        let mut actual = compact(&entities,&assertions);
-        assert!(!actual.sources.is_empty() && !actual.frames.is_empty() && !actual.inputs.is_empty());
+        let (entities, assertions) = graph(&export);
+        let mut actual = compact(&entities, &assertions);
+        assert!(
+            !actual.sources.is_empty() && !actual.frames.is_empty() && !actual.inputs.is_empty()
+        );
         check(&actual).unwrap();
-        let frame = actual.frames.iter().find(|frame| actual.inputs.iter().any(|input| input.invocation == frame.id())).unwrap().clone();
+        let frame = actual
+            .frames
+            .iter()
+            .find(|frame| {
+                actual
+                    .inputs
+                    .iter()
+                    .any(|input| input.invocation == frame.id())
+            })
+            .unwrap()
+            .clone();
         let old = frame.id();
-        let mut parents = actual.inputs.iter().filter(|input| input.invocation == old).map(|input| input.parent).collect::<Vec<_>>();
+        let mut parents = actual
+            .inputs
+            .iter()
+            .filter(|input| input.invocation == old)
+            .map(|input| input.parent)
+            .collect::<Vec<_>>();
         parents.sort();
         let omitted = parents.remove(0);
         assert!(actual.parents.iter().any(|parent| parent.id() == omitted));
-        let (mut changed,_) = d::analysis::enriched_execution::AnalysisInvocation::new(frame.input,frame.context,frame.definition,frame.subject,parents.clone());
+        let (mut changed, _) = d::analysis::enriched_execution::AnalysisInvocation::new(
+            frame.input,
+            frame.context,
+            frame.definition,
+            frame.subject,
+            parents.clone(),
+        );
         changed.sources = frame.sources;
         changed.projections = frame.projections;
-        assert_ne!(changed.id(),old);
+        assert_ne!(changed.id(), old);
         let canonical = Entity::from(changed.clone());
         canonical.validate().unwrap();
-        assert_eq!(d::graph::record::entity_record::<d::analysis::enriched_execution::AnalysisInvocation>(&canonical).unwrap(),changed);
-        *actual.frames.iter_mut().find(|row| row.id() == old).unwrap() = changed.clone();
+        assert_eq!(
+            d::graph::record::entity_record::<d::analysis::enriched_execution::AnalysisInvocation>(
+                &canonical
+            )
+            .unwrap(),
+            changed
+        );
+        *actual
+            .frames
+            .iter_mut()
+            .find(|row| row.id() == old)
+            .unwrap() = changed.clone();
         actual.inputs.retain(|row| row.invocation != old);
         for parent in parents {
-            let row = d::analysis::enriched_execution::AnalysisInput {invocation:changed.id(),parent};
+            let row = d::analysis::enriched_execution::AnalysisInput {
+                invocation: changed.id(),
+                parent,
+            };
             let canonical = Assertion::from_record(row.clone()).unwrap();
             // Rebuild the nominal assertion identity and its exact role-labelled parent/run edges.
             assert_eq!(d::graph::record::assertion_record::<d::analysis::enriched_execution::AnalysisInput>(&canonical).unwrap(),row);
-            assert!(canonical.references().unwrap().iter().any(|(target,_)| *target == Target::Entity(d::graph::EntityId::of(changed.id()))));
+            assert!(
+                canonical
+                    .references()
+                    .unwrap()
+                    .iter()
+                    .any(|(target, _)| *target
+                        == Target::Entity(d::graph::EntityId::of(changed.id())))
+            );
             actual.inputs.push(row);
         }
         let error = check(&actual).unwrap_err();
-        assert!(error.to_string().contains("Enriched exact complete SourceCall parent domain"),"{error}");
+        assert!(
+            error
+                .to_string()
+                .contains("Enriched exact complete SourceCall parent domain"),
+            "{error}"
+        );
         // The compact case intentionally does not rewrite every downstream semantic digest. The
         // separate empty-family case below exercises complete detached transport and admission.
     }
 
     #[tokio::test]
     async fn remediation_detached_admission_refuses_absent_whole_enriched_frame_family() {
-        let admitted = compiled(Profile::Catalog,Frontier::Analysis,1 << 30,128).await;
+        let admitted = compiled(Profile::Catalog, Frontier::Analysis, 1 << 30, 128).await;
         let directory = tempfile::tempdir().unwrap();
         let export = directory.path().join("export");
         admitted.export(&export).unwrap();
         drop(admitted);
-        let importer = || Workspace::new(Arc::new(d::model().unwrap()),WorkspaceOptions {memory_bytes:1 << 30,..Default::default()}).unwrap();
-        artifact::verify_export(&export,&importer()).await.unwrap();
-        let (entities,assertions) = graph(&export);
-        remove_frames(&export,&entities,&assertions);
-        let (entities,assertions) = graph(&export);
-        let rows = compact(&entities,&assertions);
+        let importer = || {
+            Workspace::new(
+                Arc::new(d::model().unwrap()),
+                WorkspaceOptions {
+                    memory_bytes: 1 << 30,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        artifact::verify_export(&export, &importer()).await.unwrap();
+        let (entities, assertions) = graph(&export);
+        remove_frames(&export, &entities, &assertions);
+        let (entities, assertions) = graph(&export);
+        let rows = compact(&entities, &assertions);
         assert!(rows.frames.is_empty() && rows.inputs.is_empty());
         assert!(!rows.sources.is_empty());
         let error = check(&rows).unwrap_err();
-        assert!(error.to_string().contains("Enriched complete actual frame domain"),"{error}");
-        let existing_entities = entities.iter().map(|row| (0,row.id().0)).collect::<HashSet<_>>();
-        let existing_assertions = assertions.iter().map(|row| (1,row.id().0)).collect::<HashSet<_>>();
-        for (target,_) in entities.iter().flat_map(|row| row.references().unwrap()).chain(assertions.iter().flat_map(|row| row.references().unwrap())) {
-            if let Some(key) = key(&target) { assert!(existing_entities.contains(&key) || existing_assertions.contains(&key),"missing kept nominal endpoint {target:?}"); }
+        assert!(
+            error
+                .to_string()
+                .contains("Enriched complete actual frame domain"),
+            "{error}"
+        );
+        let existing_entities = entities
+            .iter()
+            .map(|row| (0, row.id().0))
+            .collect::<HashSet<_>>();
+        let existing_assertions = assertions
+            .iter()
+            .map(|row| (1, row.id().0))
+            .collect::<HashSet<_>>();
+        for (target, _) in entities
+            .iter()
+            .flat_map(|row| row.references().unwrap())
+            .chain(assertions.iter().flat_map(|row| row.references().unwrap()))
+        {
+            if let Some(key) = key(&target) {
+                assert!(
+                    existing_entities.contains(&key) || existing_assertions.contains(&key),
+                    "missing kept nominal endpoint {target:?}"
+                );
+            }
         }
-        let error = match artifact::verify_export(&export,&importer()).await {Ok(_)=>panic!("absent Enriched frame family admitted"),Err(error)=>error};
+        let error = match artifact::verify_export(&export, &importer()).await {
+            Ok(_) => panic!("absent Enriched frame family admitted"),
+            Err(error) => error,
+        };
         // Independent completeness owners may also refuse deleted dependent rows. The direct
         // selected predicate above establishes the Enriched refusal, and this asserts detached
         // verification reaches semantic admission rather than transport/hash/reference rejection.
-        assert!(matches!(error,d::ModelError::Invalid(_) | d::ModelError::Frontier(_)),"{error}");
+        assert!(
+            matches!(
+                error,
+                d::ModelError::Invalid(_) | d::ModelError::Frontier(_)
+            ),
+            "{error}"
+        );
     }
 }

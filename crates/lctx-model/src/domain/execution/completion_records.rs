@@ -400,5 +400,8 @@ impl InvariantCheck for CompletionCheck {
 }
 
 pub(crate) fn completion_invariants_refs() -> Vec<&'static str> {
-    vec!["base_statement_completion_replay", "execution_statement_fidelity"]
+    vec![
+        "base_statement_completion_replay",
+        "execution_statement_fidelity",
+    ]
 }

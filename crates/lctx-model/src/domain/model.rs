@@ -607,8 +607,11 @@ impl ValidatedModel {
     /// Select model-owned admission checks before an executor resolves their premises.
     /// This grants no validity: the executor must enforce every applicable premise, allowing
     /// omission only after an actual declared owner stream is confirmed complete-empty.
-    pub fn admission_candidates_for_scope(&self,referrers:&std::collections::BTreeSet<&str>)->Result<Vec<Invariant>,ModelError>{
-        self.select_checks_for_scope(referrers,&std::collections::BTreeSet::new(),true,false)
+    pub fn admission_candidates_for_scope(
+        &self,
+        referrers: &std::collections::BTreeSet<&str>,
+    ) -> Result<Vec<Invariant>, ModelError> {
+        self.select_checks_for_scope(referrers, &std::collections::BTreeSet::new(), true, false)
     }
     fn checks_for_scope(
         &self,
@@ -616,11 +619,15 @@ impl ValidatedModel {
         acknowledged_premises: &std::collections::BTreeSet<&str>,
         admission: bool,
     ) -> Result<Vec<Invariant>, ModelError> {
-        self.select_checks_for_scope(referrers,acknowledged_premises,admission,true)
+        self.select_checks_for_scope(referrers, acknowledged_premises, admission, true)
     }
     fn select_checks_for_scope(
-        &self,referrers:&std::collections::BTreeSet<&str>,acknowledged_premises:&std::collections::BTreeSet<&str>,admission:bool,require_premises:bool,
-    )->Result<Vec<Invariant>,ModelError>{
+        &self,
+        referrers: &std::collections::BTreeSet<&str>,
+        acknowledged_premises: &std::collections::BTreeSet<&str>,
+        admission: bool,
+        require_premises: bool,
+    ) -> Result<Vec<Invariant>, ModelError> {
         for name in acknowledged_premises {
             self.relation(name).ok_or_else(|| {
                 ModelError::Invalid(format!("unknown validation premise relation {name}"))
@@ -643,7 +650,7 @@ impl ValidatedModel {
         if let Some(check) = self.generated_invariant_for_scope(referrers)? {
             checks.push(check);
         }
-        for check in checks.iter().filter(|_|require_premises) {
+        for check in checks.iter().filter(|_| require_premises) {
             if let Some(input) = check.inputs.iter().find(|input| {
                 !referrers.contains(input.name()) && !acknowledged_premises.contains(input.name())
             }) {
@@ -893,17 +900,29 @@ impl ValidationInput {
     }
 }
 pub trait InvariantCheck: Send {
-    fn retrieval_scope(&self)->Option<super::retrieval::consumption::Scope>{None}
-    fn aspect_scope(&self) -> Option<super::normalized::callable_aspects::AspectScope> { None }
-    fn inventory_scope(&self) -> Option<super::flow_inventory::InventoryScope> { None }
+    fn retrieval_scope(&self) -> Option<super::retrieval::consumption::Scope> {
+        None
+    }
+    fn aspect_scope(&self) -> Option<super::normalized::callable_aspects::AspectScope> {
+        None
+    }
+    fn inventory_scope(&self) -> Option<super::flow_inventory::InventoryScope> {
+        None
+    }
     fn support_scope(&self) -> Option<super::assertion::SupportScope> {
         None
     }
 
-    fn projection_scope(&self)->Option<super::projection::normalization::AdmissionScope>{None}
-    fn normalization_scope(&self) -> Option<super::normalized::admission::Scope> { None }
+    fn projection_scope(&self) -> Option<super::projection::normalization::AdmissionScope> {
+        None
+    }
+    fn normalization_scope(&self) -> Option<super::normalized::admission::Scope> {
+        None
+    }
 
-    fn execution_scope(&self) -> Option<super::execution::fidelity::ExecutionScope> { None }
+    fn execution_scope(&self) -> Option<super::execution::fidelity::ExecutionScope> {
+        None
+    }
     fn visit_input(
         &mut self,
         input: &ValidationInput,

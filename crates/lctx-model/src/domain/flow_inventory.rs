@@ -249,23 +249,66 @@ pub struct InventoryScope {
     pub native_views: [ValidationInput; 6],
 }
 fn inventory_scope() -> InventoryScope {
-    fn input<R: Record>() -> ValidationInput { ValidationInput::of::<R>(&["id"]) }
+    fn input<R: Record>() -> ValidationInput {
+        ValidationInput::of::<R>(&["id"])
+    }
     InventoryScope {
-        roots: [input::<FlowUseObservation>(), input::<FlowUseInventoryObservation>()],
+        roots: [
+            input::<FlowUseObservation>(),
+            input::<FlowUseInventoryObservation>(),
+        ],
         memberships: vec![
-            (input::<FlowUseSupport>(), "assertion", input::<FlowUseObservation>()),
+            (
+                input::<FlowUseSupport>(),
+                "assertion",
+                input::<FlowUseObservation>(),
+            ),
             (input::<FlowUseObservation>(), "use_", input::<FlowUse>()),
-            (input::<FlowUseInventoryObservation>(), "use_", input::<FlowUse>()),
-            (input::<FlowUseInventorySupport>(), "assertion", input::<FlowUseInventoryObservation>()),
-            (input::<FlowUseCandidate>(), "inventory", input::<FlowUseInventoryObservation>()),
-            (input::<FlowUseInventoryMember>(), "inventory", input::<FlowUseInventoryObservation>()),
-            (input::<FlowReachingObservation>(), "use_", input::<FlowUse>()),
-            (input::<FlowReachingSupport>(), "assertion", input::<FlowReachingObservation>()),
-            (input::<FlowSourceViewSupport>(), "assertion", input::<FlowSourceViewObservation>()),
+            (
+                input::<FlowUseInventoryObservation>(),
+                "use_",
+                input::<FlowUse>(),
+            ),
+            (
+                input::<FlowUseInventorySupport>(),
+                "assertion",
+                input::<FlowUseInventoryObservation>(),
+            ),
+            (
+                input::<FlowUseCandidate>(),
+                "inventory",
+                input::<FlowUseInventoryObservation>(),
+            ),
+            (
+                input::<FlowUseInventoryMember>(),
+                "inventory",
+                input::<FlowUseInventoryObservation>(),
+            ),
+            (
+                input::<FlowReachingObservation>(),
+                "use_",
+                input::<FlowUse>(),
+            ),
+            (
+                input::<FlowReachingSupport>(),
+                "assertion",
+                input::<FlowReachingObservation>(),
+            ),
+            (
+                input::<FlowSourceViewSupport>(),
+                "assertion",
+                input::<FlowSourceViewObservation>(),
+            ),
             (input::<SubjectBoundary>(), "subject", input::<Occurrence>()),
         ],
-        native_views: [input::<FlowUseObservation>(), input::<FlowUse>(), input::<Occurrence>(),
-            input::<FlowUseSupport>(), input::<FlowSourceViewSupport>(), input::<FlowSourceViewObservation>()],
+        native_views: [
+            input::<FlowUseObservation>(),
+            input::<FlowUse>(),
+            input::<Occurrence>(),
+            input::<FlowUseSupport>(),
+            input::<FlowSourceViewSupport>(),
+            input::<FlowSourceViewObservation>(),
+        ],
     }
 }
 pub(crate) fn inventory_invariants() -> Vec<Invariant> {
@@ -331,7 +374,9 @@ struct InventoryCheck {
     members: ChargedMap<Id<FlowUseInventoryMember>, FlowUseInventoryMember>,
 }
 impl InvariantCheck for InventoryCheck {
-    fn inventory_scope(&self) -> Option<InventoryScope> { Some(inventory_scope()) }
+    fn inventory_scope(&self) -> Option<InventoryScope> {
+        Some(inventory_scope())
+    }
     fn visit(
         &mut self,
         relation: &str,
@@ -341,7 +386,11 @@ impl InvariantCheck for InventoryCheck {
             ($ty:ty,$field:ident) => {
                 if relation == <$ty>::NAME {
                     for row in <$ty>::decode(batch)? {
-                        if self.$field.insert(&mut self.charge, row.id(), row)?.is_some() {
+                        if self
+                            .$field
+                            .insert(&mut self.charge, row.id(), row)?
+                            .is_some()
+                        {
                             return Err(ModelError::Conflict(<$ty>::NAME));
                         }
                     }
@@ -370,7 +419,11 @@ impl InvariantCheck for InventoryCheck {
         if relation == FlowUseCandidate::NAME {
             for row in FlowUseCandidate::decode(batch)? {
                 row.validate()?;
-                if self.candidates.insert(&mut self.charge, (row.inventory, row.ordinal), row)?.is_some() {
+                if self
+                    .candidates
+                    .insert(&mut self.charge, (row.inventory, row.ordinal), row)?
+                    .is_some()
+                {
                     return Err(ModelError::Conflict(FlowUseCandidate::NAME));
                 }
             }

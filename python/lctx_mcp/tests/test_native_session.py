@@ -14,8 +14,8 @@ from fastmcp.client.transports import StdioTransport
 from fastmcp.exceptions import ToolError
 from fastmcp.tools import ToolResult
 from lctx_semantics import NativeFailure, NativeSession, wire_failure
-from mcp.shared.message import SessionMessage
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 from mcp_types import CallToolResult, JSONRPCResponse, TextContent, TextResourceContents
 
 from lctx_mcp.__main__ import create_server
@@ -82,7 +82,10 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
         assert resource[0].text.startswith(packet.structured_content["capability"]["rendered"])
         assert "## Snapshot metadata" in resource[0].text
         assert "## Assertion evidence" in resource[0].text
-        for arguments, kind in [({**request, "ignored": True}, "incompatible"), ({"library":"missing-private-name"}, "unknown_library")]:
+        for arguments, kind in [
+            ({**request, "ignored": True}, "incompatible"),
+            ({"library": "missing-private-name"}, "unknown_library"),
+        ]:
             failure = await client.call_tool("browse_library", arguments, raise_on_error=False)
             expected = json.loads(wire_failure(kind))
             assert failure.is_error is True
@@ -91,7 +94,7 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
         with pytest.raises(MCPError) as missing:
             await client.read_resource("lctx://capability/" + "00" * 16)
         expected = json.loads(wire_failure("corrupt"))
-        assert missing.value.error.data == {"lctx_failure":expected}
+        assert missing.value.error.data == {"lctx_failure": expected}
         assert missing.value.error.message == expected["message"]
     # A fresh viewer can be opened after the MCP-owned session drained and invalidated.
     session = await asyncio.to_thread(NativeSession, str(path))
@@ -110,10 +113,16 @@ async def test_actual_native_zero_deadline_returns_safe_resource_refusal():
     native = await asyncio.to_thread(NativeSession, configured)
     try:
         with pytest.raises(NativeFailure) as refused:
-            await asyncio.to_thread(native.execute, "browse_library", json.dumps({"library": library}), None, 0)
-        assert json.loads(refused.value.lctx_failure_json) == json.loads(wire_failure("resource_refused"))
+            await asyncio.to_thread(
+                native.execute, "browse_library", json.dumps({"library": library}), None, 0
+            )
+        assert json.loads(refused.value.lctx_failure_json) == json.loads(
+            wire_failure("resource_refused")
+        )
         # Refusal releases admission; the same actual pinned session remains usable.
-        result = await asyncio.to_thread(native.execute, "browse_library", json.dumps({"library": library}))
+        result = await asyncio.to_thread(
+            native.execute, "browse_library", json.dumps({"library": library})
+        )
         assert json.loads(result)["entries"]["items"]
     finally:
         await asyncio.to_thread(native.close)
@@ -154,8 +163,12 @@ async def test_cancelled_worker_drains_actual_native_dispatch_before_session_clo
             assert json.loads(result)["entries"]["items"]
             await executor.close()
             with pytest.raises(NativeFailure) as closed:
-                await asyncio.to_thread(native.execute, "browse_library", json.dumps({"library": library}))
-            assert json.loads(closed.value.lctx_failure_json) == json.loads(wire_failure("unavailable"))
+                await asyncio.to_thread(
+                    native.execute, "browse_library", json.dumps({"library": library})
+                )
+            assert json.loads(closed.value.lctx_failure_json) == json.loads(
+                wire_failure("unavailable")
+            )
         finally:
             proxy.resume()
             await executor.close()
@@ -283,7 +296,9 @@ async def test_stdio_writer_refuses_a_huge_id_without_emitting_its_error():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("transport", ["inprocess", "stdio"])
-async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_both_transports(transport, tmp_path):
+async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_both_transports(
+    transport, tmp_path
+):
     """Real persisted corruption and injected read loss traverse Rust, PyO3 and MCP."""
     from native_transport import ResponseGate, fixture_query, viewer_config
 
@@ -294,29 +309,45 @@ async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_bo
     selected = json.loads(Path(config["selection"]).read_text())
     async with ResponseGate(config["endpoint"]) as proxy:
         path = viewer_config(configured, proxy.endpoint, tmp_path / "viewer.json")
-        target = create_server(path) if transport == "inprocess" else StdioTransport(
-            command=sys.executable,
-            args=["-m", "lctx_mcp", "--serving-config", str(path)],
-            env=dict(os.environ),
-            keep_alive=False,
+        target = (
+            create_server(path)
+            if transport == "inprocess"
+            else StdioTransport(
+                command=sys.executable,
+                args=["-m", "lctx_mcp", "--serving-config", str(path)],
+                env=dict(os.environ),
+                keep_alive=False,
+            )
         )
         async with Client(target) as client:
-            found = await client.call_tool("search_capabilities", {"library": library, "query": "carefully"})
+            found = await client.call_tool(
+                "search_capabilities", {"library": library, "query": "carefully"}
+            )
             capability = found.structured_content["results"]["items"][0]["capability"]
             uri = "lctx://capability/" + bytes(capability).hex()
             key = bytes(capability).hex()
             # Capture original bytes through the explicit fixture admin, then alter only
             # canonical bytes. Public request decoding and current definitions still pass.
-            saved = await asyncio.to_thread(fixture_query, selected,
-                f"SELECT id,encoding::base64::encode(canonical) AS saved FROM entity WHERE semantic_type='synthesis_briefs' AND semantic_key='{key}';")
+            saved = await asyncio.to_thread(
+                fixture_query,
+                selected,
+                "SELECT id,encoding::base64::encode(canonical) AS saved FROM entity "
+                f"WHERE semantic_type='synthesis_briefs' AND semantic_key='{key}';",
+            )
             assert len(saved[0]["result"]) == 1
             record = saved[0]["result"][0]
             row_id = record["id"]
-            assert row_id.startswith("entity:") and all(char.isalnum() or char in ":_" for char in row_id)
+            assert row_id.startswith("entity:") and all(
+                char.isalnum() or char in ":_" for char in row_id
+            )
             try:
-                await asyncio.to_thread(fixture_query, selected, f"UPDATE {row_id} SET canonical=b\"00\";")
+                await asyncio.to_thread(
+                    fixture_query, selected, f'UPDATE {row_id} SET canonical=b"00";'
+                )
                 corrupt = json.loads(wire_failure("corrupt"))
-                result = await client.call_tool("get_capability", {"capability": capability}, raise_on_error=False)
+                result = await client.call_tool(
+                    "get_capability", {"capability": capability}, raise_on_error=False
+                )
                 assert result.is_error and result.meta["lctx_failure"] == corrupt
                 assert result.content[0].text == corrupt["message"]
                 with pytest.raises(MCPError) as caught:
@@ -324,29 +355,44 @@ async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_bo
                 assert caught.value.error.message == corrupt["message"]
                 assert caught.value.error.data == {"lctx_failure": corrupt}
             finally:
-                await asyncio.to_thread(fixture_query, selected,
-                    f"UPDATE {row_id} SET canonical=encoding::base64::decode('{record['saved']}');")
+                await asyncio.to_thread(
+                    fixture_query,
+                    selected,
+                    f"UPDATE {row_id} SET canonical=encoding::base64::decode('{record['saved']}');",
+                )
             healthy = await client.call_tool("get_capability", {"capability": capability})
             assert not healthy.is_error
 
             # A real continuation from a different operation request must retain the exact
             # incompatible cause through the actual transport, including persisted pin.
-            first = await client.call_tool("browse_library", {"library": library, "page": {"size": 1}})
+            first = await client.call_tool(
+                "browse_library", {"library": library, "page": {"size": 1}}
+            )
             cursor = first.structured_content["entries"]["continuation"]
             assert cursor
-            wrong = await client.call_tool("browse_library",
-                {"library": library, "view": "vocabulary", "page": {"size": 1, "cursor": cursor}}, raise_on_error=False)
+            wrong = await client.call_tool(
+                "browse_library",
+                {"library": library, "view": "vocabulary", "page": {"size": 1, "cursor": cursor}},
+                raise_on_error=False,
+            )
             incompatible = json.loads(wire_failure("incompatible"))
             assert wrong.is_error and wrong.meta["lctx_failure"] == incompatible
             assert wrong.content[0].text == incompatible["message"]
 
             for resource in [False, True]:
                 proxy.pause()
-                pending = asyncio.create_task(client.read_resource(uri) if resource else
-                    client.call_tool("get_capability", {"capability": capability}, raise_on_error=False))
+                pending = asyncio.create_task(
+                    client.read_resource(uri)
+                    if resource
+                    else client.call_tool(
+                        "get_capability", {"capability": capability}, raise_on_error=False
+                    )
+                )
                 try:
                     await asyncio.wait_for(proxy.entered.wait(), timeout=5)
-                    assert not pending.done(), "actual native response must remain unread at injection"
+                    assert not pending.done(), (
+                        "actual native response must remain unread at injection"
+                    )
                     proxy.disconnect()
                     unavailable = json.loads(wire_failure("unavailable"))
                     if resource:

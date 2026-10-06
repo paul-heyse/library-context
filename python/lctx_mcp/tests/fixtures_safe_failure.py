@@ -1,7 +1,7 @@
 """Explicit injected executor for transport envelope controls, never native qualification."""
 
-from functools import partial
 import sys
+from functools import partial
 
 import anyio
 from fastmcp import FastMCP

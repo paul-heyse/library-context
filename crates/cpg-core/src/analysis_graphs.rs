@@ -64,7 +64,8 @@ async fn load<R: Record>(
 
 fn id_literal<R>(id: Id<R>) -> datafusion::logical_expr::Expr {
     datafusion::prelude::lit(datafusion::common::ScalarValue::FixedSizeBinary(
-        16, Some(id.bytes().to_vec()),
+        16,
+        Some(id.bytes().to_vec()),
     ))
 }
 
@@ -93,9 +94,8 @@ impl PreparedGraphs {
         // Decode selected metadata only. The predicate is applied to the attempt scan, before
         // rich chunk decoding; disabled named projections never enter retained state.
         use datafusion::prelude::{col, lit};
-        let predicate = col("projection").in_list(
-            names.iter().map(|name| lit(*name as i16)).collect(), false,
-        );
+        let predicate =
+            col("projection").in_list(names.iter().map(|name| lit(*name as i16)).collect(), false);
         let mut assessments = Rows::<ProjectionSourceAssessment>::new(budget);
         load(&session, &mut assessments, predicate).await?;
         let mut charge = StateCharge::new(budget, "prepared-analysis-graphs");
@@ -115,37 +115,62 @@ impl PreparedGraphs {
             // every selected graph's chunks alongside the compact topology duplicates the
             // entire collection and can crowd out the next graph's legitimate allocation.
             let mut headers = Rows::<ProjectionSnapshot>::new(budget);
-            load(&session, &mut headers, col("assessment").eq(id_literal(assessment.id()))).await?;
+            load(
+                &session,
+                &mut headers,
+                col("assessment").eq(id_literal(assessment.id())),
+            )
+            .await?;
             let mut matching = headers.iter();
-            let header = matching.next().ok_or_else(|| invalid("selected graph snapshot absent"))?;
+            let header = matching
+                .next()
+                .ok_or_else(|| invalid("selected graph snapshot absent"))?;
             if matching.next().is_some() {
                 return Err(invalid("ambiguous selected graph snapshot"));
             }
             let mut assembly = snapshot::GraphAssembly::new(header, assessment, budget)?;
-            let mut stream = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", ProjectionSnapshotChunk::NAME))
-                .await.map_err(ModelError::codec)?
-                .filter(col("snapshot").eq(id_literal(header.id()))).map_err(ModelError::codec)?
-                .sort(vec![col("ordinal").sort(true, false)]).map_err(ModelError::codec)?
-                .execute_stream().await.map_err(ModelError::codec)?;
+            let mut stream = crate::sql::query(
+                &session,
+                &format!("SELECT * FROM \"{}\"", ProjectionSnapshotChunk::NAME),
+            )
+            .await
+            .map_err(ModelError::codec)?
+            .filter(col("snapshot").eq(id_literal(header.id())))
+            .map_err(ModelError::codec)?
+            .sort(vec![col("ordinal").sort(true, false)])
+            .map_err(ModelError::codec)?
+            .execute_stream()
+            .await
+            .map_err(ModelError::codec)?;
             while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
                 runtime.cancellation().check()?;
                 // Typed payload ownership is restricted to this transfer batch.
-                let _decode = budget.reserve("graph-chunk-decode", lctx_model::domain::decode_allowance::<ProjectionSnapshotChunk>(&batch)?)?;
-                for row in ProjectionSnapshotChunk::decode(&batch)? { assembly.push(&row)?; }
+                let _decode = budget.reserve(
+                    "graph-chunk-decode",
+                    lctx_model::domain::decode_allowance::<ProjectionSnapshotChunk>(&batch)?,
+                )?;
+                for row in ProjectionSnapshotChunk::decode(&batch)? {
+                    assembly.push(&row)?;
+                }
                 tokio::task::yield_now().await;
             }
-            let graph = crate::stage_runtime::borrowed_cpu("projection-hydration", || assembly.finish())?;
+            let graph =
+                crate::stage_runtime::borrowed_cpu("projection-hydration", || assembly.finish())?;
             charge.grow(size_of::<PreparedProjection>())?;
-            graphs.push(PreparedProjection { assessment: assessment.clone(), graph });
+            graphs.push(PreparedProjection {
+                assessment: assessment.clone(),
+                graph,
+            });
         }
         graphs.sort_by_key(|p| p.graph.key());
-        Ok(Self { checked, graphs, budget: budget.clone(), _charge: charge })
+        Ok(Self {
+            checked,
+            graphs,
+            budget: budget.clone(),
+            _charge: charge,
+        })
     }
-    fn admit(
-        &self,
-        access: &CompletedInputs,
-        runtime: &Workspace,
-    ) -> Result<(), ModelError> {
+    fn admit(&self, access: &CompletedInputs, runtime: &Workspace) -> Result<(), ModelError> {
         self.checked.require_subset(runtime, access)?;
         if !self.budget.shares_pool(runtime.budget()) {
             return Err(invalid(
@@ -194,27 +219,60 @@ impl PreparedGraphs {
 #[cfg(test)]
 mod scoped_loading_controls {
     use super::*;
-    use datafusion::{datasource::MemTable, prelude::{col, SessionContext}};
+    use datafusion::{
+        datasource::MemTable,
+        prelude::{SessionContext, col},
+    };
 
     #[tokio::test]
     async fn selected_snapshot_does_not_decode_unrelated_rich_payload() {
         let selected = ProjectionSnapshot {
-            assessment: serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([1u8;16].into_iter())).unwrap(),
+            assessment: serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                _,
+                serde::de::value::Error,
+            >::new([1u8; 16].into_iter()))
+            .unwrap(),
             format_version: snapshot::FORMAT_VERSION,
             petgraph_version: snapshot::PETGRAPH_VERSION.into(),
             codec: snapshot::CODEC.into(),
             bytes: 4,
             chunks: 1,
         };
-        let foreign = ProjectionSnapshot { assessment: serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([2u8;16].into_iter())).unwrap(), ..selected.clone() };
-        let row = ProjectionSnapshotChunk { snapshot: selected.id(), ordinal: 0, payload: EvidenceBytes(vec![1,2,3,4]) };
-        let unrelated = ProjectionSnapshotChunk { snapshot: foreign.id(), ordinal: 0, payload: EvidenceBytes(vec![0; snapshot::CHUNK_BYTES]) };
+        let foreign = ProjectionSnapshot {
+            assessment: serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                _,
+                serde::de::value::Error,
+            >::new([2u8; 16].into_iter()))
+            .unwrap(),
+            ..selected.clone()
+        };
+        let row = ProjectionSnapshotChunk {
+            snapshot: selected.id(),
+            ordinal: 0,
+            payload: EvidenceBytes(vec![1, 2, 3, 4]),
+        };
+        let unrelated = ProjectionSnapshotChunk {
+            snapshot: foreign.id(),
+            ordinal: 0,
+            payload: EvidenceBytes(vec![0; snapshot::CHUNK_BYTES]),
+        };
         let batch = ProjectionSnapshotChunk::encode(&[unrelated, row.clone()]).unwrap();
         let session = SessionContext::new();
-        session.register_table(ProjectionSnapshotChunk::NAME, Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap())).unwrap();
+        session
+            .register_table(
+                ProjectionSnapshotChunk::NAME,
+                Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap()),
+            )
+            .unwrap();
         let budget = resources::ResourceBudget::fixed(16 << 10).unwrap();
         let mut decoded = Rows::new(&budget);
-        load(&session, &mut decoded, col("snapshot").eq(id_literal(selected.id()))).await.unwrap();
+        load(
+            &session,
+            &mut decoded,
+            col("snapshot").eq(id_literal(selected.id())),
+        )
+        .await
+        .unwrap();
         assert_eq!(decoded.len(), 1);
         assert_eq!(decoded.get(row.id()), Some(&row));
     }

@@ -146,7 +146,17 @@ impl CheckedContextExecution {
         )],
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
-        Self::derive_with_values(catalog,application,data,invocation,request,body,budget,None,None)
+        Self::derive_with_values(
+            catalog,
+            application,
+            data,
+            invocation,
+            request,
+            body,
+            budget,
+            None,
+            None,
+        )
     }
     /// Borrow the actual Base owner; ordered argument evidence is hydrated without evaluator replay.
     pub fn derive_produced(
@@ -160,9 +170,19 @@ impl CheckedContextExecution {
             Id<super::enriched_records::StatementExecution>,
         )],
         budget: &ResourceBudget,
-        values:&super::production::ProducedEvaluations,
+        values: &super::production::ProducedEvaluations,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
-        Self::derive_with_values(catalog,application,data,invocation,request,body,budget,Some(values),None)
+        Self::derive_with_values(
+            catalog,
+            application,
+            data,
+            invocation,
+            request,
+            body,
+            budget,
+            Some(values),
+            None,
+        )
     }
     pub(super) fn derive_with_values(
         catalog: &models::Catalog,
@@ -175,8 +195,8 @@ impl CheckedContextExecution {
             Id<super::enriched_records::StatementExecution>,
         )],
         budget: &ResourceBudget,
-        values:Option<&super::production::ProducedEvaluations>,
-        construction:Option<&super::model_construction::PreparedConstructionInputs<'_>>,
+        values: Option<&super::production::ProducedEvaluations>,
+        construction: Option<&super::model_construction::PreparedConstructionInputs<'_>>,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         use ObligationKind as K;
         let facts = &data.evaluation;
@@ -385,12 +405,12 @@ impl CheckedContextExecution {
                         if evaluations.next().is_some() {
                             return Err(boundary(K::AmbiguousBinding));
                         }
-                        let checked = super::source_invocation::checked_value(base,row,values)?;
+                        let checked = super::source_invocation::checked_value(base, row, values)?;
                         if checked.exception().is_some() {
                             return Err(boundary(K::UnsupportedControlFlow));
                         }
                         if checked.release() != ReleaseSafety::Closed
-                            && super::source_invocation::held_formal(base,row,values)?.is_none()
+                            && super::source_invocation::held_formal(base, row, values)?.is_none()
                             && !super::builtin_read::CheckedBuiltinRead::derive(
                                 facts,
                                 checked.request(),

@@ -1,5 +1,7 @@
 //! Local analysis uses confirmed inputs, one attempt budget and the domain's shared replay.
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
+use arrow_array::Array;
+use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, local as publication, sources::CapturedSources},
     local_semantics::{self, LocalData},
@@ -8,14 +10,32 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
-use futures::TryStreamExt;
-use arrow_array::Array;
 mod scope;
 /// Actual Local receipts retain exact source and output descriptors across downstream borrows.
-pub struct PreparedLocal {premises:CompletedInputs,entries:CompletedInputs,guards:CompletedInputs,values:local_semantics::ProducedLocal}
+pub struct PreparedLocal {
+    premises: CompletedInputs,
+    entries: CompletedInputs,
+    guards: CompletedInputs,
+    values: local_semantics::ProducedLocal,
+}
 impl PreparedLocal {
-    pub fn entries<'a>(&'a self,access:&CompletedInputs,runtime:&Workspace)->Result<&'a local_semantics::ProducedLocal,ModelError>{self.premises.require_subset(runtime,access)?;self.entries.require_subset(runtime,access)?;Ok(&self.values)}
-    pub fn guards<'a>(&'a self,access:&CompletedInputs,runtime:&Workspace)->Result<&'a local_semantics::ProducedLocal,ModelError>{self.guards.require_subset(runtime,access)?;self.entries(access,runtime)}
+    pub fn entries<'a>(
+        &'a self,
+        access: &CompletedInputs,
+        runtime: &Workspace,
+    ) -> Result<&'a local_semantics::ProducedLocal, ModelError> {
+        self.premises.require_subset(runtime, access)?;
+        self.entries.require_subset(runtime, access)?;
+        Ok(&self.values)
+    }
+    pub fn guards<'a>(
+        &'a self,
+        access: &CompletedInputs,
+        runtime: &Workspace,
+    ) -> Result<&'a local_semantics::ProducedLocal, ModelError> {
+        self.guards.require_subset(runtime, access)?;
+        self.entries(access, runtime)
+    }
 }
 // Decoder reachability is separate from the model-owned consumed source inventory.
 macro_rules! decoder_inputs {
@@ -41,8 +61,18 @@ pub async fn run(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
-    let mut consumed =
-        crate::consumed_rows::ConsumedInputs::new({let mut inputs=vec![ValidationInput::of::<attribution::ProviderRun>(&["id"]),ValidationInput::of::<attribution::Provider>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"])];inputs.extend(analysis::expected::inputs(definition.method));inputs}, budget)?;
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(
+        {
+            let mut inputs = vec![
+                ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+                ValidationInput::of::<attribution::Provider>(&["id"]),
+                ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+            ];
+            inputs.extend(analysis::expected::inputs(definition.method));
+            inputs
+        },
+        budget,
+    )?;
     let mut data = LocalData::new(budget);
     let mut inputs = normalized::Rows::<input::InputRevision>::new(budget);
     let mut definitions = normalized::Rows::<analysis::AnalysisDefinition>::new(budget);
@@ -64,7 +94,11 @@ pub async fn run(
         ));
     }
     drop(definitions);
-    let scopes=if profile==Profile::Behavioral{Some(scope::LocalScopes::prepare(&access,&session,_model,budget).await?)}else{None};
+    let scopes = if profile == Profile::Behavioral {
+        Some(scope::LocalScopes::prepare(&access, &session, _model, budget).await?)
+    } else {
+        None
+    };
     macro_rules! declare_publication {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<publication::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
@@ -78,7 +112,7 @@ pub async fn run(
     lctx_model::local_semantic_outputs!(declare);
     lctx_model::local_theory_outputs!(declare);
     lctx_model::local_field_outputs!(declare);
-    let mut actual=local_semantics::ProducedLocal::empty(budget);
+    let mut actual = local_semantics::ProducedLocal::empty(budget);
     let mut frames = charged::ChargedSet::default();
     let mut frame_charge = charged::StateCharge::new(budget, "local_invocation_frames");
     for run in data.entry.runs.iter().filter(|run| {
@@ -113,20 +147,47 @@ pub async fn run(
             &admission,
             budget,
         )?;
-        if let Some(scopes)=&scopes{
-            let mut composition=local_semantics::composition::Composition::new(budget);
-            let mut roots=crate::sql::query(&session,&scopes.root_sql(&access,run.input,run.context)?).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-            while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)?{
-                let ids=batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema(source::SourceArtifact::NAME))?;
-                for i in 0..ids.len(){
-                    let source:Id<source::SourceArtifact>=serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(ids.value(i).iter().copied())).map_err(ModelError::codec)?;
-                    let grain=scopes.source(source,run.context,budget).await?;let selected=scopes.load(&access,&grain,budget).await?;
-                    let rows=local_semantics::produce_source(&selected,&invocation,definition,source,budget)?;
-                    composition.observe(&selected,&rows,budget)?;
-                    publish_records(&output,&rows).await?;actual.append(rows.actual)?;
+        if let Some(scopes) = &scopes {
+            let mut composition = local_semantics::composition::Composition::new(budget);
+            let mut roots =
+                crate::sql::query(&session, &scopes.root_sql(&access, run.input, run.context)?)
+                    .await
+                    .map_err(ModelError::codec)?
+                    .execute_stream()
+                    .await
+                    .map_err(ModelError::codec)?;
+            while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
+                let ids = batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+                    .ok_or(ModelError::Schema(source::SourceArtifact::NAME))?;
+                for i in 0..ids.len() {
+                    let source: Id<source::SourceArtifact> =
+                        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                            _,
+                            serde::de::value::Error,
+                        >::new(
+                            ids.value(i).iter().copied()
+                        ))
+                        .map_err(ModelError::codec)?;
+                    let grain = scopes.source(source, run.context, budget).await?;
+                    let selected = scopes.load(&access, &grain, budget).await?;
+                    let rows = local_semantics::produce_source(
+                        &selected,
+                        &invocation,
+                        definition,
+                        source,
+                        budget,
+                    )?;
+                    composition.observe(&selected, &rows, budget)?;
+                    publish_records(&output, &rows).await?;
+                    actual.append(rows.actual)?;
                 }
             }
-            for selection in composition.selections(){output.push(selection).await?;}
+            for selection in composition.selections() {
+                output.push(selection).await?;
+            }
         }
         let (status, reason) = if profile == Profile::Catalog {
             (
@@ -185,11 +246,29 @@ pub async fn run(
         output.push(outcome).await?;
     }
     output.finish(ProviderOutcome::Complete).await?;
-    if profile==Profile::Catalog{return Ok(None);}
-    let premises=access.select(&conditions::entry::EntryData::facts_inputs())?;
-    let entries=runtime.inputs("actual-local-entry-outputs",profile,[conditions::entry::EntryValueWitness::NAME,conditions::entry::EntryAccessSource::NAME])?;
-    let guards=runtime.inputs("actual-local-guard-outputs",profile,[conditions::stability::StabilityWitness::NAME])?;
-    Ok(Some(PreparedLocal{premises,entries,guards,values:actual}))
+    if profile == Profile::Catalog {
+        return Ok(None);
+    }
+    let premises = access.select(&conditions::entry::EntryData::facts_inputs())?;
+    let entries = runtime.inputs(
+        "actual-local-entry-outputs",
+        profile,
+        [
+            conditions::entry::EntryValueWitness::NAME,
+            conditions::entry::EntryAccessSource::NAME,
+        ],
+    )?;
+    let guards = runtime.inputs(
+        "actual-local-guard-outputs",
+        profile,
+        [conditions::stability::StabilityWitness::NAME],
+    )?;
+    Ok(Some(PreparedLocal {
+        premises,
+        entries,
+        guards,
+        values: actual,
+    }))
 }
 
 #[cfg(test)]
@@ -209,7 +288,10 @@ mod decoder_tests {
     }
 }
 
-async fn publish_records(output:&ProducerOutput,rows:&local_semantics::LocalRecords)->Result<(),ModelError>{
+async fn publish_records(
+    output: &ProducerOutput,
+    rows: &local_semantics::LocalRecords,
+) -> Result<(), ModelError> {
     macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
     lctx_model::local_semantic_outputs!(write);
     macro_rules! theory_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.theory.$field.iter(){output.push(row.clone()).await?;})*};}

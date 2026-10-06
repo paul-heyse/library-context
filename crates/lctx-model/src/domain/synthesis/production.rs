@@ -122,7 +122,9 @@ impl Data {
             }
         }));
         rows.push(ValidationInput::of::<structural::PublicCandidate>(&["id"]));
-        rows.push(ValidationInput::of::<structural::handoffs::ValueSource>(&["id"]));
+        rows.push(ValidationInput::of::<structural::handoffs::ValueSource>(&[
+            "id",
+        ]));
         rows.sort_by_key(|r| (r.name(), r.prefix(), r.order().to_vec()));
         rows.dedup_by(|a, b| {
             a.name() == b.name() && a.prefix() == b.prefix() && a.order() == b.order()
@@ -132,45 +134,92 @@ impl Data {
 }
 /// Shared synthesis state contains only navigation and correspondence topology. Source labels,
 /// documentary payloads, assertion text and original chunks are loaded in an actual owner grain.
-pub fn topology_inputs()->Vec<ValidationInput>{
-    let mut rows=frames::Data::inputs();
+pub fn topology_inputs() -> Vec<ValidationInput> {
+    let mut rows = frames::Data::inputs();
     macro_rules! topology {($($ty:ty),*)=>{$(rows.push(ValidationInput::of::<$ty>(&["id"]));)*};}
-    topology!(catalog::CatalogMemberInvocation,catalog::CatalogExposure,catalog::CatalogCandidate,catalog::CatalogPath,catalog::CatalogAlias,normalized::entities::PublicExposure,normalized::entities::SymbolEntityCandidate);
-    rows.sort_by_key(|input|(input.name(),input.prefix()));rows.dedup_by(|a,b|a.name()==b.name()&&a.prefix()==b.prefix());rows
+    topology!(
+        catalog::CatalogMemberInvocation,
+        catalog::CatalogExposure,
+        catalog::CatalogCandidate,
+        catalog::CatalogPath,
+        catalog::CatalogAlias,
+        normalized::entities::PublicExposure,
+        normalized::entities::SymbolEntityCandidate
+    );
+    rows.sort_by_key(|input| (input.name(), input.prefix()));
+    rows.dedup_by(|a, b| a.name() == b.name() && a.prefix() == b.prefix());
+    rows
 }
 /// Incoming membership needed by the actual documentary, proof, control and code owner kernels.
 /// Other nominal references are forward dependencies and never open their incoming neighborhood.
-pub fn memberships()->Vec<(std::any::TypeId,&'static str)>{
+pub fn memberships() -> Vec<(std::any::TypeId, &'static str)> {
     use std::any::TypeId;
-    let mut rows=vec![];
+    let mut rows = vec![];
     macro_rules! own {($ty:ty,$($field:literal),+)=>{$(rows.push((TypeId::of::<$ty>(),$field));)+};}
-    own!(catalog::CatalogCandidate,"exposure");own!(catalog::CatalogPath,"parent");own!(catalog::CatalogAlias,"parent");
-    own!(syntax::DeclarationObservation,"declaration");own!(syntax::SyntaxDetailObservation,"occurrence");
-    own!(documents::PassageObservation,"passage");own!(documents::DocumentComponentObservation,"passage");own!(documents::DocumentAttributeObservation,"component");
-    own!(analysis::native::NativeQualification,"premise");
-    own!(analysis::summary::AnalysisDerivationPremise,"derivation","source");
-    own!(analysis::summary::AnalysisDerivation,"proposition");
-    own!(assumptions::AssumptionSetMember,"set");
-    own!(structural::handoffs::Member,"group");
-    own!(catalog::evidence::ScenarioSpan,"scenario");
-    own!(structural::controls::ControlPath,"traversal");own!(structural::controls::ControlStep,"path");
-    own!(lexical::BindingObservation,"event");own!(lexical::LexicalResolution,"read");own!(syntax::ImportAliasObservation,"statement");
-    own!(flow::FlowUse,"occurrence");own!(flow::FlowUseObservation,"use_");own!(flow::FlowReachingObservation,"use_");own!(flow_inventory::FlowUseInventoryObservation,"use_");own!(flow::FlowDefinitionObservation,"definition");
-    own!(flow::FlowUseSupport,"assertion");own!(flow::FlowDefinitionSupport,"assertion");own!(flow::FlowReachingSupport,"assertion");
-    own!(flow::FlowSourceViewSupport,"assertion");own!(flow::FlowRegionSupport,"assertion");
-    own!(flow_inventory::FlowUseInventorySupport,"assertion");own!(flow_inventory::FlowUseCandidate,"inventory");own!(flow_inventory::FlowUseInventoryMember,"inventory");
+    own!(catalog::CatalogCandidate, "exposure");
+    own!(catalog::CatalogPath, "parent");
+    own!(catalog::CatalogAlias, "parent");
+    own!(syntax::DeclarationObservation, "declaration");
+    own!(syntax::SyntaxDetailObservation, "occurrence");
+    own!(documents::PassageObservation, "passage");
+    own!(documents::DocumentComponentObservation, "passage");
+    own!(documents::DocumentAttributeObservation, "component");
+    own!(analysis::native::NativeQualification, "premise");
+    own!(
+        analysis::summary::AnalysisDerivationPremise,
+        "derivation",
+        "source"
+    );
+    own!(analysis::summary::AnalysisDerivation, "proposition");
+    own!(assumptions::AssumptionSetMember, "set");
+    own!(structural::handoffs::Member, "group");
+    own!(catalog::evidence::ScenarioSpan, "scenario");
+    own!(structural::controls::ControlPath, "traversal");
+    own!(structural::controls::ControlStep, "path");
+    own!(lexical::BindingObservation, "event");
+    own!(lexical::LexicalResolution, "read");
+    own!(syntax::ImportAliasObservation, "statement");
+    own!(flow::FlowUse, "occurrence");
+    own!(flow::FlowUseObservation, "use_");
+    own!(flow::FlowReachingObservation, "use_");
+    own!(flow_inventory::FlowUseInventoryObservation, "use_");
+    own!(flow::FlowDefinitionObservation, "definition");
+    own!(flow::FlowUseSupport, "assertion");
+    own!(flow::FlowDefinitionSupport, "assertion");
+    own!(flow::FlowReachingSupport, "assertion");
+    own!(flow::FlowSourceViewSupport, "assertion");
+    own!(flow::FlowRegionSupport, "assertion");
+    own!(flow_inventory::FlowUseInventorySupport, "assertion");
+    own!(flow_inventory::FlowUseCandidate, "inventory");
+    own!(flow_inventory::FlowUseInventoryMember, "inventory");
     rows
 }
 /// Conclusion grains never decode source labels or rendering chunks. Qualification vocabulary
 /// remains the exact cumulative Analytic publication used by the retained consequences.
-pub fn conclusion_inputs()->Vec<ValidationInput>{
-    let mut inputs=super::observations::Data::inputs().into_iter().map(|input|if stages::is_vocabulary(input.name()){input.at_epoch(PublicationBoundary::Analytic)}else{input}).collect::<Vec<_>>();
-    inputs.extend(super::summary::Data::inputs());inputs.sort_by_key(|input|(input.name(),input.prefix()));inputs.dedup_by(|a,b|a.name()==b.name()&&a.prefix()==b.prefix());inputs
+pub fn conclusion_inputs() -> Vec<ValidationInput> {
+    let mut inputs = super::observations::Data::inputs()
+        .into_iter()
+        .map(|input| {
+            if stages::is_vocabulary(input.name()) {
+                input.at_epoch(PublicationBoundary::Analytic)
+            } else {
+                input
+            }
+        })
+        .collect::<Vec<_>>();
+    inputs.extend(super::summary::Data::inputs());
+    inputs.sort_by_key(|input| (input.name(), input.prefix()));
+    inputs.dedup_by(|a, b| a.name() == b.name() && a.prefix() == b.prefix());
+    inputs
 }
 /// Independent conclusion roots preserve findings/facets even when no public member links them.
-pub fn conclusion_roots()->[std::any::TypeId;3]{[
-    std::any::TypeId::of::<structural::Conclusion>(),std::any::TypeId::of::<analytics::Conclusion>(),std::any::TypeId::of::<execution::summary_consequences::ClaimConclusion>()
-]}
+pub fn conclusion_roots() -> [std::any::TypeId; 3] {
+    [
+        std::any::TypeId::of::<structural::Conclusion>(),
+        std::any::TypeId::of::<analytics::Conclusion>(),
+        std::any::TypeId::of::<execution::summary_consequences::ClaimConclusion>(),
+    ]
+}
 pub fn stage(
     profile: Profile,
     settings: &AnalyticsConfiguration,

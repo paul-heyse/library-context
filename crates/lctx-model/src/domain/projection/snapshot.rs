@@ -367,8 +367,11 @@ pub struct GraphAssembly {
     _reservation: Box<dyn Reservation>,
 }
 impl GraphAssembly {
-    pub fn new(header: &ProjectionSnapshot, assessment: &ProjectionSourceAssessment,
-        budget: &ResourceBudget) -> Result<Self, ModelError> {
+    pub fn new(
+        header: &ProjectionSnapshot,
+        assessment: &ProjectionSourceAssessment,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
         header.validate()?;
         if header.assessment != assessment.id() || assessment.version != ProjectionSpec::VERSION {
             return Err(invalid("graph header source mismatch"));
@@ -377,19 +380,31 @@ impl GraphAssembly {
         let reservation = budget.reserve("graph-chunk-assembly", len)?;
         Ok(Self {
             snapshot: header.id(),
-            key: ProjectionKey { input: assessment.input, context: assessment.context, name: assessment.projection },
+            key: ProjectionKey {
+                input: assessment.input,
+                context: assessment.context,
+                name: assessment.projection,
+            },
             vertices: usize::try_from(assessment.vertices).map_err(ModelError::codec)?,
             arcs: usize::try_from(assessment.arcs).map_err(ModelError::codec)?,
-            len, chunks: usize::try_from(header.chunks).map_err(ModelError::codec)?, next: 0,
-            bytes: Vec::with_capacity(len), budget: budget.clone(), _reservation: reservation,
+            len,
+            chunks: usize::try_from(header.chunks).map_err(ModelError::codec)?,
+            next: 0,
+            bytes: Vec::with_capacity(len),
+            budget: budget.clone(),
+            _reservation: reservation,
         })
     }
     pub fn push(&mut self, row: &ProjectionSnapshotChunk) -> Result<(), ModelError> {
         row.validate()?;
-        if row.snapshot != self.snapshot || self.next >= self.chunks
+        if row.snapshot != self.snapshot
+            || self.next >= self.chunks
             || row.ordinal != self.next as i64
-            || row.payload.0.len() != (self.len - self.bytes.len()).min(CHUNK_BYTES) {
-            return Err(invalid("noncanonical graph chunk identity, ordering or size"));
+            || row.payload.0.len() != (self.len - self.bytes.len()).min(CHUNK_BYTES)
+        {
+            return Err(invalid(
+                "noncanonical graph chunk identity, ordering or size",
+            ));
         }
         self.bytes.extend_from_slice(&row.payload.0);
         self.next += 1;
@@ -399,7 +414,13 @@ impl GraphAssembly {
         if self.next != self.chunks || self.bytes.len() != self.len {
             return Err(invalid("graph chunk set incomplete"));
         }
-        MaterializedGraph::decode(&self.bytes, self.key, self.vertices, self.arcs, &self.budget)
+        MaterializedGraph::decode(
+            &self.bytes,
+            self.key,
+            self.vertices,
+            self.arcs,
+            &self.budget,
+        )
     }
 }
 pub fn hydrate(
@@ -410,13 +431,18 @@ pub fn hydrate(
 ) -> Result<MaterializedGraph, ModelError> {
     let mut assembly = GraphAssembly::new(header, assessment, budget)?;
     let mut ordered = BTreeMap::new();
-    let _held = budget.reserve("graph-chunk-order", (header.chunks as usize).saturating_mul(64))?;
+    let _held = budget.reserve(
+        "graph-chunk-order",
+        (header.chunks as usize).saturating_mul(64),
+    )?;
     for row in chunks.iter().filter(|c| c.snapshot == header.id()) {
         if ordered.insert(row.ordinal, row).is_some() {
             return Err(invalid("duplicate graph chunk"));
         }
     }
-    for row in ordered.values() { assembly.push(row)?; }
+    for row in ordered.values() {
+        assembly.push(row)?;
+    }
     assembly.finish()
 }
 
@@ -424,23 +450,50 @@ pub fn hydrate(
 mod ordered_assembly_controls {
     use super::*;
     fn nominal<T>(byte: u8) -> Id<T> {
-        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([byte; 16].into_iter()))
+        .unwrap()
     }
     fn source() -> ProjectionSourceAssessment {
-        ProjectionSourceAssessment { input: nominal(1), context: nominal(2), projection: ProjectionName::CallableInvocation,
-            version: ProjectionSpec::VERSION, vertices: 0, arcs: 0, gaps: 0,
-            availability: ProjectionAvailability::CompleteUnderStatedModel }
+        ProjectionSourceAssessment {
+            input: nominal(1),
+            context: nominal(2),
+            projection: ProjectionName::CallableInvocation,
+            version: ProjectionSpec::VERSION,
+            vertices: 0,
+            arcs: 0,
+            gaps: 0,
+            availability: ProjectionAvailability::CompleteUnderStatedModel,
+        }
     }
     #[test]
     fn ordered_assembly_releases_encoded_storage_after_successful_hydration() {
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let assessment = source();
-        let key = ProjectionKey { input: assessment.input, context: assessment.context, name: assessment.projection };
-        let bytes = postcard::to_allocvec(&Wire { format: FORMAT_VERSION, petgraph: [0,8,3],
-            projection_version: ProjectionSpec::VERSION, key, graph: ProgramGraph::default() }).unwrap();
+        let key = ProjectionKey {
+            input: assessment.input,
+            context: assessment.context,
+            name: assessment.projection,
+        };
+        let bytes = postcard::to_allocvec(&Wire {
+            format: FORMAT_VERSION,
+            petgraph: [0, 8, 3],
+            projection_version: ProjectionSpec::VERSION,
+            key,
+            graph: ProgramGraph::default(),
+        })
+        .unwrap();
         let header = header(assessment.id(), bytes.len()).unwrap();
         let mut owner = GraphAssembly::new(&header, &assessment, &budget).unwrap();
-        owner.push(&ProjectionSnapshotChunk { snapshot: header.id(), ordinal: 0, payload: EvidenceBytes(bytes) }).unwrap();
+        owner
+            .push(&ProjectionSnapshotChunk {
+                snapshot: header.id(),
+                ordinal: 0,
+                payload: EvidenceBytes(bytes),
+            })
+            .unwrap();
         let graph = owner.finish().unwrap();
         assert_eq!(graph.key(), key);
         assert_eq!(budget.reserved(), allocation(0, 0).unwrap());
@@ -452,18 +505,41 @@ mod ordered_assembly_controls {
         let budget = ResourceBudget::fixed(4 << 20).unwrap();
         let assessment = source();
         let header = header(assessment.id(), CHUNK_BYTES + 1).unwrap();
-        let first = ProjectionSnapshotChunk { snapshot: header.id(), ordinal: 0, payload: EvidenceBytes(vec![0;CHUNK_BYTES]) };
-        let last = ProjectionSnapshotChunk { snapshot: header.id(), ordinal: 1, payload: EvidenceBytes(vec![0]) };
+        let first = ProjectionSnapshotChunk {
+            snapshot: header.id(),
+            ordinal: 0,
+            payload: EvidenceBytes(vec![0; CHUNK_BYTES]),
+        };
+        let last = ProjectionSnapshotChunk {
+            snapshot: header.id(),
+            ordinal: 1,
+            payload: EvidenceBytes(vec![0]),
+        };
         let mut owner = GraphAssembly::new(&header, &assessment, &budget).unwrap();
         assert!(owner.push(&last).is_err());
-        assert!(owner.push(&ProjectionSnapshotChunk { snapshot: nominal(9), ..first.clone() }).is_err());
+        assert!(
+            owner
+                .push(&ProjectionSnapshotChunk {
+                    snapshot: nominal(9),
+                    ..first.clone()
+                })
+                .is_err()
+        );
         owner.push(&first).unwrap();
         assert!(owner.push(&first).is_err());
-        assert!(owner.push(&ProjectionSnapshotChunk { payload: EvidenceBytes(vec![0;2]), ..last.clone() }).is_err());
+        assert!(
+            owner
+                .push(&ProjectionSnapshotChunk {
+                    payload: EvidenceBytes(vec![0; 2]),
+                    ..last.clone()
+                })
+                .is_err()
+        );
         assert!(owner.finish().is_err());
         assert_eq!(budget.reserved(), 0);
         let mut owner = GraphAssembly::new(&header, &assessment, &budget).unwrap();
-        owner.push(&first).unwrap(); owner.push(&last).unwrap();
+        owner.push(&first).unwrap();
+        owner.push(&last).unwrap();
         assert!(owner.push(&last).is_err());
         drop(owner);
         assert_eq!(budget.reserved(), 0);

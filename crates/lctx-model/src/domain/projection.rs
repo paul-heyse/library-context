@@ -8,10 +8,10 @@ use super::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
+pub mod compact;
 pub(crate) mod inventory;
 pub mod native;
 pub mod normalization;
-pub mod compact;
 pub mod snapshot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]

@@ -98,40 +98,91 @@ struct OwnershipFrame {
     entity: Id<EntityRef>,
     owner_entity: Id<EntityRef>,
 }
-impl HeapSize for OwnershipFrame { fn heap_bytes(&self) -> usize { self.path.heap_bytes() } }
+impl HeapSize for OwnershipFrame {
+    fn heap_bytes(&self) -> usize {
+        self.path.heap_bytes()
+    }
+}
 impl OwnershipSweep {
     pub fn new(budget: &ResourceBudget) -> Self {
-        Self { frames: Default::default(), charge: StateCharge::new(budget, "entity-owner-stack"), previous: None }
-    }
-    pub fn push(&mut self, row: &Occurrence, module: Option<Id<Module>>, budget: &ResourceBudget) -> Result<EntityOutput, ModelError> {
-        row.validate()?;
-        if self.previous.as_ref().is_some_and(|(source, path)| (*source, path.as_slice()) >= (row.source, row.structural_path.as_slice())) {
-            return Err(ModelError::Invalid("ownership stream is not strictly ordered".into()));
+        Self {
+            frames: Default::default(),
+            charge: StateCharge::new(budget, "entity-owner-stack"),
+            previous: None,
         }
-        if let Some((_, path)) = self.previous.take() { self.charge.release(path.heap_bytes()); }
+    }
+    pub fn push(
+        &mut self,
+        row: &Occurrence,
+        module: Option<Id<Module>>,
+        budget: &ResourceBudget,
+    ) -> Result<EntityOutput, ModelError> {
+        row.validate()?;
+        if self.previous.as_ref().is_some_and(|(source, path)| {
+            (*source, path.as_slice()) >= (row.source, row.structural_path.as_slice())
+        }) {
+            return Err(ModelError::Invalid(
+                "ownership stream is not strictly ordered".into(),
+            ));
+        }
+        if let Some((_, path)) = self.previous.take() {
+            self.charge.release(path.heap_bytes());
+        }
         self.charge.grow(row.structural_path.heap_bytes())?;
         self.previous = Some((row.source, row.structural_path.clone()));
-        while self.frames.last().is_some_and(|frame| frame.source != row.source || !row.structural_path.starts_with(&frame.path) || frame.path.len() >= row.structural_path.len()) {
+        while self.frames.last().is_some_and(|frame| {
+            frame.source != row.source
+                || !row.structural_path.starts_with(&frame.path)
+                || frame.path.len() >= row.structural_path.len()
+        }) {
             self.frames.take_last(&mut self.charge);
         }
         let mut output = EntityOutput::new(budget);
-        let own_entity = if crate::domain::occurrence_owner::owns_body(row.syntax_kind) || row.syntax_kind == SyntaxKind::Parameter || row.structural_path.len() == 1 {
+        let own_entity = if crate::domain::occurrence_owner::owns_body(row.syntax_kind)
+            || row.syntax_kind == SyntaxKind::Parameter
+            || row.structural_path.len() == 1
+        {
             Some(output.source(row, module)?)
-        } else { None };
+        } else {
+            None
+        };
         let (owner, entity) = match self.frames.last() {
             None if row.structural_path.len() == 1 => (row.id(), own_entity.expect("root entity")),
             None => return Err(missing("occurrence structural path ancestor")),
             Some(parent) => {
-                if parent.path.len() + 1 != row.structural_path.len() { return Err(missing("occurrence structural path ancestor")); }
-                if crate::domain::occurrence_owner::owns_body(parent.kind) && crate::domain::occurrence_owner::is_body_child(parent.kind, row.syntax_kind) {
+                if parent.path.len() + 1 != row.structural_path.len() {
+                    return Err(missing("occurrence structural path ancestor"));
+                }
+                if crate::domain::occurrence_owner::owns_body(parent.kind)
+                    && crate::domain::occurrence_owner::is_body_child(parent.kind, row.syntax_kind)
+                {
                     (parent.occurrence, parent.entity)
-                } else { (parent.owner, parent.owner_entity) }
+                } else {
+                    (parent.owner, parent.owner_entity)
+                }
             }
         };
-        output.refs.insert(EntityRef::Occurrence { occurrence: row.id() })?;
-        output.owners.insert(OccurrenceOwnership { occurrence: row.id(), owner, entity })?;
+        output.refs.insert(EntityRef::Occurrence {
+            occurrence: row.id(),
+        })?;
+        output.owners.insert(OccurrenceOwnership {
+            occurrence: row.id(),
+            owner,
+            entity,
+        })?;
         // The frame needs its declaration entity when it later owns a body, otherwise its owner.
-        self.frames.push(&mut self.charge, OwnershipFrame { source: row.source, path: row.structural_path.clone(), kind: row.syntax_kind, occurrence: row.id(), owner, entity: own_entity.unwrap_or(entity), owner_entity: entity })?;
+        self.frames.push(
+            &mut self.charge,
+            OwnershipFrame {
+                source: row.source,
+                path: row.structural_path.clone(),
+                kind: row.syntax_kind,
+                occurrence: row.id(),
+                owner,
+                entity: own_entity.unwrap_or(entity),
+                owner_entity: entity,
+            },
+        )?;
         Ok(output)
     }
 }
@@ -174,9 +225,18 @@ pub fn normalize(
 /// A producer scope selects its complete dependency closure before invoking one kernel.
 /// These are semantic grains, never pages of a full-source replay.
 #[derive(Clone, Copy)]
-pub enum EntityKernel { Symbol, SyntaxField, Public, Enumeration }
+pub enum EntityKernel {
+    Symbol,
+    SyntaxField,
+    Public,
+    Enumeration,
+}
 
-pub fn normalize_scope(input: EntityInputs<'_>, kernel: EntityKernel, budget: &ResourceBudget) -> Result<EntityOutput, ModelError> {
+pub fn normalize_scope(
+    input: EntityInputs<'_>,
+    kernel: EntityKernel,
+    budget: &ResourceBudget,
+) -> Result<EntityOutput, ModelError> {
     let mut output = EntityOutput::new(budget);
     match kernel {
         EntityKernel::Symbol => symbol_entities(&input, &mut output, budget)?,
@@ -191,7 +251,11 @@ pub fn normalize_scope(input: EntityInputs<'_>, kernel: EntityKernel, budget: &R
     Ok(output)
 }
 
-fn source_entities(input: &EntityInputs<'_>, output: &mut EntityOutput, budget: &ResourceBudget) -> Result<(), ModelError> {
+fn source_entities(
+    input: &EntityInputs<'_>,
+    output: &mut EntityOutput,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "entity-correspondence-index");
     let mut by_source: ChargedMap<Id<SourceArtifact>, Vec<&Occurrence>> = Default::default();
     let mut modules: ChargedMap<Id<SourceArtifact>, Vec<Id<Module>>> = Default::default();
@@ -256,7 +320,11 @@ fn source_entities(input: &EntityInputs<'_>, output: &mut EntityOutput, budget: 
     }
     Ok(())
 }
-fn symbol_entities(input: &EntityInputs<'_>, output: &mut EntityOutput, budget: &ResourceBudget) -> Result<(), ModelError> {
+fn symbol_entities(
+    input: &EntityInputs<'_>,
+    output: &mut EntityOutput,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "symbol-correspondence-index");
     let mut declarations: ChargedMap<Id<ProviderSymbol>, Vec<&SymbolDeclaration>> =
         Default::default();
@@ -514,7 +582,11 @@ fn symbol_entities(input: &EntityInputs<'_>, output: &mut EntityOutput, budget: 
     }
     Ok(())
 }
-fn syntax_fields(input: &EntityInputs<'_>, output: &mut EntityOutput, budget: &ResourceBudget) -> Result<(), ModelError> {
+fn syntax_fields(
+    input: &EntityInputs<'_>,
+    output: &mut EntityOutput,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "syntax-field-index");
     let mut bindings: ChargedMap<Id<Occurrence>, Vec<&crate::domain::lexical::BindingEvent>> =
         Default::default();
@@ -547,10 +619,16 @@ fn syntax_fields(input: &EntityInputs<'_>, output: &mut EntityOutput, budget: &R
     }
     Ok(())
 }
-fn public_entities(input: &EntityInputs<'_>, output: &mut EntityOutput, budget: &ResourceBudget) -> Result<(), ModelError> {
+fn public_entities(
+    input: &EntityInputs<'_>,
+    output: &mut EntityOutput,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "public-resolution-index");
     let mut resolved = ChargedMap::default();
-    for row in output.resolutions.iter() { resolved.insert(&mut charge, row.symbol, row.id())?; }
+    for row in output.resolutions.iter() {
+        resolved.insert(&mut charge, row.symbol, row.id())?;
+    }
     normalize_exposures(input, &resolved, output, budget)
 }
 
@@ -982,7 +1060,9 @@ pub fn public_path_decision(
 /// membership and qualification receipts; no source text, paths or rich provider inventories.
 fn admission() -> Invariant {
     Invariant {
-        purpose: InvariantPurpose::Admission, revision: 1, name: "normalized_entity_membership",
+        purpose: InvariantPurpose::Admission,
+        revision: 1,
+        name: "normalized_entity_membership",
         inputs: super::facts_inputs(vec![
             ValidationInput::of::<Occurrence>(&["id"]),
             ValidationInput::of::<Module>(&["id"]),
@@ -1012,14 +1092,34 @@ fn admission() -> Invariant {
 struct EntityAdmission {
     charge: StateCharge,
     occurrences: ChargedMap<Id<Occurrence>, SyntaxKind>,
-    symbols: ChargedMap<Id<ProviderSymbol>, (SymbolKind, Id<attribution::AnalysisContext>, Id<ProviderModule>)>,
+    symbols: ChargedMap<
+        Id<ProviderSymbol>,
+        (
+            SymbolKind,
+            Id<attribution::AnalysisContext>,
+            Id<ProviderModule>,
+        ),
+    >,
     modules: ChargedMap<Id<ProviderModule>, bool>,
-    qualifications: ChargedMap<Id<AssertionQualification>, (Id<attribution::AnalysisContext>, PublicPathKnowledge, bool)>,
+    qualifications: ChargedMap<
+        Id<AssertionQualification>,
+        (Id<attribution::AnalysisContext>, PublicPathKnowledge, bool),
+    >,
     functions: ChargedMap<Id<ProviderSymbol>, Vec<(Id<AssertionQualification>, FunctionOrigin)>>,
     classes: ChargedMap<Id<ProviderSymbol>, Vec<(Id<AssertionQualification>, bool)>>,
-    public: ChargedMap<Id<PublicNameObservation>, (Id<AssertionQualification>, Id<Module>, Id<ExportOrigin>)>,
-    enumerations: ChargedMap<Id<ExportEnumerationObservation>, (Id<AssertionQualification>, Id<Module>, bool)>,
-    supports: ChargedSet<(Id<ExportEnumerationObservation>, Id<attribution::ProviderRun>, bool)>,
+    public: ChargedMap<
+        Id<PublicNameObservation>,
+        (Id<AssertionQualification>, Id<Module>, Id<ExportOrigin>),
+    >,
+    enumerations: ChargedMap<
+        Id<ExportEnumerationObservation>,
+        (Id<AssertionQualification>, Id<Module>, bool),
+    >,
+    supports: ChargedSet<(
+        Id<ExportEnumerationObservation>,
+        Id<attribution::ProviderRun>,
+        bool,
+    )>,
     runs: ChargedMap<Id<attribution::ProviderRun>, Id<attribution::AnalysisContext>>,
     refs: ChargedSet<Id<EntityRef>>,
     required_refs: ChargedSet<Id<EntityRef>>,
@@ -1033,103 +1133,378 @@ struct EntityAdmission {
 }
 impl EntityAdmission {
     fn new(budget: &ResourceBudget) -> Self {
-        Self { charge: StateCharge::new(budget,"normalized-entity-admission"), occurrences:Default::default(), symbols:Default::default(), modules:Default::default(), qualifications:Default::default(), functions:Default::default(), classes:Default::default(), public:Default::default(), enumerations:Default::default(), supports:Default::default(), runs:Default::default(), refs:Default::default(), required_refs:Default::default(), callables:Rows::new(budget), class_entities:Rows::new(budget), parameters:Rows::new(budget), resolutions:Rows::new(budget), candidates:Default::default(), exposures:Rows::new(budget), public_enumerations:Rows::new(budget) }
+        Self {
+            charge: StateCharge::new(budget, "normalized-entity-admission"),
+            occurrences: Default::default(),
+            symbols: Default::default(),
+            modules: Default::default(),
+            qualifications: Default::default(),
+            functions: Default::default(),
+            classes: Default::default(),
+            public: Default::default(),
+            enumerations: Default::default(),
+            supports: Default::default(),
+            runs: Default::default(),
+            refs: Default::default(),
+            required_refs: Default::default(),
+            callables: Rows::new(budget),
+            class_entities: Rows::new(budget),
+            parameters: Rows::new(budget),
+            resolutions: Rows::new(budget),
+            candidates: Default::default(),
+            exposures: Rows::new(budget),
+            public_enumerations: Rows::new(budget),
+        }
     }
-    fn symbol(&self, id: Id<ProviderSymbol>, class: bool, external: bool) -> Result<(), ModelError> {
-        let (kind, context, module) = self.symbols.get(&id).ok_or_else(|| missing("entity symbol membership"))?;
-        if (class && *kind != SymbolKind::Class) || (!class && !matches!(kind,SymbolKind::Function|SymbolKind::Method)) { return Err(missing("entity symbol kind")); }
+    fn symbol(
+        &self,
+        id: Id<ProviderSymbol>,
+        class: bool,
+        external: bool,
+    ) -> Result<(), ModelError> {
+        let (kind, context, module) = self
+            .symbols
+            .get(&id)
+            .ok_or_else(|| missing("entity symbol membership"))?;
+        if (class && *kind != SymbolKind::Class)
+            || (!class && !matches!(kind, SymbolKind::Function | SymbolKind::Method))
+        {
+            return Err(missing("entity symbol kind"));
+        }
         if external {
-            if self.modules.get(module) != Some(&true) { return Err(missing("external entity bundled module")); }
+            if self.modules.get(module) != Some(&true) {
+                return Err(missing("external entity bundled module"));
+            }
         } else if class {
-            let traits = self.classes.get(&id).ok_or_else(|| missing("synthetic class traits"))?;
-            if traits.is_empty() || traits.iter().any(|(q,synthesized)| !*synthesized || self.qualifications.get(q).is_none_or(|(ctx,..)| ctx != context)) { return Err(missing("synthetic class fidelity")); }
+            let traits = self
+                .classes
+                .get(&id)
+                .ok_or_else(|| missing("synthetic class traits"))?;
+            if traits.is_empty()
+                || traits.iter().any(|(q, synthesized)| {
+                    !*synthesized
+                        || self
+                            .qualifications
+                            .get(q)
+                            .is_none_or(|(ctx, ..)| ctx != context)
+                })
+            {
+                return Err(missing("synthetic class fidelity"));
+            }
         } else {
-            let traits = self.functions.get(&id).ok_or_else(|| missing("synthetic callable traits"))?;
-            if traits.is_empty() || traits.iter().any(|(q,origin)| *origin != FunctionOrigin::Synthesized || self.qualifications.get(q).is_none_or(|(ctx,..)| ctx != context)) { return Err(missing("synthetic callable fidelity")); }
+            let traits = self
+                .functions
+                .get(&id)
+                .ok_or_else(|| missing("synthetic callable traits"))?;
+            if traits.is_empty()
+                || traits.iter().any(|(q, origin)| {
+                    *origin != FunctionOrigin::Synthesized
+                        || self
+                            .qualifications
+                            .get(q)
+                            .is_none_or(|(ctx, ..)| ctx != context)
+                })
+            {
+                return Err(missing("synthetic callable fidelity"));
+            }
         }
         Ok(())
     }
 }
 impl InvariantCheck for EntityAdmission {
-    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit(
+        &mut self,
+        relation: &str,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         macro_rules! each { ($ty:ty,$row:ident,$body:block) => { if relation == <$ty>::NAME { for $row in <$ty>::decode(batch)? $body return Ok(()); } }; }
-        each!(Occurrence,row,{
-            self.occurrences.insert(&mut self.charge,row.id(),row.syntax_kind)?;
-            self.required_refs.insert(&mut self.charge,EntityRef::Occurrence { occurrence:row.id() }.id())?;
-            let declaration = if let Some(callable)=source_callable(&row) { Some(EntityRef::Callable { callable:callable.id() }) } else if row.syntax_kind==SyntaxKind::StmtClassDef { Some(EntityRef::Class { class:ClassEntity::Source { declaration:row.id() }.id() }) } else if row.syntax_kind==SyntaxKind::Parameter { Some(EntityRef::Parameter { parameter:ParameterEntity::Source { declaration:row.id() }.id() }) } else { None };
-            if let Some(entity)=declaration { self.required_refs.insert(&mut self.charge,entity.id())?; }
+        each!(Occurrence, row, {
+            self.occurrences
+                .insert(&mut self.charge, row.id(), row.syntax_kind)?;
+            self.required_refs.insert(
+                &mut self.charge,
+                EntityRef::Occurrence {
+                    occurrence: row.id(),
+                }
+                .id(),
+            )?;
+            let declaration = if let Some(callable) = source_callable(&row) {
+                Some(EntityRef::Callable {
+                    callable: callable.id(),
+                })
+            } else if row.syntax_kind == SyntaxKind::StmtClassDef {
+                Some(EntityRef::Class {
+                    class: ClassEntity::Source {
+                        declaration: row.id(),
+                    }
+                    .id(),
+                })
+            } else if row.syntax_kind == SyntaxKind::Parameter {
+                Some(EntityRef::Parameter {
+                    parameter: ParameterEntity::Source {
+                        declaration: row.id(),
+                    }
+                    .id(),
+                })
+            } else {
+                None
+            };
+            if let Some(entity) = declaration {
+                self.required_refs.insert(&mut self.charge, entity.id())?;
+            }
         });
-        each!(Module,row,{ self.required_refs.insert(&mut self.charge,EntityRef::Module { module:row.id() }.id())?; });
-        each!(types::TypeTerm,row,{ self.required_refs.insert(&mut self.charge,EntityRef::Type { term:row.id() }.id())?; });
-        each!(value::Place,row,{ self.required_refs.insert(&mut self.charge,EntityRef::Place { place:row.id() }.id())?; });
-        each!(ProviderSymbol,row,{ self.symbols.insert(&mut self.charge,row.id(),(row.kind,row.context,row.module))?; });
-        each!(ProviderModule,row,{ self.modules.insert(&mut self.charge,row.id(),matches!(row,ProviderModule::Bundled {..}))?; });
-        each!(AssertionQualification,row,{
-            let publicity = if exact_public_qualification(&row) { PublicPathKnowledge::Known } else if row.modality == attribution::Modality::Candidate { PublicPathKnowledge::Candidate } else { PublicPathKnowledge::Unknown };
-            self.qualifications.insert(&mut self.charge,row.id(),(row.context,publicity,exact_public_qualification(&row)))?;
+        each!(Module, row, {
+            self.required_refs.insert(
+                &mut self.charge,
+                EntityRef::Module { module: row.id() }.id(),
+            )?;
         });
-        each!(FunctionTraitObservation,row,{ self.functions.update(&mut self.charge,row.symbol,|rows| rows.push((row.qualification,row.origin)))?; });
-        each!(ClassTraitObservation,row,{ self.classes.update(&mut self.charge,row.symbol,|rows| rows.push((row.qualification,row.synthesized)))?; });
-        each!(PublicNameObservation,row,{ self.public.insert(&mut self.charge,row.id(),(row.qualification,row.access,row.origin))?; });
-        each!(ExportEnumerationObservation,row,{ self.enumerations.insert(&mut self.charge,row.id(),(row.qualification,row.access,row.status==ExportEnumerationStatus::Complete))?; });
-        each!(ExportEnumerationSupport,row,{ self.supports.insert(&mut self.charge,(row.assertion,row.run,row.fidelity==attribution::Fidelity::NativeStructural && row.origin==attribution::Origin::AnalyzerAssertion && row.mode==attribution::ExtractionMode::NativeTraversal))?; });
-        each!(attribution::ProviderRun,row,{ self.runs.insert(&mut self.charge,row.id(),row.context)?; });
-        each!(EntityRef,row,{ self.refs.insert(&mut self.charge,row.id())?; });
-        each!(SymbolEntityCandidate,row,{ self.candidates.update(&mut self.charge,row.resolution,|entities| entities.push(row.entity))?; });
-        macro_rules! rows { ($ty:ty,$field:ident) => { if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(()); } }; }
-        rows!(CallableEntity,callables); rows!(ClassEntity,class_entities); rows!(ParameterEntity,parameters); rows!(SymbolEntityResolution,resolutions); rows!(PublicExposure,exposures); rows!(PublicEnumerationAssessment,public_enumerations);
+        each!(types::TypeTerm, row, {
+            self.required_refs
+                .insert(&mut self.charge, EntityRef::Type { term: row.id() }.id())?;
+        });
+        each!(value::Place, row, {
+            self.required_refs
+                .insert(&mut self.charge, EntityRef::Place { place: row.id() }.id())?;
+        });
+        each!(ProviderSymbol, row, {
+            self.symbols.insert(
+                &mut self.charge,
+                row.id(),
+                (row.kind, row.context, row.module),
+            )?;
+        });
+        each!(ProviderModule, row, {
+            self.modules.insert(
+                &mut self.charge,
+                row.id(),
+                matches!(row, ProviderModule::Bundled { .. }),
+            )?;
+        });
+        each!(AssertionQualification, row, {
+            let publicity = if exact_public_qualification(&row) {
+                PublicPathKnowledge::Known
+            } else if row.modality == attribution::Modality::Candidate {
+                PublicPathKnowledge::Candidate
+            } else {
+                PublicPathKnowledge::Unknown
+            };
+            self.qualifications.insert(
+                &mut self.charge,
+                row.id(),
+                (row.context, publicity, exact_public_qualification(&row)),
+            )?;
+        });
+        each!(FunctionTraitObservation, row, {
+            self.functions
+                .update(&mut self.charge, row.symbol, |rows| {
+                    rows.push((row.qualification, row.origin))
+                })?;
+        });
+        each!(ClassTraitObservation, row, {
+            self.classes.update(&mut self.charge, row.symbol, |rows| {
+                rows.push((row.qualification, row.synthesized))
+            })?;
+        });
+        each!(PublicNameObservation, row, {
+            self.public.insert(
+                &mut self.charge,
+                row.id(),
+                (row.qualification, row.access, row.origin),
+            )?;
+        });
+        each!(ExportEnumerationObservation, row, {
+            self.enumerations.insert(
+                &mut self.charge,
+                row.id(),
+                (
+                    row.qualification,
+                    row.access,
+                    row.status == ExportEnumerationStatus::Complete,
+                ),
+            )?;
+        });
+        each!(ExportEnumerationSupport, row, {
+            self.supports.insert(
+                &mut self.charge,
+                (
+                    row.assertion,
+                    row.run,
+                    row.fidelity == attribution::Fidelity::NativeStructural
+                        && row.origin == attribution::Origin::AnalyzerAssertion
+                        && row.mode == attribution::ExtractionMode::NativeTraversal,
+                ),
+            )?;
+        });
+        each!(attribution::ProviderRun, row, {
+            self.runs.insert(&mut self.charge, row.id(), row.context)?;
+        });
+        each!(EntityRef, row, {
+            self.refs.insert(&mut self.charge, row.id())?;
+        });
+        each!(SymbolEntityCandidate, row, {
+            self.candidates
+                .update(&mut self.charge, row.resolution, |entities| {
+                    entities.push(row.entity)
+                })?;
+        });
+        macro_rules! rows {
+            ($ty:ty,$field:ident) => {
+                if relation == <$ty>::NAME {
+                    self.$field.decode(batch)?;
+                    return Ok(());
+                }
+            };
+        }
+        rows!(CallableEntity, callables);
+        rows!(ClassEntity, class_entities);
+        rows!(ParameterEntity, parameters);
+        rows!(SymbolEntityResolution, resolutions);
+        rows!(PublicExposure, exposures);
+        rows!(PublicEnumerationAssessment, public_enumerations);
         Err(missing("declared entity admission input"))
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        if self.required_refs.iter().any(|id| !self.refs.contains(id)) { return Err(missing("complete mechanical endpoint membership")); }
-        if self.exposures.len()!=self.public.len() || self.public_enumerations.len()!=self.enumerations.len() { return Err(missing("total public observation membership")); }
+        if self.required_refs.iter().any(|id| !self.refs.contains(id)) {
+            return Err(missing("complete mechanical endpoint membership"));
+        }
+        if self.exposures.len() != self.public.len()
+            || self.public_enumerations.len() != self.enumerations.len()
+        {
+            return Err(missing("total public observation membership"));
+        }
         for row in self.callables.iter() {
             match row {
-                CallableEntity::Source { declaration,kind } => {
-                    let expected = match self.occurrences.get(declaration) { Some(SyntaxKind::StmtFunctionDef)=>CallableKind::Function, Some(SyntaxKind::ExprLambda)=>CallableKind::Lambda, _=>return Err(missing("callable source kind")) };
-                    if *kind!=expected { return Err(missing("callable source fidelity")); }
+                CallableEntity::Source { declaration, kind } => {
+                    let expected = match self.occurrences.get(declaration) {
+                        Some(SyntaxKind::StmtFunctionDef) => CallableKind::Function,
+                        Some(SyntaxKind::ExprLambda) => CallableKind::Lambda,
+                        _ => return Err(missing("callable source kind")),
+                    };
+                    if *kind != expected {
+                        return Err(missing("callable source fidelity"));
+                    }
                 }
-                CallableEntity::External { symbol }=>self.symbol(*symbol,false,true)?,
-                CallableEntity::Synthetic { symbol }=>self.symbol(*symbol,false,false)?,
+                CallableEntity::External { symbol } => self.symbol(*symbol, false, true)?,
+                CallableEntity::Synthetic { symbol } => self.symbol(*symbol, false, false)?,
             }
-            if !self.refs.contains(&EntityRef::Callable { callable:row.id() }.id()) { return Err(missing("callable endpoint membership")); }
+            if !self
+                .refs
+                .contains(&EntityRef::Callable { callable: row.id() }.id())
+            {
+                return Err(missing("callable endpoint membership"));
+            }
         }
         for row in self.class_entities.iter() {
             match row {
-                ClassEntity::Source { declaration } => if self.occurrences.get(declaration)!=Some(&SyntaxKind::StmtClassDef) { return Err(missing("class source kind")); },
-                ClassEntity::External { symbol }=>self.symbol(*symbol,true,true)?,
-                ClassEntity::Synthetic { symbol }=>self.symbol(*symbol,true,false)?,
+                ClassEntity::Source { declaration } => {
+                    if self.occurrences.get(declaration) != Some(&SyntaxKind::StmtClassDef) {
+                        return Err(missing("class source kind"));
+                    }
+                }
+                ClassEntity::External { symbol } => self.symbol(*symbol, true, true)?,
+                ClassEntity::Synthetic { symbol } => self.symbol(*symbol, true, false)?,
             }
-            if !self.refs.contains(&EntityRef::Class { class:row.id() }.id()) { return Err(missing("class endpoint membership")); }
+            if !self
+                .refs
+                .contains(&EntityRef::Class { class: row.id() }.id())
+            {
+                return Err(missing("class endpoint membership"));
+            }
         }
         for row in self.parameters.iter() {
-            if let ParameterEntity::Source { declaration }=row && self.occurrences.get(declaration)!=Some(&SyntaxKind::Parameter) { return Err(missing("parameter source kind")); }
-            if !self.refs.contains(&EntityRef::Parameter { parameter:row.id() }.id()) { return Err(missing("parameter endpoint membership")); }
+            if let ParameterEntity::Source { declaration } = row
+                && self.occurrences.get(declaration) != Some(&SyntaxKind::Parameter)
+            {
+                return Err(missing("parameter source kind"));
+            }
+            if !self.refs.contains(
+                &EntityRef::Parameter {
+                    parameter: row.id(),
+                }
+                .id(),
+            ) {
+                return Err(missing("parameter endpoint membership"));
+            }
         }
         for (resolution, entities) in self.candidates.iter() {
-            if self.resolutions.get(*resolution).is_none() || entities.iter().any(|entity| !self.refs.contains(entity)) { return Err(missing("candidate resolution/endpoint membership")); }
+            if self.resolutions.get(*resolution).is_none()
+                || entities.iter().any(|entity| !self.refs.contains(entity))
+            {
+                return Err(missing("candidate resolution/endpoint membership"));
+            }
         }
         let mut total = ChargedSet::default();
-        let mut charge = StateCharge::new(self.charge.budget().expect("admission budget"),"entity-resolution-totality");
+        let mut charge = StateCharge::new(
+            self.charge.budget().expect("admission budget"),
+            "entity-resolution-totality",
+        );
         for row in self.resolutions.iter() {
-            let (_,context,_)=self.symbols.get(&row.symbol).ok_or_else(|| missing("resolution symbol membership"))?;
-            if context!=&row.context || row.policy!=policy_revision() || !total.insert(&mut charge,row.symbol)? { return Err(missing("resolution identity/context/policy")); }
-            let candidates=self.candidates.get(&row.id()).map(Vec::as_slice).unwrap_or(&[]);
-            if candidates.iter().any(|id| !self.refs.contains(id)) { return Err(missing("candidate endpoint membership")); }
-            if row.status==ResolutionStatus::Resolved && (candidates.len()!=1 || row.entity!=Some(candidates[0])) { return Err(missing("resolved candidate agreement")); }
-            if row.status==ResolutionStatus::Ambiguous && candidates.len()<2 { return Err(missing("ambiguous candidate membership")); }
+            let (_, context, _) = self
+                .symbols
+                .get(&row.symbol)
+                .ok_or_else(|| missing("resolution symbol membership"))?;
+            if context != &row.context
+                || row.policy != policy_revision()
+                || !total.insert(&mut charge, row.symbol)?
+            {
+                return Err(missing("resolution identity/context/policy"));
+            }
+            let candidates = self
+                .candidates
+                .get(&row.id())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            if candidates.iter().any(|id| !self.refs.contains(id)) {
+                return Err(missing("candidate endpoint membership"));
+            }
+            if row.status == ResolutionStatus::Resolved
+                && (candidates.len() != 1 || row.entity != Some(candidates[0]))
+            {
+                return Err(missing("resolved candidate agreement"));
+            }
+            if row.status == ResolutionStatus::Ambiguous && candidates.len() < 2 {
+                return Err(missing("ambiguous candidate membership"));
+            }
         }
-        if total.len()!=self.symbols.len() { return Err(missing("total symbol correspondence")); }
+        if total.len() != self.symbols.len() {
+            return Err(missing("total symbol correspondence"));
+        }
         for row in self.exposures.iter() {
-            let (qualification,access,origin)=self.public.get(&row.observation).ok_or_else(|| missing("public observation membership"))?;
-            let (context,publicity,_)=self.qualifications.get(qualification).ok_or_else(|| missing("public qualification"))?;
-            if access!=&row.access || origin!=&row.origin || context!=&row.context || publicity!=&row.publicity { return Err(missing("public exposure identity/fidelity")); }
+            let (qualification, access, origin) = self
+                .public
+                .get(&row.observation)
+                .ok_or_else(|| missing("public observation membership"))?;
+            let (context, publicity, _) = self
+                .qualifications
+                .get(qualification)
+                .ok_or_else(|| missing("public qualification"))?;
+            if access != &row.access
+                || origin != &row.origin
+                || context != &row.context
+                || publicity != &row.publicity
+            {
+                return Err(missing("public exposure identity/fidelity"));
+            }
         }
         for row in self.public_enumerations.iter() {
-            let (q,access,complete)=self.enumerations.get(&row.observation).ok_or_else(|| missing("enumeration observation membership"))?;
-            let (context,_,exact)=self.qualifications.get(q).ok_or_else(|| missing("enumeration qualification"))?;
-            let supported=self.supports.iter().any(|(observation,run,exact)| *observation==row.observation && *exact && self.runs.get(run)==Some(context));
-            if access!=&row.access || context!=&row.context || row.closed!=(*complete && *exact && supported) { return Err(missing("enumeration identity/fidelity")); }
+            let (q, access, complete) = self
+                .enumerations
+                .get(&row.observation)
+                .ok_or_else(|| missing("enumeration observation membership"))?;
+            let (context, _, exact) = self
+                .qualifications
+                .get(q)
+                .ok_or_else(|| missing("enumeration qualification"))?;
+            let supported = self.supports.iter().any(|(observation, run, exact)| {
+                *observation == row.observation && *exact && self.runs.get(run) == Some(context)
+            });
+            if access != &row.access
+                || context != &row.context
+                || row.closed != (*complete && *exact && supported)
+            {
+                return Err(missing("enumeration identity/fidelity"));
+            }
         }
         Ok(())
     }
@@ -1141,19 +1516,22 @@ impl InvariantCheck for EntityAdmission {
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = EntityData::validation_inputs();
     inputs.extend(EntityOutput::validation_inputs());
-    vec![admission(), Invariant {
-        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 1,
-        name: "normalized_entity_closure",
-        inputs,
-        create: std::sync::Arc::new(|budget| {
-            Box::new(EntityCheck {
-                data: EntityData::new(budget),
-                output: EntityOutput::new(budget),
-                budget: budget.clone(),
-            })
-        }),
-    }]
+    vec![
+        admission(),
+        Invariant {
+            purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
+            revision: 1,
+            name: "normalized_entity_closure",
+            inputs,
+            create: std::sync::Arc::new(|budget| {
+                Box::new(EntityCheck {
+                    data: EntityData::new(budget),
+                    output: EntityOutput::new(budget),
+                    budget: budget.clone(),
+                })
+            }),
+        },
+    ]
 }
 struct EntityCheck {
     data: EntityData,

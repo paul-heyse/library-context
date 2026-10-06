@@ -48,7 +48,9 @@ impl WireError {
         match self {
             Self::Failure(failure) => failure.clone(),
             Self::ResourceRefused(_) => PublicFailure::new(FailureKind::ResourceRefused),
-            Self::Invalid(_) | Self::UnknownTool(_) | Self::Continuation(_) => PublicFailure::new(FailureKind::Incompatible),
+            Self::Invalid(_) | Self::UnknownTool(_) | Self::Continuation(_) => {
+                PublicFailure::new(FailureKind::Incompatible)
+            }
         }
     }
 }

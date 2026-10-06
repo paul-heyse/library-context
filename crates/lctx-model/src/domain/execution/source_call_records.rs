@@ -147,10 +147,10 @@ pub struct SourceCallData {
     pub base: Rows<analysis::base_completion::AnalysisInvocation>,
     pub definitions: Rows<analysis::AnalysisDefinition>,
     pub bodies: Rows<super::body_records::SourceBodyCompletion>,
-    pub body_sources:Rows<super::body_records::BodySource>,
-    pub body_members:Rows<super::body_records::BodyMember>,
-    pub body_releases:Rows<super::body_records::BodyReleaseInput>,
-    pub body_statements:Rows<super::completion_records::StatementCompletion>,
+    pub body_sources: Rows<super::body_records::BodySource>,
+    pub body_members: Rows<super::body_records::BodyMember>,
+    pub body_releases: Rows<super::body_records::BodyReleaseInput>,
+    pub body_statements: Rows<super::completion_records::StatementCompletion>,
 }
 
 impl SourceCallData {
@@ -165,7 +165,10 @@ impl SourceCallData {
             base: Rows::new(budget),
             definitions: Rows::new(budget),
             bodies: Rows::new(budget),
-            body_sources:Rows::new(budget),body_members:Rows::new(budget),body_releases:Rows::new(budget),body_statements:Rows::new(budget),
+            body_sources: Rows::new(budget),
+            body_members: Rows::new(budget),
+            body_releases: Rows::new(budget),
+            body_statements: Rows::new(budget),
         }
     }
     pub fn visit(
@@ -195,27 +198,105 @@ impl SourceCallData {
     }
     /// Hydrate only memberships selected from actual predecessor body output streams. Scalar
     /// result authority remains private to the issuing owner; these rows cannot mint a body.
-    pub(crate) fn hydrate_body(&self,row:&super::body_records::SourceBodyCompletion,value:super::body::ProducedBodyValue,budget:&ResourceBudget)->Result<super::body::CheckedSourceBody,ModelError> {
+    pub(crate) fn hydrate_body(
+        &self,
+        row: &super::body_records::SourceBodyCompletion,
+        value: super::body::ProducedBodyValue,
+        budget: &ResourceBudget,
+    ) -> Result<super::body::CheckedSourceBody, ModelError> {
         use super::body_records::BodySource;
-        let invalid=|message:&str|ModelError::Invalid(message.into());
-        if self.bodies.get(row.id())!=Some(row) {return Err(invalid("actual body row changed"));}
-        let count=self.body_members.iter().filter(|member|member.body==row.id()).count()+self.body_releases.iter().filter(|release|release.body==row.id()).count();
-        let _scratch=budget.reserve("actual-body-membership",count.checked_mul(160).ok_or_else(||invalid("actual body membership allowance overflow"))?)?;
-        let mut members=self.body_members.iter().filter(|member|member.body==row.id()).collect::<Vec<_>>();members.sort_by_key(|member|member.ordinal);
-        let mut native=Vec::new();let mut statements=Vec::new();let mut sources=Vec::new();
-        for (ordinal,member) in members.into_iter().enumerate() {
-            if member.ordinal!=ordinal as i64 {return Err(invalid("actual body source order differs"));}
-            let source=self.body_sources.get(member.source).ok_or_else(||invalid("actual body source absent"))?;sources.push(source.id());
-            match source {BodySource::Native {premise}=>native.push(*premise),BodySource::Statement {completion}=> {let statement=self.body_statements.get(*completion).ok_or_else(||invalid("actual body statement absent"))?;if statement.owner!=row.owner || statement.invocation!=row.invocation {return Err(invalid("actual body statement belongs to another owner/frame"));}statements.push(statement.statement);}}
+        let invalid = |message: &str| ModelError::Invalid(message.into());
+        if self.bodies.get(row.id()) != Some(row) {
+            return Err(invalid("actual body row changed"));
         }
-        if ordered_digest("base-source-body-sources",sources.into_iter())!=row.sources {return Err(invalid("actual body sources differ from owner receipt"));}
-        let mut selected=self.body_releases.iter().filter(|release|release.body==row.id()).collect::<Vec<_>>();selected.sort_by_key(|release|release.ordinal);
-        let mut releases=Vec::with_capacity(selected.len());let mut digest=KeySink::new("base-source-body-releases");
-        for (ordinal,release) in selected.into_iter().enumerate() {if release.ordinal!=ordinal as i64 {return Err(invalid("actual body release order differs"));}release.expression.encode(&mut digest);release.safety.encode(&mut digest);releases.push((release.expression,release.safety));}
-        if digest.finish()!=row.releases {return Err(invalid("actual body releases differ from owner receipt"));}
-        let proof=value.hydrate(native,statements,releases,budget)?;
-        let frame=self.base.get(row.invocation).ok_or_else(||invalid("actual body frame absent"))?;
-        if proof.request().input!=frame.input || proof.request().context!=frame.context || proof.request().callee!=row.owner || proof.declaration()!=row.declaration || proof.qualification()!=row.qualification || proof.status()!=row.status || super::completion_records::CompletionOutcome::from(proof.outcome()).id()!=row.outcome {return Err(invalid("actual body scalar differs from owner receipt"));}
+        let count = self
+            .body_members
+            .iter()
+            .filter(|member| member.body == row.id())
+            .count()
+            + self
+                .body_releases
+                .iter()
+                .filter(|release| release.body == row.id())
+                .count();
+        let _scratch = budget.reserve(
+            "actual-body-membership",
+            count
+                .checked_mul(160)
+                .ok_or_else(|| invalid("actual body membership allowance overflow"))?,
+        )?;
+        let mut members = self
+            .body_members
+            .iter()
+            .filter(|member| member.body == row.id())
+            .collect::<Vec<_>>();
+        members.sort_by_key(|member| member.ordinal);
+        let mut native = Vec::new();
+        let mut statements = Vec::new();
+        let mut sources = Vec::new();
+        for (ordinal, member) in members.into_iter().enumerate() {
+            if member.ordinal != ordinal as i64 {
+                return Err(invalid("actual body source order differs"));
+            }
+            let source = self
+                .body_sources
+                .get(member.source)
+                .ok_or_else(|| invalid("actual body source absent"))?;
+            sources.push(source.id());
+            match source {
+                BodySource::Native { premise } => native.push(*premise),
+                BodySource::Statement { completion } => {
+                    let statement = self
+                        .body_statements
+                        .get(*completion)
+                        .ok_or_else(|| invalid("actual body statement absent"))?;
+                    if statement.owner != row.owner || statement.invocation != row.invocation {
+                        return Err(invalid(
+                            "actual body statement belongs to another owner/frame",
+                        ));
+                    }
+                    statements.push(statement.statement);
+                }
+            }
+        }
+        if ordered_digest("base-source-body-sources", sources.into_iter()) != row.sources {
+            return Err(invalid("actual body sources differ from owner receipt"));
+        }
+        let mut selected = self
+            .body_releases
+            .iter()
+            .filter(|release| release.body == row.id())
+            .collect::<Vec<_>>();
+        selected.sort_by_key(|release| release.ordinal);
+        let mut releases = Vec::with_capacity(selected.len());
+        let mut digest = KeySink::new("base-source-body-releases");
+        for (ordinal, release) in selected.into_iter().enumerate() {
+            if release.ordinal != ordinal as i64 {
+                return Err(invalid("actual body release order differs"));
+            }
+            release.expression.encode(&mut digest);
+            release.safety.encode(&mut digest);
+            releases.push((release.expression, release.safety));
+        }
+        if digest.finish() != row.releases {
+            return Err(invalid("actual body releases differ from owner receipt"));
+        }
+        let proof = value.hydrate(native, statements, releases, budget)?;
+        let frame = self
+            .base
+            .get(row.invocation)
+            .ok_or_else(|| invalid("actual body frame absent"))?;
+        if proof.request().input != frame.input
+            || proof.request().context != frame.context
+            || proof.request().callee != row.owner
+            || proof.declaration() != row.declaration
+            || proof.qualification() != row.qualification
+            || proof.status() != row.status
+            || super::completion_records::CompletionOutcome::from(proof.outcome()).id()
+                != row.outcome
+        {
+            return Err(invalid("actual body scalar differs from owner receipt"));
+        }
         Ok(proof)
     }
     pub fn visit_input(
@@ -293,112 +374,327 @@ pub struct ProducedSourceCalls {
     // event production route seals it immediately and retains only the following receipts.
     frames: Vec<ProducedSourceFrame>,
     issuers: Rows<publication::AnalysisInvocation>,
-    payloads: charged::ChargedMap<(Id<publication::AnalysisInvocation>,Id<normalized::events::NormalizedCallEvent>),ContentHash>,
+    payloads: charged::ChargedMap<
+        (
+            Id<publication::AnalysisInvocation>,
+            Id<normalized::events::NormalizedCallEvent>,
+        ),
+        ContentHash,
+    >,
     charge: charged::StateCharge,
 }
 /// An attempt-local payload for a real owner result. It is neither graph wire nor authority:
 /// only its issuing ProducedSourceCalls can authenticate it after an anonymous spool read.
-pub struct PrivateSourcePayload {bytes:Vec<u8>,_reservation:Box<dyn resources::Reservation>}
-impl PrivateSourcePayload {pub fn bytes(&self)->&[u8] {&self.bytes}}
-#[derive(serde::Serialize,serde::Deserialize)]
+pub struct PrivateSourcePayload {
+    bytes: Vec<u8>,
+    _reservation: Box<dyn resources::Reservation>,
+}
+impl PrivateSourcePayload {
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+#[derive(serde::Serialize, serde::Deserialize)]
 struct SourcePayload {
-    frame:Id<publication::AnalysisInvocation>,event:Id<normalized::events::NormalizedCallEvent>,
-    headers:Vec<(super::source_call::ProducedBindingPayload,SourceCallHeader)>,
-    calls:Vec<(super::source_invocation::ProducedInvocationPayload,SourceInvocation)>,
+    frame: Id<publication::AnalysisInvocation>,
+    event: Id<normalized::events::NormalizedCallEvent>,
+    headers: Vec<(super::source_call::ProducedBindingPayload, SourceCallHeader)>,
+    calls: Vec<(
+        super::source_invocation::ProducedInvocationPayload,
+        SourceInvocation,
+    )>,
 }
 /// A selected, authenticated ephemeral consumer scope. Its checked values have no public
 /// constructor or Deserialize implementation and disappear with the owner closure.
 pub struct HydratedSourceCalls {
-    frame:publication::AnalysisInvocation,
-    events:charged::ChargedSet<Id<normalized::events::NormalizedCallEvent>>,
-    pub(super) headers:Vec<(CheckedSourceBinding,SourceCallHeader)>,
-    pub(super) calls:Vec<(super::source_invocation::CheckedSourceInvocation,SourceInvocation)>,
-    charge:charged::StateCharge,
+    frame: publication::AnalysisInvocation,
+    events: charged::ChargedSet<Id<normalized::events::NormalizedCallEvent>>,
+    pub(super) headers: Vec<(CheckedSourceBinding, SourceCallHeader)>,
+    pub(super) calls: Vec<(
+        super::source_invocation::CheckedSourceInvocation,
+        SourceInvocation,
+    )>,
+    charge: charged::StateCharge,
 }
 impl HydratedSourceCalls {
-    pub fn append(&mut self,mut other:Self)->Result<(),ModelError> {
-        if self.frame!=other.frame || !self.charge.budget().expect("bound source hydration").shares_pool(other.charge.budget().expect("bound source hydration")) {
-            return Err(ModelError::Conflict("actual SourceCall hydration frame/budget"));
+    pub fn append(&mut self, mut other: Self) -> Result<(), ModelError> {
+        if self.frame != other.frame
+            || !self
+                .charge
+                .budget()
+                .expect("bound source hydration")
+                .shares_pool(other.charge.budget().expect("bound source hydration"))
+        {
+            return Err(ModelError::Conflict(
+                "actual SourceCall hydration frame/budget",
+            ));
         }
-        for event in other.events.iter() {if self.events.contains(event) {return Err(ModelError::Conflict("actual SourceCall hydration duplicated event"));}}
-        self.charge.grow(other.headers.len()*size_of::<(CheckedSourceBinding,SourceCallHeader)>()*2+other.calls.len()*size_of::<(super::source_invocation::CheckedSourceInvocation,SourceInvocation)>()*2)?;
-        for event in other.events.iter() {self.events.insert(&mut self.charge,*event)?;}
-        if self.headers.is_empty() {self.headers=std::mem::take(&mut other.headers);}else{self.headers.append(&mut other.headers);}
-        if self.calls.is_empty() {self.calls=std::mem::take(&mut other.calls);}else{self.calls.append(&mut other.calls);}Ok(())
+        for event in other.events.iter() {
+            if self.events.contains(event) {
+                return Err(ModelError::Conflict(
+                    "actual SourceCall hydration duplicated event",
+                ));
+            }
+        }
+        self.charge.grow(
+            other.headers.len() * size_of::<(CheckedSourceBinding, SourceCallHeader)>() * 2
+                + other.calls.len()
+                    * size_of::<(
+                        super::source_invocation::CheckedSourceInvocation,
+                        SourceInvocation,
+                    )>()
+                    * 2,
+        )?;
+        for event in other.events.iter() {
+            self.events.insert(&mut self.charge, *event)?;
+        }
+        if self.headers.is_empty() {
+            self.headers = std::mem::take(&mut other.headers);
+        } else {
+            self.headers.append(&mut other.headers);
+        }
+        if self.calls.is_empty() {
+            self.calls = std::mem::take(&mut other.calls);
+        } else {
+            self.calls.append(&mut other.calls);
+        }
+        Ok(())
     }
-    pub(super) fn require(&self,frame:&publication::AnalysisInvocation,budget:&ResourceBudget)->Result<(),ModelError> {
-        if self.frame!=*frame || !self.charge.budget().expect("bound source hydration").shares_pool(budget) {return Err(ModelError::Conflict("actual SourceCall selected frame/budget"));}Ok(())
+    pub(super) fn require(
+        &self,
+        frame: &publication::AnalysisInvocation,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        if self.frame != *frame
+            || !self
+                .charge
+                .budget()
+                .expect("bound source hydration")
+                .shares_pool(budget)
+        {
+            return Err(ModelError::Conflict(
+                "actual SourceCall selected frame/budget",
+            ));
+        }
+        Ok(())
     }
 }
 struct ProducedSourceFrame {
     invocation: publication::AnalysisInvocation,
     headers: Vec<(CheckedSourceBinding, SourceCallHeader)>,
-    calls: Vec<(super::source_invocation::CheckedSourceInvocation, SourceInvocation)>,
+    calls: Vec<(
+        super::source_invocation::CheckedSourceInvocation,
+        SourceInvocation,
+    )>,
     _charge: charged::StateCharge,
 }
 impl ProducedSourceCalls {
-    pub fn empty(budget:&ResourceBudget)->Self {Self {frames:Vec::new(),issuers:Rows::new(budget),payloads:Default::default(),charge:charged::StateCharge::new(budget,"produced-source-calls")}}
+    pub fn empty(budget: &ResourceBudget) -> Self {
+        Self {
+            frames: Vec::new(),
+            issuers: Rows::new(budget),
+            payloads: Default::default(),
+            charge: charged::StateCharge::new(budget, "produced-source-calls"),
+        }
+    }
     /// An authenticated frame may have an empty selected dependency region. This grants no
     /// header/call values; any advertised nonempty inputs are still checked by Enriched.
-    pub fn hydrate_empty(&self,frame:&publication::AnalysisInvocation,budget:&ResourceBudget)->Result<HydratedSourceCalls,ModelError> {
-        if !self.charge.budget().expect("bound source issuer").shares_pool(budget) || self.issuers.get(frame.id())!=Some(frame) {return Err(ModelError::Conflict("actual SourceCall empty scope issuer/frame"));}
-        Ok(HydratedSourceCalls {frame:frame.clone(),events:Default::default(),headers:Vec::new(),calls:Vec::new(),charge:charged::StateCharge::new(budget,"actual-source-scope")})
+    pub fn hydrate_empty(
+        &self,
+        frame: &publication::AnalysisInvocation,
+        budget: &ResourceBudget,
+    ) -> Result<HydratedSourceCalls, ModelError> {
+        if !self
+            .charge
+            .budget()
+            .expect("bound source issuer")
+            .shares_pool(budget)
+            || self.issuers.get(frame.id()) != Some(frame)
+        {
+            return Err(ModelError::Conflict(
+                "actual SourceCall empty scope issuer/frame",
+            ));
+        }
+        Ok(HydratedSourceCalls {
+            frame: frame.clone(),
+            events: Default::default(),
+            headers: Vec::new(),
+            calls: Vec::new(),
+            charge: charged::StateCharge::new(budget, "actual-source-scope"),
+        })
     }
     pub fn append(&mut self, mut other: Self) -> Result<(), ModelError> {
-        if !self.charge.budget().expect("bound owner").shares_pool(other.charge.budget().expect("bound owner")) {
+        if !self
+            .charge
+            .budget()
+            .expect("bound owner")
+            .shares_pool(other.charge.budget().expect("bound owner"))
+        {
             return Err(ModelError::Conflict("produced SourceCall budget"));
         }
-        self.charge.grow(other.frames.len().saturating_mul(size_of::<ProducedSourceFrame>() * 2))?;
-        for frame in other.issuers.iter() {self.issuers.insert(frame.clone())?;}
-        for (key,digest) in other.payloads.iter() {if self.payloads.contains_key(key) {return Err(ModelError::Conflict("produced SourceCall event duplicated"));}self.payloads.insert(&mut self.charge,*key,*digest)?;}
+        self.charge.grow(
+            other
+                .frames
+                .len()
+                .saturating_mul(size_of::<ProducedSourceFrame>() * 2),
+        )?;
+        for frame in other.issuers.iter() {
+            self.issuers.insert(frame.clone())?;
+        }
+        for (key, digest) in other.payloads.iter() {
+            if self.payloads.contains_key(key) {
+                return Err(ModelError::Conflict("produced SourceCall event duplicated"));
+            }
+            self.payloads.insert(&mut self.charge, *key, *digest)?;
+        }
         self.frames.append(&mut other.frames);
         Ok(())
     }
-    pub(crate) fn visit_frame<T>(&self, invocation: &publication::AnalysisInvocation,
-        visit: impl FnOnce(&[(CheckedSourceBinding, SourceCallHeader)], &[(super::source_invocation::CheckedSourceInvocation, SourceInvocation)]) -> Result<T, ModelError>,
+    pub(crate) fn visit_frame<T>(
+        &self,
+        invocation: &publication::AnalysisInvocation,
+        visit: impl FnOnce(
+            &[(CheckedSourceBinding, SourceCallHeader)],
+            &[(
+                super::source_invocation::CheckedSourceInvocation,
+                SourceInvocation,
+            )],
+        ) -> Result<T, ModelError>,
     ) -> Result<T, ModelError> {
-        let mut matching = self.frames.iter().filter(|frame| frame.invocation.id() == invocation.id());
-        let frame = matching.next().ok_or(ModelError::Conflict("produced SourceCall frame absent"))?;
-        if matching.next().is_some() || frame.invocation != *invocation { return Err(ModelError::Conflict("produced SourceCall frame changed")); }
+        let mut matching = self
+            .frames
+            .iter()
+            .filter(|frame| frame.invocation.id() == invocation.id());
+        let frame = matching
+            .next()
+            .ok_or(ModelError::Conflict("produced SourceCall frame absent"))?;
+        if matching.next().is_some() || frame.invocation != *invocation {
+            return Err(ModelError::Conflict("produced SourceCall frame changed"));
+        }
         visit(&frame.headers, &frame.calls)
     }
     /// Restore a payload only after exact private issuer and byte agreement. A stored row,
     /// arbitrary payload or another attempt budget cannot construct this checked scope.
-    pub fn hydrate(&self,frame:&publication::AnalysisInvocation,event:Id<normalized::events::NormalizedCallEvent>,bytes:&[u8],budget:&ResourceBudget)->Result<HydratedSourceCalls,ModelError> {
-        if !self.charge.budget().expect("bound source issuer").shares_pool(budget)
-            || self.issuers.get(frame.id())!=Some(frame)
-            || self.payloads.get(&(frame.id(),event))!=Some(&ContentHash::of(bytes)) {
-            return Err(ModelError::Conflict("actual SourceCall payload issuer/frame/event"));
+    pub fn hydrate(
+        &self,
+        frame: &publication::AnalysisInvocation,
+        event: Id<normalized::events::NormalizedCallEvent>,
+        bytes: &[u8],
+        budget: &ResourceBudget,
+    ) -> Result<HydratedSourceCalls, ModelError> {
+        if !self
+            .charge
+            .budget()
+            .expect("bound source issuer")
+            .shares_pool(budget)
+            || self.issuers.get(frame.id()) != Some(frame)
+            || self.payloads.get(&(frame.id(), event)) != Some(&ContentHash::of(bytes))
+        {
+            return Err(ModelError::Conflict(
+                "actual SourceCall payload issuer/frame/event",
+            ));
         }
-        let _decode=budget.reserve("actual-source-payload-decode",bytes.len().checked_mul(8).and_then(|n|n.checked_add(1024)).ok_or(ModelError::Conflict("actual SourceCall payload allowance"))?)?;
-        let payload:SourcePayload=postcard::from_bytes(bytes).map_err(ModelError::codec)?;
-        if payload.frame!=frame.id() || payload.event!=event {return Err(ModelError::Conflict("actual SourceCall payload root"));}
-        let mut hydrated=HydratedSourceCalls {frame:frame.clone(),events:Default::default(),headers:Vec::with_capacity(payload.headers.len()),calls:Vec::with_capacity(payload.calls.len()),charge:charged::StateCharge::new(budget,"actual-source-scope")};
-        hydrated.events.insert(&mut hydrated.charge,event)?;
-        hydrated.charge.grow(payload.headers.len()*size_of::<(CheckedSourceBinding,SourceCallHeader)>()*2+payload.calls.len()*size_of::<(super::source_invocation::CheckedSourceInvocation,SourceInvocation)>()*2)?;
-        for (value,row) in payload.headers {hydrated.headers.push((value.hydrate(budget)?,row));}
-        for (value,row) in payload.calls {hydrated.calls.push((value.hydrate(budget)?,row));}
+        let _decode = budget.reserve(
+            "actual-source-payload-decode",
+            bytes
+                .len()
+                .checked_mul(8)
+                .and_then(|n| n.checked_add(1024))
+                .ok_or(ModelError::Conflict("actual SourceCall payload allowance"))?,
+        )?;
+        let payload: SourcePayload = postcard::from_bytes(bytes).map_err(ModelError::codec)?;
+        if payload.frame != frame.id() || payload.event != event {
+            return Err(ModelError::Conflict("actual SourceCall payload root"));
+        }
+        let mut hydrated = HydratedSourceCalls {
+            frame: frame.clone(),
+            events: Default::default(),
+            headers: Vec::with_capacity(payload.headers.len()),
+            calls: Vec::with_capacity(payload.calls.len()),
+            charge: charged::StateCharge::new(budget, "actual-source-scope"),
+        };
+        hydrated.events.insert(&mut hydrated.charge, event)?;
+        hydrated.charge.grow(
+            payload.headers.len() * size_of::<(CheckedSourceBinding, SourceCallHeader)>() * 2
+                + payload.calls.len()
+                    * size_of::<(
+                        super::source_invocation::CheckedSourceInvocation,
+                        SourceInvocation,
+                    )>()
+                    * 2,
+        )?;
+        for (value, row) in payload.headers {
+            hydrated.headers.push((value.hydrate(budget)?, row));
+        }
+        for (value, row) in payload.calls {
+            hydrated.calls.push((value.hydrate(budget)?, row));
+        }
         Ok(hydrated)
     }
-    fn seal_event(&mut self,invocation:&publication::AnalysisInvocation,event:Id<normalized::events::NormalizedCallEvent>,budget:&ResourceBudget)->Result<PrivateSourcePayload,ModelError> {
-        let mut payload=SourcePayload {frame:invocation.id(),event,headers:Vec::new(),calls:Vec::new()};
-        let scratch=self.frames.iter().try_fold(0usize,|n,frame|frame.headers.iter().try_fold(n,|n,(proof,_)|n.checked_add(proof.premises().len()*size_of::<NativeAssertionPremise>()*2+proof.captures().len()*512+512)))
+    fn seal_event(
+        &mut self,
+        invocation: &publication::AnalysisInvocation,
+        event: Id<normalized::events::NormalizedCallEvent>,
+        budget: &ResourceBudget,
+    ) -> Result<PrivateSourcePayload, ModelError> {
+        let mut payload = SourcePayload {
+            frame: invocation.id(),
+            event,
+            headers: Vec::new(),
+            calls: Vec::new(),
+        };
+        let scratch = self
+            .frames
+            .iter()
+            .try_fold(0usize, |n, frame| {
+                frame.headers.iter().try_fold(n, |n, (proof, _)| {
+                    n.checked_add(
+                        proof.premises().len() * size_of::<NativeAssertionPremise>() * 2
+                            + proof.captures().len() * 512
+                            + 512,
+                    )
+                })
+            })
             .ok_or(ModelError::Conflict("actual SourceCall payload scratch"))?;
-        let _scratch=budget.reserve("actual-source-payload-transfer",scratch)?;
-        let frame_bytes=self.frames.len()*size_of::<ProducedSourceFrame>()*2;
+        let _scratch = budget.reserve("actual-source-payload-transfer", scratch)?;
+        let frame_bytes = self.frames.len() * size_of::<ProducedSourceFrame>() * 2;
         for frame in std::mem::take(&mut self.frames) {
-            if frame.invocation!=*invocation {return Err(ModelError::Conflict("actual SourceCall payload frame"));}
-            for (proof,row) in frame.headers {if row.event!=event {return Err(ModelError::Conflict("actual SourceCall payload event"));}payload.headers.push((proof.produced(),row));}
-            for (proof,row) in frame.calls {if proof.event()!=event {return Err(ModelError::Conflict("actual SourceCall payload call event"));}payload.calls.push((proof.produced(),row));}
+            if frame.invocation != *invocation {
+                return Err(ModelError::Conflict("actual SourceCall payload frame"));
+            }
+            for (proof, row) in frame.headers {
+                if row.event != event {
+                    return Err(ModelError::Conflict("actual SourceCall payload event"));
+                }
+                payload.headers.push((proof.produced(), row));
+            }
+            for (proof, row) in frame.calls {
+                if proof.event() != event {
+                    return Err(ModelError::Conflict("actual SourceCall payload call event"));
+                }
+                payload.calls.push((proof.produced(), row));
+            }
         }
-        let size=postcard::experimental::serialized_size(&payload).map_err(ModelError::codec)?;
-        let reservation=budget.reserve("actual-source-payload-bytes",size)?;
-        let mut bytes=vec![0;size];let used=postcard::to_slice(&payload,&mut bytes).map_err(ModelError::codec)?.len();
-        if used!=size {return Err(ModelError::Conflict("actual SourceCall payload length"));}
+        let size = postcard::experimental::serialized_size(&payload).map_err(ModelError::codec)?;
+        let reservation = budget.reserve("actual-source-payload-bytes", size)?;
+        let mut bytes = vec![0; size];
+        let used = postcard::to_slice(&payload, &mut bytes)
+            .map_err(ModelError::codec)?
+            .len();
+        if used != size {
+            return Err(ModelError::Conflict("actual SourceCall payload length"));
+        }
         self.issuers.insert(invocation.clone())?;
-        self.payloads.insert(&mut self.charge,(invocation.id(),event),ContentHash::of(&bytes))?;
+        self.payloads.insert(
+            &mut self.charge,
+            (invocation.id(), event),
+            ContentHash::of(&bytes),
+        )?;
         self.charge.release(frame_bytes);
-        Ok(PrivateSourcePayload {bytes,_reservation:reservation})
+        Ok(PrivateSourcePayload {
+            bytes,
+            _reservation: reservation,
+        })
     }
 }
 pub fn prepare_all(
@@ -432,74 +728,241 @@ pub(crate) fn prepare_all_with(
     ) -> Result<(), ModelError>,
 ) -> Result<SourceCallRecords, ModelError> {
     let verified = if profile == stages::Profile::Behavioral {
-        Some(normalized::binding_normalization::prepare(&data.bindings, &data.output, budget)?)
-    } else { None };
-    prepare_with_application(data, invocation, definition, profile, budget, verified.as_ref(), on_complete)
+        Some(normalized::binding_normalization::prepare(
+            &data.bindings,
+            &data.output,
+            budget,
+        )?)
+    } else {
+        None
+    };
+    prepare_with_application(
+        data,
+        invocation,
+        definition,
+        profile,
+        budget,
+        verified.as_ref(),
+        on_complete,
+    )
 }
 /// Consume the binding owner's private application authority; no predecessor preparation runs.
 pub fn prepare_all_prepared(
-    data: &SourceCallData, invocation: &publication::AnalysisInvocation,
-    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
-    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    data: &SourceCallData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    budget: &ResourceBudget,
+    verified: Option<&normalized::binding_normalization::VerifiedBindings>,
 ) -> Result<SourceCallRecords, ModelError> {
-    prepare_with_application(data, invocation, definition, profile, budget, verified, &mut |_, _| Ok(()))
+    prepare_with_application(
+        data,
+        invocation,
+        definition,
+        profile,
+        budget,
+        verified,
+        &mut |_, _| Ok(()),
+    )
 }
 pub(crate) fn prepare_with_application(
-    data: &SourceCallData, invocation: &publication::AnalysisInvocation,
-    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
-    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    data: &SourceCallData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    budget: &ResourceBudget,
+    verified: Option<&normalized::binding_normalization::VerifiedBindings>,
     on_complete: &mut impl FnMut(
         &[(CheckedSourceBinding, SourceCallHeader)],
-        &[(super::source_invocation::CheckedSourceInvocation, SourceInvocation)],
+        &[(
+            super::source_invocation::CheckedSourceInvocation,
+            SourceInvocation,
+        )],
     ) -> Result<(), ModelError>,
 ) -> Result<SourceCallRecords, ModelError> {
-    prepare_with_values(data, invocation, definition, profile, budget, verified, None, None, None, on_complete).map(|(records, _)| records)
+    prepare_with_values(
+        data,
+        invocation,
+        definition,
+        profile,
+        budget,
+        verified,
+        None,
+        None,
+        None,
+        on_complete,
+    )
+    .map(|(records, _)| records)
 }
 /// Fresh production requires the actual predecessor owners, rather than replaying stored outputs.
 pub fn prepare_all_produced(
-    data: &SourceCallData, invocation: &publication::AnalysisInvocation,
-    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
-    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    data: &SourceCallData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    budget: &ResourceBudget,
+    verified: Option<&normalized::binding_normalization::VerifiedBindings>,
     evaluations: Option<&super::production::ProducedEvaluations>,
     bodies: Option<&super::completion_production::ProducedBodies>,
 ) -> Result<(SourceCallRecords, ProducedSourceCalls), ModelError> {
     if profile == stages::Profile::Behavioral && (evaluations.is_none() || bodies.is_none()) {
-        return Err(ModelError::Conflict("requested SourceCall predecessor owner absent"));
+        return Err(ModelError::Conflict(
+            "requested SourceCall predecessor owner absent",
+        ));
     }
-    prepare_with_values(data, invocation, definition, profile, budget, verified, evaluations, bodies, None, &mut |_, _| Ok(()))
+    prepare_with_values(
+        data,
+        invocation,
+        definition,
+        profile,
+        budget,
+        verified,
+        evaluations,
+        bodies,
+        None,
+        &mut |_, _| Ok(()),
+    )
 }
 /// One actual event and its complete binding/body/capture dependency closure. The ephemeral
 /// bytes leave this owner together with a compact issuer receipt for the compiler's spool.
-pub fn prepare_event_produced(data:&SourceCallData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,verified:Option<&normalized::binding_normalization::VerifiedBindings>,evaluations:Option<&super::production::ProducedEvaluations>,bodies:Option<&super::completion_production::ProducedBodies>,event:Id<normalized::events::NormalizedCallEvent>)->Result<(SourceCallRecords,ProducedSourceCalls,PrivateSourcePayload),ModelError> {
-    if profile==stages::Profile::Behavioral && (evaluations.is_none() || bodies.is_none()) {return Err(ModelError::Conflict("requested SourceCall predecessor owner absent"));}
-    if profile==stages::Profile::Behavioral && data.bindings.event_events.get(event).is_none_or(|row|row.context!=invocation.context) {return Err(ModelError::Conflict("selected SourceCall event/frame absent"));}
-    let (records,mut produced)=prepare_with_values(data,invocation,definition,profile,budget,verified,evaluations,bodies,Some(event),&mut |_,_|Ok(()))?;
-    let payload=produced.seal_event(invocation,event,budget)?;Ok((records,produced,payload))
+pub fn prepare_event_produced(
+    data: &SourceCallData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    budget: &ResourceBudget,
+    verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    evaluations: Option<&super::production::ProducedEvaluations>,
+    bodies: Option<&super::completion_production::ProducedBodies>,
+    event: Id<normalized::events::NormalizedCallEvent>,
+) -> Result<(SourceCallRecords, ProducedSourceCalls, PrivateSourcePayload), ModelError> {
+    if profile == stages::Profile::Behavioral && (evaluations.is_none() || bodies.is_none()) {
+        return Err(ModelError::Conflict(
+            "requested SourceCall predecessor owner absent",
+        ));
+    }
+    if profile == stages::Profile::Behavioral
+        && data
+            .bindings
+            .event_events
+            .get(event)
+            .is_none_or(|row| row.context != invocation.context)
+    {
+        return Err(ModelError::Conflict(
+            "selected SourceCall event/frame absent",
+        ));
+    }
+    let (records, mut produced) = prepare_with_values(
+        data,
+        invocation,
+        definition,
+        profile,
+        budget,
+        verified,
+        evaluations,
+        bodies,
+        Some(event),
+        &mut |_, _| Ok(()),
+    )?;
+    let payload = produced.seal_event(invocation, event, budget)?;
+    Ok((records, produced, payload))
 }
 /// Produce the frame's explicit empty/NotRequested result after the compiler's actual event
 /// root stream is empty. Visible applicable events refuse this route instead of disappearing.
-pub fn prepare_empty_produced(data:&SourceCallData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget)->Result<(SourceCallRecords,ProducedSourceCalls),ModelError> {
-    if profile==stages::Profile::Behavioral {
-        for event in data.bindings.event_events.iter().filter(|event|event.context==invocation.context) {
-            let site=data.bindings.occurrences.get(event.site).ok_or(ModelError::Conflict("empty SourceCall event site absent"))?;
-            let artifact=data.evaluation.artifacts.get(site.source).ok_or(ModelError::Conflict("empty SourceCall event artifact absent"))?;
-            if artifact.input==invocation.input && admission::ArtifactClass::of(&artifact.path)==Some(admission::ArtifactClass::PythonSource) {return Err(ModelError::Conflict("empty SourceCall frame contains event"));}
+pub fn prepare_empty_produced(
+    data: &SourceCallData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    budget: &ResourceBudget,
+) -> Result<(SourceCallRecords, ProducedSourceCalls), ModelError> {
+    if profile == stages::Profile::Behavioral {
+        for event in data
+            .bindings
+            .event_events
+            .iter()
+            .filter(|event| event.context == invocation.context)
+        {
+            let site = data
+                .bindings
+                .occurrences
+                .get(event.site)
+                .ok_or(ModelError::Conflict("empty SourceCall event site absent"))?;
+            let artifact =
+                data.evaluation
+                    .artifacts
+                    .get(site.source)
+                    .ok_or(ModelError::Conflict(
+                        "empty SourceCall event artifact absent",
+                    ))?;
+            if artifact.input == invocation.input
+                && admission::ArtifactClass::of(&artifact.path)
+                    == Some(admission::ArtifactClass::PythonSource)
+            {
+                return Err(ModelError::Conflict(
+                    "empty SourceCall frame contains event",
+                ));
+            }
         }
     }
     // Catalog exits before borrowing any predecessor. For Behavioral, no visible event can
     // ask for binding/body work; a private empty binding owner is unnecessary.
-    if *definition!=super::configuration::source_calls().1 || invocation.definition!=definition.id() || invocation.subject.is_some() {return Err(ModelError::Conflict("empty SourceCall definition/frame"));}
-    let records=SourceCallRecords {run:SourceCallRun {invocation:invocation.id(),requested:profile==stages::Profile::Behavioral,bound:0,refused:0},headers:Rows::new(budget),members:Rows::new(budget),boundaries:Rows::new(budget),invocations:Rows::new(budget),releases:Rows::new(budget),arguments:Rows::new(budget),call_outcomes:Rows::new(budget),invocation_boundaries:Rows::new(budget),outcome:publication::AnalysisOutcome {invocation:invocation.id(),status:if profile==stages::Profile::Behavioral {analysis::AnalysisStatus::Completed}else{analysis::AnalysisStatus::NotRequested},reason:if profile==stages::Profile::Behavioral {None}else{Some(obligation::ObligationKind::NotRequested)}}};
-    let mut produced=ProducedSourceCalls::empty(budget);produced.issuers.insert(invocation.clone())?;Ok((records,produced))
+    if *definition != super::configuration::source_calls().1
+        || invocation.definition != definition.id()
+        || invocation.subject.is_some()
+    {
+        return Err(ModelError::Conflict("empty SourceCall definition/frame"));
+    }
+    let records = SourceCallRecords {
+        run: SourceCallRun {
+            invocation: invocation.id(),
+            requested: profile == stages::Profile::Behavioral,
+            bound: 0,
+            refused: 0,
+        },
+        headers: Rows::new(budget),
+        members: Rows::new(budget),
+        boundaries: Rows::new(budget),
+        invocations: Rows::new(budget),
+        releases: Rows::new(budget),
+        arguments: Rows::new(budget),
+        call_outcomes: Rows::new(budget),
+        invocation_boundaries: Rows::new(budget),
+        outcome: publication::AnalysisOutcome {
+            invocation: invocation.id(),
+            status: if profile == stages::Profile::Behavioral {
+                analysis::AnalysisStatus::Completed
+            } else {
+                analysis::AnalysisStatus::NotRequested
+            },
+            reason: if profile == stages::Profile::Behavioral {
+                None
+            } else {
+                Some(obligation::ObligationKind::NotRequested)
+            },
+        },
+    };
+    let mut produced = ProducedSourceCalls::empty(budget);
+    produced.issuers.insert(invocation.clone())?;
+    Ok((records, produced))
 }
 fn prepare_with_values(
-    data: &SourceCallData, invocation: &publication::AnalysisInvocation,
-    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
-    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    data: &SourceCallData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    budget: &ResourceBudget,
+    verified: Option<&normalized::binding_normalization::VerifiedBindings>,
     evaluations: Option<&super::production::ProducedEvaluations>,
     bodies: Option<&super::completion_production::ProducedBodies>,
-    selected_event:Option<Id<normalized::events::NormalizedCallEvent>>,
-    on_complete: &mut impl FnMut(&[(CheckedSourceBinding, SourceCallHeader)], &[(super::source_invocation::CheckedSourceInvocation, SourceInvocation)]) -> Result<(), ModelError>,
+    selected_event: Option<Id<normalized::events::NormalizedCallEvent>>,
+    on_complete: &mut impl FnMut(
+        &[(CheckedSourceBinding, SourceCallHeader)],
+        &[(
+            super::source_invocation::CheckedSourceInvocation,
+            SourceInvocation,
+        )],
+    ) -> Result<(), ModelError>,
 ) -> Result<(SourceCallRecords, ProducedSourceCalls), ModelError> {
     let invalid = |s: &str| ModelError::Invalid(s.into());
     if *definition != super::configuration::source_calls().1
@@ -536,7 +999,8 @@ fn prepare_with_values(
     }
     let mut headers = Vec::new();
     let mut header_charge = charged::StateCharge::new(budget, "source_call_private_headers");
-    let verified = verified.ok_or_else(|| invalid("requested SourceCall application authority absent"))?;
+    let verified =
+        verified.ok_or_else(|| invalid("requested SourceCall application authority absent"))?;
     let mut charge = charged::StateCharge::new(budget, "source_call_root_inventory");
     let bytes = data
         .evaluation
@@ -569,7 +1033,7 @@ fn prepare_with_values(
         .event_events
         .iter()
         .filter(|e| e.context == invocation.context)
-        .filter(|e|selected_event.is_none_or(|event|event==e.id()))
+        .filter(|e| selected_event.is_none_or(|event| event == e.id()))
     {
         let site = data
             .bindings
@@ -586,7 +1050,9 @@ fn prepare_with_values(
             || admission::ArtifactClass::of(&artifact.path)
                 != Some(admission::ArtifactClass::PythonSource)
         {
-            if selected_event.is_some() {return Err(invalid("selected SourceCall event is not an analysis root"));}
+            if selected_event.is_some() {
+                return Err(invalid("selected SourceCall event is not an analysis root"));
+            }
             continue;
         }
         let mut candidates = data
@@ -669,92 +1135,99 @@ fn prepare_with_values(
             .definitions
             .get(base.definition)
             .ok_or_else(|| invalid("source call completion definition absent"))?;
-        let mut visit_body = |body: &super::body::CheckedSourceBody, row: &super::body_records::SourceBodyCompletion| -> Result<(), ModelError> {
-                if data.bodies.get(row.id()) != Some(row) {
-                    return Err(invalid(
-                        "source invocation body differs from earlier immutable completion",
-                    ));
+        let mut visit_body = |body: &super::body::CheckedSourceBody,
+                              row: &super::body_records::SourceBodyCompletion|
+         -> Result<(), ModelError> {
+            if data.bodies.get(row.id()) != Some(row) {
+                return Err(invalid(
+                    "source invocation body differs from earlier immutable completion",
+                ));
+            }
+            for (header, record) in &headers {
+                if header.callee() != body.request().callee {
+                    continue;
                 }
-                for (header, record) in &headers {
-                    if header.callee() != body.request().callee {
-                        continue;
+                if !resolved.insert(&mut resolved_charge, record.id())? {
+                    return Err(invalid("source invocation body mapping is ambiguous"));
+                }
+                match super::source_invocation::CheckedSourceInvocation::derive_with_values(
+                    &data.evaluation,
+                    header,
+                    body,
+                    &data.completed,
+                    &[],
+                    budget,
+                    evaluations,
+                )? {
+                    Err(reason) => {
+                        records.invocation_boundaries.insert(InvocationBoundary {
+                            header: record.id(),
+                            reason,
+                        })?;
                     }
-                    if !resolved.insert(&mut resolved_charge, record.id())? {
-                        return Err(invalid("source invocation body mapping is ambiguous"));
-                    }
-                    match super::source_invocation::CheckedSourceInvocation::derive_with_values(
-                        &data.evaluation,
-                        header,
-                        body,
-                        &data.completed,
-                        &[],
-                        budget,
-                        evaluations,
-                    )? {
-                        Err(reason) => {
-                            records.invocation_boundaries.insert(InvocationBoundary {
-                                header: record.id(),
-                                reason,
+                    Ok(proof) => {
+                        let mut digest = KeySink::new("source-frame-arguments");
+                        for argument in proof.arguments() {
+                            argument.formal.encode(&mut digest);
+                            argument.actual.encode(&mut digest);
+                            argument.evaluation.encode(&mut digest);
+                        }
+                        let release = SourceFrameRelease {
+                            header: record.id(),
+                            body: row.id(),
+                            arguments: digest.finish(),
+                            release: proof.release(),
+                        };
+                        for (ordinal, argument) in proof.arguments().iter().enumerate() {
+                            records.arguments.insert(SourceFrameArgument {
+                                release: release.id(),
+                                ordinal: ordinal as i64,
+                                formal: argument.formal,
+                                actual: argument.actual,
+                                evaluation: argument.evaluation,
                             })?;
                         }
-                        Ok(proof) => {
-                            let mut digest = KeySink::new("source-frame-arguments");
-                            for argument in proof.arguments() {
-                                argument.formal.encode(&mut digest);
-                                argument.actual.encode(&mut digest);
-                                argument.evaluation.encode(&mut digest);
+                        let outcome = match proof.outcome() {
+                            super::source_invocation::InvocationOutcome::Normal => {
+                                SourceCallOutcome::Normal
                             }
-                            let release = SourceFrameRelease {
-                                header: record.id(),
-                                body: row.id(),
-                                arguments: digest.finish(),
-                                release: proof.release(),
-                            };
-                            for (ordinal, argument) in proof.arguments().iter().enumerate() {
-                                records.arguments.insert(SourceFrameArgument {
-                                    release: release.id(),
-                                    ordinal: ordinal as i64,
-                                    formal: argument.formal,
-                                    actual: argument.actual,
-                                    evaluation: argument.evaluation,
-                                })?;
-                            }
-                            let outcome = match proof.outcome() {
-                                super::source_invocation::InvocationOutcome::Normal => {
-                                    SourceCallOutcome::Normal
-                                }
-                                super::source_invocation::InvocationOutcome::Raised {
-                                    site,
-                                    exception,
-                                } => SourceCallOutcome::Raised { site, exception },
-                            };
-                            let call = SourceInvocation {
-                                invocation: invocation.id(),
-                                release: release.id(),
-                                qualification: proof.qualification(),
-                                outcome: outcome.id(),
-                                status: proof.status(),
-                            };
-                            header_charge.grow(
-                                size_of::<(
-                                    super::source_invocation::CheckedSourceInvocation,
-                                    SourceInvocation,
-                                )>() * 2,
-                            )?;
-                            records.invocations.insert(call.clone())?;
-                            calls.push((proof, call));
-                            records.releases.insert(release)?;
-                            records.call_outcomes.insert(outcome)?;
-                        }
+                            super::source_invocation::InvocationOutcome::Raised {
+                                site,
+                                exception,
+                            } => SourceCallOutcome::Raised { site, exception },
+                        };
+                        let call = SourceInvocation {
+                            invocation: invocation.id(),
+                            release: release.id(),
+                            qualification: proof.qualification(),
+                            outcome: outcome.id(),
+                            status: proof.status(),
+                        };
+                        header_charge.grow(
+                            size_of::<(
+                                super::source_invocation::CheckedSourceInvocation,
+                                SourceInvocation,
+                            )>() * 2,
+                        )?;
+                        records.invocations.insert(call.clone())?;
+                        calls.push((proof, call));
+                        records.releases.insert(release)?;
+                        records.call_outcomes.insert(outcome)?;
                     }
                 }
-                Ok(())
-            };
+            }
+            Ok(())
+        };
         if let Some(bodies) = bodies {
-            bodies.visit_frame(base,data,&mut visit_body)?;
+            bodies.visit_frame(base, data, &mut visit_body)?;
         } else {
             let expected = super::completion_production::complete_all_with_bodies(
-                &data.completed, base, definition, profile, budget, &mut visit_body,
+                &data.completed,
+                base,
+                definition,
+                profile,
+                budget,
+                &mut visit_body,
             )?;
             for body in expected.bodies.iter() {
                 if data.bodies.get(body.id()) != Some(body) {
@@ -788,9 +1261,20 @@ fn prepare_with_values(
     }
     let mut charge = charged::StateCharge::new(budget, "produced-source-calls");
     charge.grow(size_of::<ProducedSourceFrame>() * 2)?;
-    Ok((records, ProducedSourceCalls { issuers:Rows::new(budget),payloads:Default::default(),frames: vec![ProducedSourceFrame {
-        invocation: invocation.clone(), headers, calls, _charge: header_charge,
-    }], charge }))
+    Ok((
+        records,
+        ProducedSourceCalls {
+            issuers: Rows::new(budget),
+            payloads: Default::default(),
+            frames: vec![ProducedSourceFrame {
+                invocation: invocation.clone(),
+                headers,
+                calls,
+                _charge: header_charge,
+            }],
+            charge,
+        },
+    ))
 }
 fn invariant_inputs() -> Vec<ValidationInput> {
     let mut inputs = SourceCallData::inputs();
@@ -1118,47 +1602,114 @@ pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
     vec!["source_call_profile"]
 }
 
-pub(crate) fn header_fidelity_refs() -> Vec<&'static str> {vec!["source_call_replay", "execution_header_fidelity"]}
-pub(crate) fn release_fidelity_refs() -> Vec<&'static str> {vec!["execution_release_fidelity"]}
-pub(crate) fn invocation_fidelity_refs() -> Vec<&'static str> {vec!["source_call_replay", "execution_invocation_fidelity"]}
+pub(crate) fn header_fidelity_refs() -> Vec<&'static str> {
+    vec!["source_call_replay", "execution_header_fidelity"]
+}
+pub(crate) fn release_fidelity_refs() -> Vec<&'static str> {
+    vec!["execution_release_fidelity"]
+}
+pub(crate) fn invocation_fidelity_refs() -> Vec<&'static str> {
+    vec!["source_call_replay", "execution_invocation_fidelity"]
+}
 
 #[cfg(test)]
 mod source_payload_controls {
     use super::*;
-    fn id<R>(n:u8)->Id<R> {serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
     #[test]
     fn not_requested_payload_is_bound_to_actual_issuer_event_frame_and_budget() {
-        let budget=ResourceBudget::fixed(1<<20).unwrap();
-        let definition=super::super::configuration::source_calls().1;
-        let (frame,_)=publication::AnalysisInvocation::new(id(1),id(2),definition.id(),None,[]);
-        let data=SourceCallData::new(&budget);
-        let (records,produced,payload)=prepare_event_produced(&data,&frame,&definition,stages::Profile::Catalog,&budget,None,None,None,id(3)).unwrap();
-        assert_eq!(records.outcome.status,analysis::AnalysisStatus::NotRequested);
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let definition = super::super::configuration::source_calls().1;
+        let (frame, _) =
+            publication::AnalysisInvocation::new(id(1), id(2), definition.id(), None, []);
+        let data = SourceCallData::new(&budget);
+        let (records, produced, payload) = prepare_event_produced(
+            &data,
+            &frame,
+            &definition,
+            stages::Profile::Catalog,
+            &budget,
+            None,
+            None,
+            None,
+            id(3),
+        )
+        .unwrap();
+        assert_eq!(
+            records.outcome.status,
+            analysis::AnalysisStatus::NotRequested
+        );
         assert!(produced.frames.is_empty());
-        let restored=produced.hydrate(&frame,id(3),payload.bytes(),&budget).unwrap();
+        let restored = produced
+            .hydrate(&frame, id(3), payload.bytes(), &budget)
+            .unwrap();
         assert!(restored.headers.is_empty() && restored.calls.is_empty());
-        assert!(produced.hydrate(&frame,id(4),payload.bytes(),&budget).is_err());
-        let mut other=frame.clone();other.context=id(5);
-        assert!(produced.hydrate(&other,id(3),payload.bytes(),&budget).is_err());
-        let foreign=ResourceBudget::fixed(1<<20).unwrap();
-        assert!(produced.hydrate(&frame,id(3),payload.bytes(),&foreign).is_err());
-        assert!(ProducedSourceCalls::empty(&budget).hydrate(&frame,id(3),payload.bytes(),&budget).is_err());
-        let mut altered=payload.bytes().to_vec();altered[0]^=1;
-        assert!(produced.hydrate(&frame,id(3),&altered,&budget).is_err());
+        assert!(
+            produced
+                .hydrate(&frame, id(4), payload.bytes(), &budget)
+                .is_err()
+        );
+        let mut other = frame.clone();
+        other.context = id(5);
+        assert!(
+            produced
+                .hydrate(&other, id(3), payload.bytes(), &budget)
+                .is_err()
+        );
+        let foreign = ResourceBudget::fixed(1 << 20).unwrap();
+        assert!(
+            produced
+                .hydrate(&frame, id(3), payload.bytes(), &foreign)
+                .is_err()
+        );
+        assert!(
+            ProducedSourceCalls::empty(&budget)
+                .hydrate(&frame, id(3), payload.bytes(), &budget)
+                .is_err()
+        );
+        let mut altered = payload.bytes().to_vec();
+        altered[0] ^= 1;
+        assert!(produced.hydrate(&frame, id(3), &altered, &budget).is_err());
     }
     #[test]
     fn empty_behavioral_frame_has_actual_authority_without_predecessor_replay() {
-        let budget=ResourceBudget::fixed(1<<20).unwrap();
-        let definition=super::super::configuration::source_calls().1;
-        let (frame,_)=publication::AnalysisInvocation::new(id(1),id(2),definition.id(),None,[]);
-        let data=SourceCallData::new(&budget);
-        let (records,produced)=prepare_empty_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget).unwrap();
-        assert_eq!(records.outcome.status,analysis::AnalysisStatus::Completed);
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let definition = super::super::configuration::source_calls().1;
+        let (frame, _) =
+            publication::AnalysisInvocation::new(id(1), id(2), definition.id(), None, []);
+        let data = SourceCallData::new(&budget);
+        let (records, produced) = prepare_empty_produced(
+            &data,
+            &frame,
+            &definition,
+            stages::Profile::Behavioral,
+            &budget,
+        )
+        .unwrap();
+        assert_eq!(records.outcome.status, analysis::AnalysisStatus::Completed);
         assert!(records.run.requested && records.headers.is_empty());
         assert!(produced.frames.is_empty());
-        assert!(produced.hydrate_empty(&frame,&budget).unwrap().headers.is_empty());
-        let mut changed=frame.clone();changed.subject=Some(id(7));
-        assert!(produced.hydrate_empty(&changed,&budget).is_err());
-        assert!(prepare_empty_produced(&data,&changed,&definition,stages::Profile::Behavioral,&budget).is_err());
+        assert!(
+            produced
+                .hydrate_empty(&frame, &budget)
+                .unwrap()
+                .headers
+                .is_empty()
+        );
+        let mut changed = frame.clone();
+        changed.subject = Some(id(7));
+        assert!(produced.hydrate_empty(&changed, &budget).is_err());
+        assert!(
+            prepare_empty_produced(
+                &data,
+                &changed,
+                &definition,
+                stages::Profile::Behavioral,
+                &budget
+            )
+            .is_err()
+        );
     }
 }

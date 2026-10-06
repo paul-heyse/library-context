@@ -597,13 +597,20 @@ fn release_declarations_require_exact_ownership_and_passed_interpretation() {
             version: "1".into(),
         })
         .unwrap();
-    let verification_row=DistributionVerification {
-        acquisition:id(100),release,record_digest:ContentHash::of(b"record"),artifact_sha256:vec![],
+    let verification_row = DistributionVerification {
+        acquisition: id(100),
+        release,
+        record_digest: ContentHash::of(b"record"),
+        artifact_sha256: vec![],
     };
-    let verification=d.add_verification(&verification_row).unwrap();
+    let verification = d.add_verification(&verification_row).unwrap();
     // This fixture also executes the C1 producer, whose own declaration kernel requires the
     // actual typed distribution record in addition to C2's compact ownership projection.
-    d.source.facts.verifications.insert(verification_row).unwrap();
+    d.source
+        .facts
+        .verifications
+        .insert(verification_row)
+        .unwrap();
     d.source
         .facts
         .artifact_ownership

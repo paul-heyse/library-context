@@ -1447,12 +1447,30 @@ pub fn produce(
     invocation: &publication::AnalysisInvocation,
     budget: &resources::ResourceBudget,
 ) -> Result<TheoryRecords, ModelError> {
-    produce_source(data,invocation,None,budget)
+    produce_source(data, invocation, None, budget)
 }
-pub(crate) fn produce_source(data:&TheoryData,invocation:&publication::AnalysisInvocation,source:Option<Id<source::SourceArtifact>>,budget:&resources::ResourceBudget)->Result<TheoryRecords,ModelError>{
- let selected=|occurrence|source.is_none() || data.entry.occurrences.get(occurrence).is_some_and(|row|Some(row.source)==source);
+pub(crate) fn produce_source(
+    data: &TheoryData,
+    invocation: &publication::AnalysisInvocation,
+    source: Option<Id<source::SourceArtifact>>,
+    budget: &resources::ResourceBudget,
+) -> Result<TheoryRecords, ModelError> {
+    let selected = |occurrence| {
+        source.is_none()
+            || data
+                .entry
+                .occurrences
+                .get(occurrence)
+                .is_some_and(|row| Some(row.source) == source)
+    };
     let mut records = TheoryRecords::new(budget);
-    for support in data.type_supports.iter().filter(|support|source.is_none() || data.type_observations.get(support.assertion).is_some_and(|row|selected(row.subject))) {
+    for support in data.type_supports.iter().filter(|support| {
+        source.is_none()
+            || data
+                .type_observations
+                .get(support.assertion)
+                .is_some_and(|row| selected(row.subject))
+    }) {
         let Some(run) = data.entry.runs.get(support.run) else {
             return Err(invalid("type support run absent"));
         };
@@ -1482,7 +1500,14 @@ pub(crate) fn produce_source(data:&TheoryData,invocation:&publication::AnalysisI
             };
         records.type_assessments.insert(assessment)?;
     }
-    for support in data.entry.leaf_supports.iter().filter(|support|source.is_none() || data.entry.leaves.get(support.assertion).is_some_and(|row|selected(row.test))) {
+    for support in data.entry.leaf_supports.iter().filter(|support| {
+        source.is_none()
+            || data
+                .entry
+                .leaves
+                .get(support.assertion)
+                .is_some_and(|row| selected(row.test))
+    }) {
         let Some(run) = data.entry.runs.get(support.run) else {
             return Err(invalid("scalar support run absent"));
         };

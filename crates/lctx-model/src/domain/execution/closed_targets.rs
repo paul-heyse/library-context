@@ -234,7 +234,7 @@ pub(super) fn runtime_identity(
     effective: Option<&EffectiveInvocationAdmission>,
     budget: &ResourceBudget,
 ) -> Result<RuntimeIdentityAssessment, ModelError> {
-    runtime_identity_with_inputs(catalog,data,bound,shape,effective,budget,None)
+    runtime_identity_with_inputs(catalog, data, bound, shape, effective, budget, None)
 }
 pub(super) fn runtime_identity_with_inputs(
     catalog: &Catalog,
@@ -245,7 +245,9 @@ pub(super) fn runtime_identity_with_inputs(
     budget: &ResourceBudget,
     prepared: Option<&super::model_construction::PreparedConstructionInputs<'_>>,
 ) -> Result<RuntimeIdentityAssessment, ModelError> {
-    if let Some(prepared)=prepared {prepared.require(data,budget)?;}
+    if let Some(prepared) = prepared {
+        prepared.require(data, budget)?;
+    }
     let b = &data.bindings;
     let target = b
         .targets

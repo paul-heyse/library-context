@@ -242,7 +242,9 @@ pub fn definitions() -> ValidationDefinitions {
     definitions
         .publication_checks
         .extend(super::execution::enriched_production::profile_checks());
-    definitions.invariants.extend(super::execution::fidelity::invariants());
+    definitions
+        .invariants
+        .extend(super::execution::fidelity::invariants());
     definitions
         .invariants
         .extend(super::execution::records::base_invariants());

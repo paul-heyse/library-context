@@ -123,7 +123,14 @@ pub async fn populate(
             producers.insert(value.producer.clone(), value);
         }
     }
-    let outcomes = semantic_outcomes(workspace, frontier, profile, acquisition_config, &captures, &mut charge)?;
+    let outcomes = semantic_outcomes(
+        workspace,
+        frontier,
+        profile,
+        acquisition_config,
+        &captures,
+        &mut charge,
+    )?;
     let projections = projections(workspace, frontier, &mut charge)?;
     let embeddings = embeddings(workspace, profile, &mut charge).await?;
     captures.sort_unstable();
@@ -160,8 +167,12 @@ pub async fn populate(
 /// Canonical outcome membership is derived from retained captures, profile, definitions and
 /// nominal invocations. Transport metadata never supplies its own expected key universe.
 fn semantic_outcomes(
-    workspace: &Workspace, frontier: Frontier, profile: Profile, acquisition_config: ContentHash,
-    captures: &[EntityId], charge: &mut charged::StateCharge,
+    workspace: &Workspace,
+    frontier: Frontier,
+    profile: Profile,
+    acquisition_config: ContentHash,
+    captures: &[EntityId],
+    charge: &mut charged::StateCharge,
 ) -> Result<BTreeMap<OutcomeKey, Outcome>, ModelError> {
     let available = workspace.facts_availability(profile)?;
     let reporting = crate::facts::providers(acquisition_config)
@@ -235,8 +246,11 @@ fn semantic_outcomes(
     macro_rules! upper {
         ($owner:ident) => {{
             workspace.completed::<d::analysis::$owner::AnalysisInvocation>()?;
-            let producer = crate::compilation::UpperStage::for_outcome_relation(d::analysis::$owner::AnalysisInvocation::NAME)
-                .ok_or(ModelError::Schema("analysis outcome owner"))?.name();
+            let producer = crate::compilation::UpperStage::for_outcome_relation(
+                d::analysis::$owner::AnalysisInvocation::NAME,
+            )
+            .ok_or(ModelError::Schema("analysis outcome owner"))?
+            .name();
             workspace.completed::<d::analysis::$owner::AnalysisOutcome>()?;
             let mut invocations = BTreeMap::new();
             let mut invocation_charge =
@@ -318,12 +332,26 @@ fn semantic_outcomes(
     }
     Ok(outcomes)
 }
-pub(crate) fn verify_outcomes(workspace: &Workspace, manifest: &Manifest) -> Result<(), ModelError> {
+pub(crate) fn verify_outcomes(
+    workspace: &Workspace,
+    manifest: &Manifest,
+) -> Result<(), ModelError> {
     let mut charge = charged::StateCharge::new(workspace.budget(), "detached-outcome-admission");
-    let actual = semantic_outcomes(workspace, manifest.frontier, manifest.profile, manifest.settings, &manifest.captures, &mut charge)?;
+    let actual = semantic_outcomes(
+        workspace,
+        manifest.frontier,
+        manifest.profile,
+        manifest.settings,
+        &manifest.captures,
+        &mut charge,
+    )?;
     if actual.keys().cloned().collect::<Vec<_>>() != manifest.required_outcomes
         || actual.into_values().collect::<Vec<_>>() != manifest.outcomes
-    { return Err(ModelError::Conflict("artifact required semantic outcome membership")); }
+    {
+        return Err(ModelError::Conflict(
+            "artifact required semantic outcome membership",
+        ));
+    }
     Ok(())
 }
 

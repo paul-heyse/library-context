@@ -251,8 +251,14 @@ impl ModelData {
                 }),
         );
         rows.extend(BindingOutput::validation_inputs());
-        rows.extend(super::completion_production::CompletedEvaluations::consumed_inputs(stages::Profile::Behavioral));
-        rows.extend(normalized::facts_inputs(conditions::entry::EntryData::validation_inputs()));
+        rows.extend(
+            super::completion_production::CompletedEvaluations::consumed_inputs(
+                stages::Profile::Behavioral,
+            ),
+        );
+        rows.extend(normalized::facts_inputs(
+            conditions::entry::EntryData::validation_inputs(),
+        ));
         rows.extend([
             ValidationInput::of::<super::context_binding::ContextEntryBinding>(&["id"]),
             ValidationInput::of::<super::context_binding::BindingSource>(&["id"]),
@@ -333,54 +339,123 @@ pub fn apply_all(
     profile: stages::Profile,
     budget: &ResourceBudget,
 ) -> Result<ModelRecords, ModelError> {
-    let selected=catalog_id(data,definition)?;
-    let row=data.catalogs.get(selected).ok_or_else(||invalid("selected catalog is absent"))?;
-    let parsed=SelectedCatalog::read(row,budget)?;
-    let verified=if profile==stages::Profile::Behavioral{Some(prepare(&data.early.bindings,&data.bindings,budget)?)}else{None};
-    apply_selected_inner(data,invocation,definition,profile,&parsed,verified.as_ref(),ProductionScope::All,None,budget)
+    let selected = catalog_id(data, definition)?;
+    let row = data
+        .catalogs
+        .get(selected)
+        .ok_or_else(|| invalid("selected catalog is absent"))?;
+    let parsed = SelectedCatalog::read(row, budget)?;
+    let verified = if profile == stages::Profile::Behavioral {
+        Some(prepare(&data.early.bindings, &data.bindings, budget)?)
+    } else {
+        None
+    };
+    apply_selected_inner(
+        data,
+        invocation,
+        definition,
+        profile,
+        &parsed,
+        verified.as_ref(),
+        ProductionScope::All,
+        None,
+        budget,
+    )
 }
 /// The selected root is a publication domain. Referenced dependencies never become extra roots.
-#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProductionScope {
-    All, Frame, Target(Id<AuthoredModel>), Context(Id<super::context_execution::ContextExecution>),
-    Event(Id<normalized::events::NormalizedCallEvent>), Terminal(Id<protocols::NativeTerminalObservation>), Exit(Id<protocols::NativeExitObservation>),
+    All,
+    Frame,
+    Target(Id<AuthoredModel>),
+    Context(Id<super::context_execution::ContextExecution>),
+    Event(Id<normalized::events::NormalizedCallEvent>),
+    Terminal(Id<protocols::NativeTerminalObservation>),
+    Exit(Id<protocols::NativeExitObservation>),
 }
 impl ProductionScope {
-    pub(super) fn attempt(self,data:&ModelData,attempt:Id<normalized::bindings::CallBindingAttempt>)->bool{
-        self==Self::All || matches!(self,Self::Event(event) if data.bindings.attempts.get(attempt).is_some_and(|row|row.event==event))
+    pub(super) fn attempt(
+        self,
+        data: &ModelData,
+        attempt: Id<normalized::bindings::CallBindingAttempt>,
+    ) -> bool {
+        self == Self::All
+            || matches!(self,Self::Event(event) if data.bindings.attempts.get(attempt).is_some_and(|row|row.event==event))
     }
-    pub(super) fn target(self,data:&ModelData,target:&calls::CallTarget)->bool{
-        self==Self::All || matches!(self,Self::Event(event) if data.early.bindings.event_events.get(event).is_some_and(|event|
+    pub(super) fn target(self, data: &ModelData, target: &calls::CallTarget) -> bool {
+        self == Self::All
+            || matches!(self,Self::Event(event) if data.early.bindings.event_events.get(event).is_some_and(|event|
             event.site==target.site && event.origin==target.origin && data.early.bindings.qualifications.get(target.qualification).is_some_and(|q|q.context==event.context)))
     }
-    pub(super) fn terminal(self,data:&ModelData,row:&protocols::NativeTerminalObservation)->bool{
-        self==Self::All || self==Self::Terminal(row.id()) || matches!(self,Self::Event(event) if data.early.bindings.event_events.get(event).is_some_and(|event|
+    pub(super) fn terminal(
+        self,
+        data: &ModelData,
+        row: &protocols::NativeTerminalObservation,
+    ) -> bool {
+        self == Self::All
+            || self == Self::Terminal(row.id())
+            || matches!(self,Self::Event(event) if data.early.bindings.event_events.get(event).is_some_and(|event|
             event.site==row.subject && event.origin==calls::CallOrigin::explicit() && data.early.bindings.qualifications.get(row.qualification).is_some_and(|q|q.context==event.context)))
     }
 }
-pub struct ActualInputs<'a>{pub evaluations:&'a super::production::ProducedEvaluations,pub local:&'a local_semantics::ProducedLocal}
+pub struct ActualInputs<'a> {
+    pub evaluations: &'a super::production::ProducedEvaluations,
+    pub local: &'a local_semantics::ProducedLocal,
+}
 /// Consume actual binding-owner authority; the ordinary `apply_all` remains an explicit diagnostic.
 pub fn apply_selected(
-    data:&ModelData, invocation:&publication::AnalysisInvocation, definition:&analysis::AnalysisDefinition,
-    profile:stages::Profile, parsed:&SelectedCatalog, verified:Option<&VerifiedBindings>,scope:ProductionScope,actual:Option<&ActualInputs<'_>>,budget:&ResourceBudget,
-)->Result<ModelRecords,ModelError>{
-    if profile==stages::Profile::Behavioral && actual.is_none(){return Err(invalid("Model actual execution/Local owner values absent"));}
-    if scope==ProductionScope::All{return Err(invalid("Model production requires an explicit root"));}
-    apply_selected_inner(data,invocation,definition,profile,parsed,verified,scope,actual,budget)
+    data: &ModelData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    parsed: &SelectedCatalog,
+    verified: Option<&VerifiedBindings>,
+    scope: ProductionScope,
+    actual: Option<&ActualInputs<'_>>,
+    budget: &ResourceBudget,
+) -> Result<ModelRecords, ModelError> {
+    if profile == stages::Profile::Behavioral && actual.is_none() {
+        return Err(invalid("Model actual execution/Local owner values absent"));
+    }
+    if scope == ProductionScope::All {
+        return Err(invalid("Model production requires an explicit root"));
+    }
+    apply_selected_inner(
+        data, invocation, definition, profile, parsed, verified, scope, actual, budget,
+    )
 }
 fn apply_selected_inner(
-    data:&ModelData, invocation:&publication::AnalysisInvocation, definition:&analysis::AnalysisDefinition,
-    profile:stages::Profile, parsed:&SelectedCatalog, verified:Option<&VerifiedBindings>,scope:ProductionScope,actual:Option<&ActualInputs<'_>>,budget:&ResourceBudget,
-)->Result<ModelRecords,ModelError>{
-    let selected=catalog_id(data,definition)?;
-    if invocation.definition!=definition.id() || invocation.subject.is_some(){return Err(invalid("Model invocation changes bound whole-frame definition"));}
-    if parsed.catalog().declaration().id()!=selected || data.catalogs.get(selected)!=Some(parsed.catalog().declaration()){
+    data: &ModelData,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    parsed: &SelectedCatalog,
+    verified: Option<&VerifiedBindings>,
+    scope: ProductionScope,
+    actual: Option<&ActualInputs<'_>>,
+    budget: &ResourceBudget,
+) -> Result<ModelRecords, ModelError> {
+    let selected = catalog_id(data, definition)?;
+    if invocation.definition != definition.id() || invocation.subject.is_some() {
+        return Err(invalid(
+            "Model invocation changes bound whole-frame definition",
+        ));
+    }
+    if parsed.catalog().declaration().id() != selected
+        || data.catalogs.get(selected) != Some(parsed.catalog().declaration())
+    {
         return Err(invalid("Model selected catalog differs from actual source"));
     }
-    if let ProductionScope::Target(model)=scope && !parsed.catalog().models().iter().any(|compiled|compiled.declaration().id()==model){
+    if let ProductionScope::Target(model) = scope
+        && !parsed
+            .catalog()
+            .models()
+            .iter()
+            .any(|compiled| compiled.declaration().id() == model)
+    {
         return Err(invalid("Model target root absent from selected catalog"));
     }
-    let catalog=parsed.catalog();
+    let catalog = parsed.catalog();
     let mut records = ModelRecords::new(invocation.id(), budget);
     if profile != stages::Profile::Behavioral {
         records.outcome.status = analysis::AnalysisStatus::NotRequested;
@@ -402,29 +477,67 @@ fn apply_selected_inner(
         .definitions
         .get(parent.definition)
         .ok_or_else(|| invalid("Model Enriched definition absent"))?;
-    let (enriched_parameters, enriched_definition) = super::configuration::enriched_execution(selected);
-    if parent.subject.is_some() || *parent_definition != enriched_definition
+    let (enriched_parameters, enriched_definition) =
+        super::configuration::enriched_execution(selected);
+    if parent.subject.is_some()
+        || *parent_definition != enriched_definition
         || data.parameters.get(enriched_parameters.id()) != Some(&enriched_parameters)
-    { return Err(invalid("Model completed Enriched configuration differs from selected catalog")); }
+    {
+        return Err(invalid(
+            "Model completed Enriched configuration differs from selected catalog",
+        ));
+    }
     // Actual selected regions borrow enumeration admission once; diagnostic application
     // retains ordinary construction checks through the same core with no prepared borrow.
-    let construction=if actual.is_some() {Some(super::model_construction::PreparedConstructionInputs::new(&data.early,verified.ok_or_else(||invalid("Model binding owner authority absent"))?,budget)?)}else{None};
+    let construction = if actual.is_some() {
+        Some(super::model_construction::PreparedConstructionInputs::new(
+            &data.early,
+            verified.ok_or_else(|| invalid("Model binding owner authority absent"))?,
+            budget,
+        )?)
+    } else {
+        None
+    };
     let same_frame = |id| id == parent.id();
     // Enriched is a completed, checked predecessor. Model-specific applicability uses its
     // exact frame directly; recreating execution would replace predecessor authority with a
     // second producer run and retain another complete set of rich context/call records.
-    for context in data.contexts.iter().filter(|context| same_frame(context.invocation) && (scope==ProductionScope::All || scope==ProductionScope::Context(context.id()))) {
-        let inputs=super::model_protocol::ProtocolInputs {catalog,data:&data.early,execution:context};
+    for context in data.contexts.iter().filter(|context| {
+        same_frame(context.invocation)
+            && (scope == ProductionScope::All || scope == ProductionScope::Context(context.id()))
+    }) {
+        let inputs = super::model_protocol::ProtocolInputs {
+            catalog,
+            data: &data.early,
+            execution: context,
+        };
         match construction.as_ref() {
-            Some(prepared)=>super::model_protocol::emit_with_inputs(inputs,&data.context_items,&data.context_outcomes,invocation,&mut records,budget,Some(prepared))?,
-            None=>super::model_protocol::emit(inputs,&data.context_items,&data.context_outcomes,invocation,&mut records,budget)?,
+            Some(prepared) => super::model_protocol::emit_with_inputs(
+                inputs,
+                &data.context_items,
+                &data.context_outcomes,
+                invocation,
+                &mut records,
+                budget,
+                Some(prepared),
+            )?,
+            None => super::model_protocol::emit(
+                inputs,
+                &data.context_items,
+                &data.context_outcomes,
+                invocation,
+                &mut records,
+                budget,
+            )?,
         }
     }
-    for binding in data.context_bindings.iter().filter(|binding| same_frame(binding.invocation) && matches!(scope,ProductionScope::All|ProductionScope::Context(_))) {
+    for binding in data.context_bindings.iter().filter(|binding| {
+        same_frame(binding.invocation)
+            && matches!(scope, ProductionScope::All | ProductionScope::Context(_))
+    }) {
         let resource = {
             let mut resources = records.context_resources.iter().filter(|r| {
-                data
-                    .context_items
+                data.context_items
                     .get(r.item)
                     .is_some_and(|i| i.item == binding.item)
                     && r.site == binding.site
@@ -456,14 +569,19 @@ fn apply_selected_inner(
             )?;
         }
     }
-    let verified=verified.ok_or_else(||invalid("Model binding owner authority absent"))?;
+    let verified = verified.ok_or_else(|| invalid("Model binding owner authority absent"))?;
     // Catalog targets describe Python operations. A document-only frame has no such
     // domain; missing catalog targets there are not missing Python evidence. Retain the
     // predecessor/binding checks above and derive emptiness from captured uses, never outputs.
-    if matches!(scope,ProductionScope::All|ProductionScope::Target(_)) && !has_python_domain(&data.early, invocation.input, budget)? {
+    if matches!(scope, ProductionScope::All | ProductionScope::Target(_))
+        && !has_python_domain(&data.early, invocation.input, budget)?
+    {
         return Ok(records);
     }
-    for compiled in catalog.models().iter().filter(|compiled|scope==ProductionScope::All || scope==ProductionScope::Target(compiled.declaration().id())) {
+    for compiled in catalog.models().iter().filter(|compiled| {
+        scope == ProductionScope::All
+            || scope == ProductionScope::Target(compiled.declaration().id())
+    }) {
         let mut symbols = data.early.bindings.symbols.iter().filter(|s| {
             s.context == invocation.context
                 && super::model_application::matches_target(
@@ -494,20 +612,22 @@ fn apply_selected_inner(
         })?;
     }
     for attempt in data.bindings.attempts.iter().filter(|a| {
-        scope.attempt(data,a.id()) && data.early
-            .bindings
-            .event_events
-            .get(a.event)
-            .is_some_and(|e| {
-                e.context == invocation.context
-                    && data
-                        .early
-                        .bindings
-                        .occurrences
-                        .get(e.site)
-                        .and_then(|o| data.early.bindings.artifacts.get(o.source))
-                        .is_some_and(|a| a.input == invocation.input)
-            })
+        scope.attempt(data, a.id())
+            && data
+                .early
+                .bindings
+                .event_events
+                .get(a.event)
+                .is_some_and(|e| {
+                    e.context == invocation.context
+                        && data
+                            .early
+                            .bindings
+                            .occurrences
+                            .get(e.site)
+                            .and_then(|o| data.early.bindings.artifacts.get(o.source))
+                            .is_some_and(|a| a.input == invocation.input)
+                })
     }) {
         let result = match (verified.bound(attempt.id()), verified.shape(attempt.id())) {
             (Some(bound), Some(shape)) => CheckedModelApplication::derive_with_inputs(
@@ -572,12 +692,16 @@ fn apply_selected_inner(
                     })?;
                 }
                 let applied = AppliedRules::derive(&checked, row.id(), &data.early, budget)?;
-                let normal_call = data.modeled_calls.iter().filter(|c| same_frame(c.invocation)).find(|c| {
-                    c.attempt == row.attempt
-                        && c.model == row.model
-                        && c.event == row.event
-                        && c.owner == row.owner
-                });
+                let normal_call = data
+                    .modeled_calls
+                    .iter()
+                    .filter(|c| same_frame(c.invocation))
+                    .find(|c| {
+                        c.attempt == row.attempt
+                            && c.model == row.model
+                            && c.event == row.event
+                            && c.owner == row.owner
+                    });
                 for rule in applied.rules.iter() {
                     let admitted = rule.applicable
                         && (rule.phase == ActionPhase::Invocation
@@ -676,8 +800,25 @@ fn apply_selected_inner(
         }
     }
     match construction.as_ref() {
-        Some(prepared)=>super::protocol_interpretation::emit_with_inputs(data,catalog,verified,invocation,scope,&mut records,budget,Some(prepared))?,
-        None=>super::protocol_interpretation::emit(data,catalog,verified,invocation,scope,&mut records,budget)?,
+        Some(prepared) => super::protocol_interpretation::emit_with_inputs(
+            data,
+            catalog,
+            verified,
+            invocation,
+            scope,
+            &mut records,
+            budget,
+            Some(prepared),
+        )?,
+        None => super::protocol_interpretation::emit(
+            data,
+            catalog,
+            verified,
+            invocation,
+            scope,
+            &mut records,
+            budget,
+        )?,
     }
     records.run.applied = records.applications.len() as i64;
     records.run.refused = records.boundaries.len() as i64;
@@ -1039,49 +1180,116 @@ mod domain_controls {
 mod completed_enriched_controls {
     use super::*;
     fn nominal<T>(byte: u8) -> Id<T> {
-        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([byte; 16].into_iter()))
+        .unwrap()
     }
     #[test]
     fn selected_protocol_borrow_refuses_another_immutable_region_before_empty_domain() {
-        let budget=ResourceBudget::fixed(8<<20).unwrap();
-        let catalog=Catalog::parse("empty.toml","version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
-        let data=ModelData::new(&budget);
-        let verified=prepare(&data.early.bindings,&data.bindings,&budget).unwrap();
-        let prepared=super::super::model_construction::PreparedConstructionInputs::new(&data.early,&verified,&budget).unwrap();
-        let (_,definition)=super::super::configuration::models(catalog.declaration().id());
-        let (invocation,_)=publication::AnalysisInvocation::new(nominal(1),nominal(2),definition.id(),None,[]);
-        let mut ordinary=ModelRecords::new(invocation.id(),&budget);
-        let mut selected=ModelRecords::new(invocation.id(),&budget);
-        super::super::protocol_interpretation::emit(&data,&catalog,&verified,&invocation,ProductionScope::All,&mut ordinary,&budget).unwrap();
-        super::super::protocol_interpretation::emit_with_inputs(&data,&catalog,&verified,&invocation,ProductionScope::All,&mut selected,&budget,Some(&prepared)).unwrap();
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let catalog =
+            Catalog::parse("empty.toml", "version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
+        let data = ModelData::new(&budget);
+        let verified = prepare(&data.early.bindings, &data.bindings, &budget).unwrap();
+        let prepared = super::super::model_construction::PreparedConstructionInputs::new(
+            &data.early,
+            &verified,
+            &budget,
+        )
+        .unwrap();
+        let (_, definition) = super::super::configuration::models(catalog.declaration().id());
+        let (invocation, _) =
+            publication::AnalysisInvocation::new(nominal(1), nominal(2), definition.id(), None, []);
+        let mut ordinary = ModelRecords::new(invocation.id(), &budget);
+        let mut selected = ModelRecords::new(invocation.id(), &budget);
+        super::super::protocol_interpretation::emit(
+            &data,
+            &catalog,
+            &verified,
+            &invocation,
+            ProductionScope::All,
+            &mut ordinary,
+            &budget,
+        )
+        .unwrap();
+        super::super::protocol_interpretation::emit_with_inputs(
+            &data,
+            &catalog,
+            &verified,
+            &invocation,
+            ProductionScope::All,
+            &mut selected,
+            &budget,
+            Some(&prepared),
+        )
+        .unwrap();
         // A legitimate empty action domain stays empty under either construction entry.
         assert!(ordinary.closed_targets.is_empty() && selected.closed_targets.is_empty());
         assert!(ordinary.protocol_actions.is_empty() && selected.protocol_actions.is_empty());
-        assert!(ordinary.terminal_assessments.is_empty() && selected.terminal_assessments.is_empty());
-        let other=ModelData::new(&budget);
-        assert!(matches!(super::super::protocol_interpretation::emit_with_inputs(&other,&catalog,&verified,&invocation,ProductionScope::All,&mut selected,&budget,Some(&prepared)),Err(ModelError::Conflict(_))));
+        assert!(
+            ordinary.terminal_assessments.is_empty() && selected.terminal_assessments.is_empty()
+        );
+        let other = ModelData::new(&budget);
+        assert!(matches!(
+            super::super::protocol_interpretation::emit_with_inputs(
+                &other,
+                &catalog,
+                &verified,
+                &invocation,
+                ProductionScope::All,
+                &mut selected,
+                &budget,
+                Some(&prepared)
+            ),
+            Err(ModelError::Conflict(_))
+        ));
         assert!(selected.closed_targets.is_empty() && selected.protocol_actions.is_empty());
     }
     #[test]
     fn model_consumes_completed_empty_enriched_frame_without_source_call_producer() {
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
-        let catalog = Catalog::parse("empty.toml", "version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
+        let catalog =
+            Catalog::parse("empty.toml", "version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
         let selected = catalog.declaration().id();
         let mut data = ModelData::new(&budget);
         data.catalogs.insert(catalog.declaration().clone()).unwrap();
         let (parameters, definition) = super::super::configuration::models(selected);
-        let (enriched_parameters, enriched_definition) = super::super::configuration::enriched_execution(selected);
+        let (enriched_parameters, enriched_definition) =
+            super::super::configuration::enriched_execution(selected);
         data.parameters.insert(parameters).unwrap();
         data.parameters.insert(enriched_parameters).unwrap();
         data.definitions.insert(definition.clone()).unwrap();
-        data.definitions.insert(enriched_definition.clone()).unwrap();
-        let (parent, _) = analysis::enriched_execution::AnalysisInvocation::new(nominal(1), nominal(2), enriched_definition.id(), None, []);
+        data.definitions
+            .insert(enriched_definition.clone())
+            .unwrap();
+        let (parent, _) = analysis::enriched_execution::AnalysisInvocation::new(
+            nominal(1),
+            nominal(2),
+            enriched_definition.id(),
+            None,
+            [],
+        );
         data.enriched.insert(parent.clone()).unwrap();
-        let (invocation, _) = publication::AnalysisInvocation::new(parent.input, parent.context, definition.id(), None, []);
+        let (invocation, _) = publication::AnalysisInvocation::new(
+            parent.input,
+            parent.context,
+            definition.id(),
+            None,
+            [],
+        );
         // No SourceCalls or execution input exists: this legitimate empty scope cannot be
         // serviced by replaying Enriched, which would demand those predecessor producers.
         assert!(data.source_calls.is_empty());
-        let output = apply_all(&data, &invocation, &definition, stages::Profile::Behavioral, &budget).unwrap();
+        let output = apply_all(
+            &data,
+            &invocation,
+            &definition,
+            stages::Profile::Behavioral,
+            &budget,
+        )
+        .unwrap();
         assert!(output.run.requested);
         assert_eq!(output.outcome.status, analysis::AnalysisStatus::Completed);
         assert!(output.applications.is_empty());

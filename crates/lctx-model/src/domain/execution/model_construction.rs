@@ -11,14 +11,41 @@ use crate::domain::{
 use std::collections::BTreeMap;
 /// One selected dependency region borrows the existing binding owner's enumeration premises.
 /// The token can only finish an exact private membership check, and never grants other inputs.
-pub(super) struct PreparedConstructionInputs<'a> {data:&'a ModelApplicationData,_charge:charged::StateCharge}
+pub(super) struct PreparedConstructionInputs<'a> {
+    data: &'a ModelApplicationData,
+    _charge: charged::StateCharge,
+}
 impl<'a> PreparedConstructionInputs<'a> {
-    pub(super) fn new(data:&'a ModelApplicationData,owner:&normalized::binding_normalization::VerifiedBindings,budget:&ResourceBudget)->Result<Self,ModelError> {
-        owner.require_enumerations(&data.bindings,budget)?;
-        let mut charge=charged::StateCharge::new(budget,"prepared-context-construction");charge.grow(size_of::<Self>()*2)?;Ok(Self {data,_charge:charge})
+    pub(super) fn new(
+        data: &'a ModelApplicationData,
+        owner: &normalized::binding_normalization::VerifiedBindings,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        owner.require_enumerations(&data.bindings, budget)?;
+        let mut charge = charged::StateCharge::new(budget, "prepared-context-construction");
+        charge.grow(size_of::<Self>() * 2)?;
+        Ok(Self {
+            data,
+            _charge: charge,
+        })
     }
-    pub(super) fn require(&self,data:&ModelApplicationData,budget:&ResourceBudget)->Result<(),ModelError> {
-        if !std::ptr::eq(self.data,data) || !self._charge.budget().expect("construction owner budget").shares_pool(budget) {return Err(ModelError::Conflict("construction predecessor foreign region/budget"));}Ok(())
+    pub(super) fn require(
+        &self,
+        data: &ModelApplicationData,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        if !std::ptr::eq(self.data, data)
+            || !self
+                ._charge
+                .budget()
+                .expect("construction owner budget")
+                .shares_pool(budget)
+        {
+            return Err(ModelError::Conflict(
+                "construction predecessor foreign region/budget",
+            ));
+        }
+        Ok(())
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,12 +188,22 @@ impl<'a> CheckedContextConstruction<'a> {
         context: Id<AnalysisContext>,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
-        Self::derive_with_inputs(protocol,data,site,owner,input,context,budget,None)
+        Self::derive_with_inputs(protocol, data, site, owner, input, context, budget, None)
     }
     pub(super) fn derive_with_inputs(
-        protocol:&'a CheckedContextProtocol<'a>,data:&ModelApplicationData,site:Id<source::Occurrence>,owner:Id<normalized::entities::EntityRef>,input:Id<input::InputRevision>,context:Id<AnalysisContext>,budget:&ResourceBudget,prepared:Option<&PreparedConstructionInputs<'_>>,
-    )->Result<Result<Self,ObligationKind>,ModelError> {
-        match prepared {Some(prepared)=>prepared.require(data,budget)?,None=>normalized::binding_normalization::verify_enumerations(&data.bindings,budget)?}
+        protocol: &'a CheckedContextProtocol<'a>,
+        data: &ModelApplicationData,
+        site: Id<source::Occurrence>,
+        owner: Id<normalized::entities::EntityRef>,
+        input: Id<input::InputRevision>,
+        context: Id<AnalysisContext>,
+        budget: &ResourceBudget,
+        prepared: Option<&PreparedConstructionInputs<'_>>,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        match prepared {
+            Some(prepared) => prepared.require(data, budget)?,
+            None => normalized::binding_normalization::verify_enumerations(&data.bindings, budget)?,
+        }
         let mut charge = charged::StateCharge::new(budget, "checked-context-construction");
         charge.grow(size_of::<Self>())?;
         let setup = (|| {
@@ -653,37 +690,113 @@ pub mod checked_handlers {
 #[cfg(test)]
 mod prepared_construction_controls {
     use super::*;
-    use crate::domain::{assertion::*,attribution::*,normalized::binding_normalization::{BindingData,BindingOutput,VerifiedBindings}};
-    fn id<R>(byte:u8)->Id<R> {serde_json::from_value(serde_json::json!(vec![byte;16])).unwrap()}
-    fn application(budget:&ResourceBudget,alternatives:u8)->ModelApplicationData {
-        let mut data=ModelApplicationData::new(budget);
-        let symbol=ProviderSymbol {provider:id(1),context:id(2),module:id(3),native_key:"initializer".into(),name:"__init__".into(),kind:SymbolKind::Method};data.bindings.symbols.insert(symbol.clone()).unwrap();
-        for index in 0..alternatives {
-            let q=AssertionQualification {context:id(2),scope:id(10+index),condition:conditions::Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact,assumptions:assumptions::AssumptionSet::empty_id()};
-            let signature=Signature::new(&q,SignatureRole::Source,None,symbol.id(),0,SignatureForm::List,&[]).unwrap().0;
-            let (enumeration,members)=SignatureEnumerationObservation::new(&q,symbol.id(),std::slice::from_ref(&signature).iter(),true).unwrap();
-            data.bindings.qualifications.insert(q).unwrap();data.bindings.signatures.insert(signature).unwrap();data.bindings.signature_enumerations.insert(enumeration).unwrap();for member in members {data.bindings.signature_enumeration_members.insert(member).unwrap();}
-        }data
+    use crate::domain::{
+        assertion::*,
+        attribution::*,
+        normalized::binding_normalization::{BindingData, BindingOutput, VerifiedBindings},
+    };
+    fn id<R>(byte: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![byte; 16])).unwrap()
     }
-    fn owner(data:&BindingData,budget:&ResourceBudget)->VerifiedBindings {normalized::binding_normalization::prepare(data,&BindingOutput::new(budget),budget).unwrap()}
+    fn application(budget: &ResourceBudget, alternatives: u8) -> ModelApplicationData {
+        let mut data = ModelApplicationData::new(budget);
+        let symbol = ProviderSymbol {
+            provider: id(1),
+            context: id(2),
+            module: id(3),
+            native_key: "initializer".into(),
+            name: "__init__".into(),
+            kind: SymbolKind::Method,
+        };
+        data.bindings.symbols.insert(symbol.clone()).unwrap();
+        for index in 0..alternatives {
+            let q = AssertionQualification {
+                context: id(2),
+                scope: id(10 + index),
+                condition: conditions::Diagram::always().id(),
+                modality: Modality::Definite,
+                approximation: Approximation::Exact,
+                assumptions: assumptions::AssumptionSet::empty_id(),
+            };
+            let signature = Signature::new(
+                &q,
+                SignatureRole::Source,
+                None,
+                symbol.id(),
+                0,
+                SignatureForm::List,
+                &[],
+            )
+            .unwrap()
+            .0;
+            let (enumeration, members) = SignatureEnumerationObservation::new(
+                &q,
+                symbol.id(),
+                std::slice::from_ref(&signature).iter(),
+                true,
+            )
+            .unwrap();
+            data.bindings.qualifications.insert(q).unwrap();
+            data.bindings.signatures.insert(signature).unwrap();
+            data.bindings
+                .signature_enumerations
+                .insert(enumeration)
+                .unwrap();
+            for member in members {
+                data.bindings
+                    .signature_enumeration_members
+                    .insert(member)
+                    .unwrap();
+            }
+        }
+        data
+    }
+    fn owner(data: &BindingData, budget: &ResourceBudget) -> VerifiedBindings {
+        normalized::binding_normalization::prepare(data, &BindingOutput::new(budget), budget)
+            .unwrap()
+    }
     #[test]
     fn construction_owner_reuses_admitted_initializer_enumerations_without_bound_calls() {
-        let budget=ResourceBudget::fixed(8<<20).unwrap();let data=application(&budget,2);let owner=owner(&data.bindings,&budget);
-        assert!(normalized::binding_normalization::verify_enumerations(&data.bindings,&budget).is_ok());
-        let prepared=PreparedConstructionInputs::new(&data,&owner,&budget).unwrap();assert!(prepared.require(&data,&budget).is_ok());assert!(prepared.require(&data,&budget).is_ok());
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let data = application(&budget, 2);
+        let owner = owner(&data.bindings, &budget);
+        assert!(
+            normalized::binding_normalization::verify_enumerations(&data.bindings, &budget).is_ok()
+        );
+        let prepared = PreparedConstructionInputs::new(&data, &owner, &budget).unwrap();
+        assert!(prepared.require(&data, &budget).is_ok());
+        assert!(prepared.require(&data, &budget).is_ok());
         // Each remaining header is independently valid, but pruning another same-symbol
         // alternative is forbidden by the actual predecessor's complete candidate domain.
-        let partial=application(&budget,1);assert!(normalized::binding_normalization::verify_enumerations(&partial.bindings,&budget).is_ok());assert!(PreparedConstructionInputs::new(&partial,&owner,&budget).is_err());
-        assert!(prepared.require(&partial,&budget).is_err());
+        let partial = application(&budget, 1);
+        assert!(
+            normalized::binding_normalization::verify_enumerations(&partial.bindings, &budget)
+                .is_ok()
+        );
+        assert!(PreparedConstructionInputs::new(&partial, &owner, &budget).is_err());
+        assert!(prepared.require(&partial, &budget).is_err());
     }
     #[test]
     fn construction_owner_refuses_foreign_budget_and_changed_existing_symbol_payload() {
-        let budget=ResourceBudget::fixed(8<<20).unwrap();let data=application(&budget,1);let admitted=owner(&data.bindings,&budget);
-        let foreign=ResourceBudget::fixed(8<<20).unwrap();assert!(PreparedConstructionInputs::new(&data,&admitted,&foreign).is_err());
-        let mut changed=application(&budget,1);let mut symbol=changed.bindings.symbols.iter().next().unwrap().clone();symbol.name="another existing initializer payload".into();changed.bindings.symbols=Rows::new(&budget);changed.bindings.symbols.insert(symbol).unwrap();
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let data = application(&budget, 1);
+        let admitted = owner(&data.bindings, &budget);
+        let foreign = ResourceBudget::fixed(8 << 20).unwrap();
+        assert!(PreparedConstructionInputs::new(&data, &admitted, &foreign).is_err());
+        let mut changed = application(&budget, 1);
+        let mut symbol = changed.bindings.symbols.iter().next().unwrap().clone();
+        symbol.name = "another existing initializer payload".into();
+        changed.bindings.symbols = Rows::new(&budget);
+        changed.bindings.symbols.insert(symbol).unwrap();
         // Enum verification itself uses symbol kind/context, while the private predecessor
         // also preserves the actual issuer's exact canonical content at the same nominal ID.
-        assert!(normalized::binding_normalization::verify_enumerations(&changed.bindings,&budget).is_ok());assert!(PreparedConstructionInputs::new(&changed,&admitted,&budget).is_err());
-        let mut combined=owner(&data.bindings,&budget);combined.append(owner(&data.bindings,&budget)).unwrap();assert!(PreparedConstructionInputs::new(&data,&combined,&budget).is_ok());
+        assert!(
+            normalized::binding_normalization::verify_enumerations(&changed.bindings, &budget)
+                .is_ok()
+        );
+        assert!(PreparedConstructionInputs::new(&changed, &admitted, &budget).is_err());
+        let mut combined = owner(&data.bindings, &budget);
+        combined.append(owner(&data.bindings, &budget)).unwrap();
+        assert!(PreparedConstructionInputs::new(&data, &combined, &budget).is_ok());
     }
 }

@@ -101,7 +101,7 @@ pub fn derive(
                 CallableEntity::Source { declaration, .. } => {
                     e.symbol_declarations.iter().any(|d| {
                         d.symbol == signature.symbol
-                            && data.same_occurrence( *declaration, d.declaration)
+                            && data.same_occurrence(*declaration, d.declaration)
                     })
                 }
                 CallableEntity::Synthetic { symbol } => *symbol == signature.symbol,
@@ -118,7 +118,7 @@ pub fn derive(
         let mut reader_owners = e
             .owners
             .iter()
-            .filter(|o| data.same_occurrence( o.occurrence, reader.access));
+            .filter(|o| data.same_occurrence(o.occurrence, reader.access));
         let reader_owner = reader_owners
             .next()
             .ok_or_else(|| invalid("symbolic reader owner missing"))?;
@@ -156,7 +156,7 @@ pub fn derive(
                 .uses
                 .get(value.use_)
                 .ok_or_else(|| invalid("symbolic reader use missing"))?;
-            if !data.same_occurrence( use_.occurrence, reader.access) {
+            if !data.same_occurrence(use_.occurrence, reader.access) {
                 continue;
             }
             let rq = e

@@ -1,27 +1,27 @@
 //! Store-free semantic graph compilation; publication and serving are separate consumers.
 
-pub mod analysis_graphs;
 pub mod analysis_bindings;
+pub mod analysis_graphs;
 pub mod analysis_prepare;
 pub mod analytic;
 pub mod analytic_embedding;
 pub mod analytic_text;
 pub mod catalog_core;
+mod catalog_core_scope;
 pub mod catalog_evidence;
 mod catalog_evidence_scope;
-mod catalog_core_scope;
 pub mod catalog_selection;
 pub mod consumed_rows;
-mod scoped_admission;
-mod scoped_inventory;
-mod scoped_aspects;
-mod scoped_execution;
-mod scoped_retrieval;
 pub mod embedding_realization;
 pub mod embedding_service;
 pub mod facts;
 pub mod final_coverage;
 pub mod retrieval_preparation;
+mod scoped_admission;
+mod scoped_aspects;
+mod scoped_execution;
+mod scoped_inventory;
+mod scoped_retrieval;
 pub mod sql;
 pub mod stage_runtime;
 pub mod structural;

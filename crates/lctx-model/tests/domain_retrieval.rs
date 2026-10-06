@@ -797,17 +797,103 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
 }
 
 #[test]
-fn completed_unit_refuses_internally_consistent_redirected_origin_to_existing_foreign_root(){
-    let(b,mut data,member,artifact)=fixture();let foreign=data.source.catalog.members.insert(catalog::CatalogMember{input:artifact.input,access:data.source.catalog.members.get(member).unwrap().access,path:vec!["foreign".into()],name:"foreign".into()}).unwrap();
-    root(&mut data,artifact.input,id(2),c1::RootSubject::Member{member:foreign});let owned_root=data.evidence.roots.iter().find(|root|root.subject==(c1::RootSubject::Member{member}).id()).unwrap().id();let complete=retrieval::build::root(&data,owned_root,&b).unwrap();complete.verify_completion(&data,&b).unwrap();
+fn completed_unit_refuses_internally_consistent_redirected_origin_to_existing_foreign_root() {
+    let (b, mut data, member, artifact) = fixture();
+    let foreign = data
+        .source
+        .catalog
+        .members
+        .insert(catalog::CatalogMember {
+            input: artifact.input,
+            access: data.source.catalog.members.get(member).unwrap().access,
+            path: vec!["foreign".into()],
+            name: "foreign".into(),
+        })
+        .unwrap();
+    root(
+        &mut data,
+        artifact.input,
+        id(2),
+        c1::RootSubject::Member { member: foreign },
+    );
+    let owned_root = data
+        .evidence
+        .roots
+        .iter()
+        .find(|root| root.subject == (c1::RootSubject::Member { member }).id())
+        .unwrap()
+        .id();
+    let complete = retrieval::build::root(&data, owned_root, &b).unwrap();
+    complete.verify_completion(&data, &b).unwrap();
     let unit=complete.units.iter().find(|unit|matches!(complete.origins.get(unit.origin),Some(retrieval::Origin::Api{member:owner}) if *owner==member)).unwrap();
-    let redirected_origin=retrieval::Origin::Api{member:foreign};let redirected=Unit{origin:redirected_origin.id(),..unit.clone()};let mut altered=Output::new(&b);
-    macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$(for row in complete.$field.iter(){if std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<Unit>() && std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<UnitRoot>() && std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<UnitSubject>() && std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<OriginalAnchor>(){altered.$field.insert(row.clone()).unwrap();}})*};}lctx_model::retrieval_outputs!(copy);
+    let redirected_origin = retrieval::Origin::Api { member: foreign };
+    let redirected = Unit {
+        origin: redirected_origin.id(),
+        ..unit.clone()
+    };
+    let mut altered = Output::new(&b);
+    macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$(for row in complete.$field.iter(){if std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<Unit>() && std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<UnitRoot>() && std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<UnitSubject>() && std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<OriginalAnchor>(){altered.$field.insert(row.clone()).unwrap();}})*};}
+    lctx_model::retrieval_outputs!(copy);
     altered.origins.insert(redirected_origin).unwrap();
-    for row in complete.units.iter(){altered.units.insert(if row.id()==unit.id(){redirected.clone()}else{row.clone()}).unwrap();}
-    for row in complete.roots.iter(){altered.roots.insert(UnitRoot{unit:if row.unit==unit.id(){redirected.id()}else{row.unit},root:row.root}).unwrap();}
-    for row in complete.unit_subjects.iter(){altered.unit_subjects.insert(UnitSubject{unit:if row.unit==unit.id(){redirected.id()}else{row.unit},subject:row.subject}).unwrap();}
-    for row in complete.anchors.iter(){altered.anchors.insert(OriginalAnchor{unit:if row.unit==unit.id(){redirected.id()}else{row.unit},ordinal:row.ordinal,original:row.original}).unwrap();}
-    assert!(altered.verify_completion(&data,&b).unwrap_err().to_string().contains("origin differs"));
-    drop(altered);drop(complete);drop(data);assert_eq!(b.reserved(),0);
+    for row in complete.units.iter() {
+        altered
+            .units
+            .insert(if row.id() == unit.id() {
+                redirected.clone()
+            } else {
+                row.clone()
+            })
+            .unwrap();
+    }
+    for row in complete.roots.iter() {
+        altered
+            .roots
+            .insert(UnitRoot {
+                unit: if row.unit == unit.id() {
+                    redirected.id()
+                } else {
+                    row.unit
+                },
+                root: row.root,
+            })
+            .unwrap();
+    }
+    for row in complete.unit_subjects.iter() {
+        altered
+            .unit_subjects
+            .insert(UnitSubject {
+                unit: if row.unit == unit.id() {
+                    redirected.id()
+                } else {
+                    row.unit
+                },
+                subject: row.subject,
+            })
+            .unwrap();
+    }
+    for row in complete.anchors.iter() {
+        altered
+            .anchors
+            .insert(OriginalAnchor {
+                unit: if row.unit == unit.id() {
+                    redirected.id()
+                } else {
+                    row.unit
+                },
+                ordinal: row.ordinal,
+                original: row.original,
+            })
+            .unwrap();
+    }
+    assert!(
+        altered
+            .verify_completion(&data, &b)
+            .unwrap_err()
+            .to_string()
+            .contains("origin differs")
+    );
+    drop(altered);
+    drop(complete);
+    drop(data);
+    assert_eq!(b.reserved(), 0);
 }

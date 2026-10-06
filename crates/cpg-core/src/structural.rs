@@ -43,7 +43,6 @@ macro_rules! decoder_inputs {
             libraries:input::CorpusLibrary,
             distributions:input::InputDistribution,
         }
-
     };
 }
 async fn load<R: Record>(
@@ -55,9 +54,21 @@ async fn load<R: Record>(
     consumed: &mut crate::consumed_rows::ConsumedInputs,
 ) -> Result<(), ModelError> {
     while let Some((input, permit)) = consumed.next::<R>(access)? {
-        if crate::consumed_rows::stream_artifact_admission(access,&input,session,admission).await? {continue;}
+        if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+            .await?
+        {
+            continue;
+        }
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
-            if [std::any::TypeId::of::<attribution::ProviderRun>(),std::any::TypeId::of::<analysis::catalog_core::Invocation>(),std::any::TypeId::of::<analysis::settings::AnalyticsConfiguration>(),std::any::TypeId::of::<analysis::AnalysisDefinition>(),std::any::TypeId::of::<analysis::MethodParameters>()].contains(&input.type_id()){
+            if [
+                std::any::TypeId::of::<attribution::ProviderRun>(),
+                std::any::TypeId::of::<analysis::catalog_core::Invocation>(),
+                std::any::TypeId::of::<analysis::settings::AnalyticsConfiguration>(),
+                std::any::TypeId::of::<analysis::AnalysisDefinition>(),
+                std::any::TypeId::of::<analysis::MethodParameters>(),
+            ]
+            .contains(&input.type_id())
+            {
                 data.visit_input(&input, batch)?;
                 context.visit(input.name(), batch)?;
             }
@@ -85,7 +96,19 @@ pub async fn produce(
     let mut data = build::Data::new(runtime.budget());
     let mut context = frames::Context::new(runtime.budget());
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
-        {let mut inputs=vec![ValidationInput::of::<attribution::ProviderRun>(&["id"]),ValidationInput::of::<analysis::catalog_core::Invocation>(&["id"]),ValidationInput::of::<analysis::settings::AnalyticsConfiguration>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),ValidationInput::of::<analysis::MethodParameters>(&["id"])];for method in build::methods(){inputs.extend(analysis::expected::inputs(method));}inputs},
+        {
+            let mut inputs = vec![
+                ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+                ValidationInput::of::<analysis::catalog_core::Invocation>(&["id"]),
+                ValidationInput::of::<analysis::settings::AnalyticsConfiguration>(&["id"]),
+                ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+                ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+            ];
+            for method in build::methods() {
+                inputs.extend(analysis::expected::inputs(method));
+            }
+            inputs
+        },
         runtime.budget(),
     )?;
     macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut data,&mut context,&mut admission,&mut consumed).await?;)*};}
@@ -104,20 +127,28 @@ pub async fn produce(
     output.declare::<conditions::ConditionNode>()?;
     output.declare::<assumptions::AssumptionSet>()?;
     output.declare::<assumptions::AssumptionSetMember>()?;
-    let scopes=crate::analytical_scopes::FrameScopes::prepare(&access,&session,model,build::Data::consumed_inputs(access.profile()),crate::analytical_scopes::Kind::Structural,runtime.budget()).await?;
+    let scopes = crate::analytical_scopes::FrameScopes::prepare(
+        &access,
+        &session,
+        model,
+        build::Data::consumed_inputs(access.profile()),
+        crate::analytical_scopes::Kind::Structural,
+        runtime.budget(),
+    )
+    .await?;
     drop(session);
     drop(context);
     drop(data);
     for core in parents.iter() {
-        let grain=scopes.grain(core.id(),runtime.budget()).await?;
-        let mut data=build::Data::new(runtime.budget());
-        let mut context=frames::Context::new(runtime.budget());
+        let grain = scopes.grain(core.id(), runtime.budget()).await?;
+        let mut data = build::Data::new(runtime.budget());
+        let mut context = frames::Context::new(runtime.budget());
         macro_rules! scoped {($($field:ident:$ty:ty,)*)=>{$(scopes.read::<$ty>(&access,&grain,|input,batch|{data.visit_input(input,batch)?;context.visit(input.name(),batch)?;Ok(())}).await?;)*};}
-        decoder_inputs!(scoped,access.profile());
+        decoder_inputs!(scoped, access.profile());
         drop(grain);
-        let mut results=semantic::Output::new(runtime.budget());
-        let mut receipts=normalized::Rows::new(runtime.budget());
-        let mut projections=normalized::Rows::new(runtime.budget());
+        let mut results = semantic::Output::new(runtime.budget());
+        let mut receipts = normalized::Rows::new(runtime.budget());
+        let mut projections = normalized::Rows::new(runtime.budget());
         let local = context.local_parent(core)?.id();
         for method in build::methods() {
             let (parameters, definition) = build::definition(&settings, method)?;
@@ -195,86 +226,86 @@ pub async fn produce(
                 runtime.budget(),
             )
         })?)?;
-    let (condition, nodes) = conditions::Diagram::always().records();
-    results.flow_conditions.insert(condition)?;
-    for node in nodes {
-        results.flow_condition_nodes.insert(node)?;
-    }
-    macro_rules! write {
-        ($ty:ty,$rows:expr) => {{
-            for row in $rows.iter() {
-                output.push(row.clone()).await?;
-            }
-        }};
-    }
-    macro_rules! result {($($f:ident:$ty:ty,)*)=>{$(write!($ty,results.$f);)*};}
-    write!(
-        assertion::AssertionQualification,
-        results.conclusion_qualifications
-    );
-    write!(conditions::Condition, results.flow_conditions);
-    write!(conditions::ConditionNode, results.flow_condition_nodes);
-    write!(assumptions::AssumptionSet, results.flow_assumption_sets);
-    write!(
-        assumptions::AssumptionSetMember,
-        results.flow_assumption_members
-    );
-    lctx_model::structural_outputs!(result);
-    write!(owner::Invocation, context.invocations);
-    write!(owner::InvocationSource, context.sources);
-    write!(owner::AnalysisInput, context.inputs);
-    write!(owner::SourceReceipt, receipts);
-    write!(owner::ProjectionInput, projections);
+        let (condition, nodes) = conditions::Diagram::always().records();
+        results.flow_conditions.insert(condition)?;
+        for node in nodes {
+            results.flow_condition_nodes.insert(node)?;
+        }
+        macro_rules! write {
+            ($ty:ty,$rows:expr) => {{
+                for row in $rows.iter() {
+                    output.push(row.clone()).await?;
+                }
+            }};
+        }
+        macro_rules! result {($($f:ident:$ty:ty,)*)=>{$(write!($ty,results.$f);)*};}
+        write!(
+            assertion::AssertionQualification,
+            results.conclusion_qualifications
+        );
+        write!(conditions::Condition, results.flow_conditions);
+        write!(conditions::ConditionNode, results.flow_condition_nodes);
+        write!(assumptions::AssumptionSet, results.flow_assumption_sets);
+        write!(
+            assumptions::AssumptionSetMember,
+            results.flow_assumption_members
+        );
+        lctx_model::structural_outputs!(result);
+        write!(owner::Invocation, context.invocations);
+        write!(owner::InvocationSource, context.sources);
+        write!(owner::AnalysisInput, context.inputs);
+        write!(owner::SourceReceipt, receipts);
+        write!(owner::ProjectionInput, projections);
 
-    let outcomes = semantic::outcomes::derive(&context, &results, runtime.budget())?;
-    for outcome in outcomes.iter() {
-        let invocation = context.invocations.get(outcome.invocation).unwrap();
-        let definition = context.definitions.get(invocation.definition).unwrap();
-        let capability = semantic::outcomes::capability(definition.method)?;
-        let status = outcome.status;
-        let reason = outcome.reason;
-        let domain = owner::coverage::admit(
-            invocation,
-            definition,
-            capability,
-            &admission,
-            runtime.budget(),
-        )?;
-        for scope in domain.scopes() {
-            let (row, members) = scope.expectation().records()?;
-            output.push(row).await?;
-            for row in members {
-                output.push(row).await?;
-            }
-            for row in scope.observations() {
-                output.push(row.source().clone()).await?;
-            }
-            let (row, members) = owner::coverage::assess(
-                scope.expectation(),
-                scope.observations(),
-                status,
-                reason,
+        let outcomes = semantic::outcomes::derive(&context, &results, runtime.budget())?;
+        for outcome in outcomes.iter() {
+            let invocation = context.invocations.get(outcome.invocation).unwrap();
+            let definition = context.definitions.get(invocation.definition).unwrap();
+            let capability = semantic::outcomes::capability(definition.method)?;
+            let status = outcome.status;
+            let reason = outcome.reason;
+            let domain = owner::coverage::admit(
+                invocation,
+                definition,
+                capability,
+                &admission,
                 runtime.budget(),
             )?;
-            output.push(row).await?;
-            for row in members {
+            for scope in domain.scopes() {
+                let (row, members) = scope.expectation().records()?;
                 output.push(row).await?;
+                for row in members {
+                    output.push(row).await?;
+                }
+                for row in scope.observations() {
+                    output.push(row.source().clone()).await?;
+                }
+                let (row, members) = owner::coverage::assess(
+                    scope.expectation(),
+                    scope.observations(),
+                    status,
+                    reason,
+                    runtime.budget(),
+                )?;
+                output.push(row).await?;
+                for row in members {
+                    output.push(row).await?;
+                }
             }
+            output
+                .push(owner::AnalysisOutcome {
+                    invocation: invocation.id(),
+                    status,
+                    reason,
+                })
+                .await?;
         }
-        output
-            .push(owner::AnalysisOutcome {
-                invocation: invocation.id(),
-                status,
-                reason,
-            })
-            .await?;
-    }
-    drop(receipts);
-    drop(projections);
-    drop(results);
-    drop(context);
-    drop(data);
-    tokio::task::yield_now().await;
+        drop(receipts);
+        drop(projections);
+        drop(results);
+        drop(context);
+        drop(data);
+        tokio::task::yield_now().await;
     }
     drop(parents);
     drop(scopes);

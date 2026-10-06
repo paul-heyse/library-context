@@ -385,11 +385,15 @@ struct ArtifactScope {
 impl HeapSize for ArtifactScope {}
 impl From<SourceArtifact> for ArtifactScope {
     fn from(row: SourceArtifact) -> Self {
-        Self { input: row.input, class: admission::ArtifactClass::of(&row.path) }
+        Self {
+            input: row.input,
+            class: admission::ArtifactClass::of(&row.path),
+        }
     }
 }
 struct PreparedRoots {
-    by_grain: charged::ChargedMap<(Id<InputRevision>, admission::ArtifactClass), Vec<Id<SourceArtifact>>>,
+    by_grain:
+        charged::ChargedMap<(Id<InputRevision>, admission::ArtifactClass), Vec<Id<SourceArtifact>>>,
     _charge: charged::StateCharge,
 }
 pub(crate) struct FrontierIndex {
@@ -429,19 +433,67 @@ impl FrontierIndex {
             text: Default::default(),
         }
     }
-    fn visit_artifact_properties(&mut self,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+    fn visit_artifact_properties(
+        &mut self,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         use arrow_array::Array;
-        let fixed=|name|batch.column_by_name(name).and_then(|column|column.as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>()).filter(|column|column.null_count()==0&&column.value_length()==16).ok_or(ModelError::Schema("expected artifact nominal properties"));
-        let(ids,inputs)=(fixed("id")?,fixed("input")?);
-        let suffix=batch.column_by_name("path_suffix").and_then(|column|column.as_any().downcast_ref::<arrow_array::StringArray>()).filter(|column|column.null_count()==0).ok_or(ModelError::Schema("expected artifact classifier property"))?;
-        let nominal=|bytes:&[u8]|serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(bytes.iter().copied())).map_err(ModelError::codec);
+        let fixed = |name| {
+            batch
+                .column_by_name(name)
+                .and_then(|column| {
+                    column
+                        .as_any()
+                        .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+                })
+                .filter(|column| column.null_count() == 0 && column.value_length() == 16)
+                .ok_or(ModelError::Schema("expected artifact nominal properties"))
+        };
+        let (ids, inputs) = (fixed("id")?, fixed("input")?);
+        let suffix = batch
+            .column_by_name("path_suffix")
+            .and_then(|column| column.as_any().downcast_ref::<arrow_array::StringArray>())
+            .filter(|column| column.null_count() == 0)
+            .ok_or(ModelError::Schema("expected artifact classifier property"))?;
+        let nominal = |bytes: &[u8]| {
+            serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                _,
+                serde::de::value::Error,
+            >::new(bytes.iter().copied()))
+            .map_err(ModelError::codec)
+        };
         self.roots.take();
-        for row in 0..batch.num_rows(){
-            let id:Id<SourceArtifact>=nominal(ids.value(row))?;
-            let input:Id<InputRevision>=serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(inputs.value(row).iter().copied())).map_err(ModelError::codec)?;
-            if suffix.value(row).chars().count()>4{return Err(invalid("expected artifact classifier projection is not bounded"));}
-            if self.artifacts.insert(&mut self.charge,id,ArtifactScope{input,class:admission::ArtifactClass::of(suffix.value(row))})?.is_some(){return Err(ModelError::Conflict(SourceArtifact::NAME));}
-        }Ok(())
+        for row in 0..batch.num_rows() {
+            let id: Id<SourceArtifact> = nominal(ids.value(row))?;
+            let input: Id<InputRevision> =
+                serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                    _,
+                    serde::de::value::Error,
+                >::new(
+                    inputs.value(row).iter().copied()
+                ))
+                .map_err(ModelError::codec)?;
+            if suffix.value(row).chars().count() > 4 {
+                return Err(invalid(
+                    "expected artifact classifier projection is not bounded",
+                ));
+            }
+            if self
+                .artifacts
+                .insert(
+                    &mut self.charge,
+                    id,
+                    ArtifactScope {
+                        input,
+                        class: admission::ArtifactClass::of(suffix.value(row)),
+                    },
+                )?
+                .is_some()
+            {
+                return Err(ModelError::Conflict(SourceArtifact::NAME));
+            }
+        }
+        Ok(())
     }
     pub(crate) fn visit(
         &mut self,
@@ -460,7 +512,11 @@ impl FrontierIndex {
             check()?;
             self.roots.take();
             for row in SourceArtifact::decode(batch)? {
-                if self.artifacts.insert(&mut self.charge, row.id(), row.into())?.is_some() {
+                if self
+                    .artifacts
+                    .insert(&mut self.charge, row.id(), row.into())?
+                    .is_some()
+                {
                     return Err(ModelError::Conflict(SourceArtifact::NAME));
                 }
             }
@@ -494,7 +550,10 @@ impl FrontierIndex {
         if let Some(roots) = self.roots.get() {
             return Ok(roots);
         }
-        let budget = self.charge.budget().ok_or_else(|| invalid("expected frontier budget absent"))?;
+        let budget = self
+            .charge
+            .budget()
+            .ok_or_else(|| invalid("expected frontier budget absent"))?;
         let mut roots = PreparedRoots {
             by_grain: Default::default(),
             _charge: charged::StateCharge::new(budget, "analysis_expected_membership"),
@@ -502,14 +561,23 @@ impl FrontierIndex {
         let mut membership = charged::ChargedSet::default();
         let mut scratch = charged::StateCharge::new(budget, "analysis_expected_membership_sort");
         for usage in self.uses.values() {
-            let artifact = self.artifacts.get(&usage.artifact)
+            let artifact = self
+                .artifacts
+                .get(&usage.artifact)
                 .ok_or_else(|| invalid("an artifact use names an absent artifact"))?;
-            if let Some(class) = artifact.class.filter(|class| class.requested_by(usage.role)) {
+            if let Some(class) = artifact
+                .class
+                .filter(|class| class.requested_by(usage.role))
+            {
                 membership.insert(&mut scratch, (artifact.input, class, usage.artifact))?;
             }
         }
         for (input, class, artifact) in membership.iter() {
-            roots.by_grain.update(&mut roots._charge, (*input, *class), |ids| ids.push(*artifact))?;
+            roots
+                .by_grain
+                .update(&mut roots._charge, (*input, *class), |ids| {
+                    ids.push(*artifact)
+                })?;
         }
         // Concurrent readers may prepare equivalent compact state. Only one owns the retained
         // reservation; a discarded candidate releases its charge immediately.
@@ -530,12 +598,18 @@ impl FrontierIndex {
             .budget()
             .ok_or_else(|| invalid("expected frontier budget absent"))?;
         let roots = self.prepared_roots()?;
-        let scope_count = contract.scopes.iter().try_fold(0usize, |n, scope| {
-            n.checked_add(match scope.grain {
-                admission::Grain::Input => 1,
-                admission::Grain::Artifact(class) => roots.by_grain.get(&(input, class)).map_or(0, Vec::len),
+        let scope_count = contract
+            .scopes
+            .iter()
+            .try_fold(0usize, |n, scope| {
+                n.checked_add(match scope.grain {
+                    admission::Grain::Input => 1,
+                    admission::Grain::Artifact(class) => {
+                        roots.by_grain.get(&(input, class)).map_or(0, Vec::len)
+                    }
+                })
             })
-        }).ok_or_else(|| invalid("expected scope allocation overflow"))?;
+            .ok_or_else(|| invalid("expected scope allocation overflow"))?;
         let source_bytes = self
             .native
             .values()
@@ -561,9 +635,7 @@ impl FrontierIndex {
             "analysis_expected_roots",
             Some(source_bytes)
                 .and_then(|n| {
-                    n.checked_add(
-                        scope_count.checked_mul(size_of::<ExpectedScope>() + 128)?,
-                    )
+                    n.checked_add(scope_count.checked_mul(size_of::<ExpectedScope>() + 128)?)
                 })
                 .and_then(|n| n.checked_add(size_of::<ExpectedScope>()))
                 .ok_or_else(|| invalid("expected domain allocation overflow"))?,
@@ -587,7 +659,9 @@ impl FrontierIndex {
                 admission::Grain::Input => add(CoverageScope::Input { input })?,
                 admission::Grain::Artifact(class) => {
                     for artifact in roots.by_grain.get(&(input, class)).into_iter().flatten() {
-                        add(CoverageScope::Artifact { artifact: *artifact })?;
+                        add(CoverageScope::Artifact {
+                            artifact: *artifact,
+                        })?;
                     }
                 }
             }
@@ -779,9 +853,16 @@ impl<'a> CoverageAdmission<'a> {
     /// four characters preserve every admitted extension (dot plus at most three characters),
     /// while the original ArtifactClass operation remains the sole classifier. No canonical
     /// SourceArtifact is reconstructed from these properties.
-    pub fn artifact_property_columns()->&'static str {"id,input,right(path,4) AS path_suffix"}
-    pub fn visit_artifact_properties(&mut self,permit:&CompletedInput<SourceArtifact>,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
-        self.sources.accepts(permit)?;self.index.visit_artifact_properties(batch)
+    pub fn artifact_property_columns() -> &'static str {
+        "id,input,right(path,4) AS path_suffix"
+    }
+    pub fn visit_artifact_properties(
+        &mut self,
+        permit: &CompletedInput<SourceArtifact>,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        self.sources.accepts(permit)?;
+        self.index.visit_artifact_properties(batch)
     }
     pub(crate) fn domain(
         &self,
@@ -816,19 +897,86 @@ mod tests {
         normalized::coverage::EvidenceAvailability,
     };
     #[test]
-    fn artifact_property_admission_preserves_classifier_refuses_duplicates_and_releases_state(){
-        use arrow_array::{ArrayRef,RecordBatch,StringArray};use std::sync::Arc;
-        let budget=resources::ResourceBudget::fixed(64<<10).unwrap();
-        let rows=["source.py","stub.pyi","README.md","page.mdx","api.rst","file.PY","file.py.other","unicode_λ.md","no_extension"].into_iter().map(|path|SourceArtifact::from_bytes(serde_json::from_value(serde_json::json!(vec![1u8;16])).unwrap(),path.into(),b"x").unwrap()).collect::<Vec<_>>();
-        let encoded=<SourceArtifact as Record>::encode(&rows).unwrap();
-        let suffixes=rows.iter().map(|row|row.path.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<String>()).collect::<Vec<_>>();
-        let schema=Arc::new(arrow_schema::Schema::new(vec![encoded.schema().field_with_name("id").unwrap().clone(),encoded.schema().field_with_name("input").unwrap().clone(),arrow_schema::Field::new("path_suffix",arrow_schema::DataType::Utf8,false)]));
-        let projected=RecordBatch::try_new(schema.clone(),vec![encoded.column_by_name("id").unwrap().clone(),encoded.column_by_name("input").unwrap().clone(),Arc::new(StringArray::from(suffixes)) as ArrayRef]).unwrap();
-        let mut index=FrontierIndex::new(Profile::Catalog,&budget);index.visit_artifact_properties(&projected).unwrap();
-        for row in &rows{let actual=index.artifacts.get(&row.id()).unwrap();assert_eq!(actual.input,row.input);assert_eq!(actual.class,admission::ArtifactClass::of(&row.path));}
-        assert!(index.visit_artifact_properties(&projected.slice(0,1)).is_err());drop(index);assert_eq!(budget.reserved(),0);
-        let wrong=RecordBatch::try_new(schema,vec![projected.column(0).clone(),projected.column(1).clone(),Arc::new(StringArray::from(vec!["not bounded";rows.len()])) as ArrayRef]).unwrap();
-        let mut index=FrontierIndex::new(Profile::Catalog,&budget);assert!(index.visit_artifact_properties(&wrong).is_err());drop(index);assert_eq!(budget.reserved(),0);
+    fn artifact_property_admission_preserves_classifier_refuses_duplicates_and_releases_state() {
+        use arrow_array::{ArrayRef, RecordBatch, StringArray};
+        use std::sync::Arc;
+        let budget = resources::ResourceBudget::fixed(64 << 10).unwrap();
+        let rows = [
+            "source.py",
+            "stub.pyi",
+            "README.md",
+            "page.mdx",
+            "api.rst",
+            "file.PY",
+            "file.py.other",
+            "unicode_λ.md",
+            "no_extension",
+        ]
+        .into_iter()
+        .map(|path| {
+            SourceArtifact::from_bytes(
+                serde_json::from_value(serde_json::json!(vec![1u8; 16])).unwrap(),
+                path.into(),
+                b"x",
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+        let encoded = <SourceArtifact as Record>::encode(&rows).unwrap();
+        let suffixes = rows
+            .iter()
+            .map(|row| {
+                row.path
+                    .chars()
+                    .rev()
+                    .take(4)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        let schema = Arc::new(arrow_schema::Schema::new(vec![
+            encoded.schema().field_with_name("id").unwrap().clone(),
+            encoded.schema().field_with_name("input").unwrap().clone(),
+            arrow_schema::Field::new("path_suffix", arrow_schema::DataType::Utf8, false),
+        ]));
+        let projected = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                encoded.column_by_name("id").unwrap().clone(),
+                encoded.column_by_name("input").unwrap().clone(),
+                Arc::new(StringArray::from(suffixes)) as ArrayRef,
+            ],
+        )
+        .unwrap();
+        let mut index = FrontierIndex::new(Profile::Catalog, &budget);
+        index.visit_artifact_properties(&projected).unwrap();
+        for row in &rows {
+            let actual = index.artifacts.get(&row.id()).unwrap();
+            assert_eq!(actual.input, row.input);
+            assert_eq!(actual.class, admission::ArtifactClass::of(&row.path));
+        }
+        assert!(
+            index
+                .visit_artifact_properties(&projected.slice(0, 1))
+                .is_err()
+        );
+        drop(index);
+        assert_eq!(budget.reserved(), 0);
+        let wrong = RecordBatch::try_new(
+            schema,
+            vec![
+                projected.column(0).clone(),
+                projected.column(1).clone(),
+                Arc::new(StringArray::from(vec!["not bounded"; rows.len()])) as ArrayRef,
+            ],
+        )
+        .unwrap();
+        let mut index = FrontierIndex::new(Profile::Catalog, &budget);
+        assert!(index.visit_artifact_properties(&wrong).is_err());
+        drop(index);
+        assert_eq!(budget.reserved(), 0);
     }
     struct Fixture {
         index: FrontierIndex,
@@ -1000,24 +1148,52 @@ mod tests {
         for suffix in ["py", "pyi", "md", "mdx", "rst", "toml"] {
             for code in 0..=8 {
                 let role = SourceRole::from_code(code).unwrap();
-                let artifact = SourceArtifact::from_bytes(input, format!("role_{code}.{suffix}"), b"x").unwrap();
-                uses.push(ArtifactUse { input, artifact: artifact.id(), role });
+                let artifact =
+                    SourceArtifact::from_bytes(input, format!("role_{code}.{suffix}"), b"x")
+                        .unwrap();
+                uses.push(ArtifactUse {
+                    input,
+                    artifact: artifact.id(),
+                    role,
+                });
                 artifacts.push(artifact);
             }
         }
         visit(&mut index, &artifacts);
         visit(&mut index, &uses);
         let roots = index.prepared_roots().unwrap();
-        let compact = roots.by_grain.values().flatten().copied().collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(compact, admission::analysis_roots(&artifacts, &uses).unwrap());
+        let compact = roots
+            .by_grain
+            .values()
+            .flatten()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            compact,
+            admission::analysis_roots(&artifacts, &uses).unwrap()
+        );
         let reservation = roots._charge.reserved();
         assert!(std::ptr::eq(roots, index.prepared_roots().unwrap()));
-        assert_eq!(index.prepared_roots().unwrap()._charge.reserved(), reservation);
+        assert_eq!(
+            index.prepared_roots().unwrap()._charge.reserved(),
+            reservation
+        );
         let absent = SourceArtifact::from_bytes(input, "absent.py".into(), b"x").unwrap();
-        visit(&mut index, &[ArtifactUse { input, artifact: absent.id(), role: SourceRole::Release }]);
+        visit(
+            &mut index,
+            &[ArtifactUse {
+                input,
+                artifact: absent.id(),
+                role: SourceRole::Release,
+            }],
+        );
         assert!(index.prepared_roots().is_err());
         visit(&mut index, &[absent.clone()]);
-        assert!(index.prepared_roots().unwrap().by_grain[&(input, admission::ArtifactClass::PythonSource)].contains(&absent.id()));
+        assert!(
+            index.prepared_roots().unwrap().by_grain
+                [&(input, admission::ArtifactClass::PythonSource)]
+                .contains(&absent.id())
+        );
     }
     #[test]
     fn artifact_labels_are_transient_and_failed_permits_preserve_prepared_state() {
@@ -1029,14 +1205,27 @@ mod tests {
             visit(&mut index, &[artifact]);
             index.charge.reserved()
         };
-        assert_eq!(retained("a.py".into()), retained(format!("{}.py", "a".repeat(32768))));
+        assert_eq!(
+            retained("a.py".into()),
+            retained(format!("{}.py", "a".repeat(32768)))
+        );
         let mut f = fixture();
         let before = f.index.prepared_roots().unwrap()._charge.reserved();
         let batch = SourceArtifact::encode(&[]).unwrap();
-        assert!(f.index.visit_with_check(SourceArtifact::NAME, &batch, || Err(invalid("wrong permit"))).is_err());
+        assert!(
+            f.index
+                .visit_with_check(SourceArtifact::NAME, &batch, || Err(invalid(
+                    "wrong permit"
+                )))
+                .is_err()
+        );
         assert_eq!(f.index.roots.get().unwrap()._charge.reserved(), before);
         let batch = ArtifactUse::encode(&[]).unwrap();
-        assert!(f.index.visit_with_check(ArtifactUse::NAME, &batch, || Err(invalid("wrong permit"))).is_err());
+        assert!(
+            f.index
+                .visit_with_check(ArtifactUse::NAME, &batch, || Err(invalid("wrong permit")))
+                .is_err()
+        );
         assert_eq!(f.index.roots.get().unwrap()._charge.reserved(), before);
     }
     #[test]

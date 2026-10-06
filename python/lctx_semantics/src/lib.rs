@@ -2,33 +2,58 @@
 mod session;
 use lctx_model::domain::{embedding::Spec, serving};
 use pyo3::{exceptions::PyValueError, prelude::*};
-pyo3::create_exception!(lctx_semantics, NativeFailure, pyo3::exceptions::PyRuntimeError);
+pyo3::create_exception!(
+    lctx_semantics,
+    NativeFailure,
+    pyo3::exceptions::PyRuntimeError
+);
 pub(crate) fn public_error(failure: serving::PublicFailure) -> PyErr {
     let error = NativeFailure::new_err(failure.kind.message());
     Python::attach(|py| {
         // Payload is entirely model-owned and has a fixed message.
         let payload = serde_json::to_string(&failure).expect("fixed public failure encoding");
-        if let Err(attribute) = error.value(py).setattr("lctx_failure_json", payload) { return attribute; }
+        if let Err(attribute) = error.value(py).setattr("lctx_failure_json", payload) {
+            return attribute;
+        }
         error
     })
 }
-fn error(e: serving::WireError) -> PyErr { public_error(e.public_failure()) }
+fn error(e: serving::WireError) -> PyErr {
+    public_error(e.public_failure())
+}
 fn response_error(e: serving::WireError) -> PyErr {
-    let kind = if matches!(e, serving::WireError::ResourceRefused(_)) { serving::FailureKind::ResourceRefused } else { serving::FailureKind::Corrupt };
+    let kind = if matches!(e, serving::WireError::ResourceRefused(_)) {
+        serving::FailureKind::ResourceRefused
+    } else {
+        serving::FailureKind::Corrupt
+    };
     public_error(serving::PublicFailure::new(kind))
 }
 pub(crate) fn model_error(e: lctx_model::domain::ModelError) -> PyErr {
-    use lctx_model::domain::{ModelError, Infrastructure};
+    use lctx_model::domain::{Infrastructure, ModelError};
     let kind = match e {
         ModelError::Serving(kind) => kind,
-        ModelError::Resource { .. } | ModelError::Limit { .. } => serving::FailureKind::ResourceRefused,
-        ModelError::Infrastructure { class: Infrastructure::Contract, .. } => serving::FailureKind::Incompatible,
-        ModelError::Schema(_) | ModelError::Identity(_) | ModelError::Conflict(_) | ModelError::Invalid(_) | ModelError::Frontier(_) => serving::FailureKind::Corrupt,
+        ModelError::Resource { .. } | ModelError::Limit { .. } => {
+            serving::FailureKind::ResourceRefused
+        }
+        ModelError::Infrastructure {
+            class: Infrastructure::Contract,
+            ..
+        } => serving::FailureKind::Incompatible,
+        ModelError::Schema(_)
+        | ModelError::Identity(_)
+        | ModelError::Conflict(_)
+        | ModelError::Invalid(_)
+        | ModelError::Frontier(_) => serving::FailureKind::Corrupt,
         _ => serving::FailureKind::Unavailable,
     };
     public_error(serving::PublicFailure::new(kind))
 }
-pub(crate) fn unavailable() -> PyErr { public_error(serving::PublicFailure::new(serving::FailureKind::Unavailable)) }
+pub(crate) fn unavailable() -> PyErr {
+    public_error(serving::PublicFailure::new(
+        serving::FailureKind::Unavailable,
+    ))
+}
 #[pyfunction]
 fn canonical_embedding_spec(text: &str) -> PyResult<String> {
     Spec::parse(text)
@@ -88,11 +113,14 @@ fn wire_capability_resource(py: Python<'_>, raw: &str) -> PyResult<String> {
             &serving::ResourceLimits::default(),
         )
         .map_err(response_error)?;
-        let response: serving::GetCapabilityResponse =
-            serde_json::from_str(raw).map_err(|_| public_error(serving::PublicFailure::new(serving::FailureKind::Corrupt)))?;
+        let response: serving::GetCapabilityResponse = serde_json::from_str(raw).map_err(|_| {
+            public_error(serving::PublicFailure::new(serving::FailureKind::Corrupt))
+        })?;
         let text = response.resource_text().map_err(error)?;
         if text.len() as u64 > serving::ResourceLimits::default().response_bytes(true) {
-            return Err(public_error(serving::PublicFailure::new(serving::FailureKind::ResourceRefused)));
+            return Err(public_error(serving::PublicFailure::new(
+                serving::FailureKind::ResourceRefused,
+            )));
         }
         Ok(text)
     })

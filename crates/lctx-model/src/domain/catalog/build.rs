@@ -871,46 +871,98 @@ pub fn invocation_invariants() -> Vec<Invariant> {
             ValidationInput::of::<analysis::catalog_core::Invocation>(&["id"]),
             ValidationInput::of::<CatalogMemberInvocation>(&["id"]),
         ],
-        create: std::sync::Arc::new(|budget| Box::new(InvocationCheck {
-            public: Default::default(), members: Default::default(), exposures: Default::default(),
-            invocations: Default::default(), links: Default::default(),
-            charge: StateCharge::new(budget,"catalog-invocation-membership"),
-        })),
+        create: std::sync::Arc::new(|budget| {
+            Box::new(InvocationCheck {
+                public: Default::default(),
+                members: Default::default(),
+                exposures: Default::default(),
+                invocations: Default::default(),
+                links: Default::default(),
+                charge: StateCharge::new(budget, "catalog-invocation-membership"),
+            })
+        }),
     }]
 }
 struct InvocationCheck {
-    public: ChargedMap<Id<normalized::entities::PublicExposure>,Id<attribution::AnalysisContext>>,
-    members: ChargedMap<Id<CatalogMember>,Id<input::InputRevision>>,
-    exposures: ChargedMap<Id<CatalogExposure>,(Id<CatalogMember>,Id<normalized::entities::PublicExposure>)>,
-    invocations: ChargedMap<(Id<input::InputRevision>,Id<attribution::AnalysisContext>),Vec<Id<analysis::catalog_core::Invocation>>>,
-    links: crate::domain::charged::ChargedSet<(Id<CatalogMember>,Id<analysis::catalog_core::Invocation>)>,
+    public: ChargedMap<Id<normalized::entities::PublicExposure>, Id<attribution::AnalysisContext>>,
+    members: ChargedMap<Id<CatalogMember>, Id<input::InputRevision>>,
+    exposures: ChargedMap<
+        Id<CatalogExposure>,
+        (Id<CatalogMember>, Id<normalized::entities::PublicExposure>),
+    >,
+    invocations: ChargedMap<
+        (Id<input::InputRevision>, Id<attribution::AnalysisContext>),
+        Vec<Id<analysis::catalog_core::Invocation>>,
+    >,
+    links: crate::domain::charged::ChargedSet<(
+        Id<CatalogMember>,
+        Id<analysis::catalog_core::Invocation>,
+    )>,
     charge: StateCharge,
 }
 impl InvariantCheck for InvocationCheck {
-    fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
-        if relation==normalized::entities::PublicExposure::NAME {
-            for row in normalized::entities::PublicExposure::decode(batch)? {self.public.insert(&mut self.charge,row.id(),row.context)?;}
-        } else if relation==CatalogMember::NAME {
-            for row in CatalogMember::decode(batch)? {self.members.insert(&mut self.charge,row.id(),row.input)?;}
-        } else if relation==CatalogExposure::NAME {
-            for row in CatalogExposure::decode(batch)? {self.exposures.insert(&mut self.charge,row.id(),(row.member,row.exposure))?;}
-        } else if relation==analysis::catalog_core::Invocation::NAME {
-            for row in analysis::catalog_core::Invocation::decode(batch)? {self.invocations.update(&mut self.charge,(row.input,row.context),|ids|{if !ids.contains(&row.id()){ids.push(row.id());}})?;}
-        } else if relation==CatalogMemberInvocation::NAME {
-            for row in CatalogMemberInvocation::decode(batch)? {self.links.insert(&mut self.charge,(row.member,row.invocation))?;}
-        } else {return Err(invalid("undeclared catalog invocation input"));}
+    fn visit(
+        &mut self,
+        relation: &str,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        if relation == normalized::entities::PublicExposure::NAME {
+            for row in normalized::entities::PublicExposure::decode(batch)? {
+                self.public
+                    .insert(&mut self.charge, row.id(), row.context)?;
+            }
+        } else if relation == CatalogMember::NAME {
+            for row in CatalogMember::decode(batch)? {
+                self.members.insert(&mut self.charge, row.id(), row.input)?;
+            }
+        } else if relation == CatalogExposure::NAME {
+            for row in CatalogExposure::decode(batch)? {
+                self.exposures
+                    .insert(&mut self.charge, row.id(), (row.member, row.exposure))?;
+            }
+        } else if relation == analysis::catalog_core::Invocation::NAME {
+            for row in analysis::catalog_core::Invocation::decode(batch)? {
+                self.invocations
+                    .update(&mut self.charge, (row.input, row.context), |ids| {
+                        if !ids.contains(&row.id()) {
+                            ids.push(row.id());
+                        }
+                    })?;
+            }
+        } else if relation == CatalogMemberInvocation::NAME {
+            for row in CatalogMemberInvocation::decode(batch)? {
+                self.links
+                    .insert(&mut self.charge, (row.member, row.invocation))?;
+            }
+        } else {
+            return Err(invalid("undeclared catalog invocation input"));
+        }
         Ok(())
     }
-    fn finish(mut self:Box<Self>)->Result<(),ModelError>{
-        let mut expected=crate::domain::charged::ChargedSet::default();
-        for (member,exposure) in self.exposures.values() {
-            let input=*self.members.get(member).ok_or_else(||invalid("catalog invocation member absent"))?;
-            let context=*self.public.get(exposure).ok_or_else(||invalid("catalog invocation public exposure absent"))?;
-            let invocations=self.invocations.get(&(input,context)).ok_or_else(||invalid("catalog slot/context requires exactly one admitted computation"))?;
-            if invocations.len()!=1{return Err(invalid("catalog slot/context requires exactly one admitted computation"));}
-            expected.insert(&mut self.charge,(*member,invocations[0]))?;
+    fn finish(mut self: Box<Self>) -> Result<(), ModelError> {
+        let mut expected = crate::domain::charged::ChargedSet::default();
+        for (member, exposure) in self.exposures.values() {
+            let input = *self
+                .members
+                .get(member)
+                .ok_or_else(|| invalid("catalog invocation member absent"))?;
+            let context = *self
+                .public
+                .get(exposure)
+                .ok_or_else(|| invalid("catalog invocation public exposure absent"))?;
+            let invocations = self.invocations.get(&(input, context)).ok_or_else(|| {
+                invalid("catalog slot/context requires exactly one admitted computation")
+            })?;
+            if invocations.len() != 1 {
+                return Err(invalid(
+                    "catalog slot/context requires exactly one admitted computation",
+                ));
+            }
+            expected.insert(&mut self.charge, (*member, invocations[0]))?;
         }
-        if *expected!=*self.links {return Err(invalid("catalog invocation closure differs"));}
+        if *expected != *self.links {
+            return Err(invalid("catalog invocation closure differs"));
+        }
         Ok(())
     }
 }
@@ -925,27 +977,97 @@ pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> {
 #[cfg(test)]
 mod compact_invocation_controls {
     use super::*;
-    fn nominal<R>(byte:u8)->Id<R>{serde_json::from_value(serde_json::to_value([byte;16]).unwrap()).unwrap()}
-    fn invocation(input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>)->analysis::catalog_core::Invocation {
-        // Decode a real generated invocation shape rather than inventing a parallel DTO.
-        let (parameters,definition)=definition();
-        let sources=analysis::sources::CapturedSources::capture(stages::Profile::Catalog,[],&ResourceBudget::fixed(1<<20).unwrap()).unwrap();
-        let _=parameters;
-        analysis::catalog_core::Invocation::admitted(input,context,definition.id(),None,[],&sources,[],&ResourceBudget::fixed(1<<20).unwrap()).unwrap().0
+    fn nominal<R>(byte: u8) -> Id<R> {
+        serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
     }
-    fn feed<R:Record>(check:&mut dyn InvariantCheck,rows:&[R]){check.visit(R::NAME,&R::encode(rows).unwrap()).unwrap();}
+    fn invocation(
+        input: Id<input::InputRevision>,
+        context: Id<attribution::AnalysisContext>,
+    ) -> analysis::catalog_core::Invocation {
+        // Decode a real generated invocation shape rather than inventing a parallel DTO.
+        let (parameters, definition) = definition();
+        let sources = analysis::sources::CapturedSources::capture(
+            stages::Profile::Catalog,
+            [],
+            &ResourceBudget::fixed(1 << 20).unwrap(),
+        )
+        .unwrap();
+        let _ = parameters;
+        analysis::catalog_core::Invocation::admitted(
+            input,
+            context,
+            definition.id(),
+            None,
+            [],
+            &sources,
+            [],
+            &ResourceBudget::fixed(1 << 20).unwrap(),
+        )
+        .unwrap()
+        .0
+    }
+    fn feed<R: Record>(check: &mut dyn InvariantCheck, rows: &[R]) {
+        check.visit(R::NAME, &R::encode(rows).unwrap()).unwrap();
+    }
     #[test]
-    fn exact_catalog_frame_membership_drops_member_labels_and_refuses_foreign_link(){
-        let budget=ResourceBudget::fixed(64<<10).unwrap();
-        let public=PublicExposure{access:nominal(1),context:nominal(2),observation:nominal(3),origin:nominal(4),enumeration:None,publicity:PublicPathKnowledge::Unknown,status:ResolutionStatus::Unresolved,reason:EntityReason::MissingDeclaration};
-        let member=CatalogMember{input:nominal(5),access:public.access,path:vec!["x".repeat(1<<20)],name:"x".repeat(1<<20)};
-        let exposure=CatalogExposure{member:member.id(),exposure:public.id()};let valid=invocation(member.input,public.context);let foreign=invocation(nominal(6),public.context);
-        let invariant=invocation_invariants().pop().unwrap();
-        let mut check=(invariant.create)(&budget);
-        feed(check.as_mut(),&[public.clone()]);feed(check.as_mut(),&[member.clone()]);feed(check.as_mut(),&[exposure.clone()]);feed(check.as_mut(),&[valid.clone(),foreign.clone()]);feed(check.as_mut(),&[CatalogMemberInvocation{member:member.id(),invocation:valid.id()}]);
-        check.finish().unwrap();assert_eq!(budget.reserved(),0);
-        let mut check=(invariant.create)(&budget);
-        feed(check.as_mut(),&[public]);feed(check.as_mut(),&[member.clone()]);feed(check.as_mut(),&[exposure]);feed(check.as_mut(),&[valid,foreign.clone()]);feed(check.as_mut(),&[CatalogMemberInvocation{member:member.id(),invocation:foreign.id()}]);
-        assert!(check.finish().unwrap_err().to_string().contains("closure differs"));assert_eq!(budget.reserved(),0);
+    fn exact_catalog_frame_membership_drops_member_labels_and_refuses_foreign_link() {
+        let budget = ResourceBudget::fixed(64 << 10).unwrap();
+        let public = PublicExposure {
+            access: nominal(1),
+            context: nominal(2),
+            observation: nominal(3),
+            origin: nominal(4),
+            enumeration: None,
+            publicity: PublicPathKnowledge::Unknown,
+            status: ResolutionStatus::Unresolved,
+            reason: EntityReason::MissingDeclaration,
+        };
+        let member = CatalogMember {
+            input: nominal(5),
+            access: public.access,
+            path: vec!["x".repeat(1 << 20)],
+            name: "x".repeat(1 << 20),
+        };
+        let exposure = CatalogExposure {
+            member: member.id(),
+            exposure: public.id(),
+        };
+        let valid = invocation(member.input, public.context);
+        let foreign = invocation(nominal(6), public.context);
+        let invariant = invocation_invariants().pop().unwrap();
+        let mut check = (invariant.create)(&budget);
+        feed(check.as_mut(), &[public.clone()]);
+        feed(check.as_mut(), &[member.clone()]);
+        feed(check.as_mut(), &[exposure.clone()]);
+        feed(check.as_mut(), &[valid.clone(), foreign.clone()]);
+        feed(
+            check.as_mut(),
+            &[CatalogMemberInvocation {
+                member: member.id(),
+                invocation: valid.id(),
+            }],
+        );
+        check.finish().unwrap();
+        assert_eq!(budget.reserved(), 0);
+        let mut check = (invariant.create)(&budget);
+        feed(check.as_mut(), &[public]);
+        feed(check.as_mut(), &[member.clone()]);
+        feed(check.as_mut(), &[exposure]);
+        feed(check.as_mut(), &[valid, foreign.clone()]);
+        feed(
+            check.as_mut(),
+            &[CatalogMemberInvocation {
+                member: member.id(),
+                invocation: foreign.id(),
+            }],
+        );
+        assert!(
+            check
+                .finish()
+                .unwrap_err()
+                .to_string()
+                .contains("closure differs")
+        );
+        assert_eq!(budget.reserved(), 0);
     }
 }

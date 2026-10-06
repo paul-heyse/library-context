@@ -371,9 +371,10 @@ pub fn normalize(data: &BindingData, budget: &ResourceBudget) -> Result<BindingO
 }
 /// Produce bindings and their private application authority in the same owner operation.
 /// Only the compact authority survives after the scoped premises and emitted rows are dropped.
-pub fn normalize_prepared(data: &BindingData, budget: &ResourceBudget)
-    -> Result<(BindingOutput, VerifiedBindings), ModelError>
-{
+pub fn normalize_prepared(
+    data: &BindingData,
+    budget: &ResourceBudget,
+) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
     let receivers = receiver_proofs(data, budget)?;
     let events = event_proofs(data, budget)?;
     let output = normalize_with(data, &receivers, &events, budget)?;
@@ -383,26 +384,41 @@ pub fn normalize_prepared(data: &BindingData, budget: &ResourceBudget)
 }
 /// The owning compiler lends compact receiver/event admissions once for each complete event grain.
 /// No stored receiver or event assessment creates authority on this route.
-pub fn normalize_event_produced(data: &BindingData, selected: Id<NormalizedCallEvent>,
-    receivers: &super::receiver::VerifiedReceivers, events: &super::event_normalization::VerifiedEvents,
-    budget: &ResourceBudget) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
+pub fn normalize_event_produced(
+    data: &BindingData,
+    selected: Id<NormalizedCallEvent>,
+    receivers: &super::receiver::VerifiedReceivers,
+    events: &super::event_normalization::VerifiedEvents,
+    budget: &ResourceBudget,
+) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
     need(&data.event_events, selected)?;
-    if data.event_alternatives.iter().any(|alternative| alternative.event != selected) {
-        return Err(invalid("binding grain contains another event candidate domain"));
+    if data
+        .event_alternatives
+        .iter()
+        .any(|alternative| alternative.event != selected)
+    {
+        return Err(invalid(
+            "binding grain contains another event candidate domain",
+        ));
     }
     normalize_produced(data, receivers, events, budget)
 }
-pub fn normalize_produced(data: &BindingData,
-    receivers: &super::receiver::VerifiedReceivers, events: &super::event_normalization::VerifiedEvents,
-    budget: &ResourceBudget) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
+pub fn normalize_produced(
+    data: &BindingData,
+    receivers: &super::receiver::VerifiedReceivers,
+    events: &super::event_normalization::VerifiedEvents,
+    budget: &ResourceBudget,
+) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
     let output = normalize_with(data, receivers, events, budget)?;
     verify_enumerations(data, budget)?;
     let verified = admit(data, &output, receivers, events, budget)?;
     Ok((output, verified))
 }
 fn normalize_with(
-    data: &BindingData, receivers: &super::receiver::VerifiedReceivers,
-    events: &super::event_normalization::VerifiedEvents, budget: &ResourceBudget,
+    data: &BindingData,
+    receivers: &super::receiver::VerifiedReceivers,
+    events: &super::event_normalization::VerifiedEvents,
+    budget: &ResourceBudget,
 ) -> Result<BindingOutput, ModelError> {
     let index = Index::new(data, budget)?;
     let mut output = BindingOutput::new(budget);
@@ -909,58 +925,173 @@ impl HeapSize for CompositionAdmission {
 /// can include initializer alternatives that never produce an ordinary bound call.
 #[derive(Default)]
 struct EnumerationAuthority {
-    qualifications:ChargedMap<Id<crate::domain::assertion::AssertionQualification>,ContentHash>,
-    symbols:ChargedMap<Id<ProviderSymbol>,ContentHash>, signatures:ChargedMap<Id<Signature>,ContentHash>,
-    observations:ChargedMap<Id<SignatureEnumerationObservation>,(ContentHash,Id<ProviderSymbol>)>,
-    members:ChargedMap<Id<SignatureEnumerationMember>,ContentHash>,
-    member_counts:ChargedMap<Id<SignatureEnumerationObservation>,usize>,
-    symbol_counts:ChargedMap<Id<ProviderSymbol>,usize>,
+    qualifications: ChargedMap<Id<crate::domain::assertion::AssertionQualification>, ContentHash>,
+    symbols: ChargedMap<Id<ProviderSymbol>, ContentHash>,
+    signatures: ChargedMap<Id<Signature>, ContentHash>,
+    observations:
+        ChargedMap<Id<SignatureEnumerationObservation>, (ContentHash, Id<ProviderSymbol>)>,
+    members: ChargedMap<Id<SignatureEnumerationMember>, ContentHash>,
+    member_counts: ChargedMap<Id<SignatureEnumerationObservation>, usize>,
+    symbol_counts: ChargedMap<Id<ProviderSymbol>, usize>,
 }
 impl EnumerationAuthority {
-    fn capture(data:&BindingData,charge:&mut StateCharge)->Result<Self,ModelError> {
-        let mut result=Self::default();
+    fn capture(data: &BindingData, charge: &mut StateCharge) -> Result<Self, ModelError> {
+        let mut result = Self::default();
         for row in data.signature_enumerations.iter() {
-            result.observations.insert(charge,row.id(),(row.content_digest(),row.symbol))?;
-            let q=need(&data.qualifications,row.qualification)?;result.qualifications.insert(charge,q.id(),q.content_digest())?;
-            let symbol=need(&data.symbols,row.symbol)?;result.symbols.insert(charge,symbol.id(),symbol.content_digest())?;
-            result.member_counts.insert(charge,row.id(),0)?;result.symbol_counts.update(charge,row.symbol,|n|*n+=1)?;
+            result
+                .observations
+                .insert(charge, row.id(), (row.content_digest(), row.symbol))?;
+            let q = need(&data.qualifications, row.qualification)?;
+            result
+                .qualifications
+                .insert(charge, q.id(), q.content_digest())?;
+            let symbol = need(&data.symbols, row.symbol)?;
+            result
+                .symbols
+                .insert(charge, symbol.id(), symbol.content_digest())?;
+            result.member_counts.insert(charge, row.id(), 0)?;
+            result
+                .symbol_counts
+                .update(charge, row.symbol, |n| *n += 1)?;
         }
         for member in data.signature_enumeration_members.iter() {
-            result.members.insert(charge,member.id(),member.content_digest())?;result.member_counts.update(charge,member.enumeration,|n|*n+=1)?;
-            let signature=need(&data.signatures,member.signature)?;result.signatures.insert(charge,signature.id(),signature.content_digest())?;
-            let q=need(&data.qualifications,signature.qualification)?;result.qualifications.insert(charge,q.id(),q.content_digest())?;
-            let symbol=need(&data.symbols,signature.symbol)?;result.symbols.insert(charge,symbol.id(),symbol.content_digest())?;
+            result
+                .members
+                .insert(charge, member.id(), member.content_digest())?;
+            result
+                .member_counts
+                .update(charge, member.enumeration, |n| *n += 1)?;
+            let signature = need(&data.signatures, member.signature)?;
+            result
+                .signatures
+                .insert(charge, signature.id(), signature.content_digest())?;
+            let q = need(&data.qualifications, signature.qualification)?;
+            result
+                .qualifications
+                .insert(charge, q.id(), q.content_digest())?;
+            let symbol = need(&data.symbols, signature.symbol)?;
+            result
+                .symbols
+                .insert(charge, symbol.id(), symbol.content_digest())?;
         }
         Ok(result)
     }
-    fn append(&mut self,other:&mut Self,charge:&mut StateCharge,other_charge:&mut StateCharge)->Result<(),ModelError> {
-        macro_rules! join {($field:ident)=>{while let Some(key)=other.$field.keys().next().copied() {let value=other.$field.remove(other_charge,&key).expect("enumeration predecessor entry");if let Some(old)=self.$field.get(&key) {if old!=&value {return Err(ModelError::Conflict("enumeration predecessor changed"));}}else{self.$field.insert(charge,key,value)?;}}};}
-        join!(qualifications);join!(symbols);join!(signatures);join!(members);join!(member_counts);
-        while let Some(key)=other.observations.keys().next().copied() {
-            let value=other.observations.remove(other_charge,&key).expect("enumeration predecessor observation");
-            if let Some(old)=self.observations.get(&key) {if old!=&value {return Err(ModelError::Conflict("enumeration predecessor changed"));}}
-            else {self.observations.insert(charge,key,value)?;self.symbol_counts.update(charge,value.1,|n|*n+=1)?;}
+    fn append(
+        &mut self,
+        other: &mut Self,
+        charge: &mut StateCharge,
+        other_charge: &mut StateCharge,
+    ) -> Result<(), ModelError> {
+        macro_rules! join {
+            ($field:ident) => {
+                while let Some(key) = other.$field.keys().next().copied() {
+                    let value = other
+                        .$field
+                        .remove(other_charge, &key)
+                        .expect("enumeration predecessor entry");
+                    if let Some(old) = self.$field.get(&key) {
+                        if old != &value {
+                            return Err(ModelError::Conflict("enumeration predecessor changed"));
+                        }
+                    } else {
+                        self.$field.insert(charge, key, value)?;
+                    }
+                }
+            };
+        }
+        join!(qualifications);
+        join!(symbols);
+        join!(signatures);
+        join!(members);
+        join!(member_counts);
+        while let Some(key) = other.observations.keys().next().copied() {
+            let value = other
+                .observations
+                .remove(other_charge, &key)
+                .expect("enumeration predecessor observation");
+            if let Some(old) = self.observations.get(&key) {
+                if old != &value {
+                    return Err(ModelError::Conflict("enumeration predecessor changed"));
+                }
+            } else {
+                self.observations.insert(charge, key, value)?;
+                self.symbol_counts.update(charge, value.1, |n| *n += 1)?;
+            }
         }
         Ok(())
     }
-    fn require(&self,data:&BindingData,budget:&ResourceBudget)->Result<(),ModelError> {
-        fn row<R:Record>(index:&ChargedMap<Id<R>,ContentHash>,row:&R)->Result<(),ModelError> {if index.get(&row.id())!=Some(&row.content_digest()) {return Err(ModelError::Conflict("enumeration predecessor membership/content"));}Ok(())}
-        let count=data.signature_enumerations.len().checked_add(data.signature_enumeration_members.len()).ok_or_else(||invalid("enumeration predecessor allowance"))?;
-        let _scratch=budget.reserve("construction-enumeration-subset",count.checked_mul(256).ok_or_else(||invalid("enumeration predecessor allowance"))?)?;
-        let mut members=BTreeMap::<Id<SignatureEnumerationObservation>,usize>::new();let mut symbols=BTreeMap::<Id<ProviderSymbol>,usize>::new();
+    fn require(&self, data: &BindingData, budget: &ResourceBudget) -> Result<(), ModelError> {
+        fn row<R: Record>(
+            index: &ChargedMap<Id<R>, ContentHash>,
+            row: &R,
+        ) -> Result<(), ModelError> {
+            if index.get(&row.id()) != Some(&row.content_digest()) {
+                return Err(ModelError::Conflict(
+                    "enumeration predecessor membership/content",
+                ));
+            }
+            Ok(())
+        }
+        let count = data
+            .signature_enumerations
+            .len()
+            .checked_add(data.signature_enumeration_members.len())
+            .ok_or_else(|| invalid("enumeration predecessor allowance"))?;
+        let _scratch = budget.reserve(
+            "construction-enumeration-subset",
+            count
+                .checked_mul(256)
+                .ok_or_else(|| invalid("enumeration predecessor allowance"))?,
+        )?;
+        let mut members = BTreeMap::<Id<SignatureEnumerationObservation>, usize>::new();
+        let mut symbols = BTreeMap::<Id<ProviderSymbol>, usize>::new();
         for enumeration in data.signature_enumerations.iter() {
-            if self.observations.get(&enumeration.id()).map(|row|row.0)!=Some(enumeration.content_digest()) {return Err(ModelError::Conflict("enumeration predecessor membership/content"));}row(&self.qualifications,need(&data.qualifications,enumeration.qualification)?)?;row(&self.symbols,need(&data.symbols,enumeration.symbol)?)?;
-            members.insert(enumeration.id(),0);*symbols.entry(enumeration.symbol).or_default()+=1;
+            if self.observations.get(&enumeration.id()).map(|row| row.0)
+                != Some(enumeration.content_digest())
+            {
+                return Err(ModelError::Conflict(
+                    "enumeration predecessor membership/content",
+                ));
+            }
+            row(
+                &self.qualifications,
+                need(&data.qualifications, enumeration.qualification)?,
+            )?;
+            row(&self.symbols, need(&data.symbols, enumeration.symbol)?)?;
+            members.insert(enumeration.id(), 0);
+            *symbols.entry(enumeration.symbol).or_default() += 1;
         }
         for member in data.signature_enumeration_members.iter() {
-            row(&self.members,member)?;*members.get_mut(&member.enumeration).ok_or(ModelError::Conflict("constructor member has no enumeration"))?+=1;
-            let signature=need(&data.signatures,member.signature)?;row(&self.signatures,signature)?;row(&self.qualifications,need(&data.qualifications,signature.qualification)?)?;row(&self.symbols,need(&data.symbols,signature.symbol)?)?;
+            row(&self.members, member)?;
+            *members
+                .get_mut(&member.enumeration)
+                .ok_or(ModelError::Conflict(
+                    "constructor member has no enumeration",
+                ))? += 1;
+            let signature = need(&data.signatures, member.signature)?;
+            row(&self.signatures, signature)?;
+            row(
+                &self.qualifications,
+                need(&data.qualifications, signature.qualification)?,
+            )?;
+            row(&self.symbols, need(&data.symbols, signature.symbol)?)?;
         }
-        if members.iter().any(|(id,count)|self.member_counts.get(id)!=Some(count)) || symbols.iter().any(|(id,count)|self.symbol_counts.get(id)!=Some(count)) {return Err(ModelError::Conflict("constructor enumeration alternatives incomplete"));}Ok(())
+        if members
+            .iter()
+            .any(|(id, count)| self.member_counts.get(id) != Some(count))
+            || symbols
+                .iter()
+                .any(|(id, count)| self.symbol_counts.get(id) != Some(count))
+        {
+            return Err(ModelError::Conflict(
+                "constructor enumeration alternatives incomplete",
+            ));
+        }
+        Ok(())
     }
 }
 pub struct VerifiedBindings {
-    enumerations:EnumerationAuthority,
+    enumerations: EnumerationAuthority,
     bound: ChargedMap<Id<CallBindingAttempt>, ValidatedBoundCall>,
     shape: ChargedMap<Id<CallBindingAttempt>, BindingShapeAdmission>,
     source_shape: ChargedMap<Id<CallBindingAttempt>, SourceBindingShape>,
@@ -970,24 +1101,57 @@ pub struct VerifiedBindings {
 }
 impl VerifiedBindings {
     pub fn append(&mut self, mut other: Self) -> Result<(), ModelError> {
-        if !self._charge.budget().expect("owner budget").shares_pool(other._charge.budget().expect("owner budget")) {
+        if !self
+            ._charge
+            .budget()
+            .expect("owner budget")
+            .shares_pool(other._charge.budget().expect("owner budget"))
+        {
             return Err(ModelError::Conflict("binding authority budget"));
         }
-        macro_rules! join {($field:ident) => {{
-            while let Some(key) = other.$field.keys().next().copied() {
-                if self.$field.contains_key(&key) { return Err(ModelError::Conflict("binding authority domain")); }
-                let value = other.$field.remove(&mut other._charge, &key).expect("selected owner entry");
-                self.$field.insert(&mut self._charge, key, value)?;
-            }
-        }}; }
-        self.enumerations.append(&mut other.enumerations,&mut self._charge,&mut other._charge)?;
-        join!(bound); join!(shape); join!(source_shape); join!(effective); join!(composition);
+        macro_rules! join {
+            ($field:ident) => {{
+                while let Some(key) = other.$field.keys().next().copied() {
+                    if self.$field.contains_key(&key) {
+                        return Err(ModelError::Conflict("binding authority domain"));
+                    }
+                    let value = other
+                        .$field
+                        .remove(&mut other._charge, &key)
+                        .expect("selected owner entry");
+                    self.$field.insert(&mut self._charge, key, value)?;
+                }
+            }};
+        }
+        self.enumerations.append(
+            &mut other.enumerations,
+            &mut self._charge,
+            &mut other._charge,
+        )?;
+        join!(bound);
+        join!(shape);
+        join!(source_shape);
+        join!(effective);
+        join!(composition);
         Ok(())
     }
 
-    pub(crate) fn require_enumerations(&self,data:&BindingData,budget:&ResourceBudget)->Result<(),ModelError> {
-        if !self._charge.budget().expect("binding owner budget").shares_pool(budget) {return Err(ModelError::Conflict("constructor enumeration foreign budget"));}
-        self.enumerations.require(data,budget)
+    pub(crate) fn require_enumerations(
+        &self,
+        data: &BindingData,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        if !self
+            ._charge
+            .budget()
+            .expect("binding owner budget")
+            .shares_pool(budget)
+        {
+            return Err(ModelError::Conflict(
+                "constructor enumeration foreign budget",
+            ));
+        }
+        self.enumerations.require(data, budget)
     }
     pub fn bound(&self, attempt: Id<CallBindingAttempt>) -> Option<&ValidatedBoundCall> {
         self.bound.get(&attempt)
@@ -1022,16 +1186,32 @@ pub fn verify(
 /// Prepare the exact bound/shape/composition consumer authority over completed inputs. This
 /// checks applicability and the actual bound members without replaying any predecessor owner.
 /// The compiler additionally carries admission of immutable predecessor streams in its attempt.
-pub fn admit_event(data: &BindingData, stored: &BindingOutput, selected: Id<NormalizedCallEvent>, budget: &ResourceBudget) -> Result<(), ModelError> {
+pub fn admit_event(
+    data: &BindingData,
+    stored: &BindingOutput,
+    selected: Id<NormalizedCallEvent>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     need(&data.event_events, selected)?;
-    if data.event_alternatives.iter().any(|alternative| alternative.event != selected)
-        || stored.attempts.iter().any(|attempt| attempt.event != selected) {
-        return Err(invalid("binding admission grain contains another event root"));
+    if data
+        .event_alternatives
+        .iter()
+        .any(|alternative| alternative.event != selected)
+        || stored
+            .attempts
+            .iter()
+            .any(|attempt| attempt.event != selected)
+    {
+        return Err(invalid(
+            "binding admission grain contains another event root",
+        ));
     }
     prepare(data, stored, budget).map(|_| ())
 }
 pub fn prepare(
-    data: &BindingData, stored: &BindingOutput, budget: &ResourceBudget,
+    data: &BindingData,
+    stored: &BindingOutput,
+    budget: &ResourceBudget,
 ) -> Result<VerifiedBindings, ModelError> {
     verify_enumerations(data, budget)?;
     let events = event_proofs(data, budget)?;
@@ -1039,7 +1219,8 @@ pub fn prepare(
     admit(data, stored, &receivers, &events, budget)
 }
 fn admit(
-    data: &BindingData, stored: &BindingOutput,
+    data: &BindingData,
+    stored: &BindingOutput,
     receivers: &super::receiver::VerifiedReceivers,
     events: &super::event_normalization::VerifiedEvents,
     budget: &ResourceBudget,
@@ -1048,22 +1229,39 @@ fn admit(
     admit_attempt_domain(data, stored, &index)?;
     // Proven incompatibility can eliminate an alternative from a unique binding shape. It is
     // therefore an eligibility premise, not a stored status that may be trusted on its own.
-    for row in stored.attempts.iter().filter(|row| row.outcome == BindingOutcome::ProvenIncompatible) {
+    for row in stored
+        .attempts
+        .iter()
+        .filter(|row| row.outcome == BindingOutcome::ProvenIncompatible)
+    {
         let alternative = need(&data.event_alternatives, row.alternative)?;
-        let variant = need(&data.callable_variants, row.variant.ok_or_else(|| invalid("incompatible attempt has no signature variant"))?)?;
-        let syntax = need(&data.syntax, row.syntax.ok_or_else(|| invalid("incompatible attempt has no syntax"))?)?;
+        let variant = need(
+            &data.callable_variants,
+            row.variant
+                .ok_or_else(|| invalid("incompatible attempt has no signature variant"))?,
+        )?;
+        let syntax = need(
+            &data.syntax,
+            row.syntax
+                .ok_or_else(|| invalid("incompatible attempt has no syntax"))?,
+        )?;
         let application = application(data, alternative, variant, syntax, receivers, events)
             .map_err(|_| invalid("incompatible attempt has no applicable signature"))?;
         let mut work = StateCharge::new(budget, "incompatible-binding-admission");
         match bind_application(data, &index, &application, &mut work)? {
-            Err(failure) if failure.class == BindingFailureClass::ProvenIncompatible
-                && row.refusal == Some(failure.reason) => {},
-            _ => return Err(invalid("stored incompatibility does not eliminate an actual binding")),
+            Err(failure)
+                if failure.class == BindingFailureClass::ProvenIncompatible
+                    && row.refusal == Some(failure.reason) => {}
+            _ => {
+                return Err(invalid(
+                    "stored incompatibility does not eliminate an actual binding",
+                ));
+            }
         }
     }
     admit_set_predicates(data, stored, &index, budget)?;
     let mut result = VerifiedBindings {
-        enumerations:EnumerationAuthority::default(),
+        enumerations: EnumerationAuthority::default(),
         bound: Default::default(),
         shape: Default::default(),
         source_shape: Default::default(),
@@ -1071,7 +1269,7 @@ fn admit(
         composition: Default::default(),
         _charge: StateCharge::new(budget, "validated-bindings"),
     };
-    result.enumerations=EnumerationAuthority::capture(data,&mut result._charge)?;
+    result.enumerations = EnumerationAuthority::capture(data, &mut result._charge)?;
     let mut charge = StateCharge::new(budget, "composition-admission-index");
     let mut member_sets: ChargedMap<Id<CallBindingAttempt>, &BindingSetAssessment> =
         Default::default();
@@ -1104,29 +1302,62 @@ fn admit(
         let bound = bind_application(data, &index, &application, &mut work)?
             .map_err(|_| invalid("stored binding replay refused"))?;
         let target = original_target(data, alternative)?;
-        if row.policy != policy_revision() || row.event != alternative.event
+        if row.policy != policy_revision()
+            || row.event != alternative.event
             || row.receiver != target.receiver
             || row.receiver_assessment != receivers.get(target.id()).map(|proof| proof.assessment())
-            || row.dispatch_member != events.dispatch(alternative.id()).map(|proof| proof.member())
-            || row.effective != variant.assessment || row.adjustment != variant.adjustment
-            || row.reason != BindingReason::Bound || row.refusal.is_some()
-            || row.signature != Some(variant.signature) || row.arguments != Some(syntax.arguments)
-            || row.authority != application.authority() || row.authority_reason != application.reason()
+            || row.dispatch_member
+                != events
+                    .dispatch(alternative.id())
+                    .map(|proof| proof.member())
+            || row.effective != variant.assessment
+            || row.adjustment != variant.adjustment
+            || row.reason != BindingReason::Bound
+            || row.refusal.is_some()
+            || row.signature != Some(variant.signature)
+            || row.arguments != Some(syntax.arguments)
+            || row.authority != application.authority()
+            || row.authority_reason != application.reason()
             || row.bindings != digest(bound.bindings())
-        { return Err(invalid("stored bound invocation differs from applicable signature")); }
+        {
+            return Err(invalid(
+                "stored bound invocation differs from applicable signature",
+            ));
+        }
         let mut actual_count = 0;
         for (ordinal, binding) in bound.bindings().iter().enumerate() {
-            let slot = index.slots.get(&binding.formal).ok_or_else(|| invalid("bound formal has no slot"))?;
-            if slot.variant != variant.id() { return Err(invalid("bound formal slot crosses variant")); }
-            let member = CallBinding { attempt: row.id(), ordinal: ordinal as i64, slot: slot.id(),
-                source: binding.source.id(), kind: binding.kind, projection: binding.projection.id() };
+            let slot = index
+                .slots
+                .get(&binding.formal)
+                .ok_or_else(|| invalid("bound formal has no slot"))?;
+            if slot.variant != variant.id() {
+                return Err(invalid("bound formal slot crosses variant"));
+            }
+            let member = CallBinding {
+                attempt: row.id(),
+                ordinal: ordinal as i64,
+                slot: slot.id(),
+                source: binding.source.id(),
+                kind: binding.kind,
+                projection: binding.projection.id(),
+            };
             if stored.bindings.get(member.id()) != Some(&member)
                 || stored.sources.get(member.source) != Some(&binding.source)
                 || stored.projections.get(member.projection) != Some(&binding.projection)
-            { return Err(invalid("stored bound members differ from applicable argument shape")); }
+            {
+                return Err(invalid(
+                    "stored bound members differ from applicable argument shape",
+                ));
+            }
             actual_count += 1;
         }
-        if stored.bindings.iter().filter(|binding| binding.attempt == row.id()).count() != actual_count {
+        if stored
+            .bindings
+            .iter()
+            .filter(|binding| binding.attempt == row.id())
+            .count()
+            != actual_count
+        {
             return Err(invalid("stored bound invocation has extra members"));
         }
         result.bound.insert(
@@ -1342,38 +1573,78 @@ fn admit(
     }
     Ok(result)
 }
-fn admit_attempt_domain(data: &BindingData, stored: &BindingOutput, index: &Index<'_>) -> Result<(), ModelError> {
+fn admit_attempt_domain(
+    data: &BindingData,
+    stored: &BindingOutput,
+    index: &Index<'_>,
+) -> Result<(), ModelError> {
     for alternative in data.event_alternatives.iter() {
         let event = need(&data.event_events, alternative.event)?;
         let target = original_target(data, alternative)?;
         let variants = match alternative.entity.and_then(|id| data.refs.get(id)) {
-            Some(EntityRef::Callable { callable }) => index.variants.get(&(*callable, event.context)),
-            _ => need(&data.destinations, target.destination)?.symbol().and_then(|symbol| index.raw_variants.get(&symbol)),
+            Some(EntityRef::Callable { callable }) => {
+                index.variants.get(&(*callable, event.context))
+            }
+            _ => need(&data.destinations, target.destination)?
+                .symbol()
+                .and_then(|symbol| index.raw_variants.get(&symbol)),
         };
         let syntax = index.syntax.get(&(event.site, event.context));
-        let mut actual = stored.attempts.iter().filter(|attempt| attempt.alternative == alternative.id()).count();
+        let mut actual = stored
+            .attempts
+            .iter()
+            .filter(|attempt| attempt.alternative == alternative.id())
+            .count();
         for v in 0..variants.map_or(1, |rows| rows.len().max(1)) {
             for s in 0..syntax.map_or(1, |rows| rows.len().max(1)) {
                 let variant = variants.and_then(|rows| rows.get(v)).map(|row| row.id());
                 let syntax = syntax.and_then(|rows| rows.get(s)).map(|row| row.id());
-                let mut members = stored.attempts.iter().filter(|attempt| attempt.alternative == alternative.id()
-                    && attempt.variant == variant && attempt.syntax == syntax && attempt.policy == policy_revision());
-                let attempt = members.next().ok_or_else(|| invalid("binding input candidate pair has no required outcome"))?;
-                if members.next().is_some() || attempt.event != event.id() { return Err(invalid("binding attempt candidate domain changed")); }
-                actual = actual.checked_sub(1).ok_or_else(|| invalid("binding candidate domain duplicated"))?;
-                let mut memberships = stored.members.iter().filter(|member| member.attempt == attempt.id());
-                let membership = memberships.next().ok_or_else(|| invalid("binding attempt has no closed set membership"))?;
-                if memberships.next().is_some() { return Err(invalid("binding attempt has ambiguous set membership")); }
+                let mut members = stored.attempts.iter().filter(|attempt| {
+                    attempt.alternative == alternative.id()
+                        && attempt.variant == variant
+                        && attempt.syntax == syntax
+                        && attempt.policy == policy_revision()
+                });
+                let attempt = members.next().ok_or_else(|| {
+                    invalid("binding input candidate pair has no required outcome")
+                })?;
+                if members.next().is_some() || attempt.event != event.id() {
+                    return Err(invalid("binding attempt candidate domain changed"));
+                }
+                actual = actual
+                    .checked_sub(1)
+                    .ok_or_else(|| invalid("binding candidate domain duplicated"))?;
+                let mut memberships = stored
+                    .members
+                    .iter()
+                    .filter(|member| member.attempt == attempt.id());
+                let membership = memberships
+                    .next()
+                    .ok_or_else(|| invalid("binding attempt has no closed set membership"))?;
+                if memberships.next().is_some() {
+                    return Err(invalid("binding attempt has ambiguous set membership"));
+                }
                 let grouping = need(&stored.variants, membership.variant)?;
                 let set = need(&stored.sets, grouping.set)?;
-                if grouping.variant != variant || (set.event, set.entity, set.phase, set.channel)
-                    != (event.id(), alternative.entity, target.phase, target.channel)
-                { return Err(invalid("binding attempt is a member of another event/signature set")); }
+                if grouping.variant != variant
+                    || (set.event, set.entity, set.phase, set.channel)
+                        != (event.id(), alternative.entity, target.phase, target.channel)
+                {
+                    return Err(invalid(
+                        "binding attempt is a member of another event/signature set",
+                    ));
+                }
             }
         }
-        if actual != 0 { return Err(invalid("binding attempt exceeds the complete candidate domain")); }
+        if actual != 0 {
+            return Err(invalid(
+                "binding attempt exceeds the complete candidate domain",
+            ));
+        }
     }
-    for attempt in stored.attempts.iter() { need(&data.event_alternatives, attempt.alternative)?; }
+    for attempt in stored.attempts.iter() {
+        need(&data.event_alternatives, attempt.alternative)?;
+    }
     Ok(())
 }
 
@@ -1381,7 +1652,10 @@ fn admit_attempt_domain(data: &BindingData, stored: &BindingOutput, index: &Inde
 /// replay verifier checks production as a diagnostic; this checks the actual premises needed
 /// by a consumer and does not run predecessor normalization.
 fn admit_set_predicates(
-    data: &BindingData, stored: &BindingOutput, index: &Index<'_>, budget: &ResourceBudget,
+    data: &BindingData,
+    stored: &BindingOutput,
+    index: &Index<'_>,
+    budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     for set in stored.sets.iter() {
         let key = (set.event, set.entity, set.phase, set.channel);
@@ -1390,23 +1664,50 @@ fn admit_set_predicates(
         for attempt in stored.attempts.iter() {
             let alternative = need(&data.event_alternatives, attempt.alternative)?;
             let target = original_target(data, alternative)?;
-            if (alternative.event, alternative.entity, target.phase, target.channel) == key {
+            if (
+                alternative.event,
+                alternative.entity,
+                target.phase,
+                target.channel,
+            ) == key
+            {
                 charge.grow(size_of::<Id<CallBindingAttempt>>().saturating_mul(2))?;
                 ids.push(attempt.id());
             }
         }
-        if ids.is_empty() { return Err(invalid("binding set has no independently selected attempts")); }
+        if ids.is_empty() {
+            return Err(invalid(
+                "binding set has no independently selected attempts",
+            ));
+        }
         let mut expected = BindingOutput::new(budget);
-        for id in &ids { expected.attempts.insert(need(&stored.attempts, *id)?.clone())?; }
+        for id in &ids {
+            expected
+                .attempts
+                .insert(need(&stored.attempts, *id)?.clone())?;
+        }
         assess_set(data, index, key, &ids, &mut expected, budget)?;
-        if expected.sets.get(set.id()) != Some(set) { return Err(invalid("binding set eligibility changed")); }
-        macro_rules! check { ($field:ident, $belongs:expr) => {
-            if expected.$field.iter().any(|row| stored.$field.get(row.id()) != Some(row))
-                || stored.$field.iter().filter($belongs).count() != expected.$field.len()
-            { return Err(invalid("binding set closed member domain differs")); }
-        }; }
-        check!(variants, |row: &&BindingVariantAssessment| row.set == set.id());
-        check!(members, |row: &&BindingSetMember| stored.variants.get(row.variant).is_some_and(|variant| variant.set == set.id()));
+        if expected.sets.get(set.id()) != Some(set) {
+            return Err(invalid("binding set eligibility changed"));
+        }
+        macro_rules! check {
+            ($field:ident, $belongs:expr) => {
+                if expected
+                    .$field
+                    .iter()
+                    .any(|row| stored.$field.get(row.id()) != Some(row))
+                    || stored.$field.iter().filter($belongs).count() != expected.$field.len()
+                {
+                    return Err(invalid("binding set closed member domain differs"));
+                }
+            };
+        }
+        check!(variants, |row: &&BindingVariantAssessment| row.set
+            == set.id());
+        check!(members, |row: &&BindingSetMember| stored
+            .variants
+            .get(row.variant)
+            .is_some_and(|variant| variant.set == set.id()));
         check!(coverage, |row: &&BindingSetCoverage| row.set == set.id());
     }
     Ok(())
@@ -1776,31 +2077,36 @@ fn equivalent_shapes(
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = BindingData::validation_inputs();
     inputs.extend(BindingOutput::validation_inputs());
-    vec![Invariant {
-        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 1,
-        name: "normalized_binding_closure",
-        inputs: inputs.clone(),
-        create: std::sync::Arc::new(|budget| {
-            Box::new(BindingCheck {
-                data: BindingData::new(budget),
-                output: BindingOutput::new(budget),
-                budget: budget.clone(),
-                admission: false,
-            })
-        }),
-    }, Invariant {
-        purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
-        name: "normalized_binding_admission",
-        inputs,
-        create: std::sync::Arc::new(|budget| Box::new(BindingCheck {
-            data: BindingData::new(budget),
-            output: BindingOutput::new(budget),
-            budget: budget.clone(),
-            admission: true,
-        })),
-    }]
+    vec![
+        Invariant {
+            purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
+            revision: 1,
+            name: "normalized_binding_closure",
+            inputs: inputs.clone(),
+            create: std::sync::Arc::new(|budget| {
+                Box::new(BindingCheck {
+                    data: BindingData::new(budget),
+                    output: BindingOutput::new(budget),
+                    budget: budget.clone(),
+                    admission: false,
+                })
+            }),
+        },
+        Invariant {
+            purpose: crate::domain::InvariantPurpose::Admission,
+            revision: 1,
+            name: "normalized_binding_admission",
+            inputs,
+            create: std::sync::Arc::new(|budget| {
+                Box::new(BindingCheck {
+                    data: BindingData::new(budget),
+                    output: BindingOutput::new(budget),
+                    budget: budget.clone(),
+                    admission: true,
+                })
+            }),
+        },
+    ]
 }
 struct BindingCheck {
     data: BindingData,
@@ -1809,7 +2115,9 @@ struct BindingCheck {
     admission: bool,
 }
 impl InvariantCheck for BindingCheck {
-    fn normalization_scope(&self) -> Option<super::admission::Scope> { self.admission.then_some(super::admission::Scope::Bindings) }
+    fn normalization_scope(&self) -> Option<super::admission::Scope> {
+        self.admission.then_some(super::admission::Scope::Bindings)
+    }
     fn visit(
         &mut self,
         relation: &str,
@@ -1823,7 +2131,9 @@ impl InvariantCheck for BindingCheck {
     // The validation runner also checks all upstream invariants. Token minting above additionally
     // reconstructs upstream callable/event premises, rather than trusting caller-supplied flags.
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        if self.admission { return prepare(&self.data, &self.output, &self.budget).map(|_| ()); }
+        if self.admission {
+            return prepare(&self.data, &self.output, &self.budget).map(|_| ());
+        }
         self.output.matches(&normalize(&self.data, &self.budget)?)
     }
 }

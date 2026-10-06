@@ -164,11 +164,20 @@ pub struct VerifiedReceivers {
 }
 impl VerifiedReceivers {
     pub fn append(&mut self, other: Self) -> Result<(), ModelError> {
-        if !self._charge.budget().expect("owner budget").shares_pool(other._charge.budget().expect("owner budget")) {
+        if !self
+            ._charge
+            .budget()
+            .expect("owner budget")
+            .shares_pool(other._charge.budget().expect("owner budget"))
+        {
             return Err(ModelError::Conflict("receiver authority budget"));
         }
         for (target, proof) in other.proofs.iter() {
-            if self.proofs.get(target).is_some_and(|existing| existing.assessment != proof.assessment) {
+            if self
+                .proofs
+                .get(target)
+                .is_some_and(|existing| existing.assessment != proof.assessment)
+            {
                 return Err(ModelError::Conflict("receiver authority domain"));
             }
             self.proofs.insert(&mut self._charge, *target, *proof)?;
@@ -504,53 +513,60 @@ fn derive(
     })
 }
 /// Owner-produced compact admissions for the complete selected receiver candidate domain.
-fn collect_native_premises(data: &ReceiverData, target: &CallTarget, premises: &mut Vec<ReceiverPremise>) {
+fn collect_native_premises(
+    data: &ReceiverData,
+    target: &CallTarget,
+    premises: &mut Vec<ReceiverPremise>,
+) {
     for support in data
-            .target_supports
+        .target_supports
+        .iter()
+        .filter(|s| s.assertion == target.id())
+    {
+        premises.push(ReceiverPremise::Target {
+            support: support.id(),
+        });
+    }
+    for call in data.syntax.iter().filter(|s| {
+        s.site == target.site
+            && data
+                .qualifications
+                .get(s.qualification)
+                .zip(data.qualifications.get(target.qualification))
+                .is_some_and(|(cq, tq)| cq.context == tq.context)
+    }) {
+        for support in data
+            .syntax_supports
             .iter()
-            .filter(|s| s.assertion == target.id())
+            .filter(|s| s.assertion == call.id())
         {
-            premises.push(ReceiverPremise::Target {
+            premises.push(ReceiverPremise::Syntax {
                 support: support.id(),
             });
         }
-        for call in data.syntax.iter().filter(|s| {
-            s.site == target.site
-                && data
-                    .qualifications
-                    .get(s.qualification)
-                    .zip(data.qualifications.get(target.qualification))
-                    .is_some_and(|(cq, tq)| cq.context == tq.context)
-        }) {
+        for placement in data
+            .placements
+            .iter()
+            .filter(|p| p.parent == Some(call.callee) && p.field == lexical::SyntaxField::Value)
+        {
             for support in data
-                .syntax_supports
+                .placement_supports
                 .iter()
-                .filter(|s| s.assertion == call.id())
+                .filter(|s| s.assertion == placement.id())
             {
-                premises.push(ReceiverPremise::Syntax {
+                premises.push(ReceiverPremise::Placement {
                     support: support.id(),
                 });
             }
-            for placement in data
-                .placements
-                .iter()
-                .filter(|p| p.parent == Some(call.callee) && p.field == lexical::SyntaxField::Value)
-            {
-                for support in data
-                    .placement_supports
-                    .iter()
-                    .filter(|s| s.assertion == placement.id())
-                {
-                    premises.push(ReceiverPremise::Placement {
-                        support: support.id(),
-                    });
-                }
-            }
         }
+    }
 }
-pub fn normalize_produced(data: &ReceiverData, budget: &resources::ResourceBudget)
-    -> Result<(ReceiverOutput, VerifiedReceivers), ModelError>
-{ normalize_targets(data, None, budget) }
+pub fn normalize_produced(
+    data: &ReceiverData,
+    budget: &resources::ResourceBudget,
+) -> Result<(ReceiverOutput, VerifiedReceivers), ModelError> {
+    normalize_targets(data, None, budget)
+}
 pub fn normalize(
     data: &ReceiverData,
     budget: &resources::ResourceBudget,
@@ -560,24 +576,41 @@ pub fn normalize(
 /// Derive one complete target domain from its exact stored premises. Ancillary targets in a
 /// dependency closure do not become additional publication roots.
 pub fn normalize_target(
-    data: &ReceiverData, target: Id<CallTarget>, budget: &resources::ResourceBudget,
+    data: &ReceiverData,
+    target: Id<CallTarget>,
+    budget: &resources::ResourceBudget,
 ) -> Result<ReceiverOutput, ModelError> {
-    if data.targets.get(target).is_none() { return Err(ModelError::Invalid("receiver root target absent".into())); }
+    if data.targets.get(target).is_none() {
+        return Err(ModelError::Invalid("receiver root target absent".into()));
+    }
     Ok(normalize_target_produced(data, target, budget)?.0)
 }
 /// Capture the applicable receiver at the actual owning derivation, without a second prepare.
 pub fn normalize_target_produced(
-    data: &ReceiverData, target: Id<CallTarget>, budget: &resources::ResourceBudget,
+    data: &ReceiverData,
+    target: Id<CallTarget>,
+    budget: &resources::ResourceBudget,
 ) -> Result<(ReceiverOutput, VerifiedReceivers), ModelError> {
-    if data.targets.get(target).is_none() { return Err(ModelError::Invalid("receiver root target absent".into())); }
+    if data.targets.get(target).is_none() {
+        return Err(ModelError::Invalid("receiver root target absent".into()));
+    }
     normalize_targets(data, Some(target), budget)
 }
 fn normalize_targets(
-    data: &ReceiverData, selected: Option<Id<CallTarget>>, budget: &resources::ResourceBudget,
+    data: &ReceiverData,
+    selected: Option<Id<CallTarget>>,
+    budget: &resources::ResourceBudget,
 ) -> Result<(ReceiverOutput, VerifiedReceivers), ModelError> {
     let mut output = ReceiverOutput::new(budget);
-    let mut verified = VerifiedReceivers { proofs: Default::default(), _charge: StateCharge::new(budget, "produced-receivers") };
-    for target in data.targets.iter().filter(|t| selected.is_none_or(|selected| t.id() == selected) && candidates(data, t)) {
+    let mut verified = VerifiedReceivers {
+        proofs: Default::default(),
+        _charge: StateCharge::new(budget, "produced-receivers"),
+    };
+    for target in data
+        .targets
+        .iter()
+        .filter(|t| selected.is_none_or(|selected| t.id() == selected) && candidates(data, t))
+    {
         let mut held = StateCharge::new(budget, "receiver-premises");
         held.grow(
             (data.target_supports.len()
@@ -626,11 +659,29 @@ fn normalize_targets(
             },
             _ => unreachable!(),
         };
-        if let ReceiverAssessment::ClassOf { target, syntax, effective, actual, input, context, .. } = &assessment {
-            verified.proofs.insert(&mut verified._charge, *target, ApplicableReceiver {
-                assessment: assessment.id(), target: *target, syntax: *syntax, effective: *effective,
-                actual: *actual, input: *input, context: *context,
-            })?;
+        if let ReceiverAssessment::ClassOf {
+            target,
+            syntax,
+            effective,
+            actual,
+            input,
+            context,
+            ..
+        } = &assessment
+        {
+            verified.proofs.insert(
+                &mut verified._charge,
+                *target,
+                ApplicableReceiver {
+                    assessment: assessment.id(),
+                    target: *target,
+                    syntax: *syntax,
+                    effective: *effective,
+                    actual: *actual,
+                    input: *input,
+                    context: *context,
+                },
+            )?;
         }
         let assessment = output.receiver_assessments.insert(assessment)?;
         for premise in premises {
@@ -667,52 +718,149 @@ pub fn verify(
 
 /// Admit expression-relative receiver applicability from completed checked callable inputs.
 /// This checks the local receiver predicates without rerunning callable normalization.
-pub fn admit(data: &ReceiverData, stored: &ReceiverOutput, budget: &resources::ResourceBudget) -> Result<(), ModelError> {
+pub fn admit(
+    data: &ReceiverData,
+    stored: &ReceiverOutput,
+    budget: &resources::ResourceBudget,
+) -> Result<(), ModelError> {
     prepare(data, stored, budget).map(|_| ())
 }
 pub(super) fn prepare(
-    data: &ReceiverData, stored: &ReceiverOutput, budget: &resources::ResourceBudget,
+    data: &ReceiverData,
+    stored: &ReceiverOutput,
+    budget: &resources::ResourceBudget,
 ) -> Result<VerifiedReceivers, ModelError> {
     let mut result = VerifiedReceivers {
         proofs: Default::default(),
         _charge: StateCharge::new(budget, "verified-receivers"),
     };
     for row in stored.receiver_assessments.iter() {
-        if !data.targets.get(row.target()).is_some_and(|target| candidates(data, target)) {
-            return Err(ModelError::Invalid("receiver outcome exceeds independent candidate domain".into()));
+        if !data
+            .targets
+            .get(row.target())
+            .is_some_and(|target| candidates(data, target))
+        {
+            return Err(ModelError::Invalid(
+                "receiver outcome exceeds independent candidate domain".into(),
+            ));
         }
     }
-    for target in data.targets.iter().filter(|target| candidates(data, target)) {
-        let mut outcomes = stored.receiver_assessments.iter().filter(|assessment| assessment.target() == target.id());
-        let row = outcomes.next().ok_or_else(|| ModelError::Invalid("receiver candidate lacks required outcome".into()))?;
-        if outcomes.next().is_some() { return Err(ModelError::Invalid("receiver candidate has ambiguous outcome".into())); }
+    for target in data
+        .targets
+        .iter()
+        .filter(|target| candidates(data, target))
+    {
+        let mut outcomes = stored
+            .receiver_assessments
+            .iter()
+            .filter(|assessment| assessment.target() == target.id());
+        let row = outcomes.next().ok_or_else(|| {
+            ModelError::Invalid("receiver candidate lacks required outcome".into())
+        })?;
+        if outcomes.next().is_some() {
+            return Err(ModelError::Invalid(
+                "receiver candidate has ambiguous outcome".into(),
+            ));
+        }
         let mut charge = StateCharge::new(budget, "receiver-admission-source-members");
-        charge.grow((data.target_supports.len()+data.syntax_supports.len()+data.placement_supports.len()+data.coverage.len()).saturating_mul(256))?;
+        charge.grow(
+            (data.target_supports.len()
+                + data.syntax_supports.len()
+                + data.placement_supports.len()
+                + data.coverage.len())
+            .saturating_mul(256),
+        )?;
         let mut premises = Vec::new();
         collect_native_premises(data, target, &mut premises);
         let derived = derive(data, target, &mut premises);
-        premises.sort_by_key(Record::id); premises.dedup();
+        premises.sort_by_key(Record::id);
+        premises.dedup();
         let mut digest = KeySink::new("class-of-receiver-premises");
         for premise in &premises {
             premise.id().encode(&mut digest);
-            let evidence = ReceiverEvidence { assessment:row.id(), premise:premise.id() };
-            if stored.receiver_premises.get(premise.id()) != Some(premise) || stored.receiver_evidence.get(evidence.id()) != Some(&evidence) {
-                return Err(ModelError::Invalid("receiver source membership differs".into()));
+            let evidence = ReceiverEvidence {
+                assessment: row.id(),
+                premise: premise.id(),
+            };
+            if stored.receiver_premises.get(premise.id()) != Some(premise)
+                || stored.receiver_evidence.get(evidence.id()) != Some(&evidence)
+            {
+                return Err(ModelError::Invalid(
+                    "receiver source membership differs".into(),
+                ));
             }
         }
-        if stored.receiver_evidence.iter().filter(|evidence| evidence.assessment==row.id()).count() != premises.len() {
-            return Err(ModelError::Invalid("receiver source member domain differs".into()));
+        if stored
+            .receiver_evidence
+            .iter()
+            .filter(|evidence| evidence.assessment == row.id())
+            .count()
+            != premises.len()
+        {
+            return Err(ModelError::Invalid(
+                "receiver source member domain differs".into(),
+            ));
         }
         let expected_members = digest.finish();
         match (row, derived) {
-            (ReceiverAssessment::Unknown { policy, reason, members, .. }, Err(expected_reason))
-                if *policy == policy_revision() && *reason == expected_reason && *members == expected_members => {},
-            (ReceiverAssessment::ClassOf { target, syntax, effective, actual, input, context, policy, placement, members },
-                Ok(ReceiverAssessment::ClassOf { target:et, syntax:es, effective:ee, actual:ea, input:ei, context:ec, policy:ep, placement:eplace, .. }))
-                if (*target,*syntax,*effective,*actual,*input,*context,*policy,*placement,*members) == (et,es,ee,ea,ei,ec,ep,eplace,expected_members) => {
-                    result.proofs.insert(&mut result._charge, *target, ApplicableReceiver {assessment:row.id(), target:*target, syntax:*syntax, effective:*effective, actual:*actual, input:*input, context:*context})?;
+            (
+                ReceiverAssessment::Unknown {
+                    policy,
+                    reason,
+                    members,
+                    ..
                 },
-            _ => return Err(ModelError::Invalid("receiver applicability/source members differ from actual premises".into())),
+                Err(expected_reason),
+            ) if *policy == policy_revision()
+                && *reason == expected_reason
+                && *members == expected_members => {}
+            (
+                ReceiverAssessment::ClassOf {
+                    target,
+                    syntax,
+                    effective,
+                    actual,
+                    input,
+                    context,
+                    policy,
+                    placement,
+                    members,
+                },
+                Ok(ReceiverAssessment::ClassOf {
+                    target: et,
+                    syntax: es,
+                    effective: ee,
+                    actual: ea,
+                    input: ei,
+                    context: ec,
+                    policy: ep,
+                    placement: eplace,
+                    ..
+                }),
+            ) if (
+                *target, *syntax, *effective, *actual, *input, *context, *policy, *placement,
+                *members,
+            ) == (et, es, ee, ea, ei, ec, ep, eplace, expected_members) =>
+            {
+                result.proofs.insert(
+                    &mut result._charge,
+                    *target,
+                    ApplicableReceiver {
+                        assessment: row.id(),
+                        target: *target,
+                        syntax: *syntax,
+                        effective: *effective,
+                        actual: *actual,
+                        input: *input,
+                        context: *context,
+                    },
+                )?;
+            }
+            _ => {
+                return Err(ModelError::Invalid(
+                    "receiver applicability/source members differ from actual premises".into(),
+                ));
+            }
         }
     }
     Ok(result)
@@ -751,31 +899,36 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = ReceiverData::validation_inputs();
     inputs.extend(ReceiverOutput::validation_inputs());
-    vec![Invariant {
-        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 1,
-        name: "normalized_receiver_closure",
-        inputs: inputs.clone(),
-        create: std::sync::Arc::new(|budget| {
-            Box::new(Check {
-                input: ReceiverData::new(budget),
-                output: ReceiverOutput::new(budget),
-                budget: budget.clone(),
-                admission: false,
-            })
-        }),
-    }, Invariant {
-        purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
-        name: "normalized_receiver_admission",
-        inputs,
-        create: std::sync::Arc::new(|budget| Box::new(Check {
-            input: ReceiverData::new(budget),
-            output: ReceiverOutput::new(budget),
-            budget: budget.clone(),
-            admission: true,
-        })),
-    }]
+    vec![
+        Invariant {
+            purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
+            revision: 1,
+            name: "normalized_receiver_closure",
+            inputs: inputs.clone(),
+            create: std::sync::Arc::new(|budget| {
+                Box::new(Check {
+                    input: ReceiverData::new(budget),
+                    output: ReceiverOutput::new(budget),
+                    budget: budget.clone(),
+                    admission: false,
+                })
+            }),
+        },
+        Invariant {
+            purpose: crate::domain::InvariantPurpose::Admission,
+            revision: 1,
+            name: "normalized_receiver_admission",
+            inputs,
+            create: std::sync::Arc::new(|budget| {
+                Box::new(Check {
+                    input: ReceiverData::new(budget),
+                    output: ReceiverOutput::new(budget),
+                    budget: budget.clone(),
+                    admission: true,
+                })
+            }),
+        },
+    ]
 }
 struct Check {
     input: ReceiverData,
@@ -796,13 +949,18 @@ impl InvariantCheck for Check {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        if self.admission { return prepare(&self.input, &self.output, &self.budget).map(|_| ()); }
+        if self.admission {
+            return prepare(&self.input, &self.output, &self.budget).map(|_| ());
+        }
         verify(&self.input, &self.output, &self.budget).map(|_| ())
     }
 }
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {
-    vec!["normalized_receiver_closure", "normalized_receiver_admission"]
+    vec![
+        "normalized_receiver_closure",
+        "normalized_receiver_admission",
+    ]
 }
 
 #[cfg(test)]

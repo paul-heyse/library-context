@@ -24,8 +24,9 @@ pub struct Data {
     pub source: EvidenceData,
     pub evidence: c1::build::EvidenceOutput,
     pub facts: Facts,
-    verification_releases:charged::ChargedMap<Id<input::DistributionVerification>,Id<input::Release>>,
-    ownership_charge:charged::StateCharge,
+    verification_releases:
+        charged::ChargedMap<Id<input::DistributionVerification>, Id<input::Release>>,
+    ownership_charge: charged::StateCharge,
 }
 impl Data {
     pub fn new(b: &ResourceBudget) -> Self {
@@ -33,17 +34,41 @@ impl Data {
             source: EvidenceData::new(b),
             evidence: c1::build::EvidenceOutput::new(b),
             facts: Facts::new(b),
-            verification_releases:Default::default(),
-            ownership_charge:charged::StateCharge::new(b,"selection-distribution-ownership"),
+            verification_releases: Default::default(),
+            ownership_charge: charged::StateCharge::new(b, "selection-distribution-ownership"),
         }
     }
     pub fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
-        if n==input::DistributionVerification::NAME {
+        if n == input::DistributionVerification::NAME {
             use arrow_array::Array;
-            let ids=b.column_by_name("id").and_then(|array|array.as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>()).filter(|array|array.value_length()==16 && array.null_count()==0).ok_or(ModelError::Schema("selection distribution identity"))?;
-            let releases=b.column_by_name("release").and_then(|array|array.as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>()).filter(|array|array.value_length()==16 && array.null_count()==0).ok_or(ModelError::Schema("selection distribution release"))?;
-            fn id<T>(bytes:&[u8])->Result<Id<T>,ModelError>{serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(bytes.iter().copied())).map_err(ModelError::codec)}
-            for row in 0..b.num_rows(){self.insert_verification(id(ids.value(row))?,id(releases.value(row))?)?;}
+            let ids = b
+                .column_by_name("id")
+                .and_then(|array| {
+                    array
+                        .as_any()
+                        .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+                })
+                .filter(|array| array.value_length() == 16 && array.null_count() == 0)
+                .ok_or(ModelError::Schema("selection distribution identity"))?;
+            let releases = b
+                .column_by_name("release")
+                .and_then(|array| {
+                    array
+                        .as_any()
+                        .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+                })
+                .filter(|array| array.value_length() == 16 && array.null_count() == 0)
+                .ok_or(ModelError::Schema("selection distribution release"))?;
+            fn id<T>(bytes: &[u8]) -> Result<Id<T>, ModelError> {
+                serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                    _,
+                    serde::de::value::Error,
+                >::new(bytes.iter().copied()))
+                .map_err(ModelError::codec)
+            }
+            for row in 0..b.num_rows() {
+                self.insert_verification(id(ids.value(row))?, id(releases.value(row))?)?;
+            }
             return Ok(true);
         }
         // One nominal input may feed more than one projection (notably decorators).
@@ -53,13 +78,30 @@ impl Data {
         let facts = self.facts.visit(n, b)?;
         Ok(source || evidence || facts)
     }
-    fn insert_verification(&mut self,id:Id<input::DistributionVerification>,release:Id<input::Release>)->Result<(),ModelError>{
-        if self.verification_releases.get(&id).is_some_and(|old|*old!=release){return Err(ModelError::Conflict(input::DistributionVerification::NAME));}
-        self.verification_releases.insert(&mut self.ownership_charge,id,release)?;Ok(())
+    fn insert_verification(
+        &mut self,
+        id: Id<input::DistributionVerification>,
+        release: Id<input::Release>,
+    ) -> Result<(), ModelError> {
+        if self
+            .verification_releases
+            .get(&id)
+            .is_some_and(|old| *old != release)
+        {
+            return Err(ModelError::Conflict(input::DistributionVerification::NAME));
+        }
+        self.verification_releases
+            .insert(&mut self.ownership_charge, id, release)?;
+        Ok(())
     }
     /// The same compact ownership preparation for direct typed finite-oracle callers.
-    pub fn add_verification(&mut self,row:&input::DistributionVerification)->Result<Id<input::DistributionVerification>,ModelError>{
-        row.validate()?;self.insert_verification(row.id(),row.release)?;Ok(row.id())
+    pub fn add_verification(
+        &mut self,
+        row: &input::DistributionVerification,
+    ) -> Result<Id<input::DistributionVerification>, ModelError> {
+        row.validate()?;
+        self.insert_verification(row.id(), row.release)?;
+        Ok(row.id())
     }
     pub fn visit_input(
         &mut self,
@@ -81,10 +123,12 @@ impl Data {
         Self::inputs()
     }
     pub fn inputs() -> Vec<ValidationInput> {
-        let mut rows=crate::domain::normalized::facts_inputs(vec![
+        let mut rows = crate::domain::normalized::facts_inputs(vec![
             ValidationInput::of::<crate::domain::analysis::catalog_core::AnalysisCoverage>(&["id"]),
             ValidationInput::of::<crate::domain::analysis::catalog_core::Invocation>(&["id"]),
-            ValidationInput::of::<crate::domain::analysis::catalog_evidence::AnalysisCoverage>(&["id"]),
+            ValidationInput::of::<crate::domain::analysis::catalog_evidence::AnalysisCoverage>(&[
+                "id",
+            ]),
             ValidationInput::of::<crate::domain::analysis::catalog_evidence::Invocation>(&["id"]),
             ValidationInput::of::<crate::domain::assertion::AssertionQualification>(&["id"]),
             ValidationInput::of::<crate::domain::attribution::ProviderCoverage>(&["id"]),
@@ -100,7 +144,9 @@ impl Data {
             ValidationInput::of::<crate::domain::catalog::CatalogOptionSubject>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::CatalogPath>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::evidence::CatalogDeployment>(&["id"]),
-            ValidationInput::of::<crate::domain::catalog::evidence::ConstructorCandidateLink>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::ConstructorCandidateLink>(&[
+                "id",
+            ]),
             ValidationInput::of::<crate::domain::catalog::evidence::DocumentAssociation>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::evidence::FieldAccessAssessment>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::evidence::FieldLocationLink>(&["id"]),
@@ -112,28 +158,48 @@ impl Data {
             ValidationInput::of::<crate::domain::class_metadata::ClassMetadataSupport>(&["id"]),
             ValidationInput::of::<crate::domain::deployment::DeploymentObservation>(&["id"]),
             ValidationInput::of::<crate::domain::documents::DocumentMentionObservation>(&["id"]),
-            ValidationInput::of::<crate::domain::execution::summary_exceptions::SummaryExceptionOutcome>(&["id"]),
+            ValidationInput::of::<
+                crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
+            >(&["id"]),
             ValidationInput::of::<crate::domain::input::ArtifactOwnership>(&["id"]),
             ValidationInput::of::<crate::domain::input::DistributionVerification>(&["id"]),
             ValidationInput::of::<crate::domain::lexical::BindingObservation>(&["id"]),
             ValidationInput::of::<crate::domain::lexical::BindingSupport>(&["id"]),
             ValidationInput::of::<crate::domain::lexical::LexicalResolution>(&["id"]),
             ValidationInput::of::<crate::domain::lexical::ReferenceObservation>(&["id"]),
-            ValidationInput::of::<crate::domain::normalized::callables::EffectiveCallableAssessment>(&["id"]),
-            ValidationInput::of::<crate::domain::normalized::callables::SignatureReturnType>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::callables::EffectiveCallableAssessment>(
+                &["id"],
+            ),
+            ValidationInput::of::<crate::domain::normalized::callables::SignatureReturnType>(&[
+                "id",
+            ]),
             ValidationInput::of::<crate::domain::normalized::callables::SignatureSlot>(&["id"]),
-            ValidationInput::of::<crate::domain::normalized::callables::SignatureSlotEntity>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::callables::SignatureSlotEntity>(&[
+                "id",
+            ]),
             ValidationInput::of::<crate::domain::normalized::callables::SignatureSlotType>(&["id"]),
             ValidationInput::of::<crate::domain::normalized::callables::SignatureVariant>(&["id"]),
             ValidationInput::of::<crate::domain::normalized::entities::FieldEntity>(&["id"]),
             ValidationInput::of::<crate::domain::normalized::entities::ParameterEntity>(&["id"]),
-            ValidationInput::of::<crate::domain::normalized::entities::ParameterEntityLink>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::entities::ParameterEntityLink>(&[
+                "id",
+            ]),
             ValidationInput::of::<crate::domain::normalized::entities::PublicExposure>(&["id"]),
-            ValidationInput::of::<crate::domain::normalized::entities::SymbolEntityCandidate>(&["id"]),
-            ValidationInput::of::<crate::domain::normalized::links::MentionEntityAssessment>(&["id"]),
-            ValidationInput::of::<crate::domain::normalized::links::MentionEntityCandidate>(&["id"]),
-            ValidationInput::of::<crate::domain::normalized::links::ReferenceEntityAssessment>(&["id"]),
-            ValidationInput::of::<crate::domain::normalized::links::ReferenceEntityCandidate>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::entities::SymbolEntityCandidate>(&[
+                "id",
+            ]),
+            ValidationInput::of::<crate::domain::normalized::links::MentionEntityAssessment>(&[
+                "id",
+            ]),
+            ValidationInput::of::<crate::domain::normalized::links::MentionEntityCandidate>(&[
+                "id",
+            ]),
+            ValidationInput::of::<crate::domain::normalized::links::ReferenceEntityAssessment>(&[
+                "id",
+            ]),
+            ValidationInput::of::<crate::domain::normalized::links::ReferenceEntityCandidate>(&[
+                "id",
+            ]),
             ValidationInput::of::<crate::domain::normalized::links::ReferenceEntityTarget>(&["id"]),
             ValidationInput::of::<crate::domain::source::Module>(&["id"]),
             ValidationInput::of::<crate::domain::source::Occurrence>(&["id"]),
@@ -153,7 +219,9 @@ impl Data {
             ValidationInput::of::<crate::domain::normalized::entities::EntityRef>(&["id"]),
         ]);
         rows.extend(super::frames::Frames::inputs());
-        rows.sort_by_key(|input|(input.name(),input.prefix()));rows.dedup_by_key(|input|(input.name(),input.prefix()));rows
+        rows.sort_by_key(|input| (input.name(), input.prefix()));
+        rows.dedup_by_key(|input| (input.name(), input.prefix()));
+        rows
     }
 }
 macro_rules! outputs {($($f:ident:$ty:ty,)*)=>{pub struct Output {$(pub $f:Rows<$ty>,)*}impl Output {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}pub fn matches(&self,other:&Self)->Result<(),ModelError> {$(if !self.$f.same(&other.$f) {return Err(invalid(format!("selection declaration closure differs: {}",<$ty>::NAME)));})*Ok(())}}};}
@@ -236,16 +304,34 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
     Ok(out)
 }
 /// The complete declaration domain of one actual C0 member/context grain.
-pub fn member(d:&Data, member:Id<catalog::CatalogMember>, context:Id<attribution::AnalysisContext>, b:&ResourceBudget)->Result<Output,ModelError>{
-    let owner=need(&d.source.catalog.members,member)?;
-    if !d.source.facts.core_links.iter().any(|link|link.member==member && d.source.facts.core_invocations.get(link.invocation).is_some_and(|invocation|invocation.context==context && invocation.input==owner.input)) {
+pub fn member(
+    d: &Data,
+    member: Id<catalog::CatalogMember>,
+    context: Id<attribution::AnalysisContext>,
+    b: &ResourceBudget,
+) -> Result<Output, ModelError> {
+    let owner = need(&d.source.catalog.members, member)?;
+    if !d.source.facts.core_links.iter().any(|link| {
+        link.member == member
+            && d.source
+                .facts
+                .core_invocations
+                .get(link.invocation)
+                .is_some_and(|invocation| {
+                    invocation.context == context && invocation.input == owner.input
+                })
+    }) {
         return Err(invalid("selection member/context has no admitted C0 root"));
     }
-    domains(d, [(member,context)].iter(), b)
+    domains(d, [(member, context)].iter(), b)
 }
-fn domains<'a>(d:&Data, frames:impl Iterator<Item=&'a (Id<catalog::CatalogMember>,Id<attribution::AnalysisContext>)>, b:&ResourceBudget)->Result<Output,ModelError>{
-    let mut out=Output::new(b);
-    let mut charge=charged::StateCharge::new(b,"selection-declaration-domains");
+fn domains<'a>(
+    d: &Data,
+    frames: impl Iterator<Item = &'a (Id<catalog::CatalogMember>, Id<attribution::AnalysisContext>)>,
+    b: &ResourceBudget,
+) -> Result<Output, ModelError> {
+    let mut out = Output::new(b);
+    let mut charge = charged::StateCharge::new(b, "selection-declaration-domains");
     for (member_id, context) in frames {
         let member = need(&d.source.catalog.members, *member_id)?;
         let module = need(&d.source.core.modules, member.access)?;
@@ -724,7 +810,12 @@ fn domains<'a>(d:&Data, frames:impl Iterator<Item=&'a (Id<catalog::CatalogMember
                         .iter()
                         .filter(|r| r.artifact == module.source)
                     {
-                        let release = *d.verification_releases.get(&ownership.distribution).ok_or_else(||invalid("selection distribution release premise absent"))?;
+                        let release = *d
+                            .verification_releases
+                            .get(&ownership.distribution)
+                            .ok_or_else(|| {
+                                invalid("selection distribution release premise absent")
+                            })?;
                         for r in d
                             .evidence
                             .release_deployments
@@ -797,10 +888,12 @@ fn domains<'a>(d:&Data, frames:impl Iterator<Item=&'a (Id<catalog::CatalogMember
 }
 /// Located witnesses also have roots without public members. Scoped consumers call this
 /// kernel on each actual native observation/support closure; no member filter defines it.
-pub fn witnesses(d:&Data,b:&ResourceBudget)->Result<Output,ModelError>{
-    let mut out=Output::new(b);extend_witnesses(d,&mut out,b)?;Ok(out)
+pub fn witnesses(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
+    let mut out = Output::new(b);
+    extend_witnesses(d, &mut out, b)?;
+    Ok(out)
 }
-fn extend_witnesses(d:&Data,out:&mut Output,b:&ResourceBudget)->Result<(),ModelError>{
+fn extend_witnesses(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), ModelError> {
     // Request-time answers only reference persisted canonical witness rows. These rows
     // characterize available facts; context admission and truth remain evaluator decisions.
     // Later stages append vocabulary rows. Only qualifications referenced by these
@@ -911,34 +1004,55 @@ fn extend_witnesses(d:&Data,out:&mut Output,b:&ResourceBudget)->Result<(),ModelE
 /// Actual observation/support roots whose located witnesses exist without a catalog member.
 pub fn witness_roots() -> Vec<std::any::TypeId> {
     use std::any::TypeId;
-    vec![TypeId::of::<types::NativeSignatureObservation>(), TypeId::of::<types::GenericSpecializationObservation>(),
-        TypeId::of::<types::SignatureTypeObservation>(), TypeId::of::<types::TypeObservation>(),
-        TypeId::of::<attribution::ProviderCoverage>(), TypeId::of::<lexical::BindingSupport>(),
-        TypeId::of::<syntax::DeclarationSupport>(), TypeId::of::<class_metadata::ClassMetadataSupport>(),
-        TypeId::of::<types::NativeSignatureSupport>(), TypeId::of::<types::TypeSupport>(),
-        TypeId::of::<syntax::DeclarationDecoratorSupport>()]
+    vec![
+        TypeId::of::<types::NativeSignatureObservation>(),
+        TypeId::of::<types::GenericSpecializationObservation>(),
+        TypeId::of::<types::SignatureTypeObservation>(),
+        TypeId::of::<types::TypeObservation>(),
+        TypeId::of::<attribution::ProviderCoverage>(),
+        TypeId::of::<lexical::BindingSupport>(),
+        TypeId::of::<syntax::DeclarationSupport>(),
+        TypeId::of::<class_metadata::ClassMetadataSupport>(),
+        TypeId::of::<types::NativeSignatureSupport>(),
+        TypeId::of::<types::TypeSupport>(),
+        TypeId::of::<syntax::DeclarationDecoratorSupport>(),
+    ]
 }
 /// Complete inverse memberships read by the declaration-domain and located-witness kernels.
 /// Forward nominal premises remain ordinary references: a referenced member is not a new root.
 pub fn memberships() -> Vec<(std::any::TypeId, &'static str)> {
-    use std::any::TypeId;
-    use catalog::{*, evidence::*};
+    use catalog::{evidence::*, *};
     use normalized::{callables::*, links::*};
+    use std::any::TypeId;
     vec![
-        (TypeId::of::<CatalogExposure>(), "member"), (TypeId::of::<CatalogCandidate>(), "exposure"),
-        (TypeId::of::<CatalogCallable>(), "member"), (TypeId::of::<CatalogInvocation>(), "callable"),
-        (TypeId::of::<CatalogOption>(), "member"), (TypeId::of::<CatalogMemberInvocation>(), "member"),
-        (TypeId::of::<ScenarioAssociation>(), "member"), (TypeId::of::<ConstructorCandidateLink>(), "association"),
-        (TypeId::of::<DocumentAssociation>(), "member"), (TypeId::of::<FieldAccessAssessment>(), "option"),
-        (TypeId::of::<FieldLocationLink>(), "assessment"), (TypeId::of::<ScenarioSpan>(), "scenario"),
-        (TypeId::of::<SignatureSlot>(), "variant"), (TypeId::of::<SignatureSlotEntity>(), "slot"),
-        (TypeId::of::<SignatureSlotType>(), "slot"), (TypeId::of::<SignatureReturnType>(), "variant"),
+        (TypeId::of::<CatalogExposure>(), "member"),
+        (TypeId::of::<CatalogCandidate>(), "exposure"),
+        (TypeId::of::<CatalogCallable>(), "member"),
+        (TypeId::of::<CatalogInvocation>(), "callable"),
+        (TypeId::of::<CatalogOption>(), "member"),
+        (TypeId::of::<CatalogMemberInvocation>(), "member"),
+        (TypeId::of::<ScenarioAssociation>(), "member"),
+        (TypeId::of::<ConstructorCandidateLink>(), "association"),
+        (TypeId::of::<DocumentAssociation>(), "member"),
+        (TypeId::of::<FieldAccessAssessment>(), "option"),
+        (TypeId::of::<FieldLocationLink>(), "assessment"),
+        (TypeId::of::<ScenarioSpan>(), "scenario"),
+        (TypeId::of::<SignatureSlot>(), "variant"),
+        (TypeId::of::<SignatureSlotEntity>(), "slot"),
+        (TypeId::of::<SignatureSlotType>(), "slot"),
+        (TypeId::of::<SignatureReturnType>(), "variant"),
         (TypeId::of::<types::TypeObservation>(), "subject"),
-        (TypeId::of::<input::ArtifactOwnership>(), "artifact"), (TypeId::of::<ReleaseDeployment>(), "release"),
+        (TypeId::of::<input::ArtifactOwnership>(), "artifact"),
+        (TypeId::of::<ReleaseDeployment>(), "release"),
         (TypeId::of::<OriginalSource>(), "artifact_artifact"),
-        (TypeId::of::<source::CoverageScope>(), "artifact_artifact"), (TypeId::of::<attribution::ProviderCoverage>(), "scope"),
-        (TypeId::of::<execution::summary_exceptions::SummaryExceptionOutcome>(), "owner"),
-        (TypeId::of::<lexical::ReferenceObservation>(), "read"), (TypeId::of::<ReferenceEntityAssessment>(), "reference"),
+        (TypeId::of::<source::CoverageScope>(), "artifact_artifact"),
+        (TypeId::of::<attribution::ProviderCoverage>(), "scope"),
+        (
+            TypeId::of::<execution::summary_exceptions::SummaryExceptionOutcome>(),
+            "owner",
+        ),
+        (TypeId::of::<lexical::ReferenceObservation>(), "read"),
+        (TypeId::of::<ReferenceEntityAssessment>(), "reference"),
         (TypeId::of::<ReferenceEntityCandidate>(), "assessment"),
     ]
 }
@@ -1051,14 +1165,33 @@ pub(crate) fn invariants_refs() -> Vec<&'static str> {
 #[cfg(test)]
 mod compact_ownership_controls {
     use super::*;
-    fn id<R>(byte:u8)->Id<R>{serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([byte;16].into_iter())).unwrap()}
+    fn id<R>(byte: u8) -> Id<R> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([byte; 16].into_iter()))
+        .unwrap()
+    }
     #[test]
-    fn verification_projection_releases_unused_distribution_inventory(){
-        let budget=ResourceBudget::fixed(64<<10).unwrap();let mut data=Data::new(&budget);
-        let row=input::DistributionVerification{acquisition:id(1),release:id(2),record_digest:ContentHash::of(b"record"),artifact_sha256:(0..100_000).map(|index|format!("{index:064x}")).collect()};
-        row.validate().unwrap();let batch=input::DistributionVerification::encode(&[row.clone()]).unwrap();
-        data.visit(input::DistributionVerification::NAME,&batch).unwrap();
-        assert_eq!(data.verification_releases.get(&row.id()),Some(&row.release));assert!(data.source.facts.verifications.is_empty());
-        drop(data);assert_eq!(budget.reserved(),0);
+    fn verification_projection_releases_unused_distribution_inventory() {
+        let budget = ResourceBudget::fixed(64 << 10).unwrap();
+        let mut data = Data::new(&budget);
+        let row = input::DistributionVerification {
+            acquisition: id(1),
+            release: id(2),
+            record_digest: ContentHash::of(b"record"),
+            artifact_sha256: (0..100_000).map(|index| format!("{index:064x}")).collect(),
+        };
+        row.validate().unwrap();
+        let batch = input::DistributionVerification::encode(&[row.clone()]).unwrap();
+        data.visit(input::DistributionVerification::NAME, &batch)
+            .unwrap();
+        assert_eq!(
+            data.verification_releases.get(&row.id()),
+            Some(&row.release)
+        );
+        assert!(data.source.facts.verifications.is_empty());
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
     }
 }

@@ -23,9 +23,9 @@ pub async fn resolve(
         data.visit(name, batch)?;
     }
     let prepared = PreparedLibraryDomains::prepare(&data, budget)?;
-    let resolved = prepared
-        .resolve(name)
-        .map_err(|_| ModelError::Serving(lctx_model::domain::serving::FailureKind::UnknownLibrary))?;
+    let resolved = prepared.resolve(name).map_err(|_| {
+        ModelError::Serving(lctx_model::domain::serving::FailureKind::UnknownLibrary)
+    })?;
     Ok(resolved.metadata(budget)?.domains)
 }
 pub fn native_definitions() -> &'static str {

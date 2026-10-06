@@ -1,7 +1,7 @@
 //! Retained declaration metadata. Recognition never admits a body, signature or equivalence.
 use crate::domain::{
     calls::*,
-    declarations::{SymbolDeclaration,ParameterDeclaration},
+    declarations::{ParameterDeclaration, SymbolDeclaration},
     lexical::*,
     normalized::{Rows, callables::*, entities::*, links::*},
     resources::ResourceBudget,
@@ -717,12 +717,29 @@ fn accessor_evidence(
     }
     Ok(())
 }
-fn accessors(data: &AspectData, out: &mut AspectOutput, member: &EffectiveDecoratorMember, expression: Id<source::Occurrence>, context: Id<attribution::AnalysisContext>) -> Result<(), ModelError> {
-    accessor_evidence(data, |source, kind, related| emit(out, member.assessment, source, kind, Some(related)), member, expression, context)
+fn accessors(
+    data: &AspectData,
+    out: &mut AspectOutput,
+    member: &EffectiveDecoratorMember,
+    expression: Id<source::Occurrence>,
+    context: Id<attribution::AnalysisContext>,
+) -> Result<(), ModelError> {
+    accessor_evidence(
+        data,
+        |source, kind, related| emit(out, member.assessment, source, kind, Some(related)),
+        member,
+        expression,
+        context,
+    )
 }
 /// The admitted default classification for one actual field initializer. No output is minted by
 /// this predicate; production and import compare the same typed source ownership and policy.
-fn decorator_policy(data: &AspectData, target: &CallTarget, symbol: &ProviderSymbol, context: Id<attribution::AnalysisContext>) -> Result<(AspectKind, Option<Id<CallArgument>>, Option<Id<EntityRef>>), ModelError> {
+fn decorator_policy(
+    data: &AspectData,
+    target: &CallTarget,
+    symbol: &ProviderSymbol,
+    context: Id<attribution::AnalysisContext>,
+) -> Result<(AspectKind, Option<Id<CallArgument>>, Option<Id<EntityRef>>), ModelError> {
     let module = module_name(data, symbol);
     let mut argument = None;
     let mut linked = None;
@@ -739,14 +756,10 @@ fn decorator_policy(data: &AspectData, target: &CallTarget, symbol: &ProviderSym
         (Some("builtins"), "deleter") if property_receiver(data, target)? => {
             AspectKind::PropertyDeleter
         }
-        (Some("functools"), "cached_property")
-            if standard_library(data, symbol, "functools") =>
-        {
+        (Some("functools"), "cached_property") if standard_library(data, symbol, "functools") => {
             AspectKind::CachedProperty
         }
-        (Some("contextlib"), "contextmanager")
-            if standard_library(data, symbol, "contextlib") =>
-        {
+        (Some("contextlib"), "contextmanager") if standard_library(data, symbol, "contextlib") => {
             AspectKind::ContextManager
         }
         (Some("contextlib"), "asynccontextmanager")
@@ -757,9 +770,7 @@ fn decorator_policy(data: &AspectData, target: &CallTarget, symbol: &ProviderSym
         (Some("functools"), "wraps") if standard_library(data, symbol, "functools") => {
             for call in data.calls.iter().filter(|c| c.site == target.site) {
                 for arg in data.arguments.iter().filter(|a| {
-                    a.call == call.id()
-                        && a.ordinal == 0
-                        && a.kind == ArgumentKind::Positional
+                    a.call == call.id() && a.ordinal == 0 && a.kind == ArgumentKind::Positional
                 }) {
                     argument = Some(arg.id());
                     linked = related(data, arg, context)?;
@@ -782,7 +793,11 @@ fn decorator_policy(data: &AspectData, target: &CallTarget, symbol: &ProviderSym
     };
     Ok((kind, argument, linked))
 }
-fn field_default(data: &AspectData, field: &FieldDeclarationLink, budget: &ResourceBudget) -> Result<FieldDefault, ModelError> {
+fn field_default(
+    data: &AspectData,
+    field: &FieldDeclarationLink,
+    budget: &ResourceBudget,
+) -> Result<FieldDefault, ModelError> {
     let mut target_index = None;
     let syntax = need(&data.field_syntax, field.declaration)?;
     let q = need(&data.qualifications, syntax.qualification)?;
@@ -839,8 +854,7 @@ fn field_default(data: &AspectData, field: &FieldDeclarationLink, budget: &Resou
                 });
                 let explicit = explicits.next();
                 let single_explicit = explicits.next().is_none();
-                if let Some(argument) = factory.filter(|_| single_factory && explicit.is_none())
-                {
+                if let Some(argument) = factory.filter(|_| single_factory && explicit.is_none()) {
                     default = FieldDefault::Factory {
                         expression: argument.value,
                         target: target.id(),
@@ -852,9 +866,7 @@ fn field_default(data: &AspectData, field: &FieldDeclarationLink, budget: &Resou
                 {
                     let expression = argument.value;
                     default = FieldDefault::Expression { expression };
-                    for observation in
-                        data.details.iter().filter(|r| r.occurrence == expression)
-                    {
+                    for observation in data.details.iter().filter(|r| r.occurrence == expression) {
                         if exact(data, observation.qualification, q.context)?
                             && let SyntaxDetail::Literal { literal } =
                                 need(&data.detail_values, observation.detail)?
@@ -880,16 +892,28 @@ pub enum AspectKernel {
     Class(Id<DeclarationObservation>),
 }
 /// Scope execution selects one declared semantic owner. The whole normalizer is diagnostic only.
-pub fn normalize_scope(data: &AspectData, kernel: AspectKernel, budget: &ResourceBudget) -> Result<AspectOutput, ModelError> {
+pub fn normalize_scope(
+    data: &AspectData,
+    kernel: AspectKernel,
+    budget: &ResourceBudget,
+) -> Result<AspectOutput, ModelError> {
     normalize_kernel(data, Some(kernel), budget)
 }
 pub fn normalize(data: &AspectData, budget: &ResourceBudget) -> Result<AspectOutput, ModelError> {
     normalize_kernel(data, None, budget)
 }
-fn normalize_kernel(data: &AspectData, kernel: Option<AspectKernel>, budget: &ResourceBudget) -> Result<AspectOutput, ModelError> {
+fn normalize_kernel(
+    data: &AspectData,
+    kernel: Option<AspectKernel>,
+    budget: &ResourceBudget,
+) -> Result<AspectOutput, ModelError> {
     let mut out = AspectOutput::new(budget);
     let mut target_index = None;
-    for evidence in data.evidence.iter().filter(|row| kernel.is_none_or(|kernel| matches!(kernel, AspectKernel::Assessment(id) if id==row.assessment))) {
+    for evidence in data.evidence.iter().filter(|row| {
+        kernel.is_none_or(
+            |kernel| matches!(kernel, AspectKernel::Assessment(id) if id==row.assessment),
+        )
+    }) {
         let EffectiveCallablePremise::Traits { observation } =
             need(&data.premises, evidence.premise)?
         else {
@@ -914,7 +938,11 @@ fn normalize_kernel(data: &AspectData, kernel: Option<AspectKernel>, budget: &Re
             }
         }
     }
-    for member in data.members.iter().filter(|row| kernel.is_none_or(|kernel| matches!(kernel, AspectKernel::Assessment(id) if id==row.assessment))) {
+    for member in data.members.iter().filter(|row| {
+        kernel.is_none_or(
+            |kernel| matches!(kernel, AspectKernel::Assessment(id) if id==row.assessment),
+        )
+    }) {
         let assessment = need(&data.assessments, member.assessment)?;
         let decorator = need(&data.decorators, member.observation)?;
         let expression = root(data, decorator)?;
@@ -949,7 +977,8 @@ fn normalize_kernel(data: &AspectData, kernel: Option<AspectKernel>, budget: &Re
                 found = true;
                 continue;
             };
-            let (kind, argument, linked) = decorator_policy(data, target, symbol, assessment.context)?;
+            let (kind, argument, linked) =
+                decorator_policy(data, target, symbol, assessment.context)?;
             emit(
                 &mut out,
                 member.assessment,
@@ -980,79 +1009,153 @@ fn normalize_kernel(data: &AspectData, kernel: Option<AspectKernel>, budget: &Re
             )?;
         }
     }
-    for field in data.fields.iter().filter(|row| kernel.is_none_or(|kernel| match kernel {
-        AspectKernel::Field(id) => id==row.id(),
-        AspectKernel::Class(id) => data.declarations.get(id).zip(data.field_syntax.get(row.declaration)).is_some_and(|(class, field)| class.declaration==field.class),
-        AspectKernel::Assessment(_) => false,
-    })) {
+    for field in data.fields.iter().filter(|row| {
+        kernel.is_none_or(|kernel| match kernel {
+            AspectKernel::Field(id) => id == row.id(),
+            AspectKernel::Class(id) => data
+                .declarations
+                .get(id)
+                .zip(data.field_syntax.get(row.declaration))
+                .is_some_and(|(class, field)| class.declaration == field.class),
+            AspectKernel::Assessment(_) => false,
+        })
+    }) {
         let default = out.defaults.insert(field_default(data, field, budget)?)?;
-        out.fields.insert(FieldDefaultAssessment { declaration: field.id(), default })?;
+        out.fields.insert(FieldDefaultAssessment {
+            declaration: field.id(),
+            default,
+        })?;
     }
     match kernel {
         None => super::symbolic_fields::normalize(data, &mut out, budget)?,
-        Some(AspectKernel::Class(id)) => super::symbolic_fields::normalize_class(data, &mut out, id, budget)?,
-        _ => {},
+        Some(AspectKernel::Class(id)) => {
+            super::symbolic_fields::normalize_class(data, &mut out, id, budget)?
+        }
+        _ => {}
     }
     Ok(out)
 }
 /// Necessary source/owner agreement for an advertised callable metadata property. This never
 /// builds a producer output or infers a body/signature proof from a metadata classification.
-pub fn admit_aspect(data: &AspectData, sources: &Rows<AspectSource>, row: &CallableAspect) -> Result<(), ModelError> {
+pub fn admit_aspect(
+    data: &AspectData,
+    sources: &Rows<AspectSource>,
+    row: &CallableAspect,
+) -> Result<(), ModelError> {
     let assessment = need(&data.assessments, row.assessment)?;
     let source = need(sources, row.source)?;
-    if row.admission != AspectAdmission::MetadataOnly { return Err(invalid("callable aspect exceeds metadata admission")); }
+    if row.admission != AspectAdmission::MetadataOnly {
+        return Err(invalid("callable aspect exceeds metadata admission"));
+    }
     let agrees = match source {
-        AspectSource::Traits { evidence, observation } => {
+        AspectSource::Traits {
+            evidence,
+            observation,
+        } => {
             let evidence = need(&data.evidence, *evidence)?;
             let traits = need(&data.traits, *observation)?;
-            evidence.assessment==row.assessment
+            evidence.assessment == row.assessment
                 && matches!(need(&data.premises, evidence.premise)?, EffectiveCallablePremise::Traits { observation: owned } if owned==observation)
                 && row.related.is_none()
-                && match row.kind { AspectKind::PropertyGetter => traits.property_getter, AspectKind::PropertySetter => traits.property_setter, _ => false }
-        },
-        AspectSource::Decorator { member, target, resolution: stated, argument } => {
+                && match row.kind {
+                    AspectKind::PropertyGetter => traits.property_getter,
+                    AspectKind::PropertySetter => traits.property_setter,
+                    _ => false,
+                }
+        }
+        AspectSource::Decorator {
+            member,
+            target,
+            resolution: stated,
+            argument,
+        } => {
             let member = need(&data.members, *member)?;
-            if member.assessment!=row.assessment { return Err(invalid("callable aspect has a foreign assessment owner")); }
+            if member.assessment != row.assessment {
+                return Err(invalid("callable aspect has a foreign assessment owner"));
+            }
             let expression = root(data, need(&data.decorators, member.observation)?)?;
             if let Some(target) = target {
                 let target = need(&data.targets, *target)?;
-                if !same_span(data, target.site, expression)? || need(&data.qualifications,target.qualification)?.context!=assessment.context {
-                    return Err(invalid("callable aspect target crosses its decorator source/context"));
+                if !same_span(data, target.site, expression)?
+                    || need(&data.qualifications, target.qualification)?.context
+                        != assessment.context
+                {
+                    return Err(invalid(
+                        "callable aspect target crosses its decorator source/context",
+                    ));
                 }
                 match resolution(data, target, assessment.context)? {
-                    None => stated.is_none() && argument.is_none() && row.related.is_none() && row.kind==AspectKind::Unknown,
+                    None => {
+                        stated.is_none()
+                            && argument.is_none()
+                            && row.related.is_none()
+                            && row.kind == AspectKind::Unknown
+                    }
                     Some((symbol, resolved)) => {
-                        let (kind, expected_argument, related) = decorator_policy(data,target,symbol,assessment.context)?;
-                        *stated==Some(resolved.id()) && *argument==expected_argument && row.kind==kind && row.related==related
-                    },
+                        let (kind, expected_argument, related) =
+                            decorator_policy(data, target, symbol, assessment.context)?;
+                        *stated == Some(resolved.id())
+                            && *argument == expected_argument
+                            && row.kind == kind
+                            && row.related == related
+                    }
                 }
             } else {
                 let mut found = false;
                 for target in data.targets.iter() {
-                    if same_span(data,target.site,expression)? && need(&data.qualifications,target.qualification)?.context==assessment.context { found=true; }
+                    if same_span(data, target.site, expression)?
+                        && need(&data.qualifications, target.qualification)?.context
+                            == assessment.context
+                    {
+                        found = true;
+                    }
                 }
-                !found && stated.is_none() && argument.is_none() && row.related.is_none() && row.kind==AspectKind::Unknown
+                !found
+                    && stated.is_none()
+                    && argument.is_none()
+                    && row.related.is_none()
+                    && row.kind == AspectKind::Unknown
             }
-        },
+        }
         AspectSource::Accessor { member, .. } => {
             let member = need(&data.members, *member)?;
-            if member.assessment!=row.assessment { return Err(invalid("callable aspect has a foreign assessment owner")); }
-            let expression = root(data, need(&data.decorators,member.observation)?)?;
+            if member.assessment != row.assessment {
+                return Err(invalid("callable aspect has a foreign assessment owner"));
+            }
+            let expression = root(data, need(&data.decorators, member.observation)?)?;
             let mut found = false;
-            accessor_evidence(data, |candidate, kind, related| {
-                found |= &candidate==source && kind==row.kind && Some(related)==row.related;
-                Ok(())
-            }, member,expression,assessment.context)?;
+            accessor_evidence(
+                data,
+                |candidate, kind, related| {
+                    found |=
+                        &candidate == source && kind == row.kind && Some(related) == row.related;
+                    Ok(())
+                },
+                member,
+                expression,
+                assessment.context,
+            )?;
             found
-        },
+        }
     };
-    if !agrees { return Err(invalid("callable aspect property disagrees with its typed source")); }
+    if !agrees {
+        return Err(invalid(
+            "callable aspect property disagrees with its typed source",
+        ));
+    }
     Ok(())
 }
-pub fn admit_default(data: &AspectData, defaults: &Rows<FieldDefault>, row: &FieldDefaultAssessment, budget: &ResourceBudget) -> Result<(), ModelError> {
+pub fn admit_default(
+    data: &AspectData,
+    defaults: &Rows<FieldDefault>,
+    row: &FieldDefaultAssessment,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     let field = need(&data.fields, row.declaration)?;
-    if need(defaults,row.default)? != &field_default(data,field,budget)? {
-        return Err(invalid("field default does not belong to its typed initializer"));
+    if need(defaults, row.default)? != &field_default(data, field, budget)? {
+        return Err(invalid(
+            "field default does not belong to its typed initializer",
+        ));
     }
     Ok(())
 }
@@ -1072,76 +1175,208 @@ pub fn scoped_inputs() -> Vec<ValidationInput> {
     super::facts_inputs(AspectData::inputs())
 }
 fn binding<R: Record>() -> ValidationInput {
-    super::facts_inputs(vec![ValidationInput::of::<R>(&["id"])]).pop().expect("one aspect binding")
+    super::facts_inputs(vec![ValidationInput::of::<R>(&["id"])])
+        .pop()
+        .expect("one aspect binding")
 }
 pub fn aspect_scope() -> AspectScope {
     use super::symbolic_fields::*;
     AspectScope {
-        roots:[binding::<EffectiveCallableAssessment>(),binding::<FieldDeclarationLink>(),binding::<DeclarationObservation>()],
-        admission_roots:vec![binding::<CallableAspect>(),binding::<FieldDefaultAssessment>(),binding::<SourceFieldClass>(),binding::<SourceFieldStore>(),binding::<SourceFieldReader>(),binding::<SourceFieldAssociation>(),binding::<SourceFieldReaderLink>()],
-        memberships:vec![
-            (binding::<EffectiveCallableAssessment>(),"callable",binding::<CallableEntity>()),
-            (binding::<DeclarationObservation>(),"declaration",binding::<source::Occurrence>()),
-            (binding::<SymbolDeclaration>(),"symbol",binding::<ProviderSymbol>()),
-            (binding::<SymbolDeclaration>(),"declaration",binding::<source::Occurrence>()),
-            (binding::<FunctionTraitObservation>(),"symbol",binding::<ProviderSymbol>()),
-            (binding::<ClassTraitObservation>(),"symbol",binding::<ProviderSymbol>()),
-            (binding::<ClassAncestryObservation>(),"class",binding::<ProviderSymbol>()),
-            (binding::<types::RecordFieldObservation>(),"class",binding::<ProviderSymbol>()),
-            (binding::<Signature>(),"symbol",binding::<ProviderSymbol>()),
-            (binding::<types::NativeSignatureObservation>(),"signature",binding::<Signature>()),
-            (binding::<SignatureEnumerationObservation>(),"symbol",binding::<ProviderSymbol>()),
-            (binding::<EffectiveCallableEvidence>(),"assessment",binding::<EffectiveCallableAssessment>()),
-            (binding::<EffectiveDecoratorMember>(),"assessment",binding::<EffectiveCallableAssessment>()),
-            (binding::<CallableAspect>(),"assessment",binding::<EffectiveCallableAssessment>()),
-            (binding::<FieldDefaultAssessment>(),"declaration",binding::<FieldDeclarationLink>()),
-            (binding::<ReferenceEntityAssessment>(),"reference",binding::<ReferenceObservation>()),
-            (binding::<ReferenceEntityCandidate>(),"assessment",binding::<ReferenceEntityAssessment>()),
-            (binding::<SymbolEntityResolution>(),"symbol",binding::<ProviderSymbol>()),
-            (binding::<CallArgument>(),"call",binding::<CallSyntax>()),
-            (binding::<SignatureParameter>(),"signature",binding::<Signature>()),
-            (binding::<ParameterDeclaration>(),"parameter",binding::<SignatureParameter>()),
-            (binding::<SignatureEnumerationMember>(),"enumeration",binding::<SignatureEnumerationObservation>()),
-            (binding::<SymbolSequenceMember>(),"sequence",binding::<SymbolSequence>()),
-            (binding::<SourceFieldAssociation>(),"class",binding::<SourceFieldClass>()),
-            (binding::<SourceFieldReaderLink>(),"association",binding::<SourceFieldAssociation>()),
+        roots: [
+            binding::<EffectiveCallableAssessment>(),
+            binding::<FieldDeclarationLink>(),
+            binding::<DeclarationObservation>(),
+        ],
+        admission_roots: vec![
+            binding::<CallableAspect>(),
+            binding::<FieldDefaultAssessment>(),
+            binding::<SourceFieldClass>(),
+            binding::<SourceFieldStore>(),
+            binding::<SourceFieldReader>(),
+            binding::<SourceFieldAssociation>(),
+            binding::<SourceFieldReaderLink>(),
+        ],
+        memberships: vec![
+            (
+                binding::<EffectiveCallableAssessment>(),
+                "callable",
+                binding::<CallableEntity>(),
+            ),
+            (
+                binding::<DeclarationObservation>(),
+                "declaration",
+                binding::<source::Occurrence>(),
+            ),
+            (
+                binding::<SymbolDeclaration>(),
+                "symbol",
+                binding::<ProviderSymbol>(),
+            ),
+            (
+                binding::<SymbolDeclaration>(),
+                "declaration",
+                binding::<source::Occurrence>(),
+            ),
+            (
+                binding::<FunctionTraitObservation>(),
+                "symbol",
+                binding::<ProviderSymbol>(),
+            ),
+            (
+                binding::<ClassTraitObservation>(),
+                "symbol",
+                binding::<ProviderSymbol>(),
+            ),
+            (
+                binding::<ClassAncestryObservation>(),
+                "class",
+                binding::<ProviderSymbol>(),
+            ),
+            (
+                binding::<types::RecordFieldObservation>(),
+                "class",
+                binding::<ProviderSymbol>(),
+            ),
+            (
+                binding::<Signature>(),
+                "symbol",
+                binding::<ProviderSymbol>(),
+            ),
+            (
+                binding::<types::NativeSignatureObservation>(),
+                "signature",
+                binding::<Signature>(),
+            ),
+            (
+                binding::<SignatureEnumerationObservation>(),
+                "symbol",
+                binding::<ProviderSymbol>(),
+            ),
+            (
+                binding::<EffectiveCallableEvidence>(),
+                "assessment",
+                binding::<EffectiveCallableAssessment>(),
+            ),
+            (
+                binding::<EffectiveDecoratorMember>(),
+                "assessment",
+                binding::<EffectiveCallableAssessment>(),
+            ),
+            (
+                binding::<CallableAspect>(),
+                "assessment",
+                binding::<EffectiveCallableAssessment>(),
+            ),
+            (
+                binding::<FieldDefaultAssessment>(),
+                "declaration",
+                binding::<FieldDeclarationLink>(),
+            ),
+            (
+                binding::<ReferenceEntityAssessment>(),
+                "reference",
+                binding::<ReferenceObservation>(),
+            ),
+            (
+                binding::<ReferenceEntityCandidate>(),
+                "assessment",
+                binding::<ReferenceEntityAssessment>(),
+            ),
+            (
+                binding::<SymbolEntityResolution>(),
+                "symbol",
+                binding::<ProviderSymbol>(),
+            ),
+            (binding::<CallArgument>(), "call", binding::<CallSyntax>()),
+            (
+                binding::<SignatureParameter>(),
+                "signature",
+                binding::<Signature>(),
+            ),
+            (
+                binding::<ParameterDeclaration>(),
+                "parameter",
+                binding::<SignatureParameter>(),
+            ),
+            (
+                binding::<SignatureEnumerationMember>(),
+                "enumeration",
+                binding::<SignatureEnumerationObservation>(),
+            ),
+            (
+                binding::<SymbolSequenceMember>(),
+                "sequence",
+                binding::<SymbolSequence>(),
+            ),
+            (
+                binding::<SourceFieldAssociation>(),
+                "class",
+                binding::<SourceFieldClass>(),
+            ),
+            (
+                binding::<SourceFieldReaderLink>(),
+                "association",
+                binding::<SourceFieldAssociation>(),
+            ),
         ],
     }
 }
 struct AdmissionCheck {
-    data:AspectData, out:AspectOutput, budget:ResourceBudget,
+    data: AspectData,
+    out: AspectOutput,
+    budget: ResourceBudget,
 }
 impl InvariantCheck for AdmissionCheck {
-    fn aspect_scope(&self) -> Option<AspectScope> { Some(aspect_scope()) }
-    fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch) -> Result<(),ModelError> {
-        if !self.data.visit(name,batch)? && !self.out.visit(name,batch)? { return Err(invalid("undeclared callable metadata admission input")); }
+    fn aspect_scope(&self) -> Option<AspectScope> {
+        Some(aspect_scope())
+    }
+    fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        if !self.data.visit(name, batch)? && !self.out.visit(name, batch)? {
+            return Err(invalid("undeclared callable metadata admission input"));
+        }
         Ok(())
     }
-    fn finish(self:Box<Self>) -> Result<(),ModelError> {
-        for row in self.out.fields.iter() { admit_default(&self.data,&self.out.defaults,row,&self.budget)?; }
-        for row in self.out.aspects.iter() { admit_aspect(&self.data,&self.out.sources,row)?; }
-        super::symbolic_fields::admit(&self.data,&self.out,&self.budget)
+    fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        for row in self.out.fields.iter() {
+            admit_default(&self.data, &self.out.defaults, row, &self.budget)?;
+        }
+        for row in self.out.aspects.iter() {
+            admit_aspect(&self.data, &self.out.sources, row)?;
+        }
+        super::symbolic_fields::admit(&self.data, &self.out, &self.budget)
     }
 }
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = super::facts_inputs(AspectData::inputs());
     inputs.extend(AspectOutput::inputs());
-    vec![Invariant {
-        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 1,
-        name: "normalized_callable_aspects",
-        inputs:inputs.clone(),
-        create: std::sync::Arc::new(|budget| {
-            Box::new(Check {
-                data: AspectData::new(budget),
-                out: AspectOutput::new(budget),
-                budget: budget.clone(),
-            })
-        }),
-    }, Invariant {
-        purpose:InvariantPurpose::Admission, revision:1, name:"normalized_callable_metadata_admission", inputs,
-        create:std::sync::Arc::new(|budget| Box::new(AdmissionCheck { data:AspectData::new(budget),out:AspectOutput::new(budget),budget:budget.clone() })),
-    }]
+    vec![
+        Invariant {
+            purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
+            revision: 1,
+            name: "normalized_callable_aspects",
+            inputs: inputs.clone(),
+            create: std::sync::Arc::new(|budget| {
+                Box::new(Check {
+                    data: AspectData::new(budget),
+                    out: AspectOutput::new(budget),
+                    budget: budget.clone(),
+                })
+            }),
+        },
+        Invariant {
+            purpose: InvariantPurpose::Admission,
+            revision: 1,
+            name: "normalized_callable_metadata_admission",
+            inputs,
+            create: std::sync::Arc::new(|budget| {
+                Box::new(AdmissionCheck {
+                    data: AspectData::new(budget),
+                    out: AspectOutput::new(budget),
+                    budget: budget.clone(),
+                })
+            }),
+        },
+    ]
 }
 struct Check {
     data: AspectData,
@@ -1188,7 +1423,10 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
 }
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {
-    vec!["normalized_callable_aspects", "normalized_callable_metadata_admission"]
+    vec![
+        "normalized_callable_aspects",
+        "normalized_callable_metadata_admission",
+    ]
 }
 
 #[cfg(test)]
@@ -1314,71 +1552,255 @@ mod span_index_controls {
 #[cfg(test)]
 mod bounded_admission_controls {
     use super::*;
-    use crate::domain::{assertion::{Approximation,AssertionQualification},attribution::Modality,source::{Occurrence,OccurrenceRole,SyntaxKind}};
-    fn nominal<R>(byte:u8)->Id<R> {serde_json::from_value(serde_json::to_value([byte;16]).unwrap()).unwrap()}
-    pub(super) fn finite_fixture(budget:&ResourceBudget)->AspectData {
-        let mut data=AspectData::new(budget);
-        let occurrence=|start,end,kind|Occurrence {source:nominal(1),start,end,syntax_kind:kind,role:OccurrenceRole::Syntax,structural_path:if start==0{vec![0]}else{vec![0,start as i32]}};
-        let class=occurrence(0,8,SyntaxKind::StmtClassDef);let target=occurrence(1,2,SyntaxKind::ExprName);let value=occurrence(3,4,SyntaxKind::ExprName);
-        let qualification=AssertionQualification {context:nominal(2),scope:nominal(3),condition:conditions::Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact,assumptions:nominal(4)};
+    use crate::domain::{
+        assertion::{Approximation, AssertionQualification},
+        attribution::Modality,
+        source::{Occurrence, OccurrenceRole, SyntaxKind},
+    };
+    fn nominal<R>(byte: u8) -> Id<R> {
+        serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
+    }
+    pub(super) fn finite_fixture(budget: &ResourceBudget) -> AspectData {
+        let mut data = AspectData::new(budget);
+        let occurrence = |start, end, kind| Occurrence {
+            source: nominal(1),
+            start,
+            end,
+            syntax_kind: kind,
+            role: OccurrenceRole::Syntax,
+            structural_path: if start == 0 {
+                vec![0]
+            } else {
+                vec![0, start as i32]
+            },
+        };
+        let class = occurrence(0, 8, SyntaxKind::StmtClassDef);
+        let target = occurrence(1, 2, SyntaxKind::ExprName);
+        let value = occurrence(3, 4, SyntaxKind::ExprName);
+        let qualification = AssertionQualification {
+            context: nominal(2),
+            scope: nominal(3),
+            condition: conditions::Diagram::always().id(),
+            modality: Modality::Definite,
+            approximation: Approximation::Exact,
+            assumptions: nominal(4),
+        };
         data.qualifications.insert(qualification.clone()).unwrap();
-        for row in [&class,&target,&value] {data.occurrences.insert(row.clone()).unwrap();}
-        for (byte,value) in [(5,Some(value.id())),(6,None)] {
-            let syntax=ClassFieldSyntaxObservation {qualification:qualification.id(),class:class.id(),target:target.id(),annotation:Some(value.unwrap_or(target.id())),value};
+        for row in [&class, &target, &value] {
+            data.occurrences.insert(row.clone()).unwrap();
+        }
+        for (byte, value) in [(5, Some(value.id())), (6, None)] {
+            let syntax = ClassFieldSyntaxObservation {
+                qualification: qualification.id(),
+                class: class.id(),
+                target: target.id(),
+                annotation: Some(value.unwrap_or(target.id())),
+                value,
+            };
             data.field_syntax.insert(syntax.clone()).unwrap();
-            data.fields.insert(FieldDeclarationLink {field:nominal(byte),declaration:syntax.id(),binding:nominal(byte)}).unwrap();
+            data.fields
+                .insert(FieldDeclarationLink {
+                    field: nominal(byte),
+                    declaration: syntax.id(),
+                    binding: nominal(byte),
+                })
+                .unwrap();
         }
-        let callable=CallableEntity::Source {declaration:class.id(),kind:CallableKind::Function};
+        let callable = CallableEntity::Source {
+            declaration: class.id(),
+            kind: CallableKind::Function,
+        };
         data.callable_entities.insert(callable.clone()).unwrap();
-        for byte in [7,8] {
-            let assessment=EffectiveCallableAssessment {callable:callable.id(),context:qualification.context,decorators:ContentHash::of(&[byte]),policy:ContentHash::of(b"control"),identity:Knowledge::Unknown,identity_reason:CallableReason::UnsupportedDecorator,signatures:Knowledge::Unknown,signature_reason:CallableReason::MissingSignature,descriptor:Knowledge::Unknown,descriptor_kind:None,descriptor_reason:CallableReason::MissingTraits,body:Knowledge::Unknown,body_admitted:false,body_reason:CallableReason::BodyExcluded,asynchronous:None,generator:None};
+        for byte in [7, 8] {
+            let assessment = EffectiveCallableAssessment {
+                callable: callable.id(),
+                context: qualification.context,
+                decorators: ContentHash::of(&[byte]),
+                policy: ContentHash::of(b"control"),
+                identity: Knowledge::Unknown,
+                identity_reason: CallableReason::UnsupportedDecorator,
+                signatures: Knowledge::Unknown,
+                signature_reason: CallableReason::MissingSignature,
+                descriptor: Knowledge::Unknown,
+                descriptor_kind: None,
+                descriptor_reason: CallableReason::MissingTraits,
+                body: Knowledge::Unknown,
+                body_admitted: false,
+                body_reason: CallableReason::BodyExcluded,
+                asynchronous: None,
+                generator: None,
+            };
             data.assessments.insert(assessment.clone()).unwrap();
-            let decorator=DeclarationDecorator {qualification:qualification.id(),declaration:class.id(),decorator:value.id(),ordinal:0};
+            let decorator = DeclarationDecorator {
+                qualification: qualification.id(),
+                declaration: class.id(),
+                decorator: value.id(),
+                ordinal: 0,
+            };
             data.decorators.insert(decorator.clone()).unwrap();
-            data.members.insert(EffectiveDecoratorMember {assessment:assessment.id(),observation:decorator.id(),source_ordinal:0,application_ordinal:0}).unwrap();
+            data.members
+                .insert(EffectiveDecoratorMember {
+                    assessment: assessment.id(),
+                    observation: decorator.id(),
+                    source_ordinal: 0,
+                    application_ordinal: 0,
+                })
+                .unwrap();
         }
-        use crate::domain::{attribution::{ProviderRun,Origin,ExtractionMode,Fidelity},declarations::SymbolDeclarationSupport,syntax::DeclarationSupport,symbols::{ClassTraitObservation,ClassTraitSupport}};
-        let run=ProviderRun {provider:nominal(9),context:qualification.context,input:nominal(10),configuration:ContentHash::of(b"control"),requested_families:ContentHash::of(b"families")};
+        use crate::domain::{
+            attribution::{ExtractionMode, Fidelity, Origin, ProviderRun},
+            declarations::SymbolDeclarationSupport,
+            symbols::{ClassTraitObservation, ClassTraitSupport},
+            syntax::DeclarationSupport,
+        };
+        let run = ProviderRun {
+            provider: nominal(9),
+            context: qualification.context,
+            input: nominal(10),
+            configuration: ContentHash::of(b"control"),
+            requested_families: ContentHash::of(b"families"),
+        };
         data.symbolic_runs.insert(run.clone()).unwrap();
-        let symbol=ProviderSymbol {provider:run.provider,context:run.context,module:nominal(11),native_key:"C".into(),name:"C".into(),kind:SymbolKind::Class};
+        let symbol = ProviderSymbol {
+            provider: run.provider,
+            context: run.context,
+            module: nominal(11),
+            native_key: "C".into(),
+            name: "C".into(),
+            kind: SymbolKind::Class,
+        };
         data.symbols.insert(symbol.clone()).unwrap();
-        let declaration=DeclarationObservation {qualification:qualification.id(),declaration:class.id(),name:target.id(),kind:DeclarationKind::Class,parent:None,overload:false,docstring:None};
-        let symbol_declaration=SymbolDeclaration {qualification:qualification.id(),symbol:symbol.id(),declaration:class.id()};
-        let traits=ClassTraitObservation {qualification:qualification.id(),symbol:symbol.id(),synthesized:false,dataclass:false,named_tuple:false,typed_dict:false};
-        data.declarations.insert(declaration.clone()).unwrap();data.symbolic_symbol_declarations.insert(symbol_declaration.clone()).unwrap();data.symbolic_class_traits.insert(traits.clone()).unwrap();
-        macro_rules! support {($table:ident,$ty:ident,$id:expr)=>{data.$table.insert($ty {assertion:$id,run:run.id(),surface:nominal(12),evidence:nominal(13),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural}).unwrap();};}
-        support!(symbolic_declaration_supports,DeclarationSupport,declaration.id());support!(symbolic_symbol_supports,SymbolDeclarationSupport,symbol_declaration.id());support!(symbolic_class_supports,ClassTraitSupport,traits.id());
+        let declaration = DeclarationObservation {
+            qualification: qualification.id(),
+            declaration: class.id(),
+            name: target.id(),
+            kind: DeclarationKind::Class,
+            parent: None,
+            overload: false,
+            docstring: None,
+        };
+        let symbol_declaration = SymbolDeclaration {
+            qualification: qualification.id(),
+            symbol: symbol.id(),
+            declaration: class.id(),
+        };
+        let traits = ClassTraitObservation {
+            qualification: qualification.id(),
+            symbol: symbol.id(),
+            synthesized: false,
+            dataclass: false,
+            named_tuple: false,
+            typed_dict: false,
+        };
+        data.declarations.insert(declaration.clone()).unwrap();
+        data.symbolic_symbol_declarations
+            .insert(symbol_declaration.clone())
+            .unwrap();
+        data.symbolic_class_traits.insert(traits.clone()).unwrap();
+        macro_rules! support {
+            ($table:ident,$ty:ident,$id:expr) => {
+                data.$table
+                    .insert($ty {
+                        assertion: $id,
+                        run: run.id(),
+                        surface: nominal(12),
+                        evidence: nominal(13),
+                        origin: Origin::AnalyzerAssertion,
+                        mode: ExtractionMode::NativeTraversal,
+                        fidelity: Fidelity::NativeStructural,
+                    })
+                    .unwrap();
+            };
+        }
+        support!(
+            symbolic_declaration_supports,
+            DeclarationSupport,
+            declaration.id()
+        );
+        support!(
+            symbolic_symbol_supports,
+            SymbolDeclarationSupport,
+            symbol_declaration.id()
+        );
+        support!(symbolic_class_supports, ClassTraitSupport, traits.id());
         data
     }
     #[test]
     fn scoped_kernels_preserve_the_actual_whole_normalizer_oracle() {
-        let budget=ResourceBudget::fixed(4<<20).unwrap();let data=finite_fixture(&budget);
-        let expected=normalize(&data,&budget).unwrap();let mut actual=AspectOutput::new(&budget);
-        let kernels=data.assessments.iter().map(|r|AspectKernel::Assessment(r.id())).chain(data.fields.iter().map(|r|AspectKernel::Field(r.id()))).chain(data.declarations.iter().map(|r|AspectKernel::Class(r.id()))).collect::<Vec<_>>();
+        let budget = ResourceBudget::fixed(4 << 20).unwrap();
+        let data = finite_fixture(&budget);
+        let expected = normalize(&data, &budget).unwrap();
+        let mut actual = AspectOutput::new(&budget);
+        let kernels = data
+            .assessments
+            .iter()
+            .map(|r| AspectKernel::Assessment(r.id()))
+            .chain(data.fields.iter().map(|r| AspectKernel::Field(r.id())))
+            .chain(
+                data.declarations
+                    .iter()
+                    .map(|r| AspectKernel::Class(r.id())),
+            )
+            .collect::<Vec<_>>();
         for kernel in kernels {
-            let rows=normalize_scope(&data,kernel,&budget).unwrap();
+            let rows = normalize_scope(&data, kernel, &budget).unwrap();
             macro_rules! merge {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){actual.$field.insert(row.clone()).unwrap();})*};}
             crate::callable_aspect_outputs!(merge);
         }
-        actual.matches(&expected).unwrap();assert_eq!(actual.symbolic_classes.len(),1);super::super::symbolic_fields::admit(&data,&actual,&budget).unwrap();
-        for row in actual.fields.iter(){admit_default(&data,&actual.defaults,row,&budget).unwrap();}
-        for row in actual.aspects.iter(){admit_aspect(&data,&actual.sources,row).unwrap();}
-        drop(actual);drop(expected);drop(data);assert_eq!(budget.reserved(),0);
+        actual.matches(&expected).unwrap();
+        assert_eq!(actual.symbolic_classes.len(), 1);
+        super::super::symbolic_fields::admit(&data, &actual, &budget).unwrap();
+        for row in actual.fields.iter() {
+            admit_default(&data, &actual.defaults, row, &budget).unwrap();
+        }
+        for row in actual.aspects.iter() {
+            admit_aspect(&data, &actual.sources, row).unwrap();
+        }
+        drop(actual);
+        drop(expected);
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn redirected_existing_default_and_foreign_aspect_owner_are_refused() {
-        let budget=ResourceBudget::fixed(4<<20).unwrap();let data=finite_fixture(&budget);let out=normalize(&data,&budget).unwrap();
-        let absent=FieldDefault::Absent {}.id();
-        let mut field=out.fields.iter().find(|r|r.default!=absent).unwrap().clone();field.default=absent;
-        assert!(out.defaults.get(absent).is_some());assert!(admit_default(&data,&out.defaults,&field,&budget).is_err());
-        let mut aspect=out.aspects.iter().next().unwrap().clone();
-        aspect.assessment=data.assessments.iter().find(|r|r.id()!=aspect.assessment).unwrap().id();
-        assert!(admit_aspect(&data,&out.sources,&aspect).unwrap_err().to_string().contains("foreign assessment"));
-        aspect=out.aspects.iter().next().unwrap().clone();aspect.kind=AspectKind::FastMcpTool;
-        assert!(admit_aspect(&data,&out.sources,&aspect).is_err());
-        super::super::symbolic_fields::admit(&data,&out,&budget).unwrap();
-        let mut advertised=AspectOutput::new(&budget);let mut class=out.symbolic_classes.iter().next().unwrap().clone();class.supported_record=true;advertised.symbolic_classes.insert(class).unwrap();
-        assert!(super::super::symbolic_fields::admit(&data,&advertised,&budget).is_err());
-        drop(advertised);drop(out);drop(data);assert_eq!(budget.reserved(),0);
+        let budget = ResourceBudget::fixed(4 << 20).unwrap();
+        let data = finite_fixture(&budget);
+        let out = normalize(&data, &budget).unwrap();
+        let absent = FieldDefault::Absent {}.id();
+        let mut field = out
+            .fields
+            .iter()
+            .find(|r| r.default != absent)
+            .unwrap()
+            .clone();
+        field.default = absent;
+        assert!(out.defaults.get(absent).is_some());
+        assert!(admit_default(&data, &out.defaults, &field, &budget).is_err());
+        let mut aspect = out.aspects.iter().next().unwrap().clone();
+        aspect.assessment = data
+            .assessments
+            .iter()
+            .find(|r| r.id() != aspect.assessment)
+            .unwrap()
+            .id();
+        assert!(
+            admit_aspect(&data, &out.sources, &aspect)
+                .unwrap_err()
+                .to_string()
+                .contains("foreign assessment")
+        );
+        aspect = out.aspects.iter().next().unwrap().clone();
+        aspect.kind = AspectKind::FastMcpTool;
+        assert!(admit_aspect(&data, &out.sources, &aspect).is_err());
+        super::super::symbolic_fields::admit(&data, &out, &budget).unwrap();
+        let mut advertised = AspectOutput::new(&budget);
+        let mut class = out.symbolic_classes.iter().next().unwrap().clone();
+        class.supported_record = true;
+        advertised.symbolic_classes.insert(class).unwrap();
+        assert!(super::super::symbolic_fields::admit(&data, &advertised, &budget).is_err());
+        drop(advertised);
+        drop(out);
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
     }
 }

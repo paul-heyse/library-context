@@ -4,7 +4,7 @@ use lctx_model::domain::{
     ContentHash, ContentHasher, ModelError,
     graph::{Assertion, Entity, FamilyHasher, GraphFamily, Manifest, Target},
 };
-use surrealdb::types::{Bytes, RecordId, SurrealValue, Value, Variables, ToSql};
+use surrealdb::types::{Bytes, RecordId, SurrealValue, ToSql, Value, Variables};
 #[derive(SurrealValue)]
 #[surreal(crate = "surrealdb::types")]
 struct Node {
@@ -20,40 +20,100 @@ impl Loader {
         manifest.validate()?;
         let mut expected = crate::ordered_rows::SortedRows::new()?;
         let snapshot = lctx_model::domain::serving::SnapshotHandle {
-            semantic: manifest.content(), realization: ContentHash::of(b"private-reconciliation"),
+            semantic: manifest.content(),
+            realization: ContentHash::of(b"private-reconciliation"),
             database: lctx_model::domain::serving::DatabaseIdentity {
-                namespace: lctx_model::domain::serving::Name::new("private").map_err(ModelError::codec)?,
-                database: lctx_model::domain::serving::Name::new("private").map_err(ModelError::codec)?,
+                namespace: lctx_model::domain::serving::Name::new("private")
+                    .map_err(ModelError::codec)?,
+                database: lctx_model::domain::serving::Name::new("private")
+                    .map_err(ModelError::codec)?,
             },
         };
         let reader = crate::NativeReader::new(self.shared_client(), snapshot);
-        for (table, family) in [("entity", GraphFamily::Entities), ("assertion", GraphFamily::Assertions)] {
-            let mut rows = reader.query_stream(format!("SELECT * FROM {table} ORDER BY id"), Variables::new(), 1)?;
+        for (table, family) in [
+            ("entity", GraphFamily::Entities),
+            ("assertion", GraphFamily::Assertions),
+        ] {
+            let mut rows = reader.query_stream(
+                format!("SELECT * FROM {table} ORDER BY id"),
+                Variables::new(),
+                1,
+            )?;
             let mut hasher = FamilyHasher::new(family);
             while let Some(actual) = rows.next().await? {
-                let row = Node::from_value(actual.clone()).map_err(|_| ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))?;
-                let (key, content, kind, subtype, view, canonical) = if family == GraphFamily::Entities {
-                    let entity: Entity = serde_json::from_slice(&row.canonical).map_err(|_| ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))?;
+                let row = Node::from_value(actual.clone()).map_err(|_| {
+                    ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)
+                })?;
+                let (key, content, kind, subtype, view, canonical) = if family
+                    == GraphFamily::Entities
+                {
+                    let entity: Entity = serde_json::from_slice(&row.canonical).map_err(|_| {
+                        ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)
+                    })?;
                     entity.validate().map_err(crate::reader::canonical_error)?;
-                    for (position, reference) in codec::entity_references(&entity).into_iter().enumerate() {
+                    for (position, reference) in
+                        codec::entity_references(&entity).into_iter().enumerate()
+                    {
                         let target = lctx_model::domain::graph::reference_target(&reference)?.0;
                         remember_external(&mut expected, &target)?;
-                        expected.push(crate::loader::edge("reference", row.id.clone(), target, reference.field, 0, Some(position as u32))?)?;
+                        expected.push(crate::loader::edge(
+                            "reference",
+                            row.id.clone(),
+                            target,
+                            reference.field,
+                            0,
+                            Some(position as u32),
+                        )?)?;
                     }
-                    (entity.id().0, entity.content(), entity.kind() as i64, entity.subtype(), codec::entity_view(&entity)?, serde_json::to_vec(&entity).map_err(ModelError::codec)?)
+                    (
+                        entity.id().0,
+                        entity.content(),
+                        entity.kind() as i64,
+                        entity.subtype(),
+                        codec::entity_view(&entity)?,
+                        serde_json::to_vec(&entity).map_err(ModelError::codec)?,
+                    )
                 } else {
-                    let assertion: Assertion = serde_json::from_slice(&row.canonical).map_err(|_| ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))?;
-                    assertion.validate().map_err(crate::reader::canonical_error)?;
+                    let assertion: Assertion =
+                        serde_json::from_slice(&row.canonical).map_err(|_| {
+                            ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)
+                        })?;
+                    assertion
+                        .validate()
+                        .map_err(crate::reader::canonical_error)?;
                     for p in &assertion.participants {
                         remember_external(&mut expected, &p.target)?;
-                        expected.push(crate::loader::edge("participant", row.id.clone(), p.target.clone(), p.field.as_deref().unwrap_or(""), p.role as i64, p.position)?)?;
+                        expected.push(crate::loader::edge(
+                            "participant",
+                            row.id.clone(),
+                            p.target.clone(),
+                            p.field.as_deref().unwrap_or(""),
+                            p.role as i64,
+                            p.position,
+                        )?)?;
                     }
                     for (position, (target, _)) in assertion.references()?.into_iter().enumerate() {
-                        if assertion.participants.iter().any(|p| p.target == target) { continue; }
+                        if assertion.participants.iter().any(|p| p.target == target) {
+                            continue;
+                        }
                         remember_external(&mut expected, &target)?;
-                        expected.push(crate::loader::edge("participant", row.id.clone(), target, "__reference", -1, Some(position as u32))?)?;
+                        expected.push(crate::loader::edge(
+                            "participant",
+                            row.id.clone(),
+                            target,
+                            "__reference",
+                            -1,
+                            Some(position as u32),
+                        )?)?;
                     }
-                    (assertion.id().0, assertion.content(), assertion.kind as i64, None, codec::assertion_view(&assertion)?, serde_json::to_vec(&assertion).map_err(ModelError::codec)?)
+                    (
+                        assertion.id().0,
+                        assertion.content(),
+                        assertion.kind as i64,
+                        None,
+                        codec::assertion_view(&assertion)?,
+                        serde_json::to_vec(&assertion).map_err(ModelError::codec)?,
+                    )
                 };
                 let mut physical = surrealdb::types::Object::new();
                 physical.insert("id", RecordId::new(table, key.hex()));
@@ -66,12 +126,24 @@ impl Loader {
                 let body = json_value(view.body)?;
                 add_scope_fields(&mut physical, &body, &view.semantic_type)?;
                 physical.insert("body", body);
-                if serde_json::to_vec(&actual).map_err(ModelError::codec)? != serde_json::to_vec(&Value::Object(physical)).map_err(ModelError::codec)? {
-                    return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt));
+                if serde_json::to_vec(&actual).map_err(ModelError::codec)?
+                    != serde_json::to_vec(&Value::Object(physical)).map_err(ModelError::codec)?
+                {
+                    return Err(ModelError::Serving(
+                        lctx_model::domain::serving::FailureKind::Corrupt,
+                    ));
                 }
-                if !hasher.push(key, content)? { return Err(ModelError::Conflict("duplicate native canonical graph element")); }
+                if !hasher.push(key, content)? {
+                    return Err(ModelError::Conflict(
+                        "duplicate native canonical graph element",
+                    ));
+                }
             }
-            if !manifest.families.contains(&hasher.finish()) { return Err(ModelError::Conflict("native canonical family reconciliation")); }
+            if !manifest.families.contains(&hasher.finish()) {
+                return Err(ModelError::Conflict(
+                    "native canonical family reconciliation",
+                ));
+            }
         }
         let mut actual = reader.query_stream("SELECT * FROM external ORDER BY id; SELECT * FROM participant ORDER BY id; SELECT * FROM reference ORDER BY id", Variables::new(), 3)?;
         expected.finish()?.reconcile(&mut actual).await?;
@@ -193,27 +265,47 @@ impl crate::NativeReader {
     }
 }
 
-fn remember_external(rows: &mut crate::ordered_rows::SortedRows, target: &Target) -> Result<(), ModelError> {
+fn remember_external(
+    rows: &mut crate::ordered_rows::SortedRows,
+    target: &Target,
+) -> Result<(), ModelError> {
     if matches!(target, Target::External { .. }) {
         let mut row = surrealdb::types::Object::new();
         row.insert("id", crate::reader::target_id(target.clone()));
-        row.insert("canonical", Bytes::from(serde_json::to_vec(target).map_err(ModelError::codec)?));
+        row.insert(
+            "canonical",
+            Bytes::from(serde_json::to_vec(target).map_err(ModelError::codec)?),
+        );
         rows.push(Value::Object(row))?;
     }
     Ok(())
 }
 /// The schema's persisted <string> lowering, derived from canonical fields, including NULL.
 pub fn scope_string(value: &Value) -> String {
-    match value { Value::String(value) => value.clone(), other => other.to_sql() }
+    match value {
+        Value::String(value) => value.clone(),
+        other => other.to_sql(),
+    }
 }
-pub fn add_scope_fields(object: &mut surrealdb::types::Object, body: &Value, semantic_type: &str) -> Result<(), ModelError> {
-    let Value::Object(body) = body else { return Err(ModelError::Schema("canonical scope body")); };
+pub fn add_scope_fields(
+    object: &mut surrealdb::types::Object,
+    body: &Value,
+    semantic_type: &str,
+) -> Result<(), ModelError> {
+    let Value::Object(body) = body else {
+        return Err(ModelError::Schema("canonical scope body"));
+    };
     let mut keys = Vec::new();
     for field in crate::schema::SCOPE_FIELDS {
-        if let Some(value) = body.get(*field).filter(|value| !matches!(value, Value::None)) {
+        if let Some(value) = body
+            .get(*field)
+            .filter(|value| !matches!(value, Value::None))
+        {
             let text = scope_string(value);
             object.insert(format!("scope_{field}"), text.clone());
-            if !matches!(value, Value::Null) { keys.push(format!("{semantic_type}|{field}|{text}")); }
+            if !matches!(value, Value::Null) {
+                keys.push(format!("{semantic_type}|{field}|{text}"));
+            }
         }
     }
     object.insert("scope_keys", keys);

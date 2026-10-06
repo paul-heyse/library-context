@@ -166,7 +166,9 @@ impl UpperStage {
             Self::SourceCalls => &[],
             Self::Enriched => &[],
             Self::Models => &[],
-            Self::Summary if profile == Profile::Behavioral => &[projection::ProjectionName::CallableInvocation],
+            Self::Summary if profile == Profile::Behavioral => {
+                &[projection::ProjectionName::CallableInvocation]
+            }
             Self::Summary => &[],
             Self::Structural => &[
                 projection::ProjectionName::CallableInvocation,
@@ -564,12 +566,42 @@ pub async fn compile(
         let access = workspace.stage_inputs_selected(declaration, &selected, profile)?;
         let output = workspace.producer(declaration, profile, access.clone());
         match normalization {
-            Normalization::Receivers => receiver_authority = Some(crate::normalize::receivers_produced(access, output, workspace, model).await?),
-            Normalization::Events => event_authority = Some(crate::normalize::events_produced(access, output, workspace, model,
-                receiver_authority.as_ref().ok_or_else(|| ModelError::Invalid("receiver owner authority absent".into()))?).await?),
-            Normalization::Bindings => binding_application = Some(crate::normalize::bindings_prepared(access, output, workspace, model,
-                receiver_authority.as_ref().ok_or_else(|| ModelError::Invalid("receiver owner authority absent".into()))?,
-                event_authority.as_ref().ok_or_else(|| ModelError::Invalid("event owner authority absent".into()))?).await?),
+            Normalization::Receivers => {
+                receiver_authority = Some(
+                    crate::normalize::receivers_produced(access, output, workspace, model).await?,
+                )
+            }
+            Normalization::Events => {
+                event_authority = Some(
+                    crate::normalize::events_produced(
+                        access,
+                        output,
+                        workspace,
+                        model,
+                        receiver_authority.as_ref().ok_or_else(|| {
+                            ModelError::Invalid("receiver owner authority absent".into())
+                        })?,
+                    )
+                    .await?,
+                )
+            }
+            Normalization::Bindings => {
+                binding_application = Some(
+                    crate::normalize::bindings_prepared(
+                        access,
+                        output,
+                        workspace,
+                        model,
+                        receiver_authority.as_ref().ok_or_else(|| {
+                            ModelError::Invalid("receiver owner authority absent".into())
+                        })?,
+                        event_authority.as_ref().ok_or_else(|| {
+                            ModelError::Invalid("event owner authority absent".into())
+                        })?,
+                    )
+                    .await?,
+                )
+            }
             _ => normalization.run(access, output, workspace, model).await?,
         }
         completed.insert(declaration.name);
@@ -581,9 +613,13 @@ pub async fn compile(
     // Prepared consumer authorities project this lifetime; upper stages do not replay owners.
     let normalized_authority = if prepared.is_some() {
         Some(workspace.admit_semantics(profile).await?)
-    } else { None };
+    } else {
+        None
+    };
     let bindings = match (binding_application, normalized_authority.as_ref()) {
-        (Some(application), Some(authority)) if profile == Profile::Behavioral => Some(crate::analysis_bindings::PreparedBindings::new(application, authority)?),
+        (Some(application), Some(authority)) if profile == Profile::Behavioral => Some(
+            crate::analysis_bindings::PreparedBindings::new(application, authority)?,
+        ),
         _ => None,
     };
     let graph_needs = schedule
@@ -614,7 +650,16 @@ pub async fn compile(
         let prepared =
             prepared.ok_or_else(|| ModelError::Invalid("missing upper configuration".into()))?;
         if !binding.graphs(profile).is_empty() && graphs.is_none() {
-            graphs = Some(PreparedGraphs::load(&access, workspace, normalized_authority.as_ref().expect("normalized authority"), model, &graph_needs).await?);
+            graphs = Some(
+                PreparedGraphs::load(
+                    &access,
+                    workspace,
+                    normalized_authority.as_ref().expect("normalized authority"),
+                    model,
+                    &graph_needs,
+                )
+                .await?,
+            );
         }
         match binding {
             UpperStage::Configuration => {

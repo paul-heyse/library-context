@@ -55,21 +55,15 @@ pub fn coordinates(
             }
             Ok((artifact, start + slice.start, start + slice.end))
         }
-        AnchorSource::Artifact { artifact } => Ok((
-            *artifact,
-            0,
-            d.artifact_bounds(*artifact)?.1,
-        )),
+        AnchorSource::Artifact { artifact } => Ok((*artifact, 0, d.artifact_bounds(*artifact)?.1)),
         AnchorSource::Span { span } => match need(&d.source.facts.canonical_evidence, span.id())? {
             Evidence::SourceSpan { source, start, end } => Ok((*source, *start, *end)),
             _ => Err(invalid("retrieval anchor is not canonical source span")),
         },
         AnchorSource::Original { source } => match need(&d.evidence.original_sources, *source)? {
-            c1::OriginalSource::Artifact { artifact } => Ok((
-                *artifact,
-                0,
-                d.artifact_bounds(*artifact)?.1,
-            )),
+            c1::OriginalSource::Artifact { artifact } => {
+                Ok((*artifact, 0, d.artifact_bounds(*artifact)?.1))
+            }
             c1::OriginalSource::Occurrence { occurrence } => {
                 let r = need(&d.source.core.occurrences, *occurrence)?;
                 Ok((r.source, r.start, r.end))
@@ -118,35 +112,104 @@ pub fn read(d: &Data, original: &AnchorSource, b: &ResourceBudget) -> Result<Tex
 /// Actual ranges the deterministic root renderer reads. Coordinates remain the same model
 /// operation used by rendering and necessary admission; the compiler selects only their chunks.
 pub struct Ranges {
-    values:charged::ChargedSet<(Id<SourceArtifact>,i64,i64)>,
-    charge:charged::StateCharge,
+    values: charged::ChargedSet<(Id<SourceArtifact>, i64, i64)>,
+    charge: charged::StateCharge,
 }
 impl Ranges {
-    fn new(b:&ResourceBudget)->Self{Self{values:Default::default(),charge:charged::StateCharge::new(b,"retrieval-original-coordinates")}}
-    fn add(&mut self,d:&Data,anchor:AnchorSource)->Result<(),ModelError>{
-        let(artifact,start,end)=coordinates(d,&anchor)?;let source=need(&d.source.core.artifacts,artifact)?;
-        if start<0 || end<start || end>source.byte_len{return Err(invalid("retrieval original coordinates outside artifact"));}
-        self.values.insert(&mut self.charge,(artifact,start,end))?;Ok(())
+    fn new(b: &ResourceBudget) -> Self {
+        Self {
+            values: Default::default(),
+            charge: charged::StateCharge::new(b, "retrieval-original-coordinates"),
+        }
     }
-    pub fn iter(&self)->impl Iterator<Item=&(Id<SourceArtifact>,i64,i64)>{self.values.iter()}
+    fn add(&mut self, d: &Data, anchor: AnchorSource) -> Result<(), ModelError> {
+        let (artifact, start, end) = coordinates(d, &anchor)?;
+        let source = need(&d.source.core.artifacts, artifact)?;
+        if start < 0 || end < start || end > source.byte_len {
+            return Err(invalid("retrieval original coordinates outside artifact"));
+        }
+        self.values
+            .insert(&mut self.charge, (artifact, start, end))?;
+        Ok(())
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &(Id<SourceArtifact>, i64, i64)> {
+        self.values.iter()
+    }
 }
-pub fn root_ranges(d:&Data,id:Id<c1::EvidenceRoot>,b:&ResourceBudget)->Result<Ranges,ModelError>{
-    let root=need(&d.evidence.roots,id)?;let mut ranges=Ranges::new(b);
-    match need(&d.evidence.subjects,root.subject)?{
-        c1::RootSubject::Member{member}=>{
-            let member=need(&d.source.catalog.members,*member)?;let module=need(&d.source.core.modules,member.access)?;
-            let original=c1::OriginalSource::Artifact{artifact:module.source};ranges.add(d,AnchorSource::Original{source:original.id()})?;
-        },
-        c1::RootSubject::Scenario{scenario}=>{for span in d.evidence.spans.iter().filter(|span|span.scenario==*scenario){ranges.add(d,AnchorSource::Original{source:span.source})?;}},
-        c1::RootSubject::Document{observation}=>{
-            let document=need(&d.source.facts.documents,*observation)?;let mut any=false;
-            for passage in d.source.facts.passages.iter().filter(|passage|d.source.core.qualifications.get(passage.qualification).is_some_and(|q|q.context==root.context)){
-                let node=need(&d.source.facts.nodes,passage.passage.id())?;let anchor=AnchorSource::Span{span:node.span()};
-                if coordinates(d,&anchor)?.0!=document.source{continue;}any=true;ranges.add(d,anchor)?;
+pub fn root_ranges(
+    d: &Data,
+    id: Id<c1::EvidenceRoot>,
+    b: &ResourceBudget,
+) -> Result<Ranges, ModelError> {
+    let root = need(&d.evidence.roots, id)?;
+    let mut ranges = Ranges::new(b);
+    match need(&d.evidence.subjects, root.subject)? {
+        c1::RootSubject::Member { member } => {
+            let member = need(&d.source.catalog.members, *member)?;
+            let module = need(&d.source.core.modules, member.access)?;
+            let original = c1::OriginalSource::Artifact {
+                artifact: module.source,
+            };
+            ranges.add(
+                d,
+                AnchorSource::Original {
+                    source: original.id(),
+                },
+            )?;
+        }
+        c1::RootSubject::Scenario { scenario } => {
+            for span in d
+                .evidence
+                .spans
+                .iter()
+                .filter(|span| span.scenario == *scenario)
+            {
+                ranges.add(
+                    d,
+                    AnchorSource::Original {
+                        source: span.source,
+                    },
+                )?;
             }
-            if !any{ranges.add(d,AnchorSource::Artifact{artifact:document.source})?;}
-        },
-        c1::RootSubject::Deployment{deployment}=>{let row=need(&d.evidence.deployments,*deployment)?;let observation=need(&d.source.facts.deployment,row.observation)?;ranges.add(d,AnchorSource::Span{span:observation.span})?;},
-        c1::RootSubject::Option{..}|c1::RootSubject::Release{..}=>{},
-    }Ok(ranges)
+        }
+        c1::RootSubject::Document { observation } => {
+            let document = need(&d.source.facts.documents, *observation)?;
+            let mut any = false;
+            for passage in d.source.facts.passages.iter().filter(|passage| {
+                d.source
+                    .core
+                    .qualifications
+                    .get(passage.qualification)
+                    .is_some_and(|q| q.context == root.context)
+            }) {
+                let node = need(&d.source.facts.nodes, passage.passage.id())?;
+                let anchor = AnchorSource::Span { span: node.span() };
+                if coordinates(d, &anchor)?.0 != document.source {
+                    continue;
+                }
+                any = true;
+                ranges.add(d, anchor)?;
+            }
+            if !any {
+                ranges.add(
+                    d,
+                    AnchorSource::Artifact {
+                        artifact: document.source,
+                    },
+                )?;
+            }
+        }
+        c1::RootSubject::Deployment { deployment } => {
+            let row = need(&d.evidence.deployments, *deployment)?;
+            let observation = need(&d.source.facts.deployment, row.observation)?;
+            ranges.add(
+                d,
+                AnchorSource::Span {
+                    span: observation.span,
+                },
+            )?;
+        }
+        c1::RootSubject::Option { .. } | c1::RootSubject::Release { .. } => {}
+    }
+    Ok(ranges)
 }

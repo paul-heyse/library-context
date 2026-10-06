@@ -54,13 +54,21 @@ pub struct Cursor {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CursorPosition {
-    Key { key: ContentHash },
+    Key {
+        key: ContentHash,
+    },
     ScenarioDiagnostic {
         association: Id<crate::domain::catalog::evidence::ScenarioAssociation>,
         key: ContentHash,
     },
-    Ranked { score_bits: u64, key: ContentHash },
-    Original { source: ContentHash, byte: u64 },
+    Ranked {
+        score_bits: u64,
+        key: ContentHash,
+    },
+    Original {
+        source: ContentHash,
+        byte: u64,
+    },
 }
 impl Cursor {
     pub fn identity(&self) -> CursorIdentity {

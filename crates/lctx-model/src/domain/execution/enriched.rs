@@ -50,8 +50,10 @@ impl<'a> EnrichedFrame<'a> {
         )?;
         self._charge
             .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
-        self.evaluations
-            .push((std::sync::Arc::new(evaluation), EvaluationPremise::CapturedEntry(proof.row.id())));
+        self.evaluations.push((
+            std::sync::Arc::new(evaluation),
+            EvaluationPremise::CapturedEntry(proof.row.id()),
+        ));
         Ok(())
     }
     pub(crate) fn push_binding(
@@ -109,8 +111,10 @@ impl<'a> EnrichedFrame<'a> {
         let id = proof.record().id();
         self._charge
             .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
-        self.evaluations
-            .push((std::sync::Arc::new(proof.into_evaluation()), EvaluationPremise::Modeled(id)));
+        self.evaluations.push((
+            std::sync::Arc::new(proof.into_evaluation()),
+            EvaluationPremise::Modeled(id),
+        ));
         Ok(())
     }
     pub(crate) fn push_fresh(
@@ -152,8 +156,10 @@ impl<'a> EnrichedFrame<'a> {
         .map_err(|_| ModelError::Invalid("enriched fresh call evaluation refused".into()))?;
         self._charge
             .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
-        self.evaluations
-            .push((std::sync::Arc::new(checked), EvaluationPremise::Fresh(row.id())));
+        self.evaluations.push((
+            std::sync::Arc::new(checked),
+            EvaluationPremise::Fresh(row.id()),
+        ));
         Ok(())
     }
     pub fn complete(
@@ -218,12 +224,15 @@ pub fn with_frame<T>(
     budget: &ResourceBudget,
     visit: impl FnOnce(&mut EnrichedFrame<'_>) -> Result<T, ModelError>,
 ) -> Result<(T, super::source_call_records::SourceCallRecords), ModelError> {
-    let verified = normalized::binding_normalization::prepare(&data.bindings, &data.output, budget)?;
+    let verified =
+        normalized::binding_normalization::prepare(&data.bindings, &data.output, budget)?;
     with_frame_prepared(data, invocation, definition, budget, &verified, visit)
 }
 pub fn with_frame_prepared<T>(
-    data: &SourceCallData, invocation: &analysis::source_call::AnalysisInvocation,
-    definition: &analysis::AnalysisDefinition, budget: &ResourceBudget,
+    data: &SourceCallData,
+    invocation: &analysis::source_call::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    budget: &ResourceBudget,
     verified: &normalized::binding_normalization::VerifiedBindings,
     visit: impl FnOnce(&mut EnrichedFrame<'_>) -> Result<T, ModelError>,
 ) -> Result<(T, super::source_call_records::SourceCallRecords), ModelError> {
@@ -237,8 +246,17 @@ pub fn with_frame_prepared<T>(
         budget,
         Some(verified),
         &mut |headers, calls| {
-            result = Some(build_frame(data, invocation, budget, headers, calls, None,
-                visit.take().ok_or_else(|| ModelError::Invalid("enriched frame callback repeated".into()))?)?);
+            result = Some(build_frame(
+                data,
+                invocation,
+                budget,
+                headers,
+                calls,
+                None,
+                visit.take().ok_or_else(|| {
+                    ModelError::Invalid("enriched frame callback repeated".into())
+                })?,
+            )?);
             Ok(())
         },
     )?;
@@ -250,106 +268,137 @@ pub fn with_frame_prepared<T>(
 
 /// Borrow the actual SourceCall and Base owner values; no predecessor producer runs.
 pub fn with_frame_produced<T>(
-    data: &SourceCallData, invocation: &analysis::source_call::AnalysisInvocation,
-    budget: &ResourceBudget, source: &super::source_call_records::ProducedSourceCalls,
+    data: &SourceCallData,
+    invocation: &analysis::source_call::AnalysisInvocation,
+    budget: &ResourceBudget,
+    source: &super::source_call_records::ProducedSourceCalls,
     evaluations: &super::production::ProducedEvaluations,
     visit: impl FnOnce(&mut EnrichedFrame<'_>) -> Result<T, ModelError>,
 ) -> Result<T, ModelError> {
-    source.visit_frame(invocation, |headers, calls| build_frame(data, invocation, budget, headers, calls, Some(evaluations), visit))
+    source.visit_frame(invocation, |headers, calls| {
+        build_frame(
+            data,
+            invocation,
+            budget,
+            headers,
+            calls,
+            Some(evaluations),
+            visit,
+        )
+    })
 }
 /// Build one selected dependency region from authenticated actual SourceCall payloads.
 /// No global owner payload is resident and no predecessor producer is replayed.
 pub fn with_frame_hydrated<T>(
-    data:&SourceCallData,invocation:&analysis::source_call::AnalysisInvocation,
-    budget:&ResourceBudget,source:&super::source_call_records::HydratedSourceCalls,
-    evaluations:&super::production::ProducedEvaluations,
-    visit:impl FnOnce(&mut EnrichedFrame<'_>)->Result<T,ModelError>,
-)->Result<T,ModelError> {
-    source.require(invocation,budget)?;
-    build_frame(data,invocation,budget,&source.headers,&source.calls,Some(evaluations),visit)
+    data: &SourceCallData,
+    invocation: &analysis::source_call::AnalysisInvocation,
+    budget: &ResourceBudget,
+    source: &super::source_call_records::HydratedSourceCalls,
+    evaluations: &super::production::ProducedEvaluations,
+    visit: impl FnOnce(&mut EnrichedFrame<'_>) -> Result<T, ModelError>,
+) -> Result<T, ModelError> {
+    source.require(invocation, budget)?;
+    build_frame(
+        data,
+        invocation,
+        budget,
+        &source.headers,
+        &source.calls,
+        Some(evaluations),
+        visit,
+    )
 }
 fn build_frame<T>(
-    data: &SourceCallData, invocation: &analysis::source_call::AnalysisInvocation,
+    data: &SourceCallData,
+    invocation: &analysis::source_call::AnalysisInvocation,
     budget: &ResourceBudget,
     headers: &[(CheckedSourceBinding, SourceCallHeader)],
-    calls: &[(super::source_invocation::CheckedSourceInvocation, SourceInvocation)],
+    calls: &[(
+        super::source_invocation::CheckedSourceInvocation,
+        SourceInvocation,
+    )],
     evaluations: Option<&super::production::ProducedEvaluations>,
     visit: impl FnOnce(&mut EnrichedFrame<'_>) -> Result<T, ModelError>,
 ) -> Result<T, ModelError> {
-            let mut frame = EnrichedFrame {
-                data,
-                input: invocation.input,
-                context: invocation.context,
-                evaluations: Vec::new(),
-                headers: Vec::new(),
-                definitions: Vec::new(),
-                contexts: Vec::new(),
-                budget,
-                prepared: PreparedExecution::new(
-                    &data.evaluation,
-                    invocation.input,
-                    invocation.context,
-                    budget,
-                )?,
-                _charge: charged::StateCharge::new(budget, "enriched_private_evidence"),
-            };
-            let earlier = data.completed.earlier();
-            for row in earlier.evaluations.iter() {
-                let parent = earlier
-                    .invocations
-                    .get(row.invocation)
-                    .ok_or_else(|| ModelError::Invalid("enriched base invocation absent".into()))?;
-                if (parent.input, parent.context) != (invocation.input, invocation.context) {
-                    continue;
-                }
-                frame
-                    ._charge
-                    .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
-                frame
-                    .evaluations
-                    .push((match evaluations { Some(values) => values.get(row, parent, earlier)?, None => std::sync::Arc::new(earlier.replay(row)?) }, EvaluationPremise::Base(row.id())));
-            }
-            for (header, row) in headers {
-                frame
-                    ._charge
-                    .grow(size_of::<(&CheckedSourceBinding, &SourceCallHeader)>() * 2)?;
-                frame.headers.push((header, row));
-            }
-            for (proof, row) in calls {
-                let event = data
-                    .bindings
-                    .event_events
-                    .get(proof.event())
-                    .ok_or_else(|| ModelError::Invalid("enriched source event absent".into()))?;
-                let mut matching = headers.iter().filter(|(_, h)| h.event == event.id());
-                let (_, header) = matching
-                    .next()
-                    .ok_or_else(|| ModelError::Invalid("enriched source header absent".into()))?;
-                if matching.next().is_some() {
-                    return Err(ModelError::Invalid(
-                        "enriched source header ambiguous".into(),
-                    ));
-                }
-                let request = ExpressionRequest {
-                    input: invocation.input,
-                    context: invocation.context,
-                    owner: header.owner,
-                    expression: event.site,
-                };
-                let evaluation = super::evaluation::source_call_evaluation(
-                    &data.evaluation,
-                    request,
-                    proof,
-                    row.id(),
-                    budget,
-                )?
-                .map_err(|_| ModelError::Invalid("enriched source evaluation refused".into()))?;
-                frame
-                    ._charge
-                    .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
-                frame
-                    .evaluations
-                    .push((std::sync::Arc::new(evaluation), EvaluationPremise::Source(row.id())));
-            }
+    let mut frame = EnrichedFrame {
+        data,
+        input: invocation.input,
+        context: invocation.context,
+        evaluations: Vec::new(),
+        headers: Vec::new(),
+        definitions: Vec::new(),
+        contexts: Vec::new(),
+        budget,
+        prepared: PreparedExecution::new(
+            &data.evaluation,
+            invocation.input,
+            invocation.context,
+            budget,
+        )?,
+        _charge: charged::StateCharge::new(budget, "enriched_private_evidence"),
+    };
+    let earlier = data.completed.earlier();
+    for row in earlier.evaluations.iter() {
+        let parent = earlier
+            .invocations
+            .get(row.invocation)
+            .ok_or_else(|| ModelError::Invalid("enriched base invocation absent".into()))?;
+        if (parent.input, parent.context) != (invocation.input, invocation.context) {
+            continue;
+        }
+        frame
+            ._charge
+            .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
+        frame.evaluations.push((
+            match evaluations {
+                Some(values) => values.get(row, parent, earlier)?,
+                None => std::sync::Arc::new(earlier.replay(row)?),
+            },
+            EvaluationPremise::Base(row.id()),
+        ));
+    }
+    for (header, row) in headers {
+        frame
+            ._charge
+            .grow(size_of::<(&CheckedSourceBinding, &SourceCallHeader)>() * 2)?;
+        frame.headers.push((header, row));
+    }
+    for (proof, row) in calls {
+        let event = data
+            .bindings
+            .event_events
+            .get(proof.event())
+            .ok_or_else(|| ModelError::Invalid("enriched source event absent".into()))?;
+        let mut matching = headers.iter().filter(|(_, h)| h.event == event.id());
+        let (_, header) = matching
+            .next()
+            .ok_or_else(|| ModelError::Invalid("enriched source header absent".into()))?;
+        if matching.next().is_some() {
+            return Err(ModelError::Invalid(
+                "enriched source header ambiguous".into(),
+            ));
+        }
+        let request = ExpressionRequest {
+            input: invocation.input,
+            context: invocation.context,
+            owner: header.owner,
+            expression: event.site,
+        };
+        let evaluation = super::evaluation::source_call_evaluation(
+            &data.evaluation,
+            request,
+            proof,
+            row.id(),
+            budget,
+        )?
+        .map_err(|_| ModelError::Invalid("enriched source evaluation refused".into()))?;
+        frame
+            ._charge
+            .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
+        frame.evaluations.push((
+            std::sync::Arc::new(evaluation),
+            EvaluationPremise::Source(row.id()),
+        ));
+    }
     visit(&mut frame)
 }

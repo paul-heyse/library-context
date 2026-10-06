@@ -221,18 +221,40 @@ fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
 /// Automatic selection needs only the exact minimum documented literal conclusion per
 /// actual C0 member frame. Excerpts, source text and other documentary conclusions are released.
 pub struct LiteralSummaries {
-    values:charged::ChargedMap<Id<CatalogMemberInvocation>,Id<DocumentaryConclusion>>,
-    charge:charged::StateCharge,
+    values: charged::ChargedMap<Id<CatalogMemberInvocation>, Id<DocumentaryConclusion>>,
+    charge: charged::StateCharge,
 }
 impl LiteralSummaries {
-    pub fn new(b:&ResourceBudget)->Self{Self{values:Default::default(),charge:charged::StateCharge::new(b,"synthesis-literal-summary-identities")}}
-    pub fn observe(&mut self,rows:&Output)->Result<(),ModelError>{
-        for conclusion in rows.conclusions.iter().filter(|conclusion|conclusion.status()==EvidenceStatus::Documented){
-            let DocumentarySource::Literal{member,..}=need(&rows.sources,conclusion.source)? else{continue;};
-            if self.values.get(member).is_none_or(|previous|conclusion.id()<*previous){self.values.insert(&mut self.charge,*member,conclusion.id())?;}
-        }Ok(())
+    pub fn new(b: &ResourceBudget) -> Self {
+        Self {
+            values: Default::default(),
+            charge: charged::StateCharge::new(b, "synthesis-literal-summary-identities"),
+        }
     }
-    pub fn get(&self,member:Id<CatalogMemberInvocation>)->Option<Id<DocumentaryConclusion>>{self.values.get(&member).copied()}
+    pub fn observe(&mut self, rows: &Output) -> Result<(), ModelError> {
+        for conclusion in rows
+            .conclusions
+            .iter()
+            .filter(|conclusion| conclusion.status() == EvidenceStatus::Documented)
+        {
+            let DocumentarySource::Literal { member, .. } = need(&rows.sources, conclusion.source)?
+            else {
+                continue;
+            };
+            if self
+                .values
+                .get(member)
+                .is_none_or(|previous| conclusion.id() < *previous)
+            {
+                self.values
+                    .insert(&mut self.charge, *member, conclusion.id())?;
+            }
+        }
+        Ok(())
+    }
+    pub fn get(&self, member: Id<CatalogMemberInvocation>) -> Option<Id<DocumentaryConclusion>> {
+        self.values.get(&member).copied()
+    }
 }
 pub fn relations() -> Vec<Relation> {
     vec![

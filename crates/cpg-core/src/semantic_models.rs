@@ -1,5 +1,7 @@
 //! Model-owned analysis over completed native/normalized/Enriched inputs.
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
+use arrow_array::Array;
+use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, model as owner, sources::CapturedSources},
     execution::{model_production::*, model_rules::*},
@@ -8,8 +10,6 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
-use futures::TryStreamExt;
-use arrow_array::Array;
 mod scope;
 async fn load<R: Record>(
     access: &CompletedInputs,
@@ -23,7 +23,11 @@ async fn load<R: Record>(
     ) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     while let Some((input, permit)) = consumed.next::<R>(access)? {
-        if crate::consumed_rows::stream_artifact_admission(access,&input,session,admission).await? {continue;}
+        if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+            .await?
+        {
+            continue;
+        }
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
             admission.visit_if_expected(permit, batch)?;
             visit(&input, permit, batch)
@@ -33,14 +37,22 @@ async fn load<R: Record>(
     Ok(())
 }
 async fn load_selected_catalog(
-    access:&CompletedInputs,
-    session:&datafusion::prelude::SessionContext,
-    consumed:&mut crate::consumed_rows::ConsumedInputs,
-    data:&mut ModelData,
-    selected:Id<models::ModelCatalog>,
-)->Result<(),ModelError>{
-    while let Some((input,permit))=consumed.next::<models::ModelCatalog>(access)? {
-        crate::consumed_rows::stream_where_at(&permit,&input,access,session,Some(&format!("id={}",scope::hex(selected))),|_,batch|data.visit_input(&input,batch)).await?;
+    access: &CompletedInputs,
+    session: &datafusion::prelude::SessionContext,
+    consumed: &mut crate::consumed_rows::ConsumedInputs,
+    data: &mut ModelData,
+    selected: Id<models::ModelCatalog>,
+) -> Result<(), ModelError> {
+    while let Some((input, permit)) = consumed.next::<models::ModelCatalog>(access)? {
+        crate::consumed_rows::stream_where_at(
+            &permit,
+            &input,
+            access,
+            session,
+            Some(&format!("id={}", scope::hex(selected))),
+            |_, batch| data.visit_input(&input, batch),
+        )
+        .await?;
     }
     Ok(())
 }
@@ -50,9 +62,11 @@ pub async fn apply(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
-    bindings:Option<&crate::analysis_bindings::PreparedBindings>,
-    evaluations:Option<&crate::semantic_execution::Produced<execution::production::ProducedEvaluations>>,
-    local:Option<&crate::local_semantics::PreparedLocal>,
+    bindings: Option<&crate::analysis_bindings::PreparedBindings>,
+    evaluations: Option<
+        &crate::semantic_execution::Produced<execution::production::ProducedEvaluations>,
+    >,
+    local: Option<&crate::local_semantics::PreparedLocal>,
 ) -> Result<(), ModelError> {
     let profile = access.profile();
     let budget = runtime.budget();
@@ -61,13 +75,32 @@ pub async fn apply(
     let session = access.session(runtime).await?;
     let mut data = ModelData::new(budget);
     // The only resident global domain is finite configuration plus compact publication frames.
-    let mut declarations=vec![ValidationInput::of::<models::ModelCatalog>(&["id"]),ValidationInput::of::<analysis::MethodParameters>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),ValidationInput::of::<analysis::enriched_execution::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::local::AnalysisInvocation>(&["id"]),ValidationInput::of::<attribution::ProviderRun>(&["id"])];
+    let mut declarations = vec![
+        ValidationInput::of::<models::ModelCatalog>(&["id"]),
+        ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+        ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+        ValidationInput::of::<analysis::enriched_execution::AnalysisInvocation>(&["id"]),
+        ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),
+        ValidationInput::of::<analysis::local::AnalysisInvocation>(&["id"]),
+        ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+    ];
     declarations.extend(analysis::expected::inputs(definition.method));
-    let mut consumed=crate::consumed_rows::ConsumedInputs::new(declarations,budget)?;
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
     macro_rules! read{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input,batch)).await?;)*};}
-    read!(analysis::MethodParameters,analysis::AnalysisDefinition,analysis::enriched_execution::AnalysisInvocation,analysis::source_call::AnalysisInvocation,analysis::local::AnalysisInvocation,attribution::ProviderRun);
-    let selected=data.parameters.get(definition.parameters).and_then(|row|row.model_catalog).ok_or_else(||ModelError::Invalid("Models selected catalog absent".into()))?;
-    load_selected_catalog(&access,&session,&mut consumed,&mut data,selected).await?;
+    read!(
+        analysis::MethodParameters,
+        analysis::AnalysisDefinition,
+        analysis::enriched_execution::AnalysisInvocation,
+        analysis::source_call::AnalysisInvocation,
+        analysis::local::AnalysisInvocation,
+        attribution::ProviderRun
+    );
+    let selected = data
+        .parameters
+        .get(definition.parameters)
+        .and_then(|row| row.model_catalog)
+        .ok_or_else(|| ModelError::Invalid("Models selected catalog absent".into()))?;
+    load_selected_catalog(&access, &session, &mut consumed, &mut data, selected).await?;
     if data.definitions.get(definition.id()) != Some(definition) {
         return Err(ModelError::Invalid(
             "Model definition absent from confirmed configuration".into(),
@@ -76,13 +109,38 @@ pub async fn apply(
     macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     consumed.finish(access.name())?;
-    let parsed=SelectedCatalog::read(data.catalogs.get(selected).ok_or(ModelError::Schema(models::ModelCatalog::NAME))?,budget)?;
-    let actual=if profile==Profile::Behavioral{Some(ActualInputs{
-        evaluations:evaluations.ok_or_else(||ModelError::Invalid("Models actual Base values absent".into()))?.borrow(&access,runtime)?,
-        local:local.ok_or_else(||ModelError::Invalid("Models actual Local values absent".into()))?.entries(&access,runtime)?,
-    })}else{None};
-    let verified=if profile==Profile::Behavioral{Some(bindings.ok_or_else(||ModelError::Invalid("Models actual binding values absent".into()))?.application(&access,runtime)?)}else{None};
-    let scopes=if profile==Profile::Behavioral{Some(scope::ModelScopes::prepare(&access,&session,_model,&parsed,budget).await?)}else{None};
+    let parsed = SelectedCatalog::read(
+        data.catalogs
+            .get(selected)
+            .ok_or(ModelError::Schema(models::ModelCatalog::NAME))?,
+        budget,
+    )?;
+    let actual = if profile == Profile::Behavioral {
+        Some(ActualInputs {
+            evaluations: evaluations
+                .ok_or_else(|| ModelError::Invalid("Models actual Base values absent".into()))?
+                .borrow(&access, runtime)?,
+            local: local
+                .ok_or_else(|| ModelError::Invalid("Models actual Local values absent".into()))?
+                .entries(&access, runtime)?,
+        })
+    } else {
+        None
+    };
+    let verified = if profile == Profile::Behavioral {
+        Some(
+            bindings
+                .ok_or_else(|| ModelError::Invalid("Models actual binding values absent".into()))?
+                .application(&access, runtime)?,
+        )
+    } else {
+        None
+    };
+    let scopes = if profile == Profile::Behavioral {
+        Some(scope::ModelScopes::prepare(&access, &session, _model, &parsed, budget).await?)
+    } else {
+        None
+    };
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
@@ -208,18 +266,65 @@ pub async fn apply(
             &admission,
             budget,
         )?;
-        let mut records=if let Some(scopes)=&scopes{let grain=scopes.frame(frame.id(),budget).await?;let selected=scopes.load(&access,&grain,budget).await?;apply_selected(&selected,&invocation,definition,profile,&parsed,verified,ProductionScope::Frame,actual.as_ref(),budget)?}else{apply_selected(&data,&invocation,definition,profile,&parsed,None,ProductionScope::Frame,None,budget)?};
-        if let Some(scopes)=&scopes{
-            for compiled in parsed.catalog().models(){
-                let kind=ProductionScope::Target(compiled.declaration().id());
-                let grain=scopes.selected(kind,frame.id(),budget).await?;let selected=scopes.load(&access,&grain,budget).await?;
-                let produced=apply_selected(&selected,&invocation,definition,profile,&parsed,verified,kind,actual.as_ref(),budget)?;
-                merge_run(&mut records,&produced)?;publish_records(&output,&produced).await?;
+        let mut records = if let Some(scopes) = &scopes {
+            let grain = scopes.frame(frame.id(), budget).await?;
+            let selected = scopes.load(&access, &grain, budget).await?;
+            apply_selected(
+                &selected,
+                &invocation,
+                definition,
+                profile,
+                &parsed,
+                verified,
+                ProductionScope::Frame,
+                actual.as_ref(),
+                budget,
+            )?
+        } else {
+            apply_selected(
+                &data,
+                &invocation,
+                definition,
+                profile,
+                &parsed,
+                None,
+                ProductionScope::Frame,
+                None,
+                budget,
+            )?
+        };
+        if let Some(scopes) = &scopes {
+            for compiled in parsed.catalog().models() {
+                let kind = ProductionScope::Target(compiled.declaration().id());
+                let grain = scopes.selected(kind, frame.id(), budget).await?;
+                let selected = scopes.load(&access, &grain, budget).await?;
+                let produced = apply_selected(
+                    &selected,
+                    &invocation,
+                    definition,
+                    profile,
+                    &parsed,
+                    verified,
+                    kind,
+                    actual.as_ref(),
+                    budget,
+                )?;
+                merge_run(&mut records, &produced)?;
+                publish_records(&output, &produced).await?;
             }
             // Root coordinates are externally ordered before rich rows are decoded.
-            let occurrences=crate::consumed_rows::identifier(&access.table_for(&ValidationInput::of::<source::Occurrence>(&["id"]))?);
-            let artifacts=crate::consumed_rows::identifier(&access.table_for(&ValidationInput::of::<source::SourceArtifact>(&["id"]))?);
-            let qualifications=crate::consumed_rows::identifier(&access.table_for(&ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(PublicationBoundary::Facts))?);
+            let occurrences = crate::consumed_rows::identifier(
+                &access.table_for(&ValidationInput::of::<source::Occurrence>(&["id"]))?,
+            );
+            let artifacts = crate::consumed_rows::identifier(
+                &access.table_for(&ValidationInput::of::<source::SourceArtifact>(&["id"]))?,
+            );
+            let qualifications = crate::consumed_rows::identifier(
+                &access.table_for(
+                    &ValidationInput::of::<assertion::AssertionQualification>(&["id"])
+                        .at_epoch(PublicationBoundary::Facts),
+                )?,
+            );
             macro_rules! roots{($ty:ty,$predicate:expr,$kind:expr)=>{{
                 let alias=crate::consumed_rows::identifier(&access.table_for(&ValidationInput::of::<$ty>(&["id"]))?);
                 let sql=format!("SELECT r.id FROM {alias} r {} ORDER BY r.id",$predicate);
@@ -233,12 +338,52 @@ pub async fn apply(
                     }
                 }
             }};}
-            let parent=data.enriched.iter().find(|p|(p.input,p.context)==(frame.input,frame.context)&&p.subject.is_none()).ok_or(ModelError::Schema(analysis::enriched_execution::AnalysisInvocation::NAME))?;
-            roots!(execution::context_execution::ContextExecution,format!("WHERE r.invocation={}",scope::hex(parent.id())),ProductionScope::Context);
-            roots!(normalized::events::NormalizedCallEvent,format!("JOIN {occurrences} o ON o.id=r.site JOIN {artifacts} a ON a.id=o.source WHERE a.input={} AND r.context={}",scope::hex(frame.input),scope::hex(frame.context)),ProductionScope::Event);
-            let events=crate::consumed_rows::identifier(&access.table_for(&ValidationInput::of::<normalized::events::NormalizedCallEvent>(&["id"]))?);
-            roots!(protocols::NativeTerminalObservation,format!("JOIN {qualifications} q ON q.id=r.qualification JOIN {occurrences} o ON o.id=r.subject JOIN {artifacts} a ON a.id=o.source WHERE a.input={} AND q.context={} AND NOT EXISTS (SELECT 1 FROM {events} e WHERE e.site=r.subject AND e.context=q.context AND e.origin={})",scope::hex(frame.input),scope::hex(frame.context),scope::hex(calls::CallOrigin::explicit())),ProductionScope::Terminal);
-            roots!(protocols::NativeExitObservation,format!("JOIN {qualifications} q ON q.id=r.qualification JOIN {occurrences} o ON o.id=r.subject JOIN {artifacts} a ON a.id=o.source WHERE a.input={} AND q.context={}",scope::hex(frame.input),scope::hex(frame.context)),ProductionScope::Exit);
+            let parent = data
+                .enriched
+                .iter()
+                .find(|p| {
+                    (p.input, p.context) == (frame.input, frame.context) && p.subject.is_none()
+                })
+                .ok_or(ModelError::Schema(
+                    analysis::enriched_execution::AnalysisInvocation::NAME,
+                ))?;
+            roots!(
+                execution::context_execution::ContextExecution,
+                format!("WHERE r.invocation={}", scope::hex(parent.id())),
+                ProductionScope::Context
+            );
+            roots!(
+                normalized::events::NormalizedCallEvent,
+                format!(
+                    "JOIN {occurrences} o ON o.id=r.site JOIN {artifacts} a ON a.id=o.source WHERE a.input={} AND r.context={}",
+                    scope::hex(frame.input),
+                    scope::hex(frame.context)
+                ),
+                ProductionScope::Event
+            );
+            let events =
+                crate::consumed_rows::identifier(&access.table_for(&ValidationInput::of::<
+                    normalized::events::NormalizedCallEvent,
+                >(&["id"]))?);
+            roots!(
+                protocols::NativeTerminalObservation,
+                format!(
+                    "JOIN {qualifications} q ON q.id=r.qualification JOIN {occurrences} o ON o.id=r.subject JOIN {artifacts} a ON a.id=o.source WHERE a.input={} AND q.context={} AND NOT EXISTS (SELECT 1 FROM {events} e WHERE e.site=r.subject AND e.context=q.context AND e.origin={})",
+                    scope::hex(frame.input),
+                    scope::hex(frame.context),
+                    scope::hex(calls::CallOrigin::explicit())
+                ),
+                ProductionScope::Terminal
+            );
+            roots!(
+                protocols::NativeExitObservation,
+                format!(
+                    "JOIN {qualifications} q ON q.id=r.qualification JOIN {occurrences} o ON o.id=r.subject JOIN {artifacts} a ON a.id=o.source WHERE a.input={} AND q.context={}",
+                    scope::hex(frame.input),
+                    scope::hex(frame.context)
+                ),
+                ProductionScope::Exit
+            );
         }
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
@@ -281,7 +426,10 @@ pub async fn apply(
     output.finish(ProviderOutcome::Complete).await
 }
 
-async fn publish_records(output:&ProducerOutput,records:&ModelRecords)->Result<(),ModelError>{
+async fn publish_records(
+    output: &ProducerOutput,
+    records: &ModelRecords,
+) -> Result<(), ModelError> {
     macro_rules! write{($($field:ident,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
     write!(
         closed_targets,
@@ -329,11 +477,22 @@ async fn publish_records(output:&ProducerOutput,records:&ModelRecords)->Result<(
     Ok(())
 }
 
-fn merge_run(total:&mut ModelRecords,part:&ModelRecords)->Result<(),ModelError>{
- total.run.applied=total.run.applied.checked_add(part.run.applied).ok_or_else(||ModelError::Invalid("Model applied count overflow".into()))?;
- total.run.refused=total.run.refused.checked_add(part.run.refused).ok_or_else(||ModelError::Invalid("Model refused count overflow".into()))?;
- if part.outcome.status==analysis::AnalysisStatus::Partial{total.outcome.status=part.outcome.status;total.outcome.reason=part.outcome.reason;}
- Ok(())
+fn merge_run(total: &mut ModelRecords, part: &ModelRecords) -> Result<(), ModelError> {
+    total.run.applied = total
+        .run
+        .applied
+        .checked_add(part.run.applied)
+        .ok_or_else(|| ModelError::Invalid("Model applied count overflow".into()))?;
+    total.run.refused = total
+        .run
+        .refused
+        .checked_add(part.run.refused)
+        .ok_or_else(|| ModelError::Invalid("Model refused count overflow".into()))?;
+    if part.outcome.status == analysis::AnalysisStatus::Partial {
+        total.outcome.status = part.outcome.status;
+        total.outcome.reason = part.outcome.reason;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -341,21 +500,76 @@ mod selected_catalog_controls {
     use super::*;
     #[tokio::test]
     async fn captured_catalog_is_selected_before_rich_decode() {
-        let runtime=Workspace::new(Arc::new(model().unwrap()),crate::workspace::WorkspaceOptions{memory_bytes:128<<20,partitions:1,batch_rows:16}).unwrap();
-        let parsed=models::Catalog::parse("external.toml",include_str!("../../lctx-model/models/external.toml")).unwrap();let catalog=parsed.declaration();
-        let huge_source=format!("{}\n#{}",catalog.source,"x".repeat(6<<20));
-        let unrelated=models::ModelCatalog{source_name:"unrelated.toml".into(),source:huge_source.clone(),content:ContentHash::of(huge_source.as_bytes()),..catalog.clone()};
-        let access=runtime.inputs("catalog-config",Profile::Behavioral,[]).unwrap();
-        let output=runtime.output("catalog-config",Profile::Behavioral,ContentHash::of(b"catalog-selection-control"),access);
-        output.push(catalog.clone()).await.unwrap();output.push(unrelated).await.unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();
-        let access=runtime.inputs("catalog-consumer",Profile::Behavioral,[models::ModelCatalog::NAME]).unwrap();let session=access.session(&runtime).await.unwrap();
-        let budget=resources::ResourceBudget::fixed(256<<10).unwrap();
-        let declaration=ValidationInput::of::<models::ModelCatalog>(&["id"]);
-        let mut consumed=crate::consumed_rows::ConsumedInputs::new(vec![declaration.clone()],&budget).unwrap();let mut data=ModelData::new(&budget);
-        load_selected_catalog(&access,&session,&mut consumed,&mut data,catalog.id()).await.unwrap();consumed.finish("catalog-consumer").unwrap();
-        assert_eq!(data.catalogs.len(),1);assert_eq!(data.catalogs.get(catalog.id()),Some(catalog));drop(data);assert_eq!(budget.reserved(),0);
-        let permit=access.read::<models::ModelCatalog>().unwrap();let mut whole=Rows::<models::ModelCatalog>::new(&budget);
-        assert!(crate::consumed_rows::stream_at(&permit,&declaration,&access,&session,|_,batch|whole.decode(batch)).await.is_err(),"unused rich catalog would exceed the selected consumer budget");
-        drop(whole);assert_eq!(budget.reserved(),0);
+        let runtime = Workspace::new(
+            Arc::new(model().unwrap()),
+            crate::workspace::WorkspaceOptions {
+                memory_bytes: 128 << 20,
+                partitions: 1,
+                batch_rows: 16,
+            },
+        )
+        .unwrap();
+        let parsed = models::Catalog::parse(
+            "external.toml",
+            include_str!("../../lctx-model/models/external.toml"),
+        )
+        .unwrap();
+        let catalog = parsed.declaration();
+        let huge_source = format!("{}\n#{}", catalog.source, "x".repeat(6 << 20));
+        let unrelated = models::ModelCatalog {
+            source_name: "unrelated.toml".into(),
+            source: huge_source.clone(),
+            content: ContentHash::of(huge_source.as_bytes()),
+            ..catalog.clone()
+        };
+        let access = runtime
+            .inputs("catalog-config", Profile::Behavioral, [])
+            .unwrap();
+        let output = runtime.output(
+            "catalog-config",
+            Profile::Behavioral,
+            ContentHash::of(b"catalog-selection-control"),
+            access,
+        );
+        output.push(catalog.clone()).await.unwrap();
+        output.push(unrelated).await.unwrap();
+        output.finish(ProviderOutcome::Complete).await.unwrap();
+        let access = runtime
+            .inputs(
+                "catalog-consumer",
+                Profile::Behavioral,
+                [models::ModelCatalog::NAME],
+            )
+            .unwrap();
+        let session = access.session(&runtime).await.unwrap();
+        let budget = resources::ResourceBudget::fixed(256 << 10).unwrap();
+        let declaration = ValidationInput::of::<models::ModelCatalog>(&["id"]);
+        let mut consumed =
+            crate::consumed_rows::ConsumedInputs::new(vec![declaration.clone()], &budget).unwrap();
+        let mut data = ModelData::new(&budget);
+        load_selected_catalog(&access, &session, &mut consumed, &mut data, catalog.id())
+            .await
+            .unwrap();
+        consumed.finish("catalog-consumer").unwrap();
+        assert_eq!(data.catalogs.len(), 1);
+        assert_eq!(data.catalogs.get(catalog.id()), Some(catalog));
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
+        let permit = access.read::<models::ModelCatalog>().unwrap();
+        let mut whole = Rows::<models::ModelCatalog>::new(&budget);
+        assert!(
+            crate::consumed_rows::stream_at(
+                &permit,
+                &declaration,
+                &access,
+                &session,
+                |_, batch| whole.decode(batch)
+            )
+            .await
+            .is_err(),
+            "unused rich catalog would exceed the selected consumer budget"
+        );
+        drop(whole);
+        assert_eq!(budget.reserved(), 0);
     }
 }

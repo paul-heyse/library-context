@@ -98,7 +98,15 @@ pub(super) fn emit(
     records: &mut super::model_production::ModelRecords,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    emit_with_inputs(protocol_inputs,items,outcomes,invocation,records,budget,None)
+    emit_with_inputs(
+        protocol_inputs,
+        items,
+        outcomes,
+        invocation,
+        records,
+        budget,
+        None,
+    )
 }
 pub(super) fn emit_with_inputs(
     protocol_inputs: ProtocolInputs<'_>,
@@ -114,7 +122,9 @@ pub(super) fn emit_with_inputs(
         data,
         execution,
     } = protocol_inputs;
-    if let Some(prepared)=prepared {prepared.require(data,budget)?;}
+    if let Some(prepared) = prepared {
+        prepared.require(data, budget)?;
+    }
     for item in items.iter().filter(|i| i.execution == execution.id()) {
         let protocol = CheckedContextProtocol::derive(
             catalog,

@@ -4,7 +4,7 @@ use super::{Diagram, EvaluationAtom};
 use crate::domain::charged::{ChargedMap, StateCharge};
 use crate::domain::{
     attribution::{AnalysisContext, ObligationKind},
-    source::{Occurrence, OccurrenceRole, SyntaxKind,properties::OccurrenceView},
+    source::{Occurrence, OccurrenceRole, SyntaxKind, properties::OccurrenceView},
     value::{Place, PlaceRoot, Predicate},
     *,
 };

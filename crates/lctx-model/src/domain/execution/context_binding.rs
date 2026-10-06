@@ -103,7 +103,16 @@ impl CheckedContextBinding {
         request: ExpressionRequest,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
-        Self::derive_with_values(catalog,application,data,invocation,request,budget,None,None)
+        Self::derive_with_values(
+            catalog,
+            application,
+            data,
+            invocation,
+            request,
+            budget,
+            None,
+            None,
+        )
     }
     /// Borrow the actual Base owner; ordered argument evidence is hydrated without evaluator replay.
     pub fn derive_produced(
@@ -113,9 +122,18 @@ impl CheckedContextBinding {
         invocation: &publication::AnalysisInvocation,
         request: ExpressionRequest,
         budget: &ResourceBudget,
-        values:&super::production::ProducedEvaluations,
+        values: &super::production::ProducedEvaluations,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
-        Self::derive_with_values(catalog,application,data,invocation,request,budget,Some(values),None)
+        Self::derive_with_values(
+            catalog,
+            application,
+            data,
+            invocation,
+            request,
+            budget,
+            Some(values),
+            None,
+        )
     }
     pub(super) fn derive_with_values(
         catalog: &models::Catalog,
@@ -124,8 +142,8 @@ impl CheckedContextBinding {
         invocation: &publication::AnalysisInvocation,
         request: ExpressionRequest,
         budget: &ResourceBudget,
-        values:Option<&super::production::ProducedEvaluations>,
-        construction:Option<&super::model_construction::PreparedConstructionInputs<'_>>,
+        values: Option<&super::production::ProducedEvaluations>,
+        construction: Option<&super::model_construction::PreparedConstructionInputs<'_>>,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         use ObligationKind as K;
         if invocation.subject.is_some()
@@ -399,10 +417,10 @@ impl CheckedContextBinding {
                 if rows.next().is_some() {
                     return Err(boundary(K::AmbiguousBinding));
                 }
-                let checked = super::source_invocation::checked_value(base,row,values)?;
+                let checked = super::source_invocation::checked_value(base, row, values)?;
                 if checked.exception().is_some()
                     || checked.release() != ReleaseSafety::Closed
-                        && super::source_invocation::held_formal(base,row,values)?.is_none()
+                        && super::source_invocation::held_formal(base, row, values)?.is_none()
                         && !super::builtin_read::CheckedBuiltinRead::derive(
                             facts,
                             checked.request(),
@@ -433,7 +451,7 @@ impl CheckedContextBinding {
             let qualification = syntax.qualification(read.id()).map_err(boundary)?;
             let release = returned
                 .as_ref()
-                .map_or(ReleaseSafety::Closed, |proof|proof.release());
+                .map_or(ReleaseSafety::Closed, |proof| proof.release());
             let (native, native_charge) = syntax.take_admission();
             for premise in native {
                 sources.insert(BindingSource::Native { premise })?;

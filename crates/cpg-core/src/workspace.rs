@@ -4,9 +4,7 @@
 //! before it becomes visible; interrupted writes never enter the completed-input map.
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
 use datafusion::{
-    arrow::{
-        ipc::{reader::FileReader, writer::FileWriter},
-    },
+    arrow::ipc::{reader::FileReader, writer::FileWriter},
     execution::options::ArrowReadOptions,
     execution::{
         disk_manager::{DiskManagerBuilder, DiskManagerMode},
@@ -320,28 +318,61 @@ impl Workspace {
     /// Reuse the model's ordered invariant state machines with spillable SQL ordering. No global
     /// graph concatenation or resident copy of all completed relations is constructed.
     pub async fn validate(&self) -> Result<ContentHash, ModelError> {
-        let profile = self.completed_relations()?.first().map_or(Profile::Catalog, |r| r.profile);
+        let profile = self
+            .completed_relations()?
+            .first()
+            .map_or(Profile::Catalog, |r| r.profile);
         self.validate_scope(profile, false, None).await
     }
     /// Establish necessary semantic properties for immutable completed input descriptors.
-    pub async fn checked_inputs(&self, inputs: &CompletedInputs) -> Result<CheckedInputs, ModelError> {
-        self.validate_scope(inputs.profile, true, Some(inputs)).await?;
-        Ok(CheckedInputs { inputs: inputs.clone(), attempt: self.files.clone(), policy: self.model.digest() })
+    pub async fn checked_inputs(
+        &self,
+        inputs: &CompletedInputs,
+    ) -> Result<CheckedInputs, ModelError> {
+        self.validate_scope(inputs.profile, true, Some(inputs))
+            .await?;
+        Ok(CheckedInputs {
+            inputs: inputs.clone(),
+            attempt: self.files.clone(),
+            policy: self.model.digest(),
+        })
     }
     pub async fn admit_semantics(&self, profile: Profile) -> Result<CheckedInputs, ModelError> {
         let relations = self.completed_relations()?;
-        let mut inputs = self.inputs("semantic-admission", profile, relations.iter().map(|r| r.name()))?;
+        let mut inputs = self.inputs(
+            "semantic-admission",
+            profile,
+            relations.iter().map(|r| r.name()),
+        )?;
         // Whole-artifact admission validates actual frozen owner premises in a live attempt.
         // A portable import has only canonical streams and uses the explicitly detached path.
         // Consumer admission remains exact and never substitutes a missing selected epoch.
         self.validate_scope(profile, true, None).await?;
-        for ((boundary, name), relation) in self.frozen_vocabulary.lock().map_err(|_| poisoned())?.iter() {
-            inputs.relations.insert((*name, Some(*boundary)), relation.clone());
+        for ((boundary, name), relation) in self
+            .frozen_vocabulary
+            .lock()
+            .map_err(|_| poisoned())?
+            .iter()
+        {
+            inputs
+                .relations
+                .insert((*name, Some(*boundary)), relation.clone());
         }
-        Ok(CheckedInputs { inputs, attempt:self.files.clone(), policy:self.model.digest() })
+        Ok(CheckedInputs {
+            inputs,
+            attempt: self.files.clone(),
+            policy: self.model.digest(),
+        })
     }
-    async fn validate_scope(&self, profile: Profile, admission: bool, selected: Option<&CompletedInputs>) -> Result<ContentHash, ModelError> {
-        let relations = selected.map(|inputs| inputs.relations().cloned().collect()).unwrap_or(self.completed_relations()?);
+    async fn validate_scope(
+        &self,
+        profile: Profile,
+        admission: bool,
+        selected: Option<&CompletedInputs>,
+    ) -> Result<ContentHash, ModelError> {
+        let relations = selected
+            .map(|inputs| inputs.relations().cloned().collect())
+            .unwrap_or(self.completed_relations()?);
         let names = relations
             .iter()
             .map(|r| r.name())
@@ -386,146 +417,361 @@ impl Workspace {
             }
         }
         let frozen_tables = match selected {
-            Some(inputs) => inputs.relations.keys().filter_map(|(name, prefix)| {
-                prefix.map(|boundary| ((boundary, *name), CompletedInputs::table(name, Some(boundary))))
-            }).collect(),
+            Some(inputs) => inputs
+                .relations
+                .keys()
+                .filter_map(|(name, prefix)| {
+                    prefix.map(|boundary| {
+                        (
+                            (boundary, *name),
+                            CompletedInputs::table(name, Some(boundary)),
+                        )
+                    })
+                })
+                .collect(),
             None => self.validation_views(&session).await?,
         };
         let checks = if admission {
             self.model.admission_candidates_for_scope(&names)?
         } else {
-            self.model.invariants_for_scope_with_premises(&names, &unrequested)?
+            self.model
+                .invariants_for_scope_with_premises(&names, &unrequested)?
         };
         for invariant in checks {
             let mut check = (invariant.create)(self.budget());
-            let execution_scope=check.execution_scope();
-            if let Some(scope)=&execution_scope {
-                let alias=if let Some(inputs)=selected {inputs.validation_table(&scope.root)?}
-                    else {Self::validation_table(&scope.root,&frozen_tables)?.to_owned()};
-                let sql=format!("SELECT id FROM {} LIMIT 1",crate::consumed_rows::identifier(&alias));
-                let mut roots=crate::sql::query(&session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-                let mut nonempty=false;
-                while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)? {self.cancellation.check()?;nonempty|=batch.num_rows()!=0;}
-                if !nonempty {continue;}
+            let execution_scope = check.execution_scope();
+            if let Some(scope) = &execution_scope {
+                let alias = if let Some(inputs) = selected {
+                    inputs.validation_table(&scope.root)?
+                } else {
+                    Self::validation_table(&scope.root, &frozen_tables)?.to_owned()
+                };
+                let sql = format!(
+                    "SELECT id FROM {} LIMIT 1",
+                    crate::consumed_rows::identifier(&alias)
+                );
+                let mut roots = crate::sql::query(&session, &sql)
+                    .await
+                    .map_err(ModelError::codec)?
+                    .execute_stream()
+                    .await
+                    .map_err(ModelError::codec)?;
+                let mut nonempty = false;
+                while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
+                    self.cancellation.check()?;
+                    nonempty |= batch.num_rows() != 0;
+                }
+                if !nonempty {
+                    continue;
+                }
             }
-            let normalization_scope=check.normalization_scope();
-            let projection_scope=check.projection_scope();
-            let applicability_roots=normalization_scope.map(|scope|scope.roots()).or_else(||projection_scope.map(|scope|scope.roots()));
-            if let Some(declared_roots)=applicability_roots {
+            let normalization_scope = check.normalization_scope();
+            let projection_scope = check.projection_scope();
+            let applicability_roots = normalization_scope
+                .map(|scope| scope.roots())
+                .or_else(|| projection_scope.map(|scope| scope.roots()));
+            if let Some(declared_roots) = applicability_roots {
                 // A missing requested candidate stream cannot establish an empty domain.
                 // Only actual complete-empty roots and declared unrequested flow roots do.
-                if declared_roots.iter().all(|root|names.contains(root.name())||unrequested.contains(root.name())) {
-                    let mut nonempty=false;
+                if declared_roots
+                    .iter()
+                    .all(|root| names.contains(root.name()) || unrequested.contains(root.name()))
+                {
+                    let mut nonempty = false;
                     for root in &declared_roots {
-                        let alias=if unrequested.contains(root.name()){root.name().to_owned()}
-                            else if let Some(inputs)=selected{inputs.validation_table(root)?}
-                            else{Self::validation_table(root,&frozen_tables)?.to_owned()};
-                        let mut rows=crate::sql::query(&session,&format!("SELECT id FROM {} LIMIT 1",crate::consumed_rows::identifier(&alias))).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-                        while let Some(batch)=rows.try_next().await.map_err(ModelError::codec)?{self.cancellation.check()?;nonempty|=batch.num_rows()!=0;}
-                        if nonempty {break;}
+                        let alias = if unrequested.contains(root.name()) {
+                            root.name().to_owned()
+                        } else if let Some(inputs) = selected {
+                            inputs.validation_table(root)?
+                        } else {
+                            Self::validation_table(root, &frozen_tables)?.to_owned()
+                        };
+                        let mut rows = crate::sql::query(
+                            &session,
+                            &format!(
+                                "SELECT id FROM {} LIMIT 1",
+                                crate::consumed_rows::identifier(&alias)
+                            ),
+                        )
+                        .await
+                        .map_err(ModelError::codec)?
+                        .execute_stream()
+                        .await
+                        .map_err(ModelError::codec)?;
+                        while let Some(batch) = rows.try_next().await.map_err(ModelError::codec)? {
+                            self.cancellation.check()?;
+                            nonempty |= batch.num_rows() != 0;
+                        }
+                        if nonempty {
+                            break;
+                        }
                     }
-                    if !nonempty {continue;}
+                    if !nonempty {
+                        continue;
+                    }
                 }
             }
-            if let Some(input)=invariant.inputs.iter().find(|input|!names.contains(input.name())&&!unrequested.contains(input.name())) {
-                return Err(ModelError::Invalid(format!("{} requires validation premise {} outside scope",invariant.name,input.name())));
+            if let Some(input) = invariant
+                .inputs
+                .iter()
+                .find(|input| !names.contains(input.name()) && !unrequested.contains(input.name()))
+            {
+                return Err(ModelError::Invalid(format!(
+                    "{} requires validation premise {} outside scope",
+                    invariant.name,
+                    input.name()
+                )));
             }
-            if let Some(scope)=check.retrieval_scope() {
+            if let Some(scope) = check.retrieval_scope() {
                 drop(check);
-                let mut tables=Vec::with_capacity(invariant.inputs.len());
+                let mut tables = Vec::with_capacity(invariant.inputs.len());
                 for input in &invariant.inputs {
-                    let alias=if unrequested.contains(input.name()){input.name().to_owned()}
-                        else if let Some(inputs)=selected{inputs.validation_table(input)?}
-                        else{Self::validation_table(input,&frozen_tables)?.to_owned()};
-                    tables.push(crate::consumed_rows::ClosureTable{relation:self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias});
+                    let alias = if unrequested.contains(input.name()) {
+                        input.name().to_owned()
+                    } else if let Some(inputs) = selected {
+                        inputs.validation_table(input)?
+                    } else {
+                        Self::validation_table(input, &frozen_tables)?.to_owned()
+                    };
+                    tables.push(crate::consumed_rows::ClosureTable {
+                        relation: self
+                            .model
+                            .relation(input.name())
+                            .ok_or(ModelError::Schema(input.name()))?
+                            .clone(),
+                        alias,
+                    });
                 }
-                crate::scoped_retrieval::validate_retrieval(&invariant,scope,tables,&session,self.budget(),&self.cancellation).await?;
+                crate::scoped_retrieval::validate_retrieval(
+                    &invariant,
+                    scope,
+                    tables,
+                    &session,
+                    self.budget(),
+                    &self.cancellation,
+                )
+                .await?;
                 continue;
             }
-            if let Some(scope)=projection_scope {
+            if let Some(scope) = projection_scope {
                 drop(check);
-                let mut tables=Vec::with_capacity(invariant.inputs.len());
+                let mut tables = Vec::with_capacity(invariant.inputs.len());
                 for input in &invariant.inputs {
-                    let alias=if unrequested.contains(input.name()){input.name().to_owned()}
-                        else if let Some(inputs)=selected{inputs.validation_table(input)?}
-                        else{Self::validation_table(input,&frozen_tables)?.to_owned()};
-                    tables.push(crate::consumed_rows::ClosureTable{relation:self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias});
+                    let alias = if unrequested.contains(input.name()) {
+                        input.name().to_owned()
+                    } else if let Some(inputs) = selected {
+                        inputs.validation_table(input)?
+                    } else {
+                        Self::validation_table(input, &frozen_tables)?.to_owned()
+                    };
+                    tables.push(crate::consumed_rows::ClosureTable {
+                        relation: self
+                            .model
+                            .relation(input.name())
+                            .ok_or(ModelError::Schema(input.name()))?
+                            .clone(),
+                        alias,
+                    });
                 }
-                crate::normalize::validate_projections(scope,&invariant,tables,&session,self.budget(),&self.cancellation).await?;
+                crate::normalize::validate_projections(
+                    scope,
+                    &invariant,
+                    tables,
+                    &session,
+                    self.budget(),
+                    &self.cancellation,
+                )
+                .await?;
                 continue;
             }
-            if let Some(scope)=normalization_scope {
+            if let Some(scope) = normalization_scope {
                 drop(check);
-                let mut tables=Vec::with_capacity(invariant.inputs.len());
+                let mut tables = Vec::with_capacity(invariant.inputs.len());
                 for input in &invariant.inputs {
-                    let alias=if unrequested.contains(input.name()){input.name().to_owned()}
-                        else if let Some(inputs)=selected{inputs.validation_table(input)?}
-                        else{Self::validation_table(input,&frozen_tables)?.to_owned()};
-                    tables.push(crate::consumed_rows::ClosureTable{relation:self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias});
+                    let alias = if unrequested.contains(input.name()) {
+                        input.name().to_owned()
+                    } else if let Some(inputs) = selected {
+                        inputs.validation_table(input)?
+                    } else {
+                        Self::validation_table(input, &frozen_tables)?.to_owned()
+                    };
+                    tables.push(crate::consumed_rows::ClosureTable {
+                        relation: self
+                            .model
+                            .relation(input.name())
+                            .ok_or(ModelError::Schema(input.name()))?
+                            .clone(),
+                        alias,
+                    });
                 }
                 use lctx_model::domain::normalized::admission::Scope;
                 match scope {
-                    Scope::Callables=>crate::normalize::validate_callables(&invariant,tables,&session,self.budget(),&self.cancellation).await?,
-                    Scope::Receivers=>crate::normalize::validate_receivers(&invariant,tables,&session,self.budget(),&self.cancellation).await?,
-                    Scope::Events=>crate::normalize::validate_events(&invariant,tables,&session,self.budget(),&self.cancellation).await?,
-                    Scope::Bindings=>crate::normalize::validate_bindings(&invariant,tables,&session,self.budget(),&self.cancellation).await?,
+                    Scope::Callables => {
+                        crate::normalize::validate_callables(
+                            &invariant,
+                            tables,
+                            &session,
+                            self.budget(),
+                            &self.cancellation,
+                        )
+                        .await?
+                    }
+                    Scope::Receivers => {
+                        crate::normalize::validate_receivers(
+                            &invariant,
+                            tables,
+                            &session,
+                            self.budget(),
+                            &self.cancellation,
+                        )
+                        .await?
+                    }
+                    Scope::Events => {
+                        crate::normalize::validate_events(
+                            &invariant,
+                            tables,
+                            &session,
+                            self.budget(),
+                            &self.cancellation,
+                        )
+                        .await?
+                    }
+                    Scope::Bindings => {
+                        crate::normalize::validate_bindings(
+                            &invariant,
+                            tables,
+                            &session,
+                            self.budget(),
+                            &self.cancellation,
+                        )
+                        .await?
+                    }
                 }
                 continue;
             }
-            if let Some(scope)=execution_scope {
+            if let Some(scope) = execution_scope {
                 drop(check);
-                let mut tables=Vec::with_capacity(invariant.inputs.len());
+                let mut tables = Vec::with_capacity(invariant.inputs.len());
                 for input in &invariant.inputs {
-                    let alias=if unrequested.contains(input.name()){input.name().to_owned()}
-                        else if let Some(inputs)=selected{inputs.validation_table(input)?}
-                        else{Self::validation_table(input,&frozen_tables)?.to_owned()};
-                    tables.push(crate::consumed_rows::ClosureTable{relation:self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias});
+                    let alias = if unrequested.contains(input.name()) {
+                        input.name().to_owned()
+                    } else if let Some(inputs) = selected {
+                        inputs.validation_table(input)?
+                    } else {
+                        Self::validation_table(input, &frozen_tables)?.to_owned()
+                    };
+                    tables.push(crate::consumed_rows::ClosureTable {
+                        relation: self
+                            .model
+                            .relation(input.name())
+                            .ok_or(ModelError::Schema(input.name()))?
+                            .clone(),
+                        alias,
+                    });
                 }
-                crate::scoped_execution::validate_execution(&invariant,&scope,tables,&session,self.budget(),&self.cancellation).await?;
+                crate::scoped_execution::validate_execution(
+                    &invariant,
+                    &scope,
+                    tables,
+                    &session,
+                    self.budget(),
+                    &self.cancellation,
+                )
+                .await?;
                 continue;
             }
             if let Some(scope) = check.aspect_scope() {
                 drop(check);
                 let mut tables = Vec::with_capacity(invariant.inputs.len());
                 for input in &invariant.inputs {
-                    let alias = if unrequested.contains(input.name()) { input.name().to_owned() }
-                        else if let Some(inputs) = selected { inputs.validation_table(input)? }
-                        else { Self::validation_table(input, &frozen_tables)?.to_owned() };
+                    let alias = if unrequested.contains(input.name()) {
+                        input.name().to_owned()
+                    } else if let Some(inputs) = selected {
+                        inputs.validation_table(input)?
+                    } else {
+                        Self::validation_table(input, &frozen_tables)?.to_owned()
+                    };
                     tables.push(crate::consumed_rows::ClosureTable {
-                        relation: self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(), alias,
+                        relation: self
+                            .model
+                            .relation(input.name())
+                            .ok_or(ModelError::Schema(input.name()))?
+                            .clone(),
+                        alias,
                     });
                 }
-                crate::scoped_aspects::validate_aspects(&invariant, &scope, tables, &self.model, &session, self.budget(), &self.cancellation).await?;
+                crate::scoped_aspects::validate_aspects(
+                    &invariant,
+                    &scope,
+                    tables,
+                    &self.model,
+                    &session,
+                    self.budget(),
+                    &self.cancellation,
+                )
+                .await?;
                 continue;
             }
             if let Some(scope) = check.inventory_scope() {
                 drop(check);
                 let mut tables = Vec::with_capacity(invariant.inputs.len());
                 for input in &invariant.inputs {
-                    let alias = if unrequested.contains(input.name()) { input.name().to_owned() }
-                        else if let Some(inputs) = selected { inputs.validation_table(input)? }
-                        else { Self::validation_table(input, &frozen_tables)?.to_owned() };
+                    let alias = if unrequested.contains(input.name()) {
+                        input.name().to_owned()
+                    } else if let Some(inputs) = selected {
+                        inputs.validation_table(input)?
+                    } else {
+                        Self::validation_table(input, &frozen_tables)?.to_owned()
+                    };
                     tables.push(crate::consumed_rows::ClosureTable {
-                        relation: self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),
+                        relation: self
+                            .model
+                            .relation(input.name())
+                            .ok_or(ModelError::Schema(input.name()))?
+                            .clone(),
                         alias,
                     });
                 }
-                crate::scoped_inventory::validate_inventory(&invariant, &scope, tables, &session, self.budget(), &self.cancellation).await?;
+                crate::scoped_inventory::validate_inventory(
+                    &invariant,
+                    &scope,
+                    tables,
+                    &session,
+                    self.budget(),
+                    &self.cancellation,
+                )
+                .await?;
                 continue;
             }
             if let Some(scope) = check.support_scope() {
                 drop(check);
                 let mut tables = Vec::with_capacity(invariant.inputs.len());
                 for input in &invariant.inputs {
-                    let alias = if unrequested.contains(input.name()) { input.name().to_owned() }
-                        else if let Some(inputs) = selected { inputs.validation_table(input)? }
-                        else { Self::validation_table(input, &frozen_tables)?.to_owned() };
+                    let alias = if unrequested.contains(input.name()) {
+                        input.name().to_owned()
+                    } else if let Some(inputs) = selected {
+                        inputs.validation_table(input)?
+                    } else {
+                        Self::validation_table(input, &frozen_tables)?.to_owned()
+                    };
                     tables.push(crate::consumed_rows::ClosureTable {
-                        relation: self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),
+                        relation: self
+                            .model
+                            .relation(input.name())
+                            .ok_or(ModelError::Schema(input.name()))?
+                            .clone(),
                         alias,
                     });
                 }
-                crate::scoped_admission::validate_support(&invariant, &scope, tables, &session, self.budget(), &self.cancellation).await?;
+                crate::scoped_admission::validate_support(
+                    &invariant,
+                    &scope,
+                    tables,
+                    &session,
+                    self.budget(),
+                    &self.cancellation,
+                )
+                .await?;
                 continue;
             }
             for input in &invariant.inputs {
@@ -541,7 +787,9 @@ impl Workspace {
                 } else if let Some(inputs) = selected {
                     selected_table = inputs.validation_table(input)?;
                     selected_table.as_str()
-                } else { Self::validation_table(input, &frozen_tables)? };
+                } else {
+                    Self::validation_table(input, &frozen_tables)?
+                };
                 let sql = format!(
                     "SELECT * FROM \"{}\"{}",
                     table,
@@ -568,23 +816,42 @@ impl Workspace {
     }
     /// Independent frontier obligations use the actual profile and retained capture/method
     /// definitions. They require no producer replay or historical publication receipts.
-    pub async fn admit_frontier(&self, frontier: lctx_model::domain::admission::Frontier, profile: Profile) -> Result<(), ModelError> {
+    pub async fn admit_frontier(
+        &self,
+        frontier: lctx_model::domain::admission::Frontier,
+        profile: Profile,
+    ) -> Result<(), ModelError> {
         use lctx_model::domain::admission::Frontier;
         let ids: &[&str] = match frontier {
             Frontier::Facts | Frontier::Normalized => &[],
-            Frontier::Conformance => return Err(ModelError::Frontier("diagnostic conformance is not a complete artifact".into())),
+            Frontier::Conformance => {
+                return Err(ModelError::Frontier(
+                    "diagnostic conformance is not a complete artifact".into(),
+                ));
+            }
             Frontier::Analysis => &["complete_analysis_frontier"],
             Frontier::Catalog => &["complete_analysis_frontier", "complete_catalog_frontier"],
         };
         let relations = self.completed_relations()?;
-        let access = self.inputs("frontier-admission", profile, relations.iter().map(|r| r.name()))?;
+        let access = self.inputs(
+            "frontier-admission",
+            profile,
+            relations.iter().map(|r| r.name()),
+        )?;
         let session = access.session(self).await?;
         for id in ids {
             let invariant = self.model.publication_check(id)?;
             let mut check = (invariant.create)(self.budget());
             for input in &invariant.inputs {
-                let mut stream = crate::sql::query(&session, &format!("SELECT * FROM \"{}\" ORDER BY id", input.name()))
-                    .await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                let mut stream = crate::sql::query(
+                    &session,
+                    &format!("SELECT * FROM \"{}\" ORDER BY id", input.name()),
+                )
+                .await
+                .map_err(ModelError::codec)?
+                .execute_stream()
+                .await
+                .map_err(ModelError::codec)?;
                 while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
                     self.cancellation.check()?;
                     check.visit_input(input, &batch)?;
@@ -894,7 +1161,9 @@ impl Workspace {
     pub fn budget(&self) -> &ResourceBudget {
         &self.budget
     }
-    pub fn options(&self) -> WorkspaceOptions { self.options }
+    pub fn options(&self) -> WorkspaceOptions {
+        self.options
+    }
     pub fn model(&self) -> &Arc<ValidatedModel> {
         &self.model
     }
@@ -1097,18 +1366,56 @@ impl Workspace {
         let path = self.path(name, "complete");
         // Only compact identity/IPC coordinates enter external sorting. Rich original rows
         // remain in immutable pending files and are gathered into bounded output batches.
-        let mut sources=vec![crate::ordered_stream::Source{path:pending.path.clone(),blocks:pending.blocks.clone()}];
-        if let Ok(previous)=self.relation(name) {
-            if pending.contribution||previous.contribution {
-                sources.push(crate::ordered_stream::Source{path:previous.path.clone(),blocks:previous.blocks.clone()});
-            }else{return Err(ModelError::Invalid(format!("completed output {name} already has an owner")));}
+        let mut sources = vec![crate::ordered_stream::Source {
+            path: pending.path.clone(),
+            blocks: pending.blocks.clone(),
+        }];
+        if let Ok(previous) = self.relation(name) {
+            if pending.contribution || previous.contribution {
+                sources.push(crate::ordered_stream::Source {
+                    path: previous.path.clone(),
+                    blocks: previous.blocks.clone(),
+                });
+            } else {
+                return Err(ModelError::Invalid(format!(
+                    "completed output {name} already has an owner"
+                )));
+            }
         }
-        let index=self.path(name,"order-index");
-        let (rows,content,blocks)=crate::ordered_stream::order(&pending.relation,sources,&self.context,self.budget(),&self.cancellation,&index,&path,self.options.batch_rows).await?;
+        let index = self.path(name, "order-index");
+        let (rows, content, blocks) = crate::ordered_stream::order(
+            &pending.relation,
+            sources,
+            &self.context,
+            self.budget(),
+            &self.cancellation,
+            &index,
+            &path,
+            self.options.batch_rows,
+        )
+        .await?;
         self.cancellation.check()?;
-        Ok(Arc::new(CompletedRelation{
-            relation:pending.relation,producer,implementation,configuration,contract:self.model.digest(),content,rows,inputs,profile,contribution:pending.contribution,
-            snapshot:(pending.snapshot)(producer,self.model.digest(),implementation,content,rows)?,path,blocks,_files:self.files.clone(),
+        Ok(Arc::new(CompletedRelation {
+            relation: pending.relation,
+            producer,
+            implementation,
+            configuration,
+            contract: self.model.digest(),
+            content,
+            rows,
+            inputs,
+            profile,
+            contribution: pending.contribution,
+            snapshot: (pending.snapshot)(
+                producer,
+                self.model.digest(),
+                implementation,
+                content,
+                rows,
+            )?,
+            path,
+            blocks,
+            _files: self.files.clone(),
         }))
     }
 }
@@ -1208,24 +1515,50 @@ pub struct CheckedInputs {
     policy: ContentHash,
 }
 impl CheckedInputs {
-    pub fn inputs(&self) -> &CompletedInputs { &self.inputs }
+    pub fn inputs(&self) -> &CompletedInputs {
+        &self.inputs
+    }
     /// Project an admitted authority onto an exact immutable dependency subset. No rows are
     /// read again; the selected descriptors retain the same attempt and admission policy.
-    pub fn select(&self, required: &[lctx_model::domain::ValidationInput]) -> Result<Self, ModelError> {
-        Ok(Self { inputs: self.inputs.select(required)?, attempt: self.attempt.clone(), policy: self.policy })
+    pub fn select(
+        &self,
+        required: &[lctx_model::domain::ValidationInput],
+    ) -> Result<Self, ModelError> {
+        Ok(Self {
+            inputs: self.inputs.select(required)?,
+            attempt: self.attempt.clone(),
+            policy: self.policy,
+        })
     }
-    pub fn require(&self, workspace: &Workspace, inputs: &CompletedInputs) -> Result<(), ModelError> {
-        if self.inputs.relations.len() != inputs.relations.len() { return Err(ModelError::Conflict("checked compiler input domain")); }
+    pub fn require(
+        &self,
+        workspace: &Workspace,
+        inputs: &CompletedInputs,
+    ) -> Result<(), ModelError> {
+        if self.inputs.relations.len() != inputs.relations.len() {
+            return Err(ModelError::Conflict("checked compiler input domain"));
+        }
         self.require_subset(workspace, inputs)
     }
     /// A consumer may declare additional inputs; every descriptor underlying this authority must
     /// still be the identical completed relation in its selected dependency closure.
-    pub fn require_subset(&self, workspace: &Workspace, inputs: &CompletedInputs) -> Result<(), ModelError> {
+    pub fn require_subset(
+        &self,
+        workspace: &Workspace,
+        inputs: &CompletedInputs,
+    ) -> Result<(), ModelError> {
         if !Arc::ptr_eq(&self.attempt, &workspace.files)
             || self.policy != workspace.model.digest()
             || self.inputs.profile != inputs.profile
-            || self.inputs.relations.iter().any(|(key, source)| inputs.relations.get(key).is_none_or(|other| !Arc::ptr_eq(source, other)))
-        { return Err(ModelError::Conflict("checked compiler inputs")); }
+            || self.inputs.relations.iter().any(|(key, source)| {
+                inputs
+                    .relations
+                    .get(key)
+                    .is_none_or(|other| !Arc::ptr_eq(source, other))
+            })
+        {
+            return Err(ModelError::Conflict("checked compiler inputs"));
+        }
         workspace.cancellation.check()
     }
 }
@@ -1244,49 +1577,111 @@ pub struct CompletedInputs {
 impl CompletedInputs {
     /// Check lifetime and identity of an actual producer's immutable streams. This does not
     /// admit semantic contents: only the model owner's opaque produced value carries authority.
-    pub fn require_subset(&self, workspace: &Workspace, consumer: &CompletedInputs) -> Result<(), ModelError> {
+    pub fn require_subset(
+        &self,
+        workspace: &Workspace,
+        consumer: &CompletedInputs,
+    ) -> Result<(), ModelError> {
         if self.profile != consumer.profile
             || self.relations.is_empty()
-            || self.relations.iter().any(|(key, source)|
+            || self.relations.iter().any(|(key, source)| {
                 !Arc::ptr_eq(&source._files, &workspace.files)
-                || consumer.relations.get(key).is_none_or(|other| !Arc::ptr_eq(source, other)))
-        { return Err(ModelError::Conflict("completed producer dependency identity")); }
+                    || consumer
+                        .relations
+                        .get(key)
+                        .is_none_or(|other| !Arc::ptr_eq(source, other))
+            })
+        {
+            return Err(ModelError::Conflict(
+                "completed producer dependency identity",
+            ));
+        }
         workspace.cancellation.check()
     }
     /// Resolve the exact table selected by a model-owned validation declaration.
-    pub fn table_for(&self, input: &lctx_model::domain::ValidationInput) -> Result<String, ModelError> {
+    pub fn table_for(
+        &self,
+        input: &lctx_model::domain::ValidationInput,
+    ) -> Result<String, ModelError> {
         self.validation_table(input)
     }
-    fn validation_table(&self, input: &lctx_model::domain::ValidationInput) -> Result<String, ModelError> {
+    fn validation_table(
+        &self,
+        input: &lctx_model::domain::ValidationInput,
+    ) -> Result<String, ModelError> {
         let key = (input.name(), input.prefix());
-        if self.relations.contains_key(&key) { return Ok(Self::table(key.0, key.1)); }
-        if input.prefix().is_some() { return Err(ModelError::Conflict("checked admission requires a missing input epoch")); }
-        let mut choices = self.relations.iter().filter(|((name, _), _)| *name == input.name());
-        let (key, source) = choices.next().ok_or(ModelError::Conflict("checked admission input is absent"))?;
-        if choices.any(|(_, other)| !Arc::ptr_eq(source, other)) { return Err(ModelError::Conflict("checked admission input epoch is ambiguous")); }
+        if self.relations.contains_key(&key) {
+            return Ok(Self::table(key.0, key.1));
+        }
+        if input.prefix().is_some() {
+            return Err(ModelError::Conflict(
+                "checked admission requires a missing input epoch",
+            ));
+        }
+        let mut choices = self
+            .relations
+            .iter()
+            .filter(|((name, _), _)| *name == input.name());
+        let (key, source) = choices
+            .next()
+            .ok_or(ModelError::Conflict("checked admission input is absent"))?;
+        if choices.any(|(_, other)| !Arc::ptr_eq(source, other)) {
+            return Err(ModelError::Conflict(
+                "checked admission input epoch is ambiguous",
+            ));
+        }
         Ok(Self::table(key.0, key.1))
     }
     pub fn name(&self) -> &'static str {
         self.name
     }
     /// Select a model-declared immutable dependency closure without copying or rehashing rows.
-    pub fn select(&self, required: &[lctx_model::domain::ValidationInput]) -> Result<Self, ModelError> {
+    pub fn select(
+        &self,
+        required: &[lctx_model::domain::ValidationInput],
+    ) -> Result<Self, ModelError> {
         let mut relations = BTreeMap::new();
         for input in required {
             let key = (input.name(), input.prefix());
-            let source = if let Some(source) = self.relations.get(&key) { source } else {
-                if input.prefix().is_some() { return Err(ModelError::Conflict("missing checked input prefix")); }
-                let mut choices = self.relations.iter().filter(|((name, _), _)| *name == input.name());
-                let (_, source) = choices.next().ok_or(ModelError::Conflict("missing checked input"))?;
-                if choices.any(|(_, other)| !Arc::ptr_eq(source, other)) { return Err(ModelError::Conflict("ambiguous checked input")); }
+            let source = if let Some(source) = self.relations.get(&key) {
+                source
+            } else {
+                if input.prefix().is_some() {
+                    return Err(ModelError::Conflict("missing checked input prefix"));
+                }
+                let mut choices = self
+                    .relations
+                    .iter()
+                    .filter(|((name, _), _)| *name == input.name());
+                let (_, source) = choices
+                    .next()
+                    .ok_or(ModelError::Conflict("missing checked input"))?;
+                if choices.any(|(_, other)| !Arc::ptr_eq(source, other)) {
+                    return Err(ModelError::Conflict("ambiguous checked input"));
+                }
                 source
             };
             // Retain the original declaration key so later subset checks cannot erase epochs.
-            let original = self.relations.iter().find(|((name, prefix), candidate)| *name == input.name() && (input.prefix().is_none() || *prefix == input.prefix()) && Arc::ptr_eq(source, candidate)).ok_or(ModelError::Conflict("checked input selector"))?.0;
+            let original = self
+                .relations
+                .iter()
+                .find(|((name, prefix), candidate)| {
+                    *name == input.name()
+                        && (input.prefix().is_none() || *prefix == input.prefix())
+                        && Arc::ptr_eq(source, candidate)
+                })
+                .ok_or(ModelError::Conflict("checked input selector"))?
+                .0;
             relations.insert(*original, source.clone());
         }
-        if relations.is_empty() { return Err(ModelError::Conflict("empty checked input closure")); }
-        Ok(Self { name:self.name, profile:self.profile, relations })
+        if relations.is_empty() {
+            return Err(ModelError::Conflict("empty checked input closure"));
+        }
+        Ok(Self {
+            name: self.name,
+            profile: self.profile,
+            relations,
+        })
     }
     pub fn profile(&self) -> Profile {
         self.profile
@@ -1485,17 +1880,27 @@ struct Writer<R: Record> {
     contribution: bool,
 }
 impl<R: Record> Writer<R> {
-    fn write_arrow(&mut self,batch:&RecordBatch)->Result<(),ModelError>{
-        let before=self.ipc.get_mut().stream_position().map_err(ModelError::codec)?;
+    fn write_arrow(&mut self, batch: &RecordBatch) -> Result<(), ModelError> {
+        let before = self
+            .ipc
+            .get_mut()
+            .stream_position()
+            .map_err(ModelError::codec)?;
         self.ipc.write(batch).map_err(ModelError::codec)?;
-        let after=self.ipc.get_mut().stream_position().map_err(ModelError::codec)?;
-        self.blocks.push(usize::try_from(after-before).map_err(ModelError::codec)?);Ok(())
+        let after = self
+            .ipc
+            .get_mut()
+            .stream_position()
+            .map_err(ModelError::codec)?;
+        self.blocks
+            .push(usize::try_from(after - before).map_err(ModelError::codec)?);
+        Ok(())
     }
     fn flush(&mut self, model: &ValidatedModel, budget: &ResourceBudget) -> Result<(), ModelError> {
         if !self.pending.is_empty() {
             // Transfer the existing row reservation into encoding; these are the same rows,
             // rather than an additional resident copy of the pending batch.
-            let charge=std::mem::replace(&mut self.charge,budget.reserve(R::NAME,0)?);
+            let charge = std::mem::replace(&mut self.charge, budget.reserve(R::NAME, 0)?);
             let batch = Batch::with_reservation(model, std::mem::take(&mut self.pending), charge)?;
             self.write_arrow(batch.arrow())?;
             self.bytes = 0;
@@ -1616,10 +2021,12 @@ impl ProducerOutput {
                 path,
                 pending: Vec::new(),
                 bytes: 0,
-                charge: self.workspace.budget().reserve(R::NAME,0)?,
+                charge: self.workspace.budget().reserve(R::NAME, 0)?,
                 limits: TransferLimits {
                     rows: self.workspace.options.batch_rows,
-                    bytes: (self.workspace.options.memory_bytes/8).max(1).min(lctx_model::domain::resources::TRANSFER_BYTES),
+                    bytes: (self.workspace.options.memory_bytes / 8)
+                        .max(1)
+                        .min(lctx_model::domain::resources::TRANSFER_BYTES),
                     ..Default::default()
                 },
                 contribution,
@@ -1682,7 +2089,9 @@ impl ProducerOutput {
             {
                 writer.flush(&self.workspace.model, self.workspace.budget())?;
             }
-            writer.charge.try_resize(writer.charge.size().saturating_add(bytes))?;
+            writer
+                .charge
+                .try_resize(writer.charge.size().saturating_add(bytes))?;
             writer.pending.push(row);
             writer.bytes += bytes;
             Ok(())
@@ -1731,7 +2140,10 @@ impl ProducerOutput {
         let input_snapshots: Arc<[_]> = self.inputs.snapshots().collect::<Vec<_>>().into();
         // Seal every pending typed batch before external ordering starts. Keeping the other
         // output writers alive here otherwise retains unrelated rich rows during each sort.
-        let pending=writers.into_values().map(|writer|writer.close(&self.workspace.model,self.workspace.budget())).collect::<Result<Vec<_>,_>>()?;
+        let pending = writers
+            .into_values()
+            .map(|writer| writer.close(&self.workspace.model, self.workspace.budget()))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut completed = Vec::new();
         for pending in pending {
             completed.push(
@@ -2196,13 +2608,31 @@ mod empty_execution_admission_controls {
     use super::*;
     use lctx_model::domain::execution::source_call_records::SourceCallHeader;
     #[tokio::test]
-    async fn complete_empty_execution_root_needs_no_unrequested_parent_streams(){
-        let workspace=Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),WorkspaceOptions::default()).unwrap();
-        let inputs=workspace.inputs("empty-source-headers",Profile::Catalog,[]).unwrap();
-        let output=workspace.output("empty-source-headers",Profile::Catalog,ContentHash::of(b"empty-header-control"),inputs);
-        output.declare::<SourceCallHeader>().unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();
-        let selected=workspace.inputs("empty-header-consumer",Profile::Catalog,[SourceCallHeader::NAME]).unwrap();
+    async fn complete_empty_execution_root_needs_no_unrequested_parent_streams() {
+        let workspace = Workspace::new(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            WorkspaceOptions::default(),
+        )
+        .unwrap();
+        let inputs = workspace
+            .inputs("empty-source-headers", Profile::Catalog, [])
+            .unwrap();
+        let output = workspace.output(
+            "empty-source-headers",
+            Profile::Catalog,
+            ContentHash::of(b"empty-header-control"),
+            inputs,
+        );
+        output.declare::<SourceCallHeader>().unwrap();
+        output.finish(ProviderOutcome::Complete).await.unwrap();
+        let selected = workspace
+            .inputs(
+                "empty-header-consumer",
+                Profile::Catalog,
+                [SourceCallHeader::NAME],
+            )
+            .unwrap();
         workspace.checked_inputs(&selected).await.unwrap();
-        assert_eq!(workspace.completed::<SourceCallHeader>().unwrap().rows(),0);
+        assert_eq!(workspace.completed::<SourceCallHeader>().unwrap().rows(), 0);
     }
 }

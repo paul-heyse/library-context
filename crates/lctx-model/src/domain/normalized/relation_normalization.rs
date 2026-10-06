@@ -203,8 +203,22 @@ pub fn normalize(
 }
 /// Root observation grains; callers supply all competing candidates and referenced premises.
 #[derive(Clone, Copy)]
-pub enum RelationKernel { Reference, NativeDefinition, Import, Ancestry, Mention, Type, Binder, Place, TestOperand }
-pub fn normalize_scope(data: &RelationData, kernel: RelationKernel, budget: &ResourceBudget) -> Result<RelationOutput, ModelError> {
+pub enum RelationKernel {
+    Reference,
+    NativeDefinition,
+    Import,
+    Ancestry,
+    Mention,
+    Type,
+    Binder,
+    Place,
+    TestOperand,
+}
+pub fn normalize_scope(
+    data: &RelationData,
+    kernel: RelationKernel,
+    budget: &ResourceBudget,
+) -> Result<RelationOutput, ModelError> {
     let mut output = RelationOutput::new(budget);
     let index = Index::new(data, budget)?;
     match kernel {
@@ -212,7 +226,9 @@ pub fn normalize_scope(data: &RelationData, kernel: RelationKernel, budget: &Res
             references(data, &mut output, budget)?;
             super::native_lexical::characterize(data, &mut output, budget)?;
         }
-        RelationKernel::NativeDefinition => super::native_lexical::characterize(data, &mut output, budget)?,
+        RelationKernel::NativeDefinition => {
+            super::native_lexical::characterize(data, &mut output, budget)?
+        }
         RelationKernel::Import => imports(data, &index, &mut output, budget)?,
         RelationKernel::Ancestry => ancestry(data, &index, &mut output, budget)?,
         RelationKernel::Mention => mentions(data, &index, &mut output, budget)?,

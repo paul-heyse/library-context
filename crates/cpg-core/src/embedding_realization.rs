@@ -18,7 +18,11 @@ use lctx_model::domain::{
     resources::ResourceBudget,
     *,
 };
-use std::{collections::BTreeMap, io::{Read,Seek,SeekFrom,Write}, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    io::{Read, Seek, SeekFrom, Write},
+    sync::Arc,
+};
 
 /// Resource and corruption failures remain distinct from optional service availability.
 #[derive(Debug, thiserror::Error)]
@@ -54,11 +58,18 @@ enum Refusal {
     TokenLimit { tokens: usize, limit: u32 },
     ServiceUnavailable(String),
 }
-#[derive(Clone,Copy)]
-struct PayloadSlot { offset: u64, length: usize }
-#[derive(Clone,Copy)]
-struct WinnerSlot { payload: PayloadSlot, digest: ContentHash, tokens: u32 }
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy)]
+struct PayloadSlot {
+    offset: u64,
+    length: usize,
+}
+#[derive(Clone, Copy)]
+struct WinnerSlot {
+    payload: PayloadSlot,
+    digest: ContentHash,
+    tokens: u32,
+}
+#[derive(Clone, Copy)]
 enum RefusalSlot {
     TokenLimit { tokens: usize, limit: u32 },
     ServiceUnavailable(PayloadSlot),
@@ -167,56 +178,84 @@ impl<'a> Session<'a> {
         let admitted = AdmittedValue::new(spec, &request, tokens, decoded.values(), &self.budget)?;
         self.insert(admitted)
     }
-    fn append(&mut self, bytes: &[u8]) -> Result<PayloadSlot,ModelError> {
-        if self.spool.is_none() { self.spool=Some(tempfile::tempfile().map_err(ModelError::codec)?); }
-        let file=self.spool.as_mut().expect("opened private receipt spool");
-        let offset=file.seek(SeekFrom::End(0)).map_err(ModelError::codec)?;
-        offset.checked_add(u64::try_from(bytes.len()).map_err(ModelError::codec)?)
+    fn append(&mut self, bytes: &[u8]) -> Result<PayloadSlot, ModelError> {
+        if self.spool.is_none() {
+            self.spool = Some(tempfile::tempfile().map_err(ModelError::codec)?);
+        }
+        let file = self.spool.as_mut().expect("opened private receipt spool");
+        let offset = file.seek(SeekFrom::End(0)).map_err(ModelError::codec)?;
+        offset
+            .checked_add(u64::try_from(bytes.len()).map_err(ModelError::codec)?)
             .ok_or_else(|| ModelError::Invalid("embedding receipt offset overflow".into()))?;
         file.write_all(bytes).map_err(ModelError::codec)?;
-        Ok(PayloadSlot {offset,length:bytes.len()})
+        Ok(PayloadSlot {
+            offset,
+            length: bytes.len(),
+        })
     }
-    fn read_payload(&mut self, slot: PayloadSlot) -> Result<(Vec<u8>,Box<dyn resources::Reservation>),ModelError> {
-        let reservation=self.budget.reserve("embedding-private-receipt-read",slot.length)?;
-        let mut bytes=vec![0;slot.length];
-        let file=self.spool.as_mut().ok_or_else(|| ModelError::Invalid("embedding private receipt spool absent".into()))?;
-        file.seek(SeekFrom::Start(slot.offset)).map_err(ModelError::codec)?;
+    fn read_payload(
+        &mut self,
+        slot: PayloadSlot,
+    ) -> Result<(Vec<u8>, Box<dyn resources::Reservation>), ModelError> {
+        let reservation = self
+            .budget
+            .reserve("embedding-private-receipt-read", slot.length)?;
+        let mut bytes = vec![0; slot.length];
+        let file = self
+            .spool
+            .as_mut()
+            .ok_or_else(|| ModelError::Invalid("embedding private receipt spool absent".into()))?;
+        file.seek(SeekFrom::Start(slot.offset))
+            .map_err(ModelError::codec)?;
         file.read_exact(&mut bytes).map_err(ModelError::codec)?;
-        Ok((bytes,reservation))
+        Ok((bytes, reservation))
     }
     fn insert(&mut self, admitted: AdmittedValue) -> Result<(), ModelError> {
         let key = admitted.input();
         if let Some(previous) = self.values.get(&key).copied() {
-            let (bytes,_read)=self.read_payload(previous.payload)?;
+            let (bytes, _read) = self.read_payload(previous.payload)?;
             if bytes != admitted.bytes() || previous.tokens != admitted.tokens() {
                 return Err(ModelError::Invalid(
                     "embedding effects disagree on exact winning value".into(),
                 ));
             }
         } else {
-            self.charge.grow(size_of::<ContentHash>() + size_of::<WinnerSlot>() + 64)?;
-            let payload=self.append(admitted.bytes())?;
-            self.values.insert(key,WinnerSlot {payload,digest:admitted.digest(),tokens:admitted.tokens()});
+            self.charge
+                .grow(size_of::<ContentHash>() + size_of::<WinnerSlot>() + 64)?;
+            let payload = self.append(admitted.bytes())?;
+            self.values.insert(
+                key,
+                WinnerSlot {
+                    payload,
+                    digest: admitted.digest(),
+                    tokens: admitted.tokens(),
+                },
+            );
         }
         Ok(())
     }
     fn refuse(&mut self, key: ContentHash, refusal: Refusal) -> Result<(), ModelError> {
         if !self.refusals.contains_key(&key) {
-            self.charge.grow(size_of::<ContentHash>() + size_of::<RefusalSlot>() + 64)?;
-            let slot=match refusal {
-                Refusal::TokenLimit {tokens,limit}=>RefusalSlot::TokenLimit {tokens,limit},
-                Refusal::ServiceUnavailable(message)=>RefusalSlot::ServiceUnavailable(self.append(message.as_bytes())?),
+            self.charge
+                .grow(size_of::<ContentHash>() + size_of::<RefusalSlot>() + 64)?;
+            let slot = match refusal {
+                Refusal::TokenLimit { tokens, limit } => RefusalSlot::TokenLimit { tokens, limit },
+                Refusal::ServiceUnavailable(message) => {
+                    RefusalSlot::ServiceUnavailable(self.append(message.as_bytes())?)
+                }
             };
-            self.refusals.insert(key,slot);
+            self.refusals.insert(key, slot);
         }
         Ok(())
     }
-    fn refusal_error(&mut self, refusal: RefusalSlot) -> Result<Error,ModelError> {
+    fn refusal_error(&mut self, refusal: RefusalSlot) -> Result<Error, ModelError> {
         Ok(match refusal {
-            RefusalSlot::TokenLimit {tokens,limit}=>Error::TokenLimit {tokens,limit},
-            RefusalSlot::ServiceUnavailable(slot)=>{
-                let (bytes,_read)=self.read_payload(slot)?;
-                Error::Service(CoreError::EmbeddingService(String::from_utf8(bytes).map_err(ModelError::codec)?))
+            RefusalSlot::TokenLimit { tokens, limit } => Error::TokenLimit { tokens, limit },
+            RefusalSlot::ServiceUnavailable(slot) => {
+                let (bytes, _read) = self.read_payload(slot)?;
+                Error::Service(CoreError::EmbeddingService(
+                    String::from_utf8(bytes).map_err(ModelError::codec)?,
+                ))
             }
         })
     }
@@ -395,21 +434,34 @@ impl<'a> Session<'a> {
         if let Some(refusal) = self.refusals.get(&key).copied() {
             return Err(self.refusal_error(refusal)?);
         }
-        if self.active.as_ref().is_none_or(|(active,_)| *active!=key) {
+        if self
+            .active
+            .as_ref()
+            .is_none_or(|(active, _)| *active != key)
+        {
             // Release the preceding hydrated vector before admitting the next one. A returned
             // borrow prevents replacement until its consumer is finished with those bytes.
-            self.active=None;
-            let slot=self.values.get(&key).copied()
-                .ok_or_else(|| ModelError::Invalid("prepared embedding winner absent".into()))?;
-            let (bytes,_read)=self.read_payload(slot.payload)?;
-            let spec=self.configuration.specification();
-            let decoded=embedding::value::decode(spec,&bytes,slot.digest,slot.tokens,&self.budget)?;
-            let request=spec.document_text(document);
-            let admitted=AdmittedValue::new(spec,&request,slot.tokens,decoded.values(),&self.budget)?;
-            if admitted.input()!=key || admitted.bytes()!=bytes || admitted.digest()!=slot.digest {
-                return Err(ModelError::Invalid("embedding private winner receipt differs".into()).into());
+            self.active = None;
+            let slot =
+                self.values.get(&key).copied().ok_or_else(|| {
+                    ModelError::Invalid("prepared embedding winner absent".into())
+                })?;
+            let (bytes, _read) = self.read_payload(slot.payload)?;
+            let spec = self.configuration.specification();
+            let decoded =
+                embedding::value::decode(spec, &bytes, slot.digest, slot.tokens, &self.budget)?;
+            let request = spec.document_text(document);
+            let admitted =
+                AdmittedValue::new(spec, &request, slot.tokens, decoded.values(), &self.budget)?;
+            if admitted.input() != key
+                || admitted.bytes() != bytes
+                || admitted.digest() != slot.digest
+            {
+                return Err(
+                    ModelError::Invalid("embedding private winner receipt differs".into()).into(),
+                );
             }
-            self.active=Some((key,admitted));
+            self.active = Some((key, admitted));
         }
         Ok(&self.active.as_ref().expect("hydrated winner").1)
     }
@@ -488,35 +540,70 @@ mod tests {
     }
     #[tokio::test]
     async fn private_spill_keeps_nonadjacent_first_winners_with_bounded_vectors_and_batches() {
-        let provider=Changing {specification:FakeEmbedder::new().spec().clone(),batches:Default::default(),unavailable:false};
-        let budget=ResourceBudget::fixed(16<<20).unwrap();
-        let configuration=Configuration::new(provider.spec(),provider.endpoint(),&budget).unwrap();
-        let mut session=Session::selected(configuration,&provider,None,&budget).unwrap();
-        let documents:Vec<_>=(0..5000).map(|index| format!("document-{index}")).collect();
-        session.prepare(documents.iter().map(String::as_str)).await.unwrap();
-        assert!(budget.reserved()<2<<20,"completed requests retain compact slots, not every vector");
-        assert_eq!(session.spool.as_ref().unwrap().metadata().unwrap().len(),5000*4096);
-        let first=session.realize(&documents[0]).await.unwrap().bytes().to_vec();
-        let other=session.realize(&documents[64]).await.unwrap().bytes().to_vec();
-        assert_ne!(first,other,"the source-written provider actually changes later answers");
-        assert_eq!(session.realize(&documents[0]).await.unwrap().bytes(),first);
+        let provider = Changing {
+            specification: FakeEmbedder::new().spec().clone(),
+            batches: Default::default(),
+            unavailable: false,
+        };
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let configuration =
+            Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap();
+        let mut session = Session::selected(configuration, &provider, None, &budget).unwrap();
+        let documents: Vec<_> = (0..5000).map(|index| format!("document-{index}")).collect();
+        session
+            .prepare(documents.iter().map(String::as_str))
+            .await
+            .unwrap();
+        assert!(
+            budget.reserved() < 2 << 20,
+            "completed requests retain compact slots, not every vector"
+        );
+        assert_eq!(
+            session.spool.as_ref().unwrap().metadata().unwrap().len(),
+            5000 * 4096
+        );
+        let first = session
+            .realize(&documents[0])
+            .await
+            .unwrap()
+            .bytes()
+            .to_vec();
+        let other = session
+            .realize(&documents[64])
+            .await
+            .unwrap()
+            .bytes()
+            .to_vec();
+        assert_ne!(
+            first, other,
+            "the source-written provider actually changes later answers"
+        );
+        assert_eq!(session.realize(&documents[0]).await.unwrap().bytes(), first);
         session.prepare([documents[0].as_str()]).await.unwrap();
-        let batches=provider.batches.lock().unwrap();
-        assert_eq!(batches.len(),5000usize.div_ceil(64));
-        assert!(batches.iter().all(|batch| batch.len()<=64));
-        drop(batches);drop(session);assert_eq!(budget.reserved(),0);
+        let batches = provider.batches.lock().unwrap();
+        assert_eq!(batches.len(), 5000usize.div_ceil(64));
+        assert!(batches.iter().all(|batch| batch.len() <= 64));
+        drop(batches);
+        drop(session);
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
     async fn private_spill_corruption_refuses_without_requesting_a_replacement_winner() {
-        let provider=Changing {specification:FakeEmbedder::new().spec().clone(),batches:Default::default(),unavailable:false};
-        let budget=ResourceBudget::fixed(16<<20).unwrap();
-        let configuration=Configuration::new(provider.spec(),provider.endpoint(),&budget).unwrap();
-        let mut session=Session::selected(configuration,&provider,None,&budget).unwrap();
+        let provider = Changing {
+            specification: FakeEmbedder::new().spec().clone(),
+            batches: Default::default(),
+            unavailable: false,
+        };
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let configuration =
+            Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap();
+        let mut session = Session::selected(configuration, &provider, None, &budget).unwrap();
         session.prepare(["first"]).await.unwrap();
         session.spool.as_mut().unwrap().set_len(0).unwrap();
         assert!(session.realize("first").await.is_err());
-        assert_eq!(provider.batches.lock().unwrap().len(),1);
-        drop(session);assert_eq!(budget.reserved(),0);
+        assert_eq!(provider.batches.lock().unwrap().len(), 1);
+        drop(session);
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
     async fn completed_analytic_receipt_seeds_retrieval_without_a_second_service_winner() {

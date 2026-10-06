@@ -2,12 +2,12 @@
 //! assertions; it is not the internal Arrow relation registry or a published execution ledger.
 use super::{ContentHash, Id, Key, KeySink, ModelError, Record};
 use serde::{Deserialize, Serialize};
-pub mod record;
 mod analysisvalue;
 mod claimvalue;
 mod membershipvalue;
 mod nativevalue;
 mod provenancevalue;
+pub mod record;
 mod supportvalue;
 pub use analysisvalue::AnalysisValue;
 pub use claimvalue::ClaimValue;
@@ -17531,9 +17531,17 @@ mod remediation_canonical_inventory {
         macro_rules! collect { ($($variant:ident:$ty:path),* $(,)?) => {$(portable.insert(<$ty as Record>::NAME);)*}; }
         crate::graph_entity_records!(collect);
         crate::graph_assertion_records!(collect);
-        let missing = super::super::facts_relations().into_iter().map(|relation| relation.name())
-            .filter(|name| *name != super::super::artifact::ArtifactChunk::NAME && !portable.contains(name)).collect::<Vec<_>>();
+        let missing = super::super::facts_relations()
+            .into_iter()
+            .map(|relation| relation.name())
+            .filter(|name| {
+                *name != super::super::artifact::ArtifactChunk::NAME && !portable.contains(name)
+            })
+            .collect::<Vec<_>>();
         // Byte chunk framing is mechanically rebuilt from retained exact originals.
-        assert!(missing.is_empty(), "semantic facts omitted from portable graph: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "semantic facts omitted from portable graph: {missing:?}"
+        );
     }
 }

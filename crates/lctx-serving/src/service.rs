@@ -110,7 +110,9 @@ impl NativeService {
                         .await
                         .map_err(failure)?;
                     if actual != crate::operation_definition().hex() {
-                        return Err(WireError::Failure(PublicFailure::new(FailureKind::Incompatible)));
+                        return Err(WireError::Failure(PublicFailure::new(
+                            FailureKind::Incompatible,
+                        )));
                     }
                     Ok(())
                 })
@@ -209,8 +211,15 @@ fn failure(error: ModelError) -> WireError {
     let kind = match error {
         ModelError::Serving(kind) => kind,
         ModelError::Resource { .. } | ModelError::Limit { .. } => FailureKind::ResourceRefused,
-        ModelError::Infrastructure { class: Infrastructure::Contract, .. } => FailureKind::Incompatible,
-        ModelError::Schema(_) | ModelError::Identity(_) | ModelError::Conflict(_) | ModelError::Invalid(_) | ModelError::Frontier(_) => FailureKind::Corrupt,
+        ModelError::Infrastructure {
+            class: Infrastructure::Contract,
+            ..
+        } => FailureKind::Incompatible,
+        ModelError::Schema(_)
+        | ModelError::Identity(_)
+        | ModelError::Conflict(_)
+        | ModelError::Invalid(_)
+        | ModelError::Frontier(_) => FailureKind::Corrupt,
         _ => FailureKind::Unavailable,
     };
     WireError::Failure(PublicFailure::new(kind))
