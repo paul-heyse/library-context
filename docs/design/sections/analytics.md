@@ -2,7 +2,8 @@
 
 **Implemented compiler route, 2026-10-05; current acceptance at the graph-native coordinator.** The typed Structural and Analytic
 owners are `lctx-model::domain::structural` and `domain::analytics`. Their declarations own
-semantic inputs, output identity, qualification, coverage, parameters and independent replay.
+semantic inputs, output identity, qualification, coverage, parameters, necessary admission and
+explicit diagnostic replay.
 `cpg-core::structural` and `analytic` acquire completed workspace inputs and emit results;
 `analysis_graphs` prepares the borrowed computational snapshots.
 `lctx-analytics`' four native kernel entry points expose model-owned scheduling, ranking,
@@ -33,10 +34,12 @@ relations.
 
 Every method records input/context, definition and parameters, projection/version, universe,
 output selector, direction, multiplicity, weight policy, seed, library identity and diagnostics.
-Structural outcomes are derived and replayed by `domain::structural::outcomes` over all four exact
-method invocations and retained stop inventories (**Implemented, focused-Tested 2026-10-04**;
-actual publication adversarial controls pending). Core publishes those results without interpreting
-status. Source coverage is a separate fold. Conditional argument flows compose call and Local
+Structural outcomes are derived by `domain::structural::outcomes` over all four exact method
+invocations and retained stop inventories. **Implemented, 2026-10-06; targeted acceptance pending
+at coordinator §8.1:** ordinary admission checks exact frames, configured methods, source/parent
+membership, eligibility, qualifications and stored outcomes without hydrating snapshot bytes or
+rerunning traversal. `structural_replay` remains an explicit diagnostic. Core publishes those
+results without interpreting status. Source coverage is a separate fold. Conditional argument flows compose call and Local
 qualifications, including canonical conditions and assumption sets; publication reads immutable Local
 premises separately from current Structural vocabulary.
 
@@ -53,10 +56,11 @@ policy for parameters, complete definition identity and executable kernel settin
 PageRank damping/tolerance/work, all four community resolutions and ten seeds with their quality
 histories, concept support/bounds and neighbor floor/count. Method records do not pretend the
 forty community runs are one run. The human recipe is generated from the structured policy.
-`DependencyClosure` preserves exact ordered epoch requirements independently of sufficient stage
-grants. Analytic consumption resolves those source receipts through separate sessions. Prepared
-graphs remain borrowed and checked for each consumer. CPU placement and independent RSS sampling
-are operational; they do not change analytic content or establish a speed benefit.
+The compiler resolves declared stage dependencies from immutable completed workspace inputs.
+Structural and Analytic consumers select their actual semantic closure and borrow compatible
+prepared graph topology. Source membership, projection definition, policy and attempt identity
+remain checked at each consumer. CPU placement and independent RSS sampling are operational;
+they do not change analytic content or establish a speed benefit.
 
 > Decision: ADR-0044, ADR-0045, ADR-0071, ADR-0086, ADR-0106, ADR-0116, ADR-0121
 

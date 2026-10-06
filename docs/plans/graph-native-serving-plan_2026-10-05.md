@@ -247,7 +247,7 @@ boundaries and omissions, are recorded in coordinator §8; no Measured claim fol
 
 ## 6. Audit remediation: executable identity and composed consumers
 
-**Proposed, 2026-10-06.** This continuation is grounded in audit F06/F08/F09/F10 and the
+**Implemented; final targeted acceptance pending, 2026-10-06.** This continuation is grounded in audit F06/F08/F09/F10 and the
 [capability investigation](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md).
 The [coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns sequence and completion; §7 owns finding state. Existing §1–§5 contracts remain, with the
@@ -270,8 +270,8 @@ manual list. Keep query/schema/analyzer/module/engine identities in the realizat
 This conservative executable scope may re-key after comments or unrelated model edits; that is
 acceptable here and does not redefine semantic compatibility, logical IDs or graph content.
 Do not normalize source bytes or replace identity with handwritten revision bumps. The linked
-service, publisher-installed operation function and Python wheel must agree. Rebuild fresh
-realizations/wheels; no fallback acceptance of older executable identities.
+service, publisher-installed operation function and local Python extension must agree. Rebuild
+fresh realizations and the development extension. Wheel packaging is not required during development; no fallback acceptance of older executable identities.
 
 Affected owners are `lctx-serving` source capture/definition and service startup, model build
 capture, publisher sealing/restoration, CLI operation-definition installation and the linked PyO3

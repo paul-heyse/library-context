@@ -236,7 +236,7 @@ newer than the inspected runtime; source/tests at the selected family decide app
 
 ## 6. Audit remediation: bounded native construction and lifecycle
 
-**Proposed, 2026-10-06.** The audit F04/F05/F07/F11 continuation uses the
+**Implemented; final targeted acceptance pending, 2026-10-06.** The audit F04/F05/F07/F11 continuation uses the
 [capability investigation](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md).
 [Coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns readiness and §7 owns dispositions. New contracts below correct remaining differences

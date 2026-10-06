@@ -232,9 +232,9 @@ does not establish a passed journey.
 ### Implementation audit disposition — 2026-10-06
 
 The [dated audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) owns diagnosis/evidence; this table is the sole current disposition
-owner. Every row is **open**: correction is required for complete target realization. The current
-authoring work schedules the correction in §9; it implements no production remediation. The audit
-supplies evidence and candidate directions, not another execution ledger. Existing accepted compiler
+owner. Corrections are integrated; every row remains **open** until its required closure evidence
+is accepted. §9 owns the executed continuation and §8.1 records current targeted acceptance. The
+audit supplies original evidence and candidate directions, not another execution ledger. Existing accepted compiler
 completion and stopped-test boundaries remain intact.
 
 | Source finding | Disposition / cause | Responsible component | Required closure evidence |
@@ -455,13 +455,46 @@ Owned persistent Docker databases exercised actual authentication and query path
 operator activation, broad `just qualify`, legacy suite parity and performance measurement are
 **not_run** under this user-selected execution scope. Compiler-stage tests remain stopped.
 
+### 8.1 Remediation checkpoint — in progress, 2026-10-06
+
+Implementation is integrated on main; §7 remains the sole finding disposition owner. F01–F12
+closure awaits final targeted acceptance. The original compiler-stage stopped-test boundary is
+preserved. These are functional controls, not quantitative performance evidence or operator adoption.
+
+Production source is `ec149c00`; documentation migration is `bd475009`. Necessary admission,
+neutral detached import, scoped normalization/upper consumers, private prepared authority,
+streamed native lowering/reconciliation, terminal gRPC backup, atomic selection, exact batch cache
+winners and composed serving/PyO3/MCP repairs are integrated. Current architecture, agent,
+assurance and runbook owners now describe native execution. Independent product investigations
+remain at their existing owner; obsolete assurance plans are removed with obligations transferred.
+
+Actual verification, 2026-10-06:
+
+- **passed:** assembled eight-crate `cargo check --tests --locked`; `/tmp/lctx-r-final-owner-integration-check6.log`, before final mechanical cleanup.
+- **passed:** scoped model/compiler run `f755a567-77fb-4190-b409-8ea2dc815a0d`: 42 controls passed; two failed from a missing test output declaration and unquoted SQL `end`. Both were repaired, and their affected rerun **passed**, run `7457cf58-58b8-4f5e-9726-2136a338b8b5`, two controls. `/tmp/lctx-r-final-scoped-core-controls{2,3}.log`.
+- **passed:** `cargo clippy --release --locked -p lctx-model -p cpg-core -p cpg-extract -p lctx-surrealdb -p lctx-publisher -p lctx-serving -p lctx-semantics -p lctx --all-targets --keep-going -- -D warnings`; `/tmp/lctx-r-remediation-clippy6.log`. This compiles the retained targets after all mechanical repairs. The final grouped compiler-fixture layout also passed its affected Clippy control, `/tmp/lctx-r-remediation-clippy-oracle-layout2.log`.
+- **passed:** `UV_NO_SYNC=1 just types`, `just ruff`, Python format check, `just deps`, `just ready`, `just adr-lint`, `just lint-agents` and `just docs-check`; `/tmp/lctx-r-remediation-{types,ruff}-fixed.log`, `deps.log`, `final-ready.log`, `adr-lint2.log`, `lint-agents.log` and `docs-worktree-check.log` (same prefix). Documentation publication has 321 canonical pages and zero link errors.
+- **failed:** final direct compiler fixture controls: two passed, six failed; `/tmp/lctx-r-final-compiler-fast-controls2.log`. Required fixes are the analytical callable column reference, omitted canonical projection companions in detached transport, and complete native enumeration authority for constructor alternatives. Repairs and affected rerun are in progress; expectations and workspace budgets remain unchanged. The test binary alone is compiled through `cargo rustc --release --locked -p cpg-core --test graph_artifact -- -C opt-level=0`, reusing cached release libraries, with `RUST_MIN_STACK=67108864` for its unoptimized test frames. Initial default-stack execution overflowed; the 64 MiB harness stack allowed actual controls to run. The earlier optimized combined test build was stopped before runtime after lengthy optimization; the replacement compiled in 50.63 seconds. A paired memory/partition normalization comparison is now integrated, runtime pending.
+- **not_run:** final development extension and fresh native store/CLI/backup/cache/reconciliation/serving/MCP acceptance. Earlier isolated receipts do not substitute for these final journeys.
+
+The user waived wheel packaging during development. The queued wheel build/install were cancelled
+before execution; direct Cargo cdylib loading supplies the current local extension for Python
+checks. No release/distribution artifact is required for this remediation.
+
+An intermediate whole synthesis build and the superseded four-binary fixture layout were stopped
+before runtime; neither is a passed test receipt. All fourteen extra worktrees were reviewed and
+removed after confirming integrated work. Only main remains; shared caches are preserved. Cargo
+commands serialize through `flock --close /tmp/lctx-remediation-build.lock` without broad cleaning.
+Broad `just qualify`, legacy CLI snapshot/parity, sealed evaluation, real-library/live-Qwen/operator
+activation and quantitative performance measurement remain **not_run** under this scope.
+
 ## 9. Remediation and improvement execution
 
-**Proposed, 2026-10-06.** This is the current executable continuation; §4 describes the initial
+**Implemented; final targeted acceptance pending, 2026-10-06.** This is the current executable continuation; §4 describes the initial
 pivot and §8 preserves its scoped receipts. Start from the audit/current source, not the old
 PostgreSQL implementation. The four supporting documents retain coherent responsibility boundaries
 and now supply the concrete corrections. Findings remain open until their required evidence lands.
-The user authorized this plan-authoring scope, not production corrections or operator activation.
+The user authorized implementation of this remediation scope. Production corrections are integrated; final targeted acceptance is in progress. Operator activation remains outside this scope.
 
 ### 9.1 Combined target and foundation choices
 
@@ -502,7 +535,7 @@ repairs can proceed on their independent inputs. No entire supporting document i
 | R-C0 — [compiler §5.1–§5.2](graph-native-model-compiler-plan_2026-10-05.md#5-audit-remediation-semantic-admission-and-bounded-shared-preparation) | Required semantic checks separate from diagnostic replay; immutable checked views; fresh admission, detached publish-artifact and restore share pure owner checks | Existing completed streams/model declarations; the facts/support slice starts now. Import readiness requires actual neutral typed decoding and retained applicable semantic inputs, not just an agreed type |
 | R-C1 — compiler §5.3 + [projection §6](graph-native-projections-plan_2026-10-05.md#6-remediation-integration-prepared-input-lifetime-and-terminal-streams) | All nine normalization bindings use bulk/ordered dependency-closed processing; upper/projection consumers stop recollecting unrelated rich state | R-C0 property split and actual checked predecessors for each chain. No final Catalog or published store prerequisite |
 | R-C2 — compiler §5.4 | Receiver/event/binding and Enriched authority is prepared once; SourceCalls/Models/Summary and remaining upper inventory consume it | Actual R-C1 owning normalization outputs and R-C0 checks. Integrate each upper consumer alongside its authority constructor |
-| R-I1 — [serving §6.1](graph-native-serving-plan_2026-10-05.md#R-I1) | Model/serving source membership and linked guard cover helper changes; publisher, CLI, service and wheel agree | Existing model implementation digest/capture pattern; independent of compiler bulk completion |
+| R-I1 — [serving §6.1](graph-native-serving-plan_2026-10-05.md#R-I1) | Model/serving source membership and linked guard cover helper changes; publisher, CLI, service and development extension agree | Existing model implementation digest/capture pattern; independent of compiler bulk completion |
 | R-P1a — [realization §6.1](graph-native-surrealdb-realization-plan_2026-10-05.md#R-P1a) | Scoped native source streams, shared document/vector preparation, incremental complete witnesses and bounded write/reconcile runs | Current canonical layout/search meaning and retained values. R-I1 needed for fresh end-to-end sealed consumer acceptance, not for lowering design |
 | R-P1b — realization §6.2 | Typed batch first-writer cache admission with exact committed winners and bounded conflict policy | Existing embedding definitions/admission and persistent fixture; independent of publisher search and R-C1. Compiler consumption uses winners immediately |
 | R-P2 — realization §6.3 | Canonical-to-derived cold audit and restored publication detect missing/extra/altered scope/search/vector/witness fields without mutation | Working R-P1a deterministic lowering/streamed reconciliation; R-C0 semantic import for detached restore; R-I1 current executable identity |
@@ -512,7 +545,7 @@ repairs can proceed on their independent inputs. No entire supporting document i
 | R-S2 — serving §6.3 | Nested scenario continuation addresses its owning parent and child position | Deliberate model cursor/wire change integrated with native packet validation and Python schema consumption; R-I1 for matching fresh realization |
 | R-S3 — serving §6.4 | Typed safe cause crosses Rust/PyO3 and exact MCP tool/resource error envelopes | Owned PublicFailure + exact installed FastMCP/MCP route; shared error mapping precedes its concrete bridge consumers |
 | R-D1 — §9.4 | Current authority/task/acceptance/runbook routes describe actual native owners; old prescriptions retire with transferred obligations | Start owner classification now; runnable instructions follow each migrated package. No final cleanup that postpones needed consumer updates |
-| R-Q0 — §9.5 | Integrated focused native/CLI/PyO3/MCP controls and applicable leaves establish this remediation boundary | Required corrected implementations, rebuilt matching wheel and fresh owned fixture; F11 requires BOTH R-P1a and R-P1b |
+| R-Q0 — §9.5 | Integrated focused native/CLI/PyO3/MCP controls and applicable leaves establish this remediation boundary | Required corrected implementations, rebuilt local development extension and fresh owned fixture; F11 requires BOTH R-P1a and R-P1b |
 
 Table order is a useful route, not a barrier after each row. Keep logical dependencies separate
 from edits: root owns shared model validation/wire/cursor declarations, manifests, canonical mapping
@@ -590,7 +623,7 @@ persistent RocksDB for effects. Inject deterministic faults where necessary and 
 such. Real in-process and stdio MCP exercise final transport behavior. A fixture pass is not
 live-Qwen usability, real-library benefit or operator adoption.
 
-R-Q0 ties the corrected boundaries together on one identified final source/wheel/definition
+R-Q0 ties the corrected boundaries together on one identified final source/development-extension/definition
 revision: small Catalog/Behavioral fixture admission and detached invalid-import refusal; bounded
 search lowering; canonical backup/fresh unselected restore and derived corruption refusal;
 selection failure/new launch/old pin; scoped vocabulary; second-parent nested diagnostics; typed
@@ -598,7 +631,7 @@ safe tool/resource failures; overlapping cache winners; and changed-consumer pro
 outcome cases. Share setup/data where useful, but keep expectations independent. Run actual native
 cancellation/drain for the changed route and preserve a failure's distinction from empty absence.
 Repeat affected controls only after relevant changes/failures; source-byte changes require matching
-fresh realization and wheel for any final served claim. No old realization is revived to save work.
+fresh realization and current local extension for any final served claim. No old realization is revived to save work.
 
 Applicable docs/lint/types/dependency/ADR leaves follow changed files; root runs `just turn-end`
 last. Record exact commands/revisions/outcomes and limits at the coordinator, with one handoff.

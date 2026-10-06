@@ -362,7 +362,7 @@ impl Preparation {
                     table(TypeId::of::<deployment::DeploymentObservation>())?
                 ),
                 c1::RootSubject::Option { .. } | c1::RootSubject::Release { .. } => {
-                    "SELECT CAST(NULL AS BINARY) WHERE FALSE".into()
+                    format!("SELECT source FROM {occurrence} WHERE FALSE")
                 }
             });
         }
@@ -556,11 +556,12 @@ impl Preparation {
         Ok((data, rows))
     }
 }
+/// Append one rendered grain to the stage's already declared publications.
 pub async fn publish_mandatory(
     output: &mut ProducerOutput,
     rows: &Output,
 ) -> Result<(), ModelError> {
-    macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
+    macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
     lctx_model::retrieval_outputs!(write);
     Ok(())
 }

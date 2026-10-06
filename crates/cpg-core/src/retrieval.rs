@@ -222,7 +222,10 @@ pub async fn produce(
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::retrieval::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
     output.declare::<RetrievalEmbeddingUse>()?;
-    retrieval_preparation::publish_mandatory(&mut output, &build::Output::new(b)).await?;
+    // Declare the complete owner output once, including genuinely empty families.
+    // Each root then contributes rows to these same publications.
+    macro_rules! mandatory_publication {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    lctx_model::retrieval_outputs!(mandatory_publication);
     for (input, context) in frames.iter() {
         let mut ids = Vec::with_capacity(2);
         let _ids = b.reserve(

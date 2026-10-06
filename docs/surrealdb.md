@@ -73,8 +73,10 @@ marker does not establish publication trust.
 Every running MCP process pins its complete handle. Selection affects new processes. Restart
 retains persistent content; an answer-affecting definition, index policy or Rust operation change
 requires a fresh realization. The linked service checks its sealed operation implementation.
-Build the native Python package from the current checkout before starting clients; a previously
-installed wheel may represent an earlier Rust operation definition.
+Build the native Python extension from the current checkout before starting clients. During
+development, Cargo can build the cdylib and the editable package can load it directly; wheel
+packaging is unnecessary. A previously installed extension may represent an earlier Rust
+operation definition. Drain native workers before replacing the local extension.
 
 `lctx snapshot list` inspects complete publications in the configured namespace. An explicit
 `lctx snapshot audit build/native/handle.json` reconciles canonical content and checks current

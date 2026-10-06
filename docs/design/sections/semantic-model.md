@@ -373,8 +373,8 @@ admission. Keep source signatures separate from effective-callable assessments; 
 evidence leaves arbitrary decorator transformations explicitly unknown. Recognizing descriptor
 metadata does not itself admit a body. Raw provider/site and resolution supports remain explicit;
 missing declared provider resolution evidence keeps an event open. `CompleteEvent` is privately
-constructed from the full normalized event and can be recovered only by shared validation, never
-from a policy-filtered query. The former public raw-symbol Summary route is removed. Flow-path
+constructed from the full normalized event during owning preparation; explicit diagnostic
+validation can reconstruct it. A policy-filtered query cannot supply its complete alternatives. The former public raw-symbol Summary route is removed. Flow-path
 links retain each qualified path and ordered argument/callee step, matching only the explicit event
 in the same context and recording missing correspondence. They establish no transfer. Model-owned
 operations and DataFusion logical views select the same declared memberships over completed workspace
@@ -382,8 +382,11 @@ sources, including the event invariant owner. No persisted view or read grant co
 
 **Stored binding realization (Implemented, focused Tested 2026-09-30; N5).**
 The sole binder consumes complete raw variants and actuals. Store successful and refused attempts,
-their exact premises and member-set digest. Shared validation replays the binder; only a validated
-complete event, ownership and binding can create the private composition-admission token for P4.
+their exact premises and member-set digest. **Implemented, 2026-10-06; final targeted acceptance
+at the graph-native coordinator:** owning normalization captures immutable checked event, receiver,
+binding and enumeration authority. Upper consumers borrow that authority within the same attempt
+and budget; they do not normalize completed predecessors again. Only complete checked event,
+ownership and binding premises create the private composition-admission token.
 Source-inspection binding is distinct from established effective-invocation authority. The token
 also requires the exact effective target/context/descriptor and compatible variant to admit the
 body; a source signature that binds beneath an unknown wrapper grants no body-composition right.
@@ -396,14 +399,15 @@ their evidence and effective-signature authority. One argument algorithm remains
 argument digest, receiver, authority, outcome and formal-slot members. Effective variant-set
 classification includes every refusal and requires complete scoped signature coverage. Different
 syntax reports remain alternatives. Implicit events do not reuse explicit syntax; annotation calls
-do not establish runtime invocation authority. The public verifier replays N1–N4 and the sole
-binder before issuing `ValidatedBoundCall` and `CompositionAdmission`; arbitrary stored lower
-assessments or member rows cannot mint these tokens. P4 still owns the composition engine cutover.
+do not establish runtime invocation authority. The explicit diagnostic verifier retains N1–N4 and
+binder replay. Ordinary construction instead retains the owning preparation's checked domains
+and compact member/content identity; arbitrary foreign lower rows cannot supply that authority.
+SourceCalls, Models and Summary consume the completed immutable preparation.
 
 **Implemented / Interface-checked, 2026-10-04:** source-body composition may use an exact,
 complete published Source-role signature enumeration for the selected callable when unrelated
-artifact signatures are unavailable. Shared replay checks every selected member, digest and support
-and the unique binding rules; a private closure token retains that evidence. Independently Known
+artifact signatures are unavailable. Source-owned enumeration admission checks every selected
+member, digest, support and unique binding rule; a private closure token retains that evidence. Independently Known
 effective identity, compatible descriptor and admitted Known body, canonical source definition,
 complete original call-target event and Summary admission remain required. Missing/foreign or
 unavailable selected members, ambiguity, unknown wrappers and bodies refuse the token. Global
@@ -468,7 +472,8 @@ a field location does not establish allocation, alias or mutation stability. **F
 completed Local/native frames, reuses a charged syntax index, and checks the actual profile before
 acknowledgment. Catalog produces NotRequested; behavioral refusals remain explicit. Completion,
 source-call certification and enriched execution are separate later owners. BaseCompletion now
-publishes a separately replayed statement/refusal inventory from earlier BaseEvaluation outcomes,
+publishes a statement/refusal inventory from earlier BaseEvaluation outcomes, with explicit
+diagnostic replay retained,
 including finalizer replacement order and profile-bound NotRequested results (**focused-Tested,
 2026-10-01**, 4 actual PG + 9 native + 3 outcome controls). Exact attribute evaluation retains the
 explicit heap-state prerequisite. The detailed plan owns these receipts; scoped assembled acceptance passed, 2026-10-01.
@@ -486,7 +491,7 @@ coincide. This does not establish temporal heap identity. The [graph-native comp
 owns current integration and store-free controls. The earlier [Phase 4 checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
 retains the dated P4B3-F01 disposition; it is not current compiler or native-store acceptance.
 
-**Accepted target, implementation in progress, 2026-10-06 (ADR-0129).** Source-field inventory
+**Implemented, final targeted acceptance pending, 2026-10-06 (ADR-0129).** Source-field inventory
 covers the complete applicable class-owned premise closure, including unsupported direct-body
 members, exact source/context and native support/coverage. Unrelated sibling bodies are not
 inventory premises. The model owns this meaning; compiler scope selection does not grant stronger
@@ -548,7 +553,8 @@ fresh artifacts and realizations. Targeted controls and current acceptance remai
 
 **Implemented / focused-Tested, 2026-10-04 (ADR-0123).** Source composition witnesses retain
 the exact selected signature enumeration and its support when scoped declared closure is used;
-global closure leaves both references absent. Shared replay reconstructs this pair, and generic
+global closure leaves both references absent. Explicit diagnostic replay reconstructs this pair; ordinary
+consumption retains its checked immutable authority. Generic
 explanation follows the enumeration's member/signature premises. The graph mapping retains those
 addressable premises; the earlier JSON and coupled-witness controls apply to their dated finite
 contract. They do not establish native serving acceptance. Global signature-family and

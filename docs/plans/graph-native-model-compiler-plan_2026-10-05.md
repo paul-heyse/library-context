@@ -203,7 +203,7 @@ The complete compiler stage is authorized; native persistence/publication/servin
 
 ## 5. Audit remediation: semantic admission and bounded shared preparation
 
-**Proposed, 2026-10-06.** F01/F02/F03 are a coupled correction, not permission to restart the
+**Implemented; final targeted acceptance pending, 2026-10-06.** F01/F02/F03 are a coupled correction, not permission to restart the
 stopped compiler suite. [Coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns execution and §7 owns disposition. The [foundation assessment](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/compiler.md)
 grounds this design in current owners and the matched DataFusion skill. The current workspace

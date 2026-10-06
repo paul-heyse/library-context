@@ -224,7 +224,7 @@ capability is absent.
 **Current authorized remediation boundary:** the user selected targeted functional testing for
 coordinator §9, superseding the general assembled-qualification prescription for this scope.
 Use R-Q0's small native/compiler/CLI/PyO3/MCP controls and applicable leaves on the matching final
-source/wheel/realization. Do not restart the stopped compiler suite, legacy CLI snapshots/parity
+source/development-extension/realization. Wheel packaging is not required during development. Do not restart the stopped compiler suite, legacy CLI snapshots/parity
 or `just qualify`. Real-library/live-Qwen/operator work and quantitative performance measurement
 remain separately pending. Necessary semantic checks are production admission; differential
 replay remains an explicitly selected diagnostic control. No work-budget accounting or proof

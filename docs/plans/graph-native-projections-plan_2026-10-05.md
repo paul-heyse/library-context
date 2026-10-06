@@ -159,7 +159,7 @@ and any deferred destination trigger remain at the coordinator.
 
 ## 6. Remediation integration: prepared input lifetime and terminal streams
 
-**Proposed, 2026-10-06.** There is no new projection-policy defect asserted by the audit.
+**Implemented; final targeted acceptance pending, 2026-10-06.** There is no new projection-policy defect asserted by the audit.
 This work completes the projection consumers of compiler F02/F03 and native F04/F11;
 [coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns those packages/disposition rather than creating a separate projection queue.
