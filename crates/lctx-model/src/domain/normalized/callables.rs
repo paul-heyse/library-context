@@ -174,7 +174,7 @@ pub struct SignatureSlotEntity {
     #[model(key)]
     pub link: Id<ParameterEntityLink>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "signature_slot_types")]
 pub struct SignatureSlotType {
     #[model(key)]
@@ -182,7 +182,7 @@ pub struct SignatureSlotType {
     #[model(key)]
     pub observation: Id<crate::domain::types::SignatureTypeObservation>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "signature_return_types")]
 pub struct SignatureReturnType {
     #[model(key)]

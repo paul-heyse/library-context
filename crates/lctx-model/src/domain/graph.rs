@@ -669,6 +669,10 @@ pub fn reference_target(
     reference: &super::SemanticReference,
 ) -> Result<(Target, Option<EntityKind>), ModelError> {
     match reference.target {
+    <super::normalized::links::ReferenceBindingCharacterization as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::SourceFieldLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::callables::SignatureSlotType as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::callables::SignatureReturnType as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::catalog::evidence::FieldLocationLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::catalog::evidence::ConstructorCandidateLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::catalog::evidence::FieldAccessAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
@@ -9891,6 +9895,10 @@ impl GraphAssertionRecord for super::symbols::ModuleResolutionSupport {
 // Selected analytics retain their computation universe, weights, memberships, availability and
 // provenance. QualityStep iteration traces have no semantic/serving consumer and remain private.
 macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
+    SelectionReferenceBindingCharacterization:$crate::domain::normalized::links::ReferenceBindingCharacterization,
+    SelectionSourceFieldLink:$crate::domain::catalog::evidence::SourceFieldLink,
+    SignatureSlotType:$crate::domain::normalized::callables::SignatureSlotType,
+    SignatureReturnType:$crate::domain::normalized::callables::SignatureReturnType,
     SelectionFieldLocationLink:$crate::domain::catalog::evidence::FieldLocationLink,
     SelectionConstructorCandidateLink:$crate::domain::catalog::evidence::ConstructorCandidateLink,
     SelectionFieldAccessAssessment:$crate::domain::catalog::evidence::FieldAccessAssessment,
@@ -17355,4 +17363,8 @@ selection_assertions! {
  SelectionFieldAccessAssessment:super::catalog::evidence::FieldAccessAssessment=>ProvenanceValue,Provenance,EvidenceAssociation,
  SelectionFieldLocation:super::local_fields::FieldLocation=>ProvenanceValue,Provenance,DerivedConclusion,
  SelectionFieldLocationCandidate:super::local_fields::FieldLocationCandidate=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ SignatureSlotType:super::normalized::callables::SignatureSlotType=>MembershipValue,Membership,InvocationSignature,
+ SignatureReturnType:super::normalized::callables::SignatureReturnType=>MembershipValue,Membership,InvocationSignature,
+ SelectionSourceFieldLink:super::catalog::evidence::SourceFieldLink=>ProvenanceValue,Provenance,EvidenceAssociation,
+ SelectionReferenceBindingCharacterization:super::normalized::links::ReferenceBindingCharacterization=>ProvenanceValue,Provenance,DeclarationCorrespondence,
 }

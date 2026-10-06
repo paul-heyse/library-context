@@ -6,7 +6,7 @@ use super::{
 use crate::Domain;
 use crate::domain::normalized::symbolic_fields::*;
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "catalog_source_field_links",
     rule = "exact_source_field_reader"

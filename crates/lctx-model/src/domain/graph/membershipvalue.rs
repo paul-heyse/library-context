@@ -17,10 +17,14 @@ pub enum MembershipValue {
     SelectionDomainContext(crate::domain::selection::DomainContext),
     SelectionDomainClosure(crate::domain::selection::DomainClosure),
     SelectionDomainEvidence(crate::domain::selection::DomainEvidence),
+    SignatureSlotType(crate::domain::normalized::callables::SignatureSlotType),
+    SignatureReturnType(crate::domain::normalized::callables::SignatureReturnType),
 }
 impl Key for MembershipValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
+            Self::SignatureSlotType(row)=>{sink.part(b"variant",&15u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SignatureReturnType(row)=>{sink.part(b"variant",&16u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::SelectionDomainContext(row)=>{sink.part(b"variant",&12u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::SelectionDomainClosure(row)=>{sink.part(b"variant",&13u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::SelectionDomainEvidence(row)=>{sink.part(b"variant",&14u16.to_le_bytes());row.content_digest().encode(sink);},
@@ -79,6 +83,8 @@ impl Key for MembershipValue {
 impl MembershipValue {
     pub fn validate(&self) -> Result<(), ModelError> {
         match self {
+            Self::SignatureSlotType(row)=>row.validate(),
+            Self::SignatureReturnType(row)=>row.validate(),
             Self::SelectionDomainContext(row)=>row.validate(),
             Self::SelectionDomainClosure(row)=>row.validate(),
             Self::SelectionDomainEvidence(row)=>row.validate(),
@@ -99,6 +105,8 @@ impl MembershipValue {
     }
     pub fn references(&self) -> Vec<super::super::SemanticReference> {
         match self {
+            Self::SignatureSlotType(row)=>row.references(),
+            Self::SignatureReturnType(row)=>row.references(),
             Self::SelectionDomainContext(row)=>row.references(),
             Self::SelectionDomainClosure(row)=>row.references(),
             Self::SelectionDomainEvidence(row)=>row.references(),
@@ -119,6 +127,8 @@ impl MembershipValue {
     }
     pub fn semantic_key(&self) -> SemanticKey {
         match self {
+            Self::SignatureSlotType(row)=>SemanticKey::of(row.id()),
+            Self::SignatureReturnType(row)=>SemanticKey::of(row.id()),
             Self::SelectionDomainContext(row)=>SemanticKey::of(row.id()),
             Self::SelectionDomainClosure(row)=>SemanticKey::of(row.id()),
             Self::SelectionDomainEvidence(row)=>SemanticKey::of(row.id()),

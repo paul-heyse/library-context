@@ -274,10 +274,14 @@ pub enum ProvenanceValue {
     SelectionFieldAccessAssessment(crate::domain::catalog::evidence::FieldAccessAssessment),
     SelectionFieldLocation(crate::domain::local_fields::FieldLocation),
     SelectionFieldLocationCandidate(crate::domain::local_fields::FieldLocationCandidate),
+    SelectionSourceFieldLink(crate::domain::catalog::evidence::SourceFieldLink),
+    SelectionReferenceBindingCharacterization(crate::domain::normalized::links::ReferenceBindingCharacterization),
 }
 impl Key for ProvenanceValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
+            Self::SelectionReferenceBindingCharacterization(row)=>{sink.part(b"variant",&142u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SelectionSourceFieldLink(row)=>{sink.part(b"variant",&141u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::SelectionFieldLocationLink(row)=>{sink.part(b"variant",&136u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::SelectionConstructorCandidateLink(row)=>{sink.part(b"variant",&137u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::SelectionFieldAccessAssessment(row)=>{sink.part(b"variant",&138u16.to_le_bytes());row.content_digest().encode(sink);},
@@ -1134,6 +1138,8 @@ impl Key for ProvenanceValue {
 impl ProvenanceValue {
     pub fn validate(&self) -> Result<(), ModelError> {
         match self {
+            Self::SelectionReferenceBindingCharacterization(row)=>row.validate(),
+            Self::SelectionSourceFieldLink(row)=>row.validate(),
             Self::SelectionFieldLocationLink(row)=>row.validate(),
             Self::SelectionConstructorCandidateLink(row)=>row.validate(),
             Self::SelectionFieldAccessAssessment(row)=>row.validate(),
@@ -1327,6 +1333,8 @@ impl ProvenanceValue {
     }
     pub fn references(&self) -> Vec<super::super::SemanticReference> {
         match self {
+            Self::SelectionReferenceBindingCharacterization(row)=>row.references(),
+            Self::SelectionSourceFieldLink(row)=>row.references(),
             Self::SelectionFieldLocationLink(row)=>row.references(),
             Self::SelectionConstructorCandidateLink(row)=>row.references(),
             Self::SelectionFieldAccessAssessment(row)=>row.references(),
@@ -1520,6 +1528,8 @@ impl ProvenanceValue {
     }
     pub fn semantic_key(&self) -> SemanticKey {
         match self {
+            Self::SelectionReferenceBindingCharacterization(row)=>SemanticKey::of(row.id()),
+            Self::SelectionSourceFieldLink(row)=>SemanticKey::of(row.id()),
             Self::SelectionFieldLocationLink(row)=>SemanticKey::of(row.id()),
             Self::SelectionConstructorCandidateLink(row)=>SemanticKey::of(row.id()),
             Self::SelectionFieldAccessAssessment(row)=>SemanticKey::of(row.id()),

@@ -211,7 +211,7 @@ pub struct MentionSymbolCandidate {
 }
 
 /// Located native characterization accompanies a source association; it grants no capture or body authority.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "reference_binding_characterizations")]
 pub struct ReferenceBindingCharacterization {
     #[model(key)]
