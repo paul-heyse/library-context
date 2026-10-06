@@ -84,7 +84,7 @@ Use the existing native RuntimeConfig/ViewerConfig and lifecycle owner. Root ins
 
 Delete unused exported Service tools/resources/schema accessors after scoped consumer inspection; delete direct pyarrow only if Python/tooling/transitive requirements establish it is unused. A no-import search alone cannot prove an environment dependency removable. Preserve the wire-schema/final-byte mirror and transport-specific objects that have consumers. Add or adjust focused tests only for material contract/regression risk.
 
-Any served FastMCP/mcp-types or transport upgrade is a separate task under pin-check (their wire-byte pin) and actual transport qualification; other dependencies float (ADR-0125). Earlier review release/security statements are historical, not verified-current recommendations.
+Any served FastMCP/mcp-types or transport upgrade is a separate task under pin-check (their wire-byte pin) and actual transport qualification; other dependencies are pinned exactly and bumped deliberately (ADR-0132). Earlier review release/security statements are historical, not verified-current recommendations.
 
 ## 6. Product and operational investigations
 

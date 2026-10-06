@@ -608,11 +608,12 @@ workspace (§B9). PostgreSQL provider dependencies are retired. Extra families a
 with version and nominal Cargo source scopes. The accepted analyzer target uses one latest
 Ruff/ty fork revision in extraction/flow and a separate registry Ruff family only inside the
 Pyrefly adapter; salsa's three crates are pinned exactly for the ty graph. M1 owns adoption.
-[`docs/pins.md`](../pins.md) is authoritative for every deliberate pin, its reason and its dated
-verification, and the `pin-check` skill governs changes. Other dependencies float: manifests carry
-carets or `>=` floors and the committed lockfiles own resolved versions (ADR-0125).
+[`docs/pins.md`](../pins.md) is authoritative for every hold, its reason and its dated
+verification, and the `pin-check` skill governs changes. Every declared dependency is pinned
+exactly (`=x.y.z`, `==x.y.z` or a git `rev`) and the committed lockfiles hold everything beneath;
+a version moves only by a deliberate, named change, never a wholesale re-resolve (ADR-0132).
 
-> Decision: ADR-0118, ADR-0125
+> Decision: ADR-0118, ADR-0132
 
 ---
 

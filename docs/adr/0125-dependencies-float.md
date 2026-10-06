@@ -1,10 +1,10 @@
 ---
 id: ADR-0125
 title: Dependencies float; exact pins need a recorded reason
-status: accepted
+status: superseded
 date: 2026-10-04
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0132
 design: [§7]
 evidence: Tested
 revisit: $ just deps

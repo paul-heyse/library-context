@@ -1,15 +1,13 @@
 # Pins
 
-Dependencies float: manifests carry the tool's default specifier (`uv add` → `>=`, `cargo add`
-→ caret), the committed lockfiles record the resolved versions, and `just upgrade` moves them
-to the latest at an agent's discretion. This page lists only the deliberate exceptions — an
-exact version, cap, git rev or hold-back — each with the reason specific to that dependency and
-when to revisit it. Add, change or remove a row with the `pin-check` skill. A dependency with
-no row here is whatever the lockfile holds.
+Every declared dependency is pinned exactly in its manifest, and the lockfiles hold the rest (AGENTS.md,
+Dependencies). This page lists the holds, meaning pins that should not be bumped casually, each with
+its reason and when to revisit it. It also lists toolchains and the library-skill deltas. A pinned
+dependency without a row can be bumped when the work calls for it (the `pin-check` skill).
 
-A caret `[workspace.dependencies]` requirement needs nothing here. An exact `=x.y.z` or a git
-`rev` needs a row; `just deps` checks that it has one (`scripts/check_family.py`). Design authority
-for the pinned compute and analyzer families is DESIGN §7 / ADR-0118; the policy is ADR-0125.
+`just deps` fails a declared Cargo dependency that is not `=x.y.z` or a git `rev`
+(`scripts/check_family.py`). Design authority for the pinned compute and analyzer families is
+DESIGN §7 / ADR-0118; the policy is ADR-0132.
 A row without a date is not verified.
 
 ## Toolchains
@@ -17,14 +15,14 @@ A row without a date is not verified.
 | Component | Pin | Reason | Revisit when | Verified |
 |---|---|---|---|---|
 | Rust toolchain | nightly-2026-09-29 (`rust-toolchain.toml`); manifest minimum remains 1.98.1 | Shared builds on one dated nightly (ADR-0079); never a floating `+nightly` or `+stable` | ADR-0079's trigger: a toolchain update breaks shared builds | 2026-09-28: `rustc -Vv`: 1.101.0-nightly, c1070d69382b8d2f2eb65119c738a77d9e324c9e, LLVM 23.1.1; `cargo -V`: 1.101.0-nightly (3d7cf6e93). Installed rustfmt/Clippy |
-| Python | 3.14.7 (`.python-version`, uv default) | Interpreter and toolchain versions are outside the float policy for now | the policy extends to toolchains | 2026-09-22: `uv run python --version` |
-| just | 1.58.0 or later | Interpreter and toolchain versions are outside the float policy for now | the policy extends to toolchains | 2026-09-22: `just --version` |
-| cargo-nextest | 0.9.144 | Interpreter and toolchain versions are outside the float policy for now | the policy extends to toolchains | 2026-09-22: `just doctor` |
-| cargo-hakari | 0.9.39 | Interpreter and toolchain versions are outside the float policy for now; generated CLI feature union (ADR-0079) | the policy extends to toolchains | 2026-09-28: `cargo hakari --version`; exact-release upstream configuration source and generated CLI feature union; `just build-features` / `just deps` |
-| sccache | 0.17.0 (required by `.cargo/config.toml`) | Interpreter and toolchain versions are outside the float policy for now | the policy extends to toolchains | 2026-09-24: `sccache --version`; cache wrapper; target-environment effect tested 2026-09-28 (cache evidence) |
-| cargo-insta | 1.48.0 | Interpreter and toolchain versions are outside the float policy for now | the policy extends to toolchains | 2026-09-22: `just doctor` |
-| cargo-deny | 0.20.2 (sees dev-only duplicates only for named crates; see ADR-0118) | Interpreter and toolchain versions are outside the float policy for now | the policy extends to toolchains | 2026-09-22: tested with a synthetic duplicate |
-| ast-grep | 0.45.3 | Interpreter and toolchain versions are outside the float policy for now | the policy extends to toolchains | 2026-09-22: `just doctor` |
+| Python | 3.14.7 (`.python-version`, uv default) | Toolchain | a deliberate toolchain move | 2026-09-22: `uv run python --version` |
+| just | 1.58.0 or later | Toolchain | a deliberate toolchain move | 2026-09-22: `just --version` |
+| cargo-nextest | 0.9.144 | Toolchain | a deliberate toolchain move | 2026-09-22: `just doctor` |
+| cargo-hakari | 0.9.39 | Toolchain; generated CLI feature union (ADR-0079) | a deliberate toolchain move | 2026-09-28: `cargo hakari --version`; exact-release upstream configuration source and generated CLI feature union; `just build-features` / `just deps` |
+| sccache | 0.17.0 (required by `.cargo/config.toml`) | Toolchain | a deliberate toolchain move | 2026-09-24: `sccache --version`; cache wrapper; target-environment effect tested 2026-09-28 (cache evidence) |
+| cargo-insta | 1.48.0 | Toolchain | a deliberate toolchain move | 2026-09-22: `just doctor` |
+| cargo-deny | 0.20.2 (sees dev-only duplicates only for named crates; see ADR-0118) | Toolchain | a deliberate toolchain move | 2026-09-22: tested with a synthetic duplicate |
+| ast-grep | 0.45.3 | Toolchain | a deliberate toolchain move | 2026-09-22: `just doctor` |
 
 ## Compute family and vendored sources (ADR-0118, ADR-0079)
 
@@ -62,7 +60,7 @@ archived in-process Pyrefly prototype is historical evidence, not the current pi
 Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.python-version`,
 `uv.lock`); these rows only summarize. `uv lock --project libraries/<name> --check` confirms a lock.
 These locks move only through `lctx library` and `uv lock --project libraries/<name>
---upgrade-package <dist>` (`libraries/README.md`), never through `just upgrade`.
+--upgrade-package <dist>` (`libraries/README.md`).
 
 | Component | Pin | Reason | Revisit when | Verified |
 |---|---|---|---|---|
@@ -87,11 +85,11 @@ ER2 owns launcher/client/spec/cache/consumer migration. No checkpoint, service l
 | Component | Pin | Reason | Revisit when | Verified |
 |---|---|---|---|---|
 | FastMCP (served), mcp-types | `fastmcp==4.0.5`, `mcp-types==2.2.0` in `python/lctx_mcp` (the workspace `uv.lock`; mcp 2.2.0, pydantic 2.13.5), independent of the analyzed pin | Served wire bytes mirror FastMCP 4.0.5; `lctx_mcp.wire` serializes through mcp-types, and bounded stdio uses that release's owned `_lifespan_manager` / `_mcp_server` entry seams | a deliberate protocol or FastMCP move | 2026-09-23: `uv lock`; the lctx_mcp tests negotiate `2026-07-28` (auto) and `2025-11-25` (legacy) |
-| vLLM (`services/vllm`) | `0.30.1rc1.dev286+g3d5f4d4cd.sm120.r2`, gpu-stack B3/r2 CPython 3.14 SM120 wheel; SHA-256 `84523e185e26680ec202e52f3d2bad73aa77ad0b9fbbc4126f46b9bf37debf64`. Explicit flat index `file:///home/paul/wheelhouse/gpu-stack`; locked torch `2.14.0+cu132`, torchvision `0.29.0+cu132`, CUDA runtime `13.4.2`, Triton `3.8.0`, FlashInfer `0.7.0`; torchaudio excluded (deployment obligations now ADR-0131) | Custom wheel (content-addressed) and platform availability; the service lock never moves through `just upgrade` | a new gpu-stack wheel | 2026-09-28: wheel bytes hashed; `uv lock --project services/vllm`; `uv sync --project services/vllm --locked`; installed metadata and CUDA availability read from the service environment |
+| vLLM (`services/vllm`) | `0.30.1rc1.dev286+g3d5f4d4cd.sm120.r2`, gpu-stack B3/r2 CPython 3.14 SM120 wheel; SHA-256 `84523e185e26680ec202e52f3d2bad73aa77ad0b9fbbc4126f46b9bf37debf64`. Explicit flat index `file:///home/paul/wheelhouse/gpu-stack`; locked torch `2.14.0+cu132`, torchvision `0.29.0+cu132`, CUDA runtime `13.4.2`, Triton `3.8.0`, FlashInfer `0.7.0`; torchaudio excluded (deployment obligations now ADR-0131) | Custom wheel (content-addressed) and platform availability; the service lock moves only with a new wheel | a new gpu-stack wheel | 2026-09-28: wheel bytes hashed; `uv lock --project services/vllm`; `uv sync --project services/vllm --locked`; installed metadata and CUDA availability read from the service environment |
 | Qwen/Qwen3-Embedding-8B | Local `/home/paul/wheelhouse/gpu-stack/models/Qwen3-Embedding-8B-NVFP4-r2`, NVFP4 W4A4 derived from upstream `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`; manifest SHA-256 `13ceecfe1ab2045c55a8ce39bf0be3b8a526fecdd69c94582a474c85aef08967` binds weights and tokenizer. BF16 activations; MRL 4096→1024, float32/L2 output (deployment obligations now ADR-0131) | Content-addressed acquisition | a new model derivation | 2026-09-28: controlled launcher verifies the published manifest and all file checksums; basic startup/output receipt in [PR4 evidence](design_review/evidence/2026-09-28_pr4/README.md). No accuracy assessment |
 | uv_build | `>=0.12,<0.13` (the `lctx-mcp` build backend) | Upper cap at the uv minor in use, as uv recommends for its build backend | uv moves to 0.13 | 2026-09-23: `uv sync` built the member |
 | PyO3, pyo3-async-runtimes | `=0.29.2` with `extension-module`; `=0.29.0`, defaults off, `tokio-runtime` | pyo3-async-runtimes is released in lockstep with PyO3 (type-sharing pair); the `pyo3` library skill indexes exactly these versions | a deliberate PyO3 upgrade, with the skill | 2026-09-24: `cargo info pyo3@0.29.2`, official PyO3 0.29.2 changelog for Python 3.14 support, and `cargo check -p lctx-semantics`; pyo3-async-runtimes: exact registry API/manifest, `uv sync` native wheel build; one lazy configured two-worker Tokio runtime |
-| hypothesis | `==6.168.1` (uv dev group; runtime soundness oracle only) | The version the `python-oracles` library skill indexes (library-skill pin, outside this policy for now) | the skill moves | 2026-09-24: `uv add --dev 'hypothesis==6.168.1'`; `uv.lock` resolves sortedcontainers 2.4.0; generated programs execute under CPython 3.14.7 in an isolated worker |
+| hypothesis | `==6.168.1` (uv dev group; runtime soundness oracle only) | The version the `python-oracles` library skill indexes (library-skill pin) | the skill moves | 2026-09-24: `uv add --dev 'hypothesis==6.168.1'`; `uv.lock` resolves sortedcontainers 2.4.0; generated programs execute under CPython 3.14.7 in an isolated worker |
 
 ## Catalog wire contracts (ADR-0073), 2026-09-28
 
@@ -132,4 +130,4 @@ workspace-hack crate (cargo-hakari) widens some features in our resolved graph.
 |---|---|---|---|---|
 | SurrealDB disposable server | 3.3.0 image `surrealdb/surrealdb@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20` | Version-specific protocol, strict DDL, indexed ID-array and logical restore control; matches inspected 3.3 source and capability skill | Qualifying another server release, including SDK/server protocol or physical-policy changes | 2026-10-05: owned Docker server `/version` returned `surrealdb-3.3.0`; actual remote SDK codec, adjacency, schema and cache-winner control passed. Operator activation not_run |
 
-The Rust SDK uses caret `3.3` and currently resolves 3.3.0; it is not an exact Cargo pin.
+The Rust SDK is pinned `=3.3.0` in `lctx-serving` and `lctx-surrealdb`; move it with the server image.

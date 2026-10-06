@@ -5,6 +5,8 @@ dependency graph compile, but their types are incompatible at every boundary,
 which is the failure Initial_plan §7.4 warns about. This reads Cargo.lock
 directly so dev-dependencies count too.
 
+Also fails a declared Cargo dependency that is not pinned exactly (ADR-0132).
+
 Usage: check_family.py [LOCKFILE ...]   (default: ./Cargo.lock)
 """
 

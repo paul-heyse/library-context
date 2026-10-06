@@ -21,7 +21,7 @@ Workflows for building this repository. A skill is added when a workflow has act
 | [`plan-execution/`](plan-execution/SKILL.md) | Develop the approach to executing an existing plan: prerequisites, work ownership, integration and evidence |
 | [`execute-plan/`](execute-plan/SKILL.md) | Carry authorized plan scope through implementation, review, functional verification and handoff |
 | [`handoff/`](handoff/SKILL.md) | Rewrite STATUS.md from the actual tree at session end |
-| [`pin-check/`](pin-check/SKILL.md) | Deliberately pin, cap or hold a dependency, or verify a version claim |
+| [`pin-check/`](pin-check/SKILL.md) | Add, bump, hold or release a dependency version, or check a version claim |
 
 In Codex, invoke `/plan $plan-design-review <review goal>` to enter Plan mode and plan a review.
 The skill also works in an ordinary conversation; it does not itself switch modes.

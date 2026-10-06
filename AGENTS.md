@@ -113,8 +113,7 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 | The real library, end to end | `lctx compile fastmcp --artifact-only --output DIR --through facts|normalized|analysis|catalog --profile catalog|behavioral`; ordinary compilation admits and publishes an unselected native handle. Run real-library qualification only when authorized. Compiler evidence is scoped in the graph-native coordinator; the coordinator records native serving controls; live vectors and real-library operator adoption remain not_run. |
 | Native publication and serving | `lctx publish-artifact`, `lctx snapshot show/select/query/export/backup/restore/retire`, `lctx store init/check`, and `lctx tool`; explicit runtime configuration, immutable viewer handles and reader quiescence. See `docs/surrealdb.md`; no operator action is implied by disposable checks. |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
-| Dependency policy | `just deps`, the dependency-policy leaf check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, every exact Cargo pin or git rev has a `docs/pins.md` row, cargo-deny bans and sources, and the Pyrefly fork check (tag + patch, classified env reads) |
-| Move dependencies to the latest | `just upgrade` (root `uv.lock` and `Cargo.lock`) at your discretion, then the affected tests; `libraries/*` and `services/vllm` move only deliberately (above, and their pins rows) |
+| Dependency policy | `just deps`, the dependency-policy leaf check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, every declared Cargo dependency is exact (`=x.y.z` or a git `rev`), cargo-deny bans and sources, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; `just turn-end` regenerates the index; agents run `just adr-lint` for affected decision metadata at scope end |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for affected publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
 | End of a turn that changed files | The root agent runs `just turn-end` (ADR index, `build-features`, formatting with ruff's safe auto-fixes). Subagents don't. Clippy, pyrefly, lint, rules, ADR and agent lint, fixtures, gold, `docs-check` and `deps` findings are yours through applicable leaves at scope end. Store/serving controls use owned disposable native servers; verification implies no operator action |
@@ -153,19 +152,17 @@ adoption is a separately authorized package. Store-free compiler controls requir
 
 ### Dependencies
 
-- **Add freely.** Add any library the work warrants without asking: no ADR and no
-  `docs/pins.md` row. Use the tool's default specifier — `uv add` (a `>=` floor), `cargo add`
-  (a caret requirement).
-- **Latest by default.** The resolver picks versions; the committed lockfiles record them and
-  the `--locked` gates keep runs reproducible. Move to the latest at your discretion with
-  `just upgrade`, then run the tests the move affects.
-- **Pin only for a reason.** An exact version, upper cap, git rev or hold-back needs an overt
-  reason specific to that dependency — a named breakage, a type-sharing family that must
-  resolve to one version, a fork or vendored source, golden or byte-stable output, a parity
-  oracle, wheel availability — recorded in `docs/pins.md` with when to revisit it (the
-  `pin-check` skill; `just deps` checks that every exact Cargo pin has a row). Reproducibility,
-  "already in the lock" and a version entering a key or digest are not reasons (ADR-0125).
-  The analyzer forks, families, toolchain and the analysed `libraries/*` keep their pins.
+- **Pinned.** Every declared dependency is pinned exactly: `==x.y.z` (`[tool.uv] add-bounds = "exact"`
+  makes `uv add` write it) / `=x.y.z` (`cargo add name@=x.y.z`). The committed lockfiles hold everything
+  beneath, so environments change only when someone changes them on purpose (ADR-0132).
+- **Change versions deliberately, on judgment.** Add or bump a dependency when the work calls for it, with
+  no ADR or approval: move that dependency (or its family), check the lock diff moved only what you meant,
+  run the tests it affects and name the move in the commit. No wholesale re-resolve (`uv lock --upgrade`,
+  bare `cargo update`) unless the operator asks.
+- **Holds go in `docs/pins.md`.** A version that must not be bumped casually (a parity oracle, golden
+  output, a known breakage, a library skill's profile) gets a row with its reason and when to revisit it
+  (the `pin-check` skill). The analyzer forks, families, toolchain and the analysed `libraries/*` keep
+  their own rules.
 
 ### Library skills
 

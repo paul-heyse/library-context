@@ -31,7 +31,7 @@ restart the old version migration or a current full qualification claim.
 ty's unpublished CLI/project/IDE/server at this tag are not a PyPI ty version. Production needs
 the Rust core/index line, not installation of a matching hypothetical CLI. Keep current toolchain,
 allocative backport, Cargo profiles and environment normalization. The analyzer families resolve only at their reviewed
-revisions; other dependencies float (ADR-0125).
+revisions; other dependencies are pinned exactly and bumped deliberately (ADR-0132).
 
 ## 2. Source identity and fork ownership
 
@@ -178,7 +178,7 @@ patch. Encode Overloaded alternatives and qualified opaque NamedInts; remove Cal
 matching. Embedded compare/dict-comprehension/argument container changes and latest Identifier
 changes stay in their respective adapters. Adopt the required thiserror 2.0.21, remove the obsolete
 LSP git exception only after its last consumer is gone, and make directed lock updates. Keep a
-broad `cargo update` (`just upgrade`) out of this migration step, and do not remove allocative/toolchain/profile policy.
+broad `cargo update` out of this migration step, and do not remove allocative/toolchain/profile policy.
 
 The known rebased Pyrefly patch is smaller than the old patch because annotation access is public;
 new observation seams must be explicitly reviewed in addition to that historical patch receipt.
