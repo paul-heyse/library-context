@@ -213,12 +213,14 @@ impl NominalClosure {
         use datafusion::{arrow::ipc::writer::FileWriter, execution::{options::ArrowReadOptions, session_state::SessionStateBuilder}};
         use std::fs::File;
         let state = session.state();
+        let catalogs = state.catalog_list().clone();
         let config = state.config().clone()
+            .with_create_default_catalog_and_schema(false)
             .with_target_partitions(state.config().target_partitions().max(2))
             .with_repartition_joins(true)
             .set_bool("datafusion.optimizer.prefer_hash_join", false);
         let session = SessionContext::new_with_state(SessionStateBuilder::new_from_existing(state)
-            .with_config(config).build());
+            .with_config(config).with_catalog_list(catalogs).build());
         let directory = tempfile::tempdir().map_err(ModelError::codec)?;
         let path = directory.path().join("nominal-edges.arrow");
         let sql = format!("SELECT * FROM ({}) AS projected_edges ORDER BY source_kind,source_id,target_kind,target_id", self.edges_sql());
