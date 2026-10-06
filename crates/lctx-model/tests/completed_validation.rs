@@ -17,11 +17,11 @@ fn absent_nominal_references_and_repeated_keys_refuse() {
         package: p.id(),
         version: "1".into(),
     };
-    assert!(validation::replay::replay(&model, &[frame(&[release.clone()])], &budget()).is_err());
+    assert!(validation::replay::replay(&model, &[frame(std::slice::from_ref(&release))], &budget()).is_err());
     assert!(matches!(
         validation::replay::replay(
             &model,
-            &[frame(&[p.clone()]), frame(&[p.clone()])],
+            &[frame(std::slice::from_ref(&p)), frame(std::slice::from_ref(&p))],
             &budget()
         ),
         Err(ModelError::Conflict(_))
@@ -29,7 +29,7 @@ fn absent_nominal_references_and_repeated_keys_refuse() {
     let q = Package { name: "q".into() };
     let first = validation::replay::replay(
         &model,
-        &[frame(&[p.clone(), q.clone()]), frame(&[release.clone()])],
+        &[frame(&[p.clone(), q.clone()]), frame(std::slice::from_ref(&release))],
         &budget(),
     )
     .unwrap();

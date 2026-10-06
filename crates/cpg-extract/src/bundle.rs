@@ -84,12 +84,15 @@ impl CapturedInputs {
     }
 }
 
+/// Fallible typed batches streamed from one completed native-provider input.
+pub type ProviderBatchStream<R> = Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>;
+
 /// Ordinary completed-input and batch-output boundary. Implementations own temporary storage;
 /// these methods do not grant database reads or certify publication.
 pub trait ProviderSink: Send + Sync + 'static {
     fn read<R: Record>(
         &self,
-    ) -> Result<Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>, ModelError>;
+    ) -> Result<ProviderBatchStream<R>, ModelError>;
     fn declare<R: Record>(&self) -> Result<(), ModelError>;
     fn write<R: Record>(&self, batch: Batch<R>) -> Result<(), ModelError>;
     fn contribute<R: Record>(&self, batch: Batch<R>) -> Result<(), ModelError>;
@@ -239,7 +242,7 @@ impl<S: ProviderSink + 'static> StageContext<S> {
     /// Stream one declared input from its completed workspace view.
     pub fn input<R: Record>(
         &mut self,
-    ) -> Result<Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>, ModelError> {
+    ) -> Result<ProviderBatchStream<R>, ModelError> {
         self.guard(|context| {
             if !context.stage.reads::<R>() {
                 return Err(ModelError::Invalid(format!(
@@ -255,9 +258,7 @@ impl<S: ProviderSink + 'static> StageContext<S> {
                     failed.store(true, Ordering::Release);
                 }
             }))
-                as Box<
-                    dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send,
-                >)
+                as ProviderBatchStream<R>)
         })
     }
     /// The attachment index over this stage's handed-off occurrences, built on first use.
