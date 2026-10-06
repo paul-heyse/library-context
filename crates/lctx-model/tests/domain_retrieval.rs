@@ -800,8 +800,8 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
 fn completed_unit_refuses_internally_consistent_redirected_origin_to_existing_foreign_root(){
     let(b,mut data,member,artifact)=fixture();let foreign=data.source.catalog.members.insert(catalog::CatalogMember{input:artifact.input,access:data.source.catalog.members.get(member).unwrap().access,path:vec!["foreign".into()],name:"foreign".into()}).unwrap();
     root(&mut data,artifact.input,id(2),c1::RootSubject::Member{member:foreign});let owned_root=data.evidence.roots.iter().find(|root|root.subject==(c1::RootSubject::Member{member}).id()).unwrap().id();let complete=retrieval::build::root(&data,owned_root,&b).unwrap();complete.verify_completion(&data,&b).unwrap();
-    let unit=complete.units.iter().find(|unit|matches!(complete.origins.get(unit.origin),Some(Origin::Api{member:owner}) if *owner==member)).unwrap();
-    let redirected_origin=Origin::Api{member:foreign};let redirected=Unit{origin:redirected_origin.id(),..unit.clone()};let mut altered=Output::new(&b);
+    let unit=complete.units.iter().find(|unit|matches!(complete.origins.get(unit.origin),Some(retrieval::Origin::Api{member:owner}) if *owner==member)).unwrap();
+    let redirected_origin=retrieval::Origin::Api{member:foreign};let redirected=Unit{origin:redirected_origin.id(),..unit.clone()};let mut altered=Output::new(&b);
     macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$(for row in complete.$field.iter(){if std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<Unit>() && std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<UnitRoot>() && std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<UnitSubject>() && std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<OriginalAnchor>(){altered.$field.insert(row.clone()).unwrap();}})*};}lctx_model::retrieval_outputs!(copy);
     altered.origins.insert(redirected_origin).unwrap();
     for row in complete.units.iter(){altered.units.insert(if row.id()==unit.id(){redirected.clone()}else{row.clone()}).unwrap();}

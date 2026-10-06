@@ -603,7 +603,7 @@ fn release_declarations_require_exact_ownership_and_passed_interpretation() {
     let verification=d.add_verification(&verification_row).unwrap();
     // This fixture also executes the C1 producer, whose own declaration kernel requires the
     // actual typed distribution record in addition to C2's compact ownership projection.
-    d.source.facts.distribution_verifications.insert(verification_row).unwrap();
+    d.source.facts.verifications.insert(verification_row).unwrap();
     d.source
         .facts
         .artifact_ownership
