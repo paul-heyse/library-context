@@ -553,74 +553,109 @@ async fn empty_completed_scopes_finish_without_diagnostic_replay() {
 }
 #[tokio::test]
 async fn wide_source_uses_workspace_sort_and_streams_ownership_under_a_small_budget() {
-    let model = Arc::new(model().unwrap());
-    let workspace = Workspace::new(
-        model.clone(),
-        WorkspaceOptions {
-            memory_bytes: 2 << 20,
-            batch_rows: 128,
-            partitions: 1,
-        },
-    )
-    .unwrap();
-    let facts = workspace.output(
-        "wide-scope-fixture",
-        Profile::Catalog,
-        ContentHash::of(b"wide"),
-        workspace
-            .inputs("wide-scope-fixture", Profile::Catalog, [])
-            .unwrap(),
-    );
-    macro_rules! declare { ($($field:ident: $ty:ty => $family:ident,)*) => { $(facts.declare::<$ty>().unwrap();)* }; }
-    lctx_model::normalized_entity_inputs!(declare);
-    let source = SourceArtifact::from_bytes(
-        input::InputRevision::from_entries(vec![]).unwrap().id(),
-        "wide.py".into(),
-        b"pass\n",
-    )
-    .unwrap();
-    let root = Occurrence {
-        source: source.id(),
-        start: 0,
-        end: 5,
-        syntax_kind: SyntaxKind::ModModule,
-        role: OccurrenceRole::Syntax,
-        structural_path: vec![0],
-    };
-    facts
-        .push(Module {
+    async fn run_wide(options: WorkspaceOptions) -> Vec<(&'static str, ContentHash, u64)> {
+        let model = Arc::new(model().unwrap());
+        let workspace = Workspace::new(model.clone(), options).unwrap();
+        let facts = workspace.output(
+            "wide-scope-fixture",
+            Profile::Catalog,
+            ContentHash::of(b"wide"),
+            workspace
+                .inputs("wide-scope-fixture", Profile::Catalog, [])
+                .unwrap(),
+        );
+        macro_rules! declare { ($($field:ident: $ty:ty => $family:ident,)*) => { $(facts.declare::<$ty>().unwrap();)* }; }
+        lctx_model::normalized_entity_inputs!(declare);
+        let source = SourceArtifact::from_bytes(
+            input::InputRevision::from_entries(vec![]).unwrap().id(),
+            "wide.py".into(),
+            b"pass\n",
+        )
+        .unwrap();
+        let root = Occurrence {
+            source: source.id(),
+            start: 0,
+            end: 5,
+            syntax_kind: SyntaxKind::ModModule,
+            role: OccurrenceRole::Syntax,
+            structural_path: vec![0],
+        };
+        let module = Module {
             source: source.id(),
             qualified_name: "wide".into(),
-        })
-        .await
-        .unwrap();
-    facts.push(root.clone()).await.unwrap();
-    // Reverse physical arrival requires the real external ordering route, not caller-preordered
-    // pages. Keeping these rich occurrences would exceed the attempt's 2 MiB budget.
-    for index in (0..60_000).rev() {
-        facts
-            .push(Occurrence {
-                syntax_kind: SyntaxKind::StmtPass,
-                structural_path: vec![0, index],
-                ..root.clone()
-            })
+        };
+        facts.push(module.clone()).await.unwrap();
+        facts.push(root.clone()).await.unwrap();
+        // Reverse physical arrival requires the real external ordering route, not caller-preordered
+        // pages. Keeping these rich occurrences would exceed the attempt's 2 MiB budget.
+        for index in (0..60_000).rev() {
+            facts
+                .push(Occurrence {
+                    syntax_kind: SyntaxKind::StmtPass,
+                    structural_path: vec![0, index],
+                    ..root.clone()
+                })
+                .await
+                .unwrap();
+        }
+        facts.finish(ProviderOutcome::Complete).await.unwrap();
+        workspace.freeze_inputs(PublicationBoundary::Facts).unwrap();
+        let stage = entity_normalization::stage();
+        let inputs = workspace.stage_inputs(&stage, Profile::Catalog).unwrap();
+        let output = workspace.producer(&stage, Profile::Catalog, inputs.clone());
+        normalize::entities(inputs, output, &workspace, &model)
             .await
             .unwrap();
+        assert_eq!(
+            workspace.completed::<OccurrenceOwnership>().unwrap().rows(),
+            60_001
+        );
+        assert!(
+            workspace.budget().reserved() < 1 << 20,
+            "completed scopes must release decoded inputs and owner ancestors"
+        );
+        // Independent owner and endpoint identities come from the fixture, not another normalizer.
+        let expected_entity = EntityRef::Module { module: module.id() }.id();
+        let expected_ids = [root.id(), Occurrence {
+            syntax_kind: SyntaxKind::StmtPass,
+            structural_path: vec![0, 0],
+            ..root.clone()
+        }.id(), Occurrence {
+            syntax_kind: SyntaxKind::StmtPass,
+            structural_path: vec![0, 59_999],
+            ..root.clone()
+        }.id()];
+        let mut seen = [false; 3];
+        let mut count = 0;
+        for batch in workspace.completed::<OccurrenceOwnership>().unwrap().batches().unwrap() {
+            for row in OccurrenceOwnership::decode(&batch.unwrap()).unwrap() {
+                assert_eq!(row.owner, root.id());
+                assert_eq!(row.entity, expected_entity);
+                for (index, expected) in expected_ids.iter().enumerate() {
+                    seen[index] |= row.occurrence == *expected;
+                }
+                count += 1;
+            }
+        }
+        assert_eq!(count, 60_001);
+        assert!(seen.into_iter().all(|found| found));
+        let mut contents = Vec::new();
+        macro_rules! contents { ($($field:ident: $ty:ty,)*) => { $(
+            let completed = workspace.completed::<$ty>().unwrap();
+            contents.push((<$ty>::NAME, completed.content(), completed.rows()));
+        )* }; }
+        lctx_model::normalized_entity_outputs!(contents);
+        contents
     }
-    facts.finish(ProviderOutcome::Complete).await.unwrap();
-    workspace.freeze_inputs(PublicationBoundary::Facts).unwrap();
-    let stage = entity_normalization::stage();
-    let inputs = workspace.stage_inputs(&stage, Profile::Catalog).unwrap();
-    let output = workspace.producer(&stage, Profile::Catalog, inputs.clone());
-    normalize::entities(inputs, output, &workspace, &model)
-        .await
-        .unwrap();
-    assert_eq!(
-        workspace.completed::<OccurrenceOwnership>().unwrap().rows(),
-        60_001
-    );
-    assert!(
-        workspace.budget().reserved() < 1 << 20,
-        "completed scopes must release decoded inputs and owner ancestors"
-    );
+    let constrained = run_wide(WorkspaceOptions {
+        memory_bytes: 2 << 20,
+        batch_rows: 128,
+        partitions: 1,
+    }).await;
+    let larger = run_wide(WorkspaceOptions {
+        memory_bytes: 16 << 20,
+        batch_rows: 4096,
+        partitions: 2,
+    }).await;
+    assert_eq!(constrained, larger, "canonical normalization output changes with memory/partition configuration");
 }
