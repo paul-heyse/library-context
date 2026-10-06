@@ -57,6 +57,7 @@ impl CheckedContextTransfer {
         data: &EntryData,
         entries: &Rows<EntryValueWitness>,
         sources: &Rows<EntryAccessSource>,
+        produced:Option<&super::model_production::ActualInputs<'_>>,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         let Some(actual) = binding.entry_actual else {
@@ -86,7 +87,13 @@ impl CheckedContextTransfer {
         if evaluations.next().is_some() {
             return Ok(Err(ObligationKind::AmbiguousBinding));
         }
-        let checked = earlier.earlier().replay(row)?;
+        let checked=match produced {
+            Some(produced)=>{
+                let frame=earlier.earlier().invocations.get(row.invocation).ok_or_else(||ModelError::Invalid("Model actual Base frame absent".into()))?;
+                produced.evaluations.get(row,frame,earlier.earlier())?
+            }
+            None=>std::sync::Arc::new(earlier.earlier().replay(row)?),
+        };
         let mut witnesses = checked
             .entry_premises()
             .iter()
@@ -103,9 +110,9 @@ impl CheckedContextTransfer {
         let Some(source) = sources.get(witness.access_source) else {
             return Ok(Err(ObligationKind::MissingEvidence));
         };
-        let entry = match EntryValueWitness::derive_for(data, witness.request(), source, budget)? {
-            Ok(v) => v,
-            Err(r) => return Ok(Err(r)),
+        let entry=match produced {
+            Some(produced)=>produced.local.entry(witness,source,budget)?,
+            None=>match EntryValueWitness::derive_for(data,witness.request(),source,budget)?{Ok(value)=>value,Err(reason)=>return Ok(Err(reason))},
         };
         if entry.witness() != witness {
             return Err(ModelError::Invalid(

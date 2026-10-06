@@ -649,7 +649,7 @@ impl SummaryData {
         seeds.sort_by_key(WorkBranch::id);
         Ok((seeds, charge))
     }
-    fn guards(&self, budget: &ResourceBudget) -> Result<GuardInventory, ModelError> {
+    fn guards(&self, budget: &ResourceBudget,actual:Option<&local_semantics::ProducedLocal>) -> Result<GuardInventory, ModelError> {
         let charge = budget.reserve(
             "summary-private-stability",
             self.local_guards
@@ -660,6 +660,12 @@ impl SummaryData {
         for guard in self.local_guards.iter() {
             let stored = need(&self.entries, guard.entry)?;
             let source = need(&self.entry_sources, stored.access_source)?;
+            let witness = need(&self.stability, guard.stability)?;
+            let checked=if let Some(actual)=actual{
+                actual.require_entry(stored,source,budget)?;
+                if witness.entry!=stored.id(){return Err(invalid("Local guard changes actual entry owner"));}
+                actual.guard(witness,budget)?
+            }else{
             let request = conditions::entry::EntryRequest {
                 owner: stored.owner,
                 formal: stored.formal,
@@ -677,12 +683,13 @@ impl SummaryData {
             if checked.witness() != stored {
                 return Err(invalid("Local guard changes private entry witness"));
             }
-            let witness = need(&self.stability, guard.stability)?;
             let checked = StabilityWitness::derive(&self.entry, witness.atom, &checked)
                 .map_err(|r| invalid(format!("stored stability refuses replay: {r:?}")))?;
             if checked.witness() != witness {
                 return Err(invalid("Local guard stability changes"));
             }
+                checked
+            };
             if let Some(old) = results.insert(witness.atom, checked)
                 && old.witness() != witness
             {
@@ -1585,20 +1592,21 @@ pub fn produce(
     let verified = if profile == stages::Profile::Behavioral {
         Some(normalized::binding_normalization::prepare(&data.bindings, &data.binding_output, budget)?)
     } else { None };
-    produce_with_application(data, invocation, definition, profile, graph, budget, verified.as_ref())
+    produce_with_application(data, invocation, definition, profile, graph, budget, verified.as_ref(),None)
 }
 /// Borrow the binding owner's admitted application index across Summary invocations.
 pub fn produce_prepared(
     data: &SummaryData, invocation: &analysis::summary::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition, profile: stages::Profile,
-    graph: Option<&MaterializedGraph>, budget: &ResourceBudget, verified: Option<&VerifiedBindings>,
+    graph: Option<&MaterializedGraph>, budget: &ResourceBudget, verified: Option<&VerifiedBindings>, actual:Option<&local_semantics::ProducedLocal>,
 ) -> Result<SummaryRecords, ModelError> {
-    produce_with_application(data, invocation, definition, profile, graph, budget, verified)
+    if profile==stages::Profile::Behavioral && actual.is_none(){return Err(invalid("Summary actual Local owner values absent"));}
+    produce_with_application(data, invocation, definition, profile, graph, budget, verified,actual)
 }
 fn produce_with_application(
     data: &SummaryData, invocation: &analysis::summary::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition, profile: stages::Profile,
-    graph: Option<&MaterializedGraph>, budget: &ResourceBudget, verified: Option<&VerifiedBindings>,
+    graph: Option<&MaterializedGraph>, budget: &ResourceBudget, verified: Option<&VerifiedBindings>, actual:Option<&local_semantics::ProducedLocal>,
 ) -> Result<SummaryRecords, ModelError> {
     let limits = summary_proof::limits(need(&data.parameters, definition.parameters)?, definition)?;
     if invocation.definition != definition.id()
@@ -1635,7 +1643,7 @@ fn produce_with_application(
     let schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
     let (calls, _calls) = call_infos(data, verified, invocation, &mut out, budget)?;
     let (seeds, _seeds) = data.seeds(invocation, &mut out, budget)?;
-    let (guards, _guards) = data.guards(budget)?;
+    let (guards, _guards) = data.guards(budget,actual)?;
     let mut vocabulary = data.vocabulary.copy(budget)?;
     for root in out.vocabulary.roots.values() {
         vocabulary

@@ -407,13 +407,14 @@ pub(super) fn emit(
     catalog: &Catalog,
     verified: &VerifiedBindings,
     invocation: &analysis::model::AnalysisInvocation,
+    scope:super::model_production::ProductionScope,
     out: &mut ModelRecords,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let b = &data.early.bindings;
     let extra = &data.protocol.target;
     for t in b.targets.iter().filter(|t| {
-        b.qualifications
+        scope.target(data,t) && b.qualifications
             .get(t.qualification)
             .is_some_and(|q| q.context == invocation.context)
             && b.occurrences
@@ -434,7 +435,7 @@ pub(super) fn emit(
         })?;
     }
     for attempt in data.bindings.attempts.iter().filter(|a| {
-        b.event_events.get(a.event).is_some_and(|e| {
+        scope.attempt(data,a.id()) && b.event_events.get(a.event).is_some_and(|e| {
             e.context == invocation.context
                 && b.occurrences
                     .get(e.site)
@@ -542,7 +543,7 @@ pub(super) fn emit(
         out.closed_targets.insert(assessment)?;
     }
     for obs in data.protocol.terminals.iter().filter(|o| {
-        b.qualifications
+        scope.terminal(data,o) && b.qualifications
             .get(o.qualification)
             .is_some_and(|q| q.context == invocation.context)
             && b.occurrences
@@ -676,17 +677,18 @@ pub(super) fn emit(
         }
         out.terminal_assessments.insert(assessment)?;
     }
-    emit_exits(data, invocation, out)?;
+    emit_exits(data, invocation, scope, out)?;
     Ok(())
 }
 fn emit_exits(
     data: &ModelData,
     invocation: &analysis::model::AnalysisInvocation,
+    scope:super::model_production::ProductionScope,
     out: &mut ModelRecords,
 ) -> Result<(), ModelError> {
     let b = &data.early.bindings;
     for obs in data.protocol.exits.iter().filter(|o| {
-        b.qualifications
+        (scope==super::model_production::ProductionScope::All || scope==super::model_production::ProductionScope::Exit(o.id())) && b.qualifications
             .get(o.qualification)
             .is_some_and(|q| q.context == invocation.context)
             && b.occurrences

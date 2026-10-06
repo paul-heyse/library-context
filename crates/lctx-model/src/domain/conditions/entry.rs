@@ -14,6 +14,7 @@ use crate::domain::{
 };
 
 use crate::{Domain, DomainSum};
+pub mod produced;
 
 #[macro_export]
 macro_rules! entry_value_inputs {

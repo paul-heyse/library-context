@@ -12,7 +12,7 @@ use crate::domain::{
     models::{AuthoredModel, Catalog, ModelCatalog},
     normalized::{
         Rows,
-        binding_normalization::{BindingOutput, prepare},
+        binding_normalization::{BindingOutput, VerifiedBindings, prepare},
     },
     resources::{Reservation, ResourceBudget},
     *,
@@ -333,18 +333,54 @@ pub fn apply_all(
     profile: stages::Profile,
     budget: &ResourceBudget,
 ) -> Result<ModelRecords, ModelError> {
-    let selected = catalog_id(data, definition)?;
-    if invocation.definition != definition.id() || invocation.subject.is_some() {
-        return Err(invalid(
-            "Model invocation changes bound whole-frame definition",
-        ));
+    let selected=catalog_id(data,definition)?;
+    let row=data.catalogs.get(selected).ok_or_else(||invalid("selected catalog is absent"))?;
+    let parsed=SelectedCatalog::read(row,budget)?;
+    let verified=if profile==stages::Profile::Behavioral{Some(prepare(&data.early.bindings,&data.bindings,budget)?)}else{None};
+    apply_selected_inner(data,invocation,definition,profile,&parsed,verified.as_ref(),ProductionScope::All,None,budget)
+}
+/// The selected root is a publication domain. Referenced dependencies never become extra roots.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum ProductionScope {
+    All, Frame, Target(Id<AuthoredModel>), Context(Id<super::context_execution::ContextExecution>),
+    Event(Id<normalized::events::NormalizedCallEvent>), Terminal(Id<protocols::NativeTerminalObservation>), Exit(Id<protocols::NativeExitObservation>),
+}
+impl ProductionScope {
+    pub(super) fn attempt(self,data:&ModelData,attempt:Id<normalized::bindings::CallBindingAttempt>)->bool{
+        self==Self::All || matches!(self,Self::Event(event) if data.bindings.attempts.get(attempt).is_some_and(|row|row.event==event))
     }
-    let row = data
-        .catalogs
-        .get(selected)
-        .ok_or_else(|| invalid("selected catalog is absent"))?;
-    let parsed = SelectedCatalog::read(row, budget)?;
-    let catalog = parsed.catalog();
+    pub(super) fn target(self,data:&ModelData,target:&calls::CallTarget)->bool{
+        self==Self::All || matches!(self,Self::Event(event) if data.early.bindings.event_events.get(event).is_some_and(|event|
+            event.site==target.site && event.origin==target.origin && data.early.bindings.qualifications.get(target.qualification).is_some_and(|q|q.context==event.context)))
+    }
+    pub(super) fn terminal(self,data:&ModelData,row:&protocols::NativeTerminalObservation)->bool{
+        self==Self::All || self==Self::Terminal(row.id()) || matches!(self,Self::Event(event) if data.early.bindings.event_events.get(event).is_some_and(|event|
+            event.site==row.subject && event.origin==calls::CallOrigin::explicit() && data.early.bindings.qualifications.get(row.qualification).is_some_and(|q|q.context==event.context)))
+    }
+}
+pub struct ActualInputs<'a>{pub evaluations:&'a super::production::ProducedEvaluations,pub local:&'a local_semantics::ProducedLocal}
+/// Consume actual binding-owner authority; the ordinary `apply_all` remains an explicit diagnostic.
+pub fn apply_selected(
+    data:&ModelData, invocation:&publication::AnalysisInvocation, definition:&analysis::AnalysisDefinition,
+    profile:stages::Profile, parsed:&SelectedCatalog, verified:Option<&VerifiedBindings>,scope:ProductionScope,actual:Option<&ActualInputs<'_>>,budget:&ResourceBudget,
+)->Result<ModelRecords,ModelError>{
+    if profile==stages::Profile::Behavioral && actual.is_none(){return Err(invalid("Model actual execution/Local owner values absent"));}
+    if scope==ProductionScope::All{return Err(invalid("Model production requires an explicit root"));}
+    apply_selected_inner(data,invocation,definition,profile,parsed,verified,scope,actual,budget)
+}
+fn apply_selected_inner(
+    data:&ModelData, invocation:&publication::AnalysisInvocation, definition:&analysis::AnalysisDefinition,
+    profile:stages::Profile, parsed:&SelectedCatalog, verified:Option<&VerifiedBindings>,scope:ProductionScope,actual:Option<&ActualInputs<'_>>,budget:&ResourceBudget,
+)->Result<ModelRecords,ModelError>{
+    let selected=catalog_id(data,definition)?;
+    if invocation.definition!=definition.id() || invocation.subject.is_some(){return Err(invalid("Model invocation changes bound whole-frame definition"));}
+    if parsed.catalog().declaration().id()!=selected || data.catalogs.get(selected)!=Some(parsed.catalog().declaration()){
+        return Err(invalid("Model selected catalog differs from actual source"));
+    }
+    if let ProductionScope::Target(model)=scope && !parsed.catalog().models().iter().any(|compiled|compiled.declaration().id()==model){
+        return Err(invalid("Model target root absent from selected catalog"));
+    }
+    let catalog=parsed.catalog();
     let mut records = ModelRecords::new(invocation.id(), budget);
     if profile != stages::Profile::Behavioral {
         records.outcome.status = analysis::AnalysisStatus::NotRequested;
@@ -374,7 +410,7 @@ pub fn apply_all(
     // Enriched is a completed, checked predecessor. Model-specific applicability uses its
     // exact frame directly; recreating execution would replace predecessor authority with a
     // second producer run and retain another complete set of rich context/call records.
-    for context in data.contexts.iter().filter(|context| same_frame(context.invocation)) {
+    for context in data.contexts.iter().filter(|context| same_frame(context.invocation) && (scope==ProductionScope::All || scope==ProductionScope::Context(context.id()))) {
         super::model_protocol::emit(
             super::model_protocol::ProtocolInputs {
                 catalog,
@@ -388,7 +424,7 @@ pub fn apply_all(
             budget,
         )?;
     }
-    for binding in data.context_bindings.iter().filter(|binding| same_frame(binding.invocation)) {
+    for binding in data.context_bindings.iter().filter(|binding| same_frame(binding.invocation) && matches!(scope,ProductionScope::All|ProductionScope::Context(_))) {
         let resource = {
             let mut resources = records.context_resources.iter().filter(|r| {
                 data
@@ -411,6 +447,7 @@ pub fn apply_all(
                 &data.flow,
                 &data.entries,
                 &data.entry_sources,
+                actual,
                 budget,
             )?
         {
@@ -423,14 +460,14 @@ pub fn apply_all(
             )?;
         }
     }
-    let verified = prepare(&data.early.bindings, &data.bindings, budget)?;
+    let verified=verified.ok_or_else(||invalid("Model binding owner authority absent"))?;
     // Catalog targets describe Python operations. A document-only frame has no such
     // domain; missing catalog targets there are not missing Python evidence. Retain the
     // predecessor/binding checks above and derive emptiness from captured uses, never outputs.
-    if !has_python_domain(&data.early, invocation.input, budget)? {
+    if matches!(scope,ProductionScope::All|ProductionScope::Target(_)) && !has_python_domain(&data.early, invocation.input, budget)? {
         return Ok(records);
     }
-    for compiled in catalog.models() {
+    for compiled in catalog.models().iter().filter(|compiled|scope==ProductionScope::All || scope==ProductionScope::Target(compiled.declaration().id())) {
         let mut symbols = data.early.bindings.symbols.iter().filter(|s| {
             s.context == invocation.context
                 && super::model_application::matches_target(
@@ -461,7 +498,7 @@ pub fn apply_all(
         })?;
     }
     for attempt in data.bindings.attempts.iter().filter(|a| {
-        data.early
+        scope.attempt(data,a.id()) && data.early
             .bindings
             .event_events
             .get(a.event)
@@ -602,6 +639,7 @@ pub fn apply_all(
                                             entries: &data.entries,
                                             sources: &data.entry_sources,
                                         },
+                                        actual,
                                         budget,
                                     )?
                             {
@@ -643,8 +681,9 @@ pub fn apply_all(
     super::protocol_interpretation::emit(
         data,
         catalog,
-        &verified,
+        verified,
         invocation,
+        scope,
         &mut records,
         budget,
     )?;

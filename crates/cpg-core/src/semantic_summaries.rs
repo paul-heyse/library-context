@@ -31,10 +31,12 @@ pub async fn produce(
     definition: &analysis::AnalysisDefinition,
     graphs: Option<&PreparedGraphs>,
     bindings: Option<&crate::analysis_bindings::PreparedBindings>,
+    local:Option<&crate::local_semantics::PreparedLocal>,
 ) -> Result<(), ModelError> {
     let application = if access.profile() == Profile::Behavioral {
         Some(bindings.ok_or_else(|| ModelError::Invalid("normalized application authority absent".into()))?.application(&access, runtime)?)
     } else { None };
+    let actual=if access.profile()==Profile::Behavioral{Some(local.ok_or_else(||ModelError::Invalid("Summary actual Local owner absent".into()))?.guards(&access,runtime)?)}else{None};
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut coverage = CoverageAdmission::new(&sources, budget)?;
@@ -108,6 +110,7 @@ pub async fn produce(
                 graph,
                 budget,
                 application,
+                actual,
             )
         })?;
         tokio::task::yield_now().await;

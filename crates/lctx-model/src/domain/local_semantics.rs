@@ -643,7 +643,17 @@ macro_rules! local_semantic_outputs {
         }
     };
 }
-macro_rules! output {($($field:ident:$ty:ty,)*)=>{pub struct LocalRecords {pub theory:crate::domain::local_theory::TheoryRecords,pub fields:crate::domain::local_fields::FieldRecords,$(pub $field:Rows<$ty>,)*}impl LocalRecords {pub fn new(budget:&resources::ResourceBudget)->Self {Self {theory:crate::domain::local_theory::TheoryRecords::new(budget),fields:crate::domain::local_fields::FieldRecords::new(budget),$($field:Rows::new(budget),)*}}}};}
+/// Actual owner values retained as compact receipts, without native flow rows or decoded BDDs.
+pub struct ProducedLocal {entries:conditions::entry::produced::ProducedEntries,stability:conditions::stability::ProducedStability}
+impl ProducedLocal {
+    pub fn empty(budget:&resources::ResourceBudget)->Self{Self{entries:conditions::entry::produced::ProducedEntries::new(budget),stability:conditions::stability::ProducedStability::new(budget)}}
+    pub fn entry(&self,witness:&EntryValueWitness,source:&EntryAccessSource,budget:&resources::ResourceBudget)->Result<DerivedEntryValue,ModelError>{self.entries.get(witness,source,budget)}
+    pub fn require_entry(&self,witness:&EntryValueWitness,source:&EntryAccessSource,budget:&resources::ResourceBudget)->Result<(),ModelError>{self.entries.require(witness,source,budget)}
+    pub fn guard(&self,witness:&StabilityWitness,budget:&resources::ResourceBudget)->Result<CheckedStability,ModelError>{self.stability.get(witness,budget)}
+    pub fn append(&mut self,other:Self)->Result<(),ModelError>{self.entries.append(other.entries)?;self.stability.append(other.stability)}
+    pub fn unrequested(invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,budget:&resources::ResourceBudget)->Result<Self,ModelError>{check_definition(definition)?;check_invocation(invocation)?;Ok(Self::empty(budget))}
+}
+macro_rules! output {($($field:ident:$ty:ty,)*)=>{pub struct LocalRecords {pub actual:ProducedLocal,pub theory:crate::domain::local_theory::TheoryRecords,pub fields:crate::domain::local_fields::FieldRecords,$(pub $field:Rows<$ty>,)*}impl LocalRecords {pub fn new(budget:&resources::ResourceBudget)->Self {Self {actual:ProducedLocal::empty(budget),theory:crate::domain::local_theory::TheoryRecords::new(budget),fields:crate::domain::local_fields::FieldRecords::new(budget),$($field:Rows::new(budget),)*}}}};}
 crate::local_semantic_outputs!(output);
 /// Every actual native value support gets a result. This version intentionally remains Partial:
 /// reassigned origins, captured cells, attribute state and crossed calls need later operators.
@@ -705,6 +715,7 @@ pub fn produce(
                     derivation: derivation.id(),
                 };
                 let alternative = emission.branch.alternative();
+                records.actual.entries.capture(&emission.entry)?;
                 records.entries.insert(emission.entry.witness().clone())?;
                 records
                     .entry_sources
@@ -1279,6 +1290,7 @@ fn produce_entry_reads(
         };
         if let Ok(entry) = EntryValueWitness::derive(&data.entry, request, budget)? {
             rows.entry_sources.insert(entry.source().clone())?;
+            rows.actual.entries.capture(&entry)?;
             rows.entries.insert(entry.witness().clone())?;
             rows.roots.insert(entry.root().clone())?;
             rows.places.insert(entry.place().clone())?;
@@ -1364,6 +1376,8 @@ fn produce_guards(
                 rows.qualifications.insert(result.qualification)?;
                 rows.roots.insert(emission.entry.root().clone())?;
                 rows.places.insert(emission.entry.place().clone())?;
+                rows.actual.entries.capture(&emission.entry)?;
+                rows.actual.stability.capture(&emission.stability)?;
                 rows.entries.insert(emission.entry.witness().clone())?;
                 rows.entry_sources.insert(emission.entry.source().clone())?;
                 rows.stability
@@ -1408,6 +1422,7 @@ fn produce_symbolic_stores(
                 crate::domain::local_symbolic::derive(&input, invocation, store, support, budget)?
             {
                 for entry in [&emission.value, &emission.receiver] {
+                    records.actual.entries.capture(entry)?;
                     records.entries.insert(entry.witness().clone())?;
                     records.entry_sources.insert(entry.source().clone())?;
                     records.roots.insert(entry.root().clone())?;
@@ -1458,6 +1473,7 @@ fn produce_fields(
                     for row in proof.candidates() {
                         records.fields.candidates.insert(row.clone())?;
                     }
+                    records.actual.entries.capture(proof.entry())?;
                     records.entries.insert(proof.entry().witness().clone())?;
                     records
                         .entry_sources

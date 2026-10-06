@@ -8,6 +8,12 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+/// Actual Local receipts retain exact source and output descriptors across downstream borrows.
+pub struct PreparedLocal {premises:CompletedInputs,entries:CompletedInputs,guards:CompletedInputs,values:local_semantics::ProducedLocal}
+impl PreparedLocal {
+    pub fn entries<'a>(&'a self,access:&CompletedInputs,runtime:&Workspace)->Result<&'a local_semantics::ProducedLocal,ModelError>{self.premises.require_subset(runtime,access)?;self.entries.require_subset(runtime,access)?;Ok(&self.values)}
+    pub fn guards<'a>(&'a self,access:&CompletedInputs,runtime:&Workspace)->Result<&'a local_semantics::ProducedLocal,ModelError>{self.guards.require_subset(runtime,access)?;self.entries(access,runtime)}
+}
 // Decoder reachability is separate from the model-owned consumed source inventory.
 macro_rules! decoder_inputs {
     ($apply:ident) => {
@@ -25,7 +31,7 @@ pub async fn run(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
-) -> Result<(), ModelError> {
+) -> Result<Option<PreparedLocal>, ModelError> {
     local_semantics::check_definition(definition)?;
     let profile = access.profile();
     let budget = runtime.budget();
@@ -67,6 +73,7 @@ pub async fn run(
     lctx_model::local_semantic_outputs!(declare);
     lctx_model::local_theory_outputs!(declare);
     lctx_model::local_field_outputs!(declare);
+    let mut actual=local_semantics::ProducedLocal::empty(budget);
     let mut frames = charged::ChargedSet::default();
     let mut frame_charge = charged::StateCharge::new(budget, "local_invocation_frames");
     for run in data.entry.runs.iter().filter(|run| {
@@ -112,6 +119,7 @@ pub async fn run(
         lctx_model::local_theory_outputs!(theory_write);
         macro_rules! fields_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.fields.$field.iter(){output.push(row.clone()).await?;})*};}
         lctx_model::local_field_outputs!(fields_write);
+        actual.append(rows.actual)?;
         let (status, reason) = if profile == Profile::Catalog {
             (
                 analysis::AnalysisStatus::NotRequested,
@@ -168,7 +176,12 @@ pub async fn run(
         }
         output.push(outcome).await?;
     }
-    output.finish(ProviderOutcome::Complete).await
+    output.finish(ProviderOutcome::Complete).await?;
+    if profile==Profile::Catalog{return Ok(None);}
+    let premises=access.select(&conditions::entry::EntryData::facts_inputs())?;
+    let entries=runtime.inputs("actual-local-entry-outputs",profile,[conditions::entry::EntryValueWitness::NAME,conditions::entry::EntryAccessSource::NAME])?;
+    let guards=runtime.inputs("actual-local-guard-outputs",profile,[conditions::stability::StabilityWitness::NAME])?;
+    Ok(Some(PreparedLocal{premises,entries,guards,values:actual}))
 }
 
 #[cfg(test)]

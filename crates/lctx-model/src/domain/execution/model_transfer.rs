@@ -71,6 +71,7 @@ impl CheckedModelTransfer {
         arguments: &Rows<ModeledCallArgument>,
         earlier: &CompletedEvaluations,
         transfer_entry_inputs: TransferEntryInputs<'_>,
+        produced:Option<&super::model_production::ActualInputs<'_>>,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         let TransferRuleInputs {
@@ -140,7 +141,13 @@ impl CheckedModelTransfer {
             Ok(v) => v,
             Err(reason) => return Ok(Err(reason)),
         };
-        let checked = earlier.earlier().replay(actual)?;
+        let checked=match produced {
+            Some(produced)=>{
+                let frame=earlier.earlier().invocations.get(actual.invocation).ok_or_else(||ModelError::Invalid("Model actual Base frame absent".into()))?;
+                produced.evaluations.get(actual,frame,earlier.earlier())?
+            }
+            None=>std::sync::Arc::new(earlier.earlier().replay(actual)?),
+        };
         let mut matches = checked
             .entry_premises()
             .iter()
@@ -155,11 +162,10 @@ impl CheckedModelTransfer {
         let Some(source) = sources.get(witness.access_source) else {
             return Ok(Err(ObligationKind::MissingEvidence));
         };
-        let entry =
-            match EntryValueWitness::derive_for(entry_data, witness.request(), source, budget)? {
-                Ok(e) => e,
-                Err(r) => return Ok(Err(r)),
-            };
+        let entry=match produced {
+            Some(produced)=>produced.local.entry(witness,source,budget)?,
+            None=>match EntryValueWitness::derive_for(entry_data,witness.request(),source,budget)?{Ok(value)=>value,Err(reason)=>return Ok(Err(reason))},
+        };
         if entry.witness() != witness {
             return Err(ModelError::Invalid(
                 "Model entry witness differs from shared replay".into(),
