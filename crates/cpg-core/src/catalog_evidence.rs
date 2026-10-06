@@ -12,6 +12,7 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+use futures::TryStreamExt;
 // The semantic owner declares exact views; these macros provide typed decoders.
 macro_rules! decoder_inputs {
     ($apply:ident) => {
@@ -23,14 +24,24 @@ macro_rules! decoder_inputs {
         lctx_model::expected_domain_inputs!($apply);
     };
 }
-fn consumed_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
-    let mut declarations = EvidenceData::consumed_inputs(profile);
+fn consumed_inputs(_profile: stages::Profile) -> Vec<ValidationInput> {
+    let mut declarations = analysis::expected::inputs(build::definition().1.method);
     declarations.extend([
+        ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+        ValidationInput::of::<analysis::catalog_core::Invocation>(&["id"]),
+        ValidationInput::of::<analysis::local::Invocation>(&["id"]),
+        ValidationInput::of::<analysis::local::AnalysisOutcome>(&["id"]),
+        ValidationInput::of::<analysis::source_call::Invocation>(&["id"]),
+        ValidationInput::of::<analysis::source_call::AnalysisOutcome>(&["id"]),
         ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
         ValidationInput::of::<analysis::MethodParameters>(&["id"]),
     ]);
-    declarations.extend(analysis::expected::inputs(build::definition().1.method));
     declarations
+}
+fn is_frame(name: &str) -> bool {
+    [attribution::ProviderRun::NAME, analysis::catalog_core::Invocation::NAME,
+        analysis::local::Invocation::NAME, analysis::local::AnalysisOutcome::NAME,
+        analysis::source_call::Invocation::NAME, analysis::source_call::AnalysisOutcome::NAME].contains(&name)
 }
 async fn load<R: Record>(
     access: &CompletedInputs,
@@ -52,7 +63,7 @@ pub async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(
         access.profile(),
@@ -61,7 +72,7 @@ pub async fn produce(
     )?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let session = access.session(runtime).await?;
-    let mut data = EvidenceData::new(runtime.budget());
+    let mut frames = EvidenceData::new(runtime.budget());
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
     let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
@@ -69,21 +80,13 @@ pub async fn produce(
         runtime.budget(),
     )?;
     macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,batch|{
-        data.visit_input(input,batch)?;
+        if is_frame(input.name()) { frames.visit_input(input,batch)?; }
         if input.name()==analysis::AnalysisDefinition::NAME {definitions.decode(batch)?;}
         if input.name()==analysis::MethodParameters::NAME {parameters.decode(batch)?;}
         Ok(())
     }).await?;)*};}
     decoder_inputs!(inventory);
     consumed.finish(access.name())?;
-    drop(session);
-    let budget = runtime.budget().clone();
-    let (data, rows) = tokio::task::spawn_blocking(move || {
-        let rows = build::build(&data, &budget)?;
-        Ok::<_, ModelError>((data, rows))
-    })
-    .await
-    .map_err(ModelError::codec)??;
     let (expected_parameters, definition) = build::definition();
     if definitions.get(definition.id()) != Some(&definition)
         || parameters.get(expected_parameters.id()) != Some(&expected_parameters)
@@ -92,20 +95,20 @@ pub async fn produce(
             "C1 requires its completed authored definition".into(),
         ));
     }
-    macro_rules! write {($($f:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;for row in rows.$f.iter() {output.push(row.clone()).await?;})*};}
-    lctx_model::catalog_evidence_outputs!(write);
+    macro_rules! declare_outputs {($($f:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    lctx_model::catalog_evidence_outputs!(declare_outputs);
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::catalog_evidence::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
     declare!(evidence::EvidenceInvocation);
     let mut invocations = Rows::new(runtime.budget());
     let expected_parents = evidence::frames::parents(
-        &data.facts.runs,
-        &data.facts.core_invocations,
+        &frames.facts.runs,
+        &frames.facts.core_invocations,
         runtime.budget(),
     )?;
     for parent in expected_parents.iter() {
-        let parent_sources = evidence::frames::sources(parent, &data.runtime.lower())?;
+        let parent_sources = evidence::frames::sources(parent, &frames.runtime.lower())?;
         let (invocation, parents, receipts, projections) = Invocation::admitted(
             parent.input,
             parent.context,
@@ -168,15 +171,52 @@ pub async fn produce(
         output.push(invocation.clone()).await?;
         invocations.insert(invocation)?;
     }
-    let links = build::invocation_links(&rows, &invocations, runtime.budget())?;
-    for row in links.iter() {
-        output.push(row.clone()).await?;
-    }
-    drop(links);
-    drop(invocations);
+    // The native frame domain remains total, including inputs without any evidence roots.
+    // Rich premises and outputs have only one original artifact's lifetime.
     drop(expected_parents);
-    drop(rows);
-    drop(data);
+    drop(frames);
+    drop(definitions);
+    drop(parameters);
+    let scopes = crate::catalog_evidence_scope::EvidenceScopes::prepare(&access, model, &session, runtime.budget()).await?;
+    let artifacts = access.table_for(&ValidationInput::of::<source::SourceArtifact>(&["id"]))?;
+    let mut roots = crate::sql::query(&session, &format!("SELECT id FROM {} ORDER BY id", crate::consumed_rows::identifier(&artifacts)))
+        .await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+    while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
+        let ids = batch.column_by_name("id").and_then(|column| column.as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>())
+            .ok_or(ModelError::Schema("C1 artifact root identity"))?;
+        for index in 0..batch.num_rows() {
+            runtime.cancellation().check()?;
+            let predicate = format!("id=X'{}'", ids.value(index).iter().map(|byte| format!("{byte:02x}")).collect::<String>());
+            let scope = scopes.edges.grain(scopes.root, &predicate, runtime.budget()).await?;
+            let mut data = EvidenceData::new(runtime.budget());
+            let mut consumed = crate::consumed_rows::ConsumedInputs::new(scopes.inputs.clone(), runtime.budget())?;
+            macro_rules! scoped_inputs {($($field:ident:$ty:ty,)*)=>{$(
+                while let Some((input, permit)) = consumed.next::<$ty>(&access)? {
+                    let table = scopes.inputs.iter().position(|candidate| candidate.type_id()==input.type_id() && candidate.prefix()==input.prefix())
+                        .ok_or(ModelError::Conflict("C1 scoped input declaration"))?;
+                    crate::consumed_rows::stream_query_at(&permit,&input,scope.session(),&scope.select(table)?,|_,batch| {
+                        data.visit_input(&input,batch)?; Ok(())
+                    }).await?;
+                }
+            )*};}
+            decoder_inputs!(scoped_inputs);
+            consumed.finish(access.name())?;
+            drop(scope);
+            let budget = runtime.budget().clone();
+            let rows = tokio::task::spawn_blocking(move || build::build(&data, &budget))
+                .await.map_err(ModelError::codec)??;
+            macro_rules! write {($($f:ident:$ty:ty,)*)=>{$(for row in rows.$f.iter() {output.push(row.clone()).await?;})*};}
+            lctx_model::catalog_evidence_outputs!(write);
+            let links = build::invocation_links(&rows, &invocations, runtime.budget())?;
+            for row in links.iter() { output.push(row.clone()).await?; }
+            drop(links);
+            drop(rows);
+        }
+    }
+    drop(roots);
+    drop(scopes);
+    drop(session);
+    drop(invocations);
     drop(admission);
     drop(sources);
     output.finish(ProviderOutcome::Complete).await

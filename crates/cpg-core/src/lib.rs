@@ -8,6 +8,7 @@ pub mod analytic_embedding;
 pub mod analytic_text;
 pub mod catalog_core;
 pub mod catalog_evidence;
+mod catalog_evidence_scope;
 pub mod catalog_selection;
 pub mod consumed_rows;
 mod scoped_admission;

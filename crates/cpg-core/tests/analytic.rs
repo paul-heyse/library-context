@@ -315,9 +315,11 @@ async fn replay_controls(fixture: &catalog_runtime::Fixture) {
             completed.iter().map(|r| r.name()),
         )
         .unwrap();
+    let checked = workspace.admit_semantics(Profile::Catalog).await.unwrap();
     let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
         &access,
         workspace,
+        &checked,
         workspace.model(),
         &[projection::ProjectionName::CallableInvocation]
             .into_iter()
@@ -378,7 +380,7 @@ async fn replay_controls(fixture: &catalog_runtime::Fixture) {
         let g = graphs
             .graph(
                 &access,
-                b,
+                workspace,
                 projection::normalization::ProjectionKey {
                     input: parent.input,
                     context: parent.context,
@@ -473,7 +475,7 @@ async fn replay_controls(fixture: &catalog_runtime::Fixture) {
         let graph = graphs
             .graph(
                 &access,
-                b,
+                workspace,
                 projection::normalization::ProjectionKey {
                     input: parent.input,
                     context: parent.context,
