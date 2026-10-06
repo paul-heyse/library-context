@@ -59,12 +59,14 @@ pub async fn evaluate_base(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
+    actual_local:Option<&crate::local_semantics::PreparedLocal>,
 ) -> Result<Option<Produced<production::ProducedEvaluations>>, ModelError> {
     if *definition != execution::configuration::base_evaluation().1 {
         return Err(ModelError::Invalid(
             "base execution definition is not bound".into(),
         ));
     }
+    let actual_local=actual_local.map(|actual|actual.entries(&access,runtime)).transpose()?;
     let mut produced: Option<production::ProducedEvaluations> = None;
     let premises = produced_premises(&access, execution::records::base_invariants().remove(0).inputs)?;
     let profile = access.profile();
@@ -190,16 +192,11 @@ pub async fn evaluate_base(
             &admission,
             budget,
         )?;
-        let (records, owner) = production::evaluate_all_produced(
-            &data,
-            &entry,
-            &entries,
-            &entry_sources,
-            &invocation,
-            definition,
-            profile,
-            budget,
-        )?;
+        let (records, owner) = if profile==Profile::Behavioral {
+            production::evaluate_all_with_local(&data,&entry,&entries,&entry_sources,&invocation,definition,profile,budget,actual_local.ok_or(ModelError::Conflict("actual Local entry owner absent"))?)?
+        }else {
+            production::evaluate_all_produced(&data,&entry,&entries,&entry_sources,&invocation,definition,profile,budget)?
+        };
         match produced.as_mut() { Some(value) => value.append(owner)?, None => produced = Some(owner) };
         macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
         write!(evaluations:ExpressionEvaluation,sources:EvaluationSource,members:EvaluationMember,operands:EvaluationOperand,boundaries:EvaluationBoundary,);

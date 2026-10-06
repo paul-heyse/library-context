@@ -160,17 +160,28 @@ pub fn evaluate_all_produced(
     entry_sources: &Rows<EntryAccessSource>, invocation: &publication::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition, profile: stages::Profile, budget: &ResourceBudget,
 ) -> Result<(EvaluationRecords, ProducedEvaluations), ModelError> {
-    evaluate_selected_produced(data,entry,stored_entries,entry_sources,invocation,definition,profile,budget,None,true)
+    evaluate_selected_produced(data,entry,stored_entries,entry_sources,invocation,definition,profile,budget,None,true,None)
+}
+/// Actual compiler production borrows the Local issuer's entry values. Raw stored entry
+/// witnesses cannot replace that authority or trigger another Local producer operation.
+#[allow(clippy::too_many_arguments,reason="Actual Local owner and immutable evaluation frame remain explicit.")]
+pub fn evaluate_all_with_local(data:&EvaluationData,entry:&EntryData,stored_entries:&Rows<EntryValueWitness>,entry_sources:&Rows<EntryAccessSource>,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,actual_local:&local_semantics::ProducedLocal)->Result<(EvaluationRecords,ProducedEvaluations),ModelError> {
+    evaluate_selected_produced(data,entry,stored_entries,entry_sources,invocation,definition,profile,budget,None,true,Some(actual_local))
+}
+#[allow(clippy::too_many_arguments,reason="Actual Local owner and immutable expression kernel remain explicit.")]
+pub fn evaluate_expression_with_local(data:&EvaluationData,entry:&EntryData,stored_entries:&Rows<EntryValueWitness>,entry_sources:&Rows<EntryAccessSource>,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,expression:Id<Occurrence>,actual_local:&local_semantics::ProducedLocal)->Result<(EvaluationRecords,ProducedEvaluations),ModelError> {
+    if data.occurrences.get(expression).is_none() {return Err(ModelError::Invalid("selected expression is absent".into()));}
+    evaluate_selected_produced(data,entry,stored_entries,entry_sources,invocation,definition,profile,budget,Some(expression),false,Some(actual_local))
 }
 /// One selected expression and its complete dependency closure. Read observations and complete
 /// negatives belong to independent read/universe kernels; this expression kernel emits neither.
 #[allow(clippy::too_many_arguments,reason="Actual predecessor/definition/frame owners remain explicit.")]
 pub fn evaluate_expression_produced(data:&EvaluationData,entry:&EntryData,stored_entries:&Rows<EntryValueWitness>,entry_sources:&Rows<EntryAccessSource>,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,expression:Id<Occurrence>)->Result<(EvaluationRecords,ProducedEvaluations),ModelError> {
     if data.occurrences.get(expression).is_none() {return Err(ModelError::Invalid("selected expression is absent".into()));}
-    evaluate_selected_produced(data,entry,stored_entries,entry_sources,invocation,definition,profile,budget,Some(expression),false)
+    evaluate_selected_produced(data,entry,stored_entries,entry_sources,invocation,definition,profile,budget,Some(expression),false,None)
 }
 #[allow(clippy::too_many_arguments,reason="Selected actual owner operation shares its ordinary whole-operation oracle.")]
-fn evaluate_selected_produced(data:&EvaluationData,entry:&EntryData,stored_entries:&Rows<EntryValueWitness>,entry_sources:&Rows<EntryAccessSource>,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,selected:Option<Id<Occurrence>>,emit_reads:bool)->Result<(EvaluationRecords,ProducedEvaluations),ModelError> {
+fn evaluate_selected_produced(data:&EvaluationData,entry:&EntryData,stored_entries:&Rows<EntryValueWitness>,entry_sources:&Rows<EntryAccessSource>,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,selected:Option<Id<Occurrence>>,emit_reads:bool,actual_local:Option<&local_semantics::ProducedLocal>)->Result<(EvaluationRecords,ProducedEvaluations),ModelError> {
     if *definition != super::configuration::base_evaluation().1
         || invocation.definition != definition.id()
         || invocation.subject.is_some()
@@ -225,8 +236,11 @@ fn evaluate_selected_produced(data:&EvaluationData,entry:&EntryData,stored_entri
         if run.input != invocation.input {
             continue;
         }
-        let checked = EntryValueWitness::derive_for(entry, witness.request(), source, budget)?
-            .map_err(|_| ModelError::Invalid("base stored Use entry replay refused".into()))?;
+        let checked = match actual_local {
+            Some(actual) => actual.entry(witness,source,budget)?,
+            None => EntryValueWitness::derive_for(entry, witness.request(), source, budget)?
+                .map_err(|_| ModelError::Invalid("base stored Use entry replay refused".into()))?,
+        };
         if checked.witness() != witness {
             return Err(ModelError::Invalid("base stored Use entry changed".into()));
         }
