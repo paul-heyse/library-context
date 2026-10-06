@@ -105,6 +105,7 @@ pub async fn materialize(reader: &NativeReader, key: ProjectionKey, budget: &Res
     Ok(NativeProjection { snapshot:reader.handle().clone(), manifest, definition, source, graph, coverage, budget:budget.clone() })
 }
 
+#[allow(clippy::mutable_key_type, reason = "Sealed native records use string IDs; SDK regex caches are not present and IDs are never mutated") ]
 async fn hydrate(reader: &NativeReader, key: ProjectionKey, budget: &ResourceBudget)
     -> Result<CanonicalBatches, ModelError> {
     let types: BTreeSet<_> = ProjectionData::stage_inputs().iter().map(|r| r.name().to_owned()).collect();

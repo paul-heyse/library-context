@@ -25,7 +25,7 @@ impl Loader {
     pub async fn entities(&self,rows:&[Entity])->Result<(),ModelError>{
         let values=rows.iter().map(|row|{
             row.validate()?;let view=codec::entity_view(row)?;
-            let mut obj=Object::new();obj.insert("id",RecordId::new("entity",row.id().0.hex()));obj.insert("semantic_type",view.semantic_type);obj.insert("semantic_key",view.semantic_key);obj.insert("kind",row.kind() as i64);obj.insert("subtype",row.subtype().map(|v|Value::from_t(v)).unwrap_or(Value::Null));obj.insert("content",row.content().hex());obj.insert("canonical",Bytes::from(serde_json::to_vec(row).map_err(ModelError::codec)?));obj.insert("body",json_value(view.body)?);Ok(Value::Object(obj))
+            let mut obj=Object::new();obj.insert("id",RecordId::new("entity",row.id().0.hex()));obj.insert("semantic_type",view.semantic_type);obj.insert("semantic_key",view.semantic_key);obj.insert("kind",row.kind() as i64);obj.insert("subtype",row.subtype().map(Value::from_t).unwrap_or(Value::Null));obj.insert("content",row.content().hex());obj.insert("canonical",Bytes::from(serde_json::to_vec(row).map_err(ModelError::codec)?));obj.insert("body",json_value(view.body)?);Ok(Value::Object(obj))
         }).collect::<Result<Vec<_>,ModelError>>()?;self.insert("entity",values,false).await
     }
     pub async fn assertions(&self,rows:&[Assertion])->Result<(),ModelError>{
@@ -83,7 +83,7 @@ impl Loader {
 }
 pub(crate) fn edge(table:&str,source:RecordId,target:Target,field:&str,role:i64,position:Option<u32>)->Result<Value,ModelError>{
     let mut sink=KeySink::new("native-graph-role/v1");table.to_string().encode(&mut sink);sink.part(b"source",&serde_json::to_vec(&source).map_err(ModelError::codec)?);target.encode(&mut sink);field.to_string().encode(&mut sink);role.encode(&mut sink);position.map(i64::from).encode(&mut sink);
-    let mut obj=Object::new();obj.insert("id",RecordId::new(table,sink.finish().hex()));obj.insert("in",source);obj.insert("out",target_id(target));obj.insert("field",field.to_string());obj.insert("role",role);obj.insert("position",position.map(|p|Value::from_t(p)).unwrap_or(Value::Null));Ok(Value::Object(obj))
+    let mut obj=Object::new();obj.insert("id",RecordId::new(table,sink.finish().hex()));obj.insert("in",source);obj.insert("out",target_id(target));obj.insert("field",field.to_string());obj.insert("role",role);obj.insert("position",position.map(Value::from_t).unwrap_or(Value::Null));Ok(Value::Object(obj))
 }
 pub fn json_value(value:serde_json::Value)->Result<Value,ModelError>{
     Ok(match value{

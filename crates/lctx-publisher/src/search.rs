@@ -59,9 +59,11 @@ pub async fn materialize_search(loader:&Loader)->Result<(),ModelError>{
     }Ok(())
 }
 fn crate_json<T:serde::Serialize>(value:T)->Result<Value,ModelError>{lctx_surrealdb::loader::json_value(serde_json::to_value(value).map_err(ModelError::codec)?)}
+#[allow(clippy::too_many_arguments, reason = "The lowering keeps physical endpoints and distinct semantic occurrence witnesses explicit")]
 fn occurrence(table:&str,key:&str,input:RecordId,out:RecordId,unit:&Unit,fragment:&Fragment,member:Option<Id<catalog::CatalogMember>>,anchor:Option<Id<OriginalAnchor>>)->Result<Value,ModelError>{
     let mut row=Object::new();row.insert("id",RecordId::new(table,key));row.insert("in",input);row.insert("out",out.clone());row.insert("family",unit.family as i16);row.insert("unit",crate_json(unit.id())?);row.insert("fragment",crate_json(fragment.id())?);row.insert("context",crate_json(unit.context)?);row.insert("member",crate_json(member)?);row.insert("anchor",crate_json(anchor)?);row.insert("input",crate_json(unit.input)?);row.insert("eligible",true);row.insert("occurrence_key",format!("{}|{:02}|{}|{}|{}|{}",member.map(|id|format!("0{}",id.hex())).unwrap_or_else(||format!("1{}",unit.id().hex())),unit.family as i16,unit.id().hex(),fragment.id().hex(),unit.context.hex(),anchor.map(|id|format!("1{}",id.hex())).unwrap_or_else(||"0".into())));Ok(Value::Object(row))
 }
+#[allow(clippy::mutable_key_type, reason = "Owned search rows use immutable string RecordIds, never SDK regex keys")]
 async fn insert(loader:&Loader,table:&str,rows:Vec<Value>,relation:bool,inventory:&mut BTreeMap<String,BTreeSet<RecordId>>)->Result<(),ModelError>{
     use lctx_surrealdb::surrealdb::types::SurrealValue;
     for chunk in rows.chunks(128){

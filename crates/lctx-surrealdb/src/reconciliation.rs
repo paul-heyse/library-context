@@ -6,6 +6,7 @@ use surrealdb::types::{SurrealValue,RecordId,Value,Bytes,Variables};
 #[surreal(crate="surrealdb::types")]
 struct Node {id:RecordId,semantic_type:String,semantic_key:String,kind:i64,subtype:Value,content:String,canonical:Bytes,body:Value}
 impl Loader{
+    #[allow(clippy::mutable_key_type, reason = "SDK RecordId includes regex caches; these generated string IDs are never mutated") ]
     pub async fn reconcile(&self,manifest:&Manifest)->Result<(),ModelError>{
         manifest.validate()?;
         let mut external=std::collections::BTreeMap::new();let mut edge_counts=[0u64;2];
@@ -97,6 +98,7 @@ impl crate::NativeReader{
     }
 }
 
+#[allow(clippy::mutable_key_type, reason = "Generated string RecordIds have immutable ordering and contain no regex keys") ]
 fn remember_external(rows:&mut std::collections::BTreeMap<RecordId,Vec<u8>>,target:&Target)->Result<(),ModelError>{if matches!(target,Target::External{..}){rows.insert(crate::reader::target_id(target.clone()),serde_json::to_vec(target).map_err(ModelError::codec)?);}Ok(())}
 fn value_id(value:&Value)->RecordId{match value{Value::Object(object)=>RecordId::from_value(object.get("id").expect("generated role id").clone()).expect("generated record id"),_=>unreachable!("generated role object")}}
 pub async fn table_count(loader:&Loader,table:&str)->Result<u64,ModelError>{
