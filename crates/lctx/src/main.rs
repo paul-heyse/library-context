@@ -1,10 +1,11 @@
 //! `lctx` acquires pinned library inputs and compiles admitted graph artifacts.
 //! `compile --artifact-only --output DIR` writes a store-free artifact; ordinary compilation
-//! requires the future native publisher and returns unavailable before acquisition.
+//! publishes an immutable native snapshot without changing the selected handle.
 
 mod compile;
 mod compile_options;
 mod model;
+mod newnative;
 mod propose;
 
 /// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a
@@ -64,7 +65,7 @@ enum Cmd {
     },
     /// The acquired environment's deployment identity, as JSON (scripts/deployment_check.py).
     DeploymentIdentity { name: String },
-    /// Compile a cumulative admitted graph; publication requires the native publisher.
+    /// Compile a cumulative admitted graph and publish it, or export a store-free artifact.
     Compile {
         name: String,
         /// Compile and export without publication.
@@ -73,6 +74,9 @@ enum Cmd {
         /// Destination for the admitted artifact; must not already exist.
         #[arg(long, requires = "artifact_only")]
         output: Option<PathBuf>,
+        /// Native runtime configuration; ordinary compilation only.
+        #[arg(long, conflicts_with = "artifact_only")]
+        runtime_config: Option<PathBuf>,
         #[arg(long)]
         through: String,
         #[arg(long,default_value="catalog",value_parser=compile::profile)]
@@ -92,6 +96,40 @@ enum Cmd {
         #[arg(long)]
         embedding_spec: Option<PathBuf>,
     },
+    /// Publish an exported trusted compiler artifact without selecting it.
+    PublishArtifact {
+        artifact: PathBuf,
+        #[arg(long, default_value = newnative::DEFAULT_CONFIG)]
+        runtime_config: PathBuf,
+        #[arg(long, default_value_t = lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)]
+        memory_bytes: usize,
+    },
+    /// Read or explicitly select a complete immutable snapshot handle.
+    Snapshot {
+        #[arg(long, global = true, default_value = newnative::DEFAULT_CONFIG)]
+        runtime_config: PathBuf,
+        #[command(subcommand)]
+        command: SnapshotCommand,
+    },
+    /// Execute one public tool against a fixed native snapshot.
+    Tool {
+        #[arg(value_parser = public_tool)]
+        tool: String,
+        /// JSON request file, validated against the Rust public contract.
+        #[arg(long)]
+        request: PathBuf,
+        #[arg(long)]
+        handle: Option<PathBuf>,
+        #[arg(long, default_value = newnative::DEFAULT_CONFIG)]
+        runtime_config: PathBuf,
+    },
+    /// Explicit initialization or readiness of the configured native control database.
+    Store {
+        #[arg(long, global = true, default_value = newnative::DEFAULT_CONFIG)]
+        runtime_config: PathBuf,
+        #[command(subcommand)]
+        command: StoreCommand,
+    },
     /// Inspect one generated Python file's flow facts as JSON (runtime oracle input).
     Flow {
         file: PathBuf,
@@ -101,6 +139,43 @@ enum Cmd {
         #[arg(long, default_value = "linux")]
         platform: String,
     },
+}
+
+#[derive(Subcommand, Debug)]
+enum SnapshotCommand {
+    /// Export one complete admitted input/context topology, including its coverage and gaps.
+    Export {
+        #[arg(long, value_parser = lctx_surrealdb::projections::name)]
+        projection: lctx_model::domain::projection::ProjectionName,
+        /// Captured input revision ID, as 32 hexadecimal digits.
+        #[arg(long, value_parser = nominal_id::<lctx_model::domain::input::InputRevision>)]
+        input: lctx_model::domain::Id<lctx_model::domain::input::InputRevision>,
+        /// Analysis context ID, as 32 hexadecimal digits.
+        #[arg(long, value_parser = nominal_id::<lctx_model::domain::attribution::AnalysisContext>)]
+        context: lctx_model::domain::Id<lctx_model::domain::attribution::AnalysisContext>,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        handle: Option<PathBuf>,
+        #[arg(long, default_value_t = lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)]
+        memory_bytes: usize,
+    },
+    /// Validate the published marker, then atomically select this handle.
+    Select { handle: PathBuf },
+    /// Validate and print the explicit handle, or the current selection.
+    Show { #[arg(long)] handle: Option<PathBuf> },
+    /// Execute checked SurrealQL under the database VIEWER grant.
+    Query {
+        sql: String,
+        #[arg(long)]
+        handle: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum StoreCommand {
+    Init,
+    Check,
 }
 
 #[derive(Subcommand, Debug)]
@@ -123,7 +198,21 @@ pub struct Refused(pub String);
 
 /// Whether an error is a refusal: the store, a lease or the read contract declined the request.
 fn refused(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| cause.is::<Refused>())
+    error.chain().any(|cause| cause.is::<Refused>() || cause.is::<lctx_model::domain::serving::WireError>())
+}
+
+fn nominal_id<T>(raw: &str) -> Result<lctx_model::domain::Id<T>, String> {
+    if raw.len() != 32 { return Err("nominal ID must contain 32 hexadecimal digits".into()); }
+    let bytes = raw.as_bytes().chunks_exact(2).map(|pair| {
+        let pair = std::str::from_utf8(pair).map_err(|_| "nominal ID must be hexadecimal")?;
+        u8::from_str_radix(pair, 16).map_err(|_| "nominal ID must be hexadecimal")
+    }).collect::<Result<Vec<_>, _>>()?;
+    serde_json::from_value(serde_json::json!(bytes)).map_err(|error| error.to_string())
+}
+
+fn public_tool(name: &str) -> Result<String, String> {
+    lctx_model::domain::serving::Tool::from_name(name)
+        .map(|tool| tool.name().to_owned()).map_err(|error| error.to_string())
 }
 
 fn absolute(p: &Path) -> anyhow::Result<PathBuf> {
@@ -598,6 +687,7 @@ fn run() -> anyhow::Result<()> {
             name,
             artifact_only,
             output,
+            runtime_config,
             through,
             profile,
             task_receipt,
@@ -607,13 +697,15 @@ fn run() -> anyhow::Result<()> {
             embedding_endpoint,
             embedding_spec,
         } => {
-            if !artifact_only {
-                return Err(Unavailable("native publication is not implemented; use --artifact-only --output DIR to compile an admitted artifact").into());
-            }
-            let output = output.expect("clap requires an artifact destination");
-            if output.exists() {
+            if artifact_only && output.as_ref().is_some_and(|output| output.exists()) {
                 return Err(Refused("artifact destination already exists".into()).into());
             }
+            let runtime_config = runtime_config.unwrap_or_else(|| PathBuf::from(newnative::DEFAULT_CONFIG));
+            let target = if artifact_only {
+                compile::Target::Artifact(output.as_deref().expect("clap requires an artifact destination"))
+            } else {
+                compile::Target::Native(&runtime_config)
+            };
             if !matches!(
                 through.as_str(),
                 "facts" | "normalized" | "analysis" | "catalog"
@@ -642,8 +734,57 @@ fn run() -> anyhow::Result<()> {
                 &libraries,
                 &envs,
                 &sources,
-                &output,
+                target,
             ))
+        }
+        Cmd::PublishArtifact { artifact, runtime_config, memory_bytes } => {
+            let config = newnative::config(&runtime_config)?;
+            let handle = runtime()?.block_on(newnative::publish(&artifact, &config, memory_bytes))?;
+            println!("{}", serde_json::to_string_pretty(&handle)?);
+            Ok(())
+        }
+        Cmd::Snapshot { runtime_config, command } => {
+            let config = newnative::config(&runtime_config)?;
+            let runtime = runtime()?;
+            match command {
+                SnapshotCommand::Export { projection, input, context, output, handle, memory_bytes } => {
+                    let key = lctx_model::domain::projection::normalization::ProjectionKey { input, context, name:projection };
+                    runtime.block_on(newnative::export(&config, handle.as_deref(), key, &output, memory_bytes))?;
+                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({"output":output,"key":key}))?);
+                }
+                SnapshotCommand::Select { handle } => {
+                    let selected = runtime.block_on(newnative::select(&config, &handle))?;
+                    println!("{}", serde_json::to_string_pretty(&selected)?);
+                }
+                SnapshotCommand::Show { handle } => {
+                    let reader = runtime.block_on(newnative::pin(&config, handle.as_deref()))?;
+                    println!("{}", serde_json::to_string_pretty(reader.handle())?);
+                }
+                SnapshotCommand::Query { sql, handle } => {
+                    let response = runtime.block_on(newnative::query(&config, handle.as_deref(), &sql))?;
+                    println!("{}", serde_json::to_string_pretty(&response)?);
+                }
+            }
+            Ok(())
+        }
+        Cmd::Tool { tool, request, handle, runtime_config } => {
+            let raw = fs_err::read_to_string(&request)?;
+            let config = newnative::config(&runtime_config)?;
+            let response = runtime()?.block_on(newnative::tool(&config, handle.as_deref(), &tool, &raw))?;
+            println!("{response}");
+            Ok(())
+        }
+        Cmd::Store { runtime_config, command } => {
+            let config = newnative::config(&runtime_config)?;
+            let runtime = runtime()?;
+            match command {
+                StoreCommand::Init => runtime.block_on(newnative::install(&config))?,
+                StoreCommand::Check => { runtime.block_on(newnative::ready(&config))?; }
+            }
+            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                "ready":true, "namespace":config.namespace, "cache_database":config.cache_database,
+            }))?);
+            Ok(())
         }
         Cmd::Flow {
             file,
@@ -704,6 +845,23 @@ mod tests {
     }
 
     #[test]
+    fn native_commands_keep_artifact_and_selection_boundaries_explicit() {
+        assert!(parse(&["compile", "fastmcp", "--through", "facts", "--runtime-config", "native.json"]).is_ok());
+        assert!(parse(&["compile", "fastmcp", "--through", "facts", "--artifact-only", "--output", "graph", "--runtime-config", "native.json"]).is_err());
+        assert!(matches!(parse(&["publish-artifact", "graph"]).unwrap().command, Cmd::PublishArtifact { .. }));
+        assert!(matches!(parse(&["snapshot", "select", "handle.json"]).unwrap().command,
+            Cmd::Snapshot { command: super::SnapshotCommand::Select { .. }, .. }));
+        assert!(parse(&["snapshot", "export", "--projection", "CallableInvocation", "--output", "graph.json"]).is_err());
+        assert!(parse(&["snapshot", "export", "--projection", "CallableInvocation", "--input", "00000000000000000000000000000000", "--context", "11111111111111111111111111111111", "--output", "graph.json"]).is_ok());
+        assert!(parse(&["snapshot", "export", "--projection", "unknown", "--input", "00000000000000000000000000000000", "--context", "11111111111111111111111111111111", "--output", "graph.json"]).is_err());
+        assert!(parse(&["snapshot", "select"]).is_err());
+        assert!(parse(&["snapshot", "query", "SELECT * FROM entity", "--handle", "handle.json"]).is_ok());
+        assert!(parse(&["tool", "search_operations", "--request", "request.json"]).is_ok());
+        assert!(parse(&["tool", "search"]).is_err());
+        assert!(parse(&["store", "check", "--runtime-config", "native.json"]).is_ok());
+    }
+
+    #[test]
     fn each_command_takes_its_own_options() {
         let cli = parse(&["acquire", "fastmcp", "--envs", "e"]).unwrap();
         assert!(matches!(
@@ -731,7 +889,7 @@ mod tests {
         ] {
             assert!(parse(&[retired]).is_err(), "{retired}");
         }
-        // Ordinary compilation parses before the native-publisher availability boundary.
+        // Ordinary compilation accepts native runtime configuration independently of artifact output.
         assert!(matches!(
             parse(&["compile", "fastmcp", "--through", "facts"])
                 .unwrap()

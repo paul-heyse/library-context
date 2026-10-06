@@ -2,16 +2,16 @@
 //! Only uv acquisition is stubbed; captured package bytes, native providers and artifacts are real.
 use std::process::Command;
 #[test]
-fn ordinary_compile_is_unavailable_before_acquisition() {
+fn ordinary_compile_requires_native_configuration_before_acquisition() {
     let root = tempfile::tempdir().unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_lctx"))
         .current_dir(root.path())
         .args(["compile", "absent", "--through", "catalog"])
         .output()
         .unwrap();
-    assert_eq!(result.status.code(), Some(3));
+    assert_eq!(result.status.code(), Some(1));
     assert!(
-        String::from_utf8_lossy(&result.stderr).contains("native publication is not implemented")
+        String::from_utf8_lossy(&result.stderr).contains("native runtime configuration")
     );
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
