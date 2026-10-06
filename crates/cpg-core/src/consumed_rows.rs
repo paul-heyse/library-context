@@ -282,6 +282,16 @@ impl NominalClosure {
         let mut length=[0;4];file.read_exact(&mut length).map_err(ModelError::codec)?;
         let footer=u32::from_le_bytes(length) as usize;
         let reader_allowance=footer.saturating_mul(2).saturating_add(batches.len().saturating_mul(64)).saturating_add(4096);
+        // Edge preparation is a bulk nominal operation. Grain selection instead joins the
+        // already bounded keys to a rich source scan; sorting the source before filtering
+        // would import unrelated payload into the grain's memory lifetime.
+        let state=session.state();
+        let catalogs=state.catalog_list().clone();
+        let config=state.config().clone().with_create_default_catalog_and_schema(false)
+            .with_target_partitions(1).with_repartition_joins(false)
+            .set_bool("datafusion.optimizer.prefer_hash_join",true);
+        let session=SessionContext::new_with_state(SessionStateBuilder::new_from_existing(state)
+            .with_config(config).with_catalog_list(catalogs).build());
         Ok(PreparedEdges(std::sync::Arc::new(EdgeSource { session, path, batches,
             reader_allowance, tables:self.tables.clone(), _index_charge:index_charge, _directory:directory })))
     }
@@ -483,8 +493,8 @@ impl PreparedClosure {
     pub fn session(&self) -> &SessionContext { &self.edges.session }
     pub fn select(&self, table: usize) -> Result<String, ModelError> {
         let table_binding = self.edges.tables.get(table).ok_or_else(|| ModelError::Invalid("closure table index absent".into()))?;
-        Ok(format!("SELECT source.* FROM {} AS source JOIN {} AS keys ON keys.kind={table} AND source.id=keys.id",
-            identifier(&table_binding.alias), identifier(&self.alias)))
+        Ok(format!("SELECT source.* FROM {} AS keys JOIN {} AS source ON keys.kind={table} AND source.id=keys.id",
+            identifier(&self.alias), identifier(&table_binding.alias)))
     }
 }
 impl Drop for PreparedClosure {

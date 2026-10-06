@@ -16,6 +16,7 @@ mod scoped_admission;
 mod scoped_inventory;
 mod scoped_aspects;
 mod scoped_execution;
+mod scoped_retrieval;
 pub mod embedding_realization;
 pub mod embedding_service;
 pub mod facts;
