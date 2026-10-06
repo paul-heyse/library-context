@@ -522,7 +522,7 @@ mod tests {
         fn embed<'b>(&'b self, texts: &'b [String]) -> EmbedFuture<'b, Vec<Vec<f32>>> {
             Box::pin(async move {
                 let mut batches = self.batches.lock().unwrap();
-                let sign = if batches.len() % 2 == 0 { 1.0 } else { -1.0 };
+                let sign = if batches.len().is_multiple_of(2) { 1.0 } else { -1.0 };
                 batches.push(texts.to_vec());
                 if self.unavailable {
                     return Err(CoreError::EmbeddingService("fixture unavailable".into()));

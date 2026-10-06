@@ -726,13 +726,13 @@ mod controls {
         install(&session, &inputs, &tables, &[source.clone(), other]);
         install(&session, &inputs, &tables, &[module]);
         install(&session, &inputs, &tables, &[member]);
-        install(&session, &inputs, &tables, &[qualification.clone()]);
-        install(&session, &inputs, &tables, &[original.clone()]);
-        install(&session, &inputs, &tables, &[scenario.clone()]);
-        install(&session, &inputs, &tables, &[span.clone()]);
-        install(&session, &inputs, &tables, &[association.clone()]);
-        install(&session, &inputs, &tables, &[subject.clone()]);
-        install(&session, &inputs, &tables, &[root.clone()]);
+        install(&session, &inputs, &tables, std::slice::from_ref(&qualification));
+        install(&session, &inputs, &tables, std::slice::from_ref(&original));
+        install(&session, &inputs, &tables, std::slice::from_ref(&scenario));
+        install(&session, &inputs, &tables, std::slice::from_ref(&span));
+        install(&session, &inputs, &tables, std::slice::from_ref(&association));
+        install(&session, &inputs, &tables, std::slice::from_ref(&subject));
+        install(&session, &inputs, &tables, std::slice::from_ref(&root));
         let mut metadata = Data::new(&budget);
         metadata
             .facts

@@ -1263,7 +1263,7 @@ mod nominal_closure_controls {
                 version: index.to_string(),
             })
             .collect::<Vec<_>>();
-        register(&session, "bounded_packages", &[package.clone()]);
+        register(&session, "bounded_packages", std::slice::from_ref(&package));
         register(&session, "bounded_releases", &releases);
         let mut plan = NominalClosure::new(vec![
             ClosureTable {

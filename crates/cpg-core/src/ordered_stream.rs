@@ -150,6 +150,7 @@ struct Coordinate {
     row: usize,
     bytes: usize,
 }
+#[allow(clippy::too_many_arguments, reason = "Bounded coordinate gathering keeps reader state, row selection, scratch arrays and budget separate without another state owner.")]
 fn window(
     coordinates: &mut Vec<Coordinate>,
     previous: &mut Option<Coordinate>,
@@ -271,6 +272,7 @@ fn window(
     coordinates.clear();
     Ok(())
 }
+#[allow(clippy::too_many_arguments, reason = "Relation, immutable source streams, session, memory budget, cancellation and output limits belong to separate owners.")]
 pub(crate) async fn order(
     relation: &Relation,
     sources: Vec<Source>,
@@ -352,7 +354,7 @@ pub(crate) async fn order(
     let mut content = relation.content();
     let mut blocks = Vec::new();
     let mut previous = None;
-    let limit = batch_rows.min(TRANSFER_ROWS).max(1);
+    let limit = batch_rows.clamp(1, TRANSFER_ROWS);
     let target = (budget.limit() / 8).max(1);
     let _window_charge = budget.reserve(
         "workspace-order-coordinate-read",

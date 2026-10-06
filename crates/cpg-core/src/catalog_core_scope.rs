@@ -356,9 +356,9 @@ mod controls {
             })
             .collect();
         install(&session, &tables, &inputs, &[artifact.clone(), unrelated]);
-        install(&session, &tables, &inputs, &[module.clone()]);
-        install(&session, &tables, &inputs, &[origin.clone()]);
-        install(&session, &tables, &inputs, &[q.clone()]);
+        install(&session, &tables, &inputs, std::slice::from_ref(&module));
+        install(&session, &tables, &inputs, std::slice::from_ref(&origin));
+        install(&session, &tables, &inputs, std::slice::from_ref(&q));
         install(&session, &tables, &inputs, &names);
         install(&session, &tables, &inputs, &exposures);
         let mut all = CatalogData::new(&budget);

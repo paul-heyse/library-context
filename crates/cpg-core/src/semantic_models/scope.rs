@@ -276,7 +276,7 @@ mod model_scope_controls {
             include_str!("../../../lctx-model/models/external.toml"),
         )
         .unwrap();
-        let parsed = SelectedCatalog::read(&catalog.declaration(), &budget).unwrap();
+        let parsed = SelectedCatalog::read(catalog.declaration(), &budget).unwrap();
         let inputs = ModelData::inputs();
         let tables: Vec<_> = inputs
             .iter()
@@ -355,7 +355,7 @@ mod model_scope_controls {
                 role: input::SourceRole::Release,
             }],
         );
-        replace(&session, &inputs, &tables, &[run.clone()]);
+        replace(&session, &inputs, &tables, std::slice::from_ref(&run));
         replace(&session, &inputs, &tables, &[module]);
         replace(&session, &inputs, &tables, &[symbol.clone(), other]);
         let selected_catalog = catalog.declaration();

@@ -747,6 +747,7 @@ pub async fn complete_base(
 }
 
 /// Fresh source binding consumes acknowledged normalized shapes and earlier completion frames.
+#[allow(clippy::too_many_arguments, reason = "Input and output descriptors, workspace, configuration, binding authority and actual Base and Body owners are independent inputs.")]
 pub async fn prepare_source_calls(
     access: CompletedInputs,
     output: ProducerOutput,
@@ -1072,6 +1073,7 @@ pub async fn prepare_source_calls(
 }
 
 /// Fresh source binding consumes acknowledged normalized shapes and earlier completion frames.
+#[allow(clippy::too_many_arguments, reason = "Selected descriptor streams, workspace, configuration and independent binding, Base and SourceCall authorities stay explicit.")]
 pub async fn enrich(
     access: CompletedInputs,
     output: ProducerOutput,

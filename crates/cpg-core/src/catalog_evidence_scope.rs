@@ -240,21 +240,20 @@ impl EvidenceScopes {
                 if field.list() {
                     continue;
                 }
-                if table.relation.name() == analysis::native::NativeAssertionPremise::NAME
+                if (table.relation.name() == analysis::native::NativeAssertionPremise::NAME
                     || field.name() == "assertion"
-                    || field.name() == "member"
+                    || field.name() == "member")
+                    && let Some(to) = target(&inputs, source, kind)?
                 {
-                    if let Some(to) = target(&inputs, source, kind)? {
-                        plan.pairs(
-                            to,
-                            source,
-                            format!(
-                                "SELECT {} AS source_id,id AS target_id FROM {}",
-                                identifier(field.name()),
-                                identifier(&table.alias)
-                            ),
-                        )?;
-                    }
+                    plan.pairs(
+                        to,
+                        source,
+                        format!(
+                            "SELECT {} AS source_id,id AS target_id FROM {}",
+                            identifier(field.name()),
+                            identifier(&table.alias)
+                        ),
+                    )?;
                 }
             }
         }
@@ -643,15 +642,15 @@ mod controls {
         };
         install(&session, &tables, &inputs, &[source.clone(), other]);
         install(&session, &tables, &inputs, &occurrences);
-        install(&session, &tables, &inputs, &[lexical.clone()]);
+        install(&session, &tables, &inputs, std::slice::from_ref(&lexical));
         install(&session, &tables, &inputs, &qualifications);
         install(&session, &tables, &inputs, &references);
         install(&session, &tables, &inputs, &assessments);
         install(&session, &tables, &inputs, &events);
         install(&session, &tables, &inputs, &bindings);
-        install(&session, &tables, &inputs, &[usage.clone()]);
+        install(&session, &tables, &inputs, std::slice::from_ref(&usage));
         install(&session, &tables, &inputs, &[coverage_scope]);
-        install(&session, &tables, &inputs, &[coverage.clone()]);
+        install(&session, &tables, &inputs, std::slice::from_ref(&coverage));
         let prepared = EvidenceScopes::prepare_bound(inputs.clone(), tables, &session, &budget)
             .await
             .unwrap();

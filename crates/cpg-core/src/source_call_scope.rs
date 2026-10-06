@@ -989,7 +989,7 @@ mod controls {
                 docstring: None,
             });
         }
-        register(session, &[artifact.clone()]);
+        register(session, std::slice::from_ref(&artifact));
         register(
             session,
             &[input::ArtifactUse {
@@ -1004,7 +1004,7 @@ mod controls {
         register(session, &entities);
         register(session, &references);
         register(session, &[membership]);
-        register(session, &[event.clone()]);
+        register(session, std::slice::from_ref(&event));
         register(session, &callees);
         register(session, &declarations);
         register(
@@ -1033,7 +1033,7 @@ mod controls {
                 },
             ],
         );
-        register(session, &[literal.clone()]);
+        register(session, std::slice::from_ref(&literal));
         register(session, &[detail]);
         register(session, &[observation]);
         (event, owner, rich, callees.try_into().unwrap(), literal)

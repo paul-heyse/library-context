@@ -336,13 +336,16 @@ mod projection_scope_controls {
         };
         let mut batches = BTreeMap::new();
         macro_rules! batch {
+            ($ty:ty; $value:expr) => {
+                batches.insert(<$ty>::NAME, <$ty as Record>::encode(std::slice::from_ref(&$value)).unwrap());
+            };
             ($ty:ty,$values:expr) => {
                 batches.insert(<$ty>::NAME, <$ty as Record>::encode(&$values).unwrap());
             };
         }
         batch!(SourceArtifact, [artifact]);
-        batch!(Module, [module.clone()]);
-        batch!(Occurrence, [occurrence.clone()]);
+        batch!(Module; module);
+        batch!(Occurrence; occurrence);
         batch!(CoverageScope, [scope]);
         batch!(ProviderRun, [run]);
         batch!(ProviderCoverage, [coverage]);

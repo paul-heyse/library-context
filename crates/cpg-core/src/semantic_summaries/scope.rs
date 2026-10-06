@@ -175,7 +175,7 @@ impl SummaryScopes {
    // segments already have forward nominal edges to their exact roots/children.
    for epoch in[stages::PublicationBoundary::Facts,stages::PublicationBoundary::Model]{
     let at=|kind:TypeId|tables[..real].iter().enumerate().position(|(i,t)|t.relation.type_id()==kind&&inputs[i].prefix()==Some(epoch));
-    for(member,field,owner)in[(TypeId::of::<assumptions::AssumptionSetMember>(),"set",TypeId::of::<assumptions::AssumptionSet>())]{if let(Some(member),Some(owner))=(at(member),at(owner)){plan.own(member,field,owner)?;}}
+    if let(Some(member),Some(owner))=(at(TypeId::of::<assumptions::AssumptionSetMember>()),at(TypeId::of::<assumptions::AssumptionSet>())){plan.own(member,"set",owner)?;}
    }
    // All independently attributed supports of a selected assertion participate; there is no
    // generic reverse source/input edge that would turn evidence into a whole-input collector.
@@ -429,7 +429,7 @@ mod summary_scope_controls {
             None,
             &[source.clone(), unrelated, foreign],
         );
-        replace(&session, &inputs, &tables, None, &[run.clone()]);
+        replace(&session, &inputs, &tables, None, std::slice::from_ref(&run));
         replace(
             &session,
             &inputs,
@@ -460,7 +460,7 @@ mod summary_scope_controls {
             &inputs,
             &tables,
             Some(stages::PublicationBoundary::Facts),
-            &[q.clone()],
+            std::slice::from_ref(&q),
         );
         replace(
             &session,

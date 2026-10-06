@@ -273,9 +273,8 @@ pub(crate) async fn validate_retrieval(
                 let selected = closure.select(index)?;
                 let sql = if input.type_id() == TypeId::of::<catalog::CatalogMember>() {
                     format!("SELECT id,input,access FROM ({selected}) ownership")
-                } else if input.type_id() == TypeId::of::<source::Module>() {
-                    format!("SELECT id,source FROM ({selected}) ownership")
-                } else if input.type_id() == TypeId::of::<documents::DocumentObservation>() {
+                } else if input.type_id() == TypeId::of::<source::Module>()
+                    || input.type_id() == TypeId::of::<documents::DocumentObservation>() {
                     format!("SELECT id,source FROM ({selected}) ownership")
                 } else if input.type_id() == TypeId::of::<synthesis::briefs::Brief>() {
                     format!("SELECT id,seed FROM ({selected}) ownership")

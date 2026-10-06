@@ -477,17 +477,17 @@ mod controls {
                 artifact,
                 run,
             };
-            fixture.put(&[fixture.artifact.clone()]);
+            fixture.put(std::slice::from_ref(&fixture.artifact));
             fixture.put(&[occurrence]);
             fixture.put(&[coverage]);
             fixture.put(&[ConditionNode::True]);
             fixture.put(&[condition]);
             fixture.put(&[qualification]);
-            fixture.put(&[fixture.run.clone()]);
+            fixture.put(std::slice::from_ref(&fixture.run));
             fixture.put(&[surface]);
             fixture.put(&[evidence]);
-            fixture.put(&[fixture.assertion.clone()]);
-            fixture.put(&[fixture.support.clone()]);
+            fixture.put(std::slice::from_ref(&fixture.assertion));
+            fixture.put(std::slice::from_ref(&fixture.support));
             fixture.put(&[RunFamily {
                 run: fixture.run.id(),
                 family: FactFamily::Syntax,
@@ -522,7 +522,7 @@ mod controls {
                 .contains("assertion has no attributed support"),
             "{error}"
         );
-        fixture.put(&[fixture.support.clone()]);
+        fixture.put(std::slice::from_ref(&fixture.support));
         fixture.put(&[RunFamily {
             run: fixture.run.id(),
             family: FactFamily::Calls,

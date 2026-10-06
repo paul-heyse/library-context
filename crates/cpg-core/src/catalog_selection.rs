@@ -793,8 +793,8 @@ mod tests {
         let original = catalog::evidence::OriginalSource::Artifact {
             artifact: artifact.id(),
         };
-        install(&session, &tables, &inputs, &[artifact.clone()]);
-        install(&session, &tables, &inputs, &[module.clone()]);
+        install(&session, &tables, &inputs, std::slice::from_ref(&artifact));
+        install(&session, &tables, &inputs, std::slice::from_ref(&module));
         install(
             &session,
             &tables,
@@ -806,7 +806,7 @@ mod tests {
         install(&session, &tables, &inputs, &candidates);
         install(&session, &tables, &inputs, &core[..2]);
         install(&session, &tables, &inputs, &links);
-        install(&session, &tables, &inputs, &[original.clone()]);
+        install(&session, &tables, &inputs, std::slice::from_ref(&original));
         let mut all = Data::new(&budget);
         all.source.core.artifacts.insert(artifact).unwrap();
         all.source.core.modules.insert(module).unwrap();
@@ -890,9 +890,9 @@ mod tests {
             reason: Some(obligation::ObligationKind::SyntaxError),
             diagnostic: None,
         };
-        install(&session, &tables, &inputs, &[artifact.clone()]);
-        install(&session, &tables, &inputs, &[coverage_scope.clone()]);
-        install(&session, &tables, &inputs, &[coverage.clone()]);
+        install(&session, &tables, &inputs, std::slice::from_ref(&artifact));
+        install(&session, &tables, &inputs, std::slice::from_ref(&coverage_scope));
+        install(&session, &tables, &inputs, std::slice::from_ref(&coverage));
         let mut all = Data::new(&budget);
         all.source.core.artifacts.insert(artifact).unwrap();
         all.source

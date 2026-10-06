@@ -482,7 +482,7 @@ mod controls {
             EvaluationMember,
             EvaluationOperand
         );
-        register(session, &[artifact.clone()]);
+        register(session, std::slice::from_ref(&artifact));
         register(
             session,
             &[input::ArtifactUse {

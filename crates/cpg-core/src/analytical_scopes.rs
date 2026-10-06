@@ -502,14 +502,13 @@ impl FrameScopes {
             alias(TypeId::of::<source::Occurrence>()),
             alias(TypeId::of::<normalized::entities::CallableEntity>()),
         ) {
-            if matches!(kind, Kind::Structural) {
-                if let (Some(refs), Some(callables)) = (
+            if matches!(kind, Kind::Structural)
+                && let (Some(refs), Some(callables)) = (
                     idx(TypeId::of::<normalized::entities::EntityRef>()),
                     idx(TypeId::of::<normalized::entities::CallableEntity>()),
                 ) {
                     plan.pairs(root,refs,format!("SELECT f.id AS source_id,r.id AS target_id FROM {frames} f JOIN {artifacts} a ON a.input=f.input JOIN {occurrences} o ON o.source=a.id JOIN {entities} c ON c.source_declaration=o.id JOIN {} r ON r.callable_callable=c.id",identifier(&tables[refs].alias)))?;
                     let _ = callables;
-                }
             }
             if let Some(events) = idx(TypeId::of::<normalized::events::NormalizedCallEvent>()) {
                 plan.pairs(root,events,format!("SELECT f.id AS source_id,e.id AS target_id FROM {frames} f JOIN {} e ON e.context=f.context JOIN {occurrences} o ON o.id=e.site JOIN {artifacts} a ON a.id=o.source AND a.input=f.input",identifier(&tables[events].alias)))?;
@@ -599,15 +598,14 @@ impl FrameScopes {
                 plan.pairs(from,target,format!("SELECT o.id AS source_id,d.id AS target_id FROM {occurrences} o JOIN {occurrences} c ON c.source=o.source AND c.start=o.start AND c.end=o.end AND c.syntax_kind=o.syntax_kind AND c.structural_path=o.structural_path JOIN {details} d ON d.occurrence=c.id"))?;
             }
         }
-        if matches!(kind, Kind::Structural) {
-            if let (Some(links), Some(members)) = (
+        if matches!(kind, Kind::Structural)
+            && let (Some(links), Some(members)) = (
                 idx(TypeId::of::<catalog::CatalogMemberInvocation>()),
                 idx(TypeId::of::<catalog::CatalogMember>()),
             ) {
                 let link_rows = identifier(&tables[links].alias);
                 plan.pairs(root,links,format!("SELECT f.id AS source_id,l.id AS target_id FROM {roots} f JOIN {link_rows} l ON l.invocation=f.id"))?;
                 let _ = members;
-            }
         }
         if matches!(kind, Kind::Analytic) {
             // All records owned by this StructuralFrame are the complete topology/attribute universe.

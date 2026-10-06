@@ -159,8 +159,8 @@ impl AspectScopes {
         // Discovery allocates no rich state and runs once per prepared input set.
         for invariant in model.invariants() {
             let check = (invariant.create)(budget);
-            if let Some(support) = check.support_scope() {
-                if let (Some(member), Some(owner)) = (
+            if let Some(support) = check.support_scope()
+                && let (Some(member), Some(owner)) = (
                     inputs
                         .iter()
                         .position(|input| input.type_id() == support.support.type_id()),
@@ -169,7 +169,6 @@ impl AspectScopes {
                         .position(|input| input.type_id() == support.assertion.type_id()),
                 ) {
                     plan.own(member, "assertion", owner)?;
-                }
             }
         }
         if let Ok(coverage) = typed::<attribution::ProviderCoverage>(&inputs) {

@@ -2025,8 +2025,7 @@ impl ProducerOutput {
                 limits: TransferLimits {
                     rows: self.workspace.options.batch_rows,
                     bytes: (self.workspace.options.memory_bytes / 8)
-                        .max(1)
-                        .min(lctx_model::domain::resources::TRANSFER_BYTES),
+                        .clamp(1, lctx_model::domain::resources::TRANSFER_BYTES),
                     ..Default::default()
                 },
                 contribution,

@@ -271,6 +271,19 @@ pub async fn run(
     }))
 }
 
+async fn publish_records(
+    output: &ProducerOutput,
+    rows: &local_semantics::LocalRecords,
+) -> Result<(), ModelError> {
+    macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
+    lctx_model::local_semantic_outputs!(write);
+    macro_rules! theory_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.theory.$field.iter(){output.push(row.clone()).await?;})*};}
+    lctx_model::local_theory_outputs!(theory_write);
+    macro_rules! fields_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.fields.$field.iter(){output.push(row.clone()).await?;})*};}
+    lctx_model::local_field_outputs!(fields_write);
+    Ok(())
+}
+
 #[cfg(test)]
 mod decoder_tests {
     use super::*;
@@ -286,17 +299,4 @@ mod decoder_tests {
             );
         }
     }
-}
-
-async fn publish_records(
-    output: &ProducerOutput,
-    rows: &local_semantics::LocalRecords,
-) -> Result<(), ModelError> {
-    macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
-    lctx_model::local_semantic_outputs!(write);
-    macro_rules! theory_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.theory.$field.iter(){output.push(row.clone()).await?;})*};}
-    lctx_model::local_theory_outputs!(theory_write);
-    macro_rules! fields_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.fields.$field.iter(){output.push(row.clone()).await?;})*};}
-    lctx_model::local_field_outputs!(fields_write);
-    Ok(())
 }

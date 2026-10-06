@@ -25,6 +25,10 @@ use lctx_model::domain::{
     *,
 };
 use std::{any::TypeId, sync::Arc};
+type AdmittedSourceRoots = (
+    std::collections::BTreeSet<Id<SourceArtifact>>,
+    Box<dyn resources::Reservation>,
+);
 #[derive(Clone, Copy)]
 pub(super) enum Kernel {
     Expression,
@@ -103,13 +107,7 @@ impl BaseData {
     fn roots(
         &self,
         budget: &resources::ResourceBudget,
-    ) -> Result<
-        (
-            std::collections::BTreeSet<Id<SourceArtifact>>,
-            Box<dyn resources::Reservation>,
-        ),
-        ModelError,
-    > {
+    ) -> Result<AdmittedSourceRoots, ModelError> {
         let bytes = self
             .data
             .artifacts
@@ -1080,6 +1078,7 @@ pub(super) async fn write_reads(
     Ok(())
 }
 impl BaseScopes {
+    #[allow(clippy::too_many_arguments, reason = "Immutable inputs, query session, budget, cancellation, actual Local owner and shared read preparation have independent lifetimes.")]
     pub(super) async fn reads(
         &self,
         access: &CompletedInputs,
@@ -1159,10 +1158,7 @@ impl BaseScopes {
         }
         let mut previous: Option<(Id<ClassEntity>, String)> = None;
         let mut previous_charge: Option<Box<dyn resources::Reservation>> = None;
-        loop {
-            let Some(next) = prepared.next_field_key(previous.as_ref()) else {
-                break;
-            };
+        while let Some(next) = prepared.next_field_key(previous.as_ref()) {
             let key_charge = budget.reserve(
                 "Base-field-key-transfer",
                 size_of::<(Id<ClassEntity>, String)>().saturating_mul(2)
@@ -1432,7 +1428,7 @@ mod controls {
             &native.qualifications.iter().cloned().collect::<Vec<_>>(),
         );
         drop(native);
-        register(session, &[artifact.clone()]);
+        register(session, std::slice::from_ref(&artifact));
         register(
             session,
             &[input::ArtifactUse {

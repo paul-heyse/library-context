@@ -318,7 +318,7 @@ mod controls {
             fixture.put(&[view_support]);
             fixture.put(&[ConditionNode::True]);
             fixture.put(&[condition]);
-            fixture.put(&[fixture.inventory.clone()]);
+            fixture.put(std::slice::from_ref(&fixture.inventory));
             fixture.put(&fixture.candidates);
             fixture.put(&[inventory_support]);
             fixture
@@ -423,8 +423,8 @@ mod controls {
             fidelity: Fidelity::NativeStructural,
         };
         fixture.put(&[ReachingDefinition::Unbound]);
-        fixture.put(&[reaching.clone()]);
-        fixture.put(&[support.clone()]);
+        fixture.put(std::slice::from_ref(&reaching));
+        fixture.put(std::slice::from_ref(&support));
         fixture.put(&[FlowUseInventoryMember {
             inventory: fixture.inventory.id(),
             ordinal: 0,
