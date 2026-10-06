@@ -52,7 +52,9 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
         assert len(first.content) == 1
         assert first.content[0].text == "browse_library: snapshot-bound result"
         assert first.structured_content["entries"]["items"]
-        found = await client.call_tool("search_capabilities", {"library": library, "query": "carefully"})
+        found = await client.call_tool("search_capabilities", {
+            "library": library, "query": "carefully", "page": {"size": 1, "expanded": True},
+        })
         assert found.structured_content["channels"]["vector"]["status"] == "disabled"
         capability = found.structured_content["results"]["items"][0]["capability"]
         packet = await client.call_tool("get_capability", {"capability": capability, "page": {"expanded": True}})
