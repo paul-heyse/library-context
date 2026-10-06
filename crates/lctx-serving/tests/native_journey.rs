@@ -19,6 +19,9 @@ fn library_fixture(
     library_fixture_at("synthesis_sources", LIBRARY, budget)
 }
 fn library_fixture_at(case: &str, library: &str, budget: &lctx_model::domain::resources::ResourceBudget) -> Arc<cpg_extract::bundle::CapturedInputs> {
+    library_fixture_tree(runtime::capture(case, Profile::Catalog, budget), library, budget)
+}
+fn library_fixture_tree(tree: Arc<cpg_extract::bundle::CapturedInputs>, library: &str, budget: &lctx_model::domain::resources::ResourceBudget) -> Arc<cpg_extract::bundle::CapturedInputs> {
     use cpg_extract::{
         acquisition::{
             AcquiredInput, Acquisition, InventoryDistribution, InventoryFile, LibraryInventory,
@@ -27,7 +30,6 @@ fn library_fixture_at(case: &str, library: &str, budget: &lctx_model::domain::re
         bundle::CapturedInputs,
         capture::CapturedInput,
     };
-    let tree = runtime::capture(case, Profile::Catalog, budget);
     let original = tree.inputs()[0].captured();
     let derived = original
         .derivations()
@@ -419,7 +421,18 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         memory_bytes: 1 << 30, partitions: 1, batch_rows: 128,
     }).unwrap();
     let library = "remediation-scopes";
-    let captured = library_fixture_at("remediation_scopes", library, workspace.budget());
+    // An independently captured beta document supplies a real association owned by another
+    // member. No fabricated/missing key can stand in for this ownership adversary.
+    let source_root = scratch.path().join("sources");
+    std::fs::create_dir(&source_root).unwrap();
+    let paths = ["alpha.py", "beta.py", "empty.py", "guide.md"].map(String::from);
+    for path in &paths { std::fs::copy(runtime::root("remediation_scopes").join(path), source_root.join(path)).unwrap(); }
+    let mut guide = std::fs::OpenOptions::new().append(true).open(source_root.join("guide.md")).unwrap();
+    guide.write_all(b"\n# Independent beta call\n\n```python\nfrom beta import beta\nbeta(foreign_one, foreign_two, foreign_three, unexpected=True)\n```\n").unwrap();
+    drop(guide);
+    let source_capture = cpg_extract::capture::CapturedInput::capture_derived(&source_root, &paths, workspace.budget(), &["guide.md".into()], cpg_extract::acquisition::derive_blocks).unwrap();
+    let tree = Arc::new(cpg_extract::bundle::CapturedInputs::new(vec![cpg_extract::acquisition::AcquiredInput::tree(source_capture, "remediation_scopes")], cpg_extract::native_context::NativeContextConfig::committed(Profile::Catalog, workspace.budget()).unwrap()));
+    let captured = library_fixture_tree(tree, library, workspace.budget());
     let mut analytics = runtime::settings("alpha");
     analytics.module_prefixes = vec!["alpha".into(), "beta".into()];
     analytics.public_roots = analytics.module_prefixes.clone();
@@ -526,6 +539,21 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         cursor = children["continuation"].clone();
     }
     assert_eq!(seen, expected, "all and only the selected parent's diagnostic witnesses");
+    let beta_operation = call(&service, "get_operation", serde_json::json!({"library":library,"operation":{"kind":"public_path","path":["beta","beta"]},"sections":["scenarios"],"page":{"size":1}})).await;
+    let beta_scenario = &beta_operation["operation"]["packet"]["scenarios"]["items"][0]["scenario"];
+    assert!(!beta_scenario.is_null());
+    let beta_associations = reader.records::<catalog::evidence::ScenarioAssociation>(RecordSelection::Scope { field: "scenario".into(), values: vec![beta_scenario.clone()] }).await.unwrap();
+    let own = associations.iter().find(|row| row.id() == association).unwrap();
+    let foreign = beta_associations.iter().find(|row| row.member != own.member).expect("actual beta association owns a different member");
+    let mut existing_foreign_parent = nested.clone();
+    existing_foreign_parent.after = CursorPosition::ScenarioDiagnostic { association: foreign.id(), key };
+    let mut existing_foreign_member = nested.clone();
+    existing_foreign_member.binding.member = Some(foreign.member);
+    for (case, adversary) in [("existing foreign association", existing_foreign_parent), ("existing foreign member", existing_foreign_member)] {
+        request["page"]["cursor"] = serde_json::json!(adversary.encode().unwrap().as_str());
+        let refused = service.execute("get_operation", &request.to_string()).await.unwrap_err();
+        assert_eq!(refused.public_failure(), PublicFailure::new(FailureKind::Incompatible), "{case}");
+    }
     let mut absent_parent = nested.clone();
     absent_parent.after = CursorPosition::ScenarioDiagnostic { association: serde_json::from_value(serde_json::json!(vec![0u8;16])).unwrap(), key };
     let mut absent_key = nested.clone();

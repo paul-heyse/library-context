@@ -43,6 +43,26 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn empty_native_batches_leave_existing_winners_unchanged() {
+    let f = Fixture::new("empty").await;
+    let spec = spec();
+    assert!(f.cache.admit(&spec, &[]).await.unwrap().is_empty());
+    assert!(f.cache.cached(&spec, &[]).await.unwrap().is_empty());
+    let first = candidate("existing-before-empty", 9, 3);
+    let before = f.cache.admit(&spec, std::slice::from_ref(&first)).await.unwrap();
+    assert!(f.cache.admit(&spec, &[]).await.unwrap().is_empty());
+    assert!(f.cache.cached(&spec, &[]).await.unwrap().is_empty());
+    let after = f.cache.cached(&spec, &[first.input_hash]).await.unwrap();
+    assert_eq!(after.len(), before.len());
+    assert_eq!(encode_vector(&after[&first.input_hash].vector), encode_vector(&before[&first.input_hash].vector));
+    assert_eq!(after[&first.input_hash].admitted_tokens, before[&first.input_hash].admitted_tokens);
+    let mut response = f.client.query("SELECT VALUE count() FROM embedding_cache GROUP ALL").await.unwrap().check().unwrap();
+    let counts: Vec<i64> = response.take(0).unwrap();
+    assert_eq!(counts, vec![1]);
+    f.close().await;
+}
+
+#[tokio::test]
 async fn whole_batch_prevalidation_and_first_duplicate_proposal() {
     let f = Fixture::new("validation").await;
     let spec = spec();

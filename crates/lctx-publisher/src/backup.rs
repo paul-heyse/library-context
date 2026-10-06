@@ -411,8 +411,86 @@ pub async fn retire(
 }
 
 #[cfg(test)]
+#[path = "../tests/fixtures/grpc_export.rs"]
+mod grpc_export_fixture;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn backup_sdk_file_export_faults_never_publish_provisional_bytes() {
+        use super::grpc_export_fixture::{Fault, Fixture, PARTIAL};
+        use lctx_surrealdb::Credentials;
+        for fault in [Fault::LateEngineError, Fault::LateTaskError, Fault::MissingTrailer, Fault::ByteCountMismatch, Fault::TransportClose] {
+            let fixture = Fixture::start(fault).await;
+            let scratch = tempfile::tempdir().unwrap();
+            let staged = tempfile::NamedTempFile::new_in(scratch.path()).unwrap();
+            let provisional = staged.path().to_owned();
+            let output = scratch.path().join("snapshot.surql");
+            let client = lctx_surrealdb::reader::connect(&fixture.endpoint, &Credentials::Root { username: "fixture".into(), password: "fixture".into() }, "injected_export", "fixture").await.unwrap();
+            let exporting = client.clone(); let path = provisional.clone();
+            let mut export = tokio::spawn(async move { exporting.export(&path).await.map_err(ModelError::codec) });
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    if tokio::fs::read(&provisional).await.unwrap() == PARTIAL { break; }
+                    assert!(!export.is_finished(), "{fault:?} must be injected after actual partial file bytes");
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            }).await.unwrap();
+            assert!(!export.is_finished());
+            if matches!(fault, Fault::TransportClose) { fixture.disconnect(); } else { fixture.release_terminal(); }
+            let result = tokio::time::timeout(std::time::Duration::from_secs(5), &mut export).await.unwrap().unwrap();
+            assert!(result.is_err(), "real SDK must refuse {fault:?}");
+            assert_eq!(tokio::fs::read(&provisional).await.unwrap(), PARTIAL);
+            let drained = tokio::time::timeout(std::time::Duration::from_secs(5), async { client.invalidate().await }).await.unwrap().map_err(ModelError::codec);
+            drop(client);
+            assert!(complete_backup(staged, &output, result, drained, |_| panic!("failed protocol export must not publish")).is_err());
+            assert!(!output.exists(), "{fault:?} left a completed destination");
+            assert!(!provisional.exists(), "{fault:?} retained provisional bytes");
+            fixture.close().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn backup_sdk_destination_write_failure_discards_provisional_path() {
+        use super::grpc_export_fixture::{Fault, Fixture};
+        use lctx_surrealdb::Credentials;
+        let fixture = Fixture::start(Fault::Success).await;
+        let scratch = tempfile::tempdir().unwrap();
+        let staged = tempfile::NamedTempFile::new_in(scratch.path()).unwrap();
+        let provisional = staged.path().to_owned();
+        let output = scratch.path().join("snapshot.surql");
+        // The SDK follows this owned symlink and encounters actual ENOSPC while writing.
+        // /dev/full is a device, not operator data; no production injection hook is involved.
+        std::fs::remove_file(&provisional).unwrap();
+        std::os::unix::fs::symlink("/dev/full", &provisional).unwrap();
+        let client = lctx_surrealdb::reader::connect(&fixture.endpoint, &Credentials::Root { username: "fixture".into(), password: "fixture".into() }, "injected_export", "fixture").await.unwrap();
+        fixture.release_terminal();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async { client.export(&provisional).await }).await.unwrap().map_err(ModelError::codec);
+        assert!(result.is_err(), "actual SDK destination write must fail");
+        let drained = client.invalidate().await.map_err(ModelError::codec); drop(client);
+        assert!(complete_backup(staged, &output, result, drained, |_| panic!("failed destination write must not publish")).is_err());
+        assert!(!output.exists()); assert!(!provisional.exists());
+        fixture.close().await;
+    }
+
+    #[tokio::test]
+    async fn backup_sdk_terminal_success_publishes_exact_completed_bytes() {
+        use super::grpc_export_fixture::{Fault, Fixture, PARTIAL};
+        use lctx_surrealdb::Credentials;
+        let fixture = Fixture::start(Fault::Success).await;
+        let scratch = tempfile::tempdir().unwrap();
+        let staged = tempfile::NamedTempFile::new_in(scratch.path()).unwrap();
+        let output = scratch.path().join("snapshot.surql");
+        let client = lctx_surrealdb::reader::connect(&fixture.endpoint, &Credentials::Root { username: "fixture".into(), password: "fixture".into() }, "injected_export", "fixture").await.unwrap();
+        fixture.release_terminal();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async { client.export(staged.path()).await }).await.unwrap().map_err(ModelError::codec);
+        let drained = client.invalidate().await.map_err(ModelError::codec); drop(client);
+        complete_backup(staged, &output, result, drained, |parent| std::fs::File::open(parent)?.sync_all()).unwrap();
+        assert_eq!(std::fs::read(output).unwrap(), PARTIAL);
+        fixture.close().await;
+    }
 
     fn partial_dump(parent: &Path) -> tempfile::NamedTempFile {
         let mut staged = tempfile::NamedTempFile::new_in(parent).unwrap();
