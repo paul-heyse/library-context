@@ -1075,19 +1075,19 @@ pub(crate) fn run_invariants_refs() -> Vec<&'static str> {
     vec!["enriched_execution_inventory"]
 }
 pub(crate) fn binding_invariants_refs() -> Vec<&'static str> {
-    vec!["context_entry_binding_replay"]
+    vec!["context_entry_binding_replay", "enriched_binding_fidelity"]
 }
 pub(crate) fn context_invariants_refs() -> Vec<&'static str> {
-    vec!["context_execution_replay"]
+    vec!["context_execution_replay", "enriched_context_fidelity"]
 }
 pub(crate) fn definition_invariants_refs() -> Vec<&'static str> {
-    vec!["definition_evaluation_replay"]
+    vec!["definition_evaluation_replay", "enriched_definition_fidelity"]
 }
 pub(crate) fn modeled_invariants_refs() -> Vec<&'static str> {
-    vec!["enriched_modeled_call_replay"]
+    vec!["enriched_modeled_call_replay", "enriched_modeled_fidelity"]
 }
 pub(crate) fn statement_invariants_refs() -> Vec<&'static str> {
-    vec!["enriched_statement_replay"]
+    vec!["enriched_statement_replay", "enriched_statement_fidelity"]
 }
 pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
     vec!["enriched_execution_profile"]

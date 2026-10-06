@@ -6,14 +6,22 @@ use super::{records::{ExpressionEvaluation, EvaluationSource, EvaluationMember, 
 pub struct ExecutionScope {
     pub root: ValidationInput,
     pub memberships: Vec<(ValidationInput, &'static str, ValidationInput)>,
+    pub joins: Vec<ExecutionMembership>,
+}
+#[derive(Clone)]
+pub struct ExecutionMembership {
+    pub source:ValidationInput, pub source_key:&'static str,
+    pub member:ValidationInput, pub member_key:&'static str,
 }
 #[derive(Clone, Copy)]
-enum Kind { Expression, Statement, Body, Header, Release, Invocation }
+enum Kind { Expression, Statement, Body, Header, Release, Invocation, EnrichedStatement, EnrichedBody, Fresh, Modeled, Definition, ContextBinding, Context, Capture }
+mod enriched;
 impl Kind {
     fn name(self) -> &'static str { match self {
         Self::Expression => "execution_expression_fidelity", Self::Statement => "execution_statement_fidelity",
         Self::Body => "execution_body_fidelity", Self::Header => "execution_header_fidelity",
         Self::Release => "execution_release_fidelity", Self::Invocation => "execution_invocation_fidelity",
+        kind => enriched::name(kind),
     }}
     fn root(self) -> ValidationInput { match self {
         Self::Expression => ValidationInput::of::<ExpressionEvaluation>(&["id"]),
@@ -22,8 +30,10 @@ impl Kind {
         Self::Header => ValidationInput::of::<SourceCallHeader>(&["id"]),
         Self::Release => ValidationInput::of::<SourceFrameRelease>(&["id"]),
         Self::Invocation => ValidationInput::of::<SourceInvocation>(&["id"]),
+        kind => enriched::root(kind),
     }}
     fn scope(self) -> ExecutionScope {
+        if matches!(self,Self::EnrichedStatement|Self::EnrichedBody|Self::Fresh|Self::Modeled|Self::Definition|Self::ContextBinding|Self::Context|Self::Capture) {return enriched::scope(self);}
         let mut memberships = if matches!(self, Self::Release) { vec![
             (ValidationInput::of::<SourceFrameArgument>(&["id"]), "release", ValidationInput::of::<SourceFrameRelease>(&["id"])),
             (ValidationInput::of::<CallBinding>(&["id"]), "attempt", ValidationInput::of::<CallBindingAttempt>(&["id"])),
@@ -43,7 +53,7 @@ impl Kind {
             Self::Header => owned!(HeaderMember, "header", SourceCallHeader),
             _ => {},
         }
-        ExecutionScope { root: self.root(), memberships }
+        ExecutionScope { root: self.root(), memberships,joins:Vec::new() }
     }
     fn inputs(self) -> Vec<ValidationInput> {
         let mut inputs = vec![self.root(), ValidationInput::of::<AssertionQualification>(&["id"]),
@@ -69,6 +79,7 @@ impl Kind {
                         CallBinding, SignatureSlot, SignatureParameter, BindingSource, BindingProjection);
                 }
             }
+            kind => inputs.extend(enriched::inputs(kind)),
         }
         inputs.sort_by_key(|input| (input.name(), input.prefix()));
         inputs.dedup_by_key(|input| (input.name(), input.prefix()));
@@ -89,6 +100,22 @@ macro_rules! fields {($apply:ident) => {$apply! {
     completion_sources:CompletionSource, completion_members:CompletionMember, entered:EnteredStatement,
     body_sources:BodySource, body_members:BodyMember, body_releases:BodyReleaseInput, header_members:HeaderMember,
     source_outcomes:SourceCallOutcome, completion_outcomes:CompletionOutcome,
+    enriched_frames:analysis::enriched_execution::AnalysisInvocation, method_parameters:analysis::MethodParameters,
+    enriched_statements:super::enriched_records::StatementExecution, enriched_sources:super::enriched_records::ExecutionSource,
+    enriched_members:super::enriched_records::ExecutionMember, enriched_entered:super::enriched_records::EnteredStatement,
+    enriched_bodies:super::enriched_records::BodyExecution, enriched_body_sources:super::enriched_records::BodySource,
+    enriched_body_members:super::enriched_records::BodyMember, enriched_releases:super::enriched_records::BodyReleaseInput,
+    fresh:super::enriched_records::SourceExecutionInvocation, fresh_arguments:super::enriched_records::SourceExecutionArgument,
+    modeled:super::modeled_call::ModeledCallEvaluation, modeled_arguments:super::modeled_call::ModeledCallArgument,
+    modeled_native:super::modeled_call::ModeledCallNative, authored_models:models::AuthoredModel,
+    definition_values:super::definition::DefinitionEvaluation, definition_sources:super::definition::DefinitionSource,
+    definition_members:super::definition::DefinitionMember, parameter_syntax:syntax::ParameterSyntaxObservation,
+    context_bindings:super::context_binding::ContextEntryBinding, context_binding_sources:super::context_binding::BindingSource,
+    context_binding_members:super::context_binding::BindingMember, protocols:models::AuthoredContextProtocol,
+    contexts:super::context_execution::ContextExecution, context_sources:super::context_execution::ContextSource,
+    context_members:super::context_execution::ContextMember, context_items:super::context_execution::ContextItem,
+    captured:super::capture_bridge::CapturedEntryBinding, captured_values:super::capture_bridge::CapturedValueSource,
+    placements:lexical::SyntaxPlacement, call_arguments:CallArgument, provider_symbols:ProviderSymbol, parameter_entities:ParameterEntity, call_targets:CallTarget, call_destinations:CallDestination, signature_enumerations:SignatureEnumerationObservation,
 }};}
 macro_rules! data {($($field:ident:$ty:ty,)*) => {
     struct Check {kind:Kind, budget:ResourceBudget, $( $field:Rows<$ty>, )*}
@@ -332,12 +359,13 @@ impl InvariantCheck for Check {
                 };
                 if !agrees {return Err(invalid("invocation/body nominal outcome correspondence"));}
             },
+            _ => self.finish_enriched()?,
         }
         Ok(())
     }
 }
 pub fn invariants() -> Vec<Invariant> {
-    [Kind::Expression, Kind::Statement, Kind::Body, Kind::Header, Kind::Release, Kind::Invocation].into_iter().map(|kind| Invariant {
+    [Kind::Expression, Kind::Statement, Kind::Body, Kind::Header, Kind::Release, Kind::Invocation, Kind::EnrichedStatement, Kind::EnrichedBody, Kind::Fresh, Kind::Modeled, Kind::Definition, Kind::ContextBinding, Kind::Context, Kind::Capture].into_iter().map(|kind| Invariant {
         purpose:InvariantPurpose::Admission, name:kind.name(), revision:1, inputs:kind.inputs(),
         create:std::sync::Arc::new(move |budget| Box::new(Check::new(kind, budget))),
     }).collect()
@@ -484,6 +512,55 @@ mod fidelity_controls {
             entered:ordered_digest("base-completion-entered",std::iter::empty::<Id<Occurrence>>())};
         check.definitions.insert(definition).unwrap();check.completion.insert(frame).unwrap();check.statements.insert(row).unwrap();
         let error=Box::new(check).finish().unwrap_err(); assert!(error.to_string().contains("occurrence owner differs"), "{error}");
+    }
+
+    fn enriched_statement()->Check {
+        use super::super::enriched_records as e;
+        let mut check=expression();check.kind=Kind::EnrichedStatement;
+        let mut occurrence=check.occurrences.iter().next().unwrap().clone();occurrence.syntax_kind=SyntaxKind::StmtPass;occurrence.structural_path=vec![8];
+        let owner=EntityRef::Occurrence {occurrence:occurrence.id()};
+        check.refs.insert(owner.clone()).unwrap();check.occurrences.insert(occurrence.clone()).unwrap();
+        check.owners.insert(OccurrenceOwnership {occurrence:occurrence.id(),owner:occurrence.id(),entity:owner.id()}).unwrap();
+        let (parameters,definition)=super::super::configuration::enriched_execution(id(44));
+        let frame=analysis::enriched_execution::AnalysisInvocation::new(id(1),id(2),definition.id(),None,[]).0;
+        let row=e::StatementExecution {invocation:frame.id(),statement:occurrence.id(),owner:owner.id(),qualification:check.qualifications.iter().next().unwrap().id(),outcome:e::ExecutionOutcome::Normal.id(),status:analysis::policy::EvidenceStatus::StructurallyObserved,sources:ordered_digest("execution-sources",std::iter::empty::<Id<e::ExecutionSource>>()),entered:ordered_digest("execution-entered",std::iter::empty::<Id<Occurrence>>())};
+        check.method_parameters.insert(parameters).unwrap();check.definitions.insert(definition).unwrap();check.enriched_frames.insert(frame).unwrap();check.enriched_statements.insert(row).unwrap();check
+    }
+    #[test]
+    fn portable_enriched_admission_refuses_existing_foreign_frame_and_redirected_owner() {
+        assert!(Box::new(enriched_statement()).finish().is_ok());
+        let mut check=enriched_statement();let mut foreign=check.enriched_frames.iter().next().unwrap().clone();foreign.input=id(9);
+        let mut row=check.enriched_statements.iter().next().unwrap().clone();row.invocation=foreign.id();
+        check.enriched_frames.insert(foreign).unwrap();check.enriched_statements=Rows::new(&check.budget);check.enriched_statements.insert(row).unwrap();
+        let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("frame/qualification/source"),"{error}");
+        let mut check=enriched_statement();let other=EntityRef::Occurrence {occurrence:check.occurrences.iter().find(|row|row.syntax_kind==SyntaxKind::ExprNoneLiteral).unwrap().id()};check.refs.insert(other.clone()).unwrap();
+        let mut row=check.enriched_statements.iter().next().unwrap().clone();row.owner=other.id();check.enriched_statements=Rows::new(&check.budget);check.enriched_statements.insert(row).unwrap();
+        let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("occurrence owner differs"),"{error}");
+    }
+    #[test]
+    fn portable_enriched_admission_checks_complete_ordered_existing_member_domain() {
+        use super::super::enriched_records as e;
+        let mut check=enriched_statement();let source=e::ExecutionSource::BaseEvaluation {evaluation:check.evaluations.iter().next().unwrap().id()};
+        let row=check.enriched_statements.iter().next().unwrap();check.enriched_members.insert(e::ExecutionMember {execution:row.id(),ordinal:1,source:source.id()}).unwrap();check.enriched_sources.insert(source).unwrap();
+        let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("member ordinal domain"),"{error}");
+        let mut check=enriched_statement();let mut row=check.enriched_statements.iter().next().unwrap().clone();row.sources=ContentHash::of(b"omitted selected existing source");check.enriched_statements=Rows::new(&check.budget);check.enriched_statements.insert(row).unwrap();
+        let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("ordered member digest"),"{error}");
+    }
+    #[test]
+    fn portable_enriched_modeled_admission_refuses_existing_nonmember_returned_parameter() {
+        use crate::domain::normalized::{signature_applicability::{BindingAuthority,AuthorityReason},bindings::*};
+        use super::super::modeled_call as m;
+        let mut check=enriched_statement();check.kind=Kind::Modeled;
+        let mut site=check.occurrences.iter().next().unwrap().clone();site.syntax_kind=SyntaxKind::ExprCall;site.structural_path=vec![10];check.occurrences.insert(site.clone()).unwrap();
+        let owner=EntityRef::Occurrence {occurrence:site.id()};let ownership=OccurrenceOwnership {occurrence:site.id(),owner:site.id(),entity:owner.id()};check.refs.insert(owner.clone()).unwrap();check.owners.insert(ownership.clone()).unwrap();
+        let qualification=check.qualifications.iter().next().unwrap().id();let event=NormalizedCallEvent {site:site.id(),origin:CallOrigin::explicit(),context:id(2),owner:ownership.id()};
+        let syntax=CallSyntax::new(qualification,site.id(),site.id(),false,&[]).unwrap().0;
+        let attempt=CallBindingAttempt {alternative:id(5),variant:None,syntax:Some(syntax.id()),policy:ContentHash::of(b"fidelity-fixture"),event:event.id(),signature:None,arguments:None,receiver:Receiver::None.id(),receiver_assessment:None,dispatch_member:None,effective:None,adjustment:SignatureAdjustment::None,authority:BindingAuthority::EffectiveInvocation,authority_reason:AuthorityReason::Established,outcome:BindingOutcome::Bound,reason:BindingReason::Bound,refusal:None,bindings:ContentHash::of(b"empty")};
+        let parameter=SignatureParameter {signature:id(11),ordinal:0,shape:id(12)};
+        let model=models::AuthoredModel {catalog:id(44),target:id(13),revision:1,phase:CallPhase::Call};
+        let row=m::ModeledCallEvaluation {invocation:check.enriched_frames.iter().next().unwrap().id(),expression:site.id(),owner:owner.id(),qualification,model:model.id(),catalog:id(44),attempt:attempt.id(),event:event.id(),returned_formal:parameter.id(),returned_actual:site.id(),arguments:KeySink::new("modeled-call-arguments").finish(),release:super::super::evaluation::ReleaseSafety::Closed,status:analysis::policy::EvidenceStatus::StructurallyObserved};
+        check.events.insert(event).unwrap();check.syntax.insert(syntax).unwrap();check.attempts.insert(attempt).unwrap();check.parameters.insert(parameter).unwrap();check.authored_models.insert(model).unwrap();check.modeled.insert(row).unwrap();
+        let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("returned parameter is not an actual member"),"{error}");
     }
 
 }

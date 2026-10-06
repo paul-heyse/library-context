@@ -278,7 +278,7 @@ pub enum BodySource {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name = "body_executions", rule = "ordered_body_execution")]
+#[model(name = "body_executions", rule = "ordered_body_execution", invariant_refs=body_fidelity_refs)]
 pub struct BodyExecution {
     #[model(key, premise)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -448,7 +448,8 @@ pub fn relations() -> Vec<Relation> {
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "source_execution_invocations",
-    rule = "source_execution_invocation"
+    rule = "source_execution_invocation",
+    invariant_refs=fresh_fidelity_refs
 )]
 pub struct SourceExecutionInvocation {
     #[model(key, premise)]
@@ -487,3 +488,6 @@ pub struct SourceExecutionArgument {
     #[model(premise)]
     pub evaluation: Id<super::records::ExpressionEvaluation>,
 }
+
+pub(crate) fn body_fidelity_refs()->Vec<&'static str> {vec!["enriched_body_fidelity"]}
+pub(crate) fn fresh_fidelity_refs()->Vec<&'static str> {vec!["enriched_fresh_fidelity"]}
