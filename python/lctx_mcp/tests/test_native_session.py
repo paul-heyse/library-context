@@ -4,11 +4,13 @@ import asyncio
 import json
 import os
 import threading
+import sys
 from pathlib import Path
 
 import pytest
 import anyio
 from fastmcp import Client, FastMCP
+from fastmcp.client.transports import StdioTransport
 from fastmcp.exceptions import ToolError
 from lctx_semantics import NativeSession
 from mcp_types import CallToolResult, TextContent, JSONRPCResponse
@@ -21,7 +23,8 @@ from lctx_mcp.wire import BoundedStdioWriter, EnvelopeAdmission
 
 
 @pytest.mark.anyio
-async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot():
+@pytest.mark.parametrize("transport", ["inprocess", "stdio"])
+async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
     """Actual Rust bridge, SDK, native server and MCP; no fake provider or live embedding service."""
     configured = os.environ.get("LCTX_NATIVE_SERVING_CONFIG")
     assert configured, "LCTX_NATIVE_SERVING_CONFIG must name an owned published native fixture"
@@ -30,8 +33,15 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot():
     assert set(config) == {"endpoint", "username", "password", "snapshot"}
     library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")
     assert library, "LCTX_NATIVE_TEST_LIBRARY must name the published fixture's library"
-    server = create_server(path)
-    async with Client(server) as client:
+    target = (
+        create_server(path) if transport == "inprocess" else StdioTransport(
+            command=sys.executable,
+            args=["-m", "lctx_mcp", "--serving-config", str(path)],
+            env=dict(os.environ),
+            keep_alive=False,
+        )
+    )
+    async with Client(target) as client:
         assert len(await client.list_tools()) == 10
         request = {"library": library, "page": {"size": 1}}
         first = await client.call_tool("list_domains", request)
