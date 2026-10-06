@@ -47,7 +47,7 @@ async fn run(profile:Profile,selected:bool,vectors_available:bool,extra_layers:b
         assert!(runs >= 40);
         let scopes: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_concept_scopes").await;
         assert!(scopes > 0);
-        let parameter_inputs: Vec<(String, i64)> = catalog_runtime::query(&fixture, "SELECT convert_from(a.parameter_name, 'UTF8'), count(DISTINCT i.entity) FROM analytic_attributes a JOIN analytic_incidences i ON i.attribute=a.id WHERE a.kind=0 GROUP BY a.parameter_name").await;
+        let parameter_inputs: Vec<(String, i64)> = catalog_runtime::query(&fixture, "SELECT CAST(a.parameter_name AS VARCHAR), count(DISTINCT i.entity) FROM analytic_attributes a JOIN analytic_incidences i ON i.attribute=a.id WHERE a.kind=0 GROUP BY a.parameter_name").await;
         assert!(
             parameter_inputs
                 .iter()
