@@ -66,38 +66,37 @@ impl EvaluationRecords {
 /// Compact private values produced by this owner, associated with their exact emitted rows.
 /// No stored stream or source snapshot can construct an evaluation in this index.
 pub struct ProducedEvaluations {
-    values: Vec<(ExpressionEvaluation, std::sync::Arc<CheckedEvaluation>, Option<Id<calls::SignatureParameter>>)>,
+    values: charged::ChargedMap<Id<ExpressionEvaluation>,ActualEvaluation>,
     frames: Rows<publication::AnalysisInvocation>,
     charge: charged::StateCharge,
 }
+#[derive(Clone)]
+struct ActualEvaluation {row:ExpressionEvaluation,value:ProducedValue,held:Option<Id<calls::SignatureParameter>>}
+impl HeapSize for ActualEvaluation {fn heap_bytes(&self)->usize {0}}
 impl ProducedEvaluations {
     fn new(budget: &ResourceBudget) -> Self {
-        Self { values: Vec::new(), frames: Rows::new(budget), charge: charged::StateCharge::new(budget, "produced-base-evaluations") }
+        Self { values: Default::default(), frames: Rows::new(budget), charge: charged::StateCharge::new(budget, "produced-base-values") }
     }
-    pub fn append(&mut self, mut other: Self) -> Result<(), ModelError> {
-        if !self.charge.budget().expect("bound owner").shares_pool(other.charge.budget().expect("bound owner")) {
-            return Err(ModelError::Conflict("produced evaluations budget"));
-        }
+    pub fn append(&mut self, other: Self) -> Result<(), ModelError> {
+        if !self.charge.budget().expect("bound owner").shares_pool(other.charge.budget().expect("bound owner")) {return Err(ModelError::Conflict("produced evaluations budget"));}
         for row in other.frames.iter() { self.frames.insert(row.clone())?; }
-        self.charge.grow(other.values.len().saturating_mul(size_of::<(ExpressionEvaluation, std::sync::Arc<CheckedEvaluation>, Option<Id<calls::SignatureParameter>>)>() * 2))?;
-        self.values.append(&mut other.values);
+        for (id,value) in other.values.iter() {
+            if self.values.contains_key(id) {return Err(ModelError::Conflict("produced evaluation duplicated"));}
+            self.values.insert(&mut self.charge,*id,value.clone())?;
+        }
         Ok(())
     }
-    pub fn get(&self, row: &ExpressionEvaluation, frame: &publication::AnalysisInvocation)
-        -> Result<std::sync::Arc<CheckedEvaluation>, ModelError>
-    {
-        if row.invocation != frame.id() || self.frames.get(frame.id()) != Some(frame) { return Err(ModelError::Conflict("produced evaluation frame")); }
-        let mut matching = self.values.iter().filter(|(actual, _, _)| actual.id() == row.id());
-        let (actual, checked, _) = matching.next().ok_or(ModelError::Conflict("produced evaluation absent"))?;
-        if matching.next().is_some() || actual != row { return Err(ModelError::Conflict("produced evaluation changed")); }
-        Ok(checked.clone())
+    fn actual(&self,row:&ExpressionEvaluation,frame:&publication::AnalysisInvocation)->Result<&ActualEvaluation,ModelError> {
+        if row.invocation!=frame.id() || self.frames.get(frame.id())!=Some(frame) {return Err(ModelError::Conflict("produced evaluation frame"));}
+        let value=self.values.get(&row.id()).ok_or(ModelError::Conflict("produced evaluation absent"))?;
+        if value.row!=*row {return Err(ModelError::Conflict("produced evaluation changed"));}
+        Ok(value)
     }
-    pub(crate) fn held_formal(&self, row: &ExpressionEvaluation, frame: &publication::AnalysisInvocation)
-        -> Result<Option<Id<calls::SignatureParameter>>, ModelError>
-    {
-        self.get(row, frame)?;
-        Ok(self.values.iter().find(|(actual, _, _)| actual.id() == row.id()).expect("checked above").2)
+    pub(crate) fn get(&self,row:&ExpressionEvaluation,frame:&publication::AnalysisInvocation,earlier:&super::records::BaseCheck)->Result<std::sync::Arc<CheckedEvaluation>,ModelError> {
+        let actual=self.actual(row,frame)?;
+        Ok(std::sync::Arc::new(earlier.hydrate_actual(row,actual.value)?))
     }
+    pub(crate) fn held_formal(&self,row:&ExpressionEvaluation,frame:&publication::AnalysisInvocation)->Result<Option<Id<calls::SignatureParameter>>,ModelError> {Ok(self.actual(row,frame)?.held)}
 }
 pub(crate) fn is_expression(kind: SyntaxKind) -> bool {
     use SyntaxKind::*;
@@ -161,6 +160,17 @@ pub fn evaluate_all_produced(
     entry_sources: &Rows<EntryAccessSource>, invocation: &publication::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition, profile: stages::Profile, budget: &ResourceBudget,
 ) -> Result<(EvaluationRecords, ProducedEvaluations), ModelError> {
+    evaluate_selected_produced(data,entry,stored_entries,entry_sources,invocation,definition,profile,budget,None,true)
+}
+/// One selected expression and its complete dependency closure. Read observations and complete
+/// negatives belong to independent read/universe kernels; this expression kernel emits neither.
+#[allow(clippy::too_many_arguments,reason="Actual predecessor/definition/frame owners remain explicit.")]
+pub fn evaluate_expression_produced(data:&EvaluationData,entry:&EntryData,stored_entries:&Rows<EntryValueWitness>,entry_sources:&Rows<EntryAccessSource>,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,expression:Id<Occurrence>)->Result<(EvaluationRecords,ProducedEvaluations),ModelError> {
+    if data.occurrences.get(expression).is_none() {return Err(ModelError::Invalid("selected expression is absent".into()));}
+    evaluate_selected_produced(data,entry,stored_entries,entry_sources,invocation,definition,profile,budget,Some(expression),false)
+}
+#[allow(clippy::too_many_arguments,reason="Selected actual owner operation shares its ordinary whole-operation oracle.")]
+fn evaluate_selected_produced(data:&EvaluationData,entry:&EntryData,stored_entries:&Rows<EntryValueWitness>,entry_sources:&Rows<EntryAccessSource>,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,selected:Option<Id<Occurrence>>,emit_reads:bool)->Result<(EvaluationRecords,ProducedEvaluations),ModelError> {
     if *definition != super::configuration::base_evaluation().1
         || invocation.definition != definition.id()
         || invocation.subject.is_some()
@@ -194,7 +204,7 @@ pub fn evaluate_all_produced(
     let artifacts = data.artifacts.iter().cloned().collect::<Vec<_>>();
     let uses = data.uses.iter().cloned().collect::<Vec<_>>();
     let roots = admission::analysis_roots(&artifacts, &uses)?;
-    records.reads = super::read_channels::produce(data, entry, invocation, &roots, budget)?;
+    if emit_reads {records.reads = super::read_channels::produce(data, entry, invocation, &roots, budget)?;}
     let prepared = PreparedExecution::new(data, invocation.input, invocation.context, budget)?;
     let mut entry_proofs = Vec::new();
     let mut charge = charged::StateCharge::new(budget, "base_entry_inventory");
@@ -228,7 +238,7 @@ pub fn evaluate_all_produced(
     }
     let refs = entry_proofs.iter().collect::<Vec<_>>();
     for row in data.occurrences.iter().filter(|row| {
-        is_expression(row.syntax_kind)
+        selected.is_none_or(|selected|row.id()==selected) && is_expression(row.syntax_kind)
             && roots.contains(&row.source)
             && data.artifacts.get(row.source).is_some_and(|source| {
                 source.input == invocation.input
@@ -272,8 +282,7 @@ pub fn evaluate_all_produced(
                             && entry.qualification().id() == output.evaluation.qualification)
                         .map(|entry| entry.parameter())
                 } else { None };
-                produced.charge.grow(size_of::<(ExpressionEvaluation, std::sync::Arc<CheckedEvaluation>, Option<Id<calls::SignatureParameter>>)>() * 2)?;
-                produced.values.push((output.evaluation.clone(), std::sync::Arc::new(proof), held));
+                produced.values.insert(&mut produced.charge,output.evaluation.id(),ActualEvaluation {row:output.evaluation.clone(),value:ProducedValue::of(&proof),held})?;
                 records.evaluations.insert(output.evaluation)?;
                 for row in output.sources {
                     records.sources.insert(row)?;
@@ -609,4 +618,44 @@ pub(crate) fn run_invariants_refs() -> Vec<&'static str> {
 }
 pub(crate) fn run_publication_checks_refs() -> Vec<&'static str> {
     vec!["base_evaluation_request_profile"]
+}
+
+#[cfg(test)]
+mod actual_value_controls {
+    use super::*;
+    use crate::domain::{analysis::native::NativeInventory,assertion::*,attribution::*,input::SourceRole,normalized::entities::*,syntax::*};
+    fn id<R>(n:u8)->Id<R> {serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([n;16].into_iter())).unwrap()}
+    fn produced(budget:&ResourceBudget)->(ProducedEvaluations,super::super::records::BaseCheck,publication::AnalysisInvocation,ExpressionEvaluation) {
+        let artifact=SourceArtifact::from_bytes(id(1),"value.py".into(),b"None").unwrap();
+        let scope=source::CoverageScope::Artifact {artifact:artifact.id()};
+        let q=AssertionQualification {context:id(2),scope:scope.id(),assumptions:assumptions::AssumptionSet::empty_id(),condition:conditions::Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact};
+        let expression=Occurrence {source:artifact.id(),start:0,end:4,syntax_kind:SyntaxKind::ExprNoneLiteral,role:source::OccurrenceRole::Syntax,structural_path:vec![0]};
+        let placement=SyntaxPlacement {qualification:q.id(),occurrence:expression.id(),parent:None,field:lexical::SyntaxField::Body,ordinal:0};
+        let support=SyntaxPlacementSupport {assertion:placement.id(),run:id(3),surface:id(4),evidence:id(5),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
+        let mut native=NativeInventory::new(budget);native.visit(AssertionQualification::NAME,&AssertionQualification::encode(std::slice::from_ref(&q)).unwrap()).unwrap();native.visit(SyntaxPlacement::NAME,&SyntaxPlacement::encode(std::slice::from_ref(&placement)).unwrap()).unwrap();native.visit(SyntaxPlacementSupport::NAME,&SyntaxPlacementSupport::encode(&[support]).unwrap()).unwrap();let native=native.collect().unwrap();
+        let mut data=EvaluationData::new(budget);data.premises=native.premises;data.native=native.qualifications;
+        data.uses.insert(ArtifactUse {artifact:artifact.id(),input:artifact.input,role:SourceRole::Release}).unwrap();data.artifacts.insert(artifact.clone()).unwrap();data.scopes.insert(scope).unwrap();data.qualifications.insert(q.clone()).unwrap();data.occurrences.insert(expression.clone()).unwrap();data.placements.insert(placement).unwrap();data.owners.insert(OccurrenceOwnership {occurrence:expression.id(),owner:expression.id(),entity:id(6)}).unwrap();
+        let definition=super::super::configuration::base_evaluation().1;let invocation=publication::AnalysisInvocation::new(artifact.input,q.context,definition.id(),None,[]).0;
+        let (records,values)=evaluate_all_produced(&data,&EntryData::new(budget),&Rows::new(budget),&Rows::new(budget),&invocation,&definition,stages::Profile::Behavioral,budget).unwrap();assert_eq!(records.run.evaluated,1);assert_eq!(records.run.refused,0);
+        let row=records.evaluations.iter().next().unwrap().clone();
+        let (selected,_)=evaluate_expression_produced(&data,&EntryData::new(budget),&Rows::new(budget),&Rows::new(budget),&invocation,&definition,stages::Profile::Behavioral,budget,expression.id()).unwrap();
+        assert!(selected.evaluations.same(&records.evaluations));assert!(selected.sources.same(&records.sources));assert!(selected.members.same(&records.members));assert!(selected.operands.same(&records.operands));assert!(selected.boundaries.same(&records.boundaries));
+        let mut earlier=super::super::records::BaseCheck::new(budget);earlier.invocations.insert(invocation.clone()).unwrap();
+        macro_rules! visit {($field:ident:$ty:ty)=>{earlier.visit(<$ty>::NAME,&<$ty>::encode(&records.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap()};}
+        visit!(evaluations:ExpressionEvaluation);visit!(sources:EvaluationSource);visit!(members:EvaluationMember);visit!(operands:EvaluationOperand);
+        (values,earlier,invocation,row)
+    }
+    #[test]
+    fn primitive_actual_receipt_hydrates_exact_members_and_refuses_changed_or_missing_evidence() {
+        let budget=ResourceBudget::fixed(2<<20).unwrap();let (values,mut earlier,frame,row)=produced(&budget);
+        let actual=values.get(&row,&frame,&earlier).unwrap();assert_eq!(actual.truth(),Some(false));assert_eq!(actual.native_premises().len(),1);drop(actual);
+        let mut changed=row.clone();changed.boolean_value=Some(true);assert!(values.get(&changed,&frame,&earlier).is_err());
+        let mut changed_frame=frame.clone();changed_frame.context=id(90);assert!(values.get(&row,&changed_frame,&earlier).is_err());
+        // Replacing the selected published inventory cannot manufacture the sealed result.
+        let member=EvaluationMember {evaluation:row.id(),ordinal:0,source:EvaluationSource::Native {premise:id(91)}.id()};
+        earlier.visit(EvaluationMember::NAME,&EvaluationMember::encode(&[member]).unwrap()).unwrap_err();
+        // A separate immutable view missing original evidence refuses hydration.
+        let empty=super::super::records::BaseCheck::new(&budget);assert!(values.get(&row,&frame,&empty).is_err());
+        drop(empty);drop(earlier);drop(values);assert_eq!(budget.reserved(),0);
+    }
 }

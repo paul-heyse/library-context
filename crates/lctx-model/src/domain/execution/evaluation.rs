@@ -189,6 +189,23 @@ pub struct CheckedEvaluation {
     status: analysis::policy::EvidenceStatus,
     _charge: charged::StateCharge,
 }
+/// Primitive result minted by the actual evaluator. Ordered evidence is already carried by
+/// its emitted rows; this private value lets later owners hydrate those exact bytes without
+/// running an earlier producer or retaining its rich proof vectors for the whole attempt.
+#[derive(Clone,Copy)]
+pub(crate) struct ProducedValue {
+    request:ExpressionRequest,value:Value,release:ReleaseSafety,call_source:Option<CallOrigin>,
+    exception:Option<(Id<Occurrence>,super::ExactRuntimeException)>,
+    qualification:Id<AssertionQualification>,status:analysis::policy::EvidenceStatus,
+}
+impl ProducedValue {
+    pub(crate) fn of(proof:&CheckedEvaluation)->Self {Self {request:proof.request,value:proof.value,release:proof.release,call_source:proof.call_source,exception:proof.exception,qualification:proof.qualification,status:proof.status}}
+    pub(crate) fn hydrate(self,native:Vec<Id<NativeAssertionPremise>>,operands:Vec<Id<Occurrence>>,entries:Vec<Id<conditions::entry::EntryValueWitness>>,budget:&ResourceBudget)->Result<CheckedEvaluation,ModelError> {
+        let mut charge=charged::StateCharge::new(budget,"actual-evaluation-hydration");
+        charge.grow(native.capacity()*size_of::<Id<NativeAssertionPremise>>()+operands.capacity()*size_of::<Id<Occurrence>>()+entries.capacity()*size_of::<Id<conditions::entry::EntryValueWitness>>())?;
+        Ok(CheckedEvaluation {request:self.request,value:self.value,release:self.release,call_source:self.call_source,exception:self.exception,native,operands,entries,_entry_charges:Vec::new(),qualification:self.qualification,status:self.status,_charge:charge})
+    }
+}
 impl CheckedEvaluation {
     pub(crate) fn call_source(&self) -> Option<CallOrigin> {
         self.call_source

@@ -42,7 +42,7 @@ pub struct Produced<T> {
     value: T,
 }
 impl<T> Produced<T> {
-    fn borrow(&self, access: &CompletedInputs, runtime: &Workspace) -> Result<&T, ModelError> {
+    pub(crate) fn borrow(&self, access: &CompletedInputs, runtime: &Workspace) -> Result<&T, ModelError> {
         self.premises.require_subset(runtime, access)?;
         self.outputs.require_subset(runtime, access)?;
         Ok(&self.value)
@@ -544,7 +544,11 @@ pub async fn prepare_source_calls(
             EvaluationMember,
             EvaluationOperand,
             analysis::base_evaluation::AnalysisInvocation,
-            SourceBodyCompletion
+            SourceBodyCompletion,
+            BodySource,
+            BodyMember,
+            BodyReleaseInput,
+            StatementCompletion
         );
     }
     let mut base = Rows::<analysis::base_completion::AnalysisInvocation>::new(budget);
@@ -789,6 +793,10 @@ pub async fn enrich(
             EvaluationOperand,
             analysis::base_evaluation::AnalysisInvocation,
             SourceBodyCompletion,
+            BodySource,
+            BodyMember,
+            BodyReleaseInput,
+            StatementCompletion,
             analysis::base_completion::AnalysisInvocation,
             SourceCallHeader,
             HeaderMember,

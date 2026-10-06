@@ -296,7 +296,7 @@ fn build_frame<T>(
                     .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
                 frame
                     .evaluations
-                    .push((match evaluations { Some(values) => values.get(row, parent)?, None => std::sync::Arc::new(earlier.replay(row)?) }, EvaluationPremise::Base(row.id())));
+                    .push((match evaluations { Some(values) => values.get(row, parent, earlier)?, None => std::sync::Arc::new(earlier.replay(row)?) }, EvaluationPremise::Base(row.id())));
             }
             for (header, row) in headers {
                 frame

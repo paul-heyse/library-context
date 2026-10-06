@@ -147,6 +147,10 @@ pub struct SourceCallData {
     pub base: Rows<analysis::base_completion::AnalysisInvocation>,
     pub definitions: Rows<analysis::AnalysisDefinition>,
     pub bodies: Rows<super::body_records::SourceBodyCompletion>,
+    pub body_sources:Rows<super::body_records::BodySource>,
+    pub body_members:Rows<super::body_records::BodyMember>,
+    pub body_releases:Rows<super::body_records::BodyReleaseInput>,
+    pub body_statements:Rows<super::completion_records::StatementCompletion>,
 }
 
 impl SourceCallData {
@@ -161,6 +165,7 @@ impl SourceCallData {
             base: Rows::new(budget),
             definitions: Rows::new(budget),
             bodies: Rows::new(budget),
+            body_sources:Rows::new(budget),body_members:Rows::new(budget),body_releases:Rows::new(budget),body_statements:Rows::new(budget),
         }
     }
     pub fn visit(
@@ -179,12 +184,39 @@ impl SourceCallData {
         } else if name == super::body_records::SourceBodyCompletion::NAME {
             self.bodies.decode(batch)?;
         }
+        macro_rules! body {($($field:ident:$ty:ty,)*)=>{$(if name==<$ty>::NAME {self.$field.decode(batch)?;})*};}
+        body! {body_sources:super::body_records::BodySource,body_members:super::body_records::BodyMember,body_releases:super::body_records::BodyReleaseInput,body_statements:super::completion_records::StatementCompletion,}
         self.evaluation.visit(name, batch)?;
         self.flow.visit(name, batch)?;
         self.bindings.visit(name, batch)?;
         macro_rules! output{($($field:ident:$ty:ty,)*)=>{$(if name==<$ty>::NAME{self.output.$field.decode(batch)?;})*};}
         crate::normalized_binding_outputs!(output);
         Ok(())
+    }
+    /// Hydrate only memberships selected from actual predecessor body output streams. Scalar
+    /// result authority remains private to the issuing owner; these rows cannot mint a body.
+    pub(crate) fn hydrate_body(&self,row:&super::body_records::SourceBodyCompletion,value:super::body::ProducedBodyValue,budget:&ResourceBudget)->Result<super::body::CheckedSourceBody,ModelError> {
+        use super::body_records::BodySource;
+        let invalid=|message:&str|ModelError::Invalid(message.into());
+        if self.bodies.get(row.id())!=Some(row) {return Err(invalid("actual body row changed"));}
+        let count=self.body_members.iter().filter(|member|member.body==row.id()).count()+self.body_releases.iter().filter(|release|release.body==row.id()).count();
+        let _scratch=budget.reserve("actual-body-membership",count.checked_mul(160).ok_or_else(||invalid("actual body membership allowance overflow"))?)?;
+        let mut members=self.body_members.iter().filter(|member|member.body==row.id()).collect::<Vec<_>>();members.sort_by_key(|member|member.ordinal);
+        let mut native=Vec::new();let mut statements=Vec::new();let mut sources=Vec::new();
+        for (ordinal,member) in members.into_iter().enumerate() {
+            if member.ordinal!=ordinal as i64 {return Err(invalid("actual body source order differs"));}
+            let source=self.body_sources.get(member.source).ok_or_else(||invalid("actual body source absent"))?;sources.push(source.id());
+            match source {BodySource::Native {premise}=>native.push(*premise),BodySource::Statement {completion}=> {let statement=self.body_statements.get(*completion).ok_or_else(||invalid("actual body statement absent"))?;if statement.owner!=row.owner || statement.invocation!=row.invocation {return Err(invalid("actual body statement belongs to another owner/frame"));}statements.push(statement.statement);}}
+        }
+        if ordered_digest("base-source-body-sources",sources.into_iter())!=row.sources {return Err(invalid("actual body sources differ from owner receipt"));}
+        let mut selected=self.body_releases.iter().filter(|release|release.body==row.id()).collect::<Vec<_>>();selected.sort_by_key(|release|release.ordinal);
+        let mut releases=Vec::with_capacity(selected.len());let mut digest=KeySink::new("base-source-body-releases");
+        for (ordinal,release) in selected.into_iter().enumerate() {if release.ordinal!=ordinal as i64 {return Err(invalid("actual body release order differs"));}release.expression.encode(&mut digest);release.safety.encode(&mut digest);releases.push((release.expression,release.safety));}
+        if digest.finish()!=row.releases {return Err(invalid("actual body releases differ from owner receipt"));}
+        let proof=value.hydrate(native,statements,releases,budget)?;
+        let frame=self.base.get(row.invocation).ok_or_else(||invalid("actual body frame absent"))?;
+        if proof.request().input!=frame.input || proof.request().context!=frame.context || proof.request().callee!=row.owner || proof.declaration()!=row.declaration || proof.qualification()!=row.qualification || proof.status()!=row.status || super::completion_records::CompletionOutcome::from(proof.outcome()).id()!=row.outcome {return Err(invalid("actual body scalar differs from owner receipt"));}
+        Ok(proof)
     }
     pub fn visit_input(
         &mut self,
@@ -233,6 +265,10 @@ impl SourceCallData {
         inputs.extend([
             ValidationInput::of::<analysis::base_completion::AnalysisInvocation>(&["id"]),
             ValidationInput::of::<super::body_records::SourceBodyCompletion>(&["id"]),
+            ValidationInput::of::<super::body_records::BodySource>(&["id"]),
+            ValidationInput::of::<super::body_records::BodyMember>(&["id"]),
+            ValidationInput::of::<super::body_records::BodyReleaseInput>(&["id"]),
+            ValidationInput::of::<super::completion_records::StatementCompletion>(&["id"]),
         ]);
         inputs.sort_by_key(|i| (i.name(), i.prefix()));
         inputs.dedup_by_key(|i| (i.name(), i.prefix()));
@@ -603,7 +639,7 @@ fn prepare_with_values(
                 Ok(())
             };
         if let Some(bodies) = bodies {
-            bodies.visit_frame(base, &mut visit_body)?;
+            bodies.visit_frame(base,data,&mut visit_body)?;
         } else {
             let expected = super::completion_production::complete_all_with_bodies(
                 &data.completed, base, definition, profile, budget, &mut visit_body,

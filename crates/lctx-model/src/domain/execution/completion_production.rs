@@ -85,27 +85,27 @@ pub struct CompletedEvaluations {
 /// Actual body owner outputs retain compact private outcome, membership and release values.
 pub struct ProducedBodies {
     frames: Rows<publication::AnalysisInvocation>,
-    values: Vec<(SourceBodyCompletion, super::body::CheckedSourceBody)>,
+    values: charged::ChargedMap<Id<SourceBodyCompletion>,ActualBody>,
     charge: charged::StateCharge,
 }
+#[derive(Clone)]
+struct ActualBody {row:SourceBodyCompletion,value:super::body::ProducedBodyValue}
+impl HeapSize for ActualBody {fn heap_bytes(&self)->usize {0}}
 impl ProducedBodies {
-    fn new(budget: &ResourceBudget) -> Self {
-        Self { frames: Rows::new(budget), values: Vec::new(), charge: charged::StateCharge::new(budget, "produced-source-bodies") }
-    }
-    pub fn append(&mut self, mut other: Self) -> Result<(), ModelError> {
-        if !self.charge.budget().expect("bound owner").shares_pool(other.charge.budget().expect("bound owner")) {
-            return Err(ModelError::Conflict("produced bodies budget"));
-        }
-        for row in other.frames.iter() { self.frames.insert(row.clone())?; }
-        self.charge.grow(other.values.len().saturating_mul(size_of::<(SourceBodyCompletion, super::body::CheckedSourceBody)>() * 2))?;
-        self.values.append(&mut other.values);
+    fn new(budget: &ResourceBudget) -> Self {Self {frames:Rows::new(budget),values:Default::default(),charge:charged::StateCharge::new(budget,"produced-body-values")}}
+    pub fn append(&mut self,other:Self)->Result<(),ModelError> {
+        if !self.charge.budget().expect("bound owner").shares_pool(other.charge.budget().expect("bound owner")) {return Err(ModelError::Conflict("produced bodies budget"));}
+        for row in other.frames.iter() {self.frames.insert(row.clone())?;}
+        for (id,value) in other.values.iter() {if self.values.contains_key(id) {return Err(ModelError::Conflict("produced body duplicated"));}self.values.insert(&mut self.charge,*id,value.clone())?;}
         Ok(())
     }
-    pub(crate) fn visit_frame(&self, frame: &publication::AnalysisInvocation,
-        mut visit: impl FnMut(&super::body::CheckedSourceBody, &SourceBodyCompletion) -> Result<(), ModelError>,
-    ) -> Result<(), ModelError> {
-        if self.frames.get(frame.id()) != Some(frame) { return Err(ModelError::Conflict("produced body frame")); }
-        for (row, proof) in self.values.iter().filter(|(row, _)| row.invocation == frame.id()) { visit(proof, row)?; }
+    pub(crate) fn visit_frame(&self,frame:&publication::AnalysisInvocation,data:&super::source_call_records::SourceCallData,mut visit:impl FnMut(&super::body::CheckedSourceBody,&SourceBodyCompletion)->Result<(),ModelError>)->Result<(),ModelError> {
+        if self.frames.get(frame.id())!=Some(frame) {return Err(ModelError::Conflict("produced body frame"));}
+        for value in self.values.values().filter(|value|value.row.invocation==frame.id()) {
+            match data.bodies.get(value.row.id()) {None=>continue,Some(row) if row==&value.row=>{},Some(_)=>return Err(ModelError::Conflict("produced body changed"))}
+            let proof=data.hydrate_body(&value.row,value.value,self.charge.budget().expect("bound owner"))?;
+            visit(&proof,&value.row)?;
+        }
         Ok(())
     }
 }
@@ -202,7 +202,7 @@ pub(crate) fn complete_all_with_bodies(
         &SourceBodyCompletion,
     ) -> Result<(), ModelError>,
 ) -> Result<CompletionRecords, ModelError> {
-    complete_with_values(data, invocation, definition, profile, budget, None, on_body).map(|(records, _)| records)
+    complete_with_values(data, invocation, definition, profile, budget, None, on_body,None,None,true).map(|(records, _)| records)
 }
 /// The compiler passes values minted by the actual base producer; this path does not replay it.
 pub fn complete_all_produced(
@@ -213,13 +213,27 @@ pub fn complete_all_produced(
     if profile == stages::Profile::Behavioral && evaluations.is_none() {
         return Err(ModelError::Conflict("base evaluation owner authority absent"));
     }
-    complete_with_values(data, invocation, definition, profile, budget, evaluations, &mut |_, _| Ok(()))
+    complete_with_values(data, invocation, definition, profile, budget, evaluations, &mut |_, _| Ok(()),None,None,true)
+}
+/// One statement and its complete syntax/evaluation alternatives. The whole-frame run is
+/// assembled by the compiler; this kernel does not claim completion of any callable body.
+#[allow(clippy::too_many_arguments,reason="Actual owner, immutable frame, and selected semantic root remain explicit.")]
+pub fn complete_statement_produced(data:&CompletedEvaluations,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,evaluations:&super::production::ProducedEvaluations,statement:Id<Occurrence>)->Result<(CompletionRecords,ProducedBodies),ModelError> {
+    if data.base.data.occurrences.get(statement).is_none() {return Err(ModelError::Invalid("selected statement absent".into()));}
+    complete_with_values(data,invocation,definition,profile,budget,Some(evaluations),&mut |_,_|Ok(()),Some(statement),None,false)
+}
+/// An ordered callable body is an indivisible completion kernel. Other callable metadata may
+/// be dependency premises, but cannot become additional body roots in this operation.
+#[allow(clippy::too_many_arguments,reason="Actual owner, immutable frame, and selected semantic root remain explicit.")]
+pub fn complete_body_produced(data:&CompletedEvaluations,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,evaluations:&super::production::ProducedEvaluations,owner:Id<normalized::entities::EntityRef>)->Result<(CompletionRecords,ProducedBodies),ModelError> {
+    complete_with_values(data,invocation,definition,profile,budget,Some(evaluations),&mut |_,_|Ok(()),None,Some(owner),true)
 }
 fn complete_with_values(
     data: &CompletedEvaluations, invocation: &publication::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition, profile: stages::Profile, budget: &ResourceBudget,
     evaluations: Option<&super::production::ProducedEvaluations>,
     on_body: &mut impl FnMut(&super::body::CheckedSourceBody, &SourceBodyCompletion) -> Result<(), ModelError>,
+    selected_statement:Option<Id<Occurrence>>,selected_body:Option<Id<normalized::entities::EntityRef>>,emit_bodies:bool,
 ) -> Result<(CompletionRecords, ProducedBodies), ModelError> {
     let invalid = |message: &str| ModelError::Invalid(message.into());
     if *definition != super::configuration::base_completion().1
@@ -279,7 +293,7 @@ fn complete_with_values(
                 + size_of::<&super::evaluation::CheckedEvaluation>() * 2,
         )?;
         checked.push(match evaluations {
-            Some(evaluations) => evaluations.get(row, parent)?,
+            Some(evaluations) => evaluations.get(row, parent, earlier)?,
             None => std::sync::Arc::new(earlier.replay(row)?),
         });
         rows.push(CompletionEvaluation {
@@ -288,7 +302,9 @@ fn complete_with_values(
         });
     }
     for row in facts.occurrences.iter().filter(|row| {
-        is_statement(row.syntax_kind)
+        selected_statement.is_none_or(|selected|row.id()==selected)
+            && selected_body.is_none_or(|selected|facts.owners.iter().any(|owner|owner.occurrence==row.id() && owner.entity==selected))
+            && is_statement(row.syntax_kind)
             && roots.contains(&row.source)
             && facts.artifacts.get(row.source).is_some_and(|source| {
                 source.input == invocation.input
@@ -392,7 +408,7 @@ fn complete_with_values(
             .ok_or_else(|| invalid("source body statement scratch overflow"))?,
     )?;
     let statement_refs = statements.iter().collect::<Vec<_>>();
-    for callable in facts.callables.iter() {
+    for callable in facts.callables.iter().filter(|callable|emit_bodies && selected_body.is_none_or(|selected|normalized::entities::EntityRef::Callable {callable:callable.id()}.id()==selected)) {
         let normalized::entities::CallableEntity::Source { declaration, .. } = callable else {
             continue;
         };
@@ -436,8 +452,7 @@ fn complete_with_values(
                 let rows =
                     super::body_records::emit(&proof, invocation, &output.completions, budget)?;
                 on_body(&proof, &rows.body)?;
-                produced.charge.grow(size_of::<(SourceBodyCompletion, super::body::CheckedSourceBody)>() * 2)?;
-                produced.values.push((rows.body.clone(), proof));
+                produced.values.insert(&mut produced.charge,rows.body.id(),ActualBody {row:rows.body.clone(),value:super::body::ProducedBodyValue::of(&proof)})?;
                 output.bodies.insert(rows.body)?;
                 output.outcomes.insert(rows.outcome)?;
                 for row in rows.sources {
@@ -787,4 +802,48 @@ pub(crate) fn run_invariants_refs() -> Vec<&'static str> {
 }
 pub(crate) fn run_publication_checks_refs() -> Vec<&'static str> {
     vec!["base_completion_request_profile"]
+}
+
+#[cfg(test)]
+mod actual_body_controls {
+    use super::*;
+    use crate::domain::{analysis::native::NativeInventory,assertion::*,attribution::*,input::SourceRole,normalized::entities::*,syntax::*};
+    fn id<R>(n:u8)->Id<R> {serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([n;16].into_iter())).unwrap()}
+    #[test]
+    fn selected_statement_and_body_match_finite_whole_owner_and_hydrate_only_exact_published_members() {
+        let budget=ResourceBudget::fixed(4<<20).unwrap();
+        let artifact=SourceArtifact::from_bytes(id(1),"body.py".into(),b"def f():\n pass\n").unwrap();let scope=source::CoverageScope::Artifact {artifact:artifact.id()};
+        let q=AssertionQualification {context:id(2),scope:scope.id(),assumptions:assumptions::AssumptionSet::empty_id(),condition:conditions::Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact};
+        let declaration=Occurrence {source:artifact.id(),start:0,end:14,syntax_kind:SyntaxKind::StmtFunctionDef,role:source::OccurrenceRole::Declaration,structural_path:vec![0]};
+        let name=Occurrence {start:4,end:5,syntax_kind:SyntaxKind::ExprName,role:source::OccurrenceRole::Syntax,structural_path:vec![0,0],..declaration.clone()};
+        let statement=Occurrence {start:10,end:13,syntax_kind:SyntaxKind::StmtPass,role:source::OccurrenceRole::Syntax,structural_path:vec![0,1],..declaration.clone()};
+        let callable=CallableEntity::Source {declaration:declaration.id(),kind:CallableKind::Function};let owner=EntityRef::Callable {callable:callable.id()};
+        let placements=[SyntaxPlacement {qualification:q.id(),occurrence:declaration.id(),parent:None,field:lexical::SyntaxField::Body,ordinal:0},SyntaxPlacement {qualification:q.id(),occurrence:statement.id(),parent:Some(declaration.id()),field:lexical::SyntaxField::Body,ordinal:0}];
+        let declaration_syntax=DeclarationObservation {qualification:q.id(),declaration:declaration.id(),name:name.id(),kind:DeclarationKind::Function,parent:None,overload:false,docstring:None};
+        let supports=placements.iter().map(|row|SyntaxPlacementSupport {assertion:row.id(),run:id(3),surface:id(4),evidence:id(5),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural}).collect::<Vec<_>>();
+        let declaration_support=DeclarationSupport {assertion:declaration_syntax.id(),run:id(3),surface:id(4),evidence:id(5),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
+        let mut native=NativeInventory::new(&budget);
+        macro_rules! native {($ty:ty,$rows:expr)=>{native.visit(<$ty>::NAME,&<$ty>::encode($rows).unwrap()).unwrap()};}
+        native!(AssertionQualification,std::slice::from_ref(&q));native!(SyntaxPlacement,&placements);native!(SyntaxPlacementSupport,&supports);native!(DeclarationObservation,std::slice::from_ref(&declaration_syntax));native!(DeclarationSupport,&[declaration_support]);let native=native.collect().unwrap();
+        let mut facts=super::super::evaluation::EvaluationData::new(&budget);facts.native=native.qualifications;facts.premises=native.premises;
+        facts.artifacts.insert(artifact.clone()).unwrap();facts.uses.insert(ArtifactUse {artifact:artifact.id(),input:artifact.input,role:SourceRole::Release}).unwrap();facts.scopes.insert(scope).unwrap();facts.qualifications.insert(q.clone()).unwrap();facts.callables.insert(callable).unwrap();facts.refs.insert(owner.clone()).unwrap();facts.declarations.insert(declaration_syntax).unwrap();
+        for row in [declaration.clone(),statement.clone()] {facts.occurrences.insert(row.clone()).unwrap();facts.owners.insert(OccurrenceOwnership {occurrence:row.id(),owner:declaration.id(),entity:owner.id()}).unwrap();}facts.occurrences.insert(name).unwrap();for row in placements {facts.placements.insert(row).unwrap();}
+        let base_definition=super::super::configuration::base_evaluation().1;let base=analysis::base_evaluation::AnalysisInvocation::new(artifact.input,q.context,base_definition.id(),None,[]).0;
+        let (_,values)=super::super::production::evaluate_all_produced(&facts,&conditions::entry::EntryData::new(&budget),&Rows::new(&budget),&Rows::new(&budget),&base,&base_definition,stages::Profile::Behavioral,&budget).unwrap();
+        let mut data=CompletedEvaluations::new(&budget);
+        macro_rules! visit {($($field:ident:$ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty>::encode(&facts.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}crate::execution_evaluation_inputs!(visit);
+        data.visit(analysis::base_evaluation::AnalysisInvocation::NAME,&analysis::base_evaluation::AnalysisInvocation::encode(&[base]).unwrap()).unwrap();
+        let definition=super::super::configuration::base_completion().1;let frame=publication::AnalysisInvocation::new(artifact.input,q.context,definition.id(),None,[]).0;
+        let (whole,bodies)=complete_all_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,Some(&values)).unwrap();assert_eq!(whole.run.bodied,1);assert_eq!(whole.run.body_refused,0);
+        let (selected,_)=complete_statement_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,&values,statement.id()).unwrap();
+        let mut expected=Rows::new(&budget);for row in whole.completions.iter().filter(|row|row.statement==statement.id()) {expected.insert(row.clone()).unwrap();}assert!(selected.completions.same(&expected));assert!(selected.bodies.is_empty());drop(selected);
+        let (selected,_)=complete_body_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,&values,owner.id()).unwrap();assert!(selected.bodies.same(&whole.bodies));assert!(selected.body_members.same(&whole.body_members));assert!(selected.body_sources.same(&whole.body_sources));assert!(selected.body_releases.same(&whole.body_releases));
+        let mut stored=super::super::source_call_records::SourceCallData::new(&budget);stored.visit(publication::AnalysisInvocation::NAME,&publication::AnalysisInvocation::encode(std::slice::from_ref(&frame)).unwrap()).unwrap();
+        macro_rules! stored {($field:ident:$ty:ty)=>{stored.visit(<$ty>::NAME,&<$ty>::encode(&whole.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap()};}
+        stored!(bodies:SourceBodyCompletion);stored!(body_sources:BodySource);stored!(body_members:BodyMember);stored!(body_releases:BodyReleaseInput);stored!(completions:StatementCompletion);
+        let mut seen=0;bodies.visit_frame(&frame,&stored,|proof,row|{seen+=1;assert_eq!(proof.request().callee,owner.id());assert_eq!(proof.entered_statements(),&[statement.id()]);assert_eq!(proof.declaration(),row.declaration);Ok(())}).unwrap();assert_eq!(seen,1);
+        let body=whole.bodies.iter().next().unwrap();let mut changed=body.clone();changed.status=analysis::policy::EvidenceStatus::Unresolved;stored.bodies=Rows::new(&budget);stored.bodies.insert(changed).unwrap();assert!(bodies.visit_frame(&frame,&stored,|_,_|Ok(())).is_err());
+        stored.bodies=Rows::new(&budget);stored.bodies.insert(body.clone()).unwrap();stored.body_members=Rows::new(&budget);assert!(bodies.visit_frame(&frame,&stored,|_,_|Ok(())).is_err());
+        drop(stored);drop(expected);drop(selected);drop(whole);drop(bodies);drop(data);drop(facts);drop(values);assert_eq!(budget.reserved(),0);
+    }
 }

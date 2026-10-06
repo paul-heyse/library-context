@@ -33,6 +33,16 @@ pub struct CheckedSourceBody {
     _native_charge: charged::StateCharge,
     _charge: charged::StateCharge,
 }
+/// The actual body's scalar result. Ordered proof payloads live in its acknowledged records.
+#[derive(Clone,Copy)]
+pub(crate) struct ProducedBodyValue {request:SourceBodyRequest,declaration:Id<Occurrence>,outcome:PendingOutcome,qualification:Id<AssertionQualification>,status:EvidenceStatus}
+impl ProducedBodyValue {
+    pub(crate) fn of(proof:&CheckedSourceBody)->Self {Self {request:proof.request,declaration:proof.declaration,outcome:proof.outcome,qualification:proof.qualification,status:proof.status}}
+    pub(crate) fn hydrate(self,native:Vec<Id<NativeAssertionPremise>>,statements:Vec<Id<Occurrence>>,releases:Vec<(Id<Occurrence>,evaluation::ReleaseSafety)>,budget:&ResourceBudget)->Result<CheckedSourceBody,ModelError> {
+        let mut charge=charged::StateCharge::new(budget,"actual-body-hydration");charge.grow(native.capacity()*size_of::<Id<NativeAssertionPremise>>()+statements.capacity()*size_of::<Id<Occurrence>>()+releases.capacity()*size_of::<(Id<Occurrence>,evaluation::ReleaseSafety)>())?;
+        Ok(CheckedSourceBody {request:self.request,declaration:self.declaration,outcome:self.outcome,native,statements,qualification:self.qualification,status:self.status,releases,_native_charge:charged::StateCharge::new(budget,"actual-body-native"),_charge:charge})
+    }
+}
 impl CheckedSourceBody {
     pub fn request(&self) -> SourceBodyRequest {
         self.request
