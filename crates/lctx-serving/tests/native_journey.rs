@@ -5,6 +5,20 @@ use lctx_model::domain::{*,admission::Frontier,stages::Profile,serving::*};
 use lctx_serving::NativeService;
 use lctx_surrealdb::{NativeReader,RuntimeConfig,reader,RecordSelection};
 use std::{sync::Arc,io::Write,os::unix::fs::OpenOptionsExt};
+const LIBRARY:&str="synthesis-sources";
+/// The source bytes remain the captured fixture. Explicit distribution ownership is the
+/// library admission premise; a labelled, unowned tree supplies no such authority.
+fn library_fixture(budget:&lctx_model::domain::resources::ResourceBudget)->Arc<cpg_extract::bundle::CapturedInputs>{
+ use cpg_extract::{acquisition::{AcquiredInput,Acquisition,LibraryInventory,InventoryDistribution,InventoryFile,derive_blocks},capture::CapturedInput,bundle::CapturedInputs};
+ let tree=runtime::capture("synthesis_sources",Profile::Catalog,budget);let original=tree.inputs()[0].captured();
+ let derived=original.derivations().iter().map(|d|d.path()).collect::<std::collections::BTreeSet<_>>();
+ let paths=original.artifacts().iter().filter(|a|!derived.contains(a.path.as_str())).map(|a|a.path.clone()).collect::<Vec<_>>();
+ let documents=paths.iter().filter(|p|p.ends_with(".md")||p.ends_with(".mdx")).cloned().collect::<Vec<_>>();
+ let captured=CapturedInput::capture_derived(original.root(),&paths,budget,&documents,derive_blocks).unwrap();
+ let files=paths.into_iter().filter_map(|path|admission::ArtifactClass::of(&path).map(|class|InventoryFile{path,owners:vec![LIBRARY.into()],role:match class{admission::ArtifactClass::PythonSource=>input::SourceRole::Release,admission::ArtifactClass::Document=>input::SourceRole::Document},record_sha256:None})).collect();
+ let inventory=LibraryInventory{name:LIBRARY.into(),requirement:format!("{LIBRARY}==0.0.0"),lock_digest:ContentHash::of(b"native-serving-first-party-fixture"),installer:None,python_version:"3.14.7".into(),platform:"linux".into(),site_packages:captured.root().to_owned(),distributions:vec![InventoryDistribution{name:LIBRARY.into(),version:"0.0.0".into(),first_party:true,artifact_sha256:vec![],record_digest:captured.revision().manifest}],files,configuration:ContentHash::of(b"native-serving-first-party-fixture/v1")};
+ Arc::new(CapturedInputs::new(vec![AcquiredInput::new(captured,Acquisition::Installed(inventory))],tree.config().clone()))
+}
 async fn call(service:&NativeService,tool:&str,request:serde_json::Value)->serde_json::Value{
  let encoded=service.execute(tool,&serde_json::to_string(&request).unwrap()).await.unwrap_or_else(|e|panic!("{tool}: {e}"));
  serde_json::from_str(&encoded).unwrap()
@@ -14,7 +28,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
  let file=std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned disposable SurrealDB fixture required");
  let fixture:serde_json::Value=serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();let scratch=tempfile::tempdir().unwrap();
  let workspace=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:1<<30,partitions:1,batch_rows:128}).unwrap();
- let captured=runtime::capture("synthesis_sources",Profile::Catalog,workspace.budget());let settings=ContentHash::of(b"native-serving-journey");
+ let captured=library_fixture(workspace.budget());let settings=ContentHash::of(b"native-serving-journey");
  let prepared=PreparedCompilation::new(Frontier::Catalog,runtime::settings("api"),captured.config().catalog(),None,workspace.budget()).unwrap();
  compilation::compile(&workspace,captured.clone(),Profile::Catalog,settings,Frontier::Catalog,Some(&prepared),None,None).await.unwrap();drop(prepared);
  let admitted=artifact::admit(&workspace,&captured,Frontier::Catalog,Profile::Catalog,settings).await.unwrap();let export=scratch.path().join("export");admitted.export(&export).unwrap();drop(admitted);
@@ -23,7 +37,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
  let handle=lctx_publisher::publish(&verified,&config,&lctx_serving::native_definitions()).await.unwrap();assert!(!config.selection.exists());
  let reader=NativeReader::connect(&config.endpoint,&config.viewer_credentials(),handle.clone()).await.unwrap();
  let service=NativeService::new(reader.clone(),ResourceLimits::default()).unwrap();
- let library="synthesis_sources";
+ let library=LIBRARY;
  let find=call(&service,"find_operations",serde_json::json!({"library":library,"page":{"size":1}})).await;
  assert_eq!(find["snapshot"],serde_json::to_value(&handle).unwrap());assert!(find["supported"]["items"].as_array().is_some_and(|v|!v.is_empty()));
  let token=find["supported"]["continuation"].as_str().expect("multiple captured public members").to_owned();
