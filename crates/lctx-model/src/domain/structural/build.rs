@@ -496,6 +496,7 @@ impl Data {
         inputs.extend(super::handoffs::Data::inputs());
         inputs.extend(super::controls::Data::inputs());
         inputs.extend([
+            ValidationInput::of::<analysis::native::NativeAssertionPremise>(&["id"]),
             ValidationInput::of::<input::ArtifactUse>(&["id"]),
             ValidationInput::of::<catalog::CatalogMember>(&["id"]),
             ValidationInput::of::<catalog::CatalogCallable>(&["id"]),

@@ -32,6 +32,7 @@ macro_rules! decoder_inputs {
             settings:analysis::settings::AnalyticsConfiguration,
             definitions:analysis::AnalysisDefinition,
             parameters:analysis::MethodParameters,
+            native_premises:analysis::native::NativeAssertionPremise,
             local:analysis::local::Invocation,
             local_outcomes:analysis::local::AnalysisOutcome,
             local_coverage:analysis::local::AnalysisCoverage,
@@ -42,7 +43,7 @@ macro_rules! decoder_inputs {
             libraries:input::CorpusLibrary,
             distributions:input::InputDistribution,
         }
-        lctx_model::expected_domain_inputs!($apply);
+
     };
 }
 fn consumed_inputs(profile: Profile) -> Vec<ValidationInput> {
@@ -62,8 +63,10 @@ async fn load<R: Record>(
 ) -> Result<(), ModelError> {
     while let Some((input, permit)) = consumed.next::<R>(access)? {
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
-            data.visit_input(&input, batch)?;
-            context.visit(input.name(), batch)?;
+            if [std::any::TypeId::of::<attribution::ProviderRun>(),std::any::TypeId::of::<analysis::catalog_core::Invocation>(),std::any::TypeId::of::<analysis::settings::AnalyticsConfiguration>(),std::any::TypeId::of::<analysis::AnalysisDefinition>(),std::any::TypeId::of::<analysis::MethodParameters>()].contains(&input.type_id()){
+                data.visit_input(&input, batch)?;
+                context.visit(input.name(), batch)?;
+            }
             admission.visit_if_expected(permit, batch)?;
             Ok(())
         })

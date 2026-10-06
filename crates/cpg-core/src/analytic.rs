@@ -18,7 +18,7 @@ macro_rules! decoder_inputs {($apply:ident)=>{
         lctx_model::analytic_extra_inputs!($apply);
         lctx_model::analytic_consumption_inputs!($apply);
         lctx_model::projection_outputs!($apply);
-        lctx_model::expected_domain_inputs!($apply);
+
 };}
 pub async fn produce(
     access: CompletedInputs,
@@ -41,7 +41,9 @@ pub async fn produce(
     )?;
     macro_rules! read{($($t:ty),*)=>{$(while let Some((input,permit))=consumed.next::<$t>(&access)? {
         crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch| {
-            data.visit_input(&input,batch)?;
+            if [std::any::TypeId::of::<analysis::settings::AnalyticsConfiguration>(),std::any::TypeId::of::<analysis::AnalysisDefinition>(),std::any::TypeId::of::<analysis::MethodParameters>(),std::any::TypeId::of::<structural::StructuralFrame>(),std::any::TypeId::of::<analysis::structural::Invocation>()].contains(&input.type_id()){
+                data.visit_input(&input,batch)?;
+            }
             admission.visit_if_expected(permit,batch)?;
             Ok(())
         }).await?;

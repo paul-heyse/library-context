@@ -168,9 +168,6 @@ impl Data {
                     ]
                     .contains(&i.name()))
         });
-        for method in METHODS {
-            inputs.extend(analysis::expected::inputs(method));
-        }
         inputs
     }
     /// A named complete analytical frame uses its own E1 domain while native evidence keeps
