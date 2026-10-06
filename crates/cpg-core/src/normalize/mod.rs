@@ -11,6 +11,7 @@ use lctx_model::domain::{
 };
 use std::sync::Arc;
 use arrow_array::Array;
+mod receiver_scope;
 
 /// One transfer-bounded stream at a time. The typed collector admits every retained row; the
 /// source-bound session and PreparedQuery own remote scan admission and stream lifetime.
@@ -435,25 +436,31 @@ pub async fn receivers(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    use lctx_model::domain::normalized::receiver::{self, ReceiverData};
+    use lctx_model::domain::normalized::receiver;
     let session = access.session(runtime).await?;
-    let mut data = ReceiverData::new(runtime.budget());
-    macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        if access.contains::<$ty>() {
-            let _permit = access.read::<$ty>()?;
-            load(&session, &mut data.$field).await?;
+    let scopes = receiver_scope::ReceiverScopes::prepare(&access, &session, model, runtime.budget()).await?;
+    let declaration = ValidationInput::of::<calls::CallTarget>(&["id"]);
+    let _permit = access.read_at::<calls::CallTarget>(declaration.prefix())?;
+    let table = access.table_for(&declaration)?;
+    macro_rules! declare {($($field:ident: $ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
+    lctx_model::normalized_receiver_outputs!(declare);
+    let mut emitted = charged::ChargedSet::default();
+    let mut emitted_charge = charged::StateCharge::new(runtime.budget(), "receiver-emitted-ids");
+    let mut stream = crate::sql::query(&session, &format!("SELECT * FROM {} ORDER BY id", crate::consumed_rows::identifier(&table)))
+        .await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        let mut roots = Rows::<calls::CallTarget>::new(runtime.budget());
+        roots.decode(&batch)?;
+        for target in roots.iter() {
+            let data = scopes.data(&access, target.id(), runtime.budget()).await?;
+            let rows = crate::stage_runtime::borrowed_cpu(access.name(), || receiver::normalize_target(&data, target.id(), runtime.budget()))?;
+            macro_rules! write {($($field:ident: $ty:ty,)*) => {$(for row in rows.$field.iter() {if emitted.insert(&mut emitted_charge, (<$ty>::NAME, *row.id().bytes()))? { output.push(row.clone()).await?; }})*};}
+            lctx_model::normalized_receiver_outputs!(write);
+            tokio::task::yield_now().await;
         }
-    )* }; }
-    lctx_model::normalized_receiver_inputs!(read_inputs);
-    drop(session);
-    let rows = compute(data, runtime.budget(), receiver::normalize).await?;
-    macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
-        output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
-    )* }; }
-    lctx_model::normalized_receiver_outputs!(write_outputs);
-    drop(rows);
+    }
     output.finish(ProviderOutcome::Complete).await
 }
 

@@ -494,8 +494,21 @@ pub fn normalize(
     data: &ReceiverData,
     budget: &resources::ResourceBudget,
 ) -> Result<ReceiverOutput, ModelError> {
+    normalize_targets(data, None, budget)
+}
+/// Derive one complete target domain from its exact stored premises. Ancillary targets in a
+/// dependency closure do not become additional publication roots.
+pub fn normalize_target(
+    data: &ReceiverData, target: Id<CallTarget>, budget: &resources::ResourceBudget,
+) -> Result<ReceiverOutput, ModelError> {
+    if data.targets.get(target).is_none() { return Err(ModelError::Invalid("receiver root target absent".into())); }
+    normalize_targets(data, Some(target), budget)
+}
+fn normalize_targets(
+    data: &ReceiverData, selected: Option<Id<CallTarget>>, budget: &resources::ResourceBudget,
+) -> Result<ReceiverOutput, ModelError> {
     let mut output = ReceiverOutput::new(budget);
-    for target in data.targets.iter().filter(|t| candidates(data, t)) {
+    for target in data.targets.iter().filter(|t| selected.is_none_or(|selected| t.id() == selected) && candidates(data, t)) {
         let mut held = StateCharge::new(budget, "receiver-premises");
         held.grow(
             (data.target_supports.len()
