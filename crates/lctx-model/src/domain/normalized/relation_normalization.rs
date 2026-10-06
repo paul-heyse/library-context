@@ -916,6 +916,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = RelationData::validation_inputs();
     inputs.extend(RelationOutput::validation_inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "normalized_relationship_closure",
         inputs,

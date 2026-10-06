@@ -890,6 +890,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = EntityData::validation_inputs();
     inputs.extend(EntityOutput::validation_inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "normalized_entity_closure",
         inputs,

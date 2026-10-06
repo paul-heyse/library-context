@@ -27,6 +27,7 @@ pub struct GenericSpecializationObservation {
 }
 pub(crate) fn generic_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "generic_specialization_basis",
         inputs: vec![

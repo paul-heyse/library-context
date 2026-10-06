@@ -266,6 +266,7 @@ pub fn field_specifier_shape(values: &[(FieldSpecifierKind, Option<String>)]) ->
 
 pub(crate) fn transform_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "native_transform_specifier_shape",
         inputs: vec![

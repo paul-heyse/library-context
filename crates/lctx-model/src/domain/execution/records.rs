@@ -282,6 +282,7 @@ pub fn base_invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|input| (input.name(), input.prefix()));
     inputs.dedup_by_key(|input| (input.name(), input.prefix()));
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "base_closed_expression_replay",
         inputs,

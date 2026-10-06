@@ -777,6 +777,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = ProjectionData::validation_inputs();
     inputs.extend(ProjectionOutput::validation_inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "normalized_projection_closure",
         inputs,

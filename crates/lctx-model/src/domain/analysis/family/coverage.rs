@@ -240,7 +240,7 @@ impl CoverageExpectation {
     }
 }
 pub(crate) fn coverage_invariants()->Vec<Invariant> {
-    vec![Invariant { revision: 1, name:owner_table!("analysis_coverage_membership"),inputs: coverage_inputs(),create:std::sync::Arc::new(|budget|Box::new(CoverageCheck { charge:charged::StateCharge::new(budget,"analysis_coverage_membership"),invocations:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),members:Default::default(),sources:Default::default(),native:Default::default(),normalized:Default::default(),predecessors:Default::default() })) }]
+    vec![Invariant { purpose: crate::domain::InvariantPurpose::Admission, revision: 1, name:owner_table!("analysis_coverage_membership"),inputs: coverage_inputs(),create:std::sync::Arc::new(|budget|Box::new(CoverageCheck { charge:charged::StateCharge::new(budget,"analysis_coverage_membership"),invocations:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),members:Default::default(),sources:Default::default(),native:Default::default(),normalized:Default::default(),predecessors:Default::default() })) }]
 }
 fn coverage_inputs()->Vec<ValidationInput> {let mut inputs=vec![
         ValidationInput::of::<AnalysisInvocation>(&["id"]),

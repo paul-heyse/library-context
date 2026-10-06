@@ -1523,6 +1523,7 @@ pub(crate) fn theory_invariants() -> Vec<Invariant> {
     macro_rules! output_inputs{($($field:ident:$ty:ty,)*)=>{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}
     crate::local_theory_outputs!(output_inputs);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "local_structural_theory_replay",
         inputs,

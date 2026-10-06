@@ -463,6 +463,7 @@ pub(crate) fn qualification_invariants() -> Vec<Invariant> {
         ValidationInput::of::<AssertionQualification>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "qualification_condition_context",
         inputs,
@@ -540,6 +541,7 @@ impl InvariantCheck for QualificationCheck {
 }
 pub(crate) fn evidence_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "evidence_source_bounds",
         inputs: vec![
@@ -622,6 +624,7 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion = A>>() -> Vec<Inva
         ValidationInput::of::<S>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: S::NAME,
         inputs,

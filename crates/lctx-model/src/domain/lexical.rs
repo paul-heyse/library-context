@@ -215,6 +215,7 @@ pub struct LexicalResolution {
 
 pub(crate) fn lexical_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "lexical_source_structure",
         inputs: vec![

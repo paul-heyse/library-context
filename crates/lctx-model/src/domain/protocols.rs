@@ -153,6 +153,7 @@ fn validate_diagnostic(row: &NativeExitDiagnostic) -> Result<(), ModelError> {
 }
 pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "located_native_protocols",
         inputs: vec![

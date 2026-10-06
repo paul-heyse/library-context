@@ -282,6 +282,7 @@ pub(crate) fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|i| (i.name(), i.prefix()));
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "structural_replay",
         inputs,

@@ -150,6 +150,7 @@ impl ProviderCallable {
 }
 pub(crate) fn provider_module_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "provider_module_owners",
         inputs: vec![
@@ -440,6 +441,7 @@ fn validate_shapes(form: SignatureForm, parameters: &[ParameterShape]) -> Result
 }
 pub(crate) fn signature_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "complete_signature_membership",
         inputs: vec![
@@ -811,6 +813,7 @@ impl CallOrigin {
 }
 pub(crate) fn origin_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "call_origin_membership",
         inputs: vec![
@@ -968,6 +971,7 @@ fn validate_provider_site(row: &ProviderCallSite) -> Result<(), ModelError> {
 }
 pub(crate) fn provider_site_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "provider_call_site_callers",
         inputs: vec![
@@ -1238,6 +1242,7 @@ impl CallSyntax {
 }
 pub(crate) fn call_syntax_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "call_syntax_membership",
         inputs: vec![
@@ -1879,6 +1884,7 @@ impl CallResolution {
 }
 pub(crate) fn resolution_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "complete_call_alternatives",
         inputs: vec![
@@ -2151,6 +2157,7 @@ fn validate_receiver(row: &Receiver) -> Result<(), ModelError> {
 }
 pub(crate) fn target_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "call_target_ownership",
         inputs: vec![
@@ -2298,6 +2305,7 @@ impl InvariantCheck for TargetCheck {
 /// equivalent symbol from another provider requires a later explicit equivalence relationship.
 pub(crate) fn native_support_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "native_symbol_support_ownership",
         inputs: vec![

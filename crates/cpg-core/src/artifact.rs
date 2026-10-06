@@ -540,9 +540,8 @@ fn records<T: serde::de::DeserializeOwned + serde::Serialize>(
     }))
 }
 
-/// Verify a trusted local compiler export without retaining its live compiler token. Semantic
-/// producer completeness is a property of the trusted compiler; this validates its transported
-/// graph and declared manifest against the current model, without rerunning providers.
+/// Verify detached compiler output by transport integrity and necessary semantic re-admission.
+/// A self-authored manifest cannot confer the live compiler's checked authority.
 pub async fn verify_export(
     path: &Path,
     workspace: &Arc<Workspace>,
@@ -838,7 +837,75 @@ async fn verify_transport(
             return Err(ModelError::Conflict("artifact original bytes"));
         }
     }
+    if expected.is_none() {
+        readmit_detached(&path, &manifest, workspace).await?;
+    }
     Ok(VerifiedExport { path, manifest })
+}
+
+/// Pure semantic admission of detached canonical records. No provider or producer is rerun.
+/// The caller still owns byte/reference transport reconciliation and immutable input lifetime.
+pub struct SemanticImport {
+    workspace: Arc<Workspace>,
+    output: crate::workspace::ProducerOutput,
+}
+impl SemanticImport {
+    pub fn new(runtime: &Arc<Workspace>, profile: lctx_model::domain::stages::Profile) -> Result<Self, ModelError> {
+        let workspace = Workspace::with_budget(runtime.model().clone(), runtime.options(), runtime.budget().clone())?;
+        let output = workspace.output("detached-semantic-import", profile,
+            lctx_model::domain::implementation_digest(), workspace.inputs("detached-semantic-import", profile, [])?);
+        macro_rules! declare { ($($variant:ident:$ty:path),* $(,)?) => {$(output.declare::<$ty>()?;)*}; }
+        lctx_model::graph_entity_records!(declare);
+        lctx_model::graph_assertion_records!(declare);
+        Ok(Self { workspace, output })
+    }
+    pub fn entity(&self, value: Entity) -> Result<(), ModelError> {
+    macro_rules! push_entity { ($($variant:ident:$ty:path),* $(,)?) => {
+        fn entity(output: &crate::workspace::ProducerOutput, entity: Entity) -> Result<(), ModelError> {
+            match entity { $(Entity::$variant(row) => output.push_sync(row),)* }
+        }
+    }; }
+    lctx_model::graph_entity_records!(push_entity);
+        entity(&self.output, value)
+    }
+    pub fn assertion(&self, value: Assertion) -> Result<(), ModelError> {
+        use lctx_model::domain::{Record, graph::record};
+    macro_rules! push_assertion { ($($variant:ident:$ty:path),* $(,)?) => {
+        fn assertion(output: &crate::workspace::ProducerOutput, assertion: Assertion) -> Result<(), ModelError> {
+            if let Some(source) = &assertion.source {
+                match source.domain() { $(<$ty>::NAME => output.push_sync(record::assertion_record::<$ty>(&assertion)?),)*
+                    _ => Err(ModelError::Schema("undeclared detached assertion record")) }
+            } else { Err(ModelError::Schema("detached assertion has no semantic record")) }
+        }
+    }; }
+    lctx_model::graph_assertion_records!(push_assertion);
+        assertion(&self.output, value)
+    }
+    pub async fn finish(self, manifest: &Manifest) -> Result<(), ModelError> {
+        self.output.finish(lctx_model::domain::stages::ProviderOutcome::Complete).await?;
+        self.workspace.facts_availability(manifest.profile)?;
+        self.workspace.admit_semantics(manifest.profile).await?;
+        self.workspace.admit_frontier(manifest.frontier, manifest.profile).await?;
+        crate::artifact_manifest::verify_outcomes(&self.workspace, manifest)
+    }
+}
+
+async fn readmit_detached(path: &Path, manifest: &Manifest, runtime: &Arc<Workspace>) -> Result<(), ModelError> {
+    let admission = SemanticImport::new(runtime, manifest.profile)?;
+    for (file, entities) in [("entities.arrow", true), ("assertions.arrow", false)] {
+        let reader = datafusion::arrow::ipc::reader::FileReader::try_new(File::open(path.join(file)).map_err(ModelError::codec)?, None).map_err(ModelError::codec)?;
+        for batch in reader {
+            runtime.cancellation().check()?;
+            let batch = batch.map_err(ModelError::codec)?;
+            let _decode = runtime.budget().reserve("detached-semantic-decode", lctx_model::domain::logical_batch_bytes(&batch)?.saturating_mul(4))?;
+            let payloads = batch.column(2).as_any().downcast_ref::<BinaryArray>().ok_or(ModelError::Schema("graph artifact"))?;
+            for index in 0..batch.num_rows() {
+                if entities { admission.entity( serde_json::from_slice(payloads.value(index)).map_err(ModelError::codec)?)?; }
+                else { admission.assertion( serde_json::from_slice(payloads.value(index)).map_err(ModelError::codec)?)?; }
+            }
+        }
+    }
+    admission.finish(manifest).await
 }
 
 fn verify_embedding(
@@ -1096,6 +1163,8 @@ pub async fn admit(
     // Coverage has an independent obligation universe derived from acquired artifacts and profile.
     // Merely having a collection of well-shaped graph records is insufficient.
     workspace.facts_availability(profile)?;
+    let _checked = workspace.admit_semantics(profile).await?;
+    workspace.admit_frontier(frontier, profile).await?;
     let mut builder = GraphBuilder::new(workspace.budget())?;
     macro_rules! emit_entities {
         ($($variant:ident: $record:path),* $(,)?)=>{$(

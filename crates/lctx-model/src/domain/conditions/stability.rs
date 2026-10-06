@@ -269,6 +269,7 @@ pub fn stability_invariants() -> Vec<Invariant> {
         ValidationInput::of::<StabilityWitness>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 2,
         name: "entry_guard_stability_replay",
         inputs,
@@ -359,6 +360,7 @@ pub fn guard_substitution_invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|i| (i.name(), i.prefix().map(|p| p.code())));
     inputs.dedup_by_key(|i| (i.name(), i.prefix().map(|p| p.code())));
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "guard_substitution_replay",
         inputs,

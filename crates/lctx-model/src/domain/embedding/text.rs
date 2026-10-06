@@ -664,6 +664,7 @@ pub(crate) fn text_invariants() -> Vec<Invariant> {
         ValidationInput::of::<TextWindow>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "analytic_text_replay",
         inputs,

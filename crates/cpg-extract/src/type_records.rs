@@ -377,7 +377,8 @@ impl Builder<'_, '_> {
             | ModelError::Identity(_)
             | ModelError::Conflict(_)
             | ModelError::Codec(_)
-            | ModelError::Infrastructure { .. }) => error,
+            | ModelError::Infrastructure { .. }
+            | ModelError::Serving(_)) => error,
         })?;
         self.out.hold(&row)?;
         self.out.lists.push(row.clone());

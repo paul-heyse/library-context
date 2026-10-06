@@ -323,6 +323,7 @@ pub fn validate_coverage_contract(
 /// The latter are still required to prove that no scheduled scope was omitted.
 pub(crate) fn invocation_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "provider_invocation_membership",
         inputs: vec![
@@ -441,6 +442,7 @@ pub(crate) fn coverage_ownership_invariants() -> Vec<super::Invariant> {
         super::ValidationInput::of::<ProviderCoverage>(&["id"]),
     ]);
     vec![super::Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "coverage_scope_ownership",
         inputs,

@@ -242,6 +242,7 @@ fn validate_inventory(row: &FlowUseInventoryObservation) -> Result<(), ModelErro
 }
 pub(crate) fn inventory_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "flow_use_inventory_replay",
         inputs: vec![

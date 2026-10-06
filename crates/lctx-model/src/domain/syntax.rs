@@ -390,6 +390,7 @@ fn kind(placed: &Placed, kinds: &[SyntaxKind]) -> bool {
 /// Syntax records describe occurrences of one source, nested as the parse nests them.
 pub(crate) fn syntax_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "syntax_geometry",
         inputs: vec![
@@ -574,6 +575,7 @@ impl InvariantCheck for SyntaxGeometry {
 /// and keeps its candidates: one for an innermost container, at least two when ambiguous.
 pub(crate) fn boundary_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "subject_boundaries",
         inputs: vec![

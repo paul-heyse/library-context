@@ -64,6 +64,7 @@ pub struct Condition {
 
 pub(crate) fn condition_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "canonical_condition_catalog",
         inputs: vec![

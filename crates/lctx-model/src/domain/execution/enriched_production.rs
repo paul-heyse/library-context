@@ -207,7 +207,7 @@ pub fn enrich_all(
                 }
                 Ok(())
             };
-            let verified = normalized::binding_normalization::verify(
+            let verified = normalized::binding_normalization::prepare(
                 &data.application.bindings,
                 &data.source.output,
                 budget,
@@ -729,6 +729,7 @@ fn invariant_inputs() -> Vec<ValidationInput> {
 }
 pub(crate) fn run_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "enriched_execution_inventory",
         inputs: invariant_inputs(),
@@ -737,6 +738,7 @@ pub(crate) fn run_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn binding_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "context_entry_binding_replay",
         inputs: invariant_inputs(),
@@ -745,6 +747,7 @@ pub(crate) fn binding_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn context_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "context_execution_replay",
         inputs: invariant_inputs(),
@@ -753,6 +756,7 @@ pub(crate) fn context_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn definition_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "definition_evaluation_replay",
         inputs: invariant_inputs(),
@@ -761,6 +765,7 @@ pub(crate) fn definition_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn modeled_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "enriched_modeled_call_replay",
         inputs: invariant_inputs(),
@@ -769,6 +774,7 @@ pub(crate) fn modeled_invariants() -> Vec<Invariant> {
 }
 pub(crate) fn statement_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "enriched_statement_replay",
         inputs: invariant_inputs(),

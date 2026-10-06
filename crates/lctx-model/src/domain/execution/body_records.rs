@@ -197,6 +197,7 @@ pub(crate) fn emit(
 }
 pub(crate) fn body_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "base_source_body_inventory",
         inputs: super::completion_production::inventory_inputs(),

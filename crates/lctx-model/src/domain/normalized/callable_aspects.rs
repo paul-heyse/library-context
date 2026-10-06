@@ -973,6 +973,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = super::facts_inputs(AspectData::inputs());
     inputs.extend(AspectOutput::inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "normalized_callable_aspects",
         inputs,

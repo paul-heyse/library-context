@@ -150,6 +150,7 @@ fn validate_snapshot(row: &FlowCaptureTimingObservation) -> Result<(), ModelErro
 }
 pub(crate) fn inventory_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "flow_capture_inventory",
         inputs: vec![

@@ -459,6 +459,7 @@ pub(crate) fn inventory_check(budget: &ResourceBudget) -> Box<dyn InvariantCheck
 }
 pub(crate) fn run_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "base_completion_inventory",
         inputs: run_inputs(),

@@ -1615,7 +1615,7 @@ pub fn produce(
     run.work +=
         super::summary_exceptions::derive(data, invocation, &mut out, limits.work, budget)? as i64;
     let verified =
-        normalized::binding_normalization::verify(&data.bindings, &data.binding_output, budget)?;
+        normalized::binding_normalization::prepare(&data.bindings, &data.binding_output, budget)?;
     let schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
     let (calls, _calls) = call_infos(data, &verified, invocation, &mut out, budget)?;
     let (seeds, _seeds) = data.seeds(invocation, &mut out, budget)?;

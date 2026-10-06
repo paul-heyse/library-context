@@ -122,6 +122,7 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<SelectionInvocation>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 2,
         name: "catalog_selection_invocation_domain",
         inputs,

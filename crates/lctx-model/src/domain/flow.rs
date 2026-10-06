@@ -133,6 +133,7 @@ fn validate_view(row: &FlowSourceViewObservation) -> Result<(), ModelError> {
 }
 pub(crate) fn view_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "flow_view_and_narrowing_precision",
         inputs: vec![
@@ -270,6 +271,7 @@ pub struct FlowRegionObservation {
 pub(crate) fn flow_invariants() -> Vec<Invariant> {
     vec![
         Invariant {
+            purpose: crate::domain::InvariantPurpose::Admission,
             revision: 1,
             name: "flow_reaching_places",
             inputs: vec![
@@ -286,6 +288,7 @@ pub(crate) fn flow_invariants() -> Vec<Invariant> {
             }),
         },
         Invariant {
+            purpose: crate::domain::InvariantPurpose::Admission,
             revision: 1,
             name: "flow_source_structure",
             inputs: vec![
@@ -618,6 +621,7 @@ impl FlowCallPath {
 }
 pub(crate) fn flow_path_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "flow_call_path_structure",
         inputs: vec![

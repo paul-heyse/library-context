@@ -792,6 +792,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = CallableData::validation_inputs();
     inputs.extend(CallableOutput::validation_inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "normalized_callable_closure",
         inputs,

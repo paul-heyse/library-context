@@ -56,7 +56,7 @@ fn receiver_proofs(
     macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
     crate::normalized_receiver_inputs!(input);
     crate::normalized_receiver_outputs!(output);
-    super::receiver::verify(&inputs, &outputs, budget)
+    super::receiver::prepare(&inputs, &outputs, budget)
 }
 fn event_proofs(
     data: &BindingData,
@@ -68,7 +68,7 @@ fn event_proofs(
     macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
     crate::normalized_event_inputs!(input);
     crate::normalized_event_outputs!(output);
-    super::event_normalization::verify(&inputs, &outputs, budget)
+    super::event_normalization::prepare(&inputs, &outputs, budget)
 }
 fn original_target<'a>(
     data: &'a BindingData,
@@ -905,7 +905,43 @@ pub fn verify(
     verify_enumerations(data, budget)?;
     let events = verify_upstream(data, budget)?;
     let receivers = receiver_proofs(data, budget)?;
+    admit(data, stored, &receivers, &events, budget)
+}
+/// Prepare the exact bound/shape/composition consumer authority over completed inputs. This
+/// checks applicability and the actual bound members without replaying any predecessor owner.
+/// The compiler additionally carries admission of immutable predecessor streams in its attempt.
+pub fn prepare(
+    data: &BindingData, stored: &BindingOutput, budget: &ResourceBudget,
+) -> Result<VerifiedBindings, ModelError> {
+    verify_enumerations(data, budget)?;
+    let events = event_proofs(data, budget)?;
+    let receivers = receiver_proofs(data, budget)?;
+    admit(data, stored, &receivers, &events, budget)
+}
+fn admit(
+    data: &BindingData, stored: &BindingOutput,
+    receivers: &super::receiver::VerifiedReceivers,
+    events: &super::event_normalization::VerifiedEvents,
+    budget: &ResourceBudget,
+) -> Result<VerifiedBindings, ModelError> {
     let index = Index::new(data, budget)?;
+    admit_attempt_domain(data, stored, &index)?;
+    // Proven incompatibility can eliminate an alternative from a unique binding shape. It is
+    // therefore an eligibility premise, not a stored status that may be trusted on its own.
+    for row in stored.attempts.iter().filter(|row| row.outcome == BindingOutcome::ProvenIncompatible) {
+        let alternative = need(&data.event_alternatives, row.alternative)?;
+        let variant = need(&data.callable_variants, row.variant.ok_or_else(|| invalid("incompatible attempt has no signature variant"))?)?;
+        let syntax = need(&data.syntax, row.syntax.ok_or_else(|| invalid("incompatible attempt has no syntax"))?)?;
+        let application = application(data, alternative, variant, syntax, receivers, events)
+            .map_err(|_| invalid("incompatible attempt has no applicable signature"))?;
+        let mut work = StateCharge::new(budget, "incompatible-binding-admission");
+        match bind_application(data, &index, &application, &mut work)? {
+            Err(failure) if failure.class == BindingFailureClass::ProvenIncompatible
+                && row.refusal == Some(failure.reason) => {},
+            _ => return Err(invalid("stored incompatibility does not eliminate an actual binding")),
+        }
+    }
+    admit_set_predicates(data, stored, &index, budget)?;
     let mut result = VerifiedBindings {
         bound: Default::default(),
         shape: Default::default(),
@@ -940,11 +976,37 @@ pub fn verify(
             row.syntax
                 .ok_or_else(|| invalid("bound attempt has no syntax"))?,
         )?;
-        let application = application(data, alternative, variant, syntax, &receivers, &events)
+        let application = application(data, alternative, variant, syntax, receivers, events)
             .map_err(|_| invalid("stored binding applicability changed"))?;
         let mut work = StateCharge::new(budget, "binding-replay-work");
         let bound = bind_application(data, &index, &application, &mut work)?
             .map_err(|_| invalid("stored binding replay refused"))?;
+        let target = original_target(data, alternative)?;
+        if row.policy != policy_revision() || row.event != alternative.event
+            || row.receiver != target.receiver
+            || row.receiver_assessment != receivers.get(target.id()).map(|proof| proof.assessment())
+            || row.dispatch_member != events.dispatch(alternative.id()).map(|proof| proof.member())
+            || row.effective != variant.assessment || row.adjustment != variant.adjustment
+            || row.reason != BindingReason::Bound || row.refusal.is_some()
+            || row.signature != Some(variant.signature) || row.arguments != Some(syntax.arguments)
+            || row.authority != application.authority() || row.authority_reason != application.reason()
+            || row.bindings != digest(bound.bindings())
+        { return Err(invalid("stored bound invocation differs from applicable signature")); }
+        let mut actual_count = 0;
+        for (ordinal, binding) in bound.bindings().iter().enumerate() {
+            let slot = index.slots.get(&binding.formal).ok_or_else(|| invalid("bound formal has no slot"))?;
+            if slot.variant != variant.id() { return Err(invalid("bound formal slot crosses variant")); }
+            let member = CallBinding { attempt: row.id(), ordinal: ordinal as i64, slot: slot.id(),
+                source: binding.source.id(), kind: binding.kind, projection: binding.projection.id() };
+            if stored.bindings.get(member.id()) != Some(&member)
+                || stored.sources.get(member.source) != Some(&binding.source)
+                || stored.projections.get(member.projection) != Some(&binding.projection)
+            { return Err(invalid("stored bound members differ from applicable argument shape")); }
+            actual_count += 1;
+        }
+        if stored.bindings.iter().filter(|binding| binding.attempt == row.id()).count() != actual_count {
+            return Err(invalid("stored bound invocation has extra members"));
+        }
         result.bound.insert(
             &mut result._charge,
             row.id(),
@@ -1158,6 +1220,76 @@ pub fn verify(
     }
     Ok(result)
 }
+fn admit_attempt_domain(data: &BindingData, stored: &BindingOutput, index: &Index<'_>) -> Result<(), ModelError> {
+    for alternative in data.event_alternatives.iter() {
+        let event = need(&data.event_events, alternative.event)?;
+        let target = original_target(data, alternative)?;
+        let variants = match alternative.entity.and_then(|id| data.refs.get(id)) {
+            Some(EntityRef::Callable { callable }) => index.variants.get(&(*callable, event.context)),
+            _ => need(&data.destinations, target.destination)?.symbol().and_then(|symbol| index.raw_variants.get(&symbol)),
+        };
+        let syntax = index.syntax.get(&(event.site, event.context));
+        let mut actual = stored.attempts.iter().filter(|attempt| attempt.alternative == alternative.id()).count();
+        for v in 0..variants.map_or(1, |rows| rows.len().max(1)) {
+            for s in 0..syntax.map_or(1, |rows| rows.len().max(1)) {
+                let variant = variants.and_then(|rows| rows.get(v)).map(|row| row.id());
+                let syntax = syntax.and_then(|rows| rows.get(s)).map(|row| row.id());
+                let mut members = stored.attempts.iter().filter(|attempt| attempt.alternative == alternative.id()
+                    && attempt.variant == variant && attempt.syntax == syntax && attempt.policy == policy_revision());
+                let attempt = members.next().ok_or_else(|| invalid("binding input candidate pair has no required outcome"))?;
+                if members.next().is_some() || attempt.event != event.id() { return Err(invalid("binding attempt candidate domain changed")); }
+                actual = actual.checked_sub(1).ok_or_else(|| invalid("binding candidate domain duplicated"))?;
+                let mut memberships = stored.members.iter().filter(|member| member.attempt == attempt.id());
+                let membership = memberships.next().ok_or_else(|| invalid("binding attempt has no closed set membership"))?;
+                if memberships.next().is_some() { return Err(invalid("binding attempt has ambiguous set membership")); }
+                let grouping = need(&stored.variants, membership.variant)?;
+                let set = need(&stored.sets, grouping.set)?;
+                if grouping.variant != variant || (set.event, set.entity, set.phase, set.channel)
+                    != (event.id(), alternative.entity, target.phase, target.channel)
+                { return Err(invalid("binding attempt is a member of another event/signature set")); }
+            }
+        }
+        if actual != 0 { return Err(invalid("binding attempt exceeds the complete candidate domain")); }
+    }
+    for attempt in stored.attempts.iter() { need(&data.event_alternatives, attempt.alternative)?; }
+    Ok(())
+}
+
+/// Check shape/effective selection predicates one complete event set at a time. The result
+/// replay verifier checks production as a diagnostic; this checks the actual premises needed
+/// by a consumer and does not run predecessor normalization.
+fn admit_set_predicates(
+    data: &BindingData, stored: &BindingOutput, index: &Index<'_>, budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    for set in stored.sets.iter() {
+        let key = (set.event, set.entity, set.phase, set.channel);
+        let mut charge = StateCharge::new(budget, "binding-set-admission");
+        let mut ids = Vec::new();
+        for attempt in stored.attempts.iter() {
+            let alternative = need(&data.event_alternatives, attempt.alternative)?;
+            let target = original_target(data, alternative)?;
+            if (alternative.event, alternative.entity, target.phase, target.channel) == key {
+                charge.grow(size_of::<Id<CallBindingAttempt>>().saturating_mul(2))?;
+                ids.push(attempt.id());
+            }
+        }
+        if ids.is_empty() { return Err(invalid("binding set has no independently selected attempts")); }
+        let mut expected = BindingOutput::new(budget);
+        for id in &ids { expected.attempts.insert(need(&stored.attempts, *id)?.clone())?; }
+        assess_set(data, index, key, &ids, &mut expected, budget)?;
+        if expected.sets.get(set.id()) != Some(set) { return Err(invalid("binding set eligibility changed")); }
+        macro_rules! check { ($field:ident, $belongs:expr) => {
+            if expected.$field.iter().any(|row| stored.$field.get(row.id()) != Some(row))
+                || stored.$field.iter().filter($belongs).count() != expected.$field.len()
+            { return Err(invalid("binding set closed member domain differs")); }
+        }; }
+        check!(variants, |row: &&BindingVariantAssessment| row.set == set.id());
+        check!(members, |row: &&BindingSetMember| stored.variants.get(row.variant).is_some_and(|variant| variant.set == set.id()));
+        check!(coverage, |row: &&BindingSetCoverage| row.set == set.id());
+    }
+    Ok(())
+}
+
 fn selected_source_body_closure(
     data: &BindingData,
     stored: &BindingOutput,
@@ -1523,22 +1655,36 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = BindingData::validation_inputs();
     inputs.extend(BindingOutput::validation_inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "normalized_binding_closure",
-        inputs,
+        inputs: inputs.clone(),
         create: std::sync::Arc::new(|budget| {
             Box::new(BindingCheck {
                 data: BindingData::new(budget),
                 output: BindingOutput::new(budget),
                 budget: budget.clone(),
+                admission: false,
             })
         }),
+    }, Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
+        revision: 1,
+        name: "normalized_binding_admission",
+        inputs,
+        create: std::sync::Arc::new(|budget| Box::new(BindingCheck {
+            data: BindingData::new(budget),
+            output: BindingOutput::new(budget),
+            budget: budget.clone(),
+            admission: true,
+        })),
     }]
 }
 struct BindingCheck {
     data: BindingData,
     output: BindingOutput,
     budget: ResourceBudget,
+    admission: bool,
 }
 impl InvariantCheck for BindingCheck {
     fn visit(
@@ -1554,6 +1700,7 @@ impl InvariantCheck for BindingCheck {
     // The validation runner also checks all upstream invariants. Token minting above additionally
     // reconstructs upstream callable/event premises, rather than trusting caller-supplied flags.
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        if self.admission { return prepare(&self.data, &self.output, &self.budget).map(|_| ()); }
         self.output.matches(&normalize(&self.data, &self.budget)?)
     }
 }
@@ -1635,5 +1782,5 @@ fn verify_upstream(
 }
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {
-    vec!["normalized_binding_closure"]
+    vec!["normalized_binding_closure", "normalized_binding_admission"]
 }

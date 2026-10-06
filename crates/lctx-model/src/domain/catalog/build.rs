@@ -701,6 +701,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = CatalogData::validation_inputs();
     inputs.extend(CatalogOutput::validation_inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 2,
         name: "catalog_core_closure",
         inputs,
@@ -866,6 +867,7 @@ pub fn invocation_invariants() -> Vec<Invariant> {
     ));
     inputs.push(ValidationInput::of::<CatalogMemberInvocation>(&["id"]));
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "catalog_member_invocation_closure",
         inputs,

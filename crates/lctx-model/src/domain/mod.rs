@@ -63,7 +63,7 @@ pub mod value;
 pub use finite::FiniteF64;
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink, Utf8Text};
 pub use model::{
-    Invariant, InvariantCheck, PublicationCheck, PublicationInvariant, Relation, RelationContent,
+    Invariant, InvariantPurpose, InvariantCheck, PublicationCheck, PublicationInvariant, Relation, RelationContent,
     SEMANTIC_POLICY_REVISION, ValidatedModel, ValidationDefinitions, ValidationIdentity,
     ValidationInput, ValidationKind, implementation_digest,
 };
@@ -74,6 +74,9 @@ pub use record::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModelError {
+    /// A recognized consumer cause. Its public meaning never contains internal error text.
+    #[error("{0}")]
+    Serving(serving::FailureKind),
     #[error(
         "{owner} memory reservation refused: requested {requested} bytes with {used}/{limit} reserved"
     )]

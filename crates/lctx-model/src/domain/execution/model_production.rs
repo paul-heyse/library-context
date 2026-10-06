@@ -1,4 +1,4 @@
-//! Nominal Model publication. Applicability is replayed from early native/catalog declarations;
+//! Nominal Model publication. Applicability consumes completed native/catalog/Enriched inputs;
 //! invocation actions and exit postconditions are independent. Model never reads Summary.
 use super::{
     model_application::{CheckedModelApplication, ModelApplicationData},
@@ -12,7 +12,7 @@ use crate::domain::{
     models::{AuthoredModel, Catalog, ModelCatalog},
     normalized::{
         Rows,
-        binding_normalization::{BindingOutput, verify},
+        binding_normalization::{BindingOutput, prepare},
     },
     resources::{Reservation, ResourceBudget},
     *,
@@ -152,7 +152,8 @@ pub struct ModelData {
     pub context_sources: Rows<super::context_execution::ContextSource>,
     pub context_members: Rows<super::context_execution::ContextMember>,
     pub context_outcomes: Rows<super::enriched_records::ExecutionOutcome>,
-    pub execution: super::enriched_production::EnrichedData,
+    pub completed: super::completion_production::CompletedEvaluations,
+    pub flow: conditions::entry::EntryData,
     pub entries: Rows<conditions::entry::EntryValueWitness>,
     pub entry_sources: Rows<conditions::entry::EntryAccessSource>,
     pub modeled_calls: Rows<super::modeled_call::ModeledCallEvaluation>,
@@ -181,7 +182,8 @@ impl ModelData {
             context_sources: Rows::new(budget),
             context_members: Rows::new(budget),
             context_outcomes: Rows::new(budget),
-            execution: super::enriched_production::EnrichedData::new(budget),
+            completed: super::completion_production::CompletedEvaluations::new(budget),
+            flow: conditions::entry::EntryData::new(budget),
             entries: Rows::new(budget),
             entry_sources: Rows::new(budget),
             modeled_calls: Rows::new(budget),
@@ -205,7 +207,8 @@ impl ModelData {
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
         self.protocol.visit(name, batch)?;
-        self.execution.visit(name, batch)?;
+        self.completed.visit(name, batch)?;
+        self.flow.visit(name, batch)?;
         self.early.visit(name, batch)?;
         self.bindings.visit(name, batch)?;
         macro_rules! rows{($($field:ident:$ty:ty,)*)=>{$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*};}
@@ -248,7 +251,8 @@ impl ModelData {
                 }),
         );
         rows.extend(BindingOutput::validation_inputs());
-        rows.extend(super::enriched_production::EnrichedData::inputs());
+        rows.extend(super::completion_production::CompletedEvaluations::consumed_inputs(stages::Profile::Behavioral));
+        rows.extend(normalized::facts_inputs(conditions::entry::EntryData::validation_inputs()));
         rows.extend([
             ValidationInput::of::<super::context_binding::ContextEntryBinding>(&["id"]),
             ValidationInput::of::<super::context_binding::BindingSource>(&["id"]),
@@ -362,134 +366,32 @@ pub fn apply_all(
         .definitions
         .get(parent.definition)
         .ok_or_else(|| invalid("Model Enriched definition absent"))?;
-    let replay = super::enriched_production::enrich_all(
-        &data.execution,
-        parent,
-        parent_definition,
-        profile,
-        budget,
-    )?;
-    let same_frame = |id| {
-        data.enriched
-            .get(id)
-            .is_some_and(|p| (p.input, p.context) == (invocation.input, invocation.context))
-    };
-    macro_rules! compare{($($field:ident,)*)=>{$(if data.$field.iter().filter(|r|same_frame(r.invocation)).count()!=replay.$field.len()||replay.$field.iter().any(|r|data.$field.get(r.id())!=Some(r)){return Err(invalid("Model Enriched call evidence differs from shared replay"));})*};}
-    compare! {modeled_calls,contexts,context_bindings,}
-    for r in replay.context_binding_sources.iter() {
-        if data.context_binding_sources.get(r.id()) != Some(r) {
-            return Err(invalid(
-                "Model context binding source differs from shared replay",
-            ));
-        }
-    }
-    for r in replay.context_binding_members.iter() {
-        if data.context_binding_members.get(r.id()) != Some(r) {
-            return Err(invalid(
-                "Model context binding membership differs from shared replay",
-            ));
-        }
-    }
-    if data
-        .context_binding_members
-        .iter()
-        .filter(|r| {
-            data.context_bindings
-                .get(r.binding)
-                .is_some_and(|c| same_frame(c.invocation))
-        })
-        .count()
-        != replay.context_binding_members.len()
-    {
-        return Err(invalid(
-            "Model context binding child inventory differs from replay",
-        ));
-    }
-    if data
-        .context_items
-        .iter()
-        .filter(|r| {
-            data.contexts
-                .get(r.execution)
-                .is_some_and(|c| same_frame(c.invocation))
-        })
-        .count()
-        != replay.context_items.len()
-        || data
-            .context_members
-            .iter()
-            .filter(|r| {
-                data.contexts
-                    .get(r.execution)
-                    .is_some_and(|c| same_frame(c.invocation))
-            })
-            .count()
-            != replay.context_members.len()
-    {
-        return Err(invalid(
-            "Model context child inventory differs from source replay",
-        ));
-    }
-    if data
-        .modeled_arguments
-        .iter()
-        .filter(|r| {
-            data.modeled_calls
-                .get(r.call)
-                .is_some_and(|c| same_frame(c.invocation))
-        })
-        .count()
-        != replay.modeled_arguments.len()
-        || data
-            .modeled_native
-            .iter()
-            .filter(|r| {
-                data.modeled_calls
-                    .get(r.call)
-                    .is_some_and(|c| same_frame(c.invocation))
-            })
-            .count()
-            != replay.modeled_native.len()
-    {
-        return Err(invalid(
-            "Model actual/native call inventory differs from source replay",
-        ));
-    }
-    for row in replay.context_items.iter() {
-        if data.context_items.get(row.id()) != Some(row) {
-            return Err(invalid("Model context item differs from source replay"));
-        }
-    }
-    for row in replay.context_sources.iter() {
-        if data.context_sources.get(row.id()) != Some(row) {
-            return Err(invalid("Model context source differs from source replay"));
-        }
-    }
-    for row in replay.context_members.iter() {
-        if data.context_members.get(row.id()) != Some(row) {
-            return Err(invalid(
-                "Model context membership differs from source replay",
-            ));
-        }
-    }
-    for context in replay.contexts.iter() {
+    let (enriched_parameters, enriched_definition) = super::configuration::enriched_execution(selected);
+    if parent.subject.is_some() || *parent_definition != enriched_definition
+        || data.parameters.get(enriched_parameters.id()) != Some(&enriched_parameters)
+    { return Err(invalid("Model completed Enriched configuration differs from selected catalog")); }
+    let same_frame = |id| id == parent.id();
+    // Enriched is a completed, checked predecessor. Model-specific applicability uses its
+    // exact frame directly; recreating execution would replace predecessor authority with a
+    // second producer run and retain another complete set of rich context/call records.
+    for context in data.contexts.iter().filter(|context| same_frame(context.invocation)) {
         super::model_protocol::emit(
             super::model_protocol::ProtocolInputs {
                 catalog,
                 data: &data.early,
                 execution: context,
             },
-            &replay.context_items,
-            &replay.outcomes,
+            &data.context_items,
+            &data.context_outcomes,
             invocation,
             &mut records,
             budget,
         )?;
     }
-    for binding in replay.context_bindings.iter() {
+    for binding in data.context_bindings.iter().filter(|binding| same_frame(binding.invocation)) {
         let resource = {
             let mut resources = records.context_resources.iter().filter(|r| {
-                replay
+                data
                     .context_items
                     .get(r.item)
                     .is_some_and(|i| i.item == binding.item)
@@ -505,8 +407,8 @@ pub fn apply_all(
             && let Ok(proof) = super::model_context_transfer::CheckedContextTransfer::derive(
                 &resource,
                 binding,
-                &data.execution.source.completed,
-                &data.execution.source.flow,
+                &data.completed,
+                &data.flow,
                 &data.entries,
                 &data.entry_sources,
                 budget,
@@ -521,21 +423,7 @@ pub fn apply_all(
             )?;
         }
     }
-    for row in replay.modeled_arguments.iter() {
-        if data.modeled_arguments.get(row.id()) != Some(row) {
-            return Err(invalid(
-                "Model Enriched argument evidence differs from replay",
-            ));
-        }
-    }
-    for row in replay.modeled_native.iter() {
-        if data.modeled_native.get(row.id()) != Some(row) {
-            return Err(invalid(
-                "Model Enriched native call evidence differs from replay",
-            ));
-        }
-    }
-    let verified = verify(&data.early.bindings, &data.bindings, budget)?;
+    let verified = prepare(&data.early.bindings, &data.bindings, budget)?;
     // Catalog targets describe Python operations. A document-only frame has no such
     // domain; missing catalog targets there are not missing Python evidence. Retain the
     // predecessor/binding checks above and derive emptiness from captured uses, never outputs.
@@ -650,7 +538,7 @@ pub fn apply_all(
                     })?;
                 }
                 let applied = AppliedRules::derive(&checked, row.id(), &data.early, budget)?;
-                let normal_call = replay.modeled_calls.iter().find(|c| {
+                let normal_call = data.modeled_calls.iter().filter(|c| same_frame(c.invocation)).find(|c| {
                     c.attempt == row.attempt
                         && c.model == row.model
                         && c.event == row.event
@@ -707,10 +595,10 @@ pub fn apply_all(
                                             paths: &applied.paths,
                                         },
                                         call,
-                                        &replay.modeled_arguments,
-                                        &data.execution.source.completed,
+                                        &data.modeled_arguments,
+                                        &data.completed,
                                         super::model_transfer::TransferEntryInputs {
-                                            entry_data: &data.execution.source.flow,
+                                            entry_data: &data.flow,
                                             entries: &data.entries,
                                             sources: &data.entry_sources,
                                         },
@@ -820,6 +708,7 @@ fn run_inputs() -> Vec<ValidationInput> {
 }
 pub(crate) fn run_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "model_inventory_replay",
         inputs: run_inputs(),
@@ -1112,5 +1001,37 @@ mod domain_controls {
         let before = budget.reserved();
         assert!(has_python_domain(&data, own, &budget).unwrap());
         assert_eq!(budget.reserved(), before);
+    }
+}
+
+#[cfg(test)]
+mod completed_enriched_controls {
+    use super::*;
+    fn nominal<T>(byte: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+    }
+    #[test]
+    fn model_consumes_completed_empty_enriched_frame_without_source_call_producer() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let catalog = Catalog::parse("empty.toml", "version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
+        let selected = catalog.declaration().id();
+        let mut data = ModelData::new(&budget);
+        data.catalogs.insert(catalog.declaration().clone()).unwrap();
+        let (parameters, definition) = super::super::configuration::models(selected);
+        let (enriched_parameters, enriched_definition) = super::super::configuration::enriched_execution(selected);
+        data.parameters.insert(parameters).unwrap();
+        data.parameters.insert(enriched_parameters).unwrap();
+        data.definitions.insert(definition.clone()).unwrap();
+        data.definitions.insert(enriched_definition.clone()).unwrap();
+        let (parent, _) = analysis::enriched_execution::AnalysisInvocation::new(nominal(1), nominal(2), enriched_definition.id(), None, []);
+        data.enriched.insert(parent.clone()).unwrap();
+        let (invocation, _) = publication::AnalysisInvocation::new(parent.input, parent.context, definition.id(), None, []);
+        // No SourceCalls or execution input exists: this legitimate empty scope cannot be
+        // serviced by replaying Enriched, which would demand those predecessor producers.
+        assert!(data.source_calls.is_empty());
+        let output = apply_all(&data, &invocation, &definition, stages::Profile::Behavioral, &budget).unwrap();
+        assert!(output.run.requested);
+        assert_eq!(output.outcome.status, analysis::AnalysisStatus::Completed);
+        assert!(output.applications.is_empty());
     }
 }

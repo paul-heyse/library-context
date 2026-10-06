@@ -315,6 +315,7 @@ pub(crate) fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<ClassTraitSupport>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "claim_assumption_basis",
         inputs,

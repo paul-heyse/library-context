@@ -104,6 +104,7 @@ impl GuardIndex {
 }
 pub(crate) fn guard_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "invoked_guard_origins",
         inputs: vec![

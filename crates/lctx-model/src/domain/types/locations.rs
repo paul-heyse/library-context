@@ -11,6 +11,7 @@ use crate::domain::{
 };
 pub fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "selected_type_location_shapes",
         inputs: vec![

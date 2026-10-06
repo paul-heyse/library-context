@@ -928,6 +928,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|i| (i.name(), i.prefix()));
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 2,
         name: "programmatic_assertion_replay",
         inputs,

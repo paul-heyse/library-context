@@ -320,14 +320,28 @@ impl Workspace {
     /// Reuse the model's ordered invariant state machines with spillable SQL ordering. No global
     /// graph concatenation or resident copy of all completed relations is constructed.
     pub async fn validate(&self) -> Result<ContentHash, ModelError> {
+        let profile = self.completed_relations()?.first().map_or(Profile::Catalog, |r| r.profile);
+        self.validate_scope(profile, false, None).await
+    }
+    /// Establish necessary semantic properties for immutable completed input descriptors.
+    pub async fn checked_inputs(&self, inputs: &CompletedInputs) -> Result<CheckedInputs, ModelError> {
+        self.validate_scope(inputs.profile, true, Some(inputs)).await?;
+        Ok(CheckedInputs { inputs: inputs.clone(), attempt: self.files.clone(), policy: self.model.digest() })
+    }
+    pub async fn admit_semantics(&self, profile: Profile) -> Result<CheckedInputs, ModelError> {
         let relations = self.completed_relations()?;
+        let inputs = self.inputs("semantic-admission", profile, relations.iter().map(|r| r.name()))?;
+        self.checked_inputs(&inputs).await
+    }
+    async fn validate_scope(&self, profile: Profile, admission: bool, selected: Option<&CompletedInputs>) -> Result<ContentHash, ModelError> {
+        let relations = selected.map(|inputs| inputs.relations().cloned().collect()).unwrap_or(self.completed_relations()?);
         let names = relations
             .iter()
             .map(|r| r.name())
             .collect::<std::collections::BTreeSet<_>>();
         let inputs = self.inputs(
             "artifact-admission",
-            Profile::Catalog,
+            profile,
             names.iter().copied(),
         )?;
         let session = inputs.session(self).await?;
@@ -335,7 +349,7 @@ impl Workspace {
         // Catalog explicitly leaves native flow unrequested. Empty premises come from that
         // provider declaration, never from arbitrary missing requested relations.
         let mut unrequested = std::collections::BTreeSet::new();
-        if relations.iter().all(|r| r.profile == Profile::Catalog)
+        if profile == Profile::Catalog
             && names.contains(lctx_model::domain::normalized::bindings::CallBinding::NAME)
         {
             let declaration = crate::facts::providers(ContentHash::of(b"flow-profile-premises"))
@@ -366,10 +380,12 @@ impl Workspace {
             }
         }
         let frozen_tables = self.validation_views(&session).await?;
-        for invariant in self
-            .model
-            .invariants_for_scope_with_premises(&names, &unrequested)?
-        {
+        let checks = if admission {
+            self.model.admission_for_scope_with_premises(&names, &unrequested)?
+        } else {
+            self.model.invariants_for_scope_with_premises(&names, &unrequested)?
+        };
+        for invariant in checks {
             let mut check = (invariant.create)(self.budget());
             for input in &invariant.inputs {
                 let order = input
@@ -402,6 +418,34 @@ impl Workspace {
             check.finish()?;
         }
         self.content()
+    }
+    /// Independent frontier obligations use the actual profile and retained capture/method
+    /// definitions. They require no producer replay or historical publication receipts.
+    pub async fn admit_frontier(&self, frontier: lctx_model::domain::admission::Frontier, profile: Profile) -> Result<(), ModelError> {
+        use lctx_model::domain::admission::Frontier;
+        let ids: &[&str] = match frontier {
+            Frontier::Facts | Frontier::Normalized => &[],
+            Frontier::Conformance => return Err(ModelError::Frontier("diagnostic conformance is not a complete artifact".into())),
+            Frontier::Analysis => &["complete_analysis_frontier"],
+            Frontier::Catalog => &["complete_analysis_frontier", "complete_catalog_frontier"],
+        };
+        let relations = self.completed_relations()?;
+        let access = self.inputs("frontier-admission", profile, relations.iter().map(|r| r.name()))?;
+        let session = access.session(self).await?;
+        for id in ids {
+            let invariant = self.model.publication_check(id)?;
+            let mut check = (invariant.create)(self.budget());
+            for input in &invariant.inputs {
+                let mut stream = crate::sql::query(&session, &format!("SELECT * FROM \"{}\" ORDER BY id", input.name()))
+                    .await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+                    self.cancellation.check()?;
+                    check.visit_input(input, &batch)?;
+                }
+            }
+            check.finish(&[], profile)?;
+        }
+        Ok(())
     }
     async fn validation_views(
         &self,
@@ -703,6 +747,7 @@ impl Workspace {
     pub fn budget(&self) -> &ResourceBudget {
         &self.budget
     }
+    pub fn options(&self) -> WorkspaceOptions { self.options }
     pub fn model(&self) -> &Arc<ValidatedModel> {
         &self.model
     }
@@ -1110,6 +1155,31 @@ impl<R: Record> Iterator for TypedBatches<R> {
         })
     }
 }
+/// Privately constructed after owner admission succeeds. Its immutable descriptors keep their
+/// attempt files alive. Consumers compare descriptors and policy, without rehashing input bytes.
+#[derive(Clone)]
+pub struct CheckedInputs {
+    inputs: CompletedInputs,
+    attempt: Arc<WorkspaceFiles>,
+    policy: ContentHash,
+}
+impl CheckedInputs {
+    pub fn inputs(&self) -> &CompletedInputs { &self.inputs }
+    pub fn require(&self, workspace: &Workspace, inputs: &CompletedInputs) -> Result<(), ModelError> {
+        if self.inputs.relations.len() != inputs.relations.len() { return Err(ModelError::Conflict("checked compiler input domain")); }
+        self.require_subset(workspace, inputs)
+    }
+    /// A consumer may declare additional inputs; every descriptor underlying this authority must
+    /// still be the identical completed relation in its selected dependency closure.
+    pub fn require_subset(&self, workspace: &Workspace, inputs: &CompletedInputs) -> Result<(), ModelError> {
+        if !Arc::ptr_eq(&self.attempt, &workspace.files)
+            || self.policy != workspace.model.digest()
+            || self.inputs.profile != inputs.profile
+            || self.inputs.relations.iter().any(|(key, source)| inputs.relations.get(key).is_none_or(|other| !Arc::ptr_eq(source, other)))
+        { return Err(ModelError::Conflict("checked compiler inputs")); }
+        workspace.cancellation.check()
+    }
+}
 #[derive(Clone)]
 pub struct CompletedInputs {
     name: &'static str,
@@ -1125,6 +1195,25 @@ pub struct CompletedInputs {
 impl CompletedInputs {
     pub fn name(&self) -> &'static str {
         self.name
+    }
+    /// Select a model-declared immutable dependency closure without copying or rehashing rows.
+    pub fn select(&self, required: &[lctx_model::domain::ValidationInput]) -> Result<Self, ModelError> {
+        let mut relations = BTreeMap::new();
+        for input in required {
+            let key = (input.name(), input.prefix());
+            let source = if let Some(source) = self.relations.get(&key) { source } else {
+                if input.prefix().is_some() { return Err(ModelError::Conflict("missing checked input prefix")); }
+                let mut choices = self.relations.iter().filter(|((name, _), _)| *name == input.name());
+                let (_, source) = choices.next().ok_or(ModelError::Conflict("missing checked input"))?;
+                if choices.any(|(_, other)| !Arc::ptr_eq(source, other)) { return Err(ModelError::Conflict("ambiguous checked input")); }
+                source
+            };
+            // Retain the original declaration key so later subset checks cannot erase epochs.
+            let original = self.relations.iter().find(|((name, prefix), candidate)| *name == input.name() && (input.prefix().is_none() || *prefix == input.prefix()) && Arc::ptr_eq(source, candidate)).ok_or(ModelError::Conflict("checked input selector"))?.0;
+            relations.insert(*original, source.clone());
+        }
+        if relations.is_empty() { return Err(ModelError::Conflict("empty checked input closure")); }
+        Ok(Self { name:self.name, profile:self.profile, relations })
     }
     pub fn profile(&self) -> Profile {
         self.profile

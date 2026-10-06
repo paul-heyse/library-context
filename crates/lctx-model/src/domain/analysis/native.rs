@@ -281,6 +281,7 @@ pub(crate) fn inventory_invariants() -> Vec<Invariant> {
         ValidationInput::of::<NativeQualification>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 2,
         name: "native_inventory_projection",
         inputs,

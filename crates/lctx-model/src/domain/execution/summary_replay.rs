@@ -67,6 +67,7 @@ pub fn inputs_for_profile(profile: Profile) -> Vec<ValidationInput> {
 }
 pub fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "finite_summary_inventory_replay",
         inputs: inputs(),

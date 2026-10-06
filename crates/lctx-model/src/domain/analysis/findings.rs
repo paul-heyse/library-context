@@ -234,6 +234,7 @@ pub(crate) fn finding_invariants() -> Vec<Invariant> {
         ValidationInput::of::<conditions::ConditionNode>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "finding_emitter",
         inputs,

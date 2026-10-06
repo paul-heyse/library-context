@@ -1004,6 +1004,7 @@ pub fn entry_invariants() -> Vec<Invariant> {
         ValidationInput::of::<EntryAccessSource>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 2,
         name: "entry_value_witness_replay",
         inputs,

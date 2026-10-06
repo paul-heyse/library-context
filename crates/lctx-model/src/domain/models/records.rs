@@ -53,6 +53,7 @@ pub fn relations() -> Vec<Relation> {
 }
 pub fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "authored_model_catalog",
         inputs: vec![

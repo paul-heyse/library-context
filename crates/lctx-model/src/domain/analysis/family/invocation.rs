@@ -105,6 +105,7 @@ fn validate_diagnostic(row: &AnalysisDiagnostic) -> Result<(), ModelError> {
 }
 pub(crate) fn invocation_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 2,
         name: owner_table!("analysis_invocation_inputs"),
         inputs: invocation_inputs(),

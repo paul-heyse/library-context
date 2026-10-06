@@ -58,3 +58,10 @@ impl PublicFailure {
         }
     }
 }
+
+impl std::fmt::Display for FailureKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(self.message()) }
+}
+impl std::fmt::Display for PublicFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.kind.fmt(f) }
+}

@@ -260,6 +260,7 @@ impl SetDigest {
 }
 pub(crate) fn literal_set_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "literal_set_membership",
         inputs: vec![

@@ -105,6 +105,7 @@ impl ArtifactVerifier {
 
 pub(crate) fn content_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "artifact_chunk_content",
         inputs: vec![

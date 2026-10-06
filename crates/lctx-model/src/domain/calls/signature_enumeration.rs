@@ -97,6 +97,7 @@ impl SignatureEnumerationObservation {
 }
 pub(crate) fn enumeration_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "native_signature_enumeration",
         inputs: vec![

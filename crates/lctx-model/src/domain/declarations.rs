@@ -42,6 +42,7 @@ fn invalid(message: &str) -> ModelError {
 
 pub(crate) fn declaration_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "declaration_links",
         inputs: vec![

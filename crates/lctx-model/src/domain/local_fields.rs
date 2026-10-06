@@ -492,6 +492,7 @@ pub(crate) fn field_invariants() -> Vec<Invariant> {
     macro_rules! output{($($field:ident:$ty:ty,)*)=>{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}
     crate::local_field_outputs!(output);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "local_field_location_replay",
         inputs,

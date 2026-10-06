@@ -315,7 +315,7 @@ pub(crate) fn prepare_all_with(
     }
     let mut headers = Vec::new();
     let mut header_charge = charged::StateCharge::new(budget, "source_call_private_headers");
-    let verified = normalized::binding_normalization::verify(&data.bindings, &data.output, budget)?;
+    let verified = normalized::binding_normalization::prepare(&data.bindings, &data.output, budget)?;
     let mut charge = charged::StateCharge::new(budget, "source_call_root_inventory");
     let bytes = data
         .evaluation
@@ -586,6 +586,7 @@ fn invariant_inputs() -> Vec<ValidationInput> {
 }
 pub fn source_call_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "source_call_replay",
         inputs: invariant_inputs(),

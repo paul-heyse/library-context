@@ -324,6 +324,7 @@ fn validate_deployment(row: &DeploymentObservation) -> Result<(), ModelError> {
 
 pub(crate) fn collection_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "report_collection_membership",
         inputs: vec![
@@ -418,6 +419,7 @@ impl InvariantCheck for CollectionCheck {
 }
 pub(crate) fn report_shape_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "report_collection_roles",
         inputs: vec![

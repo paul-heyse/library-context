@@ -173,6 +173,7 @@ impl ManifestBuilder {
 }
 pub(crate) fn input_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "input_manifest_membership",
         inputs: vec![
@@ -417,6 +418,7 @@ fn validate_fingerprint(row: &EnvironmentFingerprint) -> Result<(), ModelError> 
 /// within that document's bytes. Facts admission requires every artifact to have a class.
 pub(crate) fn class_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "artifact_classes",
         inputs: vec![
@@ -588,6 +590,7 @@ impl InvariantCheck for ClassCheck {
 
 pub(crate) fn ownership_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "artifact_ownership_input",
         inputs: vec![
@@ -679,6 +682,7 @@ impl InvariantCheck for OwnershipCheck {
 
 pub(crate) fn acquisition_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "input_acquisition_boundaries",
         inputs: vec![

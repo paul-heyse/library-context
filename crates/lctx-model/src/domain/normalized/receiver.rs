@@ -602,10 +602,6 @@ pub fn verify(
     budget: &resources::ResourceBudget,
 ) -> Result<VerifiedReceivers, ModelError> {
     stored.matches(&normalize(data, budget)?)?;
-    let mut result = VerifiedReceivers {
-        proofs: Default::default(),
-        _charge: StateCharge::new(budget, "verified-receivers"),
-    };
     if stored
         .receiver_assessments
         .iter()
@@ -619,6 +615,34 @@ pub fn verify(
         crate::normalized_callable_outputs!(outputs);
         output.matches(&super::callable_normalization::normalize(&input, budget)?)?;
     }
+    prepare(data, stored, budget)
+}
+
+/// Admit expression-relative receiver applicability from completed checked callable inputs.
+/// This checks the local receiver predicates without rerunning callable normalization.
+pub(super) fn prepare(
+    data: &ReceiverData, stored: &ReceiverOutput, budget: &resources::ResourceBudget,
+) -> Result<VerifiedReceivers, ModelError> {
+    let mut result = VerifiedReceivers {
+        proofs: Default::default(),
+        _charge: StateCharge::new(budget, "verified-receivers"),
+    };
+    for target in data.targets.iter().filter(|target| candidates(data, target)) {
+        let mut outcomes = stored.receiver_assessments.iter().filter(|assessment| assessment.target() == target.id());
+        let row = outcomes.next().ok_or_else(|| ModelError::Invalid("receiver candidate lacks required outcome".into()))?;
+        if outcomes.next().is_some() { return Err(ModelError::Invalid("receiver candidate has ambiguous outcome".into())); }
+        if let ReceiverAssessment::Unknown { policy, reason, .. } = row {
+            let mut premises = Vec::new();
+            if *policy != policy_revision() || derive(data, target, &mut premises).err() != Some(*reason) {
+                return Err(ModelError::Invalid("receiver unknown outcome differs from required applicability premises".into()));
+            }
+        }
+    }
+    for row in stored.receiver_assessments.iter() {
+        if !data.targets.get(row.target()).is_some_and(|target| candidates(data, target)) {
+            return Err(ModelError::Invalid("receiver outcome exceeds independent candidate domain".into()));
+        }
+    }
     for row in stored.receiver_assessments.iter() {
         if let ReceiverAssessment::ClassOf {
             target,
@@ -630,6 +654,22 @@ pub fn verify(
             ..
         } = row
         {
+            let target_row = data.targets.get(*target).ok_or_else(|| ModelError::Invalid("receiver target absent".into()))?;
+            let mut premises = Vec::new();
+            let derived = derive(data, target_row, &mut premises)
+                .map_err(|reason| ModelError::Invalid(format!("receiver applicability refused: {reason:?}")))?;
+            let ReceiverAssessment::ClassOf { target: expected_target, syntax: expected_syntax,
+                effective: expected_effective, actual: expected_actual, input: expected_input,
+                context: expected_context, policy, placement, .. } = derived else {
+                return Err(ModelError::Invalid("receiver applicability changed".into()));
+            };
+            if (*target, *syntax, *effective, *actual, *input, *context) !=
+                (expected_target, expected_syntax, expected_effective, expected_actual, expected_input, expected_context)
+                || !matches!(row, ReceiverAssessment::ClassOf { policy: stored_policy, placement: stored_placement, .. }
+                    if *stored_policy == policy && *stored_placement == placement)
+            {
+                return Err(ModelError::Invalid("receiver applicability differs from admitted source".into()));
+            }
             result.proofs.insert(
                 &mut result._charge,
                 *target,
@@ -682,22 +722,36 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = ReceiverData::validation_inputs();
     inputs.extend(ReceiverOutput::validation_inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "normalized_receiver_closure",
-        inputs,
+        inputs: inputs.clone(),
         create: std::sync::Arc::new(|budget| {
             Box::new(Check {
                 input: ReceiverData::new(budget),
                 output: ReceiverOutput::new(budget),
                 budget: budget.clone(),
+                admission: false,
             })
         }),
+    }, Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
+        revision: 1,
+        name: "normalized_receiver_admission",
+        inputs,
+        create: std::sync::Arc::new(|budget| Box::new(Check {
+            input: ReceiverData::new(budget),
+            output: ReceiverOutput::new(budget),
+            budget: budget.clone(),
+            admission: true,
+        })),
     }]
 }
 struct Check {
     input: ReceiverData,
     output: ReceiverOutput,
     budget: resources::ResourceBudget,
+    admission: bool,
 }
 impl InvariantCheck for Check {
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
@@ -709,12 +763,13 @@ impl InvariantCheck for Check {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        if self.admission { return prepare(&self.input, &self.output, &self.budget).map(|_| ()); }
         verify(&self.input, &self.output, &self.budget).map(|_| ())
     }
 }
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {
-    vec!["normalized_receiver_closure"]
+    vec!["normalized_receiver_closure", "normalized_receiver_admission"]
 }
 
 #[cfg(test)]

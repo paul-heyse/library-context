@@ -2,6 +2,7 @@
 //! assertions; it is not the internal Arrow relation registry or a published execution ledger.
 use super::{ContentHash, Id, Key, KeySink, ModelError, Record};
 use serde::{Deserialize, Serialize};
+pub mod record;
 mod analysisvalue;
 mod claimvalue;
 mod membershipvalue;

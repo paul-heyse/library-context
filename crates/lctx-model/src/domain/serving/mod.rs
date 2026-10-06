@@ -9,6 +9,8 @@ pub mod values;
 pub use values::*;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum WireError {
+    #[error("{0}")]
+    Failure(PublicFailure),
     #[error("invalid request: {0}")]
     Invalid(String),
     #[error("resource_refused: {0}")]
@@ -40,3 +42,13 @@ pub use failure::{FailureKind, PublicFailure};
 
 pub mod library_domains;
 pub use library_domains::*;
+
+impl WireError {
+    pub fn public_failure(&self) -> PublicFailure {
+        match self {
+            Self::Failure(failure) => failure.clone(),
+            Self::ResourceRefused(_) => PublicFailure::new(FailureKind::ResourceRefused),
+            Self::Invalid(_) | Self::UnknownTool(_) | Self::Continuation(_) => PublicFailure::new(FailureKind::Incompatible),
+        }
+    }
+}

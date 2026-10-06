@@ -960,6 +960,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = EvidenceData::inputs();
     inputs.extend(EvidenceOutput::inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "catalog_contextual_evidence",
         inputs,
@@ -1031,6 +1032,7 @@ pub fn invocation_links(
 pub fn invocation_invariants() -> Vec<Invariant> {
     let mut invariants = Vec::new();
     invariants.push(Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "catalog_evidence_invocation_closure",
         inputs: vec![

@@ -345,6 +345,7 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<RetrievalEmbeddingUse>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 2,
         name: "retrieval_embedding_consumption_and_winners",
         inputs,

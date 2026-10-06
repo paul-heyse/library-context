@@ -396,6 +396,7 @@ pub fn merge<K: TransferKeyRecord>(
 }
 fn frame_invariants<K: TransferKeyRecord>() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: K::NAME,
         inputs: vec![
@@ -492,6 +493,7 @@ fn control_invariants<
     S: SelectionRecord<Transfer = K, Control = I>,
 >() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: S::NAME,
         inputs: vec![

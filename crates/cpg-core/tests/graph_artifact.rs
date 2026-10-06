@@ -873,3 +873,52 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     std::fs::write(&file, &bytes).unwrap();
     artifact::verify_export(&output, &workspace).await.unwrap();
 }
+
+#[tokio::test]
+async fn remediation_detached_admission_refuses_unsupported_facts_with_consistent_hashes() {
+    use datafusion::arrow::{array::{Array, BinaryArray, FixedSizeBinaryArray, UInt32Array}, compute::take, ipc::{reader::FileReader, writer::FileWriter}, record_batch::RecordBatch};
+    use lctx_model::domain::{Record, graph::{Assertion, FamilyHasher, Manifest}, source::SyntaxSupport};
+    use std::fs::File;
+    let admitted = compiled(Profile::Catalog, Frontier::Facts, 1 << 30, 256).await;
+    let runtime = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()), WorkspaceOptions { memory_bytes: 1 << 30, ..Default::default() }).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("graph");
+    admitted.export(&output).unwrap();
+    artifact::verify_export(&output, &runtime).await.unwrap();
+    let file = output.join("assertions.arrow");
+    let reader = FileReader::try_new(File::open(&file).unwrap(), None).unwrap();
+    let schema = reader.schema();
+    let replacement = output.join("changed.arrow");
+    let mut writer = FileWriter::try_new(File::create(&replacement).unwrap(), &schema).unwrap();
+    let mut hasher = FamilyHasher::new(GraphFamily::Assertions);
+    let mut removed = 0;
+    for batch in reader {
+        let batch = batch.unwrap();
+        let payloads = batch.column(2).as_any().downcast_ref::<BinaryArray>().unwrap();
+        let ids = batch.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
+        let contents = batch.column(1).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
+        let mut keep = Vec::new();
+        for index in 0..batch.num_rows() {
+            let row: Assertion = serde_json::from_slice(payloads.value(index)).unwrap();
+            if row.source.as_ref().is_some_and(|source| source.domain() == SyntaxSupport::NAME) {
+                removed += 1;
+            } else {
+                keep.push(index as u32);
+                hasher.push(ContentHash(ids.value(index).try_into().unwrap()), ContentHash(contents.value(index).try_into().unwrap())).unwrap();
+            }
+        }
+        let indices = UInt32Array::from(keep);
+        let columns = batch.columns().iter().map(|column| take(column.as_ref(), &indices, None).unwrap()).collect();
+        writer.write(&RecordBatch::try_new(schema.clone(), columns).unwrap()).unwrap();
+    }
+    assert!(removed > 0);
+    writer.finish().unwrap();
+    drop(writer);
+    std::fs::rename(replacement, &file).unwrap();
+    let mut manifest: Manifest = serde_json::from_slice(&std::fs::read(output.join("manifest.json")).unwrap()).unwrap();
+    *manifest.families.iter_mut().find(|f| f.family == GraphFamily::Assertions).unwrap() = hasher.finish();
+    manifest.validate().unwrap();
+    std::fs::write(output.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let error = match artifact::verify_export(&output, &runtime).await { Ok(_) => panic!("unsupported facts admitted"), Err(error) => error };
+    assert!(error.to_string().contains("assertion has no attributed support"), "{error}");
+}

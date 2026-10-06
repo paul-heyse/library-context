@@ -319,6 +319,7 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<AnalysisEmbeddingUse>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "analytic_embedding_consumption",
         inputs,

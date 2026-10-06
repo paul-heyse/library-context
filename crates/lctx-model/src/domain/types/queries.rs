@@ -44,6 +44,7 @@ fn validate(row: &TypeQueryObservation) -> Result<(), ModelError> {
 }
 pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "located_type_query_availability",
         inputs: vec![

@@ -1226,6 +1226,7 @@ pub fn relations() -> Vec<Relation> {
 
 pub(crate) fn refutation_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "checked_finite_refutation_membership",
         inputs: vec![

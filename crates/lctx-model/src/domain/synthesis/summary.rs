@@ -259,6 +259,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|r| (r.name(), r.prefix()));
     inputs.dedup_by_key(|r| (r.name(), r.prefix()));
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 2,
         name: "synthesis_exact_summary_facets",
         inputs,

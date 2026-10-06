@@ -383,6 +383,7 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<owner::AnalysisInput>(&["id"]),
     ]);
     let invariants = vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "synthesis_fixed_native_frames",
         inputs,

@@ -803,6 +803,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = Data::inputs();
     inputs.extend(Output::inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "catalog_selection_declaration_closure",
         inputs,

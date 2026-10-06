@@ -239,6 +239,7 @@ pub enum CoverageScope {
 
 pub(crate) fn occurrence_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "occurrence_source_bounds",
         inputs: vec![

@@ -56,7 +56,7 @@ fn discharge_inputs()->Vec<ValidationInput> {
     inputs
 }
 pub(crate) fn discharge_invariants()->Vec<Invariant> {
-    vec![Invariant {revision: 1,name:owner_table!("analysis_discharge"),inputs:discharge_inputs(),create:std::sync::Arc::new(|budget|Box::new(DischargeCheck {
+    vec![Invariant {purpose: crate::domain::InvariantPurpose::Admission,revision: 1,name:owner_table!("analysis_discharge"),inputs:discharge_inputs(),create:std::sync::Arc::new(|budget|Box::new(DischargeCheck {
         charge:charged::StateCharge::new(budget,"analysis_discharge"),ownership:ownership::ScopeIndex::new(budget,"analysis_discharge"),
         obligations:Default::default(),subjects:Default::default(),sources:Default::default(),frames:Default::default(),evidence:Default::default(),derivations:Default::default(),propositions:Default::default(),qualifications:Default::default(),coverage:Default::default(),conditions:Default::default(),nodes:Default::default(),
     }))}]

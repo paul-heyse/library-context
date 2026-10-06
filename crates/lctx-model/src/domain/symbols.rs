@@ -347,6 +347,7 @@ fn validate_export_enumeration(row: &ExportEnumerationObservation) -> Result<(),
 }
 pub(crate) fn export_enumeration_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "export_enumeration_membership",
         inputs: vec![
@@ -509,6 +510,7 @@ pub struct ModuleResolutionObservation {
 
 pub(crate) fn sequence_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "symbol_sequence_membership",
         inputs: vec![
@@ -586,6 +588,7 @@ impl InvariantCheck for SequenceCheck {
 
 pub(crate) fn symbol_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "symbol_structure",
         inputs: vec![

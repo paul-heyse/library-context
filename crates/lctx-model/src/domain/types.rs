@@ -396,6 +396,7 @@ impl CallableParameterList {
 }
 pub(crate) fn parameter_list_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "callable_parameter_membership",
         inputs: vec![
@@ -540,6 +541,7 @@ impl TypedDictFieldList {
 }
 pub(crate) fn dict_field_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "typed_dictionary_membership",
         inputs: vec![
@@ -769,6 +771,7 @@ fn validate_restriction(row: &TypeVariableRestriction) -> Result<(), ModelError>
 
 pub(crate) fn sequence_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "type_sequence_membership",
         inputs: vec![
@@ -846,6 +849,7 @@ impl InvariantCheck for SequenceCheck {
 
 pub(crate) fn type_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "structural_type_shapes",
         inputs: TypeIndex::inputs(),
@@ -1463,6 +1467,7 @@ pub struct FunctionBodyObservation {
 }
 pub(crate) fn body_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "function_body_declarations",
         inputs: vec![
@@ -1575,6 +1580,7 @@ fn validate_record_field(row: &RecordFieldObservation) -> Result<(), ModelError>
 }
 pub(crate) fn record_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "record_field_order",
         inputs: vec![

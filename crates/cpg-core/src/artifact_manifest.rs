@@ -123,6 +123,46 @@ pub async fn populate(
             producers.insert(value.producer.clone(), value);
         }
     }
+    let outcomes = semantic_outcomes(workspace, frontier, profile, acquisition_config, &captures, &mut charge)?;
+    let projections = projections(workspace, frontier, &mut charge)?;
+    let embeddings = embeddings(workspace, profile, &mut charge).await?;
+    captures.sort_unstable();
+    if captures.windows(2).any(|w| w[0] == w[1]) {
+        return Err(invalid("duplicate manifest capture"));
+    }
+    originals.sort_by_key(|r| r.source);
+    if originals.windows(2).any(|w| w[0].source == w[1].source) {
+        return Err(invalid("duplicate manifest original"));
+    }
+    families.sort_by_key(|r| r.family);
+    if families.windows(2).any(|w| w[0].family == w[1].family) {
+        return Err(invalid("duplicate manifest family"));
+    }
+    let manifest = Manifest {
+        format_version: ARTIFACT_FORMAT_VERSION,
+        frontier,
+        profile,
+        captures,
+        semantic_contract: graph::semantic_contract(workspace.model()),
+        producers: producers.into_values().collect(),
+        settings: settings(workspace, acquisition_config)?,
+        families,
+        required_outcomes: outcomes.keys().cloned().collect(),
+        outcomes: outcomes.into_values().collect(),
+        originals,
+        projections,
+        embeddings,
+    };
+    manifest.validate()?;
+    Ok((manifest, charge))
+}
+
+/// Canonical outcome membership is derived from retained captures, profile, definitions and
+/// nominal invocations. Transport metadata never supplies its own expected key universe.
+fn semantic_outcomes(
+    workspace: &Workspace, frontier: Frontier, profile: Profile, acquisition_config: ContentHash,
+    captures: &[EntityId], charge: &mut charged::StateCharge,
+) -> Result<BTreeMap<OutcomeKey, Outcome>, ModelError> {
     let available = workspace.facts_availability(profile)?;
     let reporting = crate::facts::providers(acquisition_config)
         .into_iter()
@@ -140,9 +180,7 @@ pub async fn populate(
             Some(provider) => *reporting
                 .get(&(evidence.family, provider))
                 .ok_or_else(|| invalid("coverage lacks declared native owner"))?,
-            None => workspace
-                .completed::<d::attribution::ProviderCoverage>()?
-                .producer(),
+            None => cpg_extract::assembly::ASSEMBLE,
         };
         let mut domain = KeySink::new("native-outcome-domain/v1");
         evidence.family.encode(&mut domain);
@@ -173,7 +211,7 @@ pub async fn populate(
         };
         add_outcome(
             &mut outcomes,
-            &mut charge,
+            charge,
             Outcome {
                 key,
                 status,
@@ -196,7 +234,9 @@ pub async fn populate(
     let capture_set = captures.iter().copied().collect::<BTreeSet<_>>();
     macro_rules! upper {
         ($owner:ident) => {{
-            let relation = workspace.completed::<d::analysis::$owner::AnalysisInvocation>()?;
+            workspace.completed::<d::analysis::$owner::AnalysisInvocation>()?;
+            let producer = crate::compilation::UpperStage::for_outcome_relation(d::analysis::$owner::AnalysisInvocation::NAME)
+                .ok_or(ModelError::Schema("analysis outcome owner"))?.name();
             workspace.completed::<d::analysis::$owner::AnalysisOutcome>()?;
             let mut invocations = BTreeMap::new();
             let mut invocation_charge =
@@ -214,7 +254,7 @@ pub async fn populate(
                 );
                 row.content_digest().encode(&mut sink);
                 let key = OutcomeKey {
-                    producer: relation.producer().into(),
+                    producer: producer.into(),
                     scope: EntityId::of(row.input),
                     domain: sink.finish(),
                 };
@@ -240,7 +280,7 @@ pub async fn populate(
                 };
                 add_outcome(
                     &mut outcomes,
-                    &mut charge,
+                    charge,
                     Outcome {
                         key,
                         status,
@@ -276,37 +316,15 @@ pub async fn populate(
         upper!(synthesis);
         upper!(retrieval);
     }
-    let projections = projections(workspace, frontier, &mut charge)?;
-    let embeddings = embeddings(workspace, profile, &mut charge).await?;
-    captures.sort_unstable();
-    if captures.windows(2).any(|w| w[0] == w[1]) {
-        return Err(invalid("duplicate manifest capture"));
-    }
-    originals.sort_by_key(|r| r.source);
-    if originals.windows(2).any(|w| w[0].source == w[1].source) {
-        return Err(invalid("duplicate manifest original"));
-    }
-    families.sort_by_key(|r| r.family);
-    if families.windows(2).any(|w| w[0].family == w[1].family) {
-        return Err(invalid("duplicate manifest family"));
-    }
-    let manifest = Manifest {
-        format_version: ARTIFACT_FORMAT_VERSION,
-        frontier,
-        profile,
-        captures,
-        semantic_contract: graph::semantic_contract(workspace.model()),
-        producers: producers.into_values().collect(),
-        settings: settings(workspace, acquisition_config)?,
-        families,
-        required_outcomes: outcomes.keys().cloned().collect(),
-        outcomes: outcomes.into_values().collect(),
-        originals,
-        projections,
-        embeddings,
-    };
-    manifest.validate()?;
-    Ok((manifest, charge))
+    Ok(outcomes)
+}
+pub(crate) fn verify_outcomes(workspace: &Workspace, manifest: &Manifest) -> Result<(), ModelError> {
+    let mut charge = charged::StateCharge::new(workspace.budget(), "detached-outcome-admission");
+    let actual = semantic_outcomes(workspace, manifest.frontier, manifest.profile, manifest.settings, &manifest.captures, &mut charge)?;
+    if actual.keys().cloned().collect::<Vec<_>>() != manifest.required_outcomes
+        || actual.into_values().collect::<Vec<_>>() != manifest.outcomes
+    { return Err(ModelError::Conflict("artifact required semantic outcome membership")); }
+    Ok(())
 }
 
 fn projections(

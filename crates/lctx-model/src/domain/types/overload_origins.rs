@@ -164,6 +164,7 @@ fn validate_candidate(r: &NativeOverloadCandidate) -> Result<(), ModelError> {
 }
 pub(crate) fn trace_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "native_overload_original_membership",
         inputs: vec![

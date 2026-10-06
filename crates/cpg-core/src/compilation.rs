@@ -19,7 +19,7 @@ use lctx_model::domain::{
 use std::sync::Arc;
 /// Closed executable upper routes. Metadata and runner dispatch use the same finite type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UpperStage {
+pub(crate) enum UpperStage {
     Configuration,
     Native,
     EmbeddingConfiguration,
@@ -66,7 +66,7 @@ impl UpperStage {
         Self::AnalysisFrontier,
         Self::CatalogFrontier,
     ];
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Configuration => "analysis_configuration",
             Self::Native => "analysis_native_inventory",
@@ -90,6 +90,16 @@ impl UpperStage {
             Self::AnalysisFrontier => "assess_analysis_frontier",
             Self::CatalogFrontier => "assess_catalog_frontier",
         }
+    }
+    pub(crate) fn for_outcome_relation(name: &str) -> Option<Self> {
+        macro_rules! owners { ($($owner:ident => $variant:ident),* $(,)?) => {
+            match name { $(analysis::$owner::AnalysisInvocation::NAME => Some(Self::$variant),)* _ => None }
+        }; }
+        owners!(local => Local, base_evaluation => Base, base_completion => Completion,
+            source_call => SourceCalls, enriched_execution => Enriched, model => Models,
+            summary => Summary, structural => Structural, analytic_embedding => Embedding,
+            analytic => Analytic, catalog_core => CatalogCore, catalog_evidence => CatalogEvidence,
+            selection => Selection, synthesis => Synthesis, retrieval => Retrieval)
     }
     fn phase(self) -> Frontier {
         match self {

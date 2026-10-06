@@ -594,6 +594,22 @@ impl ValidatedModel {
         referrers: &std::collections::BTreeSet<&str>,
         acknowledged_premises: &std::collections::BTreeSet<&str>,
     ) -> Result<Vec<Invariant>, ModelError> {
+        self.checks_for_scope(referrers, acknowledged_premises, false)
+    }
+    /// Select necessary properties at their model owners, excluding differential reconstruction.
+    pub fn admission_for_scope_with_premises(
+        &self,
+        referrers: &std::collections::BTreeSet<&str>,
+        acknowledged_premises: &std::collections::BTreeSet<&str>,
+    ) -> Result<Vec<Invariant>, ModelError> {
+        self.checks_for_scope(referrers, acknowledged_premises, true)
+    }
+    fn checks_for_scope(
+        &self,
+        referrers: &std::collections::BTreeSet<&str>,
+        acknowledged_premises: &std::collections::BTreeSet<&str>,
+        admission: bool,
+    ) -> Result<Vec<Invariant>, ModelError> {
         for name in acknowledged_premises {
             self.relation(name).ok_or_else(|| {
                 ModelError::Invalid(format!("unknown validation premise relation {name}"))
@@ -608,7 +624,10 @@ impl ValidatedModel {
         }
         let mut checks = Vec::new();
         for id in ids {
-            checks.push(self.invariant(id)?.clone());
+            let check = self.invariant(id)?;
+            if !admission || check.purpose == InvariantPurpose::Admission {
+                checks.push(check.clone());
+            }
         }
         if let Some(check) = self.generated_invariant_for_scope(referrers)? {
             checks.push(check);
@@ -688,6 +707,7 @@ fn generated_derivation(sources: Vec<Relation>) -> Option<Invariant> {
         .map(|r| ValidationInput::of_relation(r, &["id"]))
         .collect();
     Some(Invariant {
+        purpose: InvariantPurpose::Admission,
         name: "derivation_acyclic",
         revision: 1,
         inputs,
@@ -754,10 +774,19 @@ fn hash_rows<R: Record>(
     Ok(())
 }
 
+/// Admission checks necessary semantic properties. DiagnosticReplay independently compares a
+/// producer against its reconstruction and is never selected by production artifact admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InvariantPurpose {
+    Admission,
+    DiagnosticReplay,
+}
+
 /// A model-owned cross-relation invariant. The store supplies declared ordered inputs;
 /// semantic validation itself remains a pure, independently testable state machine.
 #[derive(Clone)]
 pub struct Invariant {
+    pub purpose: InvariantPurpose,
     pub revision: u32,
     pub name: &'static str,
     pub inputs: Vec<ValidationInput>,
@@ -775,6 +804,7 @@ impl Invariant {
     pub fn digest(&self) -> ContentHash {
         let mut sink = KeySink::new("validation-definition/v1");
         self.identity().encode(&mut sink);
+        sink.part(b"purpose", &[self.purpose as u8]);
         for input in &self.inputs {
             input.encode_contract(&mut sink);
         }

@@ -1248,6 +1248,7 @@ fn delivers(
 
 pub(crate) fn composition_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "call_composition_frames",
         inputs: {

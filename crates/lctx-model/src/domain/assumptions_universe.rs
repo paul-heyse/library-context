@@ -51,6 +51,7 @@ fn invalid(s: &str) -> ModelError {
 }
 pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "actual_pinned_assumption_universe",
         inputs: vec![

@@ -455,6 +455,7 @@ pub(crate) fn local_invariants() -> Vec<Invariant> {
         ValidationInput::of::<ControlInfluence>(&["id"]),
     ]);
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 2,
         name: "local_semantic_replay",
         inputs,

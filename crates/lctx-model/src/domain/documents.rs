@@ -274,6 +274,7 @@ fn validate_attribute_observation(row: &DocumentAttributeObservation) -> Result<
 
 pub(crate) fn document_invariants() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "document_structure",
         inputs: vec![

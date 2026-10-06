@@ -813,6 +813,7 @@ pub fn invariants() -> Vec<Invariant> {
     let mut inputs = Data::inputs();
     inputs.extend(Output::inputs());
     vec![Invariant {
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 2,
         name: "retrieval_canonical_rendering",
         inputs,
