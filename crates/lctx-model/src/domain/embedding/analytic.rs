@@ -104,6 +104,36 @@ impl AnalysisEmbeddingUse {
         })
     }
 }
+/// The nominal outcome depends on availability facts, not retained text or vector payloads.
+/// This accumulator is shared by streamed construction and independent admission.
+#[derive(Clone,Copy,Default)]
+pub struct FrameOutcome {
+    selected: bool,
+    reason: Option<ObligationKind>,
+}
+impl HeapSize for FrameOutcome {fn heap_bytes(&self)->usize {0}}
+impl FrameOutcome {
+    pub fn new(selected:bool) -> Self {Self {selected,reason:None}}
+    fn observe(&mut self, reason:Option<ObligationKind>) {
+        self.reason=obligation::first(self.reason.into_iter().chain(reason));
+    }
+    pub fn unavailable_text(&mut self) {self.observe(Some(ObligationKind::AnalyticTextUnavailable));}
+    pub fn consumed(&mut self, row:&AnalysisEmbeddingUse) {
+        self.observe(match row.availability {
+            VectorAvailability::Available=>None,
+            VectorAvailability::ServiceUnavailable=>Some(ObligationKind::EmbeddingServiceUnavailable),
+            VectorAvailability::TokenLimit=>Some(ObligationKind::EmbeddingTokenLimit),
+        });
+    }
+    pub fn outcome(&self, invocation:Id<AnalysisInvocation>) -> AnalysisOutcome {
+        let reason=if self.selected {self.reason} else {Some(ObligationKind::NotRequested)};
+        AnalysisOutcome {invocation,status:match reason {
+            Some(ObligationKind::NotRequested)=>analysis::AnalysisStatus::NotRequested,
+            Some(_)=>analysis::AnalysisStatus::Partial,
+            None=>analysis::AnalysisStatus::Completed,
+        },reason}
+    }
+}
 #[macro_export]
 macro_rules! analytic_consumption_inputs {
     ($m:ident) => {
@@ -182,43 +212,14 @@ impl ConsumptionData {
         invocation: &AnalysisInvocation,
         uses: &Rows<AnalysisEmbeddingUse>,
     ) -> Result<AnalysisOutcome, ModelError> {
-        let reason = if !self.selected()? {
-            Some(ObligationKind::NotRequested)
-        } else {
-            obligation::first(
-                self.assessments
-                    .iter()
-                    .filter(|r| {
-                        r.input == invocation.input
-                            && r.context == invocation.context
-                            && r.availability == TextAvailability::Unavailable
-                    })
-                    .map(|_| ObligationKind::AnalyticTextUnavailable)
-                    .chain(
-                        uses.iter()
-                            .filter(|r| r.invocation == invocation.id())
-                            .filter_map(|r| match r.availability {
-                                VectorAvailability::Available => None,
-                                VectorAvailability::ServiceUnavailable => {
-                                    Some(ObligationKind::EmbeddingServiceUnavailable)
-                                }
-                                VectorAvailability::TokenLimit => {
-                                    Some(ObligationKind::EmbeddingTokenLimit)
-                                }
-                            }),
-                    ),
-            )
-        };
-        Ok(AnalysisOutcome {
-            invocation: invocation.id(),
-            status: match reason {
-                Some(ObligationKind::NotRequested) => analysis::AnalysisStatus::NotRequested,
-                Some(_) => analysis::AnalysisStatus::Partial,
-                None => analysis::AnalysisStatus::Completed,
-            },
-            reason,
-        })
+        let mut disposition=FrameOutcome::new(self.selected()?);
+        for row in self.assessments.iter().filter(|row| row.input==invocation.input && row.context==invocation.context && row.availability==TextAvailability::Unavailable) {
+            let _=row; disposition.unavailable_text();
+        }
+        for row in uses.iter().filter(|row| row.invocation==invocation.id()) {disposition.consumed(row);}
+        Ok(disposition.outcome(invocation.id()))
     }
+
     pub fn validate(
         &self,
         invocations: &Rows<AnalysisInvocation>,
@@ -312,51 +313,136 @@ pub fn relations() -> Vec<Relation> {
     vec![Relation::of::<AnalysisEmbeddingUse>()]
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = ConsumptionData::inputs();
-    inputs.extend([
+    // Relation order establishes immutable metadata before payloads. The ordered use stream
+    // makes exact first-winner comparison local to one request group, independent of cardinality.
+    let inputs=vec![
+        ValidationInput::of::<EmbeddingSpec>(&["id"]),
+        ValidationInput::of::<configuration::ServiceConfiguration>(&["id"]),
+        ValidationInput::of::<text::TextDefinition>(&["id"]),
+        ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+        ValidationInput::of::<text::TextAssessment>(&["id"]),
         ValidationInput::of::<AnalysisInvocation>(&["id"]),
+        ValidationInput::of::<TextWindow>(&["id"]),
+        ValidationInput::of::<AnalysisEmbeddingUse>(&["specification","input","invocation","window"]),
         ValidationInput::of::<AnalysisOutcome>(&["id"]),
-        ValidationInput::of::<AnalysisEmbeddingUse>(&["id"]),
-    ]);
+    ];
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "analytic_embedding_consumption",
         inputs,
-        create: std::sync::Arc::new(|budget| {
-            Box::new(Check {
-                data: ConsumptionData::new(budget),
-                invocations: Rows::new(budget),
-                outcomes: Rows::new(budget),
-                uses: Rows::new(budget),
-                budget: budget.clone(),
-            })
-        }),
+        create: std::sync::Arc::new(|budget| Box::new(Check::new(budget))),
     }]
 }
+type Frame=(Id<input::InputRevision>,Id<attribution::AnalysisContext>);
+struct WinnerGroup {
+    bytes: EvidenceBytes,
+    tokens: u32,
+    _charge: charged::StateCharge,
+}
 struct Check {
-    data: ConsumptionData,
+    metadata: ConsumptionData,
+    frames: charged::ChargedSet<Frame>,
+    unavailable: charged::ChargedSet<Frame>,
     invocations: Rows<AnalysisInvocation>,
+    admitted_frames: charged::ChargedSet<Frame>,
+    windows: charged::ChargedMap<Id<TextWindow>,(Frame,ContentHash)>,
+    consumed: charged::ChargedSet<Id<TextWindow>>,
+    dispositions: charged::ChargedMap<Id<AnalysisInvocation>,FrameOutcome>,
     outcomes: Rows<AnalysisOutcome>,
-    uses: Rows<AnalysisEmbeddingUse>,
+    previous_input: Option<ContentHash>,
+    winner: Option<WinnerGroup>,
+    charge: charged::StateCharge,
     budget: ResourceBudget,
 }
-impl InvariantCheck for Check {
-    fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        if name == AnalysisInvocation::NAME {
-            self.invocations.decode(batch)?;
-        } else if name == AnalysisOutcome::NAME {
-            self.outcomes.decode(batch)?;
-        } else if name == AnalysisEmbeddingUse::NAME {
-            self.uses.decode(batch)?;
-        } else if !self.data.visit(name, batch)? {
-            return Err(invalid("undeclared analytic consumption input"));
-        }
+impl Check {
+    fn new(budget:&ResourceBudget) -> Self {
+        Self {metadata:ConsumptionData::new(budget),frames:Default::default(),unavailable:Default::default(),invocations:Rows::new(budget),admitted_frames:Default::default(),windows:Default::default(),consumed:Default::default(),dispositions:Default::default(),outcomes:Rows::new(budget),previous_input:None,winner:None,charge:charged::StateCharge::new(budget,"analytic-consumption-identities"),budget:budget.clone()}
+    }
+    fn window(&mut self,row:TextWindow) -> Result<(),ModelError> {
+        if !self.metadata.selected()? {return Ok(());}
+        let assessment=self.metadata.assessments.get(row.assessment).ok_or_else(|| invalid("analytic window assessment absent"))?;
+        let frame=(assessment.input,assessment.context);
+        if !self.frames.contains(&frame) {return Ok(());}
+        let spec=self.metadata.specification()?.configuration()?;
+        let bound=row.text.len().checked_mul(spec.document_template.matches("{text}").count())
+            .and_then(|n| n.checked_add(spec.document_template.len())).and_then(|n|n.checked_mul(2))
+            .ok_or_else(|| invalid("analytic request allocation overflow"))?;
+        let _request=self.budget.reserve("analytic-admission-request",bound)?;
+        let input=value::input_hash(&spec.document_text(row.text.as_str()));
+        self.windows.insert(&mut self.charge,row.id(),(frame,input))?;
         Ok(())
     }
-    fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        self.data
-            .validate(&self.invocations, &self.outcomes, &self.uses, &self.budget)
+    fn consumed(&mut self,row:AnalysisEmbeddingUse) -> Result<(),ModelError> {
+        row.validate()?;
+        if !self.metadata.selected()? {return Err(invalid("analytic consumption contains unexpected rows"));}
+        let invocation=self.invocations.get(row.invocation).ok_or_else(|| invalid("analytic use invocation absent"))?;
+        let (frame,input)=self.windows.get(&row.window).ok_or_else(|| invalid("expected analytic window consumption absent"))?;
+        if *frame!=(invocation.input,invocation.context) || *input!=row.input || !self.consumed.insert(&mut self.charge,row.window)? {
+            return Err(invalid("analytic use changed original window membership/input"));
+        }
+        let specification=self.metadata.specification()?;
+        if row.specification!=specification.id() {return Err(invalid("analytic use changed the selected specification"));}
+        if self.previous_input.is_some_and(|previous| row.input<previous) {return Err(invalid("analytic winning receipts are not ordered by request identity"));}
+        if self.previous_input!=Some(row.input) {self.winner=None;self.previous_input=Some(row.input);}
+        let spec=specification.configuration()?;
+        match row.availability {
+            VectorAvailability::Available=>{
+                let receipt=row.receipt()?;
+                drop(value::decode(&spec,receipt.bytes,receipt.digest,receipt.admitted_tokens,&self.budget)?);
+                if let Some(winner)=&self.winner {
+                    if winner.bytes.0!=receipt.bytes || winner.tokens!=receipt.admitted_tokens {return Err(invalid("embedding consumers disagree on exact winning bytes/tokens"));}
+                } else {
+                    let mut charge=charged::StateCharge::new(&self.budget,"analytic-current-winner");
+                    charge.grow(size_of::<WinnerGroup>().saturating_add(receipt.bytes.len()))?;
+                    self.winner=Some(WinnerGroup {bytes:EvidenceBytes(receipt.bytes.to_vec()),tokens:receipt.admitted_tokens,_charge:charge});
+                }
+            }
+            VectorAvailability::TokenLimit if row.admitted_tokens.is_none_or(|n| n<=i64::from(spec.max_document_tokens))=>return Err(invalid("analytic token refusal is within the selected cap")),
+            _=>{}
+        }
+        self.dispositions.update(&mut self.charge,row.invocation,|disposition| disposition.consumed(&row))?;
+        Ok(())
+    }
+}
+impl InvariantCheck for Check {
+    fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch) -> Result<(),ModelError> {
+        macro_rules! each {($ty:ty,$row:ident,$body:block)=>{if name==<$ty>::NAME {
+            let _decode=self.budget.reserve("analytic-admission-decode",decode_allowance::<$ty>(batch)?)?;
+            for $row in <$ty>::decode(batch)? $body
+            return Ok(());
+        }};}
+        each!(attribution::ProviderRun,row,{self.frames.insert(&mut self.charge,(row.input,row.context))?;});
+        each!(text::TextAssessment,row,{
+            if row.availability==TextAvailability::Unavailable {self.unavailable.insert(&mut self.charge,(row.input,row.context))?;}
+            self.metadata.assessments.insert(row)?;
+        });
+        each!(AnalysisInvocation,row,{
+            let frame=(row.input,row.context);
+            if row.definition!=definition().1.id() || row.subject.is_some() || !self.frames.contains(&frame) || !self.admitted_frames.insert(&mut self.charge,frame)? {
+                return Err(invalid("analytic invocation differs from expected source frame"));
+            }
+            let mut disposition=FrameOutcome::new(self.metadata.selected()?);
+            if self.unavailable.contains(&frame) {disposition.unavailable_text();}
+            self.dispositions.insert(&mut self.charge,row.id(),disposition)?;
+            self.invocations.insert(row)?;
+        });
+        each!(TextWindow,row,{self.window(row)?;});
+        each!(AnalysisEmbeddingUse,row,{self.consumed(row)?;});
+        if name==AnalysisOutcome::NAME {self.outcomes.decode(batch)?;return Ok(());}
+        if matches!(name,EmbeddingSpec::NAME|configuration::ServiceConfiguration::NAME|text::TextDefinition::NAME) && self.metadata.visit(name,batch)? {return Ok(());}
+        Err(invalid("undeclared analytic consumption input"))
+    }
+    fn finish(self:Box<Self>) -> Result<(),ModelError> {
+        self.metadata.selected()?;
+        if self.windows.len()!=self.consumed.len() || self.frames.len()!=self.invocations.len() || self.outcomes.len()!=self.invocations.len() {
+            return Err(invalid("analytic consumption contains missing/unexpected rows"));
+        }
+        for invocation in self.invocations.iter() {
+            let outcome=self.dispositions.get(&invocation.id()).ok_or_else(|| invalid("analytic frame disposition absent"))?.outcome(invocation.id());
+            if self.outcomes.get(outcome.id())!=Some(&outcome) {return Err(invalid("analytic embedding outcome differs from actual text and values"));}
+        }
+        Ok(())
     }
 }
 

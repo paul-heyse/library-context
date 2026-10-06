@@ -1,5 +1,7 @@
 //! Analytic text comes from normalized source declarations and original document observations.
 //! Public catalog choices, synthesized briefs and retrieval units are deliberately not inputs.
+#[path="text_admission.rs"]
+mod text_admission;
 use crate::domain::{
     artifact::{ARTIFACT_CHUNK_BYTES, ArtifactChunkKey},
     assertion::{AssertionQualification, Evidence},
@@ -406,26 +408,10 @@ impl TextData {
         text.push('(');
         let mut has_star = false;
         for (index, (parameter, value)) in parameters.iter().enumerate() {
-            use calls::ParameterKind::*;
-            if index > 0 {
-                text.push_str(", ");
-            }
-            if parameter.kind == KeywordOnly && !has_star {
-                text.push_str("*, ");
-                has_star = true;
-            }
-            // The captured parameter span already includes its * or ** marker.
-            if parameter.kind == VarPositional {
-                has_star = true;
-            }
+            let (separator,marker)=parameter_prefix(index,parameter.kind,&mut has_star);
+            text.push_str(separator);text.push_str(marker);
             text.push_str(&value.value);
-            if parameter.kind == PositionalOnly
-                && parameters
-                    .get(index + 1)
-                    .is_none_or(|(next, _)| next.kind != PositionalOnly)
-            {
-                text.push_str(", /");
-            }
+            text.push_str(parameter_suffix(parameter.kind,parameters.get(index+1).map(|(next,_)|next.kind)));
         }
         text.push(')');
         if let Some(doc) = doc.map(str::trim).filter(|d| !d.is_empty()) {
@@ -437,6 +423,18 @@ impl TextData {
             _reservation: reservation,
         }))
     }
+}
+
+// Shared pure punctuation predicates keep source rendering and independent byte admission
+// on the same parameter grammar; neither predicate captures text or constructs outputs.
+fn parameter_prefix(index:usize,kind:calls::ParameterKind,has_star:&mut bool)->(&'static str,&'static str) {
+    let separator=if index>0 {", "} else {""};
+    let marker=if kind==calls::ParameterKind::KeywordOnly && !*has_star {"*, "} else {""};
+    if !marker.is_empty() || kind==calls::ParameterKind::VarPositional {*has_star=true;}
+    (separator,marker)
+}
+fn parameter_suffix(kind:calls::ParameterKind,next:Option<calls::ParameterKind>)->&'static str {
+    if kind==calls::ParameterKind::PositionalOnly && next!=Some(calls::ParameterKind::PositionalOnly) {", /"} else {""}
 }
 
 /// The preserved line-end/UTF-8 window operation returns borrowed slices. Its index allocation
@@ -528,133 +526,104 @@ fn emit_text(
     out.assessments.insert(assessment)?;
     Ok(())
 }
-pub fn prepare(
-    data: &TextData,
-    definition: &TextDefinition,
-    budget: &ResourceBudget,
-) -> Result<TextOutput, ModelError> {
+/// One semantically indivisible subject render. Its owned text can outlive the compact scoped
+/// premises, and its windows stream without an index or a retained output collection.
+pub struct PreparedText {
+    pub subject: TextSubject,
+    pub assessment: TextAssessment,
+    text: Option<Text>,
+}
+impl PreparedText {pub fn text(&self)->Option<&str> {self.text.as_ref().map(|text|text.value.as_str())}}
+pub fn prepare_subject(data:&TextData,definition:&TextDefinition,subject:TextSubject,budget:&ResourceBudget) -> Result<Option<PreparedText>,ModelError> {
     definition.validate()?;
-    let mut out = TextOutput::new(budget);
-    out.definitions.insert(definition.clone())?;
-    if !definition.requested {
-        return Ok(out);
-    }
-    // Captured use, not a coincidental path, selects source material. Dependency context stays out.
-    let root_bytes = data
-        .artifacts
-        .iter()
-        .map(|r| size_of::<SourceArtifact>() + r.heap_bytes() + 96)
-        .sum::<usize>()
-        + data.uses.len() * (size_of::<ArtifactUse>() + 64);
-    let _roots = budget.reserve("analytic-text-roots", root_bytes)?;
-    let roots = admission::analysis_roots(
-        &data.artifacts.iter().cloned().collect::<Vec<_>>(),
-        &data.uses.iter().cloned().collect::<Vec<_>>(),
-    )?;
-    for declaration in data.declarations.iter() {
-        let source = data
-            .occurrences
-            .get(declaration.declaration)
-            .ok_or_else(|| invalid("analytic declaration occurrence absent"))?
-            .source;
-        if !roots.contains(&source) {
-            continue;
+    if !definition.requested {return Ok(None);}
+    let root_bytes=data.artifacts.iter().map(|row|size_of::<SourceArtifact>()+row.heap_bytes()+96).sum::<usize>()
+        +data.uses.len()*(size_of::<ArtifactUse>()+64);
+    let _roots=budget.reserve("analytic-text-roots",root_bytes)?;
+    let roots=admission::analysis_roots(&data.artifacts.iter().cloned().collect::<Vec<_>>(),&data.uses.iter().cloned().collect::<Vec<_>>())?;
+    let (source,context,entity,rendered)=match &subject {
+        TextSubject::Declaration {declaration}=>{
+            let declaration=data.declarations.get(*declaration).ok_or_else(||invalid("analytic declaration absent"))?;
+            let source=data.occurrences.get(declaration.declaration).ok_or_else(||invalid("analytic declaration occurrence absent"))?.source;
+            if !roots.contains(&source) {return Ok(None);}
+            let context=data.context(declaration.qualification)?;
+            let entity=match declaration.kind {
+                DeclarationKind::Class=>{
+                    let class=ClassEntity::Source {declaration:declaration.declaration};
+                    data.classes.get(class.id()).map(|_|EntityRef::Class {class:class.id()})
+                }
+                _=>{
+                    let callable=CallableEntity::Source {declaration:declaration.declaration,kind:CallableKind::Function};
+                    data.callables.get(callable.id()).map(|_|EntityRef::Callable {callable:callable.id()})
+                }
+            }.and_then(|entity|data.entities.get(entity.id()).map(Record::id));
+            let rendered=if entity.is_none() {Err(TextBoundary::MissingEntity)} else {data.declaration_text(declaration,budget)?};
+            (source,context,entity,rendered)
         }
-        let artifact = data
-            .artifacts
-            .get(source)
-            .ok_or_else(|| invalid("analytic declaration artifact absent"))?;
-        let context = data.context(declaration.qualification)?;
-        let subject = out.subjects.insert(TextSubject::Declaration {
-            declaration: declaration.id(),
-        })?;
-        let entity = match declaration.kind {
-            DeclarationKind::Class => {
-                let class = ClassEntity::Source {
-                    declaration: declaration.declaration,
-                };
-                data.classes
-                    .get(class.id())
-                    .map(|_| EntityRef::Class { class: class.id() })
+        TextSubject::Passage {passage}=>{
+            let passage=data.passages.get(*passage).ok_or_else(||invalid("analytic passage absent"))?;
+            let node=data.nodes.get(passage.passage.id()).ok_or_else(||invalid("analytic passage node absent"))?;
+            let source=match data.evidence.get(node.span().id()) {Some(Evidence::SourceSpan {source,..})=>*source,_=>return Err(invalid("analytic passage original span absent"))};
+            if !roots.contains(&source) {return Ok(None);}
+            let reservation=budget.reserve("analytic-passage-text",passage.text.len()+size_of::<Text>())?;
+            (source,data.context(passage.qualification)?,None,Ok(Text {value:passage.text.as_str().to_owned(),_reservation:reservation}))
+        }
+    };
+    let artifact=data.artifacts.get(source).ok_or_else(||invalid("analytic subject artifact absent"))?;
+    let assessment=TextAssessment {subject:subject.id(),definition:definition.id(),input:artifact.input,context,entity,source,
+        availability:if rendered.is_ok() {TextAvailability::Available} else {TextAvailability::Unavailable},boundary:rendered.as_ref().err().copied()};
+    Ok(Some(PreparedText {subject,assessment,text:rendered.ok()}))
+}
+/// Preserves the line-end/UTF-8 rule while retaining only offsets in the current window.
+pub struct WindowIter<'a> {text:&'a str,cap:usize,start:usize,end:usize,pending:Option<usize>,emitted:bool,finished:bool}
+pub fn stream_windows(text:&str,cap:usize) -> Result<WindowIter<'_>,ModelError> {
+    if cap<4 {return Err(invalid("analytic text window cap must hold one Unicode scalar"));}
+    Ok(WindowIter {text,cap,start:0,end:0,pending:None,emitted:false,finished:false})
+}
+impl<'a> Iterator for WindowIter<'a> {
+    type Item=(usize,&'a str);
+    fn next(&mut self)->Option<Self::Item> {
+        if self.finished {return None;}
+        loop {
+            if let Some(line_end)=self.pending {
+                if line_end-self.start>self.cap {
+                    let start=self.start;let mut cut=start+self.cap;
+                    while !self.text.is_char_boundary(cut) {cut-=1;}
+                    self.start=cut;self.emitted=true;
+                    return Some((start,&self.text[start..cut]));
+                }
+                self.end=line_end;self.pending=None;
             }
-            _ => {
-                let callable = CallableEntity::Source {
-                    declaration: declaration.declaration,
-                    kind: CallableKind::Function,
-                };
-                data.callables
-                    .get(callable.id())
-                    .map(|_| EntityRef::Callable {
-                        callable: callable.id(),
-                    })
+            if self.end==self.text.len() {
+                self.finished=true;
+                if self.end>self.start || !self.emitted {return Some((self.start,&self.text[self.start..self.end]));}
+                return None;
+            }
+            let line_end=self.text[self.end..].find('\n').map_or(self.text.len(),|offset|self.end+offset+1);
+            if line_end-self.start<=self.cap {self.end=line_end;continue;}
+            self.pending=Some(line_end);
+            if self.end>self.start {
+                let start=self.start;self.start=self.end;self.emitted=true;
+                return Some((start,&self.text[start..self.end]));
             }
         }
-        .and_then(|entity| data.entities.get(entity.id()).map(Record::id));
-        let rendered = if entity.is_none() {
-            Err(TextBoundary::MissingEntity)
-        } else {
-            data.declaration_text(declaration, budget)?
-        };
-        let assessment = TextAssessment {
-            subject,
-            definition: definition.id(),
-            input: artifact.input,
-            context,
-            entity,
-            source,
-            availability: if rendered.is_ok() {
-                TextAvailability::Available
-            } else {
-                TextAvailability::Unavailable
-            },
-            boundary: rendered.as_ref().err().copied(),
-        };
-        emit_text(
-            &mut out,
-            assessment,
-            rendered.as_ref().ok().map(|t| t.value.as_str()),
-            definition,
-            budget,
-        )?;
     }
-    for passage in data.passages.iter() {
-        let node = data
-            .nodes
-            .get(passage.passage.id())
-            .ok_or_else(|| invalid("analytic passage node absent"))?;
-        let source = match data.evidence.get(node.span().id()) {
-            Some(Evidence::SourceSpan { source, .. }) => *source,
-            _ => return Err(invalid("analytic passage original span absent")),
-        };
-        if !roots.contains(&source) {
-            continue;
+}
+pub fn prepare(data:&TextData,definition:&TextDefinition,budget:&ResourceBudget)->Result<TextOutput,ModelError> {
+    definition.validate()?;
+    let mut out=TextOutput::new(budget);out.definitions.insert(definition.clone())?;
+    if !definition.requested {return Ok(out);}
+    let subjects=data.declarations.iter().map(|row|TextSubject::Declaration {declaration:row.id()})
+        .chain(data.passages.iter().map(|row|TextSubject::Passage {passage:row.id()}));
+    for subject in subjects {
+        if let Some(prepared)=prepare_subject(data,definition,subject,budget)? {
+            out.subjects.insert(prepared.subject.clone())?;
+            emit_text(&mut out,prepared.assessment.clone(),prepared.text(),definition,budget)?;
         }
-        let artifact = data
-            .artifacts
-            .get(source)
-            .ok_or_else(|| invalid("analytic passage artifact absent"))?;
-        let subject = out.subjects.insert(TextSubject::Passage {
-            passage: passage.id(),
-        })?;
-        emit_text(
-            &mut out,
-            TextAssessment {
-                subject,
-                definition: definition.id(),
-                input: artifact.input,
-                context: data.context(passage.qualification)?,
-                entity: None,
-                source,
-                availability: TextAvailability::Available,
-                boundary: None,
-            },
-            Some(&passage.text),
-            definition,
-            budget,
-        )?;
     }
     Ok(out)
 }
+
 pub(crate) fn text_invariants() -> Vec<Invariant> {
     let mut inputs = TextData::inputs();
     inputs.extend([
@@ -675,7 +644,7 @@ pub(crate) fn text_invariants() -> Vec<Invariant> {
                 budget: budget.clone(),
             })
         }),
-    }]
+    },text_admission::invariant()]
 }
 struct TextCheck {
     data: TextData,
@@ -708,5 +677,5 @@ impl InvariantCheck for TextCheck {
 }
 
 pub(crate) fn text_invariants_refs() -> Vec<&'static str> {
-    vec!["analytic_text_replay"]
+    vec!["analytic_text_replay","analytic_text_original_membership"]
 }
