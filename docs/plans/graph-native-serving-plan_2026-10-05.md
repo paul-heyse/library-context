@@ -247,12 +247,14 @@ boundaries and omissions, are recorded in coordinator §8; no Measured claim fol
 
 ## 6. Audit remediation: executable identity and composed consumers
 
-**Implemented; final targeted acceptance pending, 2026-10-06.** This continuation is grounded in audit F06/F08/F09/F10 and the
+**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** This continuation is grounded in audit F06/F08/F09/F10 and the
 [capability investigation](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md).
 The [coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns sequence and completion; §7 owns finding state. Existing §1–§5 contracts remain, with the
 specific corrections below taking precedence over an implementation label. No producer, query
 adoption or legacy ranking-parity gate is added.
+
+**Pause checkpoint:** The five selected native serving/identity controls passed before the final native text-schema correction. The actual Catalog MCP prerequisite exposed that schema defect, now repaired with a focused persistent codec pass. Rebuild the local extension and fresh serving fixture before resuming in-process/stdio/error/cancellation controls. Wheel packaging remains waived during development. See [coordinator §8.1](graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06) for exact source, outcomes and resume order.
 
 <a id="R-I1"></a>
 

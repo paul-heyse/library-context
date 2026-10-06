@@ -203,12 +203,14 @@ The complete compiler stage is authorized; native persistence/publication/servin
 
 ## 5. Audit remediation: semantic admission and bounded shared preparation
 
-**Implemented; final targeted acceptance pending, 2026-10-06.** F01/F02/F03 are a coupled correction, not permission to restart the
+**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** F01/F02/F03 are a coupled correction, not permission to restart the
 stopped compiler suite. [Coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns execution and §7 owns disposition. The [foundation assessment](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/compiler.md)
 grounds this design in current owners and the matched DataFusion skill. The current workspace
 already owns private IPC files and spillable compute; rich normalization collectors and upper
 replay currently defeat that route. Tighten admission while removing repeated reconstruction.
+
+**Pause checkpoint:** Necessary admission/input transport and the scoped compiler repairs are integrated. Positive SourceCalls/Enriched, paired normalization, exact upper Place endpoint admission, and Facts-only import controls passed. Fresh graph lowering adds exact Place aliases only at Normalized/upper frontiers; detached import remains strict. Final coordinated native acceptance remains pending. See [coordinator §8.1](graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06) for exact source, outcomes and resume order.
 
 ### 5.1 R-C0 — Necessary semantic admission, distinct from producer replay
 

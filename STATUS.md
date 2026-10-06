@@ -2,68 +2,59 @@
 
 _Updated 2026-10-06 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Graph-native audit remediation implementation is integrated; final targeted acceptance is in progress.**
-The user authorized the full [coordinator §9](docs/plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
-and four supporting plans as a hard design-phase pivot. The original graph-native target and
-SurrealDB capability reviews remain the architectural basis; the implementation audit supplies
-the defects. Native querying remains selected. Execution fit follows design principles, without
-cost accounting or proof machinery.
+**Paused at the user's request. Graph-native remediation is integrated; final native acceptance remains pending.**
+The authorized scope is [coordinator §9](docs/plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
+and its four supporting plans. They retain the hard design pivot and targeted functional verification.
+The original graph-native target/capabilities reviews remain the architectural basis; the audit supplies defects.
+Native querying is selected. Design efficiency follows first principles and library capabilities,
+without cost accounting, proof machinery or quantitative performance claims.
+
+All agent patches are integrated on main. The operator's pushed `ad68af70` is preserved.
+Follow-ups are `1eac2cde` (upper Place endpoint admission), `02b18ab6` (formatted source)
+and `e5df7449` (native logical-text schema correction). No merge remains unresolved.
+All fourteen extra worktrees were reviewed and removed after confirming integration; only main remains.
+Owned native fixtures and credentials are cleaned up. No owned build/test/worker remains running.
+Unrelated processes, containers and shared Cargo caches are preserved.
 
 [Coordinator §7](docs/plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
-is the sole finding disposition owner. F01–F12 remain open until their complete closure evidence
-is integrated; a landed slice or compile check does not establish remediation completion.
+remains the sole finding disposition owner. F01–F12 remain open pending complete integrated closure;
+a landed slice or focused pass does not close the entire remediation.
+[Coordinator §8.1](docs/plans/graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06)
+records source, exact outcomes, stopped builds and resume order. All four supporting plans carry the pause.
 
-The implementation includes necessary semantic admission separate from diagnostic producer replay;
-neutral detached typed import; all nine normalization routes and applicable upper consumers;
-normalization-owned immutable receiver/event/binding authority; owner-scoped Base, Completion,
-SourceCalls, Enriched, Models and Summary; shared compact projection topology; and scoped
-Catalog/Selection/Synthesis/Retrieval/Structural/Analytic inputs. Private SourceCall values use an
-attempt-owned anonymous spool and are released after Enriched. Summary reads nominal properties
-without unrelated original/name payloads; it retains the complete compact topology and finite
-worklist required by its algorithm. No per-SCC streaming or measured RSS benefit is claimed.
+The integrated compiler separates necessary semantic admission from diagnostic producer replay,
+retains complete neutral typed import, uses bulk/ordered normalization and scoped upper consumers,
+and shares normalization-owned immutable receiver/event/binding and compact projection authority.
+Canonical transport now retains the necessary source/member/service/frontier companions.
+SourceCalls/Enriched retain complete admitted callee bodies while excluding unrelated rich syntax.
+Fresh Normalized/upper lowering includes exact intrinsic Place endpoints; Facts does not publish
+undeclared normalized records. Detached import remains strict and never repairs missing inputs.
 
-Native remediation includes streamed complete search/witness lowering and read-only cold
-reconciliation; terminally checked gRPC backup and fresh unselected restore; atomic selection;
-batched exact immutable embedding winners; complete executable source capture; scoped browse
-membership/vocabulary/counts; parent-owned nested diagnostic cursors; and typed fixed safe errors
-through Rust/PyO3/MCP. New controls exercise actual delayed native reads and disconnection through
-an owned transparent protocol proxy. Exact text, vectors, tokens, uncertainty and original bytes
-remain semantic contracts. No legacy store or compatibility reader is retained.
+Native changes include streamed search/witness construction and cold reconciliation, terminally
+checked gRPC backup, atomic selection, exact batched cache winners, complete executable source
+capture, scoped browse vocabulary/counts, parent-owned nested cursors and typed safe Rust/PyO3/MCP
+failures. Current architecture, agent/assurance/task/runbook owners describe the native system.
+Obsolete assurance plans are removed with current obligations transferred; independent product/Q1
+work remains at its existing owner. No compatibility store/reader or legacy runtime is retained.
 
-Current architecture, agent, assurance and runbook routes now name native owners. Surviving product
-investigations stay in the existing forward queue; real-library/Q1 obligations remain separate.
-Two obsolete assurance plans are deleted with their current obligations transferred. Earlier
-plans with current finding/receipt consumers explicitly retain only their original scope.
+**Verification checkpoint, 2026-10-06:**
 
-**Last verified, 2026-10-06:**
+- **passed:** scoped model/compiler controls and their affected repairs, including all necessary transport/frontier companions, actual selected-service consumption, structural/body scope, positive SourceCalls/Enriched equality and detached omission refusal. Exact commands/logs and bounded earlier receipts are at coordinator §8.1.
+- **passed:** paired canonical normalization of 60,000 occurrences under 2 MiB/one partition and 16 MiB/two partitions; `/tmp/lctx-r-final-normalization-paired.log`. This is canonical-output evidence, not RSS/throughput measurement.
+- **passed:** model missing/foreign Place alias refusal; actual detached Behavioral Analysis/Catalog (190.28s/226.92s) and guarded Facts (18.86s); `/tmp/lctx-r-final-place-endpoint2.log`, `/tmp/lctx-r-final-compiler-fast-controls{10,11}.log`. Earlier aggregate attempts failed, with repaired affected reruns recorded separately.
+- **passed:** scoped eight-crate all-target release Clippy, Python types, Ruff and dependency checks on formatted `02b18ab6`; `/tmp/lctx-r-final-source-{clippy,types,ruff,deps}.log`.
+- **passed:** direct Cargo cdylib build and editable-package import of `NativeFailure`/`NativeSession` on `02b18ab6`; `/tmp/lctx-r-dev-native-{build,import}.log`. This extension predates the final native schema correction and must be rebuilt before resumed served acceptance. Wheel packaging is waived during development.
+- **passed:** five actual native serving/identity controls before that final correction; `/tmp/lctx-r-final-native-serving.log`, run `fd6b863e-c7a6-411b-a8ba-2e460a8f490f`.
+- **failed:** both Catalog/native MCP prerequisite journeys at publication because the closed schema omitted binary-backed logical text emitted by the codec; `/tmp/lctx-r-final-native-mcp-fast.log`. `e5df7449` aligns schema generation with textual metadata, preserving opaque bytes and strict shapes. Its affected compile check, actual persistent text/opaque-byte/unknown-field-refusal control and SDK all-target Clippy **passed**; `/tmp/lctx-r-pause-native-text-{check,runtime,clippy}.log`. The two journeys and Python MCP controls have not been rerun after repair.
+- **not_run / stopped before runtime:** final store/CLI/cache/backup/search/reconciliation aggregate. The command-target-only O0 CLI build passed in 55.31s; the subsequent selected test build was stopped before runtime for the repair/pause. Earlier optimized CLI/MCP builds were stopped before runtime; target-only O0 replacements preserve cached release libraries, budgets and expectations. Initial system Python 3.12 launcher failures ran no controls; corrected commands use project Python 3.14.7 through `uv run --no-sync python`.
 
-- **passed:** assembled `cargo check --tests --locked` for model/compiler/publisher/serving/store/PyO3/analytics/CLI, before final mechanical cleanup; `/tmp/lctx-r-final-owner-integration-check6.log`.
-- **passed:** 42 of 44 selected model/compiler controls, run `f755a567-77fb-4190-b409-8ea2dc815a0d`; `/tmp/lctx-r-final-scoped-core-controls2.log`. The two failures were a missing test output declaration and an unquoted SQL `end` property. Both were repaired; their affected rerun **passed**, two controls, run `7457cf58-58b8-4f5e-9726-2136a338b8b5`, `/tmp/lctx-r-final-scoped-core-controls3.log`.
-- **passed:** `UV_NO_SYNC=1 just types` and `just ruff` after narrowing actual optional/union MCP results; `/tmp/lctx-r-remediation-{types,ruff}-fixed.log`.
-- **passed:** `UV_NO_SYNC=1 just docs-check`, `just adr-lint`, `just lint-agents` and `just ready`; `/tmp/lctx-r-remediation-docs-check2.log`, `adr-lint2.log`, `lint-agents.log`, `final-ready.log` (same prefix).
-- **passed:** scoped eight-crate release Clippy, `cargo clippy --release --locked -p lctx-model -p cpg-core -p cpg-extract -p lctx-surrealdb -p lctx-publisher -p lctx-serving -p lctx-semantics -p lctx --all-targets --keep-going -- -D warnings`; `/tmp/lctx-r-remediation-clippy6.log`. The final grouped compiler-fixture layout also passed its affected Clippy rerun. Mechanical repairs preserve functional expectations.
-- **passed:** `UV_NO_SYNC=1 just deps`; `/tmp/lctx-r-remediation-deps.log`.
-- **passed:** eight focused model controls, `cargo nextest run --release --locked -p lctx-model` with six explicit targets/eight selectors; `/tmp/lctx-r-final-model-semantic-controls.log`, run `0137ff49-f131-4909-948d-0ce066bd217b`. Projection transport, provider disagreement, support bounds, lexical/type/flow and release ownership remain required.
-- **passed:** paired canonical normalization for 60,000 reverse-arrival occurrences under 2 MiB/one partition and 16 MiB/two partitions; `/tmp/lctx-r-final-normalization-paired.log`, run `07e5b681-1d0c-4070-b751-7f4ead00d61c`.
-- **passed:** three identity-bearing companion controls, `/tmp/lctx-r-final-core-companions.log`, run `5712b961-1830-4f69-a68b-bd09a601495e`; direct declaration/header scope, `/tmp/lctx-r-final-core-enriched-scope.log`, run `9e759135-fc4f-469f-b700-d6c36e643e52`.
-- **passed:** actual analytic consumption with nonempty canonical selected service, including missing/foreign service refusal; `/tmp/lctx-r-final-service-and-inventory.log`, run `a3fa5872-2c1f-4d9e-83ac-10c0f862270d` (the separate initial inventory-test setup failed and was corrected).
-- **failed:** detached graph cases in `/tmp/lctx-r-final-compiler-fast-controls5.log` exposed missing selected service configuration. SourceCalls/Enriched equality passed there, but a separate positive assertion had no fresh Enriched values. Service transport and an Enriched-only positive fixture are integrated. The actual frontier-admission inventory then exposed 38 omitted Base/Enriched/Structural/Summary/Catalog companions plus their AspectSource dependency; all 39 are integrated and their three focused transport/nominal/admission controls passed, `/tmp/lctx-r-final-core-complete-transport2.log`, run `77fc3608-490d-4263-b0b2-e0f7b59ca149`. The positive fixture exposed `Conflict("body_executions")` from incomplete admitted-callee body scope; the source fix and scope control passed (`2ca3b6ad-3f1e-4fca-ae44-3b6490435c91`), and actual SourceCalls/Enriched equality with positive fresh-call/argument/execution outputs **passed**, `/tmp/lctx-r-final-compiler-fast-controls6.log` (164.30s). The two detached cases reached their final publication checks and exposed four missing frontier assessment/member records. Their transport and metadata-check extension passed three controls (`26b4d3a9-17f4-47fe-9d44-2c69588533c9`); detached whole-Enriched-family omission refusal now passed, `/tmp/lctx-r-final-compiler-fast-controls7.log` (92.49s). The valid all-frontier/profile case then reached E0 and exposed an unsupported binary cast and per-root output redeclaration. Typed empty source selection and once-per-stage declaration are integrated; the affected rerun completed all Catalog frontiers and Behavioral Facts/Normalized before **failed** at Behavioral/Analysis detached admission: normalization requires complete mechanical endpoint membership, `/tmp/lctx-r-final-compiler-fast-controls9.log` (600.66s). The discrepancy is repaired through exact model-owned Place endpoint aliases during fresh Normalized/upper graph lowering; detached import remains strict. The model missing/foreign alias control passed, `/tmp/lctx-r-final-place-endpoint2.log`; actual detached Behavioral Analysis and Catalog passed (190.28s/226.92s), `/tmp/lctx-r-final-compiler-fast-controls10.log`. Facts has no normalized endpoint obligation, so lowering is guarded by frontier; its affected detached control passed (18.86s), `/tmp/lctx-r-final-compiler-fast-controls11.log`. No native acceptance is claimed. No expectation or semantic check is weakened. Graph test targets alone use `cargo rustc --release ... -- -C opt-level=0` with a 64 MiB test-thread stack, retaining cached release libraries and unchanged workspace budgets.
-- **not_run:** final native/CLI/cache/backup/reconciliation/serving/MCP acceptance and current development extension. Earlier focused receipts remain dated and scoped at [coordinator §8.1](docs/plans/graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06); they do not replace final acceptance.
+**Resume:** rebuild the Cargo development extension and create fresh owned persistent RocksDB
+fixtures; finish selected store/CLI/backup/cache/search/reconciliation and affected serving controls,
+then actual Catalog/native journeys and in-process/stdio safe-error/resource/cancellation/drain routes.
+Finish remaining applicable leaves and F01–F12 dispositions before recording R-Q0 completion.
+Do not revive an old realization or restart the stopped legacy suite to save setup.
 
-The optimized combined fixture build was stopped before runtime after lengthy optimization; its
-functional replacement compiled in 50.63 seconds. The intermediate `synthesis_documentary`/
-`synthesis_refutation` build was stopped after excessive Thin LTO; no runtime result is claimed for it. Validate changed behavior through the final small
-fixture journeys. The original compiler-stage stopped-test boundary remains accepted. Wheel packaging was waived during development; its queued build/install were cancelled. Python
-native controls use a direct Cargo cdylib build in the local editable package. Broad
-`just qualify`, legacy CLI snapshot/parity, sealed evaluation, real-library/live-Qwen/operator
+Broad `just qualify`, legacy CLI snapshot/parity, sealed evaluation, real-library/live-Qwen/operator
 activation and quantitative performance measurement remain **not_run** under this scope.
-
-All our Cargo commands serialize through `flock --close /tmp/lctx-remediation-build.lock`.
-Workers own disjoint files, and main source is frozen during Cargo. Shared cache fingerprints can
-require an owned source-mtime refresh; no blanket cache clean or unrelated interruption is used.
-All fourteen extra worktrees were reviewed and removed after confirming their work was integrated. Only the shared main checkout remains; shared build caches are preserved.
-
-**Next:** complete final source leaves; build the local editable extension directly with Cargo and fresh owned
-persistent RocksDB realizations for R-Q0.
-Complete applicable scope-end leaves, finding dispositions and final receipt, then root `just turn-end`.
-Do not mark this remediation complete until all required F01–F12 evidence is accepted.
+The original user-accepted compiler-stage stopped-test boundary remains intact. Q1 adoption is separate.
+Root closeout documentation leaves and `UV_NO_SYNC=1 just turn-end` are recorded at coordinator §8.1.

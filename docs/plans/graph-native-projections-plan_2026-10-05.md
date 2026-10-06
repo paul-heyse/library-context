@@ -159,10 +159,12 @@ and any deferred destination trigger remain at the coordinator.
 
 ## 6. Remediation integration: prepared input lifetime and terminal streams
 
-**Implemented; final targeted acceptance pending, 2026-10-06.** There is no new projection-policy defect asserted by the audit.
+**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** There is no new projection-policy defect asserted by the audit.
 This work completes the projection consumers of compiler F02/F03 and native F04/F11;
 [coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns those packages/disposition rather than creating a separate projection queue.
+
+**Pause checkpoint:** Shared compact projection preparation and terminal native stream handling are integrated. The paired 60,000-occurrence normalization comparison passed under the two configured envelopes. This is canonical-output evidence, without an RSS/throughput claim. Final native projection/publisher reconciliation acceptance remains pending. See [coordinator §8.1](graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06) for exact source, outcomes and resume order.
 
 ### 6.1 R-C1/R-C2 analytical input slice
 

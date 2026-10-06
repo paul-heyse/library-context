@@ -236,11 +236,13 @@ newer than the inspected runtime; source/tests at the selected family decide app
 
 ## 6. Audit remediation: bounded native construction and lifecycle
 
-**Implemented; final targeted acceptance pending, 2026-10-06.** The audit F04/F05/F07/F11 continuation uses the
+**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** The audit F04/F05/F07/F11 continuation uses the
 [capability investigation](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md).
 [Coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns readiness and §7 owns dispositions. New contracts below correct remaining differences
 between §1–§5 target and production; old successful lifecycle controls do not close them.
+
+**Pause checkpoint:** Streamed construction/reconciliation, terminal backup, selection and exact cache changes are integrated. Final native acceptance was stopped during build for this pause. Actual Catalog publication exposed binary-backed logical text omitted from the closed native schema; schema generation now agrees with the codec, and the focused persistent text/opaque-byte/closed-shape control passed. The realization digest changes mechanically; resume with fresh fixtures. See [coordinator §8.1](graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06) for exact source, outcomes and resume order.
 
 <a id="R-P1a"></a>
 

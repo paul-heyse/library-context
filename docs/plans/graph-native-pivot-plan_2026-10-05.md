@@ -457,11 +457,12 @@ operator activation, broad `just qualify`, legacy suite parity and performance m
 
 ### 8.1 Remediation checkpoint — in progress, 2026-10-06
 
-Implementation is integrated on main; §7 remains the sole finding disposition owner. F01–F12
+**Paused at the user's request, 2026-10-06.** Current work is integrated on main; §7 remains the sole finding disposition owner. F01–F12
 closure awaits final targeted acceptance. The original compiler-stage stopped-test boundary is
 preserved. These are functional controls, not quantitative performance evidence or operator adoption.
 
-Production source is `ec149c00`; documentation migration is `bd475009`. Necessary admission,
+Current production source is `e5df7449` (final logical-text schema repair), following formatted
+source `02b18ab6` and endpoint admission `1eac2cde`. The operator's pushed `ad68af70` is preserved. Documentation migration is `bd475009`. Necessary admission,
 neutral detached import, scoped normalization/upper consumers, private prepared authority,
 streamed native lowering/reconciliation, terminal gRPC backup, atomic selection, exact batch cache
 winners and composed serving/PyO3/MCP repairs are integrated. Current architecture, agent,
@@ -474,8 +475,20 @@ Actual verification, 2026-10-06:
 - **passed:** scoped model/compiler run `f755a567-77fb-4190-b409-8ea2dc815a0d`: 42 controls passed; two failed from a missing test output declaration and unquoted SQL `end`. Both were repaired, and their affected rerun **passed**, run `7457cf58-58b8-4f5e-9726-2136a338b8b5`, two controls. `/tmp/lctx-r-final-scoped-core-controls{2,3}.log`.
 - **passed:** `cargo clippy --release --locked -p lctx-model -p cpg-core -p cpg-extract -p lctx-surrealdb -p lctx-publisher -p lctx-serving -p lctx-semantics -p lctx --all-targets --keep-going -- -D warnings`; `/tmp/lctx-r-remediation-clippy6.log`. This compiles the retained targets after all mechanical repairs. The final grouped compiler-fixture layout also passed its affected Clippy control, `/tmp/lctx-r-remediation-clippy-oracle-layout2.log`.
 - **passed:** `UV_NO_SYNC=1 just types`, `just ruff`, Python format check, `just deps`, `just ready`, `just adr-lint`, `just lint-agents` and `just docs-check`; `/tmp/lctx-r-remediation-{types,ruff}-fixed.log`, `deps.log`, `final-ready.log`, `adr-lint2.log`, `lint-agents.log` and `docs-worktree-check.log` (same prefix). Documentation publication has 321 canonical pages and zero link errors.
-- **failed:** final direct compiler fixture controls: two passed, six failed; `/tmp/lctx-r-final-compiler-fast-controls2.log`. Required fixes are the analytical callable column reference, omitted canonical projection companions in detached transport, and complete native enumeration authority for constructor alternatives. Repairs and affected rerun are in progress; expectations and workspace budgets remain unchanged. The test binary alone is compiled through `cargo rustc --release --locked -p cpg-core --test graph_artifact -- -C opt-level=0`, reusing cached release libraries, with `RUST_MIN_STACK=67108864` for its unoptimized test frames. Initial default-stack execution overflowed; the 64 MiB harness stack allowed actual controls to run. The earlier optimized combined test build was stopped before runtime after lengthy optimization; the replacement compiled in 50.63 seconds. A paired memory/partition normalization comparison is now integrated, runtime pending.
-- **not_run:** final development extension and fresh native store/CLI/backup/cache/reconciliation/serving/MCP acceptance. Earlier isolated receipts do not substitute for these final journeys.
+- **passed:** final scoped eight-crate all-target release Clippy, Python types, Ruff and dependency checks after formatting; `/tmp/lctx-r-final-source-{clippy,types,ruff,deps}.log` on `02b18ab6`. The earlier receipts above remain bounded to their original source.
+- **passed:** paired canonical normalization for 60,000 reverse-arrival occurrences under 2 MiB/one partition and 16 MiB/two partitions; `/tmp/lctx-r-final-normalization-paired.log`, run `07e5b681-1d0c-4070-b751-7f4ead00d61c`. This verifies canonical output under the two configured envelopes, not RSS or throughput.
+- **passed:** source-owned structural admission/body scope, all 39 necessary semantic-input companions, selected service configuration, and four publication-frontier companions. Logs are `/tmp/lctx-r-final-core-{structural,body,complete-transport2,enriched-header-body,frontier-transport}.log` and `/tmp/lctx-r-final-service-and-inventory.log` (actual service consumption passed; its separate initial inventory setup was repaired).
+- **passed:** actual positive SourceCalls/Enriched family equality, including fresh calls/arguments/executions (164.30s), `/tmp/lctx-r-final-compiler-fast-controls6.log`; detached whole-Enriched-family omission refusal (92.49s), `controls7.log` (same prefix).
+- **passed:** exact upper Place endpoint membership with missing/foreign alias refusal, `/tmp/lctx-r-final-place-endpoint2.log`; actual detached Behavioral Analysis/Catalog (190.28s/226.92s), `/tmp/lctx-r-final-compiler-fast-controls10.log`; guarded Facts-only detached admission without normalized aliases (18.86s), `controls11.log` (same prefix). Initial all-frontier/profile attempts exposed absent companions, incomplete callee body scope, E0 binary/output declaration errors and final upper Place endpoint membership. All Catalog and Behavioral Facts/Normalized combinations completed in `controls9.log` before its Behavioral Analysis failure; that failed command is not a passed aggregate. The affected reruns above own repaired closure. Imports retain actual records and never synthesize missing semantic inputs or aliases.
+- **passed:** current local extension built with `cargo build --release --locked -p lctx-semantics --lib`, copied atomically to the editable package, and imported through `.venv/bin/python`; `/tmp/lctx-r-dev-native-{build,import}.log`. Python loaded `NativeFailure` and `NativeSession` without a wheel.
+
+- **passed:** five native serving/executable-identity controls, `/tmp/lctx-r-final-native-serving.log`, run `fd6b863e-c7a6-411b-a8ba-2e460a8f490f`, before the final text-schema correction. Second-scenario child cursor, eligible lexical/vector channels and source guard controls retain their tested scope.
+- **failed:** the two actual Catalog/native MCP prerequisite journeys, `/tmp/lctx-r-final-native-mcp-fast.log` (139.35s). The codec included binary-backed logical text while schema generation omitted it, rejecting `retrieval_corpus_texts.text` and `retrieval_units.title`. Production schema generation now uses the same logical textual metadata; exact persistent text/opaque-byte/unknown-field refusal **passed**, `/tmp/lctx-r-pause-native-text-runtime.log` (2.60s), with its compile check **passed**, `/tmp/lctx-r-pause-native-text-check.log`. The final SDK all-target Clippy check **passed**, `/tmp/lctx-r-pause-native-text-clippy.log`, after formatting. The two journeys and Python MCP controls have not been rerun after this repair.
+- **not_run / stopped before runtime:** final store/CLI/backup/cache/search/reconciliation aggregate, `/tmp/lctx-r-final-native-store-fast.log`. The command-target-only O0 CLI build passed (55.31s); its subsequent selected test build was stopped to integrate the known schema repair and honor this pause. Initial system Python 3.12 launchers ran no controls; their corrected launchers use project Python 3.14.7 through `uv run --no-sync python`. The earlier optimized CLI/MCP prerequisite builds were stopped before runtime; target-only O0 replacements retain cached release libraries, budgets and expectations.
+
+**Resume order:** rebuild the Cargo cdylib into the editable package after the final schema correction; rerun the exact native codec control if any relevant source changes, then fresh store/CLI/terminal backup/cache/search/reconciliation and affected serving controls. Run the actual Catalog/native journeys and in-process/stdio safe-error/cancellation/resource routes on their fresh serving fixture. Finish applicable leaves/finding closure and record R-Q0 before calling F01–F12 closed. The development extension built on `02b18ab6` predates the final physical schema correction; do not treat that import as final served acceptance. No work or tests remain running at this pause.
+
+**Pause closeout, passed, 2026-10-06:** `UV_NO_SYNC=1 just docs-check` (321 canonical pages, zero link errors), `just adr-lint`, `just lint-agents`, and root `just turn-end`; `/tmp/lctx-r-pause-{docs-check,adr-lint,lint-agents,turn-end}.log`. All agent patches are integrated and committed on main, without unresolved merges. `git worktree list --porcelain` shows only the main checkout. Owned native fixture containers/credentials are gone; unrelated containers/processes and shared caches are preserved. This pause does not close F01–F12 or claim final native acceptance.
 
 The user waived wheel packaging during development. The queued wheel build/install were cancelled
 before execution; direct Cargo cdylib loading supplies the current local extension for Python
@@ -490,11 +503,11 @@ activation and quantitative performance measurement remain **not_run** under thi
 
 ## 9. Remediation and improvement execution
 
-**Implemented; final targeted acceptance pending, 2026-10-06.** This is the current executable continuation; §4 describes the initial
+**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** This is the current executable continuation; §4 describes the initial
 pivot and §8 preserves its scoped receipts. Start from the audit/current source, not the old
 PostgreSQL implementation. The four supporting documents retain coherent responsibility boundaries
 and now supply the concrete corrections. Findings remain open until their required evidence lands.
-The user authorized implementation of this remediation scope. Production corrections are integrated; final targeted acceptance is in progress. Operator activation remains outside this scope.
+The user authorized implementation of this remediation scope. Production corrections are integrated; remaining targeted acceptance is explicitly pending until work resumes. Operator activation remains outside this scope.
 
 ### 9.1 Combined target and foundation choices
 
@@ -644,6 +657,4 @@ Complete this remediation only when all F01–F12 closure evidence and applicabl
 obligations are satisfied. Native querying remains selected throughout. Close F11 only after both
 bounded publisher construction/reconciliation and actual concurrent exact cache-winner controls.
 Keep Q1 adoption separately pending; no source review or focused fixture result promotes it.
-The next executable work is R-C0's production-versus-diagnostic split and invalid-support control,
-then the first R-C1/R-C2 dependency chain and consumers; independent R-I1/R-P3 repairs can proceed
-on their current inputs. No material adoption choice blocks that start.
+On resume, start with the remaining R-Q0 checks listed at §8.1, using the integrated compiler and native repairs. Do not restart the stopped legacy suite or introduce an additional review gate.
