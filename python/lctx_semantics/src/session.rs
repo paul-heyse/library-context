@@ -20,20 +20,18 @@ impl NativeSession {
             Ok(Self{runtime,shared:Arc::new(Shared{state:Mutex::new(State{service:Some(service),active:0,closing:false}),drained:Condvar::new()}),reader})
         })
     }
-    #[pyo3(signature=(tool,request_json,query_vector_json=None))]
-    fn execute(&self,py:Python<'_>,tool:String,request_json:String,query_vector_json:Option<String>)->PyResult<String>{
+    #[pyo3(signature=(tool,request_json,query_vector_json=None,remaining_deadline_ms=None))]
+    fn execute(&self,py:Python<'_>,tool:String,request_json:String,query_vector_json:Option<String>,remaining_deadline_ms:Option<u64>)->PyResult<String>{
         py.detach(||{
             let service={let mut state=self.shared.state.lock().map_err(|_|PyRuntimeError::new_err("native session state"))?;
                 if state.closing{return Err(PyRuntimeError::new_err("native session closed"))}
                 if state.active>=2{return Err(PyValueError::new_err("resource_refused: native request slots"))}
                 let service=state.service.as_ref().ok_or_else(||PyRuntimeError::new_err("native session closed"))?.clone();state.active+=1;service};
             let _active=Active(self.shared.clone());
-            if query_vector_json.as_deref()==Some("unavailable"){
-                self.runtime.block_on(service.execute_unavailable(&tool,&request_json)).map_err(|e|PyValueError::new_err(e.to_string()))
-            }else if let Some(vector)=query_vector_json{
-                let vector=serde_json::from_str(&vector).map_err(|e|PyValueError::new_err(e.to_string()))?;
-                self.runtime.block_on(service.execute_with_vector(&tool,&request_json,Some(vector))).map_err(|e|PyValueError::new_err(e.to_string()))
-            }else{self.runtime.block_on(service.execute(&tool,&request_json)).map_err(|e|PyValueError::new_err(e.to_string()))}
+            let unavailable=query_vector_json.as_deref()==Some("unavailable");
+            let vector=if unavailable{None}else{query_vector_json.map(|raw|serde_json::from_str(&raw)).transpose().map_err(|e|PyValueError::new_err(e.to_string()))?};
+            let remaining=remaining_deadline_ms.unwrap_or(ResourceLimits::default().request_deadline_ms);
+            self.runtime.block_on(service.execute_for(&tool,&request_json,vector,unavailable,remaining)).map_err(|e|PyValueError::new_err(e.to_string()))
         })
     }
     fn handle_json(&self)->PyResult<String>{serde_json::to_string(self.reader.handle()).map_err(|e|PyValueError::new_err(e.to_string()))}

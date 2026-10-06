@@ -100,9 +100,13 @@ impl crate::NativeReader{
 fn remember_external(rows:&mut std::collections::BTreeMap<RecordId,Vec<u8>>,target:&Target)->Result<(),ModelError>{if matches!(target,Target::External{..}){rows.insert(crate::reader::target_id(target.clone()),serde_json::to_vec(target).map_err(ModelError::codec)?);}Ok(())}
 fn value_id(value:&Value)->RecordId{match value{Value::Object(object)=>RecordId::from_value(object.get("id").expect("generated role id").clone()).expect("generated record id"),_=>unreachable!("generated role object")}}
 pub async fn table_count(loader:&Loader,table:&str)->Result<u64,ModelError>{
-    let mut response=loader.client().query(format!("SELECT VALUE count() FROM {table} GROUP ALL")).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-    let counts:Vec<u64>=response.take(0).map_err(ModelError::codec)?;Ok(counts.first().copied().unwrap_or(0))
+    let mut response=loader.client().query(format!("SELECT count() AS total FROM {table} GROUP ALL")).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    let counts:Vec<InventoryCount>=response.take(0).map_err(ModelError::codec)?;Ok(counts.first().map_or(0,|row|row.total))
 }
 #[derive(SurrealValue)]
 #[surreal(crate="surrealdb::types")]
 struct External{id:RecordId,canonical:Bytes}
+
+#[derive(SurrealValue)]
+#[surreal(crate="surrealdb::types")]
+struct InventoryCount{total:u64}

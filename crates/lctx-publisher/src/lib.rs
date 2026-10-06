@@ -45,8 +45,8 @@ async fn load(export:&VerifiedExport,loader:&Loader,native_definitions:&str)->Re
     entities.clear();for row in export.entities()?{entities.push(row?);if entities.len()>=128{loader.entity_references(&entities).await?;entities.clear();}}loader.entity_references(&entities).await?;
     assertions.clear();for row in export.assertions()?{assertions.push(row?);if assertions.len()>=128{loader.assertion_references(&assertions).await?;assertions.clear();}}loader.assertion_references(&assertions).await?;
     for original in export.originals(){let(original,mut file)=original?;loader.original_stream(original.source.0,original.content,original.byte_len,&mut file).await?;}
-    crate::materialize_search(loader).await?;
-    loader.reconcile(export.manifest()).await
+    crate::materialize_search(loader).await.map_err(|error|ModelError::Invalid(format!("native search materialization: {error}")))?;
+    loader.reconcile(export.manifest()).await.map_err(|error|ModelError::Invalid(format!("canonical publication reconciliation: {error}")))
 }
 mod search;
 pub use search::materialize_search;
