@@ -3,7 +3,7 @@ use lctx_model::domain::{*,graph::{Entity,EntityId,Target},catalog::CatalogMembe
 use lctx_surrealdb::{Credentials,NativeReader,Loader,reader,loader::json_value};
 use surrealdb::types::{Variables,Value,RecordId,Bytes};
 fn id<R:Record>(byte:u8)->Id<R>{serde_json::from_value(serde_json::to_value([byte;16]).unwrap()).unwrap()}
-async fn insert(reader:&NativeReader,table:&str,relation:bool,rows:Vec<Value>){let mut vars=Variables::new();vars.insert("rows",rows);reader.query::<Value>(format!("INSERT {}INTO {table} $rows RETURN NONE;",if relation{"RELATION "}else{""}),vars).await.unwrap();}
+async fn insert(reader:&NativeReader,table:&str,relation:bool,rows:Vec<Value>){let mut vars=Variables::new();vars.insert("rows",rows);reader.query::<serde_json::Value>(format!("INSERT {}INTO {table} $rows RETURN NONE;",if relation{"RELATION "}else{""}),vars).await.unwrap();}
 fn object(body:serde_json::Value,id:RecordId)->surrealdb::types::Object{let Value::Object(mut obj)=json_value(body).unwrap()else{panic!("object")};obj.insert("id",id);obj}
 fn occurrence(table:&str,key:&str,source:RecordId,out:RecordId,input:[u8;16],member:Option<Id<CatalogMember>>,context:Id<AnalysisContext>,unit:Id<Unit>)->Value{
  let mut obj=object(serde_json::json!({"family":Family::ApiOptions as i16,"unit":unit,"fragment":id::<Fragment>(7),"context":context,"member":member,"anchor":null,"input":input,"eligible":true,"occurrence_key":key}),RecordId::new(table,key.to_owned()));obj.insert("in",source);obj.insert("out",out);Value::Object(obj)
@@ -20,6 +20,9 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
  // More than the native document cap of nonmember occurrences cannot crowd the member out.
  for n in 0..102{let key=format!("doc{n:03}");let text=if n==101{"connect eligible member with deliberately longer descriptive text".to_owned()}else{format!("connect connect connect {n}")};let doc=RecordId::new("search_api_options",key.clone());docs.push(Value::Object(object(serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),doc.clone())));occurrences.push(occurrence("lex_occurs",&key,doc,out.clone(),*input.bytes(),if n==101{Some(member.id())}else{None},good,unit));}
  let bad=RecordId::new("search_api_options","other_context");docs.push(Value::Object(object(serde_json::json!({"text":"connect connect connect","digest":ContentHash::of(b"connect connect connect")}),bad.clone())));occurrences.push(occurrence("lex_occurs","other_context",bad,out.clone(),*input.bytes(),Some(member.id()),other,unit));
+ // BM25 clamps ubiquitous terms to zero. Independent nonmatching background documents
+ // keep this eligibility/cap control in the declared positive-score lexical channel.
+ for n in 0..160{let text=format!("unrelated background document {n}");docs.push(Value::Object(object(serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),RecordId::new("search_api_options",format!("background{n:03}")))));}
  insert(&native,"search_api_options",false,docs).await;insert(&native,"lex_occurs",true,occurrences).await;
  let policy=RankingPolicy::default();let lexical=lctx_serving::search::lexical(&native,"connect absentterm",Family::ApiOptions,&inputs,Some(&pairs),true,None,100,&policy).await.unwrap();assert_eq!(lexical.len(),1);assert_eq!(lexical[0].occurrence.context,good);assert!(lexical[0].score.unwrap()>0.0);
  let spec=ContentHash::of(b"native-vector-fixture");let mut vectors=vec![];let mut vec_occurrences=vec![];let mut query=vec![0f32;1024];query[0]=1.;

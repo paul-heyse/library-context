@@ -3,7 +3,10 @@ use lctx_model::domain::{ModelError, Id, attribution::AnalysisContext, catalog::
     retrieval::{Family, Unit, Fragment, OriginalAnchor}, serving::{SnapshotHandle,ranking::*}};
 use lctx_surrealdb::NativeReader;
 use serde::{Serialize,Deserialize};
-use surrealdb::types::{Variables,SerdeWrapper};
+use surrealdb::types::{Variables,Value};
+fn binding(value:impl Serialize)->Result<Value,ModelError>{
+    lctx_surrealdb::loader::json_value(serde_json::to_value(value).map_err(ModelError::codec)?)
+}
 
 #[derive(Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12,8 +15,8 @@ struct NativeHit {
     unit:Id<Unit>,
     fragment:Id<Fragment>,
     context:Id<AnalysisContext>,
-    member:Option<Id<CatalogMember>>,
-    anchor:Option<Id<OriginalAnchor>>,
+    member:lctx_model::domain::serving::Nullable<Id<CatalogMember>>,
+    anchor:lctx_model::domain::serving::Nullable<Id<OriginalAnchor>>,
 }
 fn family_table(family:Family)-> &'static str {
     match family {Family::ApiOptions=>"search_api_options",Family::DocumentationDeployment=>"search_documentation_deployment",Family::Scenario=>"search_scenario",Family::Source=>"search_source"}
@@ -22,10 +25,10 @@ pub async fn lexical(reader:&NativeReader, query:&str, family:Family, inputs:&[[
     pairs:Option<&[([u8;16],[u8;16])]>, member_mode:bool,units:Option<&[Id<Unit>]>, cap:usize, policy:&RankingPolicy)->Result<Vec<CandidateScore>,ModelError> {
     let mut vars=Variables::new();
     vars.insert("query",query.to_owned());
-    vars.insert("inputs",SerdeWrapper(inputs.to_vec()));
-    vars.insert("pairs",SerdeWrapper(pairs.map(|m|m.to_vec())));
+    vars.insert("inputs",binding(inputs)?);
+    vars.insert("pairs",binding(pairs)?);
     vars.insert("cap",i64::try_from(cap).map_err(ModelError::codec)?);
-    vars.insert("member_mode",member_mode);vars.insert("units",SerdeWrapper(units.map(|u|u.to_vec())));
+    vars.insert("member_mode",member_mode);vars.insert("units",binding(units)?);
     let table=family_table(family);
     let target=if member_mode {"out"} else {"unit"};
     let sql=format!(r#"RETURN {{
@@ -41,8 +44,8 @@ pub async fn lexical(reader:&NativeReader, query:&str, family:Family, inputs:&[[
 fn candidate(snapshot:&SnapshotHandle,row:NativeHit,family:Family,binding:ChannelBinding,member_mode:bool)->Result<CandidateScore,ModelError> {
     if !row.score.is_finite(){return Err(ModelError::Invalid("native search returned a nonfinite score".into()))}
     Ok(CandidateScore{snapshot:snapshot.clone(),occurrence:Occurrence{
-        target:if member_mode {Target::Member{member:row.member.ok_or(ModelError::Schema("native member search occurrence"))?}} else {Target::Unit{unit:row.unit}},
-        unit:row.unit,fragment:row.fragment,context:row.context,anchor:row.anchor,family},
+        target:if member_mode {Target::Member{member:row.member.0.ok_or(ModelError::Schema("native member search occurrence"))?}} else {Target::Unit{unit:row.unit}},
+        unit:row.unit,fragment:row.fragment,context:row.context,anchor:row.anchor.0,family},
         channel:binding.channel(),channel_identity:binding.identity(),score:Some(if row.score==0.0{0.0}else{row.score})})
 }
 
@@ -56,11 +59,11 @@ pub async fn vector(reader:&NativeReader, vector:&[f32], specification:lctx_mode
         return Err(ModelError::Invalid("native query vector shape".into()));
     }
     let mut vars=Variables::new();
-    vars.insert("vector",vector.to_vec());vars.insert("specification",SerdeWrapper(specification));
-    vars.insert("family",family as i16);vars.insert("inputs",SerdeWrapper(inputs.to_vec()));
-    vars.insert("pairs",SerdeWrapper(pairs.map(|m|m.to_vec())));
+    vars.insert("vector",vector.to_vec());vars.insert("specification",binding(specification)?);
+    vars.insert("family",family as i16);vars.insert("inputs",binding(inputs)?);
+    vars.insert("pairs",binding(pairs)?);
     vars.insert("cap",i64::try_from(cap).map_err(ModelError::codec)?);
-    vars.insert("member_mode",member_mode);vars.insert("units",SerdeWrapper(units.map(|u|u.to_vec())));
+    vars.insert("member_mode",member_mode);vars.insert("units",binding(units)?);
     let target=if member_mode {"out"} else {"unit"};
     let sql=format!(r#"RETURN {{
  LET $vectors=SELECT id,1.0-vector::distance::knn() AS score FROM vector WHERE scope_specification=<string>$specification AND array::len(->vec_occurs[WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND scope_input IN $inputs.map(|$v|<string>$v) AND ($member_mode=false OR member!=NULL) AND ($pairs=NULL OR [member,context] IN $pairs)])>0 AND embedding <|100,200|> $vector;
