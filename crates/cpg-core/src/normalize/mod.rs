@@ -12,6 +12,7 @@ use lctx_model::domain::{
 use std::sync::Arc;
 use arrow_array::Array;
 mod receiver_scope;
+mod callable_scope;
 
 /// One transfer-bounded stream at a time. The typed collector admits every retained row; the
 /// source-bound session and PreparedQuery own remote scan admission and stream lifetime.
@@ -408,28 +409,36 @@ pub async fn relations(
     output.finish(ProviderOutcome::Complete).await
 }
 
-pub async fn callables(
-    access: CompletedInputs,
-    output: ProducerOutput,
-    runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
-) -> Result<(), ModelError> {
-    use lctx_model::domain::normalized::callable_normalization::{self, CallableData};
-    let session = access.session(runtime).await?;
-    let mut data = CallableData::new(runtime.budget());
-    macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        let _permit = access.read::<$ty>()?;
-        load(&session, &mut data.$field).await?;
-    )* }; }
-    lctx_model::normalized_callable_inputs!(read_inputs);
-    drop(session);
-    let rows = compute(data, runtime.budget(), callable_normalization::normalize).await?;
-    macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
-        output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
-    )* }; }
-    lctx_model::normalized_callable_outputs!(write_outputs);
-    drop(rows);
-    output.finish(ProviderOutcome::Complete).await
+pub async fn callables(access:CompletedInputs,output:ProducerOutput,runtime:&Workspace,model:&Arc<ValidatedModel>)->Result<(),ModelError> {
+    use lctx_model::domain::{normalized::callable_normalization,normalized::entities::CallableEntity,calls::Signature,types::NativeOverloadObservation};
+    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    lctx_model::normalized_callable_outputs!(declare);
+    let session=access.session(runtime).await?;
+    for (kernel,root) in [(callable_scope::Kernel::Callable,CallableEntity::NAME),(callable_scope::Kernel::Signature,Signature::NAME),(callable_scope::Kernel::Overload,NativeOverloadObservation::NAME)] {
+        let scopes=callable_scope::CallableScopes::prepare(&access,&session,model,runtime.budget(),kernel).await?;
+        let declaration=callable_normalization::CallableData::validation_inputs().into_iter().find(|input|input.name()==root).ok_or(ModelError::Schema("callable root input"))?;
+        let table=access.table_for(&declaration)?;
+        let mut stream=crate::sql::query(&session,&format!("SELECT id FROM \"{table}\" ORDER BY id")).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
+            let keys=batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema("callable root projection"))?;
+            for index in 0..keys.len() {
+                let rows=match kernel {
+                    callable_scope::Kernel::Callable=>{let key:Id<CallableEntity>=callable_scope::nominal(keys.value(index))?;let data=scopes.data(&access,key,runtime.budget()).await?;let rows=callable_normalization::normalize_callable(&data,key,runtime.budget())?;drop(data);rows},
+                    callable_scope::Kernel::Signature=>{let key:Id<Signature>=callable_scope::nominal(keys.value(index))?;let data=scopes.data(&access,key,runtime.budget()).await?;let rows=callable_normalization::normalize_signature(&data,key,runtime.budget())?;drop(data);rows},
+                    callable_scope::Kernel::Overload=>{let key:Id<NativeOverloadObservation>=callable_scope::nominal(keys.value(index))?;let data=scopes.data(&access,key,runtime.budget()).await?;let rows=callable_normalization::normalize_overload(&data,key,runtime.budget())?;drop(data);rows},
+                };
+                macro_rules! emit {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter() {output.push(row.clone()).await?;})*};}
+                lctx_model::normalized_callable_outputs!(emit);drop(rows);
+            }
+        }
+        drop(scopes);
+    }
+    drop(session);output.finish(ProviderOutcome::Complete).await
+}
+
+/// Dispatch target for the model's typed necessary Callables admission scope.
+pub async fn validate_callables(invariant:&Invariant,tables:Vec<crate::consumed_rows::ClosureTable>,session:&datafusion::prelude::SessionContext,budget:&resources::ResourceBudget,cancellation:&crate::workspace::Cancellation)->Result<(),ModelError> {
+    callable_scope::validate_callables(invariant,tables,session,budget,cancellation).await
 }
 
 /// Complete callable metadata is produced one actual assessment, initializer or class at a time.
