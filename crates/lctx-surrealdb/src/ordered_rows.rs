@@ -140,13 +140,13 @@ impl SortedRows {
         {
             let mut writer = BufWriter::new(run.as_file_mut());
             for row in self.pending.drain(..) {
-                if let Some(prior) = &last {
-                    if prior.id == row.id {
-                        if prior.bytes != row.bytes {
-                            return Err(ModelError::Conflict("conflicting physical row identity"));
-                        }
-                        continue;
+                if let Some(prior) = &last
+                    && prior.id == row.id
+                {
+                    if prior.bytes != row.bytes {
+                        return Err(ModelError::Conflict("conflicting physical row identity"));
                     }
+                    continue;
                 }
                 write(&mut writer, &row)?;
                 last = Some(row);
@@ -205,7 +205,7 @@ impl OrderedRows {
         }
         Ok(())
     }
-    pub fn next(&mut self) -> Result<Option<Value>, ModelError> {
+    pub fn next_row(&mut self) -> Result<Option<Value>, ModelError> {
         let Some(reader) = &mut self.reader else {
             return Ok(None);
         };
@@ -220,7 +220,7 @@ impl OrderedRows {
         actual: &mut crate::reader::NativeRows,
     ) -> Result<(), ModelError> {
         loop {
-            match (self.next()?, actual.next().await?) {
+            match (self.next_row()?, actual.next().await?) {
                 (None, None) => return Ok(()),
                 (Some(expected), Some(actual))
                     if serde_json::to_vec(&expected).map_err(ModelError::codec)?
@@ -259,16 +259,16 @@ mod tests {
         let mut ordered = rows.finish().unwrap();
         for n in 0..200 {
             assert_eq!(
-                ordered.next().unwrap(),
+                ordered.next_row().unwrap(),
                 Some(row(
                     &format!("{n:04}"),
                     Value::Bytes(Bytes::from(vec![n as u8; 100]))
                 ))
             );
         }
-        assert!(ordered.next().unwrap().is_none());
+        assert!(ordered.next_row().unwrap().is_none());
         ordered.rewind().unwrap();
-        assert!(ordered.next().unwrap().is_some());
+        assert!(ordered.next_row().unwrap().is_some());
     }
     #[test]
     fn sdk_serde_preserves_binary_record_ids_null_absence_and_signed_zero() {
@@ -284,7 +284,7 @@ mod tests {
             let mut sorted = SortedRows::with_run_bytes(1).unwrap();
             sorted.push(original).unwrap();
             assert_eq!(
-                serde_json::to_vec(&sorted.finish().unwrap().next().unwrap().unwrap()).unwrap(),
+                serde_json::to_vec(&sorted.finish().unwrap().next_row().unwrap().unwrap()).unwrap(),
                 bytes
             );
         }

@@ -87,7 +87,7 @@ fn fixture(
 }
 
 fn visit<R: Record>(check: &mut dyn InvariantCheck, row: &R) -> Result<(), ModelError> {
-    check.visit(R::NAME, &<R as Record>::encode(&[row.clone()])?)
+    check.visit(R::NAME, &<R as Record>::encode(std::slice::from_ref(row))?)
 }
 fn admission(
     data: &ConsumptionData,

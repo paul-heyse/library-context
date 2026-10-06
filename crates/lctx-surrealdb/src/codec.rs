@@ -68,6 +68,35 @@ fn view<R: Record + Serialize>(row: &R) -> Result<RecordView, ModelError> {
     })
 }
 
+fn arrow_value(array: &ArrayRef, row: usize) -> Result<Value, ModelError> {
+    if array.is_null(row) {
+        return Ok(Value::Null);
+    }
+    macro_rules! scalar {
+        ($ty:ty) => {
+            if let Some(array) = array.as_any().downcast_ref::<$ty>() {
+                return serde_json::to_value(array.value(row)).map_err(ModelError::codec);
+            }
+        };
+    }
+    scalar!(BooleanArray);
+    scalar!(Int16Array);
+    scalar!(Int32Array);
+    scalar!(Int64Array);
+    scalar!(Float64Array);
+    scalar!(StringArray);
+    scalar!(FixedSizeBinaryArray);
+    scalar!(BinaryArray);
+    if let Some(array) = array.as_any().downcast_ref::<ListArray>() {
+        let list = array.value(row);
+        return (0..list.len())
+            .map(|i| arrow_value(&list, i))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array);
+    }
+    Err(ModelError::Schema("native graph field representation"))
+}
+
 #[cfg(test)]
 mod remediation_text_projection {
     use super::*;
@@ -99,32 +128,4 @@ mod remediation_text_projection {
         };
         assert!(view(&bytes).unwrap().body.get("bytes_value").is_none());
     }
-}
-fn arrow_value(array: &ArrayRef, row: usize) -> Result<Value, ModelError> {
-    if array.is_null(row) {
-        return Ok(Value::Null);
-    }
-    macro_rules! scalar {
-        ($ty:ty) => {
-            if let Some(array) = array.as_any().downcast_ref::<$ty>() {
-                return serde_json::to_value(array.value(row)).map_err(ModelError::codec);
-            }
-        };
-    }
-    scalar!(BooleanArray);
-    scalar!(Int16Array);
-    scalar!(Int32Array);
-    scalar!(Int64Array);
-    scalar!(Float64Array);
-    scalar!(StringArray);
-    scalar!(FixedSizeBinaryArray);
-    scalar!(BinaryArray);
-    if let Some(array) = array.as_any().downcast_ref::<ListArray>() {
-        let list = array.value(row);
-        return (0..list.len())
-            .map(|i| arrow_value(&list, i))
-            .collect::<Result<Vec<_>, _>>()
-            .map(Value::Array);
-    }
-    Err(ModelError::Schema("native graph field representation"))
 }

@@ -194,7 +194,7 @@ fn check(
     assert_eq!(invariant.name, "analytic_text_original_membership");
     let mut check = (invariant.create)(budget);
     for declaration in &invariant.inputs {
-        macro_rules! facts {($($field:ident:$ty:ty,)*)=>{$(if declaration.name()==<$ty>::NAME && <$ty>::NAME!=ArtifactChunk::NAME {for row in data.$field.iter() {check.visit(<$ty>::NAME,&<$ty as Record>::encode(&[row.clone()])?)?;}})*};}
+        macro_rules! facts {($($field:ident:$ty:ty,)*)=>{$(if declaration.name()==<$ty>::NAME && <$ty>::NAME!=ArtifactChunk::NAME {for row in data.$field.iter() {check.visit(<$ty>::NAME,&<$ty as Record>::encode(std::slice::from_ref(row))?)?;}})*};}
         lctx_model::analytic_text_inputs!(facts);
         if declaration.name() == ArtifactChunk::NAME {
             let mut chunks = data.chunks.iter().collect::<Vec<_>>();
@@ -202,7 +202,7 @@ fn check(
             for row in chunks {
                 check.visit(
                     ArtifactChunk::NAME,
-                    &<ArtifactChunk as Record>::encode(&[row.clone()])?,
+                    &<ArtifactChunk as Record>::encode(std::slice::from_ref(row))?,
                 )?;
             }
         }
@@ -210,7 +210,7 @@ fn check(
             ($field:ident,$ty:ty) => {
                 if declaration.name() == <$ty>::NAME {
                     for row in output.$field.iter() {
-                        check.visit(<$ty>::NAME, &<$ty as Record>::encode(&[row.clone()])?)?;
+                        check.visit(<$ty>::NAME, &<$ty as Record>::encode(std::slice::from_ref(row))?)?;
                     }
                 }
             };
@@ -224,7 +224,7 @@ fn check(
             for row in windows {
                 check.visit(
                     TextWindow::NAME,
-                    &<TextWindow as Record>::encode(&[row.clone()])?,
+                    &<TextWindow as Record>::encode(std::slice::from_ref(row))?,
                 )?;
             }
         }

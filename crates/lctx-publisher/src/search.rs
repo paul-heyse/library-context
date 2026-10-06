@@ -303,7 +303,7 @@ async fn lower(
         let rows = expected.finish(index)?;
         if loader.is_some() {
             let mut batch = Batch::new(loader, table);
-            while let Some(row) = rows.next()? {
+            while let Some(row) = rows.next_row()? {
                 batch.emit(row).await?;
             }
             batch.flush().await?;
@@ -382,7 +382,7 @@ async fn lower(
                     // Only link fields cross this boundary. No winning vector/configuration is
                     // hydrated or decoded again for a member/anchor/context witness.
                     links.rewind()?;
-                    while let Some(link) = links.next()? {
+                    while let Some(link) = links.next_row()? {
                         let link: VectorLink = decode(link)?;
                         let vector_id = RecordId::new(
                             "vector",

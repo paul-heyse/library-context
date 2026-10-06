@@ -140,10 +140,11 @@ impl NativeEmbeddingCache {
         written: Result<(), surrealdb::Error>,
     ) -> Result<Attempt<'a>, ModelError> {
         // Never conceal a schema/permission/unknown failure just because an old winner exists.
-        if let Err(error) = &written {
-            if !retryable_conflict(error) && !uncertain_transport(error) {
-                return Err(ModelError::codec(error));
-            }
+        if let Err(error) = &written
+            && !retryable_conflict(error)
+            && !uncertain_transport(error)
+        {
+            return Err(ModelError::codec(error));
         }
         let keys: Vec<_> = candidates
             .iter()
