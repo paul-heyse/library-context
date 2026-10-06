@@ -14,3 +14,7 @@ pub fn native_definitions()->String {
     sql.push_str(library::native_definitions());
     sql
 }
+pub mod source_evidence;
+mod flow_inventory;
+mod source_characterization;
+mod source_usage;
