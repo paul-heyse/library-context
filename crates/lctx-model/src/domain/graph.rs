@@ -646,6 +646,15 @@ fn reference_requirement(
         subtype: reference.subtype,
     })
 }
+/// Resolve a typed proof row through the same finite graph vocabulary as semantic references.
+pub fn target_for_row(row: super::derivation::RowRef) -> Result<Target, ModelError> {
+    reference_target(&super::SemanticReference {
+        field: "source",
+        target: row.relation(),
+        key: *row.bytes(),
+        subtype: None,
+    }).map(|(target, _)| target)
+}
 pub fn reference_target(
     reference: &super::SemanticReference,
 ) -> Result<(Target, Option<EntityKind>), ModelError> {
