@@ -1,22 +1,66 @@
 //! Stateless replay of completed, bounded batches through the shared model invariants.
 //! This driver is for small independent algorithm/contract controls. Compiler publication uses
 //! streamed graph shape and bulk nominal closure, not a materialized relation store.
+use super::charged::{ChargedMap, ChargedSet, StateCharge};
+use super::resources::{ResourceBudget, TRANSFER_ROWS};
 use super::*;
-use super::charged::{ChargedMap,ChargedSet,StateCharge};
-use super::resources::{ResourceBudget,TRANSFER_ROWS};
-use arrow_array::{Array,ArrayRef,FixedSizeBinaryArray,Int16Array,RecordBatch,UInt32Array};
-use arrow_row::{RowConverter,SortField};
+use arrow_array::{Array, ArrayRef, FixedSizeBinaryArray, Int16Array, RecordBatch, UInt32Array};
+use arrow_row::{RowConverter, SortField};
 use arrow_schema::SortOptions;
 use std::collections::BTreeMap;
 
-pub fn replay(model:&ValidatedModel,batches:&[(&'static str,RecordBatch)],budget:&ResourceBudget)->Result<ContentHash,ModelError>{
- let mut charge=StateCharge::new(budget,"completed-batch-replay");let mut sorted=BTreeMap::new();
- for relation in model.relations(){let selected=batches.iter().filter(|(name,_)|*name==relation.name()).map(|(_,batch)|batch.clone()).collect::<Vec<_>>();charge.grow(selected.iter().map(logical_batch_bytes).collect::<Result<Vec<_>,_>>()?.into_iter().sum::<usize>().saturating_mul(4).saturating_add(4096))?;let all=arrow_select::concat::concat_batches(relation.schema(),&selected).map_err(ModelError::codec)?;sorted.insert(relation.name(),order(relation,&all,&["id"])?);}
- let keys=Keys::collect(model,&sorted,&mut charge)?;keys.references(model,&sorted)?;
- let mut content=KeySink::new("completed-relations-control/v1");
- for relation in model.relations(){let mut rows=relation.content();for chunk in chunks(&sorted[relation.name()]){relation.hash_rows(&chunk,&mut rows)?;}let (_,digest)=rows.finish();content.part(relation.name().as_bytes(),&digest.0);}
- for invariant in model.invariants(){let mut check=(invariant.create)(budget);for input in &invariant.inputs{let relation=model.relation(input.name()).expect("validated invariant member");let batch=order(relation,&sorted[relation.name()],input.order())?;for chunk in chunks(&batch){check.visit_input(input,&chunk)?;}}check.finish()?;}
- Ok(content.finish())
+pub fn replay(
+    model: &ValidatedModel,
+    batches: &[(&'static str, RecordBatch)],
+    budget: &ResourceBudget,
+) -> Result<ContentHash, ModelError> {
+    let mut charge = StateCharge::new(budget, "completed-batch-replay");
+    let mut sorted = BTreeMap::new();
+    for relation in model.relations() {
+        let selected = batches
+            .iter()
+            .filter(|(name, _)| *name == relation.name())
+            .map(|(_, batch)| batch.clone())
+            .collect::<Vec<_>>();
+        charge.grow(
+            selected
+                .iter()
+                .map(logical_batch_bytes)
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .sum::<usize>()
+                .saturating_mul(4)
+                .saturating_add(4096),
+        )?;
+        let all = arrow_select::concat::concat_batches(relation.schema(), &selected)
+            .map_err(ModelError::codec)?;
+        sorted.insert(relation.name(), order(relation, &all, &["id"])?);
+    }
+    let keys = Keys::collect(model, &sorted, &mut charge)?;
+    keys.references(model, &sorted)?;
+    let mut content = KeySink::new("completed-relations-control/v1");
+    for relation in model.relations() {
+        let mut rows = relation.content();
+        for chunk in chunks(&sorted[relation.name()]) {
+            relation.hash_rows(&chunk, &mut rows)?;
+        }
+        let (_, digest) = rows.finish();
+        content.part(relation.name().as_bytes(), &digest.0);
+    }
+    for invariant in model.invariants() {
+        let mut check = (invariant.create)(budget);
+        for input in &invariant.inputs {
+            let relation = model
+                .relation(input.name())
+                .expect("validated invariant member");
+            let batch = order(relation, &sorted[relation.name()], input.order())?;
+            for chunk in chunks(&batch) {
+                check.visit_input(input, &chunk)?;
+            }
+        }
+        check.finish()?;
+    }
+    Ok(content.finish())
 }
 /// Ascending on the named columns with nulls last and byte-wise text, as the store's `ORDER BY`
 /// with `COLLATE "C"` produces. Ties keep their prior order.
@@ -146,4 +190,3 @@ impl Keys {
         Ok(())
     }
 }
-

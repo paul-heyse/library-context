@@ -27,7 +27,7 @@ pub enum FlowSnapshotState {
     NotFound = 2,
     NoLongerInEagerContext = 3,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_capture_targets")]
 pub enum FlowCaptureTarget {
     #[model(code = 0)]
@@ -44,13 +44,13 @@ pub enum FlowCaptureTarget {
     #[model(code = 5)]
     Unattached,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="flow_capture_inventories",invariant_refs=inventory_invariants_refs)]
 pub struct FlowCaptureInventory {
     #[model(key)]
     pub members: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="flow_capture_candidates",validate=validate_candidate)]
 pub struct FlowCaptureCandidate {
     #[model(key)]

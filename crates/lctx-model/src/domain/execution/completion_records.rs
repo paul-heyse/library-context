@@ -19,7 +19,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainSum};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "base_completion_outcomes")]
 pub enum CompletionOutcome {
     #[model(code = 0)]
@@ -61,7 +61,7 @@ pub enum CompletionSource {
         evaluation: Id<ExpressionEvaluation>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="base_statement_completions",rule="base_statement_completion",invariant_refs=completion_invariants_refs)]
 pub struct StatementCompletion {
     #[model(key, premise)]

@@ -3,17 +3,11 @@
 //! a location-dependent console-script line) and a fetched source tree. The acquired rows are
 //! read from immutable compiler workspace outputs. Every control states its answer first.
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use cpg_extract::{
-    acquisition::{self, Acquire, InputInventory},
-};
 use cpg_core::workspace::{Workspace, WorkspaceOptions};
+use cpg_extract::acquisition::{self, Acquire, InputInventory};
 use lctx_model::domain::{
-    batching::TransferLimits,
-    input::*,
-    resources::ResourceBudget,
-    source::SourceArtifact,
-    stages::*,
-    *,
+    batching::TransferLimits, input::*, resources::ResourceBudget, source::SourceArtifact,
+    stages::*, *,
 };
 use sha2::{Digest as _, Sha256};
 use std::{
@@ -190,7 +184,10 @@ impl Rows {
 }
 fn all<R: Record>(workspace: &Workspace) -> Result<Vec<R>, ModelError> {
     let mut rows = Vec::new();
-    for batch in workspace.completed::<R>()?.read::<R>(workspace.model().clone(), workspace.budget().clone())? {
+    for batch in workspace
+        .completed::<R>()?
+        .read::<R>(workspace.model().clone(), workspace.budget().clone())?
+    {
         rows.extend(batch?.rows().iter().cloned());
     }
     Ok(rows)
@@ -211,32 +208,43 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
         .map_err(|e| e.to_string())?,
     );
     let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
-    let workspace = Workspace::with_budget(model, WorkspaceOptions {
-        memory_bytes: budget.limit(),
-        ..WorkspaceOptions::default()
-    }, budget).map_err(|e| e.to_string())?;
+    let workspace = Workspace::with_budget(
+        model,
+        WorkspaceOptions {
+            memory_bytes: budget.limit(),
+            ..WorkspaceOptions::default()
+        },
+        budget,
+    )
+    .map_err(|e| e.to_string())?;
     cpg_core::facts::compile_facts(
-        &workspace, &captured, Profile::Catalog,
-        vec![Box::new(Acquire::of(&inventory))], TransferLimits::default(),
-    ).await.map_err(|e| e.to_string())?;
+        &workspace,
+        &captured,
+        Profile::Catalog,
+        vec![Box::new(Acquire::of(&inventory))],
+        TransferLimits::default(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     workspace.validate().await.map_err(|e| e.to_string())?;
-    let rows = || -> Result<Rows, ModelError> { Ok(Rows {
-        digest: Some(workspace.content()?),
-        revisions: all(&workspace)?,
-        origins: all(&workspace)?,
-        artifacts: all(&workspace)?,
-        ownership: all(&workspace)?,
-        unowned: all(&workspace)?,
-        derived: all(&workspace)?,
-        uses: all(&workspace)?,
-        distributions: all(&workspace)?,
-        verifications: all(&workspace)?,
-        fingerprints: all(&workspace)?,
-        corpus_libraries: all(&workspace)?,
-        releases: all(&workspace)?,
-    }) };
+    let rows = || -> Result<Rows, ModelError> {
+        Ok(Rows {
+            digest: Some(workspace.content()?),
+            revisions: all(&workspace)?,
+            origins: all(&workspace)?,
+            artifacts: all(&workspace)?,
+            ownership: all(&workspace)?,
+            unowned: all(&workspace)?,
+            derived: all(&workspace)?,
+            uses: all(&workspace)?,
+            distributions: all(&workspace)?,
+            verifications: all(&workspace)?,
+            fingerprints: all(&workspace)?,
+            corpus_libraries: all(&workspace)?,
+            releases: all(&workspace)?,
+        })
+    };
     rows().map_err(|e| e.to_string())
-
 }
 /// Every file and directory under `roots`, with its bytes.
 fn snapshot(roots: &[&Path]) -> BTreeMap<PathBuf, Option<Vec<u8>>> {

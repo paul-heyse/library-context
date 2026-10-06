@@ -261,7 +261,7 @@ pub enum ExportKind {
 }
 /// Where a public name is defined: the module and name the provider traced it to (with the kind
 /// that module records, if any), or untraced when the trace fails. Untraced never equals a trace.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "export_origins", validate = validate_origin)]
 pub enum ExportOrigin {
     #[model(code = 0)]

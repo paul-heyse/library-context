@@ -61,12 +61,12 @@ pub fn describe(model: &ValidatedModel) -> Value {
         "inputs":check.inputs.iter().map(|input| json!({"relation":input.name(),"order":input.order(),
             "prefix":input.prefix().map(|p|p.name())})).collect::<Vec<_>>()
     })).collect();
-    let mut graph_entities=Vec::<Value>::new();
+    let mut graph_entities = Vec::<Value>::new();
     macro_rules! entities {($($variant:ident:$record:path),* $(,)?)=>{$(
         graph_entities.push(json!({"kind":stringify!($variant),"semantic_owner":<$record as lctx_model::domain::Record>::NAME}));
     )*};}
     lctx_model::graph_entity_records!(entities);
-    let mut graph_assertions=Vec::<Value>::new();
+    let mut graph_assertions = Vec::<Value>::new();
     macro_rules! assertions {($($variant:ident:$record:path),* $(,)?)=>{$(
         graph_assertions.push(json!({"kind":stringify!($variant),"semantic_owner":<$record as lctx_model::domain::Record>::NAME,
             "participants":<$record as lctx_model::domain::Record>::fields().iter().filter(|field|field.target().is_some()).map(|field|json!({"role":field.name(),"ordered":field.list()})).collect::<Vec<_>>()}));

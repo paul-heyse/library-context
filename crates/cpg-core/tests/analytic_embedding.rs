@@ -1,16 +1,34 @@
 //! Explicit deterministic embedding effects exercise codec and refusal contracts, not live quality.
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
-use lctx_model::domain::{admission::Frontier,embedding,stages::Profile};
-type UseRow=(i16,Option<i64>,Option<i16>,Option<Vec<u8>>);
-async fn run(mode:Mode) {
-    let provider=ContractEmbedder {inner:cpg_core::embedding_service::FakeEmbedder::new(),mode};
-    let mut settings=catalog_runtime::settings("analytic_text");
-    settings.knn=!matches!(mode,Mode::Disabled);
-    let requested=settings.knn;
-    let fixture=catalog_runtime::compile("normalized_relations",Profile::Catalog,Frontier::Analysis,settings,if requested{Some(&provider)}else{None}).await;
-    let uses: Vec<UseRow> = catalog_runtime::query(&fixture, "SELECT availability, admitted_tokens, codec, bytes FROM analysis_embedding_uses").await;
-    let outcomes: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM analytic_embedding_analysis_outcomes").await;
+use lctx_model::domain::{admission::Frontier, embedding, stages::Profile};
+type UseRow = (i16, Option<i64>, Option<i16>, Option<Vec<u8>>);
+async fn run(mode: Mode) {
+    let provider = ContractEmbedder {
+        inner: cpg_core::embedding_service::FakeEmbedder::new(),
+        mode,
+    };
+    let mut settings = catalog_runtime::settings("analytic_text");
+    settings.knn = !matches!(mode, Mode::Disabled);
+    let requested = settings.knn;
+    let fixture = catalog_runtime::compile(
+        "normalized_relations",
+        Profile::Catalog,
+        Frontier::Analysis,
+        settings,
+        if requested { Some(&provider) } else { None },
+    )
+    .await;
+    let uses: Vec<UseRow> = catalog_runtime::query(
+        &fixture,
+        "SELECT availability, admitted_tokens, codec, bytes FROM analysis_embedding_uses",
+    )
+    .await;
+    let outcomes: Vec<i16> = catalog_runtime::query(
+        &fixture,
+        "SELECT status FROM analytic_embedding_analysis_outcomes",
+    )
+    .await;
     assert!(!outcomes.is_empty());
     match mode {
         Mode::Disabled => {
@@ -91,7 +109,6 @@ async fn native_optional_failures_preserve_explicit_per_window_availability() {
     run(Mode::TokenLimit).await;
 }
 
-
 #[derive(Default)]
 struct EffectTrace {
     tokens: std::collections::BTreeMap<lctx_model::domain::ContentHash, usize>,
@@ -103,8 +120,12 @@ struct ChangingContractEmbedder {
     trace: std::sync::Mutex<EffectTrace>,
 }
 impl Embedder for ChangingContractEmbedder {
-    fn spec(&self) -> &embedding::Spec { self.inner.spec() }
-    fn endpoint(&self) -> &str { self.inner.endpoint() }
+    fn spec(&self) -> &embedding::Spec {
+        self.inner.spec()
+    }
+    fn endpoint(&self) -> &str {
+        self.inner.endpoint()
+    }
     fn count_tokens<'a>(&'a self, request: &'a str) -> EmbedFuture<'a, usize> {
         let key = embedding::value::input_hash(request);
         *self.trace.lock().unwrap().tokens.entry(key).or_default() += 1;
@@ -114,15 +135,21 @@ impl Embedder for ChangingContractEmbedder {
         Box::pin(async move {
             let mut trace = self.trace.lock().unwrap();
             trace.batches.push(requests.to_vec());
-            Ok(requests.iter().map(|request| {
-                let count = trace.embeddings.entry(embedding::value::input_hash(request)).or_default();
-                let coordinate = *count % self.spec().dimensions as usize;
-                *count += 1;
-                // Every answer is a valid unit vector, but repeating a request changes its bytes.
-                let mut vector = vec![0.0; self.spec().dimensions as usize];
-                vector[coordinate] = 1.0;
-                vector
-            }).collect())
+            Ok(requests
+                .iter()
+                .map(|request| {
+                    let count = trace
+                        .embeddings
+                        .entry(embedding::value::input_hash(request))
+                        .or_default();
+                    let coordinate = *count % self.spec().dimensions as usize;
+                    *count += 1;
+                    // Every answer is a valid unit vector, but repeating a request changes its bytes.
+                    let mut vector = vec![0.0; self.spec().dimensions as usize];
+                    vector[coordinate] = 1.0;
+                    vector
+                })
+                .collect())
         })
     }
 }
@@ -134,7 +161,10 @@ fn receipts(rows: Vec<ReceiptRow>) -> std::collections::BTreeMap<(Vec<u8>, Vec<u
     for (specification, input, tokens, codec, digest, bytes) in rows {
         let receipt = (tokens, codec, digest, bytes);
         if let Some(previous) = receipts.insert((specification, input), receipt.clone()) {
-            assert_eq!(previous, receipt, "nominal uses changed their exact shared winner");
+            assert_eq!(
+                previous, receipt,
+                "nominal uses changed their exact shared winner"
+            );
         }
     }
     receipts
@@ -150,30 +180,78 @@ async fn native_catalog_reuses_analytic_winners_and_batches_unique_requests_with
     let mut settings = catalog_runtime::settings("analytic_text");
     settings.knn = true;
     // The fixture helper invokes the actual native compiler with cache=None.
-    let fixture = catalog_runtime::compile("normalized_relations", Profile::Catalog, Frontier::Catalog, settings, Some(&provider)).await;
+    let fixture = catalog_runtime::compile(
+        "normalized_relations",
+        Profile::Catalog,
+        Frontier::Catalog,
+        settings,
+        Some(&provider),
+    )
+    .await;
     let analytic = receipts(catalog_runtime::query(&fixture,
         "SELECT specification, input, admitted_tokens, codec, value_digest, bytes FROM analysis_embedding_uses WHERE availability=0").await);
     let retrieval = receipts(catalog_runtime::query(&fixture,
         "SELECT specification, input, admitted_tokens, codec, value_digest, bytes FROM retrieval_embedding_uses WHERE availability=0").await);
     assert!(!analytic.is_empty() && !retrieval.is_empty());
-    let overlap = analytic.keys().filter(|key| retrieval.contains_key(*key)).collect::<Vec<_>>();
-    assert!(!overlap.is_empty(), "the native fixture must exercise E1/E0 request sharing");
-    for key in &overlap { assert_eq!(analytic.get(*key), retrieval.get(*key)); }
+    let overlap = analytic
+        .keys()
+        .filter(|key| retrieval.contains_key(*key))
+        .collect::<Vec<_>>();
+    assert!(
+        !overlap.is_empty(),
+        "the native fixture must exercise E1/E0 request sharing"
+    );
+    for key in &overlap {
+        assert_eq!(analytic.get(*key), retrieval.get(*key));
+    }
     // This independently captured documentary passage fits both 4096-byte windows. Its actual
     // bytes, rather than a manufactured request copied from producer output, establish overlap.
     let guide = include_str!("../../../fixtures/python/normalized_relations/guide.md");
-    let specification = embedding::EmbeddingSpec::new(provider.spec()).unwrap().id().bytes().to_vec();
-    let guide_key = (specification.clone(), embedding::value::input_hash(&provider.spec().document_text(guide)).0.to_vec());
+    let specification = embedding::EmbeddingSpec::new(provider.spec())
+        .unwrap()
+        .id()
+        .bytes()
+        .to_vec();
+    let guide_key = (
+        specification.clone(),
+        embedding::value::input_hash(&provider.spec().document_text(guide))
+            .0
+            .to_vec(),
+    );
     assert!(analytic.contains_key(&guide_key) && retrieval.contains_key(&guide_key));
-    let expected = analytic.keys().chain(retrieval.keys()).map(|(spec, input)| {
-        assert_eq!(spec, &specification);
-        ContentHash(input.as_slice().try_into().unwrap())
-    }).collect::<std::collections::BTreeSet<_>>();
+    let expected = analytic
+        .keys()
+        .chain(retrieval.keys())
+        .map(|(spec, input)| {
+            assert_eq!(spec, &specification);
+            ContentHash(input.as_slice().try_into().unwrap())
+        })
+        .collect::<std::collections::BTreeSet<_>>();
     let trace = provider.trace.lock().unwrap();
-    assert_eq!(trace.embeddings.keys().copied().collect::<std::collections::BTreeSet<_>>(), expected);
-    assert_eq!(trace.tokens.keys().copied().collect::<std::collections::BTreeSet<_>>(), expected);
-    assert!(trace.embeddings.values().all(|count| *count == 1), "E1/E0 repeated a service request despite its completed winner");
+    assert_eq!(
+        trace
+            .embeddings
+            .keys()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected
+    );
+    assert_eq!(
+        trace
+            .tokens
+            .keys()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected
+    );
+    assert!(
+        trace.embeddings.values().all(|count| *count == 1),
+        "E1/E0 repeated a service request despite its completed winner"
+    );
     assert!(trace.tokens.values().all(|count| *count == 1));
-    assert!(trace.batches.iter().any(|batch| batch.len() > 1), "distinct requests never reached the bulk service interface");
+    assert!(
+        trace.batches.iter().any(|batch| batch.len() > 1),
+        "distinct requests never reached the bulk service interface"
+    );
     assert!(trace.batches.iter().all(|batch| batch.len() <= 64));
 }

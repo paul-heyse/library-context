@@ -2,12 +2,12 @@
 //! Input scopes come from captured artifact roles; result observations never select the universe.
 use super::{AnalysisCapability, AnalysisMethod, invalid};
 use crate::domain::{
+    analysis::sources::CompletedInput,
     attribution::{AnalysisContext, FactFamily, ProviderCoverage},
     input::{ArtifactUse, InputRevision},
     normalized::coverage::{Capability, NormalizationComputation, NormalizationCoverage},
     source::{CoverageScope, SourceArtifact},
     stages::Profile,
-    analysis::sources::CompletedInput,
     *,
 };
 /// The recognized expected-domain row inventory and typed decoder dispatch share this owner.

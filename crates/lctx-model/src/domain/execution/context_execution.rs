@@ -19,7 +19,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="context_executions",rule="context_execution",invariant_refs=super::enriched_production::context_invariants_refs)]
 pub struct ContextExecution {
     #[model(key, premise)]
@@ -33,7 +33,7 @@ pub struct ContextExecution {
     pub items: ContentHash,
     pub sources: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="context_execution_items",rule="context_execution_item",conclusion=execution)]
 pub struct ContextItem {
     #[model(key)]

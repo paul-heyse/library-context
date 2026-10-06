@@ -13,7 +13,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "execution_outcomes")]
 pub enum ExecutionOutcome {
     #[model(code = 0)]
@@ -96,7 +96,7 @@ pub enum ExecutionSource {
         context: Id<super::context_execution::ContextExecution>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="statement_executions",rule="ordered_statement_execution",invariant_refs=super::enriched_production::statement_invariants_refs)]
 pub struct StatementExecution {
     #[model(key, premise)]
@@ -277,7 +277,7 @@ pub enum BodySource {
         execution: Id<StatementExecution>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "body_executions", rule = "ordered_body_execution")]
 pub struct BodyExecution {
     #[model(key, premise)]
@@ -445,7 +445,7 @@ pub fn relations() -> Vec<Relation> {
 
 /// A fresh-source call enters only after an independently completed Enriched body and
 /// the shared frame release operation; this record never appends SourceCall output tables.
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "source_execution_invocations",
     rule = "source_execution_invocation"

@@ -16,25 +16,56 @@ pub struct SourceSnapshot {
     pub(crate) rows: i64,
 }
 impl HeapSize for SourceSnapshot {
-    fn heap_bytes(&self) -> usize { self.relation.heap_bytes() + self.producer.heap_bytes() }
+    fn heap_bytes(&self) -> usize {
+        self.relation.heap_bytes() + self.producer.heap_bytes()
+    }
 }
 impl SourceSnapshot {
-    pub fn of_relation(relation: &Relation, producer: impl Into<String>, model: ContentHash,
-                       implementation: ContentHash, content: ContentHash, rows: u64) -> Result<Self, ModelError> {
-        let producer=producer.into();
-        if producer.is_empty() {return Err(invalid("completed input needs a producer"));}
-        Ok(Self {relation:relation.name().into(),producer,model,implementation,content,
-                 rows:i64::try_from(rows).map_err(|_|invalid("completed input row count exceeds representation"))?})
+    pub fn of_relation(
+        relation: &Relation,
+        producer: impl Into<String>,
+        model: ContentHash,
+        implementation: ContentHash,
+        content: ContentHash,
+        rows: u64,
+    ) -> Result<Self, ModelError> {
+        let producer = producer.into();
+        if producer.is_empty() {
+            return Err(invalid("completed input needs a producer"));
+        }
+        Ok(Self {
+            relation: relation.name().into(),
+            producer,
+            model,
+            implementation,
+            content,
+            rows: i64::try_from(rows)
+                .map_err(|_| invalid("completed input row count exceeds representation"))?,
+        })
     }
 
-    pub fn producer(&self) -> &str { &self.producer }
-    pub fn implementation(&self) -> ContentHash { self.implementation }
-    pub fn relation(&self) -> &str { &self.relation }
-    pub fn rows(&self) -> i64 { self.rows }
-    pub fn content(&self) -> ContentHash { self.content }
-    pub fn model(&self) -> ContentHash { self.model }
+    pub fn producer(&self) -> &str {
+        &self.producer
+    }
+    pub fn implementation(&self) -> ContentHash {
+        self.implementation
+    }
+    pub fn relation(&self) -> &str {
+        &self.relation
+    }
+    pub fn rows(&self) -> i64 {
+        self.rows
+    }
+    pub fn content(&self) -> ContentHash {
+        self.content
+    }
+    pub fn model(&self) -> ContentHash {
+        self.model
+    }
     pub(crate) fn identity(&self) -> ContentHash {
-        let mut sink=KeySink::new("completed-source-view/v1");self.encode(&mut sink);sink.finish()
+        let mut sink = KeySink::new("completed-source-view/v1");
+        self.encode(&mut sink);
+        sink.finish()
     }
     fn encode(&self, sink: &mut KeySink) {
         self.relation.encode(sink);
@@ -47,21 +78,49 @@ impl SourceSnapshot {
 }
 /// Nominal view metadata; actual Arrow streams and segment lifetimes belong to the compiler.
 #[derive(Debug, Clone)]
-pub struct CompletedInput<R> { source: SourceSnapshot, marker: PhantomData<fn() -> R> }
-impl<R: Record> CompletedInput<R> {
-    pub fn new(producer: impl Into<String>, model: ContentHash, implementation: ContentHash,
-               content: ContentHash, rows: u64) -> Result<Self, ModelError> {
-        let producer = producer.into();
-        if producer.is_empty() { return Err(invalid("completed input needs a producer")); }
-        Ok(Self { source: SourceSnapshot { relation: R::NAME.into(), producer, model,
-            implementation, content, rows: i64::try_from(rows).map_err(|_| invalid("completed input row count exceeds representation"))? }, marker: PhantomData })
-    }
-    pub fn source(&self) -> &SourceSnapshot { &self.source }
-    pub fn snapshot(&self) -> SourceSnapshot { self.source.clone() }
+pub struct CompletedInput<R> {
+    source: SourceSnapshot,
+    marker: PhantomData<fn() -> R>,
 }
-pub(crate) fn digest(sources: &std::collections::BTreeMap<ContentHash, SourceSnapshot>) -> ContentHash {
+impl<R: Record> CompletedInput<R> {
+    pub fn new(
+        producer: impl Into<String>,
+        model: ContentHash,
+        implementation: ContentHash,
+        content: ContentHash,
+        rows: u64,
+    ) -> Result<Self, ModelError> {
+        let producer = producer.into();
+        if producer.is_empty() {
+            return Err(invalid("completed input needs a producer"));
+        }
+        Ok(Self {
+            source: SourceSnapshot {
+                relation: R::NAME.into(),
+                producer,
+                model,
+                implementation,
+                content,
+                rows: i64::try_from(rows)
+                    .map_err(|_| invalid("completed input row count exceeds representation"))?,
+            },
+            marker: PhantomData,
+        })
+    }
+    pub fn source(&self) -> &SourceSnapshot {
+        &self.source
+    }
+    pub fn snapshot(&self) -> SourceSnapshot {
+        self.source.clone()
+    }
+}
+pub(crate) fn digest(
+    sources: &std::collections::BTreeMap<ContentHash, SourceSnapshot>,
+) -> ContentHash {
     let mut sink = KeySink::new("analysis-completed-inputs/v4");
-    for source in sources.values() { source.encode(&mut sink); }
+    for source in sources.values() {
+        source.encode(&mut sink);
+    }
     sink.finish()
 }
 /// Exact explicitly supplied completed predecessors. A capture is independent of publication,
@@ -74,14 +133,23 @@ pub struct CapturedSources {
 }
 impl CapturedSources {
     pub fn new(budget: &resources::ResourceBudget) -> Self {
-        Self { charge: charged::StateCharge::new(budget, "analysis_source_capture"),
-               model: None, profile: None, sources: Default::default() }
+        Self {
+            charge: charged::StateCharge::new(budget, "analysis_source_capture"),
+            model: None,
+            profile: None,
+            sources: Default::default(),
+        }
     }
-    pub fn capture(profile: stages::Profile, sources: impl IntoIterator<Item=SourceSnapshot>,
-                   budget: &resources::ResourceBudget) -> Result<Self, ModelError> {
+    pub fn capture(
+        profile: stages::Profile,
+        sources: impl IntoIterator<Item = SourceSnapshot>,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
         let mut capture = Self::new(budget);
         capture.profile = Some(profile);
-        for source in sources { capture.insert(source)?; }
+        for source in sources {
+            capture.insert(source)?;
+        }
         Ok(capture)
     }
     pub fn include<R: Record>(&mut self, input: &CompletedInput<R>) -> Result<(), ModelError> {
@@ -92,24 +160,45 @@ impl CapturedSources {
             return Err(invalid("completed input has invalid metadata"));
         }
         if self.model.is_some_and(|model| model != source.model) {
-            return Err(invalid("completed inputs have different semantic contracts"));
+            return Err(invalid(
+                "completed inputs have different semantic contracts",
+            ));
         }
         if let Some(existing) = self.sources.get(&source.identity()) {
-            if *existing != source { return Err(invalid("analysis reads conflicting completed views of one relation")); }
+            if *existing != source {
+                return Err(invalid(
+                    "analysis reads conflicting completed views of one relation",
+                ));
+            }
             return Ok(());
         }
         self.model = Some(source.model);
-        self.sources.insert(&mut self.charge, source.identity(), source)?;
+        self.sources
+            .insert(&mut self.charge, source.identity(), source)?;
         Ok(())
     }
-    pub fn digest(&self) -> ContentHash { digest(&self.sources) }
-    pub fn iter(&self) -> impl Iterator<Item=&SourceSnapshot> { self.sources.values() }
-    pub fn is_empty(&self) -> bool { self.sources.is_empty() }
-    pub fn profile(&self) -> Option<stages::Profile> { self.profile }
-    pub(crate) fn has_relation(&self, relation: &str) -> bool { self.sources.values().any(|source| source.relation==relation) }
+    pub fn digest(&self) -> ContentHash {
+        digest(&self.sources)
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &SourceSnapshot> {
+        self.sources.values()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.sources.is_empty()
+    }
+    pub fn profile(&self) -> Option<stages::Profile> {
+        self.profile
+    }
+    pub(crate) fn has_relation(&self, relation: &str) -> bool {
+        self.sources
+            .values()
+            .any(|source| source.relation == relation)
+    }
     pub(crate) fn accepts<R: Record>(&self, input: &CompletedInput<R>) -> Result<(), ModelError> {
         if self.sources.get(&input.source().identity()) != Some(input.source()) {
-            return Err(invalid("coverage read differs from captured completed input"));
+            return Err(invalid(
+                "coverage read differs from captured completed input",
+            ));
         }
         Ok(())
     }
@@ -144,4 +233,3 @@ pub(crate) fn verify(
 pub(crate) fn empty_digest() -> ContentHash {
     digest(&std::collections::BTreeMap::new())
 }
-

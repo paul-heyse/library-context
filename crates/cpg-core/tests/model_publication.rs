@@ -3,15 +3,33 @@
 mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile};
 async fn run(profile: Profile) {
-    let fixture = catalog_runtime::compile("phase4_models",profile,Frontier::Analysis,catalog_runtime::settings("cases"),None).await;
+    let fixture = catalog_runtime::compile(
+        "phase4_models",
+        profile,
+        Frontier::Analysis,
+        catalog_runtime::settings("cases"),
+        None,
+    )
+    .await;
     let count: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM model_runs").await;
     assert!(count > 0);
-    let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM model_analysis_outcomes").await;
-    let applications: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM model_applications").await;
-    let postconditions: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM modeled_action_postconditions WHERE phase=1").await;
+    let statuses: Vec<i16> =
+        catalog_runtime::query(&fixture, "SELECT status FROM model_analysis_outcomes").await;
+    let applications: i64 =
+        catalog_runtime::one(&fixture, "SELECT count(*) FROM model_applications").await;
+    let postconditions: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM modeled_action_postconditions WHERE phase=1",
+    )
+    .await;
     let context_counts:(i64,i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM model_context_resources) AS fixture_column_0,(SELECT count(*) FROM model_context_postconditions WHERE phase=1) AS fixture_column_1,(SELECT count(*) FROM model_context_postconditions WHERE phase=2) AS fixture_column_2,(SELECT count(*) FROM model_context_postconditions WHERE phase=3) AS fixture_column_3").await;
-    let transfers: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM model_transfer_alternatives").await;
-    let context_transfers: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM model_context_transfer_witnesses").await;
+    let transfers: i64 =
+        catalog_runtime::one(&fixture, "SELECT count(*) FROM model_transfer_alternatives").await;
+    let context_transfers: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM model_context_transfer_witnesses",
+    )
+    .await;
     if profile == Profile::Behavioral {
         assert!(context_transfers > 0, "actual checked WithTarget transfer");
         assert!(
@@ -45,4 +63,3 @@ async fn behavioral_models_consume_actual_enriched_calls() {
 async fn catalog_models_are_explicitly_not_requested() {
     run(Profile::Catalog).await;
 }
-

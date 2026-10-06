@@ -24,7 +24,7 @@ pub enum VectorAvailability {
     ServiceUnavailable = 1,
     TokenLimit = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="analysis_embedding_uses",validate=validate_use,invariant_refs=invariants_refs)]
 pub struct AnalysisEmbeddingUse {
     #[model(key)]

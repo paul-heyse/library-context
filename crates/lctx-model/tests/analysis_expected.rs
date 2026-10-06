@@ -1,5 +1,11 @@
 use lctx_model::domain::{
-    analysis::{catalog_core, expected::CoverageAdmission, local, sources::{CapturedSources,CompletedInput,SourceSnapshot}, *},
+    analysis::{
+        catalog_core,
+        expected::CoverageAdmission,
+        local,
+        sources::{CapturedSources, CompletedInput, SourceSnapshot},
+        *,
+    },
     attribution::{CoverageStatus, FactFamily, ProviderCoverage},
     input::{ArtifactUse, InputRevision, SourceRole},
     normalized::coverage::{
@@ -9,9 +15,7 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
-use std::{
-    collections::BTreeMap,
-};
+use std::collections::BTreeMap;
 fn nominal<T>(v: u8) -> Id<T> {
     serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
         _,
@@ -165,16 +169,92 @@ impl Universe {
         ])
     }
 }
-struct CompletedFrames(BTreeMap<&'static str,SourceSnapshot>);
-impl CompletedFrames{fn read<R:Record>(&self)->Result<CompletedInput<R>,ModelError>{let source=self.0.get(R::NAME).ok_or_else(||ModelError::Invalid("missing completed input".into()))?;CompletedInput::new(source.producer().to_owned(),source.model(),source.implementation(),source.content(),source.rows().try_into().unwrap())}}
-fn with_capture_omitting<T>(universe:&Universe,profile:Profile,omit:Option<&str>,f:impl FnOnce(&CapturedSources,&CoverageAdmission<'_>,&[SourceSnapshot],&ValidatedModel,&resources::ResourceBudget,&CompletedFrames)->T)->T{
- let model=model().unwrap();let budget=budget();let mut inputs=CompletedFrames(BTreeMap::new());
- macro_rules! completed{($r:ty,$rows:expr)=>{if Some(<$r>::NAME)!=omit{let batch=Batch::<$r>::new(&model,$rows,&budget).unwrap();let relation=Relation::of::<$r>();let mut content=relation.content();relation.hash_rows(batch.arrow(),&mut content).unwrap();let (rows,content)=content.finish();inputs.0.insert(<$r>::NAME,SourceSnapshot::of_relation(&relation,"captured",model.digest(),ContentHash::of(b"fixture implementation"),content,rows).unwrap());}};}
- completed!(InputRevision,vec![universe.input.clone()]);completed!(SourceArtifact,universe.artifacts.clone());completed!(ArtifactUse,universe.uses.clone());completed!(CoverageScope,universe.scopes.clone());completed!(NormalizationComputation,universe.computations.clone());completed!(NormalizationCoverage,universe.normalized.clone());completed!(ProviderCoverage,universe.native.clone());completed!(AnalysisDefinition,vec![universe.definition.clone()]);
- let sources=inputs.0.values().cloned().collect::<Vec<_>>();let captured=CapturedSources::capture(profile,sources.clone(),&budget).unwrap();let mut admission=CoverageAdmission::new(&captured,&budget).unwrap();
- macro_rules! visit{($r:ty,$rows:expr)=>{if Some(<$r>::NAME)!=omit{admission.visit_if_expected(&inputs.read::<$r>().unwrap(),&<$r as Record>::encode($rows).unwrap()).unwrap();}};}
- visit!(InputRevision,std::slice::from_ref(&universe.input));visit!(SourceArtifact,&universe.artifacts);visit!(ArtifactUse,&universe.uses);visit!(CoverageScope,&universe.scopes);visit!(NormalizationComputation,&universe.computations);visit!(NormalizationCoverage,&universe.normalized);visit!(ProviderCoverage,&universe.native);
- f(&captured,&admission,&sources,&model,&budget,&inputs)
+struct CompletedFrames(BTreeMap<&'static str, SourceSnapshot>);
+impl CompletedFrames {
+    fn read<R: Record>(&self) -> Result<CompletedInput<R>, ModelError> {
+        let source = self
+            .0
+            .get(R::NAME)
+            .ok_or_else(|| ModelError::Invalid("missing completed input".into()))?;
+        CompletedInput::new(
+            source.producer().to_owned(),
+            source.model(),
+            source.implementation(),
+            source.content(),
+            source.rows().try_into().unwrap(),
+        )
+    }
+}
+fn with_capture_omitting<T>(
+    universe: &Universe,
+    profile: Profile,
+    omit: Option<&str>,
+    f: impl FnOnce(
+        &CapturedSources,
+        &CoverageAdmission<'_>,
+        &[SourceSnapshot],
+        &ValidatedModel,
+        &resources::ResourceBudget,
+        &CompletedFrames,
+    ) -> T,
+) -> T {
+    let model = model().unwrap();
+    let budget = budget();
+    let mut inputs = CompletedFrames(BTreeMap::new());
+    macro_rules! completed {
+        ($r:ty,$rows:expr) => {
+            if Some(<$r>::NAME) != omit {
+                let batch = Batch::<$r>::new(&model, $rows, &budget).unwrap();
+                let relation = Relation::of::<$r>();
+                let mut content = relation.content();
+                relation.hash_rows(batch.arrow(), &mut content).unwrap();
+                let (rows, content) = content.finish();
+                inputs.0.insert(
+                    <$r>::NAME,
+                    SourceSnapshot::of_relation(
+                        &relation,
+                        "captured",
+                        model.digest(),
+                        ContentHash::of(b"fixture implementation"),
+                        content,
+                        rows,
+                    )
+                    .unwrap(),
+                );
+            }
+        };
+    }
+    completed!(InputRevision, vec![universe.input.clone()]);
+    completed!(SourceArtifact, universe.artifacts.clone());
+    completed!(ArtifactUse, universe.uses.clone());
+    completed!(CoverageScope, universe.scopes.clone());
+    completed!(NormalizationComputation, universe.computations.clone());
+    completed!(NormalizationCoverage, universe.normalized.clone());
+    completed!(ProviderCoverage, universe.native.clone());
+    completed!(AnalysisDefinition, vec![universe.definition.clone()]);
+    let sources = inputs.0.values().cloned().collect::<Vec<_>>();
+    let captured = CapturedSources::capture(profile, sources.clone(), &budget).unwrap();
+    let mut admission = CoverageAdmission::new(&captured, &budget).unwrap();
+    macro_rules! visit {
+        ($r:ty,$rows:expr) => {
+            if Some(<$r>::NAME) != omit {
+                admission
+                    .visit_if_expected(
+                        &inputs.read::<$r>().unwrap(),
+                        &<$r as Record>::encode($rows).unwrap(),
+                    )
+                    .unwrap();
+            }
+        };
+    }
+    visit!(InputRevision, std::slice::from_ref(&universe.input));
+    visit!(SourceArtifact, &universe.artifacts);
+    visit!(ArtifactUse, &universe.uses);
+    visit!(CoverageScope, &universe.scopes);
+    visit!(NormalizationComputation, &universe.computations);
+    visit!(NormalizationCoverage, &universe.normalized);
+    visit!(ProviderCoverage, &universe.native);
+    f(&captured, &admission, &sources, &model, &budget, &inputs)
 }
 fn with_capture<T>(
     universe: &Universe,
@@ -216,7 +296,7 @@ fn publication<R: Record>(
         });
         check.visit(input.name(), &batch)?;
     }
-    check.finish(sources,profile)
+    check.finish(sources, profile)
 }
 #[test]
 fn local_frontier_derives_every_scope_and_refuses_coupled_shrink() {
@@ -579,10 +659,17 @@ fn conditional_routing_skips_unrelated_and_refuses_malformed_or_foreign_before_m
             assert!(route.visit(&definition, &unrelated).is_err());
             let permit = access.read::<InputRevision>().unwrap();
             assert!(route.visit_if_expected(&permit, &unrelated).is_err());
-            let original=permit.source();
-            let wrong=CompletedInput::<InputRevision>::new("foreign",original.model(),original.implementation(),original.content(),original.rows().try_into().unwrap()).unwrap();
-            let batch=InputRevision::encode(std::slice::from_ref(&universe.input)).unwrap();
-            assert!(route.visit_if_expected(&wrong,&batch).is_err());
+            let original = permit.source();
+            let wrong = CompletedInput::<InputRevision>::new(
+                "foreign",
+                original.model(),
+                original.implementation(),
+                original.content(),
+                original.rows().try_into().unwrap(),
+            )
+            .unwrap();
+            let batch = InputRevision::encode(std::slice::from_ref(&universe.input)).unwrap();
+            assert!(route.visit_if_expected(&wrong, &batch).is_err());
             // Neither error inserted a row: the correct source remains admissible exactly once.
             let batch = InputRevision::encode(std::slice::from_ref(&universe.input)).unwrap();
             assert_eq!(

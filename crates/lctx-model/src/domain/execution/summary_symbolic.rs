@@ -15,7 +15,7 @@ use crate::domain::{
     *,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "summary_symbolic_field_alternatives",
     rule = "qualified_symbolic_field_association"

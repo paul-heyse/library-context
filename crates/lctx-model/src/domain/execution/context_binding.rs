@@ -17,7 +17,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="context_entry_bindings",rule="context_entry_binding",invariant_refs=super::enriched_production::binding_invariants_refs)]
 pub struct ContextEntryBinding {
     #[model(key, premise)]

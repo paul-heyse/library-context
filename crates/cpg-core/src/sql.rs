@@ -18,4 +18,3 @@ pub fn read_only() -> SQLOptions {
 pub async fn query(ctx: &SessionContext, sql: &str) -> Result<DataFrame> {
     ctx.sql_with_options(sql, read_only()).await
 }
-

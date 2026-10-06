@@ -300,7 +300,8 @@ impl Fixture {
                     .iter()
                     .find(|r| r.name() == input.name())
                     .unwrap();
-                let ordered = lctx_model::domain::validation::replay::order(relation, batch, input.order())?;
+                let ordered =
+                    lctx_model::domain::validation::replay::order(relation, batch, input.order())?;
                 check.visit(input.name(), &ordered)?;
             }
         }

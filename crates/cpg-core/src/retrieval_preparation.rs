@@ -1,7 +1,5 @@
 //! E0 constructs mandatory retrieval content from completed C1 inputs; final realization extends it.
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use lctx_model::domain::{
     retrieval::build::{self, Data, Output},
     *,
@@ -15,7 +13,10 @@ pub async fn mandatory(
 ) -> Result<(Data, Output), ModelError> {
     let session = access.session(runtime).await?;
     let mut data = Data::new(runtime.budget());
-    let mut consumed=crate::consumed_rows::ConsumedInputs::new(Data::mandatory_consumed_inputs(access.profile()),runtime.budget())?;
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(
+        Data::mandatory_consumed_inputs(access.profile()),
+        runtime.budget(),
+    )?;
     macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(access)?{
         crate::consumed_rows::stream_at(&permit,&input,access,&session,|_,batch|{data.visit_input(&input,batch)?;Ok(())}).await?;
     })*};}

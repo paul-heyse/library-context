@@ -372,16 +372,28 @@ pub fn relations() -> Vec<Relation> {
 }
 
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts);
+    let mut inputs = documentary::replay_inputs(
+        documentary::Data::validation_inputs(),
+        stages::PublicationBoundary::Facts,
+    );
     inputs.extend(documentary::Output::validation_inputs());
     inputs.extend(assertions::Output::validation_inputs());
     inputs.extend(seeds::Output::validation_inputs());
     inputs.extend(Output::validation_inputs());
-    inputs.extend(documentary::replay_inputs(super::observations::Data::inputs(), stages::PublicationBoundary::Analytic));
+    inputs.extend(documentary::replay_inputs(
+        super::observations::Data::inputs(),
+        stages::PublicationBoundary::Analytic,
+    ));
     inputs.extend(assertions::ControlData::inputs());
     inputs.extend(super::summary::Data::inputs());
-    inputs.extend(documentary::replay_inputs(super::terminal::Data::inputs(), stages::PublicationBoundary::Analytic));
-    inputs.extend(documentary::replay_inputs(super::patterns::Data::inputs(stages::Profile::Behavioral), stages::PublicationBoundary::Facts));
+    inputs.extend(documentary::replay_inputs(
+        super::terminal::Data::inputs(),
+        stages::PublicationBoundary::Analytic,
+    ));
+    inputs.extend(documentary::replay_inputs(
+        super::patterns::Data::inputs(stages::Profile::Behavioral),
+        stages::PublicationBoundary::Facts,
+    ));
     inputs.extend([
         ValidationInput::of::<super::frames::Frame>(&["id"]),
         ValidationInput::of::<structural::PublicCandidate>(&["id"]),
@@ -431,9 +443,15 @@ struct Check {
 }
 impl InvariantCheck for Check {
     fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+        Err(ModelError::Invalid(
+            "S0 replay requires an explicit completed-input selector".into(),
+        ))
     }
-    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         documentary::replay_selector(input)?;
         let n = input.name();
         if n == owner::Invocation::NAME {
@@ -448,12 +466,29 @@ impl InvariantCheck for Check {
             self.public.decode(b)?;
             return Ok(());
         }
-        let observations = documentary::replay_visit(input, Some(stages::PublicationBoundary::Analytic), |name| self.observations.visit(name, b))?;
-        let controls = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.controls.visit(name, b))?;
+        let observations = documentary::replay_visit(
+            input,
+            Some(stages::PublicationBoundary::Analytic),
+            |name| self.observations.visit(name, b),
+        )?;
+        let controls =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.controls.visit(name, b)
+            })?;
         let summary = documentary::replay_visit(input, None, |name| self.summary.visit(name, b))?;
-        let terminal = documentary::replay_visit(input, Some(stages::PublicationBoundary::Analytic), |name| self.terminal.visit(name, b))?;
-        let patterns = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.patterns.visit(name, b))?;
-        let d = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.data.visit(name, b))?;
+        let terminal = documentary::replay_visit(
+            input,
+            Some(stages::PublicationBoundary::Analytic),
+            |name| self.terminal.visit(name, b),
+        )?;
+        let patterns =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.patterns.visit(name, b)
+            })?;
+        let d =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.data.visit(name, b)
+            })?;
         let doc = documentary::replay_visit(input, None, |name| self.docs.visit(name, b))?;
         let a = documentary::replay_visit(input, None, |name| self.assertions.visit(name, b))?;
         let s = documentary::replay_visit(input, None, |name| self.seeds.visit(name, b))?;
@@ -591,11 +626,14 @@ mod tests {
     #[test]
     fn summary_facets_read_retained_qualifications_without_enlarging_documentary_facts() {
         // This renderer control assumes the Summary owner admitted the finite facet.
-        let (b, d, docs, assertions, seeds, _) = inputs("\"\"\"Run carefully.\"\"\"", "Run carefully.");
+        let (b, d, docs, assertions, seeds, _) =
+            inputs("\"\"\"Run carefully.\"\"\"", "Run carefully.");
         let seed = seeds.selected.iter().next().unwrap();
         let plan = seeds.plans.get(seed.plan).unwrap();
         let (_, earlier) = super::super::frames::tests::fixture();
-        let parent = super::super::frames::parents(&earlier, &b).unwrap().remove(0);
+        let parent = super::super::frames::parents(&earlier, &b)
+            .unwrap()
+            .remove(0);
         let frame = super::super::frames::frame(&parent, plan.invocation);
         let mut frames = Rows::new(&b);
         frames.insert(frame.clone()).unwrap();
@@ -606,30 +644,55 @@ mod tests {
         let mut qualifications = Rows::new(&b);
         qualifications.insert(retained.clone()).unwrap();
         let mut facets = Rows::new(&b);
-        facets.insert(super::super::summary::SummaryFacet {
-            frame: frame.id(),
-            conclusion: serde_json::from_value(serde_json::json!(vec![240u8; 16])).unwrap(),
-            member: Some(seed.member),
-            claim: None,
-            qualification: Some(retained.id()),
-            coverage: attribution::CoverageStatus::Partial,
-            verdict: obligation::Verdict::Unknown,
-            reason: None,
-            source: None,
-        }).unwrap();
+        facets
+            .insert(super::super::summary::SummaryFacet {
+                frame: frame.id(),
+                conclusion: serde_json::from_value(serde_json::json!(vec![240u8; 16])).unwrap(),
+                member: Some(seed.member),
+                claim: None,
+                qualification: Some(retained.id()),
+                coverage: attribution::CoverageStatus::Partial,
+                verdict: obligation::Verdict::Unknown,
+                reason: None,
+                source: None,
+            })
+            .unwrap();
         let summary = super::super::summary::Data::new(&b);
         let patterns = super::super::patterns::Output::new(&b);
         let output = build_with_summary(
-            &d, &docs, &assertions, &seeds, &summary, &qualifications,
-            &facets, &frames, &patterns, &b,
-        ).unwrap();
-        assert!(output.documents.iter().any(|part|
-            part.text.as_str().contains("Behavioral analysis for this captured frame: Unknown; coverage Partial")
-        ));
-        assert!(build_with_summary(
-            &d, &docs, &assertions, &seeds, &summary, &Rows::new(&b),
-            &facets, &frames, &patterns, &b,
-        ).is_err(), "missing retained qualification must be refused");
+            &d,
+            &docs,
+            &assertions,
+            &seeds,
+            &summary,
+            &qualifications,
+            &facets,
+            &frames,
+            &patterns,
+            &b,
+        )
+        .unwrap();
+        assert!(output.documents.iter().any(|part| {
+            part.text
+                .as_str()
+                .contains("Behavioral analysis for this captured frame: Unknown; coverage Partial")
+        }));
+        assert!(
+            build_with_summary(
+                &d,
+                &docs,
+                &assertions,
+                &seeds,
+                &summary,
+                &Rows::new(&b),
+                &facets,
+                &frames,
+                &patterns,
+                &b,
+            )
+            .is_err(),
+            "missing retained qualification must be refused"
+        );
         assert!(d.qualifications.get(retained.id()).is_none());
     }
     #[test]

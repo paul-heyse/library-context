@@ -286,7 +286,10 @@ pub const SEMANTIC_POLICY_REVISION: u32 = 1;
 /// Implementation provenance is deliberately independent of semantic model compatibility.
 /// This may invalidate reuse after an implementation/dependency change without renaming entities.
 pub fn implementation_digest() -> ContentHash {
-    ContentHash::of(include_bytes!(concat!(env!("OUT_DIR"), "/model-implementation.bin")))
+    ContentHash::of(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/model-implementation.bin"
+    )))
 }
 
 /// The only model accepted by storage or execution. Validation supports reference cycles.
@@ -335,7 +338,10 @@ impl ValidatedModel {
         let mut digest = KeySink::new("model/v3");
         // Declaration fields, codebooks, projection meanings and explicit invariant revisions
         // define compatibility. Source text, documentation, implementation and the lockfile do not.
-        digest.part(b"semantic-policy-revision", &SEMANTIC_POLICY_REVISION.to_le_bytes());
+        digest.part(
+            b"semantic-policy-revision",
+            &SEMANTIC_POLICY_REVISION.to_le_bytes(),
+        );
         for relation in &relations {
             digest.part(b"relation", relation.name.as_bytes());
             let mut roles = HashSet::new();

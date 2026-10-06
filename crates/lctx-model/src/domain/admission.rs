@@ -5,9 +5,7 @@
 use super::{
     attribution::*,
     charged::StateCharge,
-    input::{
-        ArtifactUse, InputRevision, SourceRole,
-    },
+    input::{ArtifactUse, InputRevision, SourceRole},
     record::FieldValue,
     resources::ResourceBudget,
     source::{CoverageScope, SourceArtifact},
@@ -19,7 +17,9 @@ pub(crate) mod availability;
 pub use availability::{CoverageEvidence, ScopedAvailability};
 
 /// What a generation can answer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Frontier {
     Conformance,
     Facts,
@@ -546,7 +546,7 @@ impl FrontierContract {
         }
         Ok(Preflight {
             contract: self.clone(),
-            schedule:schedule.digest(),
+            schedule: schedule.digest(),
             coverers,
         })
     }
@@ -556,7 +556,7 @@ impl FrontierContract {
 #[derive(Debug, Clone)]
 pub struct Preflight {
     contract: FrontierContract,
-    schedule:ContentHash,
+    schedule: ContentHash,
     coverers: BTreeMap<FactFamily, BTreeSet<Id<Provider>>>,
 }
 /// One coverage row a facts generation must state: a requested family names its provider; an

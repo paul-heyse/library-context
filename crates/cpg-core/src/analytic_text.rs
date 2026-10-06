@@ -1,19 +1,17 @@
 //! Analytic source text is a pure, single-owner publication before vector consumption.
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use datafusion::execution::context::SessionContext;
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
 use futures::TryStreamExt;
+use lctx_model::domain::stages::ProviderOutcome;
 use lctx_model::domain::{
     embedding::text::{self, TextAssessment, TextData, TextDefinition, TextSubject, TextWindow},
     normalized::Rows,
     *,
 };
 use std::sync::Arc;
-use lctx_model::domain::stages::ProviderOutcome;
 
 async fn load<R: Record>(session: &SessionContext, rows: &mut Rows<R>) -> Result<(), ModelError> {
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;

@@ -5,6 +5,7 @@
 //! Shared driver for the typed producer suites: a fixture tree is acquired and run through
 //! the native production providers into immutable spillable compiler streams. Inspection reads
 //! completed outputs after producers finish; it never intercepts writes or supplies another store.
+use cpg_core::workspace::{ProducerOutput, Workspace, WorkspaceOptions};
 use cpg_extract::{
     acquisition::{Acquire, AcquiredInput},
     assembly::Assemble,
@@ -13,10 +14,8 @@ use cpg_extract::{
     pyrefly_stage::Pyrefly,
     typed_syntax::SyntaxLimits,
 };
-use cpg_core::workspace::{ProducerOutput, Workspace, WorkspaceOptions};
 use lctx_model::domain::{
-    batching::TransferLimits, resources::ResourceBudget,
-    source::SourceArtifact, stages::*, *,
+    batching::TransferLimits, resources::ResourceBudget, source::SourceArtifact, stages::*, *,
 };
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
@@ -64,11 +63,20 @@ pub trait Inspector {
 }
 /// Copy small fixture outputs for independent assertions, after the actual compiler completed them.
 pub fn observe(workspace: &Workspace, tables: &Tables) -> Result<(), ModelError> {
-    let mut tables = tables.lock().map_err(|_| ModelError::Invalid("test observer poisoned".into()))?;
+    let mut tables = tables
+        .lock()
+        .map_err(|_| ModelError::Invalid("test observer poisoned".into()))?;
     for relation in workspace.completed_relations()? {
-        let batches = relation.batches()?.collect::<Result<Vec<_>, _>>().map_err(ModelError::codec)?;
+        let batches = relation
+            .batches()?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(ModelError::codec)?;
         if let Some(first) = batches.first() {
-            tables.insert(relation.name(), arrow_select::concat::concat_batches(&first.schema(), &batches).map_err(ModelError::codec)?);
+            tables.insert(
+                relation.name(),
+                arrow_select::concat::concat_batches(&first.schema(), &batches)
+                    .map_err(ModelError::codec)?,
+            );
         }
     }
     Ok(())
@@ -231,15 +239,18 @@ pub async fn run_profile_with_budget<I: Inspector>(
     if reverse_providers {
         providers.reverse();
     }
-    let workspace = Workspace::with_budget(model, WorkspaceOptions {
-        memory_bytes: resources.limit(),
-        ..WorkspaceOptions::default()
-    }, resources)?;
+    let workspace = Workspace::with_budget(
+        model,
+        WorkspaceOptions {
+            memory_bytes: resources.limit(),
+            ..WorkspaceOptions::default()
+        },
+        resources,
+    )?;
     cpg_core::facts::compile_facts(&workspace, &captured, profile, providers, limits).await?;
     workspace.validate().await?;
     observe(&workspace, &inspect.tables())?;
     workspace.content()
-
 }
 
 /// The artifact at `path` among `artifacts`.

@@ -4,10 +4,7 @@ use lctx_model::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(
-    name = "proof_nodes",
-    rule = "follows"
-)]
+#[model(name = "proof_nodes", rule = "follows")]
 struct Node {
     #[model(key)]
     name: String,

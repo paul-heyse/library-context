@@ -1,7 +1,5 @@
 //! Computed normalization stages over admitted completed-stage inputs.
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use futures::TryStreamExt;
 use lctx_model::domain::{
     normalized::{
@@ -15,8 +13,11 @@ use std::sync::Arc;
 
 /// One transfer-bounded stream at a time. The typed collector admits every retained row; the
 /// source-bound session and PreparedQuery own remote scan admission and stream lifetime.
-async fn load<R: Record>(session: &datafusion::prelude::SessionContext, rows: &mut Rows<R>) -> Result<(), ModelError> {
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
+async fn load<R: Record>(
+    session: &datafusion::prelude::SessionContext,
+    rows: &mut Rows<R>,
+) -> Result<(), ModelError> {
+    let query = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -35,7 +36,7 @@ pub async fn entities(
     let mut data = EntityData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
         let _permit = access.read::<$ty>()?;
-        
+
         load(&session, &mut data.$field).await?;
     )* }; }
     lctx_model::normalized_entity_inputs!(read_inputs);
@@ -68,7 +69,7 @@ pub async fn relations(
     macro_rules! read_facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
         let _permit = access.read::<$ty>()?;
         if registered.insert(&mut registration, <$ty>::NAME)? {
-            
+
         }
         load(&session, &mut data.facts.$field).await?;
     )* }; }
@@ -76,7 +77,7 @@ pub async fn relations(
     macro_rules! read_entities { ($($field:ident: $ty:ty,)*) => { $(
         let _permit = access.read::<$ty>()?;
         if registered.insert(&mut registration, <$ty>::NAME)? {
-            
+
         }
         load(&session, &mut data.entities.$field).await?;
     )* }; }
@@ -85,7 +86,7 @@ pub async fn relations(
         if access.contains::<$ty>() {
             let _permit = access.read::<$ty>()?;
             if registered.insert(&mut registration, <$ty>::NAME)? {
-                
+
             }
             load(&session, &mut data.$field).await?;
         }
@@ -111,7 +112,7 @@ pub async fn callables(
     let session = access.session(runtime).await?;
     let mut data = CallableData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        let _permit = access.read::<$ty>()?; 
+        let _permit = access.read::<$ty>()?;
         load(&session, &mut data.$field).await?;
     )* }; }
     lctx_model::normalized_callable_inputs!(read_inputs);
@@ -136,7 +137,7 @@ pub async fn receivers(
     let mut data = ReceiverData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
         if access.contains::<$ty>() {
-            let _permit = access.read::<$ty>()?; 
+            let _permit = access.read::<$ty>()?;
             load(&session, &mut data.$field).await?;
         }
     )* }; }
@@ -162,7 +163,7 @@ pub async fn events(
     let mut data = EventData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
         if access.contains::<$ty>() {
-            let _permit = access.read::<$ty>()?; 
+            let _permit = access.read::<$ty>()?;
             load(&session, &mut data.$field).await?;
         }
     )* }; }
@@ -188,7 +189,7 @@ pub async fn bindings(
     let mut data = BindingData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
         if access.contains::<$ty>() {
-            let _permit = access.read::<$ty>()?; 
+            let _permit = access.read::<$ty>()?;
             load(&session, &mut data.$field).await?;
         }
     )* }; }
@@ -214,7 +215,7 @@ pub async fn projections(
     let session = access.session(runtime).await?;
     let mut data = ProjectionData::new(runtime.budget());
     macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        let _permit = access.read::<$ty>()?; 
+        let _permit = access.read::<$ty>()?;
         load(&session, &mut data.$field).await?;
     )* }; }
     lctx_model::projection_inputs!(read_inputs);
@@ -237,7 +238,7 @@ async fn compute<D: Send + 'static, O: Send + 'static>(
     + Send
     + 'static,
 ) -> Result<O, ModelError> {
-    crate::stage_runtime::borrowed_cpu("normalization",||operation(&data,budget))
+    crate::stage_runtime::borrowed_cpu("normalization", || operation(&data, budget))
 }
 
 /// Assemble exact normalized scope outcomes over the private, admitted facts checkpoint.
@@ -248,13 +249,13 @@ pub async fn coverage(
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::{normalized::coverage::*, source::SourceArtifact};
-    let sources=access.snapshots().collect::<Vec<_>>();
-    let profile=access.profile();
-    let evidence=runtime.facts_availability(profile)?;
+    let sources = access.snapshots().collect::<Vec<_>>();
+    let profile = access.profile();
+    let evidence = runtime.facts_availability(profile)?;
     let session = access.session(runtime).await?;
     let mut artifacts = Rows::<SourceArtifact>::new(runtime.budget());
     let _permit = access.read::<SourceArtifact>()?;
-    
+
     load(&session, &mut artifacts).await?;
     drop(session);
     let rows = assemble(profile, &evidence, &artifacts, &sources, runtime.budget())?;

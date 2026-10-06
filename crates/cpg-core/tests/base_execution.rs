@@ -2,24 +2,62 @@
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile, *};
-async fn run(profile: Profile, completion: bool) {run_case(profile,completion,false,false).await;}
-async fn run_case(profile: Profile, completion: bool, source_calls: bool, enriched: bool) {run_fixture(profile,completion,source_calls,enriched,"execution_channels","cases.py").await;}
-async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enriched: bool, case: &str, file: &str) {
+async fn run(profile: Profile, completion: bool) {
+    run_case(profile, completion, false, false).await;
+}
+async fn run_case(profile: Profile, completion: bool, source_calls: bool, enriched: bool) {
+    run_fixture(
+        profile,
+        completion,
+        source_calls,
+        enriched,
+        "execution_channels",
+        "cases.py",
+    )
+    .await;
+}
+async fn run_fixture(
+    profile: Profile,
+    completion: bool,
+    source_calls: bool,
+    enriched: bool,
+    case: &str,
+    file: &str,
+) {
     let root = catalog_runtime::root(case);
-    let fixture = catalog_runtime::compile(case,profile,Frontier::Analysis,catalog_runtime::settings("cases"),None).await;
+    let fixture = catalog_runtime::compile(
+        case,
+        profile,
+        Frontier::Analysis,
+        catalog_runtime::settings("cases"),
+        None,
+    )
+    .await;
     if case == "exact_exception_shapes" {
         let native:Vec<(String,i64)> = catalog_runtime::query(&fixture, "SELECT s.name,count(a.id) FROM provider_symbols s LEFT JOIN class_ancestry_observations a ON a.class=s.id WHERE s.name IN ('ValueError','RuntimeError','TypeError','Exception','BaseException') GROUP BY s.name ORDER BY s.name").await;
-        let refused:Vec<(i16,i64)> = catalog_runtime::query(&fixture, "SELECT reason,count(*) FROM execution_body_boundaries GROUP BY reason ORDER BY reason").await;
+        let refused: Vec<(i16, i64)> = catalog_runtime::query(
+            &fixture,
+            "SELECT reason,count(*) FROM execution_body_boundaries GROUP BY reason ORDER BY reason",
+        )
+        .await;
         eprintln!("B4_NATIVE {native:?}; B4_REFUSED {refused:?}");
     }
     let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_expression_evaluations) AS fixture_column_0,(SELECT count(*) FROM base_evaluation_boundaries) AS fixture_column_1,(SELECT count(*) FROM base_evaluation_runs) AS fixture_column_2").await;
     assert!(counts.2 > 0);
-    let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM base_evaluation_analysis_outcomes").await;
+    let statuses: Vec<i16> = catalog_runtime::query(
+        &fixture,
+        "SELECT status FROM base_evaluation_analysis_outcomes",
+    )
+    .await;
     assert!(!statuses.is_empty());
     if profile == Profile::Behavioral {
         assert!(counts.0 > 0 && counts.1 > 0);
         assert!(statuses.iter().all(|s| *s == 1));
-        let entries: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM base_evaluation_sources WHERE kind=1").await;
+        let entries: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(*) FROM base_evaluation_sources WHERE kind=1",
+        )
+        .await;
         if case != "exact_exception_shapes" {
             assert!(entries > 0);
         }
@@ -36,7 +74,11 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
         assert_eq!(read_counts, (0, 0, 0));
     }
     if case == "transfer_alternatives" && profile == Profile::Behavioral {
-        let native_negative: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM base_formal_read_assessments WHERE status=1").await;
+        let native_negative: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(*) FROM base_formal_read_assessments WHERE status=1",
+        )
+        .await;
         assert!(native_negative > 0);
         let dynamic:(i64,i64)=catalog_runtime::one(&fixture, "SELECT count(*),count(*) FILTER (WHERE inspection=0) FROM base_dynamic_access_observations").await;
         eprintln!("B3_DYNAMIC {dynamic:?}");
@@ -62,7 +104,11 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
     if completion {
         let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_statement_completions) AS fixture_column_0,(SELECT count(*) FROM base_completion_boundaries) AS fixture_column_1,(SELECT count(*) FROM base_completion_runs) AS fixture_column_2").await;
         assert!(counts.2 > 0);
-        let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM base_completion_analysis_outcomes").await;
+        let statuses: Vec<i16> = catalog_runtime::query(
+            &fixture,
+            "SELECT status FROM base_completion_analysis_outcomes",
+        )
+        .await;
         if profile == Profile::Behavioral {
             let body_counts:(i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_source_body_completions) AS fixture_column_0,(SELECT count(*) FROM base_source_body_boundaries) AS fixture_column_1").await;
             if case != "exact_exception_shapes" {
@@ -72,7 +118,11 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
                 assert!(counts.0 > 0 && counts.1 > 0);
             }
             assert!(statuses.iter().all(|s| *s == 1));
-            let sources: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM base_completion_sources WHERE kind=1").await;
+            let sources: i64 = catalog_runtime::one(
+                &fixture,
+                "SELECT count(*) FROM base_completion_sources WHERE kind=1",
+            )
+            .await;
             assert!(sources > 0);
         } else {
             assert_eq!((counts.0, counts.1), (0, 0));
@@ -80,7 +130,9 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
         }
     }
     if source_calls {
-        let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM source_call_analysis_outcomes").await;
+        let statuses: Vec<i16> =
+            catalog_runtime::query(&fixture, "SELECT status FROM source_call_analysis_outcomes")
+                .await;
         assert!(!statuses.is_empty());
         assert!(
             statuses
@@ -93,7 +145,9 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
             if case != "exact_exception_shapes" {
                 assert!(counts.0 > 0 && counts.1 > 0);
             }
-            let invoked: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM source_call_invocations").await;
+            let invoked: i64 =
+                catalog_runtime::one(&fixture, "SELECT count(*) FROM source_call_invocations")
+                    .await;
             if case != "exact_exception_shapes" {
                 assert!(invoked > 0);
             }
@@ -102,7 +156,11 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
         }
     }
     if enriched {
-        let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM enriched_execution_analysis_outcomes").await;
+        let statuses: Vec<i16> = catalog_runtime::query(
+            &fixture,
+            "SELECT status FROM enriched_execution_analysis_outcomes",
+        )
+        .await;
         assert!(!statuses.is_empty());
         assert!(
             statuses
@@ -116,19 +174,36 @@ async fn run_fixture(profile: Profile, completion: bool, source_calls: bool, enr
                 assert!(counts.0 > 0 && counts.1 > 0);
             }
             if case != "exact_exception_shapes" {
-                let modeled: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM modeled_call_evaluations").await;
+                let modeled: i64 =
+                    catalog_runtime::one(&fixture, "SELECT count(*) FROM modeled_call_evaluations")
+                        .await;
                 assert!(modeled > 0);
-                let fresh: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM source_execution_invocations").await;
+                let fresh: i64 = catalog_runtime::one(
+                    &fixture,
+                    "SELECT count(*) FROM source_execution_invocations",
+                )
+                .await;
                 assert!(fresh > 0);
-                let args: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM source_frame_arguments").await;
+                let args: i64 =
+                    catalog_runtime::one(&fixture, "SELECT count(*) FROM source_frame_arguments")
+                        .await;
                 assert!(args > 0);
-                let defaults: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM definition_evaluations").await;
+                let defaults: i64 =
+                    catalog_runtime::one(&fixture, "SELECT count(*) FROM definition_evaluations")
+                        .await;
                 assert!(defaults > 0);
-                let contexts: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM context_executions").await;
+                let contexts: i64 =
+                    catalog_runtime::one(&fixture, "SELECT count(*) FROM context_executions").await;
                 assert!(contexts > 0);
-                let suppressed: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM context_execution_items WHERE suppressed").await;
+                let suppressed: i64 = catalog_runtime::one(
+                    &fixture,
+                    "SELECT count(*) FROM context_execution_items WHERE suppressed",
+                )
+                .await;
                 assert!(suppressed > 0);
-                let bindings: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM context_entry_bindings").await;
+                let bindings: i64 =
+                    catalog_runtime::one(&fixture, "SELECT count(*) FROM context_entry_bindings")
+                        .await;
                 assert!(bindings > 0);
                 let retained_bindings:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM context_entry_bindings WHERE release=1 AND entry_actual IS NOT NULL").await;
                 assert!(retained_bindings > 0);
@@ -319,4 +394,3 @@ async fn exact_exception_handlers_preserve_order_and_runtime_completion() {
     )
     .await;
 }
-

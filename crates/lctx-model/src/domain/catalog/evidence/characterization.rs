@@ -7,7 +7,10 @@ use crate::domain::{
     analysis::native::NativeAssertionPremise, assertion::*, attribution::*, source::*,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_source_characterizations",rule="source_characterization")]
+#[model(
+    name = "catalog_source_characterizations",
+    rule = "source_characterization"
+)]
 pub struct SourceCharacterization {
     #[model(key, premise)]
     pub native: Id<NativeAssertionPremise>,
@@ -20,7 +23,7 @@ pub struct SourceCharacterization {
 }
 /// Containment only, never a resolved API target or an executed-test claim.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_source_characterization_scenarios")]
+#[model(name = "catalog_source_characterization_scenarios")]
 pub struct SourceCharacterizationScenario {
     #[model(key)]
     pub characterization: Id<SourceCharacterization>,
@@ -163,7 +166,7 @@ fn add(
 }
 /// Exact event-source correspondence; it survives unresolved targets and does not imply execution.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_source_usages",rule="source_usage")]
+#[model(name = "catalog_source_usages", rule = "source_usage")]
 pub struct SourceUsage {
     #[model(key, premise)]
     pub characterization: Id<SourceCharacterization>,

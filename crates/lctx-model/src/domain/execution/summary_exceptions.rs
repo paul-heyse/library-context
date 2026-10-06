@@ -8,7 +8,7 @@ use crate::domain::{
     analysis, assertion, attribution, conditions, input, normalized::entities::EntityRef,
     resources::ResourceBudget, *,
 };
-#[derive(Debug, Clone, PartialEq, Eq, crate::Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, crate::Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "summary_exception_outcomes",
     rule = "finite_exception_body_summary"

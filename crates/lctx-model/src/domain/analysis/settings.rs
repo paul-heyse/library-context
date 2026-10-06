@@ -81,7 +81,7 @@ impl Techniques {
 }
 /// Scalar fields lower directly to the declared relation; the full resolved technique set is
 /// identity-bearing even when every optional method is off.
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="analytics_configurations",validate=validate_configuration)]
 pub struct AnalyticsConfiguration {
     #[model(key)]

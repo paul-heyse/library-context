@@ -64,7 +64,7 @@ pub struct CallableAspect {
     pub admission: AspectAdmission,
     pub related: Option<Id<EntityRef>>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "class_field_defaults")]
 pub enum FieldDefault {
     #[model(code = 0)]
@@ -88,7 +88,7 @@ pub enum FieldDefault {
         argument: Id<CallArgument>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "class_field_default_assessments")]
 pub struct FieldDefaultAssessment {
     #[model(key)]

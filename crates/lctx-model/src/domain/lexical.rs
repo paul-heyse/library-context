@@ -79,7 +79,7 @@ pub enum SyntaxField {
     Default = 25,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "lexical_scopes", invariant_refs = lexical_invariants_refs)]
 pub struct LexicalScope {
     #[model(key)]
@@ -87,7 +87,7 @@ pub struct LexicalScope {
     #[model(key)]
     pub kind: LexicalScopeKind,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "binding_events", validate = validate_event)]
 pub struct BindingEvent {
     #[model(key)]
@@ -178,7 +178,7 @@ fn validate_reference(row: &ReferenceObservation) -> Result<(), ModelError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "lexical_targets", validate = validate_target)]
 pub enum LexicalTarget {
     #[model(code = 0)]

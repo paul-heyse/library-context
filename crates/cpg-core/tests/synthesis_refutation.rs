@@ -2,18 +2,50 @@
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
 use cpg_core::workspace::Workspace;
-use lctx_model::domain::{admission::Frontier, analysis::{policy::{AssertionKind,BriefSection,EvidenceStatus,FindingKind},synthesis as owner}, execution::summary_consequences::{ClaimProof,ClaimRefutationCoverage}, normalized::Rows, stages::Profile, synthesis::{self,assertions,documentary,observations,summary},*};
-fn batches<R:Record>(workspace:&Workspace)->Vec<arrow_array::RecordBatch> {workspace.completed::<R>().unwrap().batches().unwrap().map(Result::unwrap).collect()}
-fn rows<R:Record>(workspace:&Workspace,budget:&resources::ResourceBudget)->Rows<R> {let mut rows=Rows::new(budget);for batch in batches::<R>(workspace){rows.decode(&batch).unwrap();}rows}
+use lctx_model::domain::{
+    admission::Frontier,
+    analysis::{
+        policy::{AssertionKind, BriefSection, EvidenceStatus, FindingKind},
+        synthesis as owner,
+    },
+    execution::summary_consequences::{ClaimProof, ClaimRefutationCoverage},
+    normalized::Rows,
+    stages::Profile,
+    synthesis::{self, assertions, documentary, observations, summary},
+    *,
+};
+fn batches<R: Record>(workspace: &Workspace) -> Vec<arrow_array::RecordBatch> {
+    workspace
+        .completed::<R>()
+        .unwrap()
+        .batches()
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+fn rows<R: Record>(workspace: &Workspace, budget: &resources::ResourceBudget) -> Rows<R> {
+    let mut rows = Rows::new(budget);
+    for batch in batches::<R>(workspace) {
+        rows.decode(&batch).unwrap();
+    }
+    rows
+}
 #[tokio::test]
 async fn native_false_source_compiles_exact_negative_s0_authority() {
     let mut settings = catalog_runtime::settings("cases");
-    settings.configured_seeds=vec!["cases.false_source_control".into()];
-    settings.witnesses=128;
-    settings.brief_budget=1;
-    let fixture=catalog_runtime::compile("synthesis_refutation",Profile::Behavioral,Frontier::Catalog,settings,None).await;
-    let reader=fixture.workspace.clone();
-    let budget=reader.budget();
+    settings.configured_seeds = vec!["cases.false_source_control".into()];
+    settings.witnesses = 128;
+    settings.brief_budget = 1;
+    let fixture = catalog_runtime::compile(
+        "synthesis_refutation",
+        Profile::Behavioral,
+        Frontier::Catalog,
+        settings,
+        None,
+    )
+    .await;
+    let reader = fixture.workspace.clone();
+    let budget = reader.budget();
     let mut data = summary::Data::new(budget);
     macro_rules! load_summary {($($f:ident:$t:ty,)*)=>{$(for b in batches::<$t>(&reader) { data.$f.decode(&b).unwrap(); })*};}
     lctx_model::synthesis_summary_inputs!(load_summary);

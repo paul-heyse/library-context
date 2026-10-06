@@ -107,7 +107,7 @@ pub struct Unit {
     pub corpus: Id<CorpusText>,
     pub title: Utf8Text,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "retrieval_subjects")]
 pub enum Subject {
     #[model(code = 0)]
@@ -124,7 +124,7 @@ pub struct UnitSubject {
     pub subject: Id<Subject>,
 }
 /// Original references are canonical C1 wrappers, never a duplicate body or inferred API proof.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "retrieval_anchor_sources")]
 pub enum AnchorSource {
     #[model(code = 0)]

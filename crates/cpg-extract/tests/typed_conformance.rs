@@ -8,15 +8,10 @@ use cpg_extract::{
     typed_syntax::{self, SyntaxInvocation, SyntaxLimits},
 };
 use lctx_model::domain::{
-    assertion::*, attribution::*, batching::TransferLimits,
-    conditions::Diagram, input::*, obligation::ObligationKind,
-    resources::ResourceBudget, source::*, stages::*, *,
+    assertion::*, attribution::*, batching::TransferLimits, conditions::Diagram, input::*,
+    obligation::ObligationKind, resources::ResourceBudget, source::*, stages::*, *,
 };
-use std::{
-    collections::BTreeMap,
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
@@ -80,14 +75,23 @@ async fn run_workspace(
     let captured = capture(files, &budget(), resources)?;
     let tables = typed_driver::Tables::default();
     let digest = typed_driver::run_profile_with_budget(
-        captured, Pyrefly::new(limits), Inspect(tables.clone()), Profile::Catalog,
-        TransferLimits::default(), false, resources.clone(),
-    ).await?;
-    Ok(Run { digest, rows: Rows {
-        coverage: typed_driver::rows(&tables),
-        occurrences: typed_driver::rows(&tables),
-        observations: typed_driver::rows(&tables),
-    } })
+        captured,
+        Pyrefly::new(limits),
+        Inspect(tables.clone()),
+        Profile::Catalog,
+        TransferLimits::default(),
+        false,
+        resources.clone(),
+    )
+    .await?;
+    Ok(Run {
+        digest,
+        rows: Rows {
+            coverage: typed_driver::rows(&tables),
+            occurrences: typed_driver::rows(&tables),
+            observations: typed_driver::rows(&tables),
+        },
+    })
 }
 fn artifact(files: &BTreeMap<String, Vec<u8>>, path: &str) -> SourceArtifact {
     let input = InputRevision::from_entries(
@@ -120,21 +124,45 @@ fn syntax_of<'a>(run: &'a Run, source: &SourceArtifact) -> &'a ProviderCoverage 
 
 #[tokio::test]
 async fn transfer_batches_and_provider_enumeration_preserve_completed_content() {
-    let files = BTreeMap::from([("sample.py".into(), b"def api(value: int) -> int:\n    return value + 1\n".to_vec())]);
+    let files = BTreeMap::from([(
+        "sample.py".into(),
+        b"def api(value: int) -> int:\n    return value + 1\n".to_vec(),
+    )]);
     let captured = typed_driver::capture(&files, "typed-conformance", Profile::Catalog);
     let first = typed_driver::Tables::default();
     let second = typed_driver::Tables::default();
     let ordinary = typed_driver::run_profile_with_limits(
-        captured.clone(), Pyrefly::new(SyntaxLimits::default()), Inspect(first.clone()),
-        Profile::Catalog, TransferLimits::default(), false,
-    ).await.unwrap();
+        captured.clone(),
+        Pyrefly::new(SyntaxLimits::default()),
+        Inspect(first.clone()),
+        Profile::Catalog,
+        TransferLimits::default(),
+        false,
+    )
+    .await
+    .unwrap();
     let single_rows = typed_driver::run_profile_with_limits(
-        captured, Pyrefly::new(SyntaxLimits::default()), Inspect(second.clone()),
-        Profile::Catalog, TransferLimits { rows: 1, ..TransferLimits::default() }, true,
-    ).await.unwrap();
+        captured,
+        Pyrefly::new(SyntaxLimits::default()),
+        Inspect(second.clone()),
+        Profile::Catalog,
+        TransferLimits {
+            rows: 1,
+            ..TransferLimits::default()
+        },
+        true,
+    )
+    .await
+    .unwrap();
     assert_eq!(ordinary, single_rows);
-    assert_eq!(typed_driver::rows::<Occurrence>(&first), typed_driver::rows::<Occurrence>(&second));
-    assert_eq!(typed_driver::rows::<ProviderCoverage>(&first), typed_driver::rows::<ProviderCoverage>(&second));
+    assert_eq!(
+        typed_driver::rows::<Occurrence>(&first),
+        typed_driver::rows::<Occurrence>(&second)
+    );
+    assert_eq!(
+        typed_driver::rows::<ProviderCoverage>(&first),
+        typed_driver::rows::<ProviderCoverage>(&second)
+    );
 }
 
 #[tokio::test]
@@ -229,7 +257,11 @@ async fn stages_relocate_deterministically_and_disclose_coverage() {
                     .id()
         })
         .collect::<Vec<_>>();
-    assert_eq!(lexical.len(), 1, "one recognizer result for the captured artifact");
+    assert_eq!(
+        lexical.len(),
+        1,
+        "one recognizer result for the captured artifact"
+    );
     assert_eq!(
         (lexical[0].status, lexical[0].reason),
         (CoverageStatus::CompleteUnderStatedModel, None),
@@ -387,4 +419,3 @@ fn changed_text_is_refused_before_emission() {
         "{error}"
     );
 }
-

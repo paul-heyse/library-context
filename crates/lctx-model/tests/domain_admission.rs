@@ -103,7 +103,17 @@ fn analyzed_roots_follow_selected_uses_and_keep_captured_dependencies_separate()
     );
 }
 
-fn pyrefly_family(family:FactFamily)->bool{matches!(family,FactFamily::Syntax|FactFamily::Lexical|FactFamily::Signatures|FactFamily::Calls|FactFamily::Types|FactFamily::Exports)}
+fn pyrefly_family(family: FactFamily) -> bool {
+    matches!(
+        family,
+        FactFamily::Syntax
+            | FactFamily::Lexical
+            | FactFamily::Signatures
+            | FactFamily::Calls
+            | FactFamily::Types
+            | FactFamily::Exports
+    )
+}
 fn pyrefly_outputs() -> Vec<RelationUse> {
     let mut outputs = vec![
         RelationUse::of::<Occurrence>(),
@@ -417,7 +427,7 @@ impl World {
         (scopes, rows)
     }
 }
-const INPUT:&[&str]=&["a.py","b.pyi","_invalid/undecodable.py","README.md"];
+const INPUT: &[&str] = &["a.py", "b.pyi", "_invalid/undecodable.py", "README.md"];
 fn frontier_refusal<T: std::fmt::Debug>(result: Result<T, ModelError>, expected: &str) {
     match result {
         Err(ModelError::Frontier(message)) => assert!(
@@ -627,10 +637,54 @@ fn derived_flow_assertions_do_not_claim_native_provider_coverage() {
 }
 
 #[test]
-fn completed_coverage_is_exact_and_discloses_unrequested_and_partial_domains(){
- let w=World::new(INPUT);
- for profile in Profile::ALL{let stages=w.stages(vec![Profile::Behavioral]);let preflight=FrontierContract::facts(&w.model,profile).unwrap().preflight(&w.schedule(profile,&stages)).unwrap();let expected=preflight.expected_coverage(std::slice::from_ref(&w.input),&w.artifacts,&w.uses()).unwrap().into_keys().collect();let (scopes,rows)=w.coverage(profile);let scopes=scopes.into_iter().map(|row|(row.id(),row)).collect();let available=ScopedAvailability::from_completed(profile,&expected,&rows,&scopes,&budget()).unwrap();assert_eq!(available.evidence().len(),rows.len());
- assert!(available.evidence().iter().filter(|row|row.family==FactFamily::Flow).all(|row|if profile==Profile::Catalog{row.availability==Availability::NotRequested}else{matches!(row.availability,Availability::Complete|Availability::Unavailable)}));
- assert!(ScopedAvailability::from_completed(profile,&expected,&rows[1..],&scopes,&budget()).is_err());let mut duplicate=rows.clone();duplicate.push(rows[0].clone());assert!(ScopedAvailability::from_completed(profile,&expected,&duplicate,&scopes,&budget()).is_err());let mut status=rows.clone();status[0].status=CoverageStatus::NotRequested;assert!(ScopedAvailability::from_completed(profile,&expected,&status,&scopes,&budget()).is_err());
- }
+fn completed_coverage_is_exact_and_discloses_unrequested_and_partial_domains() {
+    let w = World::new(INPUT);
+    for profile in Profile::ALL {
+        let stages = w.stages(vec![Profile::Behavioral]);
+        let preflight = FrontierContract::facts(&w.model, profile)
+            .unwrap()
+            .preflight(&w.schedule(profile, &stages))
+            .unwrap();
+        let expected = preflight
+            .expected_coverage(std::slice::from_ref(&w.input), &w.artifacts, &w.uses())
+            .unwrap()
+            .into_keys()
+            .collect();
+        let (scopes, rows) = w.coverage(profile);
+        let scopes = scopes.into_iter().map(|row| (row.id(), row)).collect();
+        let available =
+            ScopedAvailability::from_completed(profile, &expected, &rows, &scopes, &budget())
+                .unwrap();
+        assert_eq!(available.evidence().len(), rows.len());
+        assert!(
+            available
+                .evidence()
+                .iter()
+                .filter(|row| row.family == FactFamily::Flow)
+                .all(|row| if profile == Profile::Catalog {
+                    row.availability == Availability::NotRequested
+                } else {
+                    matches!(
+                        row.availability,
+                        Availability::Complete | Availability::Unavailable
+                    )
+                })
+        );
+        assert!(
+            ScopedAvailability::from_completed(profile, &expected, &rows[1..], &scopes, &budget())
+                .is_err()
+        );
+        let mut duplicate = rows.clone();
+        duplicate.push(rows[0].clone());
+        assert!(
+            ScopedAvailability::from_completed(profile, &expected, &duplicate, &scopes, &budget())
+                .is_err()
+        );
+        let mut status = rows.clone();
+        status[0].status = CoverageStatus::NotRequested;
+        assert!(
+            ScopedAvailability::from_completed(profile, &expected, &status, &scopes, &budget())
+                .is_err()
+        );
+    }
 }

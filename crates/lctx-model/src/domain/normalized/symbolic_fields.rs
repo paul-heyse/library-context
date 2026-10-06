@@ -28,7 +28,7 @@ pub enum SourceStorageKind {
     PlainInitializer = 0,
     GeneratedRecord = 1,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "source_field_class_assessments",
     rule = "source_plain_record_shape"
@@ -46,7 +46,7 @@ pub struct SourceFieldClass {
     pub reason: Option<ObligationKind>,
     pub inventory: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "source_field_stores", rule = "source_receiver_field_store")]
 pub struct SourceFieldStore {
     #[model(key)]
@@ -69,7 +69,7 @@ pub struct SourceFieldStore {
     pub plain_initializer: bool,
     pub inventory: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "source_field_readers", rule = "source_receiver_field_reader")]
 pub struct SourceFieldReader {
     #[model(key)]
@@ -88,7 +88,7 @@ pub struct SourceFieldReader {
     pub qualification: Id<AssertionQualification>,
     pub inventory: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "source_field_associations",
     rule = "source_field_initialization_association"
@@ -106,7 +106,7 @@ pub struct SourceFieldAssociation {
     pub qualification: Id<AssertionQualification>,
     pub inventory: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "source_field_reader_links",
     rule = "source_field_reader_association"

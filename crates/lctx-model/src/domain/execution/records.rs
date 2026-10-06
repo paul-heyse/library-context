@@ -376,7 +376,14 @@ impl BaseCheck {
     }
 }
 impl InvariantCheck for BaseCheck {
-    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{super::require_facts_view(input)?;self.visit(input.name(),batch)}
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        super::require_facts_view(input)?;
+        self.visit(input.name(), batch)
+    }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         self.data.visit(name, batch)?;
         self.entry.visit(name, batch)?;

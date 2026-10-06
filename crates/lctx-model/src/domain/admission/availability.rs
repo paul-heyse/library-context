@@ -35,31 +35,62 @@ impl ScopedAvailability {
         scopes: &BTreeMap<Id<CoverageScope>, CoverageScope>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        let mut observed=BTreeSet::new();
+        let mut observed = BTreeSet::new();
         for row in rows {
             row.validate()?;
-            if !scopes.contains_key(&row.scope) || !observed.insert(super::Expected {scope:row.scope,family:row.family,provider:row.provider}) {
-                return Err(refuse("completed coverage has missing scope or duplicate obligation"));
+            if !scopes.contains_key(&row.scope)
+                || !observed.insert(super::Expected {
+                    scope: row.scope,
+                    family: row.family,
+                    provider: row.provider,
+                })
+            {
+                return Err(refuse(
+                    "completed coverage has missing scope or duplicate obligation",
+                ));
             }
-            let requested=FACTS_REQUIREMENTS.iter().find(|r|r.family==row.family)
-                .is_some_and(|r|r.requested_in.contains(&profile));
-            if requested == (row.status==CoverageStatus::NotRequested) {
+            let requested = FACTS_REQUIREMENTS
+                .iter()
+                .find(|r| r.family == row.family)
+                .is_some_and(|r| r.requested_in.contains(&profile));
+            if requested == (row.status == CoverageStatus::NotRequested) {
                 return Err(refuse("completed coverage differs from requested profile"));
             }
         }
-        if &observed!=expected {return Err(refuse("completed coverage differs from exact expected obligations"));}
-        let mut aggregate=BTreeMap::new();
-        for requirement in FACTS_REQUIREMENTS {
-            let statuses:Vec<_>=rows.iter().filter(|row|row.family==requirement.family).map(|row|row.status).collect();
-            let status=if !requirement.requested_in.contains(&profile) {Availability::NotRequested}
-                else if statuses.is_empty() {Availability::NoScope}
-                else if statuses.iter().all(|s|*s==CoverageStatus::CompleteUnderStatedModel) {Availability::Complete}
-                else if statuses.iter().all(|s|*s==CoverageStatus::Unavailable) {Availability::Unavailable}
-                else {Availability::Partial};
-            if requirement.required && status==Availability::Unavailable {return Err(refuse("required completed coverage is entirely unavailable"));}
-            aggregate.insert(requirement.family,status);
+        if &observed != expected {
+            return Err(refuse(
+                "completed coverage differs from exact expected obligations",
+            ));
         }
-        Self::validated(rows,scopes,&aggregate,budget)
+        let mut aggregate = BTreeMap::new();
+        for requirement in FACTS_REQUIREMENTS {
+            let statuses: Vec<_> = rows
+                .iter()
+                .filter(|row| row.family == requirement.family)
+                .map(|row| row.status)
+                .collect();
+            let status = if !requirement.requested_in.contains(&profile) {
+                Availability::NotRequested
+            } else if statuses.is_empty() {
+                Availability::NoScope
+            } else if statuses
+                .iter()
+                .all(|s| *s == CoverageStatus::CompleteUnderStatedModel)
+            {
+                Availability::Complete
+            } else if statuses.iter().all(|s| *s == CoverageStatus::Unavailable) {
+                Availability::Unavailable
+            } else {
+                Availability::Partial
+            };
+            if requirement.required && status == Availability::Unavailable {
+                return Err(refuse(
+                    "required completed coverage is entirely unavailable",
+                ));
+            }
+            aggregate.insert(requirement.family, status);
+        }
+        Self::validated(rows, scopes, &aggregate, budget)
     }
     pub(super) fn validated(
         rows: &[ProviderCoverage],

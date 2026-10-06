@@ -213,8 +213,16 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
-        if stages::is_vocabulary(input.name()) && input.prefix().is_some(){self.data.visit_input(input,batch)}else{self.visit(input.name(),batch)}
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        if stages::is_vocabulary(input.name()) && input.prefix().is_some() {
+            self.data.visit_input(input, batch)
+        } else {
+            self.visit(input.name(), batch)
+        }
     }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if self.data.visit(n, b)? || self.context.visit(n, b)? || self.output.visit(n, b)? {

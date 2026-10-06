@@ -44,7 +44,7 @@ pub enum ReceiverReason {
     IncompleteCoverage = 9,
     SyntaxDisagreement = 10,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name="receiver_assessments", invariant_refs=invariants_refs)]
 pub enum ReceiverAssessment {
     #[model(code = 0)]

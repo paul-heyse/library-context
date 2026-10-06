@@ -608,7 +608,7 @@ pub enum ExceptionAction {
     Suppress,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "model_catalogs", validate = validate_catalog, invariant_refs = records::invariants_refs)]
 pub struct ModelCatalog {
     #[model(key)]
@@ -633,7 +633,7 @@ fn validate_catalog(row: &ModelCatalog) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "authored_model_targets")]
 pub enum AuthoredTarget {
     #[model(code = 0)]
@@ -694,7 +694,7 @@ impl Phase {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "authored_models")]
 pub struct AuthoredModel {
     #[model(key)]
@@ -706,7 +706,7 @@ pub struct AuthoredModel {
     #[model(key)]
     pub phase: CallPhase,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "authored_context_protocols")]
 pub struct AuthoredContextProtocol {
     #[model(key)]

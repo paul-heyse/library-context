@@ -36,7 +36,7 @@ pub enum OriginalSource {
     #[model(code = 2)]
     Span { span: EvidenceSourceSpanId },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_scenario_sources")]
 pub enum ScenarioSource {
     #[model(code = 0)]
@@ -136,7 +136,7 @@ pub enum AssociationBasis {
     ExactRead = 6,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="catalog_scenario_associations")]
+#[model(name = "catalog_scenario_associations")]
 pub struct ScenarioAssociation {
     #[model(key)]
     pub scenario: Id<CatalogScenario>,
@@ -187,7 +187,7 @@ pub enum FieldAccessKind {
 }
 /// Source access is retained with unknown receiver applicability; earlier exact witnesses own promotion.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="catalog_field_access_assessments")]
+#[model(name = "catalog_field_access_assessments")]
 pub struct FieldAccessAssessment {
     #[model(key)]
     pub option: Id<CatalogOption>,

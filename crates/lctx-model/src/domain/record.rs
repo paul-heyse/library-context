@@ -230,10 +230,17 @@ pub trait Codebook: Sized {
 }
 pub trait FlatValue: FieldValue {}
 /// A direct nominal semantic reference used by graph lowering, independent of Arrow buffers.
-#[derive(Debug,Clone,PartialEq,Eq)]
-pub struct SemanticReference {pub field:&'static str,pub target:&'static str,pub key:[u8;16],pub subtype:Option<i16>}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticReference {
+    pub field: &'static str,
+    pub target: &'static str,
+    pub key: [u8; 16],
+    pub subtype: Option<i16>,
+}
 pub trait FieldValue: HeapSize {
-    fn semantic_reference(&self,_field:&'static str)->Option<SemanticReference>{None}
+    fn semantic_reference(&self, _field: &'static str) -> Option<SemanticReference> {
+        None
+    }
     fn subtype() -> Option<i16> {
         None
     }
@@ -265,14 +272,24 @@ scalar!(super::EvidenceBytes, Binary);
 scalar!(super::Utf8Text, Binary);
 impl<T: Record> FlatValue for Id<T> {}
 impl<T: Record> FieldValue for Id<T> {
-    fn semantic_reference(&self,field:&'static str)->Option<SemanticReference>{Some(SemanticReference{field,target:T::NAME,key:*self.bytes(),subtype:None})}
+    fn semantic_reference(&self, field: &'static str) -> Option<SemanticReference> {
+        Some(SemanticReference {
+            field,
+            target: T::NAME,
+            key: *self.bytes(),
+            subtype: None,
+        })
+    }
     const SCALAR: Scalar = Scalar::Id;
     fn target() -> Option<(TypeId, &'static str)> {
         Some((TypeId::of::<T>(), T::NAME))
     }
 }
 impl<T: FlatValue> FieldValue for Option<T> {
-    fn semantic_reference(&self,field:&'static str)->Option<SemanticReference>{self.as_ref().and_then(|value|value.semantic_reference(field))}
+    fn semantic_reference(&self, field: &'static str) -> Option<SemanticReference> {
+        self.as_ref()
+            .and_then(|value| value.semantic_reference(field))
+    }
     const SCALAR: Scalar = T::SCALAR;
     const NULLABLE: bool = true;
     fn subtype() -> Option<i16> {
@@ -470,7 +487,9 @@ pub trait SumRecord: Record {
 pub trait Record:
     HeapSize + Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 'static
 {
-    fn references(&self)->Vec<SemanticReference>{Vec::new()}
+    fn references(&self) -> Vec<SemanticReference> {
+        Vec::new()
+    }
     fn derivation() -> Option<super::derivation::Derivation> {
         None
     }
@@ -510,7 +529,9 @@ pub trait Record:
         size_of::<Self>().saturating_add(self.heap_bytes())
     }
     /// Actual arm of a typed sum row; obtained without encoding an Arrow batch.
-    fn sum_tag(&self) -> Option<i16> { None }
+    fn sum_tag(&self) -> Option<i16> {
+        None
+    }
     fn sum() -> Option<Sum> {
         None
     }
@@ -678,23 +699,72 @@ impl<R: Record> Batch<R> {
 /// Admission for decoded typed rows uses the logical slice, not retained Arrow buffer
 /// capacity. An IPC batch may share a file mapping with every other batch in that file.
 /// Those borrowed bytes are owned by the reader; they are not allocated again by decoding.
-pub fn logical_batch_bytes(batch:&RecordBatch)->Result<usize,ModelError>{
-    fn logical(array:&dyn arrow_array::Array)->Result<usize,ModelError>{
-        use arrow_array::{StringArray,BinaryArray,ListArray};
+pub fn logical_batch_bytes(batch: &RecordBatch) -> Result<usize, ModelError> {
+    fn logical(array: &dyn arrow_array::Array) -> Result<usize, ModelError> {
+        use arrow_array::{BinaryArray, ListArray, StringArray};
         use arrow_schema::DataType;
-        let invalid=||ModelError::Invalid("logical decode size overflow or undeclared Arrow type".into());
-        let fixed=match array.data_type(){DataType::Boolean|DataType::Int8|DataType::UInt8=>Some(1),DataType::Int16|DataType::UInt16=>Some(2),DataType::Int32|DataType::UInt32|DataType::Float32=>Some(4),DataType::Int64|DataType::UInt64|DataType::Float64=>Some(8),DataType::FixedSizeBinary(n)=>usize::try_from(*n).ok(),_=>None};
-        if let Some(width)=fixed{return array.len().checked_mul(width).ok_or_else(invalid);}
-        let variable=match array.data_type(){
-            DataType::Utf8=>{let values=array.as_any().downcast_ref::<StringArray>().ok_or_else(invalid)?;let offsets=values.value_offsets();usize::try_from(offsets[offsets.len()-1]-offsets[0]).map_err(ModelError::codec)?},
-            DataType::Binary=>{let values=array.as_any().downcast_ref::<BinaryArray>().ok_or_else(invalid)?;let offsets=values.value_offsets();usize::try_from(offsets[offsets.len()-1]-offsets[0]).map_err(ModelError::codec)?},
-            DataType::List(_)=>{let list=array.as_any().downcast_ref::<ListArray>().ok_or_else(invalid)?;let offsets=list.value_offsets();let start=usize::try_from(offsets[0]).map_err(ModelError::codec)?;let length=usize::try_from(offsets[offsets.len()-1]-offsets[0]).map_err(ModelError::codec)?;logical(list.values().slice(start,length).as_ref())?},
-            _=>return Err(invalid()),
+        let invalid =
+            || ModelError::Invalid("logical decode size overflow or undeclared Arrow type".into());
+        let fixed = match array.data_type() {
+            DataType::Boolean | DataType::Int8 | DataType::UInt8 => Some(1),
+            DataType::Int16 | DataType::UInt16 => Some(2),
+            DataType::Int32 | DataType::UInt32 | DataType::Float32 => Some(4),
+            DataType::Int64 | DataType::UInt64 | DataType::Float64 => Some(8),
+            DataType::FixedSizeBinary(n) => usize::try_from(*n).ok(),
+            _ => None,
         };
-        variable.checked_add(array.len().checked_mul(8).ok_or_else(invalid)?).ok_or_else(invalid)
+        if let Some(width) = fixed {
+            return array.len().checked_mul(width).ok_or_else(invalid);
+        }
+        let variable = match array.data_type() {
+            DataType::Utf8 => {
+                let values = array
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(invalid)?;
+                let offsets = values.value_offsets();
+                usize::try_from(offsets[offsets.len() - 1] - offsets[0])
+                    .map_err(ModelError::codec)?
+            }
+            DataType::Binary => {
+                let values = array
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .ok_or_else(invalid)?;
+                let offsets = values.value_offsets();
+                usize::try_from(offsets[offsets.len() - 1] - offsets[0])
+                    .map_err(ModelError::codec)?
+            }
+            DataType::List(_) => {
+                let list = array
+                    .as_any()
+                    .downcast_ref::<ListArray>()
+                    .ok_or_else(invalid)?;
+                let offsets = list.value_offsets();
+                let start = usize::try_from(offsets[0]).map_err(ModelError::codec)?;
+                let length = usize::try_from(offsets[offsets.len() - 1] - offsets[0])
+                    .map_err(ModelError::codec)?;
+                logical(list.values().slice(start, length).as_ref())?
+            }
+            _ => return Err(invalid()),
+        };
+        variable
+            .checked_add(array.len().checked_mul(8).ok_or_else(invalid)?)
+            .ok_or_else(invalid)
     }
-    let payload=batch.columns().iter().try_fold(0usize,|bytes,array|bytes.checked_add(logical(array.as_ref())?).ok_or_else(||ModelError::Invalid("logical decode size overflow".into())))?;
+    let payload = batch.columns().iter().try_fold(0usize, |bytes, array| {
+        bytes
+            .checked_add(logical(array.as_ref())?)
+            .ok_or_else(|| ModelError::Invalid("logical decode size overflow".into()))
+    })?;
     Ok(payload)
 }
 
-pub fn decode_allowance<R:Record>(batch:&RecordBatch)->Result<usize,ModelError>{let payload=logical_batch_bytes(batch)?;batch.num_rows().checked_mul(size_of::<R>()).and_then(|inline|inline.checked_add(payload.checked_mul(4)?)).ok_or_else(||ModelError::Invalid(format!("{} decode size overflow",R::NAME)))}
+pub fn decode_allowance<R: Record>(batch: &RecordBatch) -> Result<usize, ModelError> {
+    let payload = logical_batch_bytes(batch)?;
+    batch
+        .num_rows()
+        .checked_mul(size_of::<R>())
+        .and_then(|inline| inline.checked_add(payload.checked_mul(4)?))
+        .ok_or_else(|| ModelError::Invalid(format!("{} decode size overflow", R::NAME)))
+}

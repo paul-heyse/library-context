@@ -114,12 +114,23 @@ fn summary_dependencies_use_only_published_nominal_evidence_routes() {
         .into_iter()
         .filter(|_| profile == Profile::Behavioral)
         {
-            let consumed = views.iter().filter(|input| input.name() == name)
-                .map(ValidationInput::prefix).collect::<std::collections::BTreeSet<_>>();
-            let scheduled = summary.inputs.iter().filter(|input| input.name() == name)
-                .map(|input| input.prefix()).collect::<std::collections::BTreeSet<_>>();
-            let expected = [Some(PublicationBoundary::Facts), Some(PublicationBoundary::Model)]
-                .into_iter().collect::<std::collections::BTreeSet<_>>();
+            let consumed = views
+                .iter()
+                .filter(|input| input.name() == name)
+                .map(ValidationInput::prefix)
+                .collect::<std::collections::BTreeSet<_>>();
+            let scheduled = summary
+                .inputs
+                .iter()
+                .filter(|input| input.name() == name)
+                .map(|input| input.prefix())
+                .collect::<std::collections::BTreeSet<_>>();
+            let expected = [
+                Some(PublicationBoundary::Facts),
+                Some(PublicationBoundary::Model),
+            ]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(consumed, expected, "consumed views for {name}");
             assert_eq!(scheduled, expected, "scheduled views for {name}");
         }

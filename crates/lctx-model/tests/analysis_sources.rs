@@ -4,7 +4,7 @@ use lctx_model::{
         analysis::{
             self,
             local::{Invocation, SourceReceipt},
-            sources::{CapturedSources,CompletedInput,SourceSnapshot},
+            sources::{CapturedSources, CompletedInput, SourceSnapshot},
         },
         input::Package,
         resources::ResourceBudget,
@@ -22,7 +22,25 @@ fn nominal<T>(v: u8) -> Id<T> {
     >::new([v; 16].into_iter()))
     .unwrap()
 }
-fn capture_inputs(model:&ValidatedModel,budget:&ResourceBudget)->(CapturedSources,Vec<SourceSnapshot>){let input=CompletedInput::<Package>::new("producer",model.digest(),ContentHash::of(b"fixture implementation"),ContentHash::of(b"package p"),1).unwrap();let sources=vec![input.snapshot()];let captured=CapturedSources::capture(Profile::Catalog,sources.clone(),budget).unwrap();let mut typed=CapturedSources::new(budget);typed.include(&input).unwrap();assert_eq!(typed.digest(),captured.digest());(captured,sources)}
+fn capture_inputs(
+    model: &ValidatedModel,
+    budget: &ResourceBudget,
+) -> (CapturedSources, Vec<SourceSnapshot>) {
+    let input = CompletedInput::<Package>::new(
+        "producer",
+        model.digest(),
+        ContentHash::of(b"fixture implementation"),
+        ContentHash::of(b"package p"),
+        1,
+    )
+    .unwrap();
+    let sources = vec![input.snapshot()];
+    let captured = CapturedSources::capture(Profile::Catalog, sources.clone(), budget).unwrap();
+    let mut typed = CapturedSources::new(budget);
+    typed.include(&input).unwrap();
+    assert_eq!(typed.digest(), captured.digest());
+    (captured, sources)
+}
 fn publication(
     inv: &Invocation,
     receipts: &[SourceReceipt],
@@ -45,7 +63,7 @@ fn publication(
 fn capture_binds_exact_completed_sources_and_refuses_coupled_omission() {
     let model = model().unwrap();
     let budget = budget();
-    let (captured,sources)=capture_inputs(&model,&budget);
+    let (captured, sources) = capture_inputs(&model, &budget);
     let (inv, _, receipts, _) = Invocation::admitted(
         nominal(1),
         nominal(2),
@@ -85,7 +103,7 @@ fn capture_binds_exact_completed_sources_and_refuses_coupled_omission() {
     .unwrap();
     assert!(publication(&forged, &no_receipts, &sources, &budget).is_err());
     assert!(publication(&inv, &receipts, &[], &budget).is_err());
-    let (retry, _) = capture_inputs(&model,&budget);
+    let (retry, _) = capture_inputs(&model, &budget);
     assert_eq!(
         retry.digest(),
         captured.digest(),
@@ -203,21 +221,71 @@ fn invalid_inventory_refs() -> Vec<&'static str> {
 
 #[test]
 fn source_receipts_capture_both_views_of_one_relation_exactly() {
-    let model=model().unwrap();let budget=budget();
-    let first=CompletedInput::<Package>::new("facts",model.digest(),ContentHash::of(b"facts code"),ContentHash::of(b"facts"),1).unwrap();
-    let later=CompletedInput::<Package>::new("model",model.digest(),ContentHash::of(b"model code"),ContentHash::of(b"model"),2).unwrap();
-    let sources=vec![first.snapshot(),later.snapshot()];
-    let captured=CapturedSources::capture(Profile::Catalog,sources.clone(),&budget).unwrap();
-    assert_eq!(captured.iter().count(),2);
-    let duplicated=CapturedSources::capture(Profile::Catalog,[first.snapshot(),later.snapshot(),first.snapshot()],&budget).unwrap();
-    assert_eq!(duplicated.digest(),captured.digest());
-    let reordered=CapturedSources::capture(Profile::Catalog,[later.snapshot(),first.snapshot()],&budget).unwrap();
-    assert_eq!(reordered.digest(),captured.digest());
-    let (inv,_,receipts,_)=Invocation::admitted(nominal(1),nominal(2),nominal(3),None,[],&captured,[],&budget).unwrap();
-    assert_eq!(receipts.len(),2);
-    publication(&inv,&receipts,&sources,&budget).unwrap();
-    assert!(publication(&inv,&receipts[..1],&sources,&budget).is_err());
-    assert!(publication(&inv,&receipts,&sources[..1],&budget).is_err());
-    let forged=CompletedInput::<Package>::new("model",model.digest(),ContentHash::of(b"model code"),ContentHash::of(b"different model"),2).unwrap();
-    assert!(publication(&inv,&receipts,&[first.snapshot(),forged.snapshot()],&budget).is_err());
+    let model = model().unwrap();
+    let budget = budget();
+    let first = CompletedInput::<Package>::new(
+        "facts",
+        model.digest(),
+        ContentHash::of(b"facts code"),
+        ContentHash::of(b"facts"),
+        1,
+    )
+    .unwrap();
+    let later = CompletedInput::<Package>::new(
+        "model",
+        model.digest(),
+        ContentHash::of(b"model code"),
+        ContentHash::of(b"model"),
+        2,
+    )
+    .unwrap();
+    let sources = vec![first.snapshot(), later.snapshot()];
+    let captured = CapturedSources::capture(Profile::Catalog, sources.clone(), &budget).unwrap();
+    assert_eq!(captured.iter().count(), 2);
+    let duplicated = CapturedSources::capture(
+        Profile::Catalog,
+        [first.snapshot(), later.snapshot(), first.snapshot()],
+        &budget,
+    )
+    .unwrap();
+    assert_eq!(duplicated.digest(), captured.digest());
+    let reordered = CapturedSources::capture(
+        Profile::Catalog,
+        [later.snapshot(), first.snapshot()],
+        &budget,
+    )
+    .unwrap();
+    assert_eq!(reordered.digest(), captured.digest());
+    let (inv, _, receipts, _) = Invocation::admitted(
+        nominal(1),
+        nominal(2),
+        nominal(3),
+        None,
+        [],
+        &captured,
+        [],
+        &budget,
+    )
+    .unwrap();
+    assert_eq!(receipts.len(), 2);
+    publication(&inv, &receipts, &sources, &budget).unwrap();
+    assert!(publication(&inv, &receipts[..1], &sources, &budget).is_err());
+    assert!(publication(&inv, &receipts, &sources[..1], &budget).is_err());
+    let forged = CompletedInput::<Package>::new(
+        "model",
+        model.digest(),
+        ContentHash::of(b"model code"),
+        ContentHash::of(b"different model"),
+        2,
+    )
+    .unwrap();
+    assert!(
+        publication(
+            &inv,
+            &receipts,
+            &[first.snapshot(), forged.snapshot()],
+            &budget
+        )
+        .is_err()
+    );
 }

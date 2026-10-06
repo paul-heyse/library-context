@@ -3,8 +3,16 @@
 mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile};
 async fn run(profile: Profile) {
-    let fixture = catalog_runtime::compile("catalog_core",profile,Frontier::Catalog,catalog_runtime::settings("api"),None).await;
-    let names: Vec<String> = catalog_runtime::query(&fixture, "SELECT name FROM catalog_members ORDER BY name").await;
+    let fixture = catalog_runtime::compile(
+        "catalog_core",
+        profile,
+        Frontier::Catalog,
+        catalog_runtime::settings("api"),
+        None,
+    )
+    .await;
+    let names: Vec<String> =
+        catalog_runtime::query(&fixture, "SELECT name FROM catalog_members ORDER BY name").await;
     for name in [
         "choose",
         "alias",
@@ -64,4 +72,6 @@ async fn run(profile: Profile) {
     assert!(flow.iter().all(|v| *v == 3));
 }
 #[tokio::test]
-async fn mandatory_catalog_uses_completed_normalized_contracts() {run(Profile::Catalog).await;}
+async fn mandatory_catalog_uses_completed_normalized_contracts() {
+    run(Profile::Catalog).await;
+}

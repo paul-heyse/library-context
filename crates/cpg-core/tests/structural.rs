@@ -4,17 +4,37 @@ mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile, *};
 async fn run(profile: Profile) {
     let mut settings = catalog_runtime::settings("api");
-    settings.configured_seeds = vec!["api.Client".into(),"api.missing".into()];
-    let fixture = catalog_runtime::compile("structural_usage",profile,Frontier::Catalog,settings,None).await;
-    let frames: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_frames").await;
+    settings.configured_seeds = vec!["api.Client".into(), "api.missing".into()];
+    let fixture = catalog_runtime::compile(
+        "structural_usage",
+        profile,
+        Frontier::Catalog,
+        settings,
+        None,
+    )
+    .await;
+    let frames: i64 =
+        catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_frames").await;
     assert!(frames > 0);
-    let invocations: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_analysis_invocations").await;
+    let invocations: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM structural_analysis_invocations",
+    )
+    .await;
     assert_eq!(invocations, frames * 4);
-    let public: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_public_candidates").await;
+    let public: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM structural_public_candidates",
+    )
+    .await;
     assert!(public > 0);
     let missing:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_configured_seeds WHERE path='api.missing' AND candidates=0").await;
     assert_eq!(missing, frames);
-    let handoffs: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_handoff_occurrences").await;
+    let handoffs: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM structural_handoff_occurrences",
+    )
+    .await;
     assert!(
         handoffs > 0,
         "actual official nested result handoff must survive"
@@ -63,9 +83,17 @@ async fn run(profile: Profile) {
         assert_eq!(controls, (0, 0, 0, 0));
     }
     if profile == Profile::Behavioral {
-        let stopped: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_control_traversals WHERE stop IS NOT NULL").await;
+        let stopped: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(*) FROM structural_control_traversals WHERE stop IS NOT NULL",
+        )
+        .await;
         assert!(stopped > 0, "bounded forwarding retains its depth stop");
-        let literal: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_literal_arguments").await;
+        let literal: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(*) FROM structural_literal_arguments",
+        )
+        .await;
         assert!(literal > 0, "exact native literal argument retained");
         let unpacked:i64=catalog_runtime::one_with(&fixture, "SELECT count(*) FROM structural_unfollowed_arguments WHERE binding IS NULL AND reason=$1", vec![datafusion::common::ScalarValue::Int16(Some(obligation::ObligationKind::UnsupportedUnpacking.code()))]).await;
         assert!(
@@ -75,30 +103,126 @@ async fn run(profile: Profile) {
     }
 }
 #[tokio::test]
-async fn structural_candidates_paths_and_usage_compile_in_catalog() {run(Profile::Catalog).await;}
+async fn structural_candidates_paths_and_usage_compile_in_catalog() {
+    run(Profile::Catalog).await;
+}
 #[tokio::test]
-async fn structural_candidates_paths_and_usage_compile_in_behavioral() {run(Profile::Behavioral).await;}
+async fn structural_candidates_paths_and_usage_compile_in_behavioral() {
+    run(Profile::Behavioral).await;
+}
 
 /// Corrupt only selected completed structural results and use the model's shared replay.
 #[tokio::test]
 async fn structural_replay_refuses_support_invocation_and_condition_forgery() {
- use lctx_model::domain::{analysis::structural as owner,structural::controls::ArgumentFlow};
- let mut settings=catalog_runtime::settings("api");settings.configured_seeds=vec!["api.Client".into(),"api.missing".into()];
- let fixture=catalog_runtime::compile("structural_usage",Profile::Behavioral,Frontier::Catalog,settings,None).await;
- let invariant=fixture.workspace.model().invariants().iter().find(|i|i.name=="structural_replay").unwrap();
- for corruption in 0..6 {
-  let mut check=(invariant.create)(fixture.workspace.budget());let mut changed=0;
-  for input in &invariant.inputs {
-   let relation=fixture.workspace.input_relation(input).unwrap();
-   for batch in relation.batches().unwrap(){let batch=batch.unwrap();let mut forwarded=batch.clone();
-    if corruption==1 && input.name()==owner::AnalysisOutcome::NAME {let mut rows=owner::AnalysisOutcome::decode(&batch).unwrap();for row in &mut rows{if row.status==analysis::AnalysisStatus::Partial{row.status=analysis::AnalysisStatus::Completed;row.reason=None;changed+=1;}}forwarded=owner::AnalysisOutcome::encode(&rows).unwrap();}
-    if corruption==2 && input.name()==owner::AnalysisOutcome::NAME && changed==0 {let mut rows=owner::AnalysisOutcome::decode(&batch).unwrap();if !rows.is_empty(){rows.remove(0);changed+=1;}forwarded=owner::AnalysisOutcome::encode(&rows).unwrap();}
-    if corruption==3 && input.name()==owner::Invocation::NAME && changed==0 {let mut rows=owner::Invocation::decode(&batch).unwrap();if let Some(original)=rows.first(){let mut extra=original.clone();extra.subject=Some(fixture.workspace.completed::<normalized::entities::EntityRef>().unwrap().batches().unwrap().flat_map(|b|normalized::entities::EntityRef::decode(&b.unwrap()).unwrap()).find(|r|matches!(r,normalized::entities::EntityRef::Callable{..})).unwrap().id());assert_ne!(extra.id(),original.id());rows.push(extra);changed+=1;}forwarded=owner::Invocation::encode(&rows).unwrap();}
-    if corruption==4 && input.name().starts_with("structural_"){changed+=batch.num_rows();forwarded=batch.slice(0,0);}
-    if corruption==5 && input.name()==ArgumentFlow::NAME {let mut rows=ArgumentFlow::decode(&batch).unwrap();for row in &mut rows{if row.conditional{row.conditional=false;row.qualification=fixture.workspace.completed::<assertion::AssertionQualification>().unwrap().batches().unwrap().flat_map(|b|assertion::AssertionQualification::decode(&b.unwrap()).unwrap()).find(|q|q.condition==conditions::Diagram::always().id()).unwrap().id();changed+=1;}}forwarded=ArgumentFlow::encode(&rows).unwrap();}
-    check.visit_input(input,&forwarded).unwrap();
-   }
-  }
-  let result=check.finish();if corruption==0{result.unwrap();}else{assert!(changed>0,"corruption {corruption} must exercise actual rows");assert!(result.is_err(),"corruption {corruption} accepted");}
- }
+    use lctx_model::domain::{analysis::structural as owner, structural::controls::ArgumentFlow};
+    let mut settings = catalog_runtime::settings("api");
+    settings.configured_seeds = vec!["api.Client".into(), "api.missing".into()];
+    let fixture = catalog_runtime::compile(
+        "structural_usage",
+        Profile::Behavioral,
+        Frontier::Catalog,
+        settings,
+        None,
+    )
+    .await;
+    let invariant = fixture
+        .workspace
+        .model()
+        .invariants()
+        .iter()
+        .find(|i| i.name == "structural_replay")
+        .unwrap();
+    for corruption in 0..6 {
+        let mut check = (invariant.create)(fixture.workspace.budget());
+        let mut changed = 0;
+        for input in &invariant.inputs {
+            let relation = fixture.workspace.input_relation(input).unwrap();
+            for batch in relation.batches().unwrap() {
+                let batch = batch.unwrap();
+                let mut forwarded = batch.clone();
+                if corruption == 1 && input.name() == owner::AnalysisOutcome::NAME {
+                    let mut rows = owner::AnalysisOutcome::decode(&batch).unwrap();
+                    for row in &mut rows {
+                        if row.status == analysis::AnalysisStatus::Partial {
+                            row.status = analysis::AnalysisStatus::Completed;
+                            row.reason = None;
+                            changed += 1;
+                        }
+                    }
+                    forwarded = owner::AnalysisOutcome::encode(&rows).unwrap();
+                }
+                if corruption == 2 && input.name() == owner::AnalysisOutcome::NAME && changed == 0 {
+                    let mut rows = owner::AnalysisOutcome::decode(&batch).unwrap();
+                    if !rows.is_empty() {
+                        rows.remove(0);
+                        changed += 1;
+                    }
+                    forwarded = owner::AnalysisOutcome::encode(&rows).unwrap();
+                }
+                if corruption == 3 && input.name() == owner::Invocation::NAME && changed == 0 {
+                    let mut rows = owner::Invocation::decode(&batch).unwrap();
+                    if let Some(original) = rows.first() {
+                        let mut extra = original.clone();
+                        extra.subject = Some(
+                            fixture
+                                .workspace
+                                .completed::<normalized::entities::EntityRef>()
+                                .unwrap()
+                                .batches()
+                                .unwrap()
+                                .flat_map(|b| {
+                                    normalized::entities::EntityRef::decode(&b.unwrap()).unwrap()
+                                })
+                                .find(|r| {
+                                    matches!(r, normalized::entities::EntityRef::Callable { .. })
+                                })
+                                .unwrap()
+                                .id(),
+                        );
+                        assert_ne!(extra.id(), original.id());
+                        rows.push(extra);
+                        changed += 1;
+                    }
+                    forwarded = owner::Invocation::encode(&rows).unwrap();
+                }
+                if corruption == 4 && input.name().starts_with("structural_") {
+                    changed += batch.num_rows();
+                    forwarded = batch.slice(0, 0);
+                }
+                if corruption == 5 && input.name() == ArgumentFlow::NAME {
+                    let mut rows = ArgumentFlow::decode(&batch).unwrap();
+                    for row in &mut rows {
+                        if row.conditional {
+                            row.conditional = false;
+                            row.qualification = fixture
+                                .workspace
+                                .completed::<assertion::AssertionQualification>()
+                                .unwrap()
+                                .batches()
+                                .unwrap()
+                                .flat_map(|b| {
+                                    assertion::AssertionQualification::decode(&b.unwrap()).unwrap()
+                                })
+                                .find(|q| q.condition == conditions::Diagram::always().id())
+                                .unwrap()
+                                .id();
+                            changed += 1;
+                        }
+                    }
+                    forwarded = ArgumentFlow::encode(&rows).unwrap();
+                }
+                check.visit_input(input, &forwarded).unwrap();
+            }
+        }
+        let result = check.finish();
+        if corruption == 0 {
+            result.unwrap();
+        } else {
+            assert!(
+                changed > 0,
+                "corruption {corruption} must exercise actual rows"
+            );
+            assert!(result.is_err(), "corruption {corruption} accepted");
+        }
+    }
 }

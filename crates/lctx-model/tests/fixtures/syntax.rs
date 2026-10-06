@@ -9,7 +9,7 @@
 use arrow_array::RecordBatch;
 use lctx_model::domain::{
     artifact::*, assertion::*, attribution::*, calls::ParameterKind, conditions::*, input::*,
-    lexical::SyntaxField,  source::*, syntax::*, value::*, *,
+    lexical::SyntaxField, source::*, syntax::*, value::*, *,
 };
 use std::collections::BTreeMap;
 
@@ -724,7 +724,7 @@ impl Fixture {
         let mut generation = Vec::new();
         macro_rules! each { ($($ty:ty),+ $(,)?) => { $( generation.push((<$ty>::NAME,Batch::new(&self.model,self.rows::<$ty>(),&budget()).unwrap().arrow().clone())); )+ }; }
         syntax_relations!(each);
-        validation::replay::replay(&self.model,&generation,&budget())
+        validation::replay::replay(&self.model, &generation, &budget())
     }
 }
 

@@ -1,10 +1,7 @@
 //! Independent controls for canonical definitions, complete premises and exact replay requirements.
 use lctx_model::{
     Domain,
-    domain::{
-        execution::source_call_records::*,  resources::ResourceBudget,
-        stages::*, *,
-    },
+    domain::{execution::source_call_records::*, resources::ResourceBudget, stages::*, *},
 };
 use std::sync::{
     Arc,
@@ -12,7 +9,7 @@ use std::sync::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="validation_premises")]
+#[model(name = "validation_premises")]
 struct Premise {
     #[model(key)]
     ordinal: i64,
@@ -238,8 +235,24 @@ fn two_references_execute_once_and_an_authored_negative_still_refuses() {
             shared(1, count.clone()),
         )
         .unwrap();
-        let batch=Batch::new(&model,vec![Premise{ordinal:0,accepted}],&budget()).unwrap();
-        assert_eq!(validation::replay::replay(&model,&[(Premise::NAME,batch.arrow().clone())],&budget()).is_ok(),accepted);
+        let batch = Batch::new(
+            &model,
+            vec![Premise {
+                ordinal: 0,
+                accepted,
+            }],
+            &budget(),
+        )
+        .unwrap();
+        assert_eq!(
+            validation::replay::replay(
+                &model,
+                &[(Premise::NAME, batch.arrow().clone())],
+                &budget()
+            )
+            .is_ok(),
+            accepted
+        );
         assert_eq!(count.load(Ordering::Relaxed), 1);
     }
 }
@@ -249,7 +262,18 @@ fn revision_identity_input_order_and_kind_are_explicit_and_conflicts_refuse() {
     let declarations = vec![Relation::of::<Left>(), Relation::of::<Premise>()];
     let model1 = ValidatedModel::validate(declarations.clone(), shared(1, count.clone())).unwrap();
     let model2 = ValidatedModel::validate(declarations.clone(), shared(2, count.clone())).unwrap();
-    assert_eq!(model1.relations().iter().map(Relation::schema).collect::<Vec<_>>(), model2.relations().iter().map(Relation::schema).collect::<Vec<_>>());
+    assert_eq!(
+        model1
+            .relations()
+            .iter()
+            .map(Relation::schema)
+            .collect::<Vec<_>>(),
+        model2
+            .relations()
+            .iter()
+            .map(Relation::schema)
+            .collect::<Vec<_>>()
+    );
     assert_ne!(model1.digest(), model2.digest());
     assert_ne!(
         model1.invariants()[0].digest(),
@@ -373,7 +397,7 @@ fn actual_source_replay_refuses_orphan_run_malformed_header_and_extra_argument_i
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="scoped_proofs", rule="scoped_proof")]
+#[model(name = "scoped_proofs", rule = "scoped_proof")]
 struct Proof {
     #[model(key)]
     ordinal: i64,
@@ -381,7 +405,7 @@ struct Proof {
     parent: Option<Id<Proof>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="other_scoped_proofs", rule="other_scoped_proof")]
+#[model(name = "other_scoped_proofs", rule = "other_scoped_proof")]
 struct OtherProof {
     #[model(key)]
     ordinal: i64,
@@ -455,7 +479,7 @@ fn source_snapshot_wire_is_auditable_metadata_and_rejects_unknown_fields() {
     let snapshot: analysis::sources::SourceSnapshot = serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(snapshot.relation(), Premise::NAME);
     assert_eq!(snapshot.rows(), 0);
-    assert_eq!(snapshot.producer(),"control");
+    assert_eq!(snapshot.producer(), "control");
     assert_eq!(serde_json::to_value(&snapshot).unwrap(), wire);
     let mut malformed = wire;
     malformed

@@ -24,7 +24,7 @@ pub enum BoundaryReason {
     FlowUnavailable = 5,
     StatementLimit = 6,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "synthesis_authored_code_sources",
     rule = "authored_code_source"
@@ -42,7 +42,7 @@ pub struct AuthoredCodeSource {
     pub association: Id<c1::ScenarioAssociation>,
     pub source_input: Id<input::InputRevision>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="synthesis_authored_code_conclusions",rule="original_official_code",invariant_refs=invariants_refs)]
 pub struct AuthoredCodeConclusion {
     #[model(key, premise)]
@@ -635,8 +635,14 @@ pub fn relations() -> Vec<Relation> {
     rows
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = documentary::replay_inputs(Data::inputs(stages::Profile::Behavioral), stages::PublicationBoundary::Facts);
-    inputs.extend(documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts));
+    let mut inputs = documentary::replay_inputs(
+        Data::inputs(stages::Profile::Behavioral),
+        stages::PublicationBoundary::Facts,
+    );
+    inputs.extend(documentary::replay_inputs(
+        documentary::Data::validation_inputs(),
+        stages::PublicationBoundary::Facts,
+    ));
     inputs.extend(Output::inputs());
     inputs.extend([
         ValidationInput::of::<frames::Frame>(&["id"]),
@@ -670,13 +676,25 @@ struct Check {
 }
 impl InvariantCheck for Check {
     fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+        Err(ModelError::Invalid(
+            "S0 replay requires an explicit completed-input selector".into(),
+        ))
     }
-    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         documentary::replay_selector(input)?;
         let n = input.name();
-        let d = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.data.visit(name, b))?;
-        let docs = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.docs.visit(name, b))?;
+        let d =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.data.visit(name, b)
+            })?;
+        let docs =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.docs.visit(name, b)
+            })?;
         let out = documentary::replay_visit(input, None, |name| self.output.visit(name, b))?;
         if n == frames::Frame::NAME {
             self.frames.decode(b)?;

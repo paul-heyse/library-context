@@ -43,12 +43,40 @@ impl<R: Record> Rows<R> {
         self.rows.iter().eq(other.rows.iter())
     }
     /// Bounded diagnostics for a failed exact algorithm replay; never changes membership.
-    pub(crate) fn difference(&self, expected:&Self)->String {
-        let missing=expected.rows.iter().filter(|(id,_)|!self.rows.contains_key(id));
-        let extra=self.rows.iter().filter(|(id,_)|!expected.rows.contains_key(id));
-        let changed=self.rows.iter().filter(|(id,row)|expected.rows.get(id).is_some_and(|other|other!=*row));
-        let describe=|rows:Vec<(&Id<R>,&R)>|rows.into_iter().map(|(id,row)|format!("{id:?}: {}",format!("{row:?}").chars().take(256).collect::<String>())).collect::<Vec<_>>();
-        format!("actual={} expected={} missing={} {:?}; extra={} {:?}; changed={} {:?}",self.len(),expected.len(),missing.clone().count(),describe(missing.take(8).collect()),extra.clone().count(),describe(extra.take(8).collect()),changed.clone().count(),describe(changed.take(8).collect()))
+    pub(crate) fn difference(&self, expected: &Self) -> String {
+        let missing = expected
+            .rows
+            .iter()
+            .filter(|(id, _)| !self.rows.contains_key(id));
+        let extra = self
+            .rows
+            .iter()
+            .filter(|(id, _)| !expected.rows.contains_key(id));
+        let changed = self
+            .rows
+            .iter()
+            .filter(|(id, row)| expected.rows.get(id).is_some_and(|other| other != *row));
+        let describe = |rows: Vec<(&Id<R>, &R)>| {
+            rows.into_iter()
+                .map(|(id, row)| {
+                    format!(
+                        "{id:?}: {}",
+                        format!("{row:?}").chars().take(256).collect::<String>()
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        format!(
+            "actual={} expected={} missing={} {:?}; extra={} {:?}; changed={} {:?}",
+            self.len(),
+            expected.len(),
+            missing.clone().count(),
+            describe(missing.take(8).collect()),
+            extra.clone().count(),
+            describe(extra.take(8).collect()),
+            changed.clone().count(),
+            describe(changed.take(8).collect())
+        )
     }
     pub fn get(&self, id: Id<R>) -> Option<&R> {
         self.rows.get(&id)
@@ -80,14 +108,24 @@ mod required_controls {
         value: String,
     }
     #[test]
-    fn decoding_a_tiny_slice_does_not_charge_unrelated_retained_arrow_bytes(){
-        let rows=vec![Row{key:"small".into(),value:"v".into()},Row{key:"large".into(),value:"x".repeat(1<<20)}];
-        let batch=Row::encode(&rows).unwrap().slice(0,1);
-        assert!(batch.get_array_memory_size()>1<<20);
-        let budget=ResourceBudget::fixed(1<<15).unwrap();
-        let mut output=Rows::<Row>::new(&budget);output.decode(&batch).unwrap();
-        assert_eq!(output.get(rows[0].id()),Some(&rows[0]));
-        assert!(budget.reserved()<1<<15);
+    fn decoding_a_tiny_slice_does_not_charge_unrelated_retained_arrow_bytes() {
+        let rows = vec![
+            Row {
+                key: "small".into(),
+                value: "v".into(),
+            },
+            Row {
+                key: "large".into(),
+                value: "x".repeat(1 << 20),
+            },
+        ];
+        let batch = Row::encode(&rows).unwrap().slice(0, 1);
+        assert!(batch.get_array_memory_size() > 1 << 20);
+        let budget = ResourceBudget::fixed(1 << 15).unwrap();
+        let mut output = Rows::<Row>::new(&budget);
+        output.decode(&batch).unwrap();
+        assert_eq!(output.get(rows[0].id()), Some(&rows[0]));
+        assert!(budget.reserved() < 1 << 15);
     }
     #[test]
     fn required_lookup_preserves_error_domains_conflicts_and_retained_admission() {

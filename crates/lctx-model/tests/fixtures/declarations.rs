@@ -8,7 +8,7 @@
 use arrow_array::RecordBatch;
 use lctx_model::domain::{
     artifact::*, assertion::*, attribution::*, calls::*, conditions::*, declarations::*, input::*,
-     source::*, *,
+    source::*, *,
 };
 use std::collections::BTreeMap;
 
@@ -528,7 +528,7 @@ impl Fixture {
             CallArgument,
             Evidence
         );
-        validation::replay::replay(&self.model,&generation,&budget())
+        validation::replay::replay(&self.model, &generation, &budget())
     }
 }
 

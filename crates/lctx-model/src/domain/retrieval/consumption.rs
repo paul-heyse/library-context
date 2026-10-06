@@ -134,7 +134,17 @@ impl ConsumptionData {
         row!(specifications:EmbeddingSpec,services:ServiceConfiguration,analytic_uses:AnalysisEmbeddingUse,windows:TextWindow,sources:crate::domain::analysis::retrieval::InvocationSource,parents:crate::domain::analysis::retrieval::AnalysisInput);
         Ok(false)
     }
-    pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{if crate::domain::stages::is_vocabulary(input.name()){self.render.visit_input(input,b)}else{self.visit(input.name(),b)}}
+    pub fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<bool, ModelError> {
+        if crate::domain::stages::is_vocabulary(input.name()) {
+            self.render.visit_input(input, b)
+        } else {
+            self.visit(input.name(), b)
+        }
+    }
     pub fn selected_spec(&self) -> Result<&EmbeddingSpec, ModelError> {
         if self.specifications.len() != 1 || self.services.len() != 1 {
             return Err(invalid(
@@ -357,10 +367,20 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
-        if crate::domain::stages::is_vocabulary(input.name()){
-            if self.data.visit_input(input,batch)?{Ok(())}else{Err(invalid("undeclared retrieval vocabulary input"))}
-        }else{self.visit(input.name(),batch)}
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        if crate::domain::stages::is_vocabulary(input.name()) {
+            if self.data.visit_input(input, batch)? {
+                Ok(())
+            } else {
+                Err(invalid("undeclared retrieval vocabulary input"))
+            }
+        } else {
+            self.visit(input.name(), batch)
+        }
     }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if self.data.visit(n, b)? {

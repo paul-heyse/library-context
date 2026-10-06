@@ -33,7 +33,9 @@ fn include<R: Record>(
     Ok(())
 }
 /// The value source is explicit; it does not change the nested callable's signature.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, crate::DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, crate::DomainSum, serde::Serialize, serde::Deserialize,
+)]
 #[model(name = "captured_value_sources")]
 pub enum CapturedValueSource {
     #[model(code = 0)]
@@ -382,7 +384,7 @@ impl CheckedCaptureOrigin {
 
 /// Conditional on entry to this exact active caller frame and its direct synchronous call.
 /// The header's closed origin proof remains separate from this activation.
-#[derive(Debug, Clone, PartialEq, Eq, crate::Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, crate::Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "captured_entry_bindings", rule = "bounded_own_frame_capture")]
 pub struct CapturedEntryBinding {
     #[model(key, premise)]

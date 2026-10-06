@@ -777,7 +777,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         .map(|variant| format_ident!("{}{}Id", name, variant))
         .collect();
     let mut key_arms = Vec::new();
-    let mut reference_arms=Vec::new();
+    let mut reference_arms = Vec::new();
     let mut heap_arms = Vec::new();
     let mut encode_arms = Vec::new();
     let mut decode_arms = Vec::new();

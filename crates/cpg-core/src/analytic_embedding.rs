@@ -23,7 +23,7 @@ async fn load<R: Record>(
     permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -43,7 +43,11 @@ pub async fn produce(
     embedder: Option<&dyn Embedder>,
     cache: Option<Arc<dyn embedding_realization::EmbeddingCache>>,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(
+        access.profile(),
+        access.snapshots(),
+        runtime.budget(),
+    )?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let session = access.session(runtime).await?;
     let mut registered = charged::ChargedSet::default();
@@ -57,7 +61,7 @@ pub async fn produce(
     macro_rules! meta {
         ($ty:ty,$rows:ident,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
-            
+
             registered.insert(&mut registration, <$ty>::NAME)?;
             load(&session, &mut $rows, &permit, $admit).await?;
         }};
@@ -123,12 +127,20 @@ pub async fn produce(
         }
         if let Some(service) = service.as_mut() {
             let specification = data.specification()?;
-            let _batch = runtime.budget().reserve("analytic-request-selection", data.windows.len() * size_of::<&str>())?;
+            let _batch = runtime.budget().reserve(
+                "analytic-request-selection",
+                data.windows.len() * size_of::<&str>(),
+            )?;
             let mut documents = Vec::new();
             for window in data.windows.iter() {
-                if data.owns(&invocation, window)? { documents.push(window.text.as_str()); }
+                if data.owns(&invocation, window)? {
+                    documents.push(window.text.as_str());
+                }
             }
-            service.prepare(documents).await.map_err(ModelError::codec)?;
+            service
+                .prepare(documents)
+                .await
+                .map_err(ModelError::codec)?;
             for window in data.windows.iter() {
                 if !data.owns(&invocation, window)? {
                     continue;

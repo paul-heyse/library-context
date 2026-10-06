@@ -1,7 +1,7 @@
 //! Local semantic observations replay exact native flow and private entry-value proofs.
 //! This bounded direct operator retains unsupported paths as assessments, never false flow.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
-const SEMANTIC_RULE_REVISION:i64=1;
+const SEMANTIC_RULE_REVISION: i64 = 1;
 use crate::Domain;
 use crate::domain::{
     analysis::{

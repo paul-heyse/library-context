@@ -8,7 +8,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="synthesis_seed_plans",invariant_refs=invariants_refs)]
 pub struct SeedPlan {
     #[model(key)]
@@ -31,7 +31,7 @@ pub enum ScopeApplicability {
     Outside = 1,
     Unresolved = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "synthesis_configured_seed_decisions")]
 pub struct ConfiguredSeedDecision {
     #[model(key)]
@@ -51,7 +51,7 @@ pub struct ConfiguredSeedCandidate {
     #[model(key)]
     pub member: Id<CatalogMemberInvocation>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "synthesis_selected_seed_sources")]
 pub enum SelectedSeedSource {
     #[model(code = 0)]
@@ -63,7 +63,7 @@ pub enum SelectedSeedSource {
         decision: Id<super::automatic::Decision>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "synthesis_selected_seeds")]
 pub struct SelectedSeed {
     #[model(key)]
@@ -214,7 +214,10 @@ struct Check {
     output: Output,
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts);
+    let mut inputs = documentary::replay_inputs(
+        documentary::Data::validation_inputs(),
+        stages::PublicationBoundary::Facts,
+    );
     inputs.extend(Output::validation_inputs());
     inputs.extend(super::automatic::Data::inputs());
     inputs.extend(super::frames::AnalyticParents::inputs());
@@ -251,14 +254,23 @@ pub fn invariants() -> Vec<Invariant> {
 }
 impl InvariantCheck for Check {
     fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+        Err(ModelError::Invalid(
+            "S0 replay requires an explicit completed-input selector".into(),
+        ))
     }
-    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         documentary::replay_selector(input)?;
         let n = input.name();
         macro_rules! rows{($($f:ident:$ty:ty,)*)=>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(());})*};}
         rows! {settings:AnalyticsConfiguration,invocations:owner::Invocation,public:structural::PublicCandidate,structural_frames:structural::StructuralFrame,structural_invocations:analysis::structural::Invocation,}
-        let d = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.data.visit(name, b))?;
+        let d =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.data.visit(name, b)
+            })?;
         let o = documentary::replay_visit(input, None, |name| self.output.visit(name, b))?;
         let a = documentary::replay_visit(input, None, |name| self.automatic.visit(name, b))?;
         let analytic = documentary::replay_visit(input, None, |name| self.analytic.visit(name, b))?;

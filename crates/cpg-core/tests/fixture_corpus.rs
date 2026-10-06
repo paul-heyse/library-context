@@ -1,12 +1,12 @@
 //! Whole fixture inventory over production providers. Registration is explicit: an added case
 //! fails this suite until its expectations are assigned. Data is never executed.
+use cpg_core::workspace::{Workspace, WorkspaceOptions};
 use cpg_extract::{
     acquisition::{AcquiredInput, derive_blocks},
     bundle::CapturedInputs,
     capture::CapturedInput,
 };
 use lctx_model::domain::{ContentHash, resources::ResourceBudget, stages::Profile};
-use cpg_core::workspace::{Workspace, WorkspaceOptions};
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 macro_rules! fixture_cases {
     ($($case:ident),* $(,)?) => {
@@ -167,24 +167,35 @@ fn every_fixture_is_registered() {
 async fn both_profiles_use_the_real_facts_frontier(case: &str) {
     let mut failures = vec![];
     for profile in Profile::ALL {
-            let resources = budget();
-            let result = async {
-                let workspace = Workspace::with_budget(Arc::new(lctx_model::domain::model()?), WorkspaceOptions { memory_bytes: resources.limit(), ..Default::default() }, resources.clone())?;
-                cpg_core::facts::compile_facts(&workspace, &capture(case, profile, &resources), profile, cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")), Default::default()).await?;
-                workspace.validate().await?;
-                workspace.facts_availability(profile)?;
-                workspace.content()
-            }.await;
-            match result {
-                Ok(content) => {
-                    println!(
-                        "passed {case} {} {}",
-                        profile.name(),
-                        content.hex()
-                    );
-                }
-                Err(error) => failures.push(format!("{case} {}: {error}", profile.name())),
+        let resources = budget();
+        let result = async {
+            let workspace = Workspace::with_budget(
+                Arc::new(lctx_model::domain::model()?),
+                WorkspaceOptions {
+                    memory_bytes: resources.limit(),
+                    ..Default::default()
+                },
+                resources.clone(),
+            )?;
+            cpg_core::facts::compile_facts(
+                &workspace,
+                &capture(case, profile, &resources),
+                profile,
+                cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")),
+                Default::default(),
+            )
+            .await?;
+            workspace.validate().await?;
+            workspace.facts_availability(profile)?;
+            workspace.content()
+        }
+        .await;
+        match result {
+            Ok(content) => {
+                println!("passed {case} {} {}", profile.name(), content.hex());
             }
+            Err(error) => failures.push(format!("{case} {}: {error}", profile.name())),
+        }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -196,8 +207,25 @@ async fn representative_fixtures_preserve_semantics_across_workspace_batching_an
             let mut contents = Vec::new();
             for (partitions, batch_rows) in [(1, 1), (4, 4096)] {
                 let resources = budget();
-                let workspace = Workspace::with_budget(Arc::new(lctx_model::domain::model().unwrap()), WorkspaceOptions { memory_bytes: resources.limit(), partitions, batch_rows }, resources.clone()).unwrap();
-                cpg_core::facts::compile_facts(&workspace, &capture(case, profile, &resources), profile, cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")), Default::default()).await.unwrap();
+                let workspace = Workspace::with_budget(
+                    Arc::new(lctx_model::domain::model().unwrap()),
+                    WorkspaceOptions {
+                        memory_bytes: resources.limit(),
+                        partitions,
+                        batch_rows,
+                    },
+                    resources.clone(),
+                )
+                .unwrap();
+                cpg_core::facts::compile_facts(
+                    &workspace,
+                    &capture(case, profile, &resources),
+                    profile,
+                    cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")),
+                    Default::default(),
+                )
+                .await
+                .unwrap();
                 workspace.validate().await.unwrap();
                 contents.push(workspace.content().unwrap());
                 drop(workspace);

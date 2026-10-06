@@ -15,7 +15,7 @@ pub enum MetadataBasis {
     Synthesized = 3,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "record_options")]
 pub struct RecordOptions {
     #[model(key)]
@@ -43,7 +43,7 @@ pub struct RecordOptions {
     #[model(key)]
     pub attrs_setattr_frozen: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "record_transform_defaults", validate = validate_transform, invariant_refs = transform_invariants_refs)]
 pub struct RecordTransformDefaults {
     #[model(key)]

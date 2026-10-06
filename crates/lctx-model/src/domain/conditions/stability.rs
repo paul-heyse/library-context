@@ -35,7 +35,7 @@ impl StabilityBasis {
 pub fn substitutable(predicate: &Predicate) -> bool {
     StabilityBasis::ParameterOnlyReaching.eligible(predicate)
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="stability_witnesses",rule="parameter_only_reaching",conclusion=atom,invariant_refs=stability_invariants_refs)]
 pub struct StabilityWitness {
     #[model(key)]

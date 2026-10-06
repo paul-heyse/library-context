@@ -1,8 +1,14 @@
 //! Optional graph algorithms run against completed native compiler projections and explicit effects.
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
-use lctx_model::domain::{admission::Frontier,stages::Profile,*};
-async fn run(profile:Profile,selected:bool,vectors_available:bool,extra_layers:bool,layer_only:bool) {
+use lctx_model::domain::{admission::Frontier, stages::Profile, *};
+async fn run(
+    profile: Profile,
+    selected: bool,
+    vectors_available: bool,
+    extra_layers: bool,
+    layer_only: bool,
+) {
     let settings = analysis::settings::AnalyticsConfiguration {
         module_prefixes: vec!["api".into()],
         public_roots: vec!["api".into()],
@@ -21,11 +27,28 @@ async fn run(profile:Profile,selected:bool,vectors_available:bool,extra_layers:b
         mention_layer: selected && extra_layers,
         knn_layer: selected && extra_layers,
     };
-    let provider=ContractEmbedder::new(vectors_available);
-    let vectors_requested=settings.knn||settings.knn_layer;
-    let fixture=catalog_runtime::compile("analytic_optional",profile,Frontier::Catalog,settings.clone(),if vectors_requested{Some(&provider)}else{None}).await;
-    if selected && vectors_available { replay_controls(&fixture).await; }
-    let results: Vec<(i16, bool, i16, i16)> = catalog_runtime::query(&fixture, "SELECT method,selected,status,stop FROM analytic_technique_results").await;
+    let provider = ContractEmbedder::new(vectors_available);
+    let vectors_requested = settings.knn || settings.knn_layer;
+    let fixture = catalog_runtime::compile(
+        "analytic_optional",
+        profile,
+        Frontier::Catalog,
+        settings.clone(),
+        if vectors_requested {
+            Some(&provider)
+        } else {
+            None
+        },
+    )
+    .await;
+    if selected && vectors_available {
+        replay_controls(&fixture).await;
+    }
+    let results: Vec<(i16, bool, i16, i16)> = catalog_runtime::query(
+        &fixture,
+        "SELECT method,selected,status,stop FROM analytic_technique_results",
+    )
+    .await;
     assert!(!results.is_empty());
     assert_eq!(results.len() % 5, 0);
     assert!(results.iter().all(|r| r.1
@@ -38,14 +61,18 @@ async fn run(profile:Profile,selected:bool,vectors_available:bool,extra_layers:b
                 .iter()
                 .all(|r| r.2 == analysis::AnalysisStatus::NotRequested.code())
         );
-        let ranks: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_rank_scores").await;
+        let ranks: i64 =
+            catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_rank_scores").await;
         assert_eq!(ranks, 0);
     } else {
-        let ranks: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_rank_scores").await;
+        let ranks: i64 =
+            catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_rank_scores").await;
         assert!(ranks >= 7);
-        let runs: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_community_runs").await;
+        let runs: i64 =
+            catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_community_runs").await;
         assert!(runs >= 40);
-        let scopes: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_concept_scopes").await;
+        let scopes: i64 =
+            catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_concept_scopes").await;
         assert!(scopes > 0);
         let parameter_inputs: Vec<(String, i64)> = catalog_runtime::query(&fixture, "SELECT CAST(a.parameter_name AS VARCHAR), count(DISTINCT i.entity) FROM analytic_attributes a JOIN analytic_incidences i ON i.attribute=a.id WHERE a.kind=0 GROUP BY a.parameter_name").await;
         assert!(
@@ -83,7 +110,11 @@ async fn run(profile:Profile,selected:bool,vectors_available:bool,extra_layers:b
             uncertain > 0,
             "builtin class metadata is unavailable rather than a negative trait"
         );
-        let known_absence: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_type_metadata_selections WHERE abstract_absence_known").await;
+        let known_absence: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(*) FROM analytic_type_metadata_selections WHERE abstract_absence_known",
+        )
+        .await;
         assert_eq!(known_absence, 0);
         let captures: Vec<(String, i16, Option<bool>, i16)> = catalog_runtime::query(&fixture, "SELECT DISTINCT m.name, a.capturedependence_origin, a.capturedependence_mutable, a.capturedependence_timing FROM analytic_attributes a JOIN analytic_incidences i ON i.attribute=a.id JOIN structural_public_candidates p ON p.entity=i.entity JOIN catalog_members m ON m.id=p.member WHERE a.kind=15 AND a.capturedependence_name='GLOBAL' ORDER BY 1").await;
         assert_eq!(
@@ -104,22 +135,38 @@ async fn run(profile:Profile,selected:bool,vectors_available:bool,extra_layers:b
             .collect(),
             "only declared decorator heads supply their resolved identities"
         );
-        let selected_decorators: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_decorator_selections WHERE status=0").await;
+        let selected_decorators: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(*) FROM analytic_decorator_selections WHERE status=0",
+        )
+        .await;
         assert!(selected_decorators > 0);
         if settings.type_layer {
-            let pairs: Vec<i64> = catalog_runtime::query(&fixture, "SELECT count(*) FROM analytic_layer_pairs WHERE layer=2 GROUP BY frame").await;
+            let pairs: Vec<i64> = catalog_runtime::query(
+                &fixture,
+                "SELECT count(*) FROM analytic_layer_pairs WHERE layer=2 GROUP BY frame",
+            )
+            .await;
             assert!(!pairs.is_empty());
             assert!(
                 pairs.iter().all(|count| *count == 6),
                 "two release-class triples supply exactly six pairs; builtin int cannot add a release-class edge"
             );
         }
-        let handoffs: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_incidence_sources WHERE kind=4").await;
+        let handoffs: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(*) FROM analytic_incidence_sources WHERE kind=4",
+        )
+        .await;
         if handoffs == 0 {
             let attempts: Vec<(Option<i16>, i16, i16, i16, i64)> = catalog_runtime::query(&fixture, "SELECT sig.role,b.authority,b.authority_reason,b.outcome,count(*) FROM call_binding_attempts b LEFT JOIN signature_observations sig ON sig.id=b.signature GROUP BY 1,2,3,4 ORDER BY 1,2,3,4").await;
             let effective: Vec<(i16, i16, i16, i16, i16, i16, i64)> = catalog_runtime::query(&fixture, "SELECT identity,identity_reason,signatures,signature_reason,descriptor,descriptor_reason,count(*) FROM effective_callable_assessments GROUP BY 1,2,3,4,5,6 ORDER BY 1,2,3,4,5,6").await;
             let coverage: Vec<(i16, i16, Option<String>, i64)> = catalog_runtime::query(&fixture, "SELECT family,status,diagnostic,count(*) FROM provider_coverage GROUP BY 1,2,3 ORDER BY 1,2,3").await;
-            let a0: Vec<(Option<i16>, i64)> = catalog_runtime::query(&fixture, "SELECT reason,count(*) FROM structural_handoff_assessments GROUP BY 1 ORDER BY 1").await;
+            let a0: Vec<(Option<i16>, i64)> = catalog_runtime::query(
+                &fixture,
+                "SELECT reason,count(*) FROM structural_handoff_assessments GROUP BY 1 ORDER BY 1",
+            )
+            .await;
             eprintln!(
                 "handoff attempts {attempts:?}; effective {effective:?}; coverage {coverage:?}; A0 {a0:?}"
             );
@@ -134,17 +181,30 @@ async fn run(profile:Profile,selected:bool,vectors_available:bool,extra_layers:b
             );
         }
     }
-    let selectors: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_public_selectors").await;
+    let selectors: i64 =
+        catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_public_selectors").await;
     assert!(
         selectors > 2,
         "configured two seed paths cannot shrink all public candidates"
     );
-    let public: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM structural_public_candidates WHERE in_subsystem").await;
+    let public: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM structural_public_candidates WHERE in_subsystem",
+    )
+    .await;
     assert_eq!(selectors, public);
     if selected && !extra_layers {
-        let isolated: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_universe_members WHERE excluded_isolate").await;
+        let isolated: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(*) FROM analytic_universe_members WHERE excluded_isolate",
+        )
+        .await;
         assert!(isolated >= 1);
-        let co_use: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_layer_pairs WHERE layer=1 AND count=1").await;
+        let co_use: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(*) FROM analytic_layer_pairs WHERE layer=1 AND count=1",
+        )
+        .await;
         assert!(
             co_use >= 1,
             "distinct call sites in one official scope must co-occur"
@@ -153,7 +213,8 @@ async fn run(profile:Profile,selected:bool,vectors_available:bool,extra_layers:b
     if layer_only {
         let ordinary:i64=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM analytic_neighbours)+(SELECT count(*) FROM analytic_document_neighbours)+(SELECT count(*) FROM analytic_community_labels)").await;
         assert_eq!(ordinary, 0);
-        let layer: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_layer_neighbours").await;
+        let layer: i64 =
+            catalog_runtime::one(&fixture, "SELECT count(*) FROM analytic_layer_neighbours").await;
         assert!(layer > 0);
         assert!(
             results
@@ -243,17 +304,43 @@ async fn nearest_community_layer_preserves_unrequested_public_neighbours() {
     run(Profile::Catalog, true, true, true, true).await;
 }
 
-
-async fn replay_controls(fixture:&catalog_runtime::Fixture) {
- let workspace=&fixture.workspace;let b=workspace.budget();
- let completed=workspace.completed_relations().unwrap();
- let access=workspace.inputs("analytic-contract-control",Profile::Catalog,completed.iter().map(|r|r.name())).unwrap();
- let graphs=cpg_core::analysis_graphs::PreparedGraphs::load(&access,workspace,workspace.model(),&[projection::ProjectionName::CallableInvocation].into_iter().collect()).await.unwrap();
- let mut d=analytics::build::Data::new(b);
- let mut seen=std::collections::BTreeSet::new();
- for input in analytics::build::Data::validation_inputs(){if !seen.insert((input.name(),input.prefix())){continue;}if let Ok(relation)=workspace.input_relation(&input){for batch in relation.batches().unwrap(){d.visit_input(&input,&batch.unwrap()).unwrap();}}}
+async fn replay_controls(fixture: &catalog_runtime::Fixture) {
+    let workspace = &fixture.workspace;
+    let b = workspace.budget();
+    let completed = workspace.completed_relations().unwrap();
+    let access = workspace
+        .inputs(
+            "analytic-contract-control",
+            Profile::Catalog,
+            completed.iter().map(|r| r.name()),
+        )
+        .unwrap();
+    let graphs = cpg_core::analysis_graphs::PreparedGraphs::load(
+        &access,
+        workspace,
+        workspace.model(),
+        &[projection::ProjectionName::CallableInvocation]
+            .into_iter()
+            .collect(),
+    )
+    .await
+    .unwrap();
+    let mut d = analytics::build::Data::new(b);
+    let mut seen = std::collections::BTreeSet::new();
+    for input in analytics::build::Data::validation_inputs() {
+        if !seen.insert((input.name(), input.prefix())) {
+            continue;
+        }
+        if let Ok(relation) = workspace.input_relation(&input) {
+            for batch in relation.batches().unwrap() {
+                d.visit_input(&input, &batch.unwrap()).unwrap();
+            }
+        }
+    }
     let mut c = analytics::frames::Context::new(b);
-    let sources = analysis::sources::CapturedSources::capture(access.profile(),access.snapshots(),b).unwrap();
+    let sources =
+        analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), b)
+            .unwrap();
     let mut out = analytics::Output::new(b);
     for sf in d.structural.frames.iter() {
         let parent = d.structural_invocations.get(sf.invocation).unwrap();

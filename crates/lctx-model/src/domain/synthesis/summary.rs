@@ -9,7 +9,7 @@ use crate::domain::{
     resources::ResourceBudget,
     *,
 };
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="synthesis_summary_facets",rule="synthesis_summary_facet",invariant_refs=invariants_refs)]
 pub struct SummaryFacet {
     #[model(key)]
@@ -246,7 +246,10 @@ pub fn build(
 }
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = Data::inputs();
-    inputs.extend(documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts));
+    inputs.extend(documentary::replay_inputs(
+        documentary::Data::validation_inputs(),
+        stages::PublicationBoundary::Facts,
+    ));
     inputs.extend([
         ValidationInput::of::<frames::Frame>(&["id"]),
         ValidationInput::of::<owner::Invocation>(&["id"]),
@@ -283,13 +286,22 @@ struct Check {
 }
 impl InvariantCheck for Check {
     fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+        Err(ModelError::Invalid(
+            "S0 replay requires an explicit completed-input selector".into(),
+        ))
     }
-    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         documentary::replay_selector(input)?;
         let n = input.name();
         let d = documentary::replay_visit(input, None, |name| self.data.visit(name, b))?;
-        let docs = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.docs.visit(name, b))?;
+        let docs =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.docs.visit(name, b)
+            })?;
         macro_rules! row {
             ($t:ty,$f:ident) => {
                 if n == <$t>::NAME {

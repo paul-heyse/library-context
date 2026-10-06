@@ -1,4 +1,11 @@
-use lctx_model::{Domain, domain::{*, analysis::sources::{CapturedSources, CompletedInput}, stages::Profile}};
+use lctx_model::{
+    Domain,
+    domain::{
+        analysis::sources::{CapturedSources, CompletedInput},
+        stages::Profile,
+        *,
+    },
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "completed_fixture")]
@@ -20,25 +27,61 @@ fn budget() -> resources::ResourceBudget {
 }
 #[test]
 fn declaration_structure_not_documentation_defines_semantic_contract() {
-    let first = ValidatedModel::validate(vec![Relation::of::<First>()], ValidationDefinitions::default()).unwrap();
-    let commented = ValidatedModel::validate(vec![Relation::of::<WithDocumentation>()], ValidationDefinitions::default()).unwrap();
+    let first = ValidatedModel::validate(
+        vec![Relation::of::<First>()],
+        ValidationDefinitions::default(),
+    )
+    .unwrap();
+    let commented = ValidatedModel::validate(
+        vec![Relation::of::<WithDocumentation>()],
+        ValidationDefinitions::default(),
+    )
+    .unwrap();
     assert_eq!(first.digest(), commented.digest());
-    assert_eq!(First { name: "one".into(), value: 3 }.id().bytes(), WithDocumentation { name: "one".into(), value: 3 }.id().bytes());
+    assert_eq!(
+        First {
+            name: "one".into(),
+            value: 3
+        }
+        .id()
+        .bytes(),
+        WithDocumentation {
+            name: "one".into(),
+            value: 3
+        }
+        .id()
+        .bytes()
+    );
 }
 #[test]
 fn exact_completed_inputs_are_independent_of_physical_store_and_schedule() {
     let budget = budget();
-    let input = CompletedInput::<First>::new("producer", ContentHash([1;32]), ContentHash([2;32]), ContentHash([3;32]), 2).unwrap();
-    let mut capture = CapturedSources::capture(Profile::Catalog, [input.snapshot()], &budget).unwrap();
+    let input = CompletedInput::<First>::new(
+        "producer",
+        ContentHash([1; 32]),
+        ContentHash([2; 32]),
+        ContentHash([3; 32]),
+        2,
+    )
+    .unwrap();
+    let mut capture =
+        CapturedSources::capture(Profile::Catalog, [input.snapshot()], &budget).unwrap();
     let digest = capture.digest();
     capture.include(&input).unwrap();
     assert_eq!(capture.digest(), digest);
-    let changed = CompletedInput::<First>::new("producer", ContentHash([1;32]), ContentHash([4;32]), ContentHash([3;32]), 2).unwrap();
+    let changed = CompletedInput::<First>::new(
+        "producer",
+        ContentHash([1; 32]),
+        ContentHash([4; 32]),
+        ContentHash([3; 32]),
+        2,
+    )
+    .unwrap();
     capture.include(&changed).unwrap();
-    assert_ne!(capture.digest(),digest);
-    let both=capture.digest();
+    assert_ne!(capture.digest(), digest);
+    let both = capture.digest();
     capture.include(&changed).unwrap();
-    assert_eq!(capture.digest(),both);
+    assert_eq!(capture.digest(), both);
     let other = CapturedSources::capture(Profile::Catalog, [changed.snapshot()], &budget).unwrap();
     assert_ne!(other.digest(), digest);
     let wire = serde_json::to_value(input.snapshot()).unwrap();
@@ -49,174 +92,421 @@ fn exact_completed_inputs_are_independent_of_physical_store_and_schedule() {
 }
 #[test]
 fn completed_input_rejects_invalid_metadata() {
-    assert!(CompletedInput::<First>::new("", ContentHash([1;32]), ContentHash([2;32]), ContentHash([3;32]), 0).is_err());
-    assert!(CompletedInput::<First>::new("p", ContentHash([1;32]), ContentHash([2;32]), ContentHash([3;32]), u64::MAX).is_err());
+    assert!(
+        CompletedInput::<First>::new(
+            "",
+            ContentHash([1; 32]),
+            ContentHash([2; 32]),
+            ContentHash([3; 32]),
+            0
+        )
+        .is_err()
+    );
+    assert!(
+        CompletedInput::<First>::new(
+            "p",
+            ContentHash([1; 32]),
+            ContentHash([2; 32]),
+            ContentHash([3; 32]),
+            u64::MAX
+        )
+        .is_err()
+    );
 }
 
 #[test]
 fn semantic_predecessor_selection_uses_declared_sources_without_runtime_metadata() {
-    let model=lctx_model::domain::model().unwrap();
-    let mut selectors=0;
+    let model = lctx_model::domain::model().unwrap();
+    let mut selectors = 0;
     for profile in Profile::ALL {
-        let mut inputs=local_semantics::LocalData::consumed_inputs(profile);
-        inputs.extend(execution::summary_production::SummaryData::consumed_inputs(profile));
+        let mut inputs = local_semantics::LocalData::consumed_inputs(profile);
+        inputs.extend(execution::summary_production::SummaryData::consumed_inputs(
+            profile,
+        ));
         inputs.extend(analytics::build::Data::consumed_inputs(profile));
         inputs.extend(synthesis::production::Data::consumed_inputs(profile));
-        for input in inputs {assert!(model.relation(input.name()).is_some());selectors+=usize::from(input.prefix().is_some());}
+        for input in inputs {
+            assert!(model.relation(input.name()).is_some());
+            selectors += usize::from(input.prefix().is_some());
+        }
     }
-    assert!(selectors>0,"earlier semantic vocabulary must be selected explicitly");
+    assert!(
+        selectors > 0,
+        "earlier semantic vocabulary must be selected explicitly"
+    );
 }
 
 #[test]
-fn normalized_replay_and_production_select_the_same_native_vocabulary(){
- use normalized::*;
- let profile=Profile::Behavioral;
- let owners=[
-  (entity_normalization::stage(),entity_normalization::EntityData::validation_inputs()),
-  (relation_normalization::stage(profile),relation_normalization::RelationData::validation_inputs()),
-  (callable_normalization::stage(profile),callable_normalization::CallableData::validation_inputs()),
-  (event_normalization::stage(profile),event_normalization::EventData::validation_inputs()),
-  (binding_normalization::stage(profile),binding_normalization::BindingData::validation_inputs()),
- ];
- let mut selected=0;
- for (stage,inputs) in owners {
-  for input in inputs.into_iter().filter(|input|stages::is_vocabulary(input.name())){
-   let producer=stage.inputs.iter().find(|producer|producer.name()==input.name()).expect("replayed producer source");
-   assert_eq!(input.prefix(),Some(stages::PublicationBoundary::Facts),"{} {}",stage.name,input.name());
-   assert_eq!(input.prefix(),producer.prefix(),"{} {}",stage.name,input.name());
-   selected+=1;
-  }
- }
- assert!(selected>0);
+fn normalized_replay_and_production_select_the_same_native_vocabulary() {
+    use normalized::*;
+    let profile = Profile::Behavioral;
+    let owners = [
+        (
+            entity_normalization::stage(),
+            entity_normalization::EntityData::validation_inputs(),
+        ),
+        (
+            relation_normalization::stage(profile),
+            relation_normalization::RelationData::validation_inputs(),
+        ),
+        (
+            callable_normalization::stage(profile),
+            callable_normalization::CallableData::validation_inputs(),
+        ),
+        (
+            event_normalization::stage(profile),
+            event_normalization::EventData::validation_inputs(),
+        ),
+        (
+            binding_normalization::stage(profile),
+            binding_normalization::BindingData::validation_inputs(),
+        ),
+    ];
+    let mut selected = 0;
+    for (stage, inputs) in owners {
+        for input in inputs
+            .into_iter()
+            .filter(|input| stages::is_vocabulary(input.name()))
+        {
+            let producer = stage
+                .inputs
+                .iter()
+                .find(|producer| producer.name() == input.name())
+                .expect("replayed producer source");
+            assert_eq!(
+                input.prefix(),
+                Some(stages::PublicationBoundary::Facts),
+                "{} {}",
+                stage.name,
+                input.name()
+            );
+            assert_eq!(
+                input.prefix(),
+                producer.prefix(),
+                "{} {}",
+                stage.name,
+                input.name()
+            );
+            selected += 1;
+        }
+    }
+    assert!(selected > 0);
 }
 
 #[test]
-fn upper_native_collectors_preserve_facts_and_summary_routes_model_vocabulary_separately(){
- use stages::PublicationBoundary as View;
- use execution::{source_call_records::SourceCallData,enriched_production::EnrichedData,model_production::ModelData,summary_production::SummaryData};
- let budget=budget();
- let input=input::InputRevision{manifest:ContentHash::of(b"view isolation")};
- let artifact=source::SourceArtifact::from_bytes(input.id(),"view.py".into(),b"x = 1").unwrap();
- let module=source::Module{source:artifact.id(),qualified_name:"view".into()};
- let path=value::AccessPath{first:None,second:None,unknown_suffix:false};
- let native=value::Place{root:value::PlaceRoot::Global{module:module.id(),name:"native".into()}.id(),path:path.id()};
- let derived=value::Place{root:value::PlaceRoot::Global{module:module.id(),name:"derived".into()}.id(),path:native.path};
- let facts=ValidationInput::of::<value::Place>(&["id"]).at_epoch(View::Facts);
- let model=ValidationInput::of::<value::Place>(&["id"]).at_epoch(View::Model);
- let native_batch=value::Place::encode(std::slice::from_ref(&native)).unwrap();
- let later_batch=value::Place::encode(&[native.clone(),derived.clone()]).unwrap();
- let mut source=SourceCallData::new(&budget);
- source.visit_input(&facts,&native_batch).unwrap();
- assert!(source.visit_input(&model,&later_batch).is_err());
- assert_eq!(source.bindings.places.len(),1);
- assert!(source.bindings.places.get(derived.id()).is_none());
- let mut enriched=EnrichedData::new(&budget);
- enriched.visit_input(&facts,&native_batch).unwrap();
- assert!(enriched.visit_input(&model,&later_batch).is_err());
- assert_eq!(enriched.source.bindings.places.len(),1);
- let mut applicability=ModelData::new(&budget);
- applicability.visit_input(&facts,&native_batch).unwrap();
- assert!(applicability.visit_input(&model,&later_batch).is_err());
- assert_eq!(applicability.early.bindings.places.len(),1);
- let mut summary=SummaryData::new(&budget);
- summary.visit_input(&facts,&native_batch).unwrap();
- summary.visit_input(&model,&later_batch).unwrap();
- assert_eq!(summary.bindings.places.len(),1);
- assert_eq!(summary.entry.places.len(),1);
- assert_eq!(summary.vocabulary.places.len(),2);
- assert!(summary.vocabulary.places.get(&derived.id()).is_some());
- assert!(summary.visit_input(&ValidationInput::of::<value::Place>(&["id"]),&later_batch).is_err());
- let views=SummaryData::consumed_inputs(Profile::Behavioral).into_iter().filter(|i|i.name()==value::Place::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
- assert_eq!(views,[Some(View::Facts),Some(View::Model)].into_iter().collect());
+fn upper_native_collectors_preserve_facts_and_summary_routes_model_vocabulary_separately() {
+    use execution::{
+        enriched_production::EnrichedData, model_production::ModelData,
+        source_call_records::SourceCallData, summary_production::SummaryData,
+    };
+    use stages::PublicationBoundary as View;
+    let budget = budget();
+    let input = input::InputRevision {
+        manifest: ContentHash::of(b"view isolation"),
+    };
+    let artifact =
+        source::SourceArtifact::from_bytes(input.id(), "view.py".into(), b"x = 1").unwrap();
+    let module = source::Module {
+        source: artifact.id(),
+        qualified_name: "view".into(),
+    };
+    let path = value::AccessPath {
+        first: None,
+        second: None,
+        unknown_suffix: false,
+    };
+    let native = value::Place {
+        root: value::PlaceRoot::Global {
+            module: module.id(),
+            name: "native".into(),
+        }
+        .id(),
+        path: path.id(),
+    };
+    let derived = value::Place {
+        root: value::PlaceRoot::Global {
+            module: module.id(),
+            name: "derived".into(),
+        }
+        .id(),
+        path: native.path,
+    };
+    let facts = ValidationInput::of::<value::Place>(&["id"]).at_epoch(View::Facts);
+    let model = ValidationInput::of::<value::Place>(&["id"]).at_epoch(View::Model);
+    let native_batch = value::Place::encode(std::slice::from_ref(&native)).unwrap();
+    let later_batch = value::Place::encode(&[native.clone(), derived.clone()]).unwrap();
+    let mut source = SourceCallData::new(&budget);
+    source.visit_input(&facts, &native_batch).unwrap();
+    assert!(source.visit_input(&model, &later_batch).is_err());
+    assert_eq!(source.bindings.places.len(), 1);
+    assert!(source.bindings.places.get(derived.id()).is_none());
+    let mut enriched = EnrichedData::new(&budget);
+    enriched.visit_input(&facts, &native_batch).unwrap();
+    assert!(enriched.visit_input(&model, &later_batch).is_err());
+    assert_eq!(enriched.source.bindings.places.len(), 1);
+    let mut applicability = ModelData::new(&budget);
+    applicability.visit_input(&facts, &native_batch).unwrap();
+    assert!(applicability.visit_input(&model, &later_batch).is_err());
+    assert_eq!(applicability.early.bindings.places.len(), 1);
+    let mut summary = SummaryData::new(&budget);
+    summary.visit_input(&facts, &native_batch).unwrap();
+    summary.visit_input(&model, &later_batch).unwrap();
+    assert_eq!(summary.bindings.places.len(), 1);
+    assert_eq!(summary.entry.places.len(), 1);
+    assert_eq!(summary.vocabulary.places.len(), 2);
+    assert!(summary.vocabulary.places.get(&derived.id()).is_some());
+    assert!(
+        summary
+            .visit_input(&ValidationInput::of::<value::Place>(&["id"]), &later_batch)
+            .is_err()
+    );
+    let views = SummaryData::consumed_inputs(Profile::Behavioral)
+        .into_iter()
+        .filter(|i| i.name() == value::Place::NAME)
+        .map(|i| i.prefix())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        views,
+        [Some(View::Facts), Some(View::Model)].into_iter().collect()
+    );
 }
 
 #[test]
-fn synthesis_native_entry_and_conclusion_vocabulary_are_isolated(){
- use stages::PublicationBoundary as View;
- let budget=budget();let mut data=synthesis::production::Data::new(&budget);
- let native=conditions::Condition{root:conditions::ConditionNode::False.id()};
- let derived=conditions::Condition{root:conditions::ConditionNode::True.id()};
- let facts=ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Facts);
- let analytic=ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Analytic);
- data.visit_input(&facts,&conditions::Condition::encode(std::slice::from_ref(&native)).unwrap()).unwrap();
- data.visit_input(&analytic,&conditions::Condition::encode(&[native.clone(),derived.clone()]).unwrap()).unwrap();
- assert_eq!(data.patterns.flow.entry.conditions.len(),1);
- assert!(data.patterns.flow.entry.conditions.get(derived.id()).is_none());
- assert_eq!(data.observations.conditions.len(),2);
- assert!(data.observations.conditions.get(derived.id()).is_some());
- assert!(data.visit_input(&ValidationInput::of::<conditions::Condition>(&["id"]),&conditions::Condition::encode(&[derived]).unwrap()).is_err());
- let selected=synthesis::production::Data::consumed_inputs(Profile::Behavioral).into_iter().filter(|i|i.name()==conditions::Condition::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
- assert_eq!(selected,[Some(View::Facts),Some(View::Analytic)].into_iter().collect());
+fn synthesis_native_entry_and_conclusion_vocabulary_are_isolated() {
+    use stages::PublicationBoundary as View;
+    let budget = budget();
+    let mut data = synthesis::production::Data::new(&budget);
+    let native = conditions::Condition {
+        root: conditions::ConditionNode::False.id(),
+    };
+    let derived = conditions::Condition {
+        root: conditions::ConditionNode::True.id(),
+    };
+    let facts = ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Facts);
+    let analytic = ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Analytic);
+    data.visit_input(
+        &facts,
+        &conditions::Condition::encode(std::slice::from_ref(&native)).unwrap(),
+    )
+    .unwrap();
+    data.visit_input(
+        &analytic,
+        &conditions::Condition::encode(&[native.clone(), derived.clone()]).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(data.patterns.flow.entry.conditions.len(), 1);
+    assert!(
+        data.patterns
+            .flow
+            .entry
+            .conditions
+            .get(derived.id())
+            .is_none()
+    );
+    assert_eq!(data.observations.conditions.len(), 2);
+    assert!(data.observations.conditions.get(derived.id()).is_some());
+    assert!(
+        data.visit_input(
+            &ValidationInput::of::<conditions::Condition>(&["id"]),
+            &conditions::Condition::encode(&[derived]).unwrap()
+        )
+        .is_err()
+    );
+    let selected = synthesis::production::Data::consumed_inputs(Profile::Behavioral)
+        .into_iter()
+        .filter(|i| i.name() == conditions::Condition::NAME)
+        .map(|i| i.prefix())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        selected,
+        [Some(View::Facts), Some(View::Analytic)]
+            .into_iter()
+            .collect()
+    );
 }
 
 #[test]
-fn structural_native_entry_and_local_conclusion_vocabulary_are_isolated(){
- use stages::PublicationBoundary as View;
- let budget=budget();let mut data=structural::build::Data::new(&budget);
- let native=conditions::Condition{root:conditions::ConditionNode::False.id()};
- let derived=conditions::Condition{root:conditions::ConditionNode::True.id()};
- let facts=ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Facts);
- let local=ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Local);
- data.visit_input(&facts,&conditions::Condition::encode(std::slice::from_ref(&native)).unwrap()).unwrap();
- data.visit_input(&local,&conditions::Condition::encode(&[native.clone(),derived.clone()]).unwrap()).unwrap();
- assert_eq!(data.handoffs.entry.conditions.len(),1);
- assert!(data.handoffs.entry.conditions.get(derived.id()).is_none());
- assert_eq!(data.handoffs.local.conditions.len(),2);
- assert!(data.handoffs.local.conditions.get(derived.id()).is_some());
- let selected=structural::build::Data::consumed_inputs(Profile::Behavioral).into_iter().filter(|i|i.name()==conditions::Condition::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
- assert_eq!(selected,[Some(View::Facts),Some(View::Local)].into_iter().collect());
- assert!(data.visit(conditions::Condition::NAME,&conditions::Condition::encode(&[derived]).unwrap()).is_err());
+fn structural_native_entry_and_local_conclusion_vocabulary_are_isolated() {
+    use stages::PublicationBoundary as View;
+    let budget = budget();
+    let mut data = structural::build::Data::new(&budget);
+    let native = conditions::Condition {
+        root: conditions::ConditionNode::False.id(),
+    };
+    let derived = conditions::Condition {
+        root: conditions::ConditionNode::True.id(),
+    };
+    let facts = ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Facts);
+    let local = ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(View::Local);
+    data.visit_input(
+        &facts,
+        &conditions::Condition::encode(std::slice::from_ref(&native)).unwrap(),
+    )
+    .unwrap();
+    data.visit_input(
+        &local,
+        &conditions::Condition::encode(&[native.clone(), derived.clone()]).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(data.handoffs.entry.conditions.len(), 1);
+    assert!(data.handoffs.entry.conditions.get(derived.id()).is_none());
+    assert_eq!(data.handoffs.local.conditions.len(), 2);
+    assert!(data.handoffs.local.conditions.get(derived.id()).is_some());
+    let selected = structural::build::Data::consumed_inputs(Profile::Behavioral)
+        .into_iter()
+        .filter(|i| i.name() == conditions::Condition::NAME)
+        .map(|i| i.prefix())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        selected,
+        [Some(View::Facts), Some(View::Local)].into_iter().collect()
+    );
+    assert!(
+        data.visit(
+            conditions::Condition::NAME,
+            &conditions::Condition::encode(&[derived]).unwrap()
+        )
+        .is_err()
+    );
 }
 
 #[test]
-fn analytic_native_and_structural_vocabulary_are_isolated(){
- use stages::PublicationBoundary as View;
- let budget=budget();let mut data=analytics::build::Data::new(&budget);
- fn nominal<R>(n:u8)->Id<R>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
- let native=assertion::AssertionQualification{context:nominal(1),scope:nominal(2),condition:conditions::Diagram::always().id(),modality:attribution::Modality::Definite,approximation:assertion::Approximation::Exact,assumptions:assumptions::AssumptionSet::empty_id()};
- let derived=assertion::AssertionQualification{modality:attribution::Modality::Candidate,..native.clone()};
- let facts=ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Facts);
- let structural=ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Structural);
- data.visit_input(&facts,&assertion::AssertionQualification::encode(std::slice::from_ref(&native)).unwrap()).unwrap();
- data.visit_input(&structural,&assertion::AssertionQualification::encode(&[native.clone(),derived.clone()]).unwrap()).unwrap();
- assert_eq!(data.native.qualifications.len(),1);
- assert!(data.native.qualifications.get(derived.id()).is_none());
- assert_eq!(data.structural.conclusion_qualifications.len(),2);
- for profile in Profile::ALL {
-  let selected=analytics::build::Data::consumed_inputs(profile).into_iter().filter(|i|i.name()==assertion::AssertionQualification::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
-  assert_eq!(selected,[Some(View::Facts),Some(View::Structural)].into_iter().collect());
- }
- assert!(data.visit_input(&ValidationInput::of::<assertion::AssertionQualification>(&["id"]),&assertion::AssertionQualification::encode(&[derived]).unwrap()).is_err());
+fn analytic_native_and_structural_vocabulary_are_isolated() {
+    use stages::PublicationBoundary as View;
+    let budget = budget();
+    let mut data = analytics::build::Data::new(&budget);
+    fn nominal<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    let native = assertion::AssertionQualification {
+        context: nominal(1),
+        scope: nominal(2),
+        condition: conditions::Diagram::always().id(),
+        modality: attribution::Modality::Definite,
+        approximation: assertion::Approximation::Exact,
+        assumptions: assumptions::AssumptionSet::empty_id(),
+    };
+    let derived = assertion::AssertionQualification {
+        modality: attribution::Modality::Candidate,
+        ..native.clone()
+    };
+    let facts =
+        ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Facts);
+    let structural = ValidationInput::of::<assertion::AssertionQualification>(&["id"])
+        .at_epoch(View::Structural);
+    data.visit_input(
+        &facts,
+        &assertion::AssertionQualification::encode(std::slice::from_ref(&native)).unwrap(),
+    )
+    .unwrap();
+    data.visit_input(
+        &structural,
+        &assertion::AssertionQualification::encode(&[native.clone(), derived.clone()]).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(data.native.qualifications.len(), 1);
+    assert!(data.native.qualifications.get(derived.id()).is_none());
+    assert_eq!(data.structural.conclusion_qualifications.len(), 2);
+    for profile in Profile::ALL {
+        let selected = analytics::build::Data::consumed_inputs(profile)
+            .into_iter()
+            .filter(|i| i.name() == assertion::AssertionQualification::NAME)
+            .map(|i| i.prefix())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            selected,
+            [Some(View::Facts), Some(View::Structural)]
+                .into_iter()
+                .collect()
+        );
+    }
+    assert!(
+        data.visit_input(
+            &ValidationInput::of::<assertion::AssertionQualification>(&["id"]),
+            &assertion::AssertionQualification::encode(&[derived]).unwrap()
+        )
+        .is_err()
+    );
 }
 
 #[test]
-fn catalog_evidence_native_and_local_qualification_views_survive_reuse(){
- use stages::PublicationBoundary as View;
- let budget=budget();
- fn nominal<R>(n:u8)->Id<R>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
- let native=assertion::AssertionQualification{context:nominal(1),scope:nominal(2),condition:conditions::Diagram::always().id(),modality:attribution::Modality::Definite,approximation:assertion::Approximation::Exact,assumptions:assumptions::AssumptionSet::empty_id()};
- let local=assertion::AssertionQualification{modality:attribution::Modality::Candidate,..native.clone()};
- let facts=ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Facts);
- let predecessor=ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Local);
- let native_batch=assertion::AssertionQualification::encode(std::slice::from_ref(&native)).unwrap();
- let later_batch=assertion::AssertionQualification::encode(&[native.clone(),local.clone()]).unwrap();
- let mut evidence=catalog::evidence::build::EvidenceData::new(&budget);
- evidence.visit_input(&facts,&native_batch).unwrap();evidence.visit_input(&predecessor,&later_batch).unwrap();
- assert_eq!(evidence.core.qualifications.len(),1);assert_eq!(evidence.local_qualifications.len(),2);
- assert!(evidence.core.qualifications.get(local.id()).is_none());
- let mut selection=selection::build::Data::new(&budget);
- selection.visit_input(&facts,&native_batch).unwrap();selection.visit_input(&predecessor,&later_batch).unwrap();
- assert_eq!(selection.source.core.qualifications.len(),1);assert_eq!(selection.source.local_qualifications.len(),2);
- let mut retrieval=retrieval::build::Data::new(&budget);
- retrieval.visit_input(&facts,&native_batch).unwrap();retrieval.visit_input(&predecessor,&later_batch).unwrap();
- assert_eq!(retrieval.source.core.qualifications.len(),1);assert_eq!(retrieval.source.local_qualifications.len(),2);
- let literal=ValidationInput::of::<value::Literal>(&["id"]).at_epoch(View::Facts);
- retrieval.visit_input(&literal,&<value::Literal as Record>::encode(&[value::Literal::None]).unwrap()).unwrap();
- assert_eq!(retrieval.facts.literals.len(),1);
- for inputs in [catalog::evidence::build::EvidenceData::consumed_inputs(Profile::Behavioral),selection::build::Data::consumed_inputs(Profile::Behavioral),retrieval::build::Data::mandatory_consumed_inputs(Profile::Behavioral)]{
-  let views=inputs.into_iter().filter(|i|i.name()==assertion::AssertionQualification::NAME).map(|i|i.prefix()).collect::<std::collections::BTreeSet<_>>();
-  assert_eq!(views,[Some(View::Facts),Some(View::Local)].into_iter().collect());
- }
- assert!(evidence.visit_input(&ValidationInput::of::<assertion::AssertionQualification>(&["id"]),&later_batch).is_err());
- assert!(synthesis::documentary::Data::facts_inputs().iter().filter(|i|stages::is_vocabulary(i.name())).all(|i|i.prefix()==Some(View::Facts)));
+fn catalog_evidence_native_and_local_qualification_views_survive_reuse() {
+    use stages::PublicationBoundary as View;
+    let budget = budget();
+    fn nominal<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    let native = assertion::AssertionQualification {
+        context: nominal(1),
+        scope: nominal(2),
+        condition: conditions::Diagram::always().id(),
+        modality: attribution::Modality::Definite,
+        approximation: assertion::Approximation::Exact,
+        assumptions: assumptions::AssumptionSet::empty_id(),
+    };
+    let local = assertion::AssertionQualification {
+        modality: attribution::Modality::Candidate,
+        ..native.clone()
+    };
+    let facts =
+        ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Facts);
+    let predecessor =
+        ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(View::Local);
+    let native_batch =
+        assertion::AssertionQualification::encode(std::slice::from_ref(&native)).unwrap();
+    let later_batch =
+        assertion::AssertionQualification::encode(&[native.clone(), local.clone()]).unwrap();
+    let mut evidence = catalog::evidence::build::EvidenceData::new(&budget);
+    evidence.visit_input(&facts, &native_batch).unwrap();
+    evidence.visit_input(&predecessor, &later_batch).unwrap();
+    assert_eq!(evidence.core.qualifications.len(), 1);
+    assert_eq!(evidence.local_qualifications.len(), 2);
+    assert!(evidence.core.qualifications.get(local.id()).is_none());
+    let mut selection = selection::build::Data::new(&budget);
+    selection.visit_input(&facts, &native_batch).unwrap();
+    selection.visit_input(&predecessor, &later_batch).unwrap();
+    assert_eq!(selection.source.core.qualifications.len(), 1);
+    assert_eq!(selection.source.local_qualifications.len(), 2);
+    let mut retrieval = retrieval::build::Data::new(&budget);
+    retrieval.visit_input(&facts, &native_batch).unwrap();
+    retrieval.visit_input(&predecessor, &later_batch).unwrap();
+    assert_eq!(retrieval.source.core.qualifications.len(), 1);
+    assert_eq!(retrieval.source.local_qualifications.len(), 2);
+    let literal = ValidationInput::of::<value::Literal>(&["id"]).at_epoch(View::Facts);
+    retrieval
+        .visit_input(
+            &literal,
+            &<value::Literal as Record>::encode(&[value::Literal::None]).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(retrieval.facts.literals.len(), 1);
+    for inputs in [
+        catalog::evidence::build::EvidenceData::consumed_inputs(Profile::Behavioral),
+        selection::build::Data::consumed_inputs(Profile::Behavioral),
+        retrieval::build::Data::mandatory_consumed_inputs(Profile::Behavioral),
+    ] {
+        let views = inputs
+            .into_iter()
+            .filter(|i| i.name() == assertion::AssertionQualification::NAME)
+            .map(|i| i.prefix())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            views,
+            [Some(View::Facts), Some(View::Local)].into_iter().collect()
+        );
+    }
+    assert!(
+        evidence
+            .visit_input(
+                &ValidationInput::of::<assertion::AssertionQualification>(&["id"]),
+                &later_batch
+            )
+            .is_err()
+    );
+    assert!(
+        synthesis::documentary::Data::facts_inputs()
+            .iter()
+            .filter(|i| stages::is_vocabulary(i.name()))
+            .all(|i| i.prefix() == Some(View::Facts))
+    );
 }

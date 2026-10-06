@@ -2,14 +2,25 @@
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile, *};
-async fn run(profile: Profile) {run_fixture(profile,"phase4_summaries").await;}
+async fn run(profile: Profile) {
+    run_fixture(profile, "phase4_summaries").await;
+}
 async fn run_fixture(profile: Profile, case: &str) {
     let root = catalog_runtime::root(case);
-    let fixture = catalog_runtime::compile(case,profile,Frontier::Analysis,catalog_runtime::settings("cases"),None).await;
+    let fixture = catalog_runtime::compile(
+        case,
+        profile,
+        Frontier::Analysis,
+        catalog_runtime::settings("cases"),
+        None,
+    )
+    .await;
     let runs: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM summary_runs").await;
     assert!(runs > 0);
-    let proofs: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM summary_transfer_witnesses").await;
-    let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM summary_analysis_outcomes").await;
+    let proofs: i64 =
+        catalog_runtime::one(&fixture, "SELECT count(*) FROM summary_transfer_witnesses").await;
+    let statuses: Vec<i16> =
+        catalog_runtime::query(&fixture, "SELECT status FROM summary_analysis_outcomes").await;
     if profile == Profile::Behavioral {
         assert!(statuses.iter().all(|s| *s == 1));
     }
@@ -40,7 +51,11 @@ async fn run_fixture(profile: Profile, case: &str) {
                 (2, 1, true, 1)
             ]
         );
-        let readers: i64 = catalog_runtime::one(&fixture, "SELECT count(DISTINCT link) FROM summary_symbolic_field_alternatives").await;
+        let readers: i64 = catalog_runtime::one(
+            &fixture,
+            "SELECT count(DISTINCT link) FROM summary_symbolic_field_alternatives",
+        )
+        .await;
         assert_eq!(readers, 3);
         let conclusions:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM summary_behavioral_conclusions c JOIN summary_obligation_subjects s ON s.id=c.subject JOIN summary_claims q ON q.id=s.summaryclaim_transfer JOIN summary_symbolic_field_alternatives a ON a.id=q.symbolicfieldassociation_alternative WHERE c.verdict=3 AND c.proof IS NULL AND c.qualification=a.reader_qualification AND c.reason=a.reason").await;
         assert_eq!(conclusions, 4);
@@ -323,4 +338,3 @@ async fn assert_conditional_atom_summary(
 async fn capture_timing_stable_entries_reach_actual_finite_summaries() {
     run_fixture(Profile::Behavioral, "stable_capture_shapes").await;
 }
-

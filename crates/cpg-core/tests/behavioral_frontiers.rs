@@ -4,7 +4,14 @@ mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile, *};
 #[tokio::test]
 async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
-    let fixture = catalog_runtime::compile("behavioral_frontiers", Profile::Behavioral, Frontier::Analysis, catalog_runtime::settings("cases"), None).await;
+    let fixture = catalog_runtime::compile(
+        "behavioral_frontiers",
+        Profile::Behavioral,
+        Frontier::Analysis,
+        catalog_runtime::settings("cases"),
+        None,
+    )
+    .await;
     let frontiers:Vec<(String,i64,bool,bool,i16)>=catalog_runtime::query(&fixture, "SELECT spelling.spelling,basis.count,f.effects_unknown,f.exceptions_unknown,f.question FROM conditional_terminal_frontiers f JOIN assertion_qualifications q ON q.id=f.qualification JOIN assumption_sets basis ON basis.id=q.assumptions JOIN entity_refs e ON e.id=f.owner JOIN callable_entities c ON c.id=e.callable_callable JOIN declaration_observations d ON d.declaration=c.source_declaration JOIN syntax_observations spelling ON spelling.occurrence=d.name ORDER BY 1").await;
     eprintln!("frontiers={frontiers:?}");
     type TargetDiagnostic = (
@@ -86,6 +93,10 @@ async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
         ],
         "declared Literal[True], Literal[False] and None characterize typing only; Any and async remain unknown"
     );
-    let suppress: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM native_exit_characterizations WHERE runtime_completion_admitted").await;
+    let suppress: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM native_exit_characterizations WHERE runtime_completion_admitted",
+    )
+    .await;
     assert_eq!(suppress, 0);
 }

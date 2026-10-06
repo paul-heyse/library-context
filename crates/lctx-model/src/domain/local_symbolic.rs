@@ -15,7 +15,7 @@ use crate::domain::{
     *,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "local_symbolic_field_stores",
     rule = "unchanged_source_field_store"

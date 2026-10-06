@@ -1,7 +1,5 @@
 //! Qualified base execution consumes actual completed Local/native/normalized inputs.
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use lctx_model::domain::{
     analysis::{
         self, base_evaluation as publication, expected::CoverageAdmission, sources::CapturedSources,
@@ -22,13 +20,18 @@ async fn load<R: Record>(
     session: &datafusion::prelude::SessionContext,
     consumed: &mut crate::consumed_rows::ConsumedInputs,
     admission: &mut CoverageAdmission<'_>,
-    mut visit: impl FnMut(&ValidationInput, &analysis::sources::CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
+    mut visit: impl FnMut(
+        &ValidationInput,
+        &analysis::sources::CompletedInput<R>,
+        &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     while let Some((input, permit)) = consumed.next::<R>(access)? {
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
             admission.visit_if_expected(permit, batch)?;
             visit(&input, permit, batch)
-        }).await?;
+        })
+        .await?;
     }
     Ok(())
 }
@@ -280,7 +283,8 @@ pub async fn complete_base(
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
     let mut data = execution::completion_production::CompletedEvaluations::new(budget);
-    let mut declarations = execution::completion_production::CompletedEvaluations::consumed_inputs(profile);
+    let mut declarations =
+        execution::completion_production::CompletedEvaluations::consumed_inputs(profile);
     declarations.extend(analysis::expected::inputs(definition.method));
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
     macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|{data.visit_input(input, batch)}).await?;})*};}

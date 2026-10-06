@@ -1,7 +1,5 @@
 //! Last immutable frontier assessment over actual captured native frames and owner results.
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::frontier::{self, FrontierData, Target},
@@ -15,8 +13,8 @@ async fn load<R: Record>(
     data: &mut FrontierData,
 ) -> Result<(), ModelError> {
     let _permit = access.read::<R>()?;
-    
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
+
+    let query = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;

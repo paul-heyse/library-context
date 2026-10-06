@@ -44,7 +44,9 @@ fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
 fn sources(access: &CompletedInputs) -> Result<[analysis::sources::SourceSnapshot; 3], ModelError> {
-    fn source<R: Record>(access: &CompletedInputs) -> Result<analysis::sources::SourceSnapshot, ModelError> {
+    fn source<R: Record>(
+        access: &CompletedInputs,
+    ) -> Result<analysis::sources::SourceSnapshot, ModelError> {
         Ok(access.read::<R>()?.snapshot())
     }
     Ok([
@@ -57,9 +59,15 @@ async fn load<R: Record>(
     session: &datafusion::prelude::SessionContext,
     rows: &mut Rows<R>,
 ) -> Result<(), ModelError> {
-    let mut stream=crate::sql::query(&session,&format!("SELECT * FROM \"{}\"",R::NAME)).await.map_err(ModelError::codec)?
-        .execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? { rows.decode(&batch)?; }
+    let mut stream = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", R::NAME))
+        .await
+        .map_err(ModelError::codec)?
+        .execute_stream()
+        .await
+        .map_err(ModelError::codec)?;
+    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        rows.decode(&batch)?;
+    }
     Ok(())
 }
 
@@ -77,7 +85,7 @@ impl PreparedGraphs {
             return Err(invalid("graph preparation needs a named projection"));
         }
         let sources = sources(access)?;
-        let session=access.session(runtime).await?;
+        let session = access.session(runtime).await?;
         let budget = runtime.budget();
         let mut assessments = Rows::<ProjectionSourceAssessment>::new(budget);
         let mut headers = Rows::<ProjectionSnapshot>::new(budget);
@@ -88,7 +96,7 @@ impl PreparedGraphs {
         drop(session);
         let budget = budget.clone();
         let names = names.clone();
-        crate::stage_runtime::borrowed_cpu("projection-hydration",|| {
+        crate::stage_runtime::borrowed_cpu("projection-hydration", || {
             Self::hydrate(sources, assessments, headers, chunks, &names, &budget)
         })
     }

@@ -1,6 +1,6 @@
 //! Canonical conversions shared by producer and stored replay.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
-const SEMANTIC_RULE_REVISION:i64=1;
+const SEMANTIC_RULE_REVISION: i64 = 1;
 use super::*;
 use crate::domain::{
     analysis::{self, analytic as owner, settings::AnalyticsConfiguration},
@@ -180,11 +180,22 @@ impl Data {
     ) -> Result<(), ModelError> {
         if stages::is_vocabulary(input.name()) {
             match input.prefix() {
-                Some(stages::PublicationBoundary::Facts)=>{self.native.visit(input.name(), batch)?;},
-                Some(stages::PublicationBoundary::Structural)=>{self.structural.visit(input.name(), batch)?;},
-                _=>return Err(invalid(format!("analytic input {} changes its completed vocabulary view",input.name()))),
+                Some(stages::PublicationBoundary::Facts) => {
+                    self.native.visit(input.name(), batch)?;
+                }
+                Some(stages::PublicationBoundary::Structural) => {
+                    self.structural.visit(input.name(), batch)?;
+                }
+                _ => {
+                    return Err(invalid(format!(
+                        "analytic input {} changes its completed vocabulary view",
+                        input.name()
+                    )));
+                }
             }
-        } else { self.visit(input.name(), batch)?; }
+        } else {
+            self.visit(input.name(), batch)?;
+        }
         Ok(())
     }
 }

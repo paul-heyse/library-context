@@ -89,20 +89,26 @@ pub enum EntityRef {
 #[repr(i16)]
 #[model(inventory)]
 pub enum EntityCategory {
-    Module = 0, Callable = 1, Class = 2, Parameter = 3,
-    Field = 4, Occurrence = 5, Type = 6, Place = 7,
+    Module = 0,
+    Callable = 1,
+    Class = 2,
+    Parameter = 3,
+    Field = 4,
+    Occurrence = 5,
+    Type = 6,
+    Place = 7,
 }
 impl EntityRef {
     pub fn category(&self) -> EntityCategory {
         match self {
-            Self::Module {..} => EntityCategory::Module,
-            Self::Callable {..} => EntityCategory::Callable,
-            Self::Class {..} => EntityCategory::Class,
-            Self::Parameter {..} => EntityCategory::Parameter,
-            Self::Field {..} => EntityCategory::Field,
-            Self::Occurrence {..} => EntityCategory::Occurrence,
-            Self::Type {..} => EntityCategory::Type,
-            Self::Place {..} => EntityCategory::Place,
+            Self::Module { .. } => EntityCategory::Module,
+            Self::Callable { .. } => EntityCategory::Callable,
+            Self::Class { .. } => EntityCategory::Class,
+            Self::Parameter { .. } => EntityCategory::Parameter,
+            Self::Field { .. } => EntityCategory::Field,
+            Self::Occurrence { .. } => EntityCategory::Occurrence,
+            Self::Type { .. } => EntityCategory::Type,
+            Self::Place { .. } => EntityCategory::Place,
         }
     }
 }
@@ -148,7 +154,7 @@ fn validate_resolution(row: &SymbolEntityResolution) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "symbol_entity_candidates")]
 pub struct SymbolEntityCandidate {
     #[model(key)]
@@ -183,7 +189,7 @@ pub struct SymbolEntityEvidence {
     #[model(key)]
     pub premise: Id<SymbolEntityPremise>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "occurrence_ownership", projection_roles = crate::domain::projection::containment_roles)]
 pub struct OccurrenceOwnership {
     #[model(key)]
@@ -191,7 +197,7 @@ pub struct OccurrenceOwnership {
     pub owner: Id<Occurrence>,
     pub entity: Id<EntityRef>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "parameter_entity_links")]
 pub struct ParameterEntityLink {
     #[model(key)]
@@ -201,7 +207,7 @@ pub struct ParameterEntityLink {
     #[model(key)]
     pub declaration: Option<Id<ParameterDeclaration>>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "field_entity_links")]
 pub struct FieldEntityLink {
     #[model(key)]
@@ -209,7 +215,7 @@ pub struct FieldEntityLink {
     #[model(key)]
     pub observation: Id<RecordFieldObservation>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "field_declaration_links")]
 pub struct FieldDeclarationLink {
     #[model(key)]
@@ -251,7 +257,7 @@ pub struct PublicExposure {
     pub status: ResolutionStatus,
     pub reason: EntityReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "public_exposure_candidates", projection_roles = crate::domain::projection::exposure_roles)]
 pub struct PublicExposureCandidate {
     #[model(key)]

@@ -44,7 +44,7 @@ pub struct DocumentaryBoundary {
     pub reason: DocumentaryBoundaryReason,
 }
 /// The earlier original anchor remains the authority; these are derived excerpt operations.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "synthesis_prose_sources")]
 pub enum ProseSource {
     #[model(code = 0)]
@@ -59,7 +59,7 @@ pub enum ProseSource {
         literal: Id<Literal>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="synthesis_prose_slices",validate=validate_slice)]
 pub struct ProseSlice {
     #[model(key)]
@@ -75,7 +75,7 @@ fn validate_slice(r: &ProseSlice) -> Result<(), ModelError> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "synthesis_documentary_sources",
     rule = "sourced_authored_prose"
@@ -673,29 +673,59 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
     Ok(out)
 }
 /// Replay inputs retain the completed vocabulary owner independently of current outputs.
-pub(super) fn replay_inputs(inputs: Vec<ValidationInput>, view: stages::PublicationBoundary) -> Vec<ValidationInput> {
-    inputs.into_iter().map(|input| if stages::is_vocabulary(input.name()) { input.at_epoch(view) } else { input }).collect()
+pub(super) fn replay_inputs(
+    inputs: Vec<ValidationInput>,
+    view: stages::PublicationBoundary,
+) -> Vec<ValidationInput> {
+    inputs
+        .into_iter()
+        .map(|input| {
+            if stages::is_vocabulary(input.name()) {
+                input.at_epoch(view)
+            } else {
+                input
+            }
+        })
+        .collect()
 }
 #[cfg(test)]
 pub(super) fn replay_input<R: Record>(view: stages::PublicationBoundary) -> ValidationInput {
     let input = ValidationInput::of::<R>(&["id"]);
-    if stages::is_vocabulary(input.name()) { input.at_epoch(view) } else { input }
+    if stages::is_vocabulary(input.name()) {
+        input.at_epoch(view)
+    } else {
+        input
+    }
 }
 pub(super) fn replay_visit(
-    input: &ValidationInput, view: Option<stages::PublicationBoundary>,
+    input: &ValidationInput,
+    view: Option<stages::PublicationBoundary>,
     visit: impl FnOnce(&str) -> Result<bool, ModelError>,
 ) -> Result<bool, ModelError> {
-    let selected = if stages::is_vocabulary(input.name()) { input.prefix() == view } else { input.prefix().is_none() };
-    if selected { visit(input.name()) } else { Ok(false) }
+    let selected = if stages::is_vocabulary(input.name()) {
+        input.prefix() == view
+    } else {
+        input.prefix().is_none()
+    };
+    if selected {
+        visit(input.name())
+    } else {
+        Ok(false)
+    }
 }
 pub(super) fn replay_selector(input: &ValidationInput) -> Result<(), ModelError> {
     if input.prefix().is_some() && !stages::is_vocabulary(input.name()) {
-        return Err(ModelError::Invalid("S0 replay prefix applies only to vocabulary".into()));
+        return Err(ModelError::Invalid(
+            "S0 replay prefix applies only to vocabulary".into(),
+        ));
     }
     Ok(())
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = replay_inputs(Data::validation_inputs(), stages::PublicationBoundary::Facts);
+    let mut inputs = replay_inputs(
+        Data::validation_inputs(),
+        stages::PublicationBoundary::Facts,
+    );
     inputs.extend(Output::validation_inputs());
     inputs.sort_by_key(|input| (input.name(), input.prefix()));
     inputs.dedup_by_key(|input| (input.name(), input.prefix()));
@@ -719,11 +749,19 @@ struct Check {
 }
 impl InvariantCheck for Check {
     fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+        Err(ModelError::Invalid(
+            "S0 replay requires an explicit completed-input selector".into(),
+        ))
     }
-    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         replay_selector(input)?;
-        let native = replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.data.visit(name, b))?;
+        let native = replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+            self.data.visit(name, b)
+        })?;
         let output = replay_visit(input, None, |name| self.output.visit(name, b))?;
         if !native && !output {
             return Err(invalid("undeclared documentary invariant input"));
@@ -1098,20 +1136,45 @@ pub(crate) mod tests {
     use crate::domain::{analysis::native::NativeQualification, artifact::ArtifactChunk};
     #[test]
     fn replay_inventories_preserve_native_retained_and_output_qualification_views() {
-        use stages::PublicationBoundary::{Facts, Analytic};
+        use stages::PublicationBoundary::{Analytic, Facts};
         let controls = [
             (invariants(), vec![None, Some(Facts)]),
-            (super::super::patterns::invariants(), vec![None, Some(Facts)]),
+            (
+                super::super::patterns::invariants(),
+                vec![None, Some(Facts)],
+            ),
             (super::super::seeds::invariants(), vec![None, Some(Facts)]),
             (super::super::summary::invariants(), vec![Some(Facts)]),
-            (super::super::observations::invariants(), vec![None, Some(Facts), Some(Analytic)]),
-            (super::super::assertions::invariants(), vec![None, Some(Facts), Some(Analytic)]),
-            (super::super::briefs::invariants(), vec![None, Some(Facts), Some(Analytic)]),
+            (
+                super::super::observations::invariants(),
+                vec![None, Some(Facts), Some(Analytic)],
+            ),
+            (
+                super::super::assertions::invariants(),
+                vec![None, Some(Facts), Some(Analytic)],
+            ),
+            (
+                super::super::briefs::invariants(),
+                vec![None, Some(Facts), Some(Analytic)],
+            ),
         ];
         for (controls, expected) in controls {
             for control in controls {
-                let views = control.inputs.iter().filter(|input| input.name() == AssertionQualification::NAME).map(ValidationInput::prefix).collect::<std::collections::BTreeSet<_>>();
-                assert_eq!(views, expected.iter().copied().collect::<std::collections::BTreeSet<_>>(), "{}", control.name);
+                let views = control
+                    .inputs
+                    .iter()
+                    .filter(|input| input.name() == AssertionQualification::NAME)
+                    .map(ValidationInput::prefix)
+                    .collect::<std::collections::BTreeSet<_>>();
+                assert_eq!(
+                    views,
+                    expected
+                        .iter()
+                        .copied()
+                        .collect::<std::collections::BTreeSet<_>>(),
+                    "{}",
+                    control.name
+                );
             }
         }
     }

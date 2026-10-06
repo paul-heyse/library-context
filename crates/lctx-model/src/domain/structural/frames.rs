@@ -307,10 +307,16 @@ impl InvariantCheck for Check {
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if stages::is_vocabulary(input.name()){
-            if input.prefix().is_some(){self.data.visit_input(input,batch)?;}else{self.output.visit(input.name(),batch)?;}
+        if stages::is_vocabulary(input.name()) {
+            if input.prefix().is_some() {
+                self.data.visit_input(input, batch)?;
+            } else {
+                self.output.visit(input.name(), batch)?;
+            }
             Ok(())
-        }else{self.visit(input.name(),batch)}
+        } else {
+            self.visit(input.name(), batch)
+        }
     }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         let data = self.data.visit(n, b)?;

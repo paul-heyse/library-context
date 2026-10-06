@@ -16,7 +16,7 @@ use crate::domain::{
     *,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="modeled_call_evaluations",rule="modeled_call_evaluation",invariant_refs=super::enriched_production::modeled_invariants_refs)]
 pub struct ModeledCallEvaluation {
     #[model(key, premise)]

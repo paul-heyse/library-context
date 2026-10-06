@@ -23,7 +23,7 @@ pub struct SignatureEnumerationObservation {
     pub complete: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "signature_enumeration_members", rule = "signature_enumeration_member", conclusion = enumeration, validate = validate_member)]
 pub struct SignatureEnumerationMember {
     #[model(key)]
@@ -138,7 +138,10 @@ impl InvariantCheck for EnumerationCheck {
         relation: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        let bytes = logical_batch_bytes(batch)?.checked_mul(4).and_then(|n| n.checked_add(batch.num_rows().saturating_mul(256))).ok_or_else(||invalid("signature enumeration decode overflow"))?;
+        let bytes = logical_batch_bytes(batch)?
+            .checked_mul(4)
+            .and_then(|n| n.checked_add(batch.num_rows().saturating_mul(256)))
+            .ok_or_else(|| invalid("signature enumeration decode overflow"))?;
         let _decode = self
             .charge
             .budget()

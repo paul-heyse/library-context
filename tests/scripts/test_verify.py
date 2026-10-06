@@ -28,7 +28,6 @@ def test_readiness_failure_blocks_dependents_but_pure_controls_still_run():
 
 
 def test_pure_preparation_invokes_no_environment_or_store_setup(monkeypatch):
-    import verify
 
     commands = []
     assert prepare(set(), lambda command: commands.append(command) or 0) == {}
@@ -47,10 +46,13 @@ def test_compiler_readiness_has_no_retired_store_or_binding_setup():
 
 def test_later_native_stages_are_explicitly_blocked():
     commands = []
-    ready = prepare({"native-store", "native-serving"}, lambda command: commands.append(command) or 0)
+    ready = prepare(
+        {"native-store", "native-serving"}, lambda command: commands.append(command) or 0
+    )
     assert ready == {"native-store": False, "native-serving": False}
     assert execute(["store", "serving"], ready, lambda command: commands.append(command) or 0) == {
-        "store": "blocked", "serving": "blocked"
+        "store": "blocked",
+        "serving": "blocked",
     }
     assert commands == []
 
@@ -115,6 +117,11 @@ def test_compiler_selections_reference_current_binaries():
             package = command[command.index("-p") + 1]
             for index, argument in enumerate(command):
                 if argument == "--test":
-                    assert (verify.ROOT / "crates" / package / "tests" / (command[index + 1] + ".rs")).is_file()
-    assert all("postgres" not in prerequisites("compiler", boundary) for boundary in (None, "producer", "cli"))
+                    assert (
+                        verify.ROOT / "crates" / package / "tests" / (command[index + 1] + ".rs")
+                    ).is_file()
+    assert all(
+        "postgres" not in prerequisites("compiler", boundary)
+        for boundary in (None, "producer", "cli")
+    )
     assert not FAMILIES["store"].commands and not FAMILIES["serving"].commands

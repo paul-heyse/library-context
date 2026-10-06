@@ -1,6 +1,6 @@
 //! Canonical authored definition shared by S0 and its downstream retrieval consumer.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
-const SEMANTIC_RULE_REVISION:i64=1;
+const SEMANTIC_RULE_REVISION: i64 = 1;
 use crate::domain::{analysis::*, *};
 pub fn definition() -> (MethodParameters, AnalysisDefinition) {
     let parameters = MethodParameters {

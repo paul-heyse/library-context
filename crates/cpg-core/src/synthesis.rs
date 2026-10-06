@@ -1,7 +1,7 @@
 //! Single S0 writer; rendering never reconstructs graphs or invents completed parents.
 use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
     synthesis_preparation,
+    workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use lctx_model::domain::{
     analysis::{self, synthesis::*},
@@ -35,7 +35,11 @@ pub async fn produce(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let captured = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
+    let captured = analysis::sources::CapturedSources::capture(
+        access.profile(),
+        access.snapshots(),
+        runtime.budget(),
+    )?;
     let mut admission = analysis::expected::CoverageAdmission::new(&captured, runtime.budget())?;
     let mut data = Data::new(runtime.budget());
     let session = access.session(runtime).await?;

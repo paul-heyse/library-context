@@ -39,7 +39,7 @@ macro_rules! synthesis_control_text_inputs {
 macro_rules! control_data{($($f:ident:$t:ty,)*)=>{pub struct ControlData{$(pub $f:Rows<$t>,)*}impl ControlData{pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$t>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]}}};}
 crate::synthesis_control_text_inputs!(control_data);
 pub const TEMPLATE_VERSION: i64 = 2;
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "synthesis_assertion_templates")]
 pub enum AssertionTemplate {
     #[model(code = 0)]
@@ -900,14 +900,26 @@ pub fn relations() -> Vec<Relation> {
     output_rows!(relations)
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts);
+    let mut inputs = documentary::replay_inputs(
+        documentary::Data::validation_inputs(),
+        stages::PublicationBoundary::Facts,
+    );
     inputs.extend(documentary::Output::validation_inputs());
     inputs.extend(Output::validation_inputs());
-    inputs.extend(documentary::replay_inputs(super::observations::Data::inputs(), stages::PublicationBoundary::Analytic));
+    inputs.extend(documentary::replay_inputs(
+        super::observations::Data::inputs(),
+        stages::PublicationBoundary::Analytic,
+    ));
     inputs.extend(ControlData::inputs());
     inputs.extend(super::summary::Data::inputs());
-    inputs.extend(documentary::replay_inputs(super::terminal::Data::inputs(), stages::PublicationBoundary::Analytic));
-    inputs.extend(documentary::replay_inputs(super::patterns::Data::inputs(stages::Profile::Behavioral), stages::PublicationBoundary::Facts));
+    inputs.extend(documentary::replay_inputs(
+        super::terminal::Data::inputs(),
+        stages::PublicationBoundary::Analytic,
+    ));
+    inputs.extend(documentary::replay_inputs(
+        super::patterns::Data::inputs(stages::Profile::Behavioral),
+        stages::PublicationBoundary::Facts,
+    ));
     inputs.extend([
         ValidationInput::of::<super::frames::Frame>(&["id"]),
         ValidationInput::of::<structural::PublicCandidate>(&["id"]),
@@ -953,9 +965,15 @@ struct Check {
 }
 impl InvariantCheck for Check {
     fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+        Err(ModelError::Invalid(
+            "S0 replay requires an explicit completed-input selector".into(),
+        ))
     }
-    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         documentary::replay_selector(input)?;
         let n = input.name();
         if n == owner::Invocation::NAME {
@@ -970,12 +988,29 @@ impl InvariantCheck for Check {
             self.public.decode(b)?;
             return Ok(());
         }
-        let observations = documentary::replay_visit(input, Some(stages::PublicationBoundary::Analytic), |name| self.observations.visit(name, b))?;
-        let controls = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.controls.visit(name, b))?;
+        let observations = documentary::replay_visit(
+            input,
+            Some(stages::PublicationBoundary::Analytic),
+            |name| self.observations.visit(name, b),
+        )?;
+        let controls =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.controls.visit(name, b)
+            })?;
         let summary = documentary::replay_visit(input, None, |name| self.summary.visit(name, b))?;
-        let terminal = documentary::replay_visit(input, Some(stages::PublicationBoundary::Analytic), |name| self.terminal.visit(name, b))?;
-        let patterns = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.patterns.visit(name, b))?;
-        let a = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.data.visit(name, b))?;
+        let terminal = documentary::replay_visit(
+            input,
+            Some(stages::PublicationBoundary::Analytic),
+            |name| self.terminal.visit(name, b),
+        )?;
+        let patterns =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.patterns.visit(name, b)
+            })?;
+        let a =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.data.visit(name, b)
+            })?;
         let c = documentary::replay_visit(input, None, |name| self.conclusions.visit(name, b))?;
         let o = documentary::replay_visit(input, None, |name| self.output.visit(name, b))?;
         if !a && !c && !o && !observations && !summary && !terminal && !patterns && !controls {

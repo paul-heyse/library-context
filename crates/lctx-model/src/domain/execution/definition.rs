@@ -13,7 +13,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="definition_evaluations",rule="definition_evaluation",invariant_refs=super::enriched_production::definition_invariants_refs)]
 pub struct DefinitionEvaluation {
     #[model(key, premise)]

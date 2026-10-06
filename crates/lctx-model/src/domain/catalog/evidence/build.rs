@@ -1,6 +1,6 @@
 //! Deterministic contextual evidence closure, shared by publication and independent controls.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
-const SEMANTIC_RULE_REVISION:i64=1;
+const SEMANTIC_RULE_REVISION: i64 = 1;
 use super::*;
 use crate::domain::{
     assertion::Evidence,
@@ -18,7 +18,7 @@ pub struct EvidenceData {
     pub facts: EvidenceFacts,
     pub runtime: super::runtime::RuntimeData,
     /// Cumulative Local qualifications belong to derived location provenance, not native C0.
-    pub local_qualifications:Rows<assertion::AssertionQualification>,
+    pub local_qualifications: Rows<assertion::AssertionQualification>,
 }
 impl EvidenceData {
     pub fn new(b: &ResourceBudget) -> Self {
@@ -27,7 +27,7 @@ impl EvidenceData {
             catalog: catalog::build::CatalogOutput::new(b),
             facts: EvidenceFacts::new(b),
             runtime: super::runtime::RuntimeData::new(b),
-            local_qualifications:Rows::new(b),
+            local_qualifications: Rows::new(b),
         }
     }
     pub fn visit(
@@ -41,24 +41,48 @@ impl EvidenceData {
         let runtime = self.runtime.visit(name, batch)?;
         Ok(core || catalog || facts || runtime)
     }
-    pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
-        let name=input.name();
-        if !is_vocabulary(name){return self.visit(name,batch);}
-        match input.prefix(){
-            Some(PublicationBoundary::Facts)=>{let core=self.core.visit(name,batch)?;let facts=self.facts.visit(name,batch)?;Ok(core||facts)},
-            Some(PublicationBoundary::Local) if name==assertion::AssertionQualification::NAME=>{self.local_qualifications.decode(batch)?;Ok(true)},
-            _=>Err(invalid(format!("catalog evidence input {name} changes its completed vocabulary view")))
+    pub fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<bool, ModelError> {
+        let name = input.name();
+        if !is_vocabulary(name) {
+            return self.visit(name, batch);
+        }
+        match input.prefix() {
+            Some(PublicationBoundary::Facts) => {
+                let core = self.core.visit(name, batch)?;
+                let facts = self.facts.visit(name, batch)?;
+                Ok(core || facts)
+            }
+            Some(PublicationBoundary::Local) if name == assertion::AssertionQualification::NAME => {
+                self.local_qualifications.decode(batch)?;
+                Ok(true)
+            }
+            _ => Err(invalid(format!(
+                "catalog evidence input {name} changes its completed vocabulary view"
+            ))),
         }
     }
-    pub fn consumed_inputs(_profile:Profile)->Vec<ValidationInput>{Self::inputs()}
+    pub fn consumed_inputs(_profile: Profile) -> Vec<ValidationInput> {
+        Self::inputs()
+    }
     pub fn inputs() -> Vec<ValidationInput> {
-        let mut rows = crate::domain::normalized::facts_inputs(catalog::build::CatalogData::validation_inputs());
+        let mut rows = crate::domain::normalized::facts_inputs(
+            catalog::build::CatalogData::validation_inputs(),
+        );
         rows.extend(catalog::build::CatalogOutput::validation_inputs());
-        rows.extend(crate::domain::normalized::facts_inputs(EvidenceFacts::inputs()));
+        rows.extend(crate::domain::normalized::facts_inputs(
+            EvidenceFacts::inputs(),
+        ));
         rows.extend(super::runtime::RuntimeData::inputs());
-        rows.push(ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(PublicationBoundary::Local));
-        rows.sort_by_key(|r| (r.name(),r.prefix()));
-        rows.dedup_by_key(|r| (r.name(),r.prefix()));
+        rows.push(
+            ValidationInput::of::<assertion::AssertionQualification>(&["id"])
+                .at_epoch(PublicationBoundary::Local),
+        );
+        rows.sort_by_key(|r| (r.name(), r.prefix()));
+        rows.dedup_by_key(|r| (r.name(), r.prefix()));
         rows
     }
 }
@@ -954,8 +978,19 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
-        if is_vocabulary(input.name()){if !self.data.visit_input(input,batch)?{return Err(invalid("undeclared catalog evidence view"));}Ok(())}else{self.visit(input.name(),batch)}
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        if is_vocabulary(input.name()) {
+            if !self.data.visit_input(input, batch)? {
+                return Err(invalid("undeclared catalog evidence view"));
+            }
+            Ok(())
+        } else {
+            self.visit(input.name(), batch)
+        }
     }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if !self.data.visit(name, batch)? && !self.out.visit(name, batch)? {

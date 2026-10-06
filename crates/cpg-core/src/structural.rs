@@ -66,7 +66,8 @@ async fn load<R: Record>(
             context.visit(input.name(), batch)?;
             admission.visit_if_expected(permit, batch)?;
             Ok(())
-        }).await?;
+        })
+        .await?;
     }
     Ok(())
 }
@@ -77,12 +78,19 @@ pub async fn produce(
     _model: &Arc<ValidatedModel>,
     graphs: &PreparedGraphs,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(
+        access.profile(),
+        access.snapshots(),
+        runtime.budget(),
+    )?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let session = access.session(runtime).await?;
     let mut data = build::Data::new(runtime.budget());
     let mut context = frames::Context::new(runtime.budget());
-    let mut consumed = crate::consumed_rows::ConsumedInputs::new(consumed_inputs(access.profile()), runtime.budget())?;
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(
+        consumed_inputs(access.profile()),
+        runtime.budget(),
+    )?;
     macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut data,&mut context,&mut admission,&mut consumed).await?;)*};}
     decoder_inputs!(inventory, access.profile());
     consumed.finish(access.name())?;
@@ -159,20 +167,17 @@ pub async fn produce(
             runtime.budget(),
             key(projection::ProjectionName::DefinitionContainment),
         )?;
-        results.extend(crate::stage_runtime::borrowed_cpu(
-            access.name(),
-            || {
-                build::produce(
-                    &data,
-                    &frame,
-                    context.invocations.get(frame.invocation).unwrap(),
-                    &settings,
-                    call,
-                    definition,
-                    runtime.budget(),
-                )
-            },
-        )?)?;
+        results.extend(crate::stage_runtime::borrowed_cpu(access.name(), || {
+            build::produce(
+                &data,
+                &frame,
+                context.invocations.get(frame.invocation).unwrap(),
+                &settings,
+                call,
+                definition,
+                runtime.budget(),
+            )
+        })?)?;
         tokio::task::yield_now().await;
     }
     let (condition, nodes) = conditions::Diagram::always().records();

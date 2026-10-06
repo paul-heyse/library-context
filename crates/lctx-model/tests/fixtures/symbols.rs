@@ -15,7 +15,6 @@ use lctx_model::domain::{
     calls::*,
     conditions::*,
     input::*,
-    
     source::*,
     symbols::*,
     syntax::{ImportAliasObservation, ImportAliasSupport},
@@ -831,7 +830,7 @@ impl Fixture {
         let mut generation = Vec::new();
         macro_rules! each { ($($ty:ty),+ $(,)?) => { $( generation.push((<$ty>::NAME,Batch::new(&self.model,self.rows::<$ty>(),&budget()).unwrap().arrow().clone())); )+ }; }
         symbol_relations!(each);
-        validation::replay::replay(&self.model,&generation,&budget())
+        validation::replay::replay(&self.model, &generation, &budget())
     }
 }
 

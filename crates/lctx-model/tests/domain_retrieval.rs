@@ -157,12 +157,29 @@ fn distinct_occurrences_deduplicate_text_without_losing_members_or_anchors() {
     assert_eq!(next.fragments.len(), 3);
     next.verify_completion(&d, &b).unwrap();
     let mut crossed = retrieval::build::build(&d, &b).unwrap();
-    let foreign = d.evidence.roots.iter().find(|r| r.context != source.context).unwrap();
-    crossed.roots.insert(retrieval::UnitRoot { unit: source.id(), root: foreign.id() }).unwrap();
-    assert!(crossed.verify_completion(&d, &b).is_err(), "every root must retain its exact context");
+    let foreign = d
+        .evidence
+        .roots
+        .iter()
+        .find(|r| r.context != source.context)
+        .unwrap();
+    crossed
+        .roots
+        .insert(retrieval::UnitRoot {
+            unit: source.id(),
+            root: foreign.id(),
+        })
+        .unwrap();
+    assert!(
+        crossed.verify_completion(&d, &b).is_err(),
+        "every root must retain its exact context"
+    );
     let mut rootless = retrieval::build::build(&d, &b).unwrap();
     rootless.roots = Rows::new(&b);
-    assert!(rootless.verify_completion(&d, &b).is_err(), "every unit requires a root");
+    assert!(
+        rootless.verify_completion(&d, &b).is_err(),
+        "every unit requires a root"
+    );
 }
 #[test]
 fn api_corpus_preserves_default_uncertainty_and_exact_values() {
@@ -532,13 +549,26 @@ fn replay(d: &Data, out: &Output, b: &ResourceBudget) -> Result<(), ModelError> 
         rows: &Rows<R>,
         view: Option<PublicationBoundary>,
     ) -> Result<(), ModelError> {
-        let prefix = if stages::is_vocabulary(R::NAME) { view } else { None };
-        let input = inputs.iter().find(|input|
-            input.type_id() == std::any::TypeId::of::<R>() && input.prefix() == prefix
-        ).ok_or_else(|| ModelError::Invalid(format!(
-            "replay fixture has no declared source for {} at {prefix:?}", R::NAME
-        )))?;
-        check.visit_input(input, &R::encode(&rows.iter().cloned().collect::<Vec<_>>())?)
+        let prefix = if stages::is_vocabulary(R::NAME) {
+            view
+        } else {
+            None
+        };
+        let input = inputs
+            .iter()
+            .find(|input| {
+                input.type_id() == std::any::TypeId::of::<R>() && input.prefix() == prefix
+            })
+            .ok_or_else(|| {
+                ModelError::Invalid(format!(
+                    "replay fixture has no declared source for {} at {prefix:?}",
+                    R::NAME
+                ))
+            })?;
+        check.visit_input(
+            input,
+            &R::encode(&rows.iter().cloned().collect::<Vec<_>>())?,
+        )
     }
     let invariant = retrieval::build::invariants().remove(0);
     let mut check = (invariant.create)(b);
@@ -552,7 +582,12 @@ fn replay(d: &Data, out: &Output, b: &ResourceBudget) -> Result<(), ModelError> 
     lctx_model::catalog_evidence_inputs!(facts);
     macro_rules! runtime {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.source.runtime.$f,None)?;)*};}
     lctx_model::catalog_runtime_inputs!(runtime);
-    completed(&mut *check, &inputs, &d.source.local_qualifications, Some(PublicationBoundary::Local))?;
+    completed(
+        &mut *check,
+        &inputs,
+        &d.source.local_qualifications,
+        Some(PublicationBoundary::Local),
+    )?;
     macro_rules! evidence {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.evidence.$f,None)?;)*};}
     lctx_model::catalog_evidence_outputs!(evidence);
     macro_rules! extra {($($f:ident:$ty:ty,)*)=>{$(completed::<$ty>(&mut *check,&inputs,&d.facts.$f,native)?;)*};}
@@ -594,7 +629,10 @@ fn replay_refuses_forged_text_subjects_anchors_or_coupled_erasure() {
                 out.anchors = Rows::new(&b);
             }
         }
-        assert!(replay(&d, &out, &b).is_err(), "rendering corruption case {case}");
+        assert!(
+            replay(&d, &out, &b).is_err(),
+            "rendering corruption case {case}"
+        );
     }
 }
 #[test]
@@ -700,27 +738,46 @@ fn final_stage_has_completed_named_owners_and_exact_immutable_effect() {
                     .iter()
                     .all(|i| i.transport() == stages::InputTransport::CompletedInput)
             );
-            let expected = Data::inputs().iter()
+            let expected = Data::inputs()
+                .iter()
                 .filter(|input| stages::is_vocabulary(input.name()))
                 .map(|input| (input.name(), input.prefix()))
                 .collect::<std::collections::BTreeSet<_>>();
-            let scheduled = stage.inputs.iter()
+            let scheduled = stage
+                .inputs
+                .iter()
                 .filter(|input| stages::is_vocabulary(input.name()))
                 .map(|input| (input.name(), input.prefix()))
                 .collect::<std::collections::BTreeSet<_>>();
             // Dependency closure also grants invariant/reference owners beyond the renderer.
-            assert!(expected.is_subset(&scheduled), "renderer source selectors must remain exact");
-            assert!(scheduled.iter().all(|(_, prefix)| prefix.is_some()),
-                "every scheduled vocabulary grant must name its completed view");
+            assert!(
+                expected.is_subset(&scheduled),
+                "renderer source selectors must remain exact"
+            );
+            assert!(
+                scheduled.iter().all(|(_, prefix)| prefix.is_some()),
+                "every scheduled vocabulary grant must name its completed view"
+            );
             let qualification = assertion::AssertionQualification::NAME;
             assert_eq!(
-                expected.iter().filter(|(name, _)| *name == qualification)
-                    .map(|(_, prefix)| *prefix).collect::<std::collections::BTreeSet<_>>(),
-                [Some(stages::PublicationBoundary::Facts), Some(stages::PublicationBoundary::Local)]
-                    .into_iter().collect()
+                expected
+                    .iter()
+                    .filter(|(name, _)| *name == qualification)
+                    .map(|(_, prefix)| *prefix)
+                    .collect::<std::collections::BTreeSet<_>>(),
+                [
+                    Some(stages::PublicationBoundary::Facts),
+                    Some(stages::PublicationBoundary::Local)
+                ]
+                .into_iter()
+                .collect()
             );
-            assert!(expected.iter().filter(|(name, _)| *name != qualification)
-                .all(|(_, prefix)| *prefix == Some(stages::PublicationBoundary::Facts)));
+            assert!(
+                expected
+                    .iter()
+                    .filter(|(name, _)| *name != qualification)
+                    .all(|(_, prefix)| *prefix == Some(stages::PublicationBoundary::Facts))
+            );
         }
     }
 }

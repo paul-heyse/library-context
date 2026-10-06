@@ -1,7 +1,7 @@
 //! The bound base rule sets have fixed limits. Other authored limits/method meanings require
 //! their own operation binding before activation; a producer cannot label this kernel arbitrarily.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
-const SEMANTIC_RULE_REVISION:i64=1;
+const SEMANTIC_RULE_REVISION: i64 = 1;
 use crate::domain::{
     analysis::{AnalysisDefinition, AnalysisMethod, Interpretation, MethodParameters},
     *,

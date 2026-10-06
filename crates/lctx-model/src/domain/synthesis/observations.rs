@@ -221,9 +221,13 @@ pub fn build_all(
 /// Documentary candidates are deliberately absent here: authored prose uses its own assertion
 /// floor and does not become an observed behavioral Finding.
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = documentary::replay_inputs(Data::inputs(), stages::PublicationBoundary::Analytic);
+    let mut inputs =
+        documentary::replay_inputs(Data::inputs(), stages::PublicationBoundary::Analytic);
     inputs.extend(super::summary::Data::inputs());
-    inputs.extend(documentary::replay_inputs(documentary::Data::validation_inputs(), stages::PublicationBoundary::Facts));
+    inputs.extend(documentary::replay_inputs(
+        documentary::Data::validation_inputs(),
+        stages::PublicationBoundary::Facts,
+    ));
     inputs.extend(Output::inputs());
     inputs.extend([
         ValidationInput::of::<frames::Frame>(&["id"]),
@@ -262,14 +266,27 @@ struct Check {
 }
 impl InvariantCheck for Check {
     fn visit(&mut self, _name: &str, _batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        Err(ModelError::Invalid("S0 replay requires an explicit completed-input selector".into()))
+        Err(ModelError::Invalid(
+            "S0 replay requires an explicit completed-input selector".into(),
+        ))
     }
-    fn visit_input(&mut self, input: &ValidationInput, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         documentary::replay_selector(input)?;
         let n = input.name();
-        let d = documentary::replay_visit(input, Some(stages::PublicationBoundary::Analytic), |name| self.data.visit(name, b))?;
+        let d = documentary::replay_visit(
+            input,
+            Some(stages::PublicationBoundary::Analytic),
+            |name| self.data.visit(name, b),
+        )?;
         let summary = documentary::replay_visit(input, None, |name| self.summary.visit(name, b))?;
-        let docs = documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| self.docs.visit(name, b))?;
+        let docs =
+            documentary::replay_visit(input, Some(stages::PublicationBoundary::Facts), |name| {
+                self.docs.visit(name, b)
+            })?;
         let o = documentary::replay_visit(input, None, |name| self.out.visit(name, b))?;
         macro_rules! row {
             ($t:ty,$f:ident) => {
@@ -468,8 +485,8 @@ mod replay_view_tests {
     use super::*;
     #[test]
     fn retained_and_current_qualifications_do_not_enlarge_native_documentary_pool() {
-        use stages::PublicationBoundary as View;
         use assertion::AssertionQualification;
+        use stages::PublicationBoundary as View;
         let (budget, docs, _) = documentary::tests::fixture("\"Run.\"", "Run.");
         let native = docs.qualifications.iter().next().unwrap().clone();
         let mut retained = native.clone();
@@ -477,16 +494,42 @@ mod replay_view_tests {
         let mut current = native.clone();
         current.context = serde_json::from_value(serde_json::json!(vec![32; 16])).unwrap();
         let mut check = Check {
-            data: Data::new(&budget), summary: super::super::summary::Data::new(&budget),
-            docs: documentary::Data::new(&budget), out: Output::new(&budget),
-            frames: Rows::new(&budget), invocations: Rows::new(&budget), coverage: Rows::new(&budget), budget,
+            data: Data::new(&budget),
+            summary: super::super::summary::Data::new(&budget),
+            docs: documentary::Data::new(&budget),
+            out: Output::new(&budget),
+            frames: Rows::new(&budget),
+            invocations: Rows::new(&budget),
+            coverage: Rows::new(&budget),
+            budget,
         };
         let facts = ValidationInput::of::<AssertionQualification>(&["id"]).at_epoch(View::Facts);
-        let analytic = ValidationInput::of::<AssertionQualification>(&["id"]).at_epoch(View::Analytic);
+        let analytic =
+            ValidationInput::of::<AssertionQualification>(&["id"]).at_epoch(View::Analytic);
         let output = ValidationInput::of::<AssertionQualification>(&["id"]);
-        check.visit_input(&facts, &AssertionQualification::encode(std::slice::from_ref(&native)).unwrap()).unwrap();
-        check.visit_input(&analytic, &AssertionQualification::encode(&[native.clone(), retained.clone()]).unwrap()).unwrap();
-        check.visit_input(&output, &AssertionQualification::encode(&[native.clone(), retained.clone(), current.clone()]).unwrap()).unwrap();
+        check
+            .visit_input(
+                &facts,
+                &AssertionQualification::encode(std::slice::from_ref(&native)).unwrap(),
+            )
+            .unwrap();
+        check
+            .visit_input(
+                &analytic,
+                &AssertionQualification::encode(&[native.clone(), retained.clone()]).unwrap(),
+            )
+            .unwrap();
+        check
+            .visit_input(
+                &output,
+                &AssertionQualification::encode(&[
+                    native.clone(),
+                    retained.clone(),
+                    current.clone(),
+                ])
+                .unwrap(),
+            )
+            .unwrap();
         assert_eq!(check.docs.qualifications.len(), 1);
         assert_eq!(check.data.qualifications.len(), 2);
         assert_eq!(check.out.qualifications.len(), 3);
@@ -494,7 +537,14 @@ mod replay_view_tests {
         assert!(check.data.qualifications.get(current.id()).is_none());
         assert_eq!(check.out.qualifications.get(current.id()), Some(&current));
         let batch = AssertionQualification::encode(&[current]).unwrap();
-        assert!(check.visit_input(&ValidationInput::of::<AssertionQualification>(&["id"]).at_epoch(View::Local), &batch).is_err());
+        assert!(
+            check
+                .visit_input(
+                    &ValidationInput::of::<AssertionQualification>(&["id"]).at_epoch(View::Local),
+                    &batch
+                )
+                .is_err()
+        );
         assert!(check.visit(AssertionQualification::NAME, &batch).is_err());
     }
 }

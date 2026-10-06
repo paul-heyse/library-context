@@ -1,9 +1,4 @@
-use lctx_model::{
-    domain::{
-        input::Package,   stages::*,
-        value::Literal, *,
-    },
-};
+use lctx_model::domain::{input::Package, stages::*, value::Literal, *};
 fn stage(name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>) -> Stage {
     Stage {
         name,
@@ -237,15 +232,48 @@ fn registered_order_refuses_duplicates_gaps_unknown_and_foreign_prefixes() {
 }
 
 #[test]
-fn schedule_accepts_distinct_completed_views_and_refuses_exact_duplicate_selectors(){
- let model=ValidatedModel::declared(vec![Relation::of::<Literal>(),Relation::of::<Package>()]).unwrap();
- let groups=vec![PublicationGroup::new(PublicationBoundary::Facts,vec!["facts"]),PublicationGroup::new(PublicationBoundary::Local,vec!["local"])];
- let selected=vec![RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::Facts),RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::Local)];
- let build=|selected|Schedule::build_with_publications(&model,vec![stage("facts",vec![],vec![RelationUse::of::<Literal>()]),stage("local",vec![],vec![RelationUse::of::<Literal>()]),stage("consume",selected,vec![RelationUse::of::<Package>()])],&[],Profile::Catalog,groups.clone());
- let schedule=build(selected.clone()).unwrap();
- assert_eq!(schedule.stages().iter().find(|s|s.name=="consume").unwrap().inputs.len(),2);
- let mut reversed=selected.clone();reversed.reverse();
- assert_eq!(schedule.digest(),build(reversed).unwrap().digest());
- let duplicate=build(vec![selected[0],selected[0]]).err().unwrap().to_string();
- assert!(duplicate.contains("duplicate input"),"{duplicate}");
+fn schedule_accepts_distinct_completed_views_and_refuses_exact_duplicate_selectors() {
+    let model =
+        ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+            .unwrap();
+    let groups = vec![
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Local, vec!["local"]),
+    ];
+    let selected = vec![
+        RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::Facts),
+        RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::Local),
+    ];
+    let build = |selected| {
+        Schedule::build_with_publications(
+            &model,
+            vec![
+                stage("facts", vec![], vec![RelationUse::of::<Literal>()]),
+                stage("local", vec![], vec![RelationUse::of::<Literal>()]),
+                stage("consume", selected, vec![RelationUse::of::<Package>()]),
+            ],
+            &[],
+            Profile::Catalog,
+            groups.clone(),
+        )
+    };
+    let schedule = build(selected.clone()).unwrap();
+    assert_eq!(
+        schedule
+            .stages()
+            .iter()
+            .find(|s| s.name == "consume")
+            .unwrap()
+            .inputs
+            .len(),
+        2
+    );
+    let mut reversed = selected.clone();
+    reversed.reverse();
+    assert_eq!(schedule.digest(), build(reversed).unwrap().digest());
+    let duplicate = build(vec![selected[0], selected[0]])
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(duplicate.contains("duplicate input"), "{duplicate}");
 }

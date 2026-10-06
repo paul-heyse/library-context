@@ -229,7 +229,11 @@ crate::summary_vocabulary!(vocabulary);
 fn evidence_inputs() -> Vec<ValidationInput> {
     let mut inputs = analysis::local::support::EvidenceIndex::inputs();
     inputs.extend(analysis::model::support::EvidenceIndex::inputs());
-    for input in &mut inputs {if stages::is_vocabulary(input.name()){*input=input.clone().at_epoch(stages::PublicationBoundary::Model);}}
+    for input in &mut inputs {
+        if stages::is_vocabulary(input.name()) {
+            *input = input.clone().at_epoch(stages::PublicationBoundary::Model);
+        }
+    }
     inputs
 }
 macro_rules! data{($($field:ident:$ty:ty,)*)=>{pub struct SummaryData{pub graphs:projection::normalization::ProjectionOutput,pub entry:EntryData,pub bindings:BindingData,pub binding_output:BindingOutput,pub path:PathData,pub vocabulary:Vocabulary,pub local_evidence:analysis::local::support::EvidenceIndex,pub model_evidence:analysis::model::support::EvidenceIndex,$(pub $field:Rows<$ty>,)*}
@@ -268,7 +272,13 @@ impl SummaryRecords {
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         let rows = super::summary_consequences::derive_with_verified_bindings(
-            data, self, invocation, definition, profile, verified_bindings, budget,
+            data,
+            self,
+            invocation,
+            definition,
+            profile,
+            verified_bindings,
+            budget,
         )?;
         macro_rules! append{($($dst:ident:$src:ident),* $(,)?)=>{$(for row in rows.$src.iter(){self.$dst.insert(row.clone())?;})*};}
         append!(claims:claims,claim_members:members,claim_standings:standings,claim_proofs:proofs,claim_proof_members:proof_members,refutation_coverage:refutation_coverage,conclusions:conclusions,keys:keys,premises:premises,subjects:subjects,sources:sources,derivations:derivations,propositions:propositions,derivation_premises:derivation_premises,obligations:obligations);
@@ -2151,7 +2161,14 @@ pub fn produce(
     }
     super::summary_symbolic::produce(data, invocation, &mut out, budget)?;
     super::summary_terminal::produce(data, invocation, definition, &mut out, budget)?;
-    out.consequences(data, invocation, definition, profile, Some(&verified), budget)?;
+    out.consequences(
+        data,
+        invocation,
+        definition,
+        profile,
+        Some(&verified),
+        budget,
+    )?;
     Ok(out)
 }
 

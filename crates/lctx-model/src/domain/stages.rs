@@ -1,6 +1,6 @@
 //! Static typed producer inventories and publication dependencies. Execution owns completed inputs.
 use super::attribution::FactFamily;
-use super::{ ContentHash, Key, KeySink, ModelError, Record, ValidatedModel};
+use super::{ContentHash, Key, KeySink, ModelError, Record, ValidatedModel};
 use std::{
     any::TypeId,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -33,7 +33,9 @@ impl ProviderOutcome {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Profile {
     Catalog,
     Behavioral,
@@ -228,7 +230,7 @@ impl Stage {
         digest.part(b"code", &self.code.0);
         digest.part(b"configuration", &self.configuration.0);
         let mut reads: Vec<_> = self.inputs.iter().collect();
-        reads.sort_by_key(|r| (r.name,r.prefix));
+        reads.sort_by_key(|r| (r.name, r.prefix));
         let mut writes: Vec<_> = self.outputs.iter().map(|r| r.name).collect();
         writes.sort();
         let mut contributes: Vec<_> = self.contributes.iter().map(|r| r.name).collect();
@@ -676,7 +678,7 @@ impl Schedule {
             if stage
                 .inputs
                 .iter()
-                .map(|r| (r.type_id,r.prefix))
+                .map(|r| (r.type_id, r.prefix))
                 .collect::<BTreeSet<_>>()
                 .len()
                 != stage.inputs.len()

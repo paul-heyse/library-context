@@ -1,9 +1,8 @@
 //! C0 execution consumes completed native/normalized authorities. No flow or brief producer.
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use datafusion::execution::context::SessionContext;
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
 use futures::TryStreamExt;
+use lctx_model::domain::stages::ProviderOutcome;
 use lctx_model::domain::{
     analysis::{self, catalog_core::*},
     catalog::{
@@ -14,14 +13,13 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
-use lctx_model::domain::stages::ProviderOutcome;
 async fn load<R: Record>(
     session: &SessionContext,
     rows: &mut Rows<R>,
     permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -38,7 +36,11 @@ pub async fn produce(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(
+        access.profile(),
+        access.snapshots(),
+        runtime.budget(),
+    )?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let session = access.session(runtime).await?;
     let mut registered = charged::ChargedSet::default();
@@ -57,7 +59,7 @@ pub async fn produce(
     macro_rules! meta {
         ($ty:ty,$rows:ident,$admit:expr) => {{
             let permit = access.read::<$ty>()?;
-            
+
             registered.insert(&mut registration, <$ty>::NAME)?;
             load(&session, &mut $rows, &permit, $admit).await?;
         }};

@@ -1,6 +1,6 @@
 //! Four-family deterministic renderer and shared replay, over completed canonical C0/C1 evidence.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
-const SEMANTIC_RULE_REVISION:i64=1;
+const SEMANTIC_RULE_REVISION: i64 = 1;
 use super::*;
 use crate::domain::{
     catalog::evidence::build::{EvidenceData, EvidenceOutput},
@@ -38,25 +38,43 @@ impl Data {
         let synthesis = self.synthesis.visit(n, b)?;
         Ok(source || evidence || facts || synthesis)
     }
-    pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{
-        let n=input.name();
-        if !is_vocabulary(n){return self.visit(n,b);}
-        if input.prefix()==Some(PublicationBoundary::Facts){let source=self.source.visit_input(input,b)?;let facts=self.facts.visit(n,b)?;return Ok(source||facts);}
-        self.source.visit_input(input,b)
+    pub fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<bool, ModelError> {
+        let n = input.name();
+        if !is_vocabulary(n) {
+            return self.visit(n, b);
+        }
+        if input.prefix() == Some(PublicationBoundary::Facts) {
+            let source = self.source.visit_input(input, b)?;
+            let facts = self.facts.visit(n, b)?;
+            return Ok(source || facts);
+        }
+        self.source.visit_input(input, b)
     }
-    pub fn consumed_inputs(_profile:Profile)->Vec<ValidationInput>{Self::inputs()}
-    pub fn mandatory_consumed_inputs(_profile:Profile)->Vec<ValidationInput>{
-        let mut r=EvidenceData::inputs();r.extend(EvidenceOutput::inputs());r.extend(crate::domain::normalized::facts_inputs(Facts::inputs()));
-        r.sort_by_key(|i|(i.name(),i.prefix()));r.dedup_by_key(|i|(i.name(),i.prefix()));r
+    pub fn consumed_inputs(_profile: Profile) -> Vec<ValidationInput> {
+        Self::inputs()
     }
-    pub fn synthesis_consumed_inputs()->Vec<ValidationInput>{SynthesisFacts::inputs()}
+    pub fn mandatory_consumed_inputs(_profile: Profile) -> Vec<ValidationInput> {
+        let mut r = EvidenceData::inputs();
+        r.extend(EvidenceOutput::inputs());
+        r.extend(crate::domain::normalized::facts_inputs(Facts::inputs()));
+        r.sort_by_key(|i| (i.name(), i.prefix()));
+        r.dedup_by_key(|i| (i.name(), i.prefix()));
+        r
+    }
+    pub fn synthesis_consumed_inputs() -> Vec<ValidationInput> {
+        SynthesisFacts::inputs()
+    }
     pub fn inputs() -> Vec<ValidationInput> {
         let mut r = EvidenceData::inputs();
         r.extend(EvidenceOutput::inputs());
         r.extend(crate::domain::normalized::facts_inputs(Facts::inputs()));
         r.extend(Self::synthesis_consumed_inputs());
-        r.sort_by_key(|r| (r.name(),r.prefix()));
-        r.dedup_by_key(|r| (r.name(),r.prefix()));
+        r.sort_by_key(|r| (r.name(), r.prefix()));
+        r.dedup_by_key(|r| (r.name(), r.prefix()));
         r
     }
     pub fn selected(&self) -> Result<&Definition, ModelError> {
@@ -79,20 +97,26 @@ impl Output {
     /// anchor closure without rendering API/source/document text a second time.
     pub fn verify_completion(&self, d: &Data, b: &ResourceBudget) -> Result<(), ModelError> {
         let definition = d.selected()?;
-        let _index = b.reserve("retrieval-completion-index",
+        let _index = b.reserve(
+            "retrieval-completion-index",
             self.fragments.len() * (size_of::<&Fragment>() + 64)
                 + self.roots.len() * (size_of::<&UnitRoot>() + 64)
                 + self.anchors.len() * (size_of::<&OriginalAnchor>() + 64)
-                + self.units.len() * (size_of::<Id<CorpusText>>() + 64))?;
+                + self.units.len() * (size_of::<Id<CorpusText>>() + 64),
+        )?;
         let mut rooted_units = std::collections::BTreeSet::new();
         let mut anchors = std::collections::BTreeMap::<Id<Unit>, Vec<&OriginalAnchor>>::new();
         let mut corpora = std::collections::BTreeSet::new();
-        for unit in self.units.iter() { corpora.insert(unit.corpus); }
+        for unit in self.units.iter() {
+            corpora.insert(unit.corpus);
+        }
         for root in self.roots.iter() {
             let unit = need(&self.units, root.unit)?;
             let evidence = need(&d.evidence.roots, root.root)?;
             if evidence.input != unit.input || evidence.context != unit.context {
-                return Err(invalid("retrieval unit differs from its exact contextual root"));
+                return Err(invalid(
+                    "retrieval unit differs from its exact contextual root",
+                ));
             }
             // A shared source occurrence retains each member's root; the pair is the row key.
             rooted_units.insert(root.unit);
@@ -110,7 +134,8 @@ impl Output {
         for corpus in self.corpus.iter() {
             corpus.validate()?;
             if corpus.rendering_version != definition.rendering_version
-                || !corpora.contains(&corpus.id()) {
+                || !corpora.contains(&corpus.id())
+            {
                 return Err(invalid("retrieval corpus has no selected contextual unit"));
             }
             let rows = fragments.entry(corpus.id()).or_default();
@@ -118,13 +143,19 @@ impl Output {
             let mut start = 0;
             for (ordinal, fragment) in rows.iter().enumerate() {
                 let mut end = (start + definition.fragment_bytes as usize).min(corpus.text.len());
-                while !corpus.text.as_str().is_char_boundary(end) { end -= 1; }
+                while !corpus.text.as_str().is_char_boundary(end) {
+                    end -= 1;
+                }
                 if fragment.definition != definition.id()
                     || fragment.fragment_bytes != definition.fragment_bytes
                     || fragment.ordinal != ordinal as i64
-                    || fragment.start != start as i64 || fragment.end != end as i64
-                    || corpus.text.as_str().get(start..end) != Some(fragment.text.as_str()) {
-                    return Err(invalid("retrieval fragment differs from exact completed corpus"));
+                    || fragment.start != start as i64
+                    || fragment.end != end as i64
+                    || corpus.text.as_str().get(start..end) != Some(fragment.text.as_str())
+                {
+                    return Err(invalid(
+                        "retrieval fragment differs from exact completed corpus",
+                    ));
                 }
                 start = end;
             }
@@ -135,20 +166,29 @@ impl Output {
         for unit in self.units.iter() {
             let corpus = need(&self.corpus, unit.corpus)?;
             let origin = need(&self.origins, unit.origin)?;
-            if unit.family != corpus.family { return Err(invalid("retrieval unit family differs from corpus")); }
+            if unit.family != corpus.family {
+                return Err(invalid("retrieval unit family differs from corpus"));
+            }
             if !rooted_units.contains(&unit.id()) {
                 return Err(invalid("retrieval unit lacks C1 root"));
             }
             let unit_anchors = anchors.entry(unit.id()).or_default();
             unit_anchors.sort_by_key(|a| a.ordinal);
             for (ordinal, anchor) in unit_anchors.iter().enumerate() {
-                if anchor.ordinal != ordinal as i64 { return Err(invalid("retrieval original anchor order incomplete")); }
+                if anchor.ordinal != ordinal as i64 {
+                    return Err(invalid("retrieval original anchor order incomplete"));
+                }
                 let source = need(&self.anchor_sources, anchor.original)?;
                 let (artifact, start, end) = super::source::coordinates(d, source)?;
                 let artifact = need(&d.source.core.artifacts, artifact)?;
-                if start < 0 || end < start || end > artifact.byte_len
-                    || (!matches!(origin, Origin::Brief { .. }) && artifact.input != unit.input) {
-                    return Err(invalid("retrieval anchor differs from captured original frame"));
+                if start < 0
+                    || end < start
+                    || end > artifact.byte_len
+                    || (!matches!(origin, Origin::Brief { .. }) && artifact.input != unit.input)
+                {
+                    return Err(invalid(
+                        "retrieval anchor differs from captured original frame",
+                    ));
                 }
             }
         }
@@ -791,7 +831,20 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{if is_vocabulary(input.name()){if !self.data.visit_input(input,b)?{return Err(invalid("undeclared completed rendering/source view"));}Ok(())}else{self.visit(input.name(),b)}}
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        b: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        if is_vocabulary(input.name()) {
+            if !self.data.visit_input(input, b)? {
+                return Err(invalid("undeclared completed rendering/source view"));
+            }
+            Ok(())
+        } else {
+            self.visit(input.name(), b)
+        }
+    }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if !self.data.visit(n, b)? && !self.out.visit(n, b)? {
             return Err(invalid("undeclared retrieval rendering input"));
@@ -917,8 +970,8 @@ pub fn mandatory_inputs(
     let mut inputs = parent.inputs;
     inputs.extend(parent.outputs.into_iter().map(|r| r.completed_input()));
     inputs.extend(Facts::uses());
-    inputs.sort_by_key(|r| (r.name(),r.prefix()));
-    inputs.dedup_by_key(|r| (r.name(),r.prefix()));
+    inputs.sort_by_key(|r| (r.name(), r.prefix()));
+    inputs.dedup_by_key(|r| (r.name(), r.prefix()));
     Ok(inputs)
 }
 
@@ -1193,7 +1246,11 @@ mod tests {
         let out = build(&d, &b).unwrap();
         extended.matches(&out).unwrap();
         extended.verify_completion(&d, &b).unwrap();
-        assert!(mandatory_units.iter().all(|id| extended.units.get(*id).is_some()));
+        assert!(
+            mandatory_units
+                .iter()
+                .all(|id| extended.units.get(*id).is_some())
+        );
         // A fragment with internally valid text/digest still must equal its canonical corpus slice.
         let original = extended.fragments.iter().next().unwrap().clone();
         let mut damaged = original.clone();
@@ -1201,7 +1258,15 @@ mod tests {
         damaged.digest = ContentHash::of(damaged.text.as_str().as_bytes());
         damaged.validate().unwrap();
         let mut fragments = Rows::new(&b);
-        for fragment in extended.fragments.iter() { fragments.insert(if fragment.id() == original.id() { damaged.clone() } else { fragment.clone() }).unwrap(); }
+        for fragment in extended.fragments.iter() {
+            fragments
+                .insert(if fragment.id() == original.id() {
+                    damaged.clone()
+                } else {
+                    fragment.clone()
+                })
+                .unwrap();
+        }
         extended.fragments = fragments;
         assert!(extended.verify_completion(&d, &b).is_err());
         let unit = out

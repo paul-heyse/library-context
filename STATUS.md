@@ -33,7 +33,9 @@ The coordinator records exact scope and logs; the stopped control is not an obse
 
 Queued CLI/provider checks and subsequent flow/oracle/tooling controls are **not_run**, stopped
 before execution. Scope-end leaves and assembled `just qualify` are **not_run**, waived by the
-explicit stop/completion instruction. Root `just turn-end` bookkeeping is pending final execution.
+explicit stop/completion instruction. `UV_NO_SYNC=1 just turn-end` bookkeeping **passed**
+(ADR index, unchanged Hakari output and formatting); synchronization was disabled to avoid an
+unnecessary native rebuild during formatting. No functional tests were restarted.
 No earlier PostgreSQL receipt establishes graph-native operational acceptance.
 
 **Next:** P1/P2 native realization/publication, then S2/S3 native serving and published exports,

@@ -72,7 +72,7 @@ pub struct CallBinding {
     pub kind: BindingKind,
     pub projection: Id<BindingProjection>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "binding_set_assessments")]
 pub struct BindingSetAssessment {
     #[model(key)]
@@ -103,7 +103,7 @@ pub struct BindingVariantAssessment {
     pub outcome: BindingOutcome,
     pub members: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "binding_set_members")]
 pub struct BindingSetMember {
     #[model(key)]
@@ -111,7 +111,7 @@ pub struct BindingSetMember {
     #[model(key)]
     pub attempt: Id<CallBindingAttempt>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "binding_set_coverage")]
 pub struct BindingSetCoverage {
     #[model(key)]

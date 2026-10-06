@@ -1,8 +1,7 @@
 //! C1 contextual evidence consumes completed C0 and typed original facts, independently of brief seeds.
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use datafusion::execution::context::SessionContext;
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
+use lctx_model::domain::stages::ProviderOutcome;
 use lctx_model::domain::{
     analysis::{self, catalog_evidence::*},
     catalog::evidence::{
@@ -13,7 +12,6 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
-use lctx_model::domain::stages::ProviderOutcome;
 // The semantic owner declares exact views; these macros provide typed decoders.
 macro_rules! decoder_inputs {
     ($apply:ident) => {
@@ -45,7 +43,8 @@ async fn load<R: Record>(
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
             admission.visit_if_expected(permit, batch)?;
             visit(&input, batch)
-        }).await?;
+        })
+        .await?;
     }
     Ok(())
 }
@@ -55,13 +54,20 @@ pub async fn produce(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(
+        access.profile(),
+        access.snapshots(),
+        runtime.budget(),
+    )?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let session = access.session(runtime).await?;
     let mut data = EvidenceData::new(runtime.budget());
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
     let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());
-    let mut consumed = crate::consumed_rows::ConsumedInputs::new(consumed_inputs(access.profile()), runtime.budget())?;
+    let mut consumed = crate::consumed_rows::ConsumedInputs::new(
+        consumed_inputs(access.profile()),
+        runtime.budget(),
+    )?;
     macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,batch|{
         data.visit_input(input,batch)?;
         if input.name()==analysis::AnalysisDefinition::NAME {definitions.decode(batch)?;}

@@ -1,7 +1,5 @@
 //! Local analysis uses confirmed inputs, one attempt budget and the domain's shared replay.
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, local as publication, sources::CapturedSources},
     local_semantics::{self, LocalData},

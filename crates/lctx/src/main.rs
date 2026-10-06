@@ -345,9 +345,13 @@ fn init(
     Ok(())
 }
 
-fn flow_workspace_options(budget: &lctx_model::domain::resources::ResourceBudget)
-    -> cpg_core::workspace::WorkspaceOptions {
-    cpg_core::workspace::WorkspaceOptions { memory_bytes: budget.limit(), ..Default::default() }
+fn flow_workspace_options(
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> cpg_core::workspace::WorkspaceOptions {
+    cpg_core::workspace::WorkspaceOptions {
+        memory_bytes: budget.limit(),
+        ..Default::default()
+    }
 }
 
 fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
@@ -380,13 +384,21 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
         )],
         cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral, &budget)?,
     ));
-    let (model, workspace) = tokio::runtime::Runtime::new()?.block_on(
-        cpg_core::facts::inspect(captured, flow_workspace_options(&budget), Profile::Behavioral),
-    )?;
+    let (model, workspace) = tokio::runtime::Runtime::new()?.block_on(cpg_core::facts::inspect(
+        captured,
+        flow_workspace_options(&budget),
+        Profile::Behavioral,
+    ))?;
     let digest = workspace.content()?;
-    fn read<R: Record>(workspace: &cpg_core::workspace::Workspace, budget: &ResourceBudget) -> Result<Batch<R>, ModelError> {
+    fn read<R: Record>(
+        workspace: &cpg_core::workspace::Workspace,
+        budget: &ResourceBudget,
+    ) -> Result<Batch<R>, ModelError> {
         let mut rows = Vec::new();
-        for batch in workspace.completed::<R>()?.read::<R>(workspace.model().clone(), budget.clone())? {
+        for batch in workspace
+            .completed::<R>()?
+            .read::<R>(workspace.model().clone(), budget.clone())?
+        {
             rows.extend(batch?.rows().iter().cloned());
         }
         Batch::new(workspace.model(), rows, budget)
@@ -677,10 +689,15 @@ mod tests {
         let budget = ResourceBudget::fixed(32 << 20).unwrap();
         let workspace = cpg_core::workspace::Workspace::with_budget(
             std::sync::Arc::new(lctx_model::domain::model().unwrap()),
-            super::flow_workspace_options(&budget), budget.clone(),
-        ).unwrap();
+            super::flow_workspace_options(&budget),
+            budget.clone(),
+        )
+        .unwrap();
         let before = budget.reserved();
-        let held = workspace.budget().reserve("flow-probe-retained-input", 1024).unwrap();
+        let held = workspace
+            .budget()
+            .reserve("flow-probe-retained-input", 1024)
+            .unwrap();
         assert_eq!(budget.reserved(), before + 1024);
         drop(held);
         assert_eq!(budget.reserved(), before);

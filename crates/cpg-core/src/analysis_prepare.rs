@@ -1,7 +1,5 @@
 //! Store the explicit authored configuration and actual native premise projection once.
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::{native::*, preparation::Configuration, *},
@@ -49,8 +47,8 @@ async fn native_input<R: Record>(
     inventory: &mut NativeInventory,
 ) -> Result<(), ModelError> {
     let _permit = access.read::<R>()?;
-    
-    let query = crate::sql::query(&session,&format!("SELECT * FROM \"{}\"", R::NAME))
+
+    let query = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -98,10 +96,7 @@ pub async fn embedding_configuration(
     runtime: &Workspace,
     configuration: Option<&embedding::configuration::Configuration>,
 ) -> Result<(), ModelError> {
-    use embedding::{
-        EmbeddingSpec,
-        configuration::ServiceConfiguration,
-    };
+    use embedding::{EmbeddingSpec, configuration::ServiceConfiguration};
     if let Some(configuration) = configuration {
         configuration.check_budget(runtime.budget())?;
     }

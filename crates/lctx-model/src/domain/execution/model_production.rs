@@ -18,7 +18,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "model_applications", rule = "checked_authored_application")]
 pub struct ModelApplication {
     #[model(key, premise)]
@@ -212,14 +212,41 @@ impl ModelData {
         rows! {context_bindings:super::context_binding::ContextEntryBinding,context_binding_sources:super::context_binding::BindingSource,context_binding_members:super::context_binding::BindingMember,contexts:super::context_execution::ContextExecution,context_items:super::context_execution::ContextItem,context_sources:super::context_execution::ContextSource,context_members:super::context_execution::ContextMember,context_outcomes:super::enriched_records::ExecutionOutcome,entries:conditions::entry::EntryValueWitness,entry_sources:conditions::entry::EntryAccessSource,modeled_calls:super::modeled_call::ModeledCallEvaluation,modeled_arguments:super::modeled_call::ModeledCallArgument,modeled_native:super::modeled_call::ModeledCallNative,catalogs:ModelCatalog,parameters:analysis::MethodParameters,definitions:analysis::AnalysisDefinition,enriched:analysis::enriched_execution::AnalysisInvocation,source_calls:analysis::source_call::AnalysisInvocation,local:analysis::local::AnalysisInvocation,native:analysis::native::NativeQualification,premises:analysis::native::NativeAssertionPremise,}
         Ok(())
     }
-    pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{super::require_facts_view(input)?;self.visit(input.name(),batch)}
-    pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{
-        if profile==stages::Profile::Behavioral{return Self::inputs();}
-        vec![ValidationInput::of::<ModelCatalog>(&["id"]),ValidationInput::of::<analysis::MethodParameters>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),ValidationInput::of::<analysis::enriched_execution::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::local::AnalysisInvocation>(&["id"]),ValidationInput::of::<attribution::ProviderRun>(&["id"])]
+    pub fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        super::require_facts_view(input)?;
+        self.visit(input.name(), batch)
+    }
+    pub fn consumed_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
+        if profile == stages::Profile::Behavioral {
+            return Self::inputs();
+        }
+        vec![
+            ValidationInput::of::<ModelCatalog>(&["id"]),
+            ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+            ValidationInput::of::<analysis::enriched_execution::AnalysisInvocation>(&["id"]),
+            ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),
+            ValidationInput::of::<analysis::local::AnalysisInvocation>(&["id"]),
+            ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+        ]
     }
     pub fn inputs() -> Vec<ValidationInput> {
         let mut rows = ModelApplicationData::validation_inputs();
-        rows.extend(super::protocol_interpretation::ProtocolData::inputs().into_iter().map(|i|if stages::is_vocabulary(i.name()){i.at_epoch(stages::PublicationBoundary::Facts)}else{i}));
+        rows.extend(
+            super::protocol_interpretation::ProtocolData::inputs()
+                .into_iter()
+                .map(|i| {
+                    if stages::is_vocabulary(i.name()) {
+                        i.at_epoch(stages::PublicationBoundary::Facts)
+                    } else {
+                        i
+                    }
+                }),
+        );
         rows.extend(BindingOutput::validation_inputs());
         rows.extend(super::enriched_production::EnrichedData::inputs());
         rows.extend([
@@ -249,8 +276,8 @@ impl ModelData {
             ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),
             ValidationInput::of::<analysis::local::AnalysisInvocation>(&["id"]),
         ]);
-        rows.sort_by_key(|i|(i.name(),i.prefix()));
-        rows.dedup_by_key(|i|(i.name(),i.prefix()));
+        rows.sort_by_key(|i| (i.name(), i.prefix()));
+        rows.dedup_by_key(|i| (i.name(), i.prefix()));
         rows
     }
 }

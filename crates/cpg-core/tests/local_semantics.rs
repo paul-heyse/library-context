@@ -4,7 +4,14 @@ mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile, *};
 async fn run(profile: Profile) {
     let root = catalog_runtime::root("local_semantics");
-    let fixture = catalog_runtime::compile("local_semantics",profile,Frontier::Analysis,catalog_runtime::settings("cases"),None).await;
+    let fixture = catalog_runtime::compile(
+        "local_semantics",
+        profile,
+        Frontier::Analysis,
+        catalog_runtime::settings("cases"),
+        None,
+    )
+    .await;
     let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM local_flow_contributions) AS fixture_column_0,(SELECT count(*) FROM local_transfer_alternatives) AS fixture_column_1,(SELECT count(*) FROM local_flow_assessments WHERE reason IS NOT NULL) AS fixture_column_2").await;
     if profile == Profile::Behavioral {
         assert!(counts.0 > 0);
@@ -12,10 +19,13 @@ async fn run(profile: Profile) {
         assert!(counts.2 > 0);
     } else {
         assert_eq!(counts, (0, 0, 0));
-        let statuses: Vec<i16> = catalog_runtime::query(&fixture, "SELECT status FROM local_analysis_outcomes").await;
+        let statuses: Vec<i16> =
+            catalog_runtime::query(&fixture, "SELECT status FROM local_analysis_outcomes").await;
         assert!(!statuses.is_empty());
         assert!(statuses.iter().all(|s| *s == 3));
-        let availabilities: Vec<i16> = catalog_runtime::query(&fixture, "SELECT availability FROM local_analysis_coverage").await;
+        let availabilities: Vec<i16> =
+            catalog_runtime::query(&fixture, "SELECT availability FROM local_analysis_coverage")
+                .await;
         assert!(!availabilities.is_empty());
         assert!(
             availabilities
@@ -61,7 +71,11 @@ async fn run(profile: Profile) {
     } else {
         assert_eq!(theory, (0, 0, 0));
     }
-    let complete: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM local_analysis_coverage WHERE availability=0").await;
+    let complete: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM local_analysis_coverage WHERE availability=0",
+    )
+    .await;
     assert_eq!(complete, 0);
 }
 #[tokio::test]
@@ -219,4 +233,3 @@ fn catalog_local_keeps_expected_metadata_out_of_unrequested_domain_state() {
         "Catalog still retains its declared provider metadata"
     );
 }
-

@@ -148,10 +148,20 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
-        if stages::is_vocabulary(input.name()){
-            if self.data.visit_input(input,batch)?{Ok(())}else{Err(invalid("undeclared selection vocabulary input"))}
-        }else{self.visit(input.name(),batch)}
+    fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        if stages::is_vocabulary(input.name()) {
+            if self.data.visit_input(input, batch)? {
+                Ok(())
+            } else {
+                Err(invalid("undeclared selection vocabulary input"))
+            }
+        } else {
+            self.visit(input.name(), batch)
+        }
     }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if self.data.visit(n, b)? || self.out.visit(n, b)? {

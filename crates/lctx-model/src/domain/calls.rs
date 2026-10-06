@@ -586,7 +586,7 @@ pub enum CallPhase {
     PropertySet = 5,
     Definition = 6,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_channels", validate = validate_channel)]
 pub enum CallChannel {
     #[model(code = 0)]
@@ -623,7 +623,7 @@ pub enum PysaUnresolvedReason {
 /// resolved, with the model's reason and the provider's own. A dispatch set is the named method or
 /// any override of it in a class extending the target's receiver class (decided by complete MROs);
 /// until a later layer expands it, only the invocation view admits it, as its named member.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_destinations", validate = validate_destination)]
 pub enum CallDestination {
     #[model(code = 0)]
@@ -649,7 +649,7 @@ impl CallDestination {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_receivers", validate = validate_receiver)]
 pub enum Receiver {
     #[model(code = 0)]
@@ -738,13 +738,13 @@ pub const MAX_ORIGIN_STEPS: usize = 64;
 /// Steps run from the outermost context to the implicit operation: Pysa's `Nested { head, tail }`
 /// is `tail`'s steps, then `head`'s (the order it displays). The origin is the one authority on
 /// whether an event is implicit; a support's origin states only who asserts it.
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_origins", invariant_refs = origin_invariants_refs)]
 pub struct CallOrigin {
     #[model(key)]
     pub steps: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_origin_steps", validate = validate_origin_step)]
 pub struct CallOriginStep {
     #[model(key)]
@@ -1354,7 +1354,7 @@ impl InvariantCheck for CallSyntaxCheck {
 }
 /// Call-shape binding does not evaluate defaults or certify normal completion. A Default source
 /// names the definition-time slot; value transfer needs its separately proven value/certificate.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "binding_sources")]
 pub enum BindingSource {
     #[model(code = 0)]
@@ -1380,7 +1380,7 @@ pub enum BindingKind {
     Receiver = 5,
     Implicit = 6,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "binding_projections")]
 pub enum BindingProjection {
     #[model(code = 0)]
@@ -1819,7 +1819,7 @@ pub struct CallResolution {
     #[model(key)]
     pub complete: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_resolution_members")]
 pub struct CallResolutionMember {
     #[model(key)]

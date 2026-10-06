@@ -64,12 +64,12 @@ pub use finite::FiniteF64;
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink, Utf8Text};
 pub use model::{
     Invariant, InvariantCheck, PublicationCheck, PublicationInvariant, Relation, RelationContent,
-    ValidatedModel, ValidationDefinitions, ValidationIdentity, ValidationInput, ValidationKind,
-    implementation_digest, SEMANTIC_POLICY_REVISION,
+    SEMANTIC_POLICY_REVISION, ValidatedModel, ValidationDefinitions, ValidationIdentity,
+    ValidationInput, ValidationKind, implementation_digest,
 };
 pub use record::{
-    Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar, SemanticReference, Sum,
-    SumRecord,
+    Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar,
+    SemanticReference, Sum, SumRecord,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -548,4 +548,4 @@ pub mod dependency_closure;
 
 pub mod graph;
 
-pub use record::{logical_batch_bytes,decode_allowance};
+pub use record::{decode_allowance, logical_batch_bytes};

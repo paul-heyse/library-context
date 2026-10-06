@@ -1,6 +1,12 @@
 //! Pure normalization routes over explicit completed workspace inputs.
 use super::*;
-use lctx_model::domain::{normalized::{binding_normalization, callable_normalization, entity_normalization, event_normalization,receiver,relation_normalization},projection};
+use lctx_model::domain::{
+    normalized::{
+        binding_normalization, callable_normalization, entity_normalization, event_normalization,
+        receiver, relation_normalization,
+    },
+    projection,
+};
 #[derive(Clone, Copy)]
 pub(crate) enum Normalization {
     Entities,

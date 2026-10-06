@@ -12,7 +12,7 @@ use crate::domain::{
     transfer::summary::*,
     *,
 };
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "summary_control_witnesses", rule = "rebased_summary_guard")]
 pub struct SummaryControlWitness {
     #[model(key, premise)]

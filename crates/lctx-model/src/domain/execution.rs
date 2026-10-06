@@ -115,9 +115,16 @@ pub mod summary_terminal;
 
 /// Dispatch a native collector only from its declared immutable semantic predecessor.
 /// This selector is compiler metadata, not a persisted runtime epoch or read grant.
-pub(crate) fn require_facts_view(input:&crate::domain::ValidationInput)->Result<(),crate::domain::ModelError>{
- if crate::domain::stages::is_vocabulary(input.name())&&input.prefix()!=Some(crate::domain::stages::PublicationBoundary::Facts){
-  return Err(crate::domain::ModelError::Invalid(format!("native input {} requires the Facts view",input.name())));
- }
- Ok(())
+pub(crate) fn require_facts_view(
+    input: &crate::domain::ValidationInput,
+) -> Result<(), crate::domain::ModelError> {
+    if crate::domain::stages::is_vocabulary(input.name())
+        && input.prefix() != Some(crate::domain::stages::PublicationBoundary::Facts)
+    {
+        return Err(crate::domain::ModelError::Invalid(format!(
+            "native input {} requires the Facts view",
+            input.name()
+        )));
+    }
+    Ok(())
 }

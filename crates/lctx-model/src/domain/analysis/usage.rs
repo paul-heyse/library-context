@@ -36,7 +36,9 @@ pub struct Site {
     pub complete: bool,
     pub uncertain: bool,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct Evidence {
     pub site: Id<Occurrence>,
     pub event: Id<NormalizedCallEvent>,

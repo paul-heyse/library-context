@@ -10,8 +10,13 @@ use lctx_model::domain::{
     stages::{Profile, ProviderOutcome, Stage},
 };
 use std::{
-    any::TypeId, ffi::OsString, panic::AssertUnwindSafe,
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    any::TypeId,
+    ffi::OsString,
+    panic::AssertUnwindSafe,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tokio::sync::oneshot;
 /// Native environment switches refused by the single facts driver.
@@ -82,7 +87,9 @@ impl CapturedInputs {
 /// Ordinary completed-input and batch-output boundary. Implementations own temporary storage;
 /// these methods do not grant database reads or certify publication.
 pub trait ProviderSink: Send + Sync + 'static {
-    fn read<R: Record>(&self) -> Result<Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>, ModelError>;
+    fn read<R: Record>(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>, ModelError>;
     fn declare<R: Record>(&self) -> Result<(), ModelError>;
     fn write<R: Record>(&self, batch: Batch<R>) -> Result<(), ModelError>;
     fn contribute<R: Record>(&self, batch: Batch<R>) -> Result<(), ModelError>;
@@ -230,16 +237,27 @@ impl<S: ProviderSink + 'static> StageContext<S> {
         })
     }
     /// Stream one declared input from its completed workspace view.
-    pub fn input<R: Record>(&mut self) -> Result<Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>, ModelError> {
+    pub fn input<R: Record>(
+        &mut self,
+    ) -> Result<Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>, ModelError> {
         self.guard(|context| {
             if !context.stage.reads::<R>() {
-                return Err(ModelError::Invalid(format!("{} does not consume {}", context.stage.name, R::NAME)));
+                return Err(ModelError::Invalid(format!(
+                    "{} does not consume {}",
+                    context.stage.name,
+                    R::NAME
+                )));
             }
             let stream = context.sink.read::<R>()?;
             let failed = context.failed.clone();
             Ok(Box::new(stream.inspect(move |batch| {
-                if batch.is_err() { failed.store(true, Ordering::Release); }
-            })) as Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>)
+                if batch.is_err() {
+                    failed.store(true, Ordering::Release);
+                }
+            }))
+                as Box<
+                    dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send,
+                >)
         })
     }
     /// The attachment index over this stage's handed-off occurrences, built on first use.
@@ -247,7 +265,10 @@ impl<S: ProviderSink + 'static> StageContext<S> {
         if self.attacher.is_none() {
             // Attachment needs a compact global occurrence index; retain only this named input
             // while constructing it, then release its batches before analysis begins.
-            let occurrences = self.input::<Occurrence>()?.map(|batch| batch.map(Arc::new)).collect::<Result<Vec<_>, _>>()?;
+            let occurrences = self
+                .input::<Occurrence>()?
+                .map(|batch| batch.map(Arc::new))
+                .collect::<Result<Vec<_>, _>>()?;
             let attacher =
                 self.guard(|context| Attacher::new(&occurrences, context.budget.clone()))?;
             self.attacher = Some(attacher);
@@ -265,7 +286,9 @@ impl<S: ProviderSink + 'static> StageContext<S> {
             )));
         }
         let result = operation(self);
-        if result.is_err() { self.failed.store(true, Ordering::Release); }
+        if result.is_err() {
+            self.failed.store(true, Ordering::Release);
+        }
         result
     }
     fn output<R: Record>(&mut self, mode: Mode) -> Result<&mut Writer<R>, ModelError> {
@@ -302,10 +325,14 @@ impl<S: ProviderSink + 'static> StageContext<S> {
             )));
         }
         if self.stage.outputs.iter().any(|declared| {
-            !self.outputs.iter().any(|(_, _, writer)| writer.name() == declared.name())
+            !self
+                .outputs
+                .iter()
+                .any(|(_, _, writer)| writer.name() == declared.name())
         }) {
             return Err(ModelError::Invalid(format!(
-                "{} omitted a declared output, including its empty case", self.stage.name
+                "{} omitted a declared output, including its empty case",
+                self.stage.name
             )));
         }
         let writers: Vec<_> = std::mem::take(&mut self.contributions)
@@ -328,7 +355,10 @@ impl<S: ProviderSink + 'static> StageContext<S> {
 /// Run an actual native provider with explicit completed inputs and attempt-local output.
 /// Dropping the future signals cancellation and joins the provider thread; no native work can
 /// outlive the workspace or expose a completed artifact after cancellation.
-#[allow(clippy::too_many_arguments, reason = "Explicit provider effects and captured inputs")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Explicit provider effects and captured inputs"
+)]
 pub async fn run_provider<S: ProviderSink>(
     mut provider: Box<dyn ProviderStage<S>>,
     profile: Profile,
@@ -342,29 +372,49 @@ pub async fn run_provider<S: ProviderSink>(
     captured.config().check_budget(&budget)?;
     let stage = provider.declaration(profile);
     if !stage.profiles.contains(&profile) {
-        return Err(ModelError::Invalid("provider is not requested by profile".into()));
+        return Err(ModelError::Invalid(
+            "provider is not requested by profile".into(),
+        ));
     }
     let name = stage.name;
     let cancelled = Arc::new(AtomicBool::new(false));
     let (done, finished) = oneshot::channel();
     let mut context = StageContext {
-        stage, profile, model, budget, limits, captured, sink,
-        cancelled: cancelled.clone(), attacher: None, outputs: Vec::new(),
-        contributions: Vec::new(), failed: Arc::new(AtomicBool::new(false)),
+        stage,
+        profile,
+        model,
+        budget,
+        limits,
+        captured,
+        sink,
+        cancelled: cancelled.clone(),
+        attacher: None,
+        outputs: Vec::new(),
+        contributions: Vec::new(),
+        failed: Arc::new(AtomicBool::new(false)),
     };
     let thread = std::thread::Builder::new()
         .name(format!("lctx-{name}"))
         .stack_size(PROVIDER_STACK_BYTES)
         .spawn(move || {
             let result = std::panic::catch_unwind(AssertUnwindSafe(|| provider.run(&mut context)))
-                .unwrap_or_else(|_| Err(ModelError::Invalid(format!("the {name} provider panicked"))));
+                .unwrap_or_else(|_| {
+                    Err(ModelError::Invalid(format!("the {name} provider panicked")))
+                });
             let result = context.close(result);
             drop(provider);
             let _ = done.send(result);
         })
         .map_err(|error| ModelError::infrastructure(Infrastructure::Io, error))?;
-    let drain = ProviderDrain { cancelled, thread: Some(thread) };
-    let result = finished.await.unwrap_or_else(|_| Err(ModelError::Invalid(format!("the {name} provider ended without a result"))));
+    let drain = ProviderDrain {
+        cancelled,
+        thread: Some(thread),
+    };
+    let result = finished.await.unwrap_or_else(|_| {
+        Err(ModelError::Invalid(format!(
+            "the {name} provider ended without a result"
+        )))
+    });
     drop(drain);
     result
 }
@@ -390,12 +440,23 @@ trait Flush<S: ProviderSink>: Send {
     fn finish(self: Box<Self>, model: &ValidatedModel, sink: &S) -> Result<(), ModelError>;
 }
 impl<R: Record, S: ProviderSink> Flush<S> for Writer<R> {
-    fn name(&self) -> &'static str { R::NAME }
-    fn as_any(&mut self) -> &mut dyn std::any::Any { self }
+    fn name(&self) -> &'static str {
+        R::NAME
+    }
+    fn as_any(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
     fn finish(self: Box<Self>, model: &ValidatedModel, sink: &S) -> Result<(), ModelError> {
-        let Writer { writer, contribution } = *self;
+        let Writer {
+            writer,
+            contribution,
+        } = *self;
         if let Some(batch) = writer.finish(model)? {
-            if contribution { sink.contribute(batch)?; } else { sink.write(batch)?; }
+            if contribution {
+                sink.contribute(batch)?;
+            } else {
+                sink.write(batch)?;
+            }
         }
         Ok(())
     }

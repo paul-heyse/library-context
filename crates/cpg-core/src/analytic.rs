@@ -27,7 +27,11 @@ pub async fn produce(
     _model: &Arc<ValidatedModel>,
     graphs: &PreparedGraphs,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), runtime.budget())?;
+    let sources = analysis::sources::CapturedSources::capture(
+        access.profile(),
+        access.snapshots(),
+        runtime.budget(),
+    )?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let mut data = build::Data::new(runtime.budget());
     let session = access.session(runtime).await?;
@@ -105,10 +109,9 @@ pub async fn produce(
                 name: projection::ProjectionName::CallableInvocation,
             },
         )?;
-        results.extend(crate::stage_runtime::borrowed_cpu(
-            access.name(),
-            || build::produce(&data, &frame, &context.invocations, graph, runtime.budget()),
-        )?)?;
+        results.extend(crate::stage_runtime::borrowed_cpu(access.name(), || {
+            build::produce(&data, &frame, &context.invocations, graph, runtime.budget())
+        })?)?;
         tokio::task::yield_now().await;
     }
     macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare::<owner::$record>()?;)*};}

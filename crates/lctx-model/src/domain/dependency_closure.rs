@@ -198,7 +198,7 @@ fn merge(
     grant: RelationUse,
     order: &PublicationOrder,
 ) -> Result<(), ModelError> {
-    if let Some(existing) = grants.get_mut(&(grant.name(),grant.prefix())) {
+    if let Some(existing) = grants.get_mut(&(grant.name(), grant.prefix())) {
         if existing.transport() != grant.transport()
             || (existing.requirement().is_some()
                 && grant.requirement().is_some()
@@ -219,12 +219,11 @@ fn merge(
         if existing.validators().is_empty() {
             *existing = existing.validated_by(grant.validators());
         }
-
     } else {
         if let Some(epoch) = grant.prefix() {
             order.resolve(epoch)?;
         }
-        grants.insert((grant.name(),grant.prefix()), grant);
+        grants.insert((grant.name(), grant.prefix()), grant);
     }
     Ok(())
 }

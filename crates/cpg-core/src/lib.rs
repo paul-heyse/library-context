@@ -2,9 +2,9 @@
 
 pub mod analysis_graphs;
 pub mod analysis_prepare;
+pub mod analytic;
 pub mod analytic_embedding;
 pub mod analytic_text;
-pub mod analytic;
 pub mod catalog_core;
 pub mod catalog_evidence;
 pub mod catalog_selection;

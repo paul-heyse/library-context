@@ -7,8 +7,7 @@
 mod fixture;
 use fixture::{BLOCK, BLOCK_PATH, Fixture};
 use lctx_model::domain::{
-    artifact::ArtifactChunk, input::*,  resources::ResourceBudget,
-    source::SourceArtifact, *,
+    artifact::ArtifactChunk, input::*, resources::ResourceBudget, source::SourceArtifact, *,
 };
 
 fn budget() -> ResourceBudget {
@@ -38,7 +37,7 @@ fn validate(fixture: &Fixture) -> Result<ContentHash, ModelError> {
     let mut generation = Vec::new();
     macro_rules! put { ($($ty:ty),+) => { $( generation.push((<$ty>::NAME,Batch::new(&model,fixture.rows::<$ty>(),&budget())?.arrow().clone())); )+ }; }
     input_relations!(put);
-    validation::replay::replay(&model,&generation,&budget())
+    validation::replay::replay(&model, &generation, &budget())
 }
 fn refused(fixture: &Fixture, why: &str, expected: &str) {
     let result = validate(fixture);

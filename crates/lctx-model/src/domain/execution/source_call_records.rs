@@ -72,7 +72,7 @@ impl analysis::support::DerivedEvidence for SourceCallHeader {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "source_call_outcomes")]
 pub enum SourceCallOutcome {
     #[model(code = 0)]
@@ -83,7 +83,7 @@ pub enum SourceCallOutcome {
         exception: super::ExactRuntimeException,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "source_call_frame_releases",
     rule = "source_call_frame_release"
@@ -185,13 +185,22 @@ impl SourceCallData {
         crate::normalized_binding_outputs!(output);
         Ok(())
     }
-    pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+    pub fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         super::require_facts_view(input)?;
-        self.visit(input.name(),batch)
+        self.visit(input.name(), batch)
     }
-    pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{
-        if profile==stages::Profile::Behavioral{return Self::inputs();}
-        vec![ValidationInput::of::<analysis::base_completion::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"])]
+    pub fn consumed_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
+        if profile == stages::Profile::Behavioral {
+            return Self::inputs();
+        }
+        vec![
+            ValidationInput::of::<analysis::base_completion::AnalysisInvocation>(&["id"]),
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+        ]
     }
     pub fn inputs() -> Vec<ValidationInput> {
         let mut inputs = EvaluationData::validation_inputs();
@@ -633,7 +642,11 @@ impl InvariantCheck for SourceCheck {
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if stages::is_vocabulary(input.name()){self.data.visit_input(input,batch)}else{self.visit(input.name(),batch)}
+        if stages::is_vocabulary(input.name()) {
+            self.data.visit_input(input, batch)
+        } else {
+            self.visit(input.name(), batch)
+        }
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         let invalid = |s: &str| ModelError::Invalid(s.into());

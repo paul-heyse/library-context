@@ -7,7 +7,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="analytic_frames",invariant_refs=super::frames::invariants_refs)]
 pub struct AnalyticFrame {
     #[model(key)]
@@ -238,7 +238,7 @@ pub struct VectorSelection {
     pub available_windows: i64,
 }
 /// A scope is the exact catalog access namespace; namespace strings are catalog-owned paths.
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_concept_scopes")]
 pub struct ConceptScope {
     #[model(key)]
@@ -581,7 +581,7 @@ pub struct ImplicationMember {
     pub attribute: Id<Attribute>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_document_neighbours")]
 pub struct DocumentNeighbour {
     #[model(key)]
@@ -594,7 +594,7 @@ pub struct DocumentNeighbour {
     pub target_use: Id<AnalysisEmbeddingUse>,
     pub score: FiniteF64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_community_labels")]
 pub struct CommunityLabel {
     #[model(key)]
@@ -604,7 +604,7 @@ pub struct CommunityLabel {
     pub members: ContentHash,
     pub score: FiniteF64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "analytic_community_label_members")]
 pub struct CommunityLabelMember {
     #[model(key)]

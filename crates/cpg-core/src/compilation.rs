@@ -1,8 +1,21 @@
 //! One cumulative attempt through analysis/catalog. Semantic owners supply declarations and proofs.
-use crate::{analysis_graphs::PreparedGraphs,embedding_service::Embedder,facts,
-    normalize::pipeline::Normalization,workspace::{Workspace,ProducerOutput}};
-use cpg_extract::bundle::{CapturedInputs,ProviderStage};
-use lctx_model::domain::{admission::Frontier,analysis::{AnalysisDefinition,AnalysisMethod,preparation::Configuration,settings::AnalyticsConfiguration},stages::*,*};
+use crate::{
+    analysis_graphs::PreparedGraphs,
+    embedding_service::Embedder,
+    facts,
+    normalize::pipeline::Normalization,
+    workspace::{ProducerOutput, Workspace},
+};
+use cpg_extract::bundle::{CapturedInputs, ProviderStage};
+use lctx_model::domain::{
+    admission::Frontier,
+    analysis::{
+        AnalysisDefinition, AnalysisMethod, preparation::Configuration,
+        settings::AnalyticsConfiguration,
+    },
+    stages::*,
+    *,
+};
 use std::sync::Arc;
 /// Closed executable upper routes. Metadata and runner dispatch use the same finite type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,25 +444,43 @@ fn validate_upper_dependencies(schedule: &Schedule) -> Result<(), ModelError> {
 /// Resolve the declaration's immutable predecessor view using static semantic dependencies.
 /// An unspecified shared-vocabulary input binds its first producer group, matching the model
 /// scheduler contract. Ordinary relations retain their completed-stream selection.
-fn completed_input_declaration(schedule:&Schedule,declaration:&Stage)->Stage {
-    let mut selected=declaration.clone();
+fn completed_input_declaration(schedule: &Schedule, declaration: &Stage) -> Stage {
+    let mut selected = declaration.clone();
     for input in &mut selected.inputs {
-        if input.prefix().is_some() || !is_vocabulary(input.name()){continue;}
-        if let Some(group)=schedule.publication_groups().iter().find(|group|schedule.stages().iter().any(|producer|
-            group.stages.contains(&producer.name)&&producer.outputs.iter().any(|output|output.name()==input.name()))) {
-            *input=input.at_epoch(group.epoch);
+        if input.prefix().is_some() || !is_vocabulary(input.name()) {
+            continue;
+        }
+        if let Some(group) = schedule.publication_groups().iter().find(|group| {
+            schedule.stages().iter().any(|producer| {
+                group.stages.contains(&producer.name)
+                    && producer
+                        .outputs
+                        .iter()
+                        .any(|output| output.name() == input.name())
+            })
+        }) {
+            *input = input.at_epoch(group.epoch);
         }
     }
     selected
 }
 /// Freeze only completed vocabulary descriptors, once all statically named producers for a
 /// boundary finish. No stage grant, receipt, mutable publication epoch or store is involved.
-fn freeze_completed_inputs(workspace:&Workspace,schedule:&Schedule,completed:&std::collections::BTreeSet<&'static str>,
-    frozen:&mut std::collections::BTreeSet<PublicationBoundary>)->Result<(),ModelError>{
-    for group in schedule.publication_groups(){
-        if frozen.contains(&group.epoch){continue;}
-        if !group.stages.iter().all(|name|completed.contains(name)){break;}
-        workspace.freeze_inputs(group.epoch)?;frozen.insert(group.epoch);
+fn freeze_completed_inputs(
+    workspace: &Workspace,
+    schedule: &Schedule,
+    completed: &std::collections::BTreeSet<&'static str>,
+    frozen: &mut std::collections::BTreeSet<PublicationBoundary>,
+) -> Result<(), ModelError> {
+    for group in schedule.publication_groups() {
+        if frozen.contains(&group.epoch) {
+            continue;
+        }
+        if !group.stages.iter().all(|name| completed.contains(name)) {
+            break;
+        }
+        workspace.freeze_inputs(group.epoch)?;
+        frozen.insert(group.epoch);
     }
     Ok(())
 }
@@ -457,79 +488,270 @@ fn freeze_completed_inputs(workspace:&Workspace,schedule:&Schedule,completed:&st
 /// Execute all selected compiler owners into completed local streams. Publication is a separate
 /// consumer of the admitted graph artifact and is intentionally absent from this API.
 pub async fn compile(
-    workspace: &Arc<Workspace>, captured: Arc<CapturedInputs>, profile: Profile,
-    configuration: ContentHash, frontier: Frontier, prepared: Option<&PreparedCompilation>,
-    embedder: Option<&dyn Embedder>, cache: Option<Arc<dyn crate::embedding_realization::EmbeddingCache>>,
-) -> Result<(),ModelError> {
-    let model=workspace.model();
-    let capture_identity=workspace.captures(&captured)?;
-    let providers=facts::providers(configuration);
+    workspace: &Arc<Workspace>,
+    captured: Arc<CapturedInputs>,
+    profile: Profile,
+    configuration: ContentHash,
+    frontier: Frontier,
+    prepared: Option<&PreparedCompilation>,
+    embedder: Option<&dyn Embedder>,
+    cache: Option<Arc<dyn crate::embedding_realization::EmbeddingCache>>,
+) -> Result<(), ModelError> {
+    let model = workspace.model();
+    let capture_identity = workspace.captures(&captured)?;
+    let providers = facts::providers(configuration);
     // Plan every declaration before running native effects. The schedule is static dependency
     // metadata only; completed streams, not execution grants, supply runtime inputs.
-    let schedule=if let Some(prepared)=prepared {
-        if prepared.frontier!=frontier {return Err(ModelError::Invalid("prepared frontier differs".into()));}
+    let schedule = if let Some(prepared) = prepared {
+        if prepared.frontier != frontier {
+            return Err(ModelError::Invalid("prepared frontier differs".into()));
+        }
         prepared.configuration.check_budget(workspace.budget())?;
-        prepared.schedule(model,&providers,profile)?
+        prepared.schedule(model, &providers, profile)?
     } else {
-        if matches!(frontier,Frontier::Analysis|Frontier::Catalog) {return Err(ModelError::Invalid("upper compilation needs prepared configuration".into()));}
-        let mut declarations:Vec<_>=providers.iter().map(|p|p.declaration(profile)).collect();
-        if frontier==Frontier::Normalized {declarations.extend(Normalization::ALL.map(|s|s.declaration(profile)));}
-        Schedule::build(model,declarations,&[],profile)?
+        if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
+            return Err(ModelError::Invalid(
+                "upper compilation needs prepared configuration".into(),
+            ));
+        }
+        let mut declarations: Vec<_> = providers.iter().map(|p| p.declaration(profile)).collect();
+        if frontier == Frontier::Normalized {
+            declarations.extend(Normalization::ALL.map(|s| s.declaration(profile)));
+        }
+        Schedule::build(model, declarations, &[], profile)?
     };
-    let fact_names:std::collections::BTreeSet<_>=providers.iter().map(|p|p.declaration(profile).name).collect();
-    facts::compile_facts(workspace,&captured,profile,providers,Default::default()).await?;
+    let fact_names: std::collections::BTreeSet<_> = providers
+        .iter()
+        .map(|p| p.declaration(profile).name)
+        .collect();
+    facts::compile_facts(workspace, &captured, profile, providers, Default::default()).await?;
     drop(captured);
     workspace.facts_availability(profile)?;
-    let mut completed=schedule.stages().iter().filter(|stage|fact_names.contains(stage.name)).map(|stage|stage.name).collect();
-    let mut frozen=Default::default();
-    freeze_completed_inputs(workspace,&schedule,&completed,&mut frozen)?;
+    let mut completed = schedule
+        .stages()
+        .iter()
+        .filter(|stage| fact_names.contains(stage.name))
+        .map(|stage| stage.name)
+        .collect();
+    let mut frozen = Default::default();
+    freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
     for declaration in schedule.stages() {
-        let Some(normalization)=Normalization::ALL.into_iter().find(|n|n.declaration(profile).name==declaration.name) else {continue;};
-        let selected=completed_input_declaration(&schedule,declaration);
-        let access=workspace.stage_inputs_selected(declaration,&selected,profile)?;
-        let output=workspace.producer(declaration,profile,access.clone());
-        normalization.run(access,output,workspace,model).await?;
+        let Some(normalization) = Normalization::ALL
+            .into_iter()
+            .find(|n| n.declaration(profile).name == declaration.name)
+        else {
+            continue;
+        };
+        let selected = completed_input_declaration(&schedule, declaration);
+        let access = workspace.stage_inputs_selected(declaration, &selected, profile)?;
+        let output = workspace.producer(declaration, profile, access.clone());
+        normalization.run(access, output, workspace, model).await?;
         completed.insert(declaration.name);
-        freeze_completed_inputs(workspace,&schedule,&completed,&mut frozen)?;
+        freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
     }
-    let graph_needs=schedule.stages().iter().filter_map(|s|UpperStage::resolve(s.name).ok()).flat_map(|s|s.graphs().iter().copied()).collect();
-    let mut graphs=None;
+    let graph_needs = schedule
+        .stages()
+        .iter()
+        .filter_map(|s| UpperStage::resolve(s.name).ok())
+        .flat_map(|s| s.graphs().iter().copied())
+        .collect();
+    let mut graphs = None;
     for declaration in schedule.stages() {
-        if fact_names.contains(declaration.name) {continue;}
-        if Normalization::ALL.into_iter().any(|n|n.declaration(profile).name==declaration.name) {continue;}
-        let selected=completed_input_declaration(&schedule,declaration);
-        let access=workspace.stage_inputs_selected(declaration,&selected,profile)?;
-        let output=workspace.producer(declaration,profile,access.clone());
-        let binding=UpperStage::resolve(declaration.name)?;
-        let prepared=prepared.ok_or_else(||ModelError::Invalid("missing upper configuration".into()))?;
+        if fact_names.contains(declaration.name) {
+            continue;
+        }
+        if Normalization::ALL
+            .into_iter()
+            .any(|n| n.declaration(profile).name == declaration.name)
+        {
+            continue;
+        }
+        let selected = completed_input_declaration(&schedule, declaration);
+        let access = workspace.stage_inputs_selected(declaration, &selected, profile)?;
+        let output = workspace.producer(declaration, profile, access.clone());
+        let binding = UpperStage::resolve(declaration.name)?;
+        let prepared =
+            prepared.ok_or_else(|| ModelError::Invalid("missing upper configuration".into()))?;
         if !binding.graphs().is_empty() && graphs.is_none() {
-            graphs=Some(PreparedGraphs::load(&access,workspace,model,&graph_needs).await?);
+            graphs = Some(PreparedGraphs::load(&access, workspace, model, &graph_needs).await?);
         }
         match binding {
-            UpperStage::Configuration=>crate::analysis_prepare::configuration(access,output,model,workspace,&prepared.configuration).await?,
-            UpperStage::Native=>crate::analysis_prepare::native_inventory(access,output,workspace,model).await?,
-            UpperStage::EmbeddingConfiguration=>crate::analysis_prepare::embedding_configuration(access,output,model,workspace,prepared.embedding.as_ref()).await?,
-            UpperStage::Text=>crate::analytic_text::publish(access,output,workspace,model,prepared.text.clone()).await?,
-            UpperStage::Embedding=>crate::analytic_embedding::produce(access,output,workspace,model,embedder,cache.clone()).await?,
-            UpperStage::CatalogCore=>crate::catalog_core::produce(access,output,workspace,model).await?,
-            UpperStage::CatalogEvidence=>crate::catalog_evidence::produce(access,output,workspace,model).await?,
-            UpperStage::Selection=>crate::catalog_selection::produce(access,output,workspace,model).await?,
-            UpperStage::Local=>crate::local_semantics::run(access,output,workspace,model,prepared.definition(AnalysisMethod::LocalTransfers)?).await?,
-            UpperStage::Base=>crate::semantic_execution::evaluate_base(access,output,workspace,model,prepared.definition(AnalysisMethod::Execution)?).await?,
-            UpperStage::Completion=>crate::semantic_execution::complete_base(access,output,workspace,model,prepared.definition(AnalysisMethod::Completion)?).await?,
-            UpperStage::SourceCalls=>crate::semantic_execution::prepare_source_calls(access,output,workspace,model,prepared.definition(AnalysisMethod::SourceCalls)?).await?,
-            UpperStage::Enriched=>crate::semantic_execution::enrich(access,output,workspace,model,prepared.definition(AnalysisMethod::EnrichedExecution)?).await?,
-            UpperStage::Models=>crate::semantic_models::apply(access,output,workspace,model,prepared.definition(AnalysisMethod::Models)?).await?,
-            UpperStage::Summary=>crate::semantic_summaries::produce(access,output,workspace,model,prepared.definition(AnalysisMethod::Summaries)?,graphs.as_ref().expect("prepared selected graphs")).await?,
-            UpperStage::Structural=>crate::structural::produce(access,output,workspace,model,graphs.as_ref().expect("prepared selected graphs")).await?,
-            UpperStage::Analytic=>crate::analytic::produce(access,output,workspace,model,graphs.as_ref().expect("prepared selected graphs")).await?,
-            UpperStage::AnalysisFrontier=>crate::final_coverage::produce(access,output,workspace,model,analysis::frontier::Target::Analysis).await?,
-            UpperStage::CatalogFrontier=>crate::final_coverage::produce(access,output,workspace,model,analysis::frontier::Target::Catalog).await?,
-            UpperStage::Synthesis=>crate::synthesis::produce(access,output,workspace,model).await?,
-            UpperStage::Retrieval=>crate::retrieval::produce(access,output,workspace,model,embedder,cache.clone()).await?,
+            UpperStage::Configuration => {
+                crate::analysis_prepare::configuration(
+                    access,
+                    output,
+                    model,
+                    workspace,
+                    &prepared.configuration,
+                )
+                .await?
+            }
+            UpperStage::Native => {
+                crate::analysis_prepare::native_inventory(access, output, workspace, model).await?
+            }
+            UpperStage::EmbeddingConfiguration => {
+                crate::analysis_prepare::embedding_configuration(
+                    access,
+                    output,
+                    model,
+                    workspace,
+                    prepared.embedding.as_ref(),
+                )
+                .await?
+            }
+            UpperStage::Text => {
+                crate::analytic_text::publish(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    prepared.text.clone(),
+                )
+                .await?
+            }
+            UpperStage::Embedding => {
+                crate::analytic_embedding::produce(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    embedder,
+                    cache.clone(),
+                )
+                .await?
+            }
+            UpperStage::CatalogCore => {
+                crate::catalog_core::produce(access, output, workspace, model).await?
+            }
+            UpperStage::CatalogEvidence => {
+                crate::catalog_evidence::produce(access, output, workspace, model).await?
+            }
+            UpperStage::Selection => {
+                crate::catalog_selection::produce(access, output, workspace, model).await?
+            }
+            UpperStage::Local => {
+                crate::local_semantics::run(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    prepared.definition(AnalysisMethod::LocalTransfers)?,
+                )
+                .await?
+            }
+            UpperStage::Base => {
+                crate::semantic_execution::evaluate_base(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    prepared.definition(AnalysisMethod::Execution)?,
+                )
+                .await?
+            }
+            UpperStage::Completion => {
+                crate::semantic_execution::complete_base(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    prepared.definition(AnalysisMethod::Completion)?,
+                )
+                .await?
+            }
+            UpperStage::SourceCalls => {
+                crate::semantic_execution::prepare_source_calls(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    prepared.definition(AnalysisMethod::SourceCalls)?,
+                )
+                .await?
+            }
+            UpperStage::Enriched => {
+                crate::semantic_execution::enrich(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    prepared.definition(AnalysisMethod::EnrichedExecution)?,
+                )
+                .await?
+            }
+            UpperStage::Models => {
+                crate::semantic_models::apply(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    prepared.definition(AnalysisMethod::Models)?,
+                )
+                .await?
+            }
+            UpperStage::Summary => {
+                crate::semantic_summaries::produce(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    prepared.definition(AnalysisMethod::Summaries)?,
+                    graphs.as_ref().expect("prepared selected graphs"),
+                )
+                .await?
+            }
+            UpperStage::Structural => {
+                crate::structural::produce(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    graphs.as_ref().expect("prepared selected graphs"),
+                )
+                .await?
+            }
+            UpperStage::Analytic => {
+                crate::analytic::produce(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    graphs.as_ref().expect("prepared selected graphs"),
+                )
+                .await?
+            }
+            UpperStage::AnalysisFrontier => {
+                crate::final_coverage::produce(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    analysis::frontier::Target::Analysis,
+                )
+                .await?
+            }
+            UpperStage::CatalogFrontier => {
+                crate::final_coverage::produce(
+                    access,
+                    output,
+                    workspace,
+                    model,
+                    analysis::frontier::Target::Catalog,
+                )
+                .await?
+            }
+            UpperStage::Synthesis => {
+                crate::synthesis::produce(access, output, workspace, model).await?
+            }
+            UpperStage::Retrieval => {
+                crate::retrieval::produce(access, output, workspace, model, embedder, cache.clone())
+                    .await?
+            }
         }
         completed.insert(declaration.name);
-        freeze_completed_inputs(workspace,&schedule,&completed,&mut frozen)?;
+        freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
     }
-    workspace.finish_compilation(capture_identity,frontier,profile,configuration).await
+    workspace
+        .finish_compilation(capture_identity, frontier, profile, configuration)
+        .await
 }

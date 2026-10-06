@@ -4,7 +4,7 @@ use lctx_model::{
     domain::{dependency_closure::*, input::Package, stages::*, value::Literal, *},
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="closure_probe")]
+#[model(name = "closure_probe")]
 struct Probe {
     #[model(key)]
     value: Id<Literal>,
@@ -47,7 +47,18 @@ fn separate_views_and_orders_preserve_each_compiler_input() {
             .any(|r| r.prefix() == Some(PublicationBoundary::Facts))
     );
     assert_eq!(closure.grants.len(), 3);
-    for view in [PublicationBoundary::Facts,PublicationBoundary::Structural,PublicationBoundary::Local]{assert!(closure.grants.iter().any(|input|input.prefix()==Some(view)));}
+    for view in [
+        PublicationBoundary::Facts,
+        PublicationBoundary::Structural,
+        PublicationBoundary::Local,
+    ] {
+        assert!(
+            closure
+                .grants
+                .iter()
+                .any(|input| input.prefix() == Some(view))
+        );
+    }
 }
 #[test]
 fn inferred_facts_omission_preserves_explicit_inputs_and_unfinished_output_refuses() {
@@ -190,7 +201,7 @@ fn extra_invariant_epoch_and_fact_premise_survive_grant_projection() {
         closure
             .grants
             .iter()
-            .find(|g| g.name() == Literal::NAME&&g.prefix()==Some(PublicationBoundary::Local))
+            .find(|g| g.name() == Literal::NAME && g.prefix() == Some(PublicationBoundary::Local))
             .unwrap()
             .prefix(),
         Some(PublicationBoundary::Local)

@@ -92,11 +92,23 @@ impl CompletedEvaluations {
             budget: budget.clone(),
         }
     }
-    pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{
-        if profile==stages::Profile::Behavioral{return super::records::base_invariants().remove(0).inputs;}
-        vec![ValidationInput::of::<analysis::base_evaluation::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"])]
+    pub fn consumed_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
+        if profile == stages::Profile::Behavioral {
+            return super::records::base_invariants().remove(0).inputs;
+        }
+        vec![
+            ValidationInput::of::<analysis::base_evaluation::AnalysisInvocation>(&["id"]),
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+        ]
     }
-    pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{super::require_facts_view(input)?;self.base.visit(input.name(),batch)}
+    pub fn visit_input(
+        &mut self,
+        input: &ValidationInput,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        super::require_facts_view(input)?;
+        self.base.visit(input.name(), batch)
+    }
     pub fn visit(
         &mut self,
         name: &str,

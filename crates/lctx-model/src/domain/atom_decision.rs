@@ -27,7 +27,7 @@ pub enum AtomOutcome {
     Uninhabited = 3,
     Refused = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="local_atom_decisions", rule="located_typing_atom_decision", invariant_refs=invariants_refs)]
 pub struct AtomDecision {
     #[model(key)]
@@ -43,7 +43,7 @@ pub struct AtomDecision {
     pub outcome: AtomOutcome,
     pub reason: Option<TheoryReason>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "local_atom_restrictions",
     rule = "conditional_atom_transfer_restriction"

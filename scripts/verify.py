@@ -142,7 +142,10 @@ def prepare(requirements: set[str], run: Runner) -> dict[str, bool]:
     for native in ("native-store", "native-serving"):
         if native in requirements:
             ready[native] = False
-            print(f"blocked: {native} implementation belongs to a later graph-native stage", flush=True)
+            print(
+                f"blocked: {native} implementation belongs to a later graph-native stage",
+                flush=True,
+            )
     if "cli" in requirements:
         ready["cli"] = run(("cargo", "build", "--release", "-p", "lctx")) == 0
     return ready

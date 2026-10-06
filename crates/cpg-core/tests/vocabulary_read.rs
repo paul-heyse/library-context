@@ -1,6 +1,6 @@
 //! Missing typed input loaders refuse and release their shared reservation.
 use cpg_core::consumed_rows::ConsumedInputs;
-use lctx_model::domain::{value::Literal,*};
+use lctx_model::domain::{value::Literal, *};
 #[test]
 fn consumed_inventory_refuses_unloaded_rows_and_releases_its_reservation() {
     use lctx_model::domain::resources::ResourceBudget;

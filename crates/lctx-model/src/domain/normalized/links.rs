@@ -17,7 +17,7 @@ pub enum LinkReason {
     Unavailable = 10,
     UntracedName = 11,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "reference_entity_targets")]
 pub enum ReferenceEntityTarget {
     #[model(code = 0)]
@@ -30,7 +30,7 @@ pub enum ReferenceEntityTarget {
     #[model(code = 2)]
     Unresolved { target: Id<lexical::LexicalTarget> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "reference_entity_assessments", invariant_refs = super::relation_normalization::invariants_refs)]
 pub struct ReferenceEntityAssessment {
     #[model(key)]
@@ -38,7 +38,7 @@ pub struct ReferenceEntityAssessment {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "reference_entity_candidates", projection_roles = crate::domain::projection::reference_roles)]
 pub struct ReferenceEntityCandidate {
     #[model(key)]
@@ -65,7 +65,7 @@ pub struct ImportModuleCandidate {
     pub observation: Id<symbols::ModuleResolutionObservation>,
     pub module: Id<calls::ProviderModule>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "ancestry_entity_assessments")]
 pub struct AncestryEntityAssessment {
     #[model(key)]
@@ -74,7 +74,7 @@ pub struct AncestryEntityAssessment {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "ancestry_entity_members")]
 pub struct AncestryEntityMember {
     #[model(key)]
@@ -83,7 +83,7 @@ pub struct AncestryEntityMember {
     pub member: Id<symbols::SymbolSequenceMember>,
     pub resolution: Id<SymbolEntityResolution>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "mention_entity_assessments")]
 pub struct MentionEntityAssessment {
     #[model(key)]
@@ -91,7 +91,7 @@ pub struct MentionEntityAssessment {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "mention_entity_candidates")]
 pub struct MentionEntityCandidate {
     #[model(key)]
@@ -137,7 +137,7 @@ pub struct PlaceEntityLink {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "test_operand_type_assessments")]
 pub struct TestOperandTypeAssessment {
     #[model(key)]
@@ -145,7 +145,7 @@ pub struct TestOperandTypeAssessment {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain,serde::Serialize,serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "test_operand_type_links")]
 pub struct TestOperandTypeLink {
     #[model(key)]

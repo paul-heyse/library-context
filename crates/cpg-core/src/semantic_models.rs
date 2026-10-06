@@ -1,7 +1,5 @@
 //! Model-owned analysis over completed native/normalized/Enriched inputs.
-use crate::{
-    workspace::{CompletedInputs, ProducerOutput, Workspace},
-};
+use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, model as owner, sources::CapturedSources},
     execution::{model_production::*, model_rules::*},
@@ -15,13 +13,18 @@ async fn load<R: Record>(
     session: &datafusion::prelude::SessionContext,
     consumed: &mut crate::consumed_rows::ConsumedInputs,
     admission: &mut CoverageAdmission<'_>,
-    mut visit: impl FnMut(&ValidationInput, &analysis::sources::CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
+    mut visit: impl FnMut(
+        &ValidationInput,
+        &analysis::sources::CompletedInput<R>,
+        &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     while let Some((input, permit)) = consumed.next::<R>(access)? {
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
             admission.visit_if_expected(permit, batch)?;
             visit(&input, permit, batch)
-        }).await?;
+        })
+        .await?;
     }
     Ok(())
 }

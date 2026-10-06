@@ -3,17 +3,41 @@
 mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile, *};
 async fn run(profile: Profile) {
-    let fixture = catalog_runtime::compile("catalog_context",profile,Frontier::Catalog,catalog_runtime::settings("api"),None).await;
+    let fixture = catalog_runtime::compile(
+        "catalog_context",
+        profile,
+        Frontier::Catalog,
+        catalog_runtime::settings("api"),
+        None,
+    )
+    .await;
     let root = catalog_runtime::root("catalog_context");
-    let scenarios: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM catalog_scenarios").await;
+    let scenarios: i64 =
+        catalog_runtime::one(&fixture, "SELECT count(*) FROM catalog_scenarios").await;
     assert!(scenarios >= 5);
-    let executed: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM catalog_scenarios WHERE execution<>2").await;
+    let executed: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM catalog_scenarios WHERE execution<>2",
+    )
+    .await;
     assert_eq!(executed, 0);
-    let originals: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM catalog_original_sources WHERE kind=2").await;
+    let originals: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM catalog_original_sources WHERE kind=2",
+    )
+    .await;
     assert!(originals >= 2);
-    let extracted: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM catalog_scenario_spans WHERE role=3").await;
+    let extracted: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM catalog_scenario_spans WHERE role=3",
+    )
+    .await;
     assert_eq!(extracted, 1);
-    let associations: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM catalog_scenario_associations").await;
+    let associations: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM catalog_scenario_associations",
+    )
+    .await;
     assert!(associations > 0);
     let fields:Vec<(String,i16,i16)>=catalog_runtime::query(&fixture, "SELECT CAST(f.name AS VARCHAR),a.basis,a.applicability FROM catalog_field_access_assessments a JOIN field_entities f ON f.id=a.field").await;
     assert!(fields.iter().any(|r| r.0 == "left"));
@@ -43,17 +67,30 @@ async fn run(profile: Profile) {
         vec![(1, 2, 0, 1, 6), (1, 3, 0, 1, 6)],
         "both field-option forms bind only the generated initializer's native parameter"
     );
-    let reader_count: i64 = catalog_runtime::one(&fixture, "SELECT count(DISTINCT reader) FROM catalog_source_field_links").await;
+    let reader_count: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(DISTINCT reader) FROM catalog_source_field_links",
+    )
+    .await;
     assert_eq!(
         reader_count, 6,
         "PlainConfig supplies no supported-record source link"
     );
-    let roots: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM catalog_evidence_roots").await;
+    let roots: i64 =
+        catalog_runtime::one(&fixture, "SELECT count(*) FROM catalog_evidence_roots").await;
     assert!(roots > scenarios);
-    let links: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM catalog_evidence_invocations").await;
+    let links: i64 = catalog_runtime::one(
+        &fixture,
+        "SELECT count(*) FROM catalog_evidence_invocations",
+    )
+    .await;
     assert_eq!(links, roots);
 }
 #[tokio::test]
-async fn contextual_catalog_preserves_original_roots() {run(Profile::Catalog).await;}
+async fn contextual_catalog_preserves_original_roots() {
+    run(Profile::Catalog).await;
+}
 #[tokio::test]
-async fn behavioral_contextual_catalog_retains_earlier_locations_without_heap_state() {run(Profile::Behavioral).await;}
+async fn behavioral_contextual_catalog_retains_earlier_locations_without_heap_state() {
+    run(Profile::Behavioral).await;
+}
