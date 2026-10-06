@@ -14,15 +14,18 @@ impl NativeService {
   Ok(Self{shared:ResourceBudget::fixed(limits.shared_bytes as usize)?,queries:Arc::new(Semaphore::new(limits.query_connections as usize)),cpu:Arc::new(Semaphore::new(limits.cpu_jobs as usize)),reader,limits})
  }
  pub fn handle(&self)->&SnapshotHandle{self.reader.handle()}
- pub async fn execute(&self,tool:&str,raw:&str)->Result<String,WireError>{self.run(tool,raw,None,false).await}
- pub async fn execute_unavailable(&self,tool:&str,raw:&str)->Result<String,WireError>{self.run(tool,raw,None,true).await}
- pub async fn execute_with_vector(&self,tool:&str,raw:&str,vector:Option<QueryVector>)->Result<String,WireError>{self.run(tool,raw,vector,false).await}
- async fn run(&self,tool:&str,raw:&str,vector:Option<QueryVector>,unavailable:bool)->Result<String,WireError>{
+ pub async fn execute(&self,tool:&str,raw:&str)->Result<String,WireError>{self.run(tool,raw,None,false,self.limits.request_deadline_ms).await}
+ pub async fn execute_unavailable(&self,tool:&str,raw:&str)->Result<String,WireError>{self.run(tool,raw,None,true,self.limits.request_deadline_ms).await}
+ pub async fn execute_with_vector(&self,tool:&str,raw:&str,vector:Option<QueryVector>)->Result<String,WireError>{self.run(tool,raw,vector,false,self.limits.request_deadline_ms).await}
+ /// Execute within the transport's remaining request deadline, including native admission.
+ pub async fn execute_for(&self,tool:&str,raw:&str,vector:Option<QueryVector>,unavailable:bool,remaining_ms:u64)->Result<String,WireError>{self.run(tool,raw,vector,unavailable,remaining_ms.min(self.limits.request_deadline_ms)).await}
+ async fn run(&self,tool:&str,raw:&str,vector:Option<QueryVector>,unavailable:bool,remaining_ms:u64)->Result<String,WireError>{
+  if remaining_ms==0{return Err(WireError::ResourceRefused("request deadline".into()))}
   let request=decode_request(tool,raw,&self.limits)?;
-  let deadline=tokio::time::Instant::now()+Duration::from_millis(self.limits.request_deadline_ms);
-  let admission=Duration::from_millis(self.limits.admission_wait_ms);
-  let _query=tokio::time::timeout(admission,self.queries.acquire()).await.map_err(|_|WireError::ResourceRefused("query admission".into()))?.map_err(|_|WireError::ResourceRefused("query service closed".into()))?;
-  let _cpu=tokio::time::timeout(admission,self.cpu.acquire()).await.map_err(|_|WireError::ResourceRefused("CPU admission".into()))?.map_err(|_|WireError::ResourceRefused("CPU service closed".into()))?;
+  let deadline=tokio::time::Instant::now()+Duration::from_millis(remaining_ms);
+  let admission=(tokio::time::Instant::now()+Duration::from_millis(self.limits.admission_wait_ms)).min(deadline);
+  let _query=tokio::time::timeout_at(admission,self.queries.acquire()).await.map_err(|_|WireError::ResourceRefused("query admission".into()))?.map_err(|_|WireError::ResourceRefused("query service closed".into()))?;
+  let _cpu=tokio::time::timeout_at(admission,self.cpu.acquire()).await.map_err(|_|WireError::ResourceRefused("CPU admission".into()))?.map_err(|_|WireError::ResourceRefused("CPU service closed".into()))?;
   let budget=ResourceBudget::scoped(&self.shared,self.limits.request_bytes as usize).map_err(failure)?;
   let _request_charge=budget.reserve("native-request-wire",raw.len().saturating_mul(2)).map_err(failure)?;
   let result=tokio::time::timeout_at(deadline,async{
