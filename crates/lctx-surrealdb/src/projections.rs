@@ -114,9 +114,9 @@ async fn hydrate(reader: &NativeReader, key: ProjectionKey, budget: &ResourceBud
     bindings.insert("context", crate::loader::json_value(serde_json::to_value(key.context).map_err(ModelError::codec)?)?);
     bindings.insert("symbols", <lctx_model::domain::calls::ProviderSymbol as Record>::NAME);
     let roots: Vec<RecordId> = reader.query("RETURN array::concat(\
-        (SELECT VALUE id FROM entity WHERE semantic_type IN $types AND scope_input=<string>$input AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
-        (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND scope_input=<string>$input AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
-        (SELECT VALUE id FROM entity WHERE semantic_type=$symbols AND scope_context=<string>$context));", bindings).await?;
+        (SELECT VALUE id FROM entity WHERE semantic_type IN $types AND scope_keys CONTAINSANY $types.map(|$type|$type+'|input|'+<string>$input) AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
+        (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND scope_keys CONTAINSANY $types.map(|$type|$type+'|input|'+<string>$input) AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
+        (SELECT VALUE id FROM entity WHERE semantic_type=$symbols AND scope_keys CONTAINS ($symbols+'|context|'+<string>$context)));", bindings).await?;
     // Input sum records (for example CoverageScope::Input) use arm-prefixed physical
     // columns. Their logical input reference is authoritative native adjacency, so include
     // the exact capture as an ownership anchor rather than guessing those columns.
