@@ -1232,6 +1232,17 @@ pub struct CompletedInputs {
     >,
 }
 impl CompletedInputs {
+    /// Check lifetime and identity of an actual producer's immutable streams. This does not
+    /// admit semantic contents: only the model owner's opaque produced value carries authority.
+    pub fn require_subset(&self, workspace: &Workspace, consumer: &CompletedInputs) -> Result<(), ModelError> {
+        if self.profile != consumer.profile
+            || self.relations.is_empty()
+            || self.relations.iter().any(|(key, source)|
+                !Arc::ptr_eq(&source._files, &workspace.files)
+                || consumer.relations.get(key).is_none_or(|other| !Arc::ptr_eq(source, other)))
+        { return Err(ModelError::Conflict("completed producer dependency identity")); }
+        workspace.cancellation.check()
+    }
     /// Resolve the exact table selected by a model-owned validation declaration.
     pub fn table_for(&self, input: &lctx_model::domain::ValidationInput) -> Result<String, ModelError> {
         self.validation_table(input)
