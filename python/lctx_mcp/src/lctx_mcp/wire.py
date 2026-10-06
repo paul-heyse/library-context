@@ -220,7 +220,8 @@ class SchemaTool(Tool):
     async def run(self, arguments: dict[str, Any]) -> ToolResult:
         from lctx_semantics import wire_tool_result
 
-        expanded = bool(arguments.get("page", {}).get("expanded", False))
+        page = arguments.get("page")
+        expanded = isinstance(page, dict) and page.get("expanded") is True
         try:
             raw = await self._executor.execute(self.name, arguments)
             result = CallToolResult.model_validate_json(wire_tool_result(self.name, raw, expanded))
