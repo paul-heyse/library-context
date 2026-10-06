@@ -134,12 +134,15 @@ async fn selected_analytics_export_membership_provenance_and_projection_losses()
     // These are semantic members and evidence, not optional diagnostic traces. Check exact
     // typed values and source keys against the completed owners, independently of graph mapping.
     // Explicit matches keep the acceptance inventory independent from emission macros.
+    // Native run partitions are selected semantic memberships; heuristic presentation may be empty.
+    let partitions=completed_rows::<d::analytics::PartitionMember>(&workspace);
+    assert!(!partitions.is_empty(),"selected community analysis has no native partition memberships");
+    for row in partitions {assert!(assertions.iter().any(|a|a.source==Some(SemanticKey::of(row.id())) && matches!(&a.value,AssertionValue::Membership(d::graph::MembershipValue::AnalyticPartitionMember(v)) if v==&row)));}
     for row in completed_rows::<d::analytics::CommunityMember>(&workspace) {assert!(assertions.iter().any(|a|a.source==Some(SemanticKey::of(row.id())) && matches!(&a.value,AssertionValue::Membership(d::graph::MembershipValue::AnalyticCommunityMember(v)) if v==&row)));}
     for row in completed_rows::<d::analytics::ConceptExtent>(&workspace) {assert!(assertions.iter().any(|a|a.source==Some(SemanticKey::of(row.id())) && matches!(&a.value,AssertionValue::Membership(d::graph::MembershipValue::AnalyticConceptExtent(v)) if v==&row)));}
     for row in completed_rows::<d::analytics::ConceptIntent>(&workspace) {assert!(assertions.iter().any(|a|a.source==Some(SemanticKey::of(row.id())) && matches!(&a.value,AssertionValue::Membership(d::graph::MembershipValue::AnalyticConceptIntent(v)) if v==&row)));}
     for row in completed_rows::<d::analytics::Incidence>(&workspace) {assert!(assertions.iter().any(|a|a.source==Some(SemanticKey::of(row.id())) && matches!(&a.value,AssertionValue::Provenance(d::graph::ProvenanceValue::AnalyticIncidence(v)) if v==&row)));}
     for row in completed_rows::<d::analytics::IncidenceSource>(&workspace) {assert!(assertions.iter().any(|a|a.source==Some(SemanticKey::of(row.id())) && matches!(&a.value,AssertionValue::Provenance(d::graph::ProvenanceValue::AnalyticIncidenceSource(v)) if v==&row)));}
-    assert!(!completed_rows::<d::analytics::CommunityMember>(&workspace).is_empty());
     assert!(!completed_rows::<d::analytics::ConceptExtent>(&workspace).is_empty());
     assert!(!completed_rows::<d::analytics::ConceptIntent>(&workspace).is_empty());
     assert!(!completed_rows::<d::analytics::Incidence>(&workspace).is_empty());
