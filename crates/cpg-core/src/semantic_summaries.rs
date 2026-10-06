@@ -10,6 +10,7 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+mod scope;
 // Decoder reachability is separate from the model-owned consumed source inventory.
 macro_rules! decoder_inputs {
     ($apply:ident) => {
@@ -43,20 +44,19 @@ pub async fn produce(
     let mut data = SummaryData::new(budget);
     let session = access.session(runtime).await?;
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
-        SummaryData::consumed_inputs(access.profile()),
+        {let mut inputs=summary_replay::production_inputs(Profile::Catalog);inputs.extend(analysis::expected::inputs(analysis::AnalysisMethod::Summaries));inputs},
         budget,
     )?;
     macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
         crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch|{
             coverage.visit_if_expected(permit,batch)?;
-            data.visit_input(&input,batch)
+            if [attribution::ProviderRun::NAME,analysis::MethodParameters::NAME,analysis::AnalysisDefinition::NAME,analysis::local::AnalysisInvocation::NAME,analysis::model::AnalysisInvocation::NAME,analysis::enriched_execution::AnalysisInvocation::NAME,analysis::source_call::AnalysisInvocation::NAME,analysis::local::AnalysisOutcome::NAME,analysis::model::AnalysisOutcome::NAME,analysis::enriched_execution::AnalysisOutcome::NAME,analysis::source_call::AnalysisOutcome::NAME].contains(&input.name()){data.visit_input(&input,batch)?;}
+            Ok(())
         }).await?;
     })*};}
     decoder_inputs!(inputs);
-    // Stored graph bodies are consumed by PreparedGraphs, never copied into SummaryData.
-    macro_rules! graph_sources {($($field:ident:$ty:ty,)*)=>{$(while consumed.next::<$ty>(&access)?.is_some() {})*};}
-    lctx_model::summary_projection_inputs!(graph_sources);
     consumed.finish(access.name())?;
+    let scopes=if access.profile()==Profile::Behavioral{Some(scope::SummaryScopes::prepare(&access,&session,_model,budget).await?)}else{None};
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
 
@@ -101,9 +101,12 @@ pub async fn produce(
             &coverage,
             budget,
         )?;
+        let grain=if let Some(scopes)=&scopes{Some(scopes.frame(run.id(),budget).await?)}else{None};
+        let selected=if let(Some(scopes),Some(grain))=(&scopes,&grain){Some(scopes.load(&access,grain,budget).await?)}else{None};
+        let frame_data=match access.profile(){Profile::Behavioral=>selected.as_ref().ok_or_else(||ModelError::Invalid("Summary selected frame absent".into()))?,Profile::Catalog=>&data};
         let mut result = crate::stage_runtime::borrowed_cpu(access.name(), || {
             execution::summary_production::produce_prepared(
-                &data,
+                frame_data,
                 &invocation,
                 definition,
                 access.profile(),
@@ -113,6 +116,7 @@ pub async fn produce(
                 actual,
             )
         })?;
+        drop(selected);drop(grain);
         tokio::task::yield_now().await;
         let mut actual_coverage = normalized::Rows::new(budget);
         let mut actual_premises = normalized::Rows::new(budget);
@@ -178,6 +182,7 @@ mod decoder_tests {
         macro_rules! collect {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
         decoder_inputs!(collect);
         lctx_model::summary_projection_inputs!(collect);
+        decoders.insert(std::any::TypeId::of::<analysis::native::NativeAssertionPremise>());
         for profile in Profile::ALL {
             crate::consumed_rows::assert_decoder_reachability(
                 SummaryData::consumed_inputs(profile),
