@@ -120,7 +120,7 @@ macro_rules! fields {($apply:ident) => {$apply! {
     contexts:super::context_execution::ContextExecution, context_sources:super::context_execution::ContextSource,
     context_members:super::context_execution::ContextMember, context_items:super::context_execution::ContextItem,
     captured:super::capture_bridge::CapturedEntryBinding, captured_values:super::capture_bridge::CapturedValueSource,
-    placements:lexical::SyntaxPlacement, call_arguments:CallArgument, provider_symbols:ProviderSymbol, parameter_entities:ParameterEntity, call_targets:CallTarget, call_destinations:CallDestination, signature_enumerations:SignatureEnumerationObservation, enriched_inputs:analysis::enriched_execution::AnalysisInput, enriched_parents:analysis::enriched_execution::InvocationSource,
+    placements:syntax::SyntaxPlacement, call_arguments:CallArgument, provider_symbols:ProviderSymbol, parameter_entities:ParameterEntity, call_targets:CallTarget, call_destinations:CallDestination, signature_enumerations:SignatureEnumerationObservation, enriched_inputs:analysis::enriched_execution::AnalysisInput, enriched_parents:analysis::enriched_execution::InvocationSource,
 }};}
 macro_rules! data {($($field:ident:$ty:ty,)*) => {
     struct Check {kind:Kind, budget:ResourceBudget, $( $field:Rows<$ty>, )*}

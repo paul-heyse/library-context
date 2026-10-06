@@ -28,8 +28,8 @@ pub(super) fn scope(kind:Kind)->ExecutionScope {
         Kind::Fresh=>{own!(e::SourceExecutionArgument,"call",e::SourceExecutionInvocation);own!(CallBinding,"attempt",CallBindingAttempt);own!(CallArgument,"call",CallSyntax);}
         Kind::Modeled=>{own!(m::ModeledCallArgument,"call",m::ModeledCallEvaluation);own!(m::ModeledCallNative,"call",m::ModeledCallEvaluation);own!(CallBinding,"attempt",CallBindingAttempt);own!(CallArgument,"call",CallSyntax);}
         Kind::Definition=>{own!(d::DefinitionMember,"definition",d::DefinitionEvaluation);join!(d::DefinitionEvaluation,"statement",syntax::ParameterSyntaxObservation,"function",EnrichedInvocation);}
-        Kind::ContextBinding=>{own!(b::BindingMember,"binding",b::ContextEntryBinding);join!(b::ContextEntryBinding,"item",lexical::SyntaxPlacement,"parent",EnrichedInvocation);}
-        Kind::Context=>{own!(c::ContextMember,"execution",c::ContextExecution);own!(c::ContextItem,"execution",c::ContextExecution);join!(c::ContextExecution,"statement",lexical::SyntaxPlacement,"parent",EnrichedInvocation);join!(c::ContextItem,"item",lexical::SyntaxPlacement,"parent",EnrichedContextItem);}
+        Kind::ContextBinding=>{own!(b::BindingMember,"binding",b::ContextEntryBinding);join!(b::ContextEntryBinding,"item",syntax::SyntaxPlacement,"parent",EnrichedInvocation);}
+        Kind::Context=>{own!(c::ContextMember,"execution",c::ContextExecution);own!(c::ContextItem,"execution",c::ContextExecution);join!(c::ContextExecution,"statement",syntax::SyntaxPlacement,"parent",EnrichedInvocation);join!(c::ContextItem,"item",syntax::SyntaxPlacement,"parent",EnrichedContextItem);}
         Kind::Capture=>{},_=>unreachable!(),
     }
     ExecutionScope {root:root(kind),memberships,joins}
@@ -43,8 +43,8 @@ pub(super) fn inputs(kind:Kind)->Vec<ValidationInput> {
         Kind::Fresh=>add!(e::SourceExecutionArgument,e::BodyExecution,SourceCallHeader,analysis::source_call::AnalysisInvocation,NormalizedCallEvent,EntityRef,CallableEntity,CallBindingAttempt,CallBinding,SignatureSlot,SignatureParameter,BindingSource,BindingProjection,CallSyntax,CallArgument,ExpressionEvaluation,analysis::base_evaluation::AnalysisInvocation),
         Kind::Modeled=>add!(m::ModeledCallArgument,m::ModeledCallNative,models::AuthoredModel,CallBindingAttempt,CallBinding,SignatureSlot,SignatureParameter,BindingSource,BindingProjection,NormalizedCallEvent,CallSyntax,CallArgument,ExpressionEvaluation,analysis::base_evaluation::AnalysisInvocation),
         Kind::Definition=>add!(d::DefinitionSource,d::DefinitionMember,syntax::ParameterSyntaxObservation,ExpressionEvaluation,analysis::base_evaluation::AnalysisInvocation),
-        Kind::ContextBinding=>add!(b::BindingSource,b::BindingMember,models::AuthoredContextProtocol,ProviderSymbol,lexical::SyntaxPlacement,ExpressionEvaluation,analysis::base_evaluation::AnalysisInvocation),
-        Kind::Context=>add!(CallTarget,CallDestination,SignatureEnumerationObservation,c::ContextSource,c::ContextMember,c::ContextItem,models::AuthoredContextProtocol,ProviderSymbol,lexical::SyntaxPlacement,ExpressionEvaluation,analysis::base_evaluation::AnalysisInvocation,e::StatementExecution),
+        Kind::ContextBinding=>add!(b::BindingSource,b::BindingMember,models::AuthoredContextProtocol,ProviderSymbol,syntax::SyntaxPlacement,ExpressionEvaluation,analysis::base_evaluation::AnalysisInvocation),
+        Kind::Context=>add!(CallTarget,CallDestination,SignatureEnumerationObservation,c::ContextSource,c::ContextMember,c::ContextItem,models::AuthoredContextProtocol,ProviderSymbol,syntax::SyntaxPlacement,ExpressionEvaluation,analysis::base_evaluation::AnalysisInvocation,e::StatementExecution),
         Kind::Capture=>add!(NormalizedCallEvent,SourceCallHeader,analysis::source_call::AnalysisInvocation,capture::CapturedValueSource,ParameterEntity),_=>unreachable!(),
     }
     inputs
@@ -166,7 +166,7 @@ impl Check {
                 self.frame(frame.input,frame.context,frame.subject,row.qualification,row.read)?;self.owner(row.read,row.callee)?;
                 if !row.under_caller_entry || (row.caller,row.callee,row.qualification)!=(header.owner,header.callee,header.qualification) {return Err(invalid("Enriched captured entry owner/header"));}
                 match need(&self.captured_values,row.value_source)? {
-                    capture::CapturedValueSource::Entry {formal,declaration,..}=>{if need(&self.parameter_entities,*formal)!=&(ParameterEntity::Source {declaration:*declaration}) {return Err(invalid("Enriched captured entry parameter declaration"));}self.owner(*declaration,row.caller)?;}
+                    capture::CapturedValueSource::Entry {formal,declaration,..}=>{if need(&self.parameter_entities,*formal)?!=&(ParameterEntity::Source {declaration:*declaration}) {return Err(invalid("Enriched captured entry parameter declaration"));}self.owner(*declaration,row.caller)?;}
                     capture::CapturedValueSource::Literal {value,statement,..}=>{self.owner(*value,row.caller)?;self.owner(*statement,row.caller)?;if need(&self.occurrences,*value)?.source!=need(&self.occurrences,row.read)?.source || need(&self.occurrences,*statement)?.source!=need(&self.occurrences,row.read)?.source {return Err(invalid("Enriched captured literal source"));}}
                 }
             },_=>unreachable!(),
@@ -201,7 +201,7 @@ impl Check {
         if let Some(target)=target {let targets=self.placements.iter().filter(|placement|placement.parent==Some(item) && self.placement_context(placement,frame.context) && placement.field==lexical::SyntaxField::Target).collect::<Vec<_>>();if targets.len()!=1 || targets[0].occurrence!=target {return Err(invalid("Enriched context target correspondence"));}self.owner(target,owner)?;}
         Ok(())
     }
-    fn placement_context(&self,placement:&lexical::SyntaxPlacement,context:Id<AnalysisContext>)->bool {
+    fn placement_context(&self,placement:&syntax::SyntaxPlacement,context:Id<AnalysisContext>)->bool {
         self.qualifications.get(placement.qualification).is_some_and(|qualification|qualification.context==context)
     }
     fn context_membership(&self,row:&c::ContextExecution)->Result<(),ModelError> {
