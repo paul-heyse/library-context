@@ -50,8 +50,11 @@ unknown input refuses distinctly from admitted-empty results. Canonical enumerat
 coverage remain separate. Every response carries grouped capture/provider/status/reason coverage with exact observation counts and explicitly representative scope identities. Only the three search routes accept an omitted library filter, meaning the admitted union; same-name releases remain ambiguous for exact lookup. Capability resources preserve authored bytes while carrying the process
 admitted capture and capability identity; their URIs remain process-relative. Owned display/source/
 expression modes preserve exact values and unknown/factory states. The
-[target coordinator](../../plans/target-implementation-alignment-plan_2026-10-04.md)
-owns implementation and qualification; acceptance is not inferred from the decision.
+[graph-native coordinator §9](../../plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
+owns current implementation and native acceptance; the target-alignment coordinator retains its
+historical receipt and original finding dispositions. Acceptance is not inferred from the decision.
+The [forward plan's product investigations](../../plans/behavioral-model-forward-plan_2026-09-24.md#product-operational-investigations)
+retain IS1–IS4 and the separately authorized Q1/PR6 boundary.
 The earlier serving implementation is retired; native adapters retain this contract. This does not execute §14.12 confirmation.
 
 > Decision: ADR-0124

@@ -7,9 +7,10 @@ completion as the first-product exit. PR0 comparison remains blocked on independ
 remains Proposed. Earlier implementation and qualification descriptions below are dated receipts,
 not prescriptions to retain or restore retired storage and serving code.
 
-**Current verification policy (ADR-0126/0128):** focused affected families during compiler work,
-applicable leaves at functional completion; assembled `just qualify` after native publication and
-serving integrate. Root `just turn-end` owns formatting and generators. Real-library/live-vector
+**Current verification policy (ADR-0126/0128):** graph-native coordinator §9/R-Q0 owns targeted
+functional controls and applicable scope-end leaves on matching source/native artifacts. The user's
+remediation instruction excludes broad `just qualify`, stopped compiler suites and historical parity.
+Root `just turn-end` owns formatting and generators. Real-library/live-vector
 and evaluation campaigns retain their separate authorization. The research backlog activates only
 through its stated product trigger.
 
@@ -132,7 +133,7 @@ query scope remain. §6.2 owns the scheduled CLF findings; §7 retains library a
 
 ### 3.0 Consolidated execution
 
-**Current queue: the [graph-native replacement](graph-native-pivot-plan_2026-10-05.md): complete compiler, then native realization/publication/serving and assembled Q0. PR6 remains Proposed after those prerequisites and separately authorized real-library/live-vector Q1 work. PR5 receipts describe prior scope; PR0 comparison remains blocked.** The old P0–P7/S1–S7 labels below are research identifiers,
+**Current queue: [graph-native remediation §9/R-Q0](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution): targeted compiler/native/CLI/PyO3/MCP acceptance and applicable leaves. PR6 remains Proposed after those prerequisites and separately authorized real-library/live-vector Q1 work. PR5 receipts describe prior scope; PR0 comparison remains blocked.** The old P0–P7/S1–S7 labels below are research identifiers,
 not product packages. The target's response budgets and comparison thresholds are frozen in PR0
 before outcomes; the design does not claim they have passed.
 
@@ -155,6 +156,26 @@ require explicit canonical reconstruction. No historical runtime or rollback arc
 why source/docs/current facts are insufficient, its bounded semantics and an independent control.
 Otherwise prioritize association/query/packet work. Resource or deployment failures do not justify
 weakening evidence or declaring an unavailable capability implemented.
+
+<a id="product-operational-investigations"></a>
+
+#### Retained product and operational investigations
+
+These IS1–IS4 obligations transfer from serving alignment to this product queue. They do not
+activate Q1, operator reconstruction, live embeddings or sealed PR6 evaluation. Native remediation
+acceptance stays with graph-native coordinator §9/R-Q0; its fixture passes do not establish benefit.
+
+| Package | Preparation, decision criterion and trigger |
+|---|---|
+| IS1 lexical/retrieval | Freeze an approved development task/corpus before comparing camel/acronym splitting, Rust stemming, native full-text policy or another search library. A named fuzzy/phrase/token gap must justify a policy change; compare candidate/evidence retention and abstention with fixed ranks/settings. Preserve Rust-owned tokens and version corpus/policy. Alternate engines require a named missing capability or consequential observed limitation; selected native querying requires no separate adoption gate. |
+| IS2 startup lifecycle | Native remediation covers atomic selection, immutable pins, failed startup, cancellation and actual work drain. A 30-second request deadline does not establish startup behavior. Preserve owned blocking-work/reader lifetime until completion; introduce task tracking only for a concrete second consumer. Real-library startup and operator activation remain separately authorized. |
+| IS3 evaluation readiness | Preserve §14.12's Proposed protocol: comparable task population, versions, corpus/render/rank identities, tools/budgets, development versus 24 sealed confirmation boundaries, independent grading, failure categories and stopping rule. Preparation excludes sealed answers and execution; PR6/activation authorization is required for the comparative run. |
+| IS4 client/library maintenance | Retain conformance-checked Rust/Python embedding clients unless parity drift or another concrete consumer warrants replacement and its architectural decision. Tokenizer adoption requires a service-independent admission need. Check pydantic/vLLM skill applicability against actual selected versions before use; no broad skill upgrade or service change is implied. Dependency maintenance follows ADR-0125. |
+
+Record adopt, retain or defer here with evidence and enabled consumers. An absent consumer retains
+its concrete trigger. Quality/performance/RSS campaigns remain separately authorized; backend
+availability establishes neither task usefulness nor a new search policy. Q1's useful-packet
+obligations remain at the analytical-enrichment owner and the product exit criteria above.
 
 #### PR5 detailed execution (ADR-0081)
 
@@ -728,24 +749,18 @@ catalog digest in `compiler_digest`; no model cites `.claude/skills/`.
 
 ### 3.4 Superseded PostgreSQL deployment workstream
 
-**Retired under ADR-0128, 2026-10-05; former receipt only.** PostgreSQL was the transactional/cache and online serving
-owner. Delta and immutable receipts remain the implemented canonical store until the semantic model
-cutover phase 1 moves every relation into PostgreSQL generations (ADR-0086). SQLx owns effects, pgpq owns
-COPY encoding, and the maintained DataFusion provider exposes admitted read-only reports. Fixed
-PR4 reads use checked SQLx queries; inventory-driven hydration remains validated against the
-shared projection declarations. No second query/semantic owner is introduced.
+**Retired under ADR-0128, 2026-10-05; former receipt only.** PostgreSQL previously owned
+transactional/cache effects and online serving. Delta, SQLx/pgpq readers/writers, generation grants
+and PG operator commands supply no current runtime authority. Original receipts and source IDs
+remain bounded to their dates below; no historical store is retained or reconstructed.
 
-PR4's current-only contract (ADR-0078) replaces the former retain-all recovery policy. After current
-validation, clean operator replacement removes obsolete generations, artifacts, runtimes and
-backups. Current-format reconstruction is tested; reverse migrations, compatibility readers and
-historical rollback are not supported. Exact ranking is the sole supported profile. Standard1024
-remains the embedding contract; PR4 live qualification is explicitly waived in §1.
-
-The [runbook](../postgresql.md) owns operator commands; [storage §6.5](../design/sections/storage-and-publication.md#section-6-5)
-and [serving §11.4](../design/sections/synthesis-and-serving.md#section-11-4) own contracts. §6.1 owns
-finding disposition and [§7](#postgresql-adoption) carries the surviving F1/F4/F6–F13 adoption
-triggers from the retired completed plan. Product PR5–PR6 extends these owners. Semantic research
-retains its independent exits and starts only for a selected task or exposed-claim defect.
+The current [native runbook](../surrealdb.md), [storage §6.5](../design/sections/storage-and-publication.md#section-6-5)
+and [serving §11.4](../design/sections/synthesis-and-serving.md#section-11-4) own native commands and
+contracts. Graph-native §9/R-Q0 owns targeted replacement acceptance. §6.1 retains original
+finding dispositions and [§7](#postgresql-adoption) carries only surviving consumer triggers.
+Fresh artifact/realization reconstruction and quiescent retirement preserve current-only semantics;
+operator adoption and live-vector quality remain separately authorized Q1 work. Semantic research
+starts only for a selected product task or exposed-claim defect.
 
 ## 4. Stages 4 and 5
 
@@ -753,18 +768,15 @@ retains its independent exits and starts only for a selected task or exposed-cla
 named product failure requiring their semantics. They are not prerequisites for PR0–PR6 or a
 reason to add a concept registry before bounded evidence/requirement tools work.
 
-PostgreSQL does not change the semantic authorities below. The
-[PostgreSQL workstream](#postgresql-workstream) adds immutable relational serving/retrieval and
-qualified read views to the deployed cache/operations. Stage 4 registry TOML, Rust definition AST,
-condition kernels and model-owned materialization define the proposed Stage 4 semantics;
-PostgreSQL indexes published output through generation-qualified projections. Relational versus
-charged finite lowering is selected for the named operation, not prescribed by engine availability. Stage 5 model/lifecycle computation
-remains Rust-owned. Neither stage depends on optional ADBC, SQL-wire endpoints, ORM or pgrx.
+The native architecture preserves the semantic authorities below. Stage 4 registry TOML, Rust
+definition AST, condition kernels and model-owned materialization define Proposed research
+semantics; `cpg-core` would admit completed graph content and native publication would realize its
+selected projections. Relational versus charged finite lowering is selected for the named
+operation, not prescribed by engine availability. Stage 5 computation remains Rust-owned.
 
-PG11–PG13 provide the projection/query path; any reactivated stage introducing a new semantic family
-owns its schema, evidence and exact-answer controls. Preserve
-its existing serving path until that family is represented and qualified in the new projection;
-do not omit supported facts to meet a storage milestone.
+Any reactivated stage introducing a semantic family owns its declarations, evidence and exact-answer
+controls, including actual native serving where claimed. Preserve supported facts through the
+canonical graph and complete realization; no old serving path or compatibility runtime is required.
 
 ### Stage 4: the capability registry
 
@@ -853,7 +865,8 @@ performers with independent judges/tests. Stage exits and old heldout remain unm
 | 5 | Q02, Q06, Q07, Q08, Q11, Q12 | As Stage 3 |
 | End of increment 5 | `eval/heldout/` | The same rubric |
 
-The packet is `just structured-eval <generation> <stage> [embed_url]`; the author assesses it with
+The former `just structured-eval` generation recipe is retired. An authorized evaluation needs a
+native pinned packet driver before execution; the author assesses the actual packet with
 the rubric present/partial/absent/incorrect/misleading, per item, never as a percentage; no API
 agents evaluate content. From Stage 3 on, a served `unknown` counts as partial only under the
 qualified rule in `eval/behavior/README.md`. Evaluation-only requests
@@ -869,9 +882,9 @@ the validation lane asks whether the analysis admits what really executes.
 | fcars 0.2.2 | **Dev-only oracle** | Add a sparse context above 64 attributes if bitset coverage grows; concept-set agreement does not test attribute fidelity (W10) |
 | rustworkx-core | **Keep bespoke** keyed ordering (W13) | A consumer for centralities beyond the current ones |
 | Pysa, CrossHair, Hypothesis + `sys.monitoring` | **Oracles** (order 8) | Pysa's call graph is Pyrefly's, so only its TITO result is independent |
-| Rust stemming/text search; recursive relational lowering; current schemars | **Conditional**, not automatic Stage 4 adoption; schemars is already implemented for Rust wire contracts | [Alignment IS1](serving-provenance-presentation-plan_2026-10-04.md#6-product-and-operational-investigations) needs a frozen task gap; choose graph/relational integrity at its owner, preserve bounded refusal |
+| Rust stemming/text search; recursive relational lowering; current schemars | **Conditional**, not automatic Stage 4 adoption; schemars is already implemented for Rust wire contracts | [IS1](#product-operational-investigations) needs a frozen task gap; choose graph/relational integrity at its owner, preserve bounded refusal |
 | Graph-FCA | Stage 5 offline spike | Never in the pipeline |
-| PostgreSQL serving/pgvector/pgpq/qualified federation and Rust async boundary | **Implemented, Tested and Measured; local exact route accepted** | Exact pins/features in [pins](../pins.md); 1024 is selected, current exact serving follows §3.4; ANN machinery is removed |
+| Native SurrealDB serving and Rust async boundary | **Implemented; current remediation acceptance pending** | Graph-native coordinator §9/R-Q0 owns current native lexical/vector/fusion and immutable reader controls. Earlier PostgreSQL measurements qualify only their original implementation; live retrieval quality remains separate. |
 
 Avoid: crepe, DDlog, cozo, differential-dataflow; LinkML, OWL/RDF stacks, taxonomy induction,
 BERTopic or UMAP in the pipeline; rust-bert, ort, fastembed.
@@ -988,8 +1001,9 @@ PGF the [foundations change review](../design_review/reviews/design_review_postg
 PGQ the [query integration review](../design_review/reviews/design_review_postgresql-query-integration_2026-09-28.md),
 and PGO the [operations review](../design_review/reviews/design_review_postgresql-operations_2026-09-28.md).
 PGE/F01–F05 and PGF/F01–F02 retain their stable source IDs here. The
-[PostgreSQL workstream](#postgresql-workstream) owns current integration;
-its traceability table is a work mapping, not a second disposition register. No finding closes
+[PostgreSQL workstream](#postgresql-workstream) retains its historical integration mapping;
+current native integration belongs to the graph-native coordinator. This traceability table is
+not a second disposition register. No finding closes
 through plan or ADR adoption alone; all original IDs retain their meaning.
 
 PG12–PG15 focused receipts and retained same-input reference data are in the
@@ -1166,8 +1180,8 @@ owns their semantic/lifecycle contracts and the source review §8 retains the co
 | strum/enum-map/serde_with/derive_more; imbl/rpds/ecow/small vectors | Repeated local construction or measured cloning/branching/allocation consumer; retain explicit persistent codebooks |
 | Slot maps/ECS/plugins/new syntax trees; uom/Symbolica/solvers; alternate serialization | Concrete mutable-lifecycle/parser/plugin, scientific execution or protocol consumer. No immediate catalog dependency; existing Arrow/Serde and supported parsers remain |
 
-SeaQuery, Cornucopia/driver alternatives and `postgres-types` follow the PostgreSQL triggers
-below and existing SQLx ownership; do not schedule them twice. Any future
+SeaQuery, Cornucopia/driver alternatives and `postgres-types` are retired PG leads, not native
+implementation dependencies. Any future
 engine that changes ownership/lifecycle gets its own ADR and replaces a named mechanism behind
 the established boundary. Skill availability and transitive lockfile presence are not adoption.
 

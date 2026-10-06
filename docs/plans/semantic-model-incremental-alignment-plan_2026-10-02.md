@@ -2,10 +2,10 @@
 
 **Implemented; scoped Tested acceptance complete · 2026-10-03.** This series converts the
 [incremental alignment review](../design_review/reviews/design_review_semantic-model-incremental-alignment_2026-10-02.md)
-into bounded implementation work. It retains the implemented semantic model and its single
-owner, hard compilation layers and PostgreSQL generation lifecycle. Execution is authorized;
-§7 owns actual implementation state and acceptance receipts. The original plan-authoring
-receipt remains scoped to authoring.
+into bounded implementation work. Its original PostgreSQL generation implementation is retired;
+§7 retains the original source dispositions and dated acceptance receipts. Current native
+compiler/model/serving corrections and targeted acceptance belong to [graph-native coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution).
+The original plan-authoring receipt remains scoped to authoring; this is not a current execution queue.
 Phase 5 real-library qualification and activation remain stopped at the operator's request.
 
 ## 1. Purpose, baseline and foundation assessment
@@ -71,15 +71,16 @@ implementation closure and wider qualification remain separate.
 ## 3. Combined contracts and extension locality
 
 Native preparation consumes borrowed selection data plus typed owned relation inputs and returns
-opaque prepared semantics. PostgreSQL retains guard/receipt/membership checks, leases, budgets,
-paging and response envelopes. The refusal correction precedes integration so unsupported
+opaque prepared semantics. Current native readers retain immutable complete realization pins,
+membership checks, reservations, paging and response envelopes; persisted PG grants/receipts do
+not authorize compiler reads. The retained refusal contract ensures unsupported
 defaulted formals remain public and preserve DefaultStabilityUnknown rather than becoming an
 invalid formal or generic EntryValueUnknown. Prepared helper agreement never admits proof rows.
 
 The finite upper-stage inventory supplies declarations, publication groups, graph needs and
 execution binding. Model closure takes that checked publication order and owner epoch policy;
-it retains exact validator/consumption requirements, then mechanically projects sufficient
-grants. Actual consumers read acknowledged epochs separately. Analytic policy supplies both
+it retains exact necessary admission/consumption requirements and private checked completed-input
+authority. Actual consumers select immutable vocabulary prefixes separately. Analytic policy supplies both
 identity and executable kernel settings; no orchestration table acquires semantic authority.
 
 Shared graph/parent preparation needs a common acknowledged source universe. CPU placement
@@ -91,7 +92,7 @@ is necessary for this bounded improvement.
 Serving schemas derive labels from codebooks and semantic descriptions from model annotations.
 Packet mappings derive from closed typed bindings; attempted reads, including empty reads and
 prepared dependencies, check against them while canonical store admission stays independent.
-Failures use existing pinned tool/resource mechanisms after original-grant and complete-envelope
+Failures use owned typed safe tool/resource mechanisms after reader/request and complete-envelope
 admission. Early admission exceptions retain their existing safe path and explicit limit.
 
 Future changes justify these seams without adding those features to this plan:
@@ -100,8 +101,8 @@ Future changes justify these seams without adding those features to this plan:
 |---|---|
 | New native path case | Model prepared operation and independent legitimate-case control; store does not interpret new path semantics |
 | New analytic policy | One fixed authored policy changes records, complete identity and kernel settings; run observations remain separate |
-| New upper stage or graph consumer | One finite binding plus model declaration; phase/grant compatibility checked before effects |
-| New invariant dependency or earlier vocabulary read | Shared closure preserves exact epochs/order and sufficient grants; actual consumed sources remain owner-declared |
+| New upper stage or graph consumer | One finite binding plus model declaration; exact completed-input/profile/policy compatibility checked before effects |
+| New invariant dependency or earlier vocabulary read | Shared closure preserves exact immutable prefixes/order and necessary premises; actual consumed sources remain owner-declared |
 | New selection predicate or packet | Model vocabulary/semantics, generated meaning and typed packet dependency binding; no Python semantic dictionary |
 | Substitute a numerical mechanism | Existing complete numerical-result boundary plus requalification; no broad provider framework |
 
@@ -113,12 +114,12 @@ Future changes justify these seams without adding those features to this plan:
 execution while retaining its then-required PostgreSQL controls, Python/oracles, compile-fail
 contracts and release CLI readiness. The dated receipts below establish that bounded result.
 
-**Current execution policy, 2026-10-05 (ADR-0126):** explicit verification families and assembled
-`just qualify` replace that recipe composition. Store/serving/oracle families retain actual
-current contracts with their declared prerequisites, one readiness union and fresh assertions;
-no legacy aliases or repeated subset invocation are retained. Missing readiness blocks its
-consumers and independent failures are collected. This policy migration is owned by the
-[assurance coordinator](testing-architecture-pivot-plan_2026-10-04.md), not another T0 repair.
+**Current execution policy, 2026-10-06 (ADR-0126/0128):** graph-native §9/R-Q0 selects targeted
+functional controls and applicable leaves with actual declared prerequisites and fresh assertions.
+The user's scope excludes broad `just qualify`, stopped compiler suites and historical parity.
+Missing readiness blocks its consumers; independent failures remain explicit. The
+[assurance owner](testing-architecture-pivot-plan_2026-10-04.md) retains guarantees and historical
+source dispositions, while the graph-native coordinator owns replacement acceptance.
 Keep Cargo jobs16, the default single frontend thread, stable release caches and explicit
 Nextest concurrency. Neither target reduction nor removed duplication establishes speed/RSS benefit.
 
@@ -223,14 +224,14 @@ name lists/dispatch, four closure loops and blanket epoch overwrites, duplicate 
 string-authored packet bindings and whole-scripts fingerprint traversal. Shared validation and
 independent challenges remain; deletion never means weakening a guard, oracle or control.
 
-At final integration, inventory affected generations/caches/projections and current readers.
-Quiesce only project readers, preserve current receipt obligations, then retire/reset obsolete
-derived state through existing store/generation services and reconstruct from pinned inputs
+At final integration, inventory affected native realizations/caches/projections and current readers.
+Quiesce only project readers, preserve exact admission/content obligations, then retire obsolete
+derived state through the native lifecycle owner and reconstruct fresh from pinned inputs
 when that functional validation is authorized. A failed/interrupted rebuild remains unselected
 and resumable through existing lifecycle; no rollback assets, historical runtime authority or
 compatibility readers are retained. Do not restart the stopped FastMCP qualification campaign
 merely to retire changed model identities. Record any deferred reconstruction as a limit and
-prerequisite to serving activation; never call a stale generation validated for the new tree.
+prerequisite to serving activation; never call a stale realization validated for the new tree.
 
 ## 7. Current disposition — sole execution owner
 
@@ -266,26 +267,24 @@ PR6, R4, live embedding availability, real-library serving and activation keep t
 ## 8. Verification, review and completion
 
 During authorized production implementation run normalized release compile checks and targeted
-tests/probes for the package's meaning. Use existing independent numerical, native, epoch,
+tests/probes for the package's meaning. Use existing independent numerical, native, immutable-input,
 store and transport controls rather than generating expectations from the new helper. Store
-tests use real disposable PostgreSQL 18. Model/grant/type agreement alone cannot prove semantic
+tests use owned disposable persistent SurrealDB 3.3. Model/descriptor/type agreement alone cannot prove semantic
 or transport fidelity. Inspect schema snapshot changes before accepting them as migrations.
 
-Before changed ownership/identity decisions, use the ADR and owning-section route. A fresh
-bounded design/target review of this Proposed combined scope precedes execution. At integrated
-completion independently review native/store, closure/loader and serving interactions against
-the same scenarios, distinguishing architecture from fidelity judgments. Static review can
-settle design; planned runtime claims still require their appropriate controls.
+The original series' bounded design/target review and acceptance retain their dated scope.
+Future ownership/identity changes use the current ADR/owning-section route and established review
+cadence; this completed plan adds no new review gate to authorized remediation. Static review can
+settle a design uncertainty, while runtime claims still require their appropriate controls.
 
-During implementation run focused affected families; at functional scope completion run affected
-controls and applicable non-functional leaves. Shared model/receipt/trust/transport changes or
-unresolved cross-boundary uncertainty require `just qualify` once for the same assembled tree
-(ADR-0126), including full keep-going Clippy and disposable-store acceptance. Fix findings and
+Current implementation follows graph-native §9/R-Q0's focused affected controls and applicable
+scope-end leaves. The user's targeted-testing instruction excludes broad `just qualify`, stopped
+compiler suites and historical parity for this remediation (ADR-0126/0128). Fix findings and
 rerun affected boundaries or the failed named leaf. Preserve policy/resource settings and
 classify actual outcomes as passed/failed/blocked/not_run. Formatters/generators remain
-end-of-turn-hook owned; older gate receipts below retain their original date and scope.
+root-owned through `just turn-end`; older gate receipts below retain their original date and scope.
 
-These future gates qualify the incremental corrections, not unrun real-library Q0 journeys.
+Current targeted controls qualify native remediation, not unrun real-library Q1 journeys.
 No arbitrary throughput/RSS/retrieval-quality threshold is added. Measurements can later test
 performance hypotheses when a workload or decision needs them; their absence does not keep
 otherwise completed functional corrections open. Universal early-error envelope qualification

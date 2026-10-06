@@ -9,10 +9,10 @@ locates current completion claims. The
 owns the accepted hard-pivot series grounded in the graph-native target and SurrealDB capability
 reviews. Native querying is selected by ADR-0128; execution-fit principles guide efficient
 design rather than introducing accounting proofs or adoption gates. The compiler stage is user-accepted complete; native publication, projections and serving are implemented.
-The coordinator records targeted native journey results and the separate operator activation boundary.
+The coordinator's §9/R-Q0 records current remediation acceptance and the separate operator activation boundary.
 Earlier PostgreSQL evidence is baseline history, not replacement acceptance.
 The [target-alignment coordinator](../plans/target-implementation-alignment-plan_2026-10-04.md)
-owns the implemented baseline's correction/qualification receipt; the
+retains the implemented baseline's dated correction/qualification receipt and original source IDs; the
 [forward plan](../plans/behavioral-model-forward-plan_2026-09-24.md) retains product/research dispositions.
 
 | Responsibility | Owner | Source entry / adjacent consumer |
@@ -34,7 +34,7 @@ owns the implemented baseline's correction/qualification receipt; the
 Dependency direction runs from orchestration (`lctx`) through capability owners to the schema and
 semantic contracts in `lctx-model`. Effects (acquisition, persistence, serving) are explicit
 boundaries around transformations. This table describes intended ownership; known coupling and
-incomplete capabilities follow the target coordinator or forward plan §6, as their source disposition specifies. It is not a certificate of current
+incomplete capabilities follow graph-native coordinator §7/§9 or forward plan §6, as their source disposition specifies. It is not a certificate of current
 architectural conformance.
 
 ## Reading and extending
@@ -56,5 +56,6 @@ Existing extension routes (Implemented guidance, 2026-10-02) stay with their own
 families follow [§4.3](sections/acquisition-and-extraction.md#section-4-3); finite models follow
 [§9.9](sections/behavioral-analysis.md#section-9-9); selection predicates and packet routes follow
 [§15.12](sections/semantic-model.md#section-15-12). The
-[alignment coordinator](../plans/semantic-model-incremental-alignment-plan_2026-10-02.md#7-current-disposition--sole-execution-owner)
-owns the current bounded improvements and acceptance, separately from stopped Phase 5 Q0.
+[graph-native coordinator §9](../plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
+owns current bounded improvements and acceptance. The incremental-alignment plan retains its dated
+baseline receipts; product investigations and separately authorized Q1 work stay with the forward plan.
