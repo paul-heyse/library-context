@@ -22,12 +22,12 @@ fn typed<R: Record>(tables: &[ClosureTable]) -> Option<usize> {
     if choices.next().is_some() { return None; }
     Some(index)
 }
-fn declared(tables: &[ClosureTable], inputs: &[ValidationInput], input: &ValidationInput) -> Result<usize, ModelError> {
+pub(crate) fn declared(tables: &[ClosureTable], inputs: &[ValidationInput], input: &ValidationInput) -> Result<usize, ModelError> {
     inputs.iter().position(|candidate| candidate.type_id()==input.type_id() && candidate.prefix()==input.prefix())
         .filter(|index| tables[*index].relation.type_id()==input.type_id())
         .ok_or(ModelError::Conflict("support input immutable binding"))
 }
-fn field_target(inputs: &[ValidationInput], source: usize, target: TypeId) -> Result<Option<usize>, ModelError> {
+pub(crate) fn field_target(inputs: &[ValidationInput], source: usize, target: TypeId) -> Result<Option<usize>, ModelError> {
     let candidates: Vec<_> = inputs.iter().enumerate().filter(|(_, input)| input.type_id()==target).map(|(index, _)| index).collect();
     if candidates.is_empty() { return Ok(None); }
     if let [only] = candidates.as_slice() { return Ok(Some(*only)); }
@@ -71,7 +71,7 @@ fn plan(tables: &[ClosureTable], inputs: &[ValidationInput], scope: &SupportScop
     Ok(plan)
 }
 
-fn column(batch: &arrow_array::RecordBatch, name: &str, row: usize) -> Result<Option<[u8; 16]>, ModelError> {
+pub(crate) fn column(batch: &arrow_array::RecordBatch, name: &str, row: usize) -> Result<Option<[u8; 16]>, ModelError> {
     let values = batch.column_by_name(name).and_then(|column| column.as_any().downcast_ref::<FixedSizeBinaryArray>())
         .ok_or(ModelError::Schema("support grain nominal projection"))?;
     if values.is_null(row) { return Ok(None); }
@@ -171,7 +171,7 @@ pub(crate) async fn validate_support(
     }
     Ok(())
 }
-fn root_predicate(ids: &[[u8;16]]) -> String {
+pub(crate) fn root_predicate(ids: &[[u8;16]]) -> String {
     const HEX: &[u8;16] = b"0123456789abcdef";
     let mut predicate = String::with_capacity(9 + ids.len()*37);
     predicate.push_str("id IN (");

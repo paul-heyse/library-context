@@ -240,11 +240,39 @@ fn validate_inventory(row: &FlowUseInventoryObservation) -> Result<(), ModelErro
     }
     Ok(())
 }
+/// Exact owner memberships for necessary inventory admission. Missing enumeration is checked from
+/// the use-observation root even when no inventory row exists. The compiler only selects these
+/// declared owner rows; the model's structural predicate remains authoritative.
+pub struct InventoryScope {
+    pub roots: [ValidationInput; 2],
+    pub memberships: Vec<(ValidationInput, &'static str, ValidationInput)>,
+    pub native_views: [ValidationInput; 6],
+}
+fn inventory_scope() -> InventoryScope {
+    fn input<R: Record>() -> ValidationInput { ValidationInput::of::<R>(&["id"]) }
+    InventoryScope {
+        roots: [input::<FlowUseObservation>(), input::<FlowUseInventoryObservation>()],
+        memberships: vec![
+            (input::<FlowUseSupport>(), "assertion", input::<FlowUseObservation>()),
+            (input::<FlowUseObservation>(), "use_", input::<FlowUse>()),
+            (input::<FlowUseInventoryObservation>(), "use_", input::<FlowUse>()),
+            (input::<FlowUseInventorySupport>(), "assertion", input::<FlowUseInventoryObservation>()),
+            (input::<FlowUseCandidate>(), "inventory", input::<FlowUseInventoryObservation>()),
+            (input::<FlowUseInventoryMember>(), "inventory", input::<FlowUseInventoryObservation>()),
+            (input::<FlowReachingObservation>(), "use_", input::<FlowUse>()),
+            (input::<FlowReachingSupport>(), "assertion", input::<FlowReachingObservation>()),
+            (input::<FlowSourceViewSupport>(), "assertion", input::<FlowSourceViewObservation>()),
+            (input::<SubjectBoundary>(), "subject", input::<Occurrence>()),
+        ],
+        native_views: [input::<FlowUseObservation>(), input::<FlowUse>(), input::<Occurrence>(),
+            input::<FlowUseSupport>(), input::<FlowSourceViewSupport>(), input::<FlowSourceViewObservation>()],
+    }
+}
 pub(crate) fn inventory_invariants() -> Vec<Invariant> {
     vec![Invariant {
-        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
+        purpose: crate::domain::InvariantPurpose::Admission,
         revision: 1,
-        name: "flow_use_inventory_replay",
+        name: "flow_use_inventory_admission",
         inputs: vec![
             ValidationInput::of::<ProviderRun>(&["id"]),
             ValidationInput::of::<SubjectBoundary>(&["id"]),
@@ -273,7 +301,7 @@ pub(crate) fn inventory_invariants() -> Vec<Invariant> {
         ],
         create: std::sync::Arc::new(|budget| {
             Box::new(InventoryCheck {
-                charge: StateCharge::new(budget, "flow_use_inventory_replay"),
+                charge: StateCharge::new(budget, "flow_use_inventory_admission"),
                 ..Default::default()
             })
         }),
@@ -303,6 +331,7 @@ struct InventoryCheck {
     members: ChargedMap<Id<FlowUseInventoryMember>, FlowUseInventoryMember>,
 }
 impl InvariantCheck for InventoryCheck {
+    fn inventory_scope(&self) -> Option<InventoryScope> { Some(inventory_scope()) }
     fn visit(
         &mut self,
         relation: &str,
@@ -312,7 +341,9 @@ impl InvariantCheck for InventoryCheck {
             ($ty:ty,$field:ident) => {
                 if relation == <$ty>::NAME {
                     for row in <$ty>::decode(batch)? {
-                        self.$field.insert(&mut self.charge, row.id(), row)?;
+                        if self.$field.insert(&mut self.charge, row.id(), row)?.is_some() {
+                            return Err(ModelError::Conflict(<$ty>::NAME));
+                        }
                     }
                     return Ok(());
                 }
@@ -339,8 +370,9 @@ impl InvariantCheck for InventoryCheck {
         if relation == FlowUseCandidate::NAME {
             for row in FlowUseCandidate::decode(batch)? {
                 row.validate()?;
-                self.candidates
-                    .insert(&mut self.charge, (row.inventory, row.ordinal), row)?;
+                if self.candidates.insert(&mut self.charge, (row.inventory, row.ordinal), row)?.is_some() {
+                    return Err(ModelError::Conflict(FlowUseCandidate::NAME));
+                }
             }
             return Ok(());
         }
@@ -932,5 +964,5 @@ pub fn complete_native_singleton<'a>(
 }
 
 pub(crate) fn inventory_invariants_refs() -> Vec<&'static str> {
-    vec!["flow_use_inventory_replay"]
+    vec!["flow_use_inventory_admission"]
 }
