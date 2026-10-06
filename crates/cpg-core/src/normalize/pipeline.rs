@@ -59,7 +59,7 @@ impl Normalization {
             Self::Callables => super::callables(access, output, runtime, model).await,
             Self::Receivers => super::receivers(access, output, runtime, model).await,
             Self::CallableAspects => {
-                crate::catalog_core::aspects(access, output, runtime, model).await
+                super::aspects(access, output, runtime, model).await
             }
             Self::Events => super::events(access, output, runtime, model).await,
             Self::Bindings => super::bindings(access, output, runtime, model).await,

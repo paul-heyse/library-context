@@ -13,6 +13,7 @@ pub mod catalog_selection;
 pub mod consumed_rows;
 mod scoped_admission;
 mod scoped_inventory;
+mod scoped_aspects;
 pub mod embedding_realization;
 pub mod embedding_service;
 pub mod facts;

@@ -167,26 +167,3 @@ pub async fn produce(
     drop(charge);
     output.finish(ProviderOutcome::Complete).await
 }
-
-/// Retained callable/field metadata completed under the normalized authority before C0.
-pub async fn aspects(
-    access: CompletedInputs,
-    output: ProducerOutput,
-    runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
-) -> Result<(), ModelError> {
-    use normalized::callable_aspects::{self, AspectData};
-    let session = access.session(runtime).await?;
-    let mut data = AspectData::new(runtime.budget());
-    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$({access.read::<$ty>()?;let query=crate::sql::query(&session,&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.$field.decode(&batch)?;}})*};}
-    lctx_model::callable_aspect_inputs!(read);
-    drop(session);
-    let budget = runtime.budget().clone();
-    let rows = tokio::task::spawn_blocking(move || callable_aspects::normalize(&data, &budget))
-        .await
-        .map_err(ModelError::codec)??;
-    macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;for row in rows.$field.iter() {output.push(row.clone()).await?;})*};}
-    lctx_model::callable_aspect_outputs!(write);
-    drop(rows);
-    output.finish(ProviderOutcome::Complete).await
-}

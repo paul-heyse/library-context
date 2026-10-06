@@ -432,6 +432,42 @@ pub async fn callables(
     output.finish(ProviderOutcome::Complete).await
 }
 
+/// Complete callable metadata is produced one actual assessment, initializer or class at a time.
+pub async fn aspects(access:CompletedInputs,output:ProducerOutput,runtime:&Workspace,model:&Arc<ValidatedModel>)->Result<(),ModelError> {
+    use lctx_model::domain::normalized::callable_aspects::{self,AspectKernel};
+    let session=access.session(runtime).await?;
+    let inputs=callable_aspects::scoped_inputs();
+    macro_rules! acknowledge {($($field:ident:$ty:ty,)*)=>{$(let binding=inputs.iter().find(|input|input.type_id()==std::any::TypeId::of::<$ty>()).ok_or(ModelError::Schema("aspect source binding"))?;access.read_at::<$ty>(binding.prefix())?;)*};}
+    lctx_model::callable_aspect_inputs!(acknowledge);
+    let tables=inputs.iter().map(|input|Ok(crate::consumed_rows::ClosureTable {relation:model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias:access.table_for(input)?})).collect::<Result<Vec<_>,ModelError>>()?;
+    let prepared=crate::scoped_aspects::AspectScopes::prepare(inputs,tables,&callable_aspects::aspect_scope(),model,&session,runtime.budget()).await?;
+    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    lctx_model::callable_aspect_outputs!(declare);
+    for (index,root) in prepared.roots.iter().enumerate() {
+        let filter=if index==2 {format!(" WHERE kind={}",syntax::DeclarationKind::Class as i16)}else{String::new()};
+        let mut roots=crate::sql::query(&session,&format!("SELECT id FROM {}{filter} ORDER BY id",crate::consumed_rows::identifier(&prepared.root_tables[index]))).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)? {
+            runtime.cancellation().check()?;
+            let keys=batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema("aspect owner keys"))?;
+            for row in 0..keys.len() {
+                runtime.cancellation().check()?;
+                let id:[u8;16]=keys.value(row).try_into().map_err(ModelError::codec)?;
+                let scoped=prepared.edges.grain(*root,&crate::scoped_admission::root_predicate(&[id]),runtime.budget()).await?;
+                let (data,prior)=crate::scoped_aspects::load_data(&scoped,&prepared.inputs,runtime.budget()).await?;
+                drop(prior);
+                let kernel=crate::scoped_aspects::kernel(index,id)?;
+                let rows=callable_aspects::normalize_scope(&data,kernel,runtime.budget())?;
+                drop(data);drop(scoped);
+                // A class computes its field defaults only as scratch for source-field policy.
+                // The field owner emits those canonical rows exactly once through its own grain.
+                macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(if !matches!(kernel,AspectKernel::Class(_)) || !matches!(stringify!($field),"sources"|"aspects"|"defaults"|"fields") {for row in rows.$field.iter() {output.push(row.clone()).await?;}})*};}
+                lctx_model::callable_aspect_outputs!(write);
+            }
+        }
+    }
+    drop(prepared);drop(session);output.finish(ProviderOutcome::Complete).await
+}
+
 pub async fn receivers(
     access: CompletedInputs,
     output: ProducerOutput,

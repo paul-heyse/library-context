@@ -400,6 +400,20 @@ impl Workspace {
         };
         for invariant in checks {
             let mut check = (invariant.create)(self.budget());
+            if let Some(scope) = check.aspect_scope() {
+                drop(check);
+                let mut tables = Vec::with_capacity(invariant.inputs.len());
+                for input in &invariant.inputs {
+                    let alias = if unrequested.contains(input.name()) { input.name().to_owned() }
+                        else if let Some(inputs) = selected { inputs.validation_table(input)? }
+                        else { Self::validation_table(input, &frozen_tables)?.to_owned() };
+                    tables.push(crate::consumed_rows::ClosureTable {
+                        relation: self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(), alias,
+                    });
+                }
+                crate::scoped_aspects::validate_aspects(&invariant, &scope, tables, &self.model, &session, self.budget(), &self.cancellation).await?;
+                continue;
+            }
             if let Some(scope) = check.inventory_scope() {
                 drop(check);
                 let mut tables = Vec::with_capacity(invariant.inputs.len());

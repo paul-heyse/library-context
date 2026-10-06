@@ -882,6 +882,7 @@ impl ValidationInput {
     }
 }
 pub trait InvariantCheck: Send {
+    fn aspect_scope(&self) -> Option<super::normalized::callable_aspects::AspectScope> { None }
     fn inventory_scope(&self) -> Option<super::flow_inventory::InventoryScope> { None }
     fn support_scope(&self) -> Option<super::assertion::SupportScope> {
         None
