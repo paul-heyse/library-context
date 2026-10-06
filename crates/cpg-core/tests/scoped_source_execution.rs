@@ -2,7 +2,7 @@
 #[path="fixtures/catalog_runtime.rs"]
 mod runtime;
 use cpg_core::{compilation::{self,PreparedCompilation},workspace::{Workspace,WorkspaceOptions,CompletedInputs}};
-use lctx_model::domain::{*,normalized::Rows,execution::{source_call_records::*,enriched_production::*},stages::*};
+use lctx_model::domain::{*,normalized::Rows,execution::{source_call_records::{SourceCallData,prepare_all},enriched_production::{EnrichedData,enrich_all,ExecutionBoundary,BodyBoundary}},stages::*};
 use datafusion::prelude::SessionContext;
 use futures::TryStreamExt;
 use std::{sync::Arc,fmt::Debug};
