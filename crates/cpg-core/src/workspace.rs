@@ -1217,6 +1217,10 @@ pub struct CompletedInputs {
     >,
 }
 impl CompletedInputs {
+    /// Resolve the exact table selected by a model-owned validation declaration.
+    pub fn table_for(&self, input: &lctx_model::domain::ValidationInput) -> Result<String, ModelError> {
+        self.validation_table(input)
+    }
     fn validation_table(&self, input: &lctx_model::domain::ValidationInput) -> Result<String, ModelError> {
         let key = (input.name(), input.prefix());
         if self.relations.contains_key(&key) { return Ok(Self::table(key.0, key.1)); }
