@@ -116,6 +116,16 @@ pub fn complete(
     out: &mut seeds::Output,
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    complete_using_summary(d,|member|docs.conclusions.iter().filter(|conclusion|conclusion.status()==analysis::policy::EvidenceStatus::Documented && docs.sources.get(conclusion.source).is_some_and(|source|matches!(source,documentary::DocumentarySource::Literal{member:owner,..} if *owner==member))).min_by_key(|conclusion|conclusion.id()).map(Record::id),public,frames,parents,a,analytic,s,inv,out,b)
+}
+/// Production consumes compact literal identities prepared once from the actual documentary
+/// grains. Ranking and configured/community/budget tie breaks remain this sole model operation.
+#[allow(clippy::too_many_arguments,reason="Exact automatic selection preserves separately admitted nominal owners.")]
+pub fn complete_indexed(d:&documentary::Data,summaries:&documentary::LiteralSummaries,public:&Rows<structural::PublicCandidate>,frames:&Rows<structural::StructuralFrame>,parents:&Rows<analysis::structural::Invocation>,a:&Data,analytic:&super::frames::AnalyticParents,s:&AnalyticsConfiguration,inv:&owner::Invocation,out:&mut seeds::Output,b:&ResourceBudget)->Result<(),ModelError>{
+    complete_using_summary(d,|member|summaries.get(member),public,frames,parents,a,analytic,s,inv,out,b)
+}
+#[allow(clippy::too_many_arguments,reason="Exact automatic selection preserves separately admitted nominal owners.")]
+fn complete_using_summary(d:&documentary::Data,summary:impl Fn(Id<CatalogMemberInvocation>)->Option<Id<documentary::DocumentaryConclusion>>,public:&Rows<structural::PublicCandidate>,frames:&Rows<structural::StructuralFrame>,parents:&Rows<analysis::structural::Invocation>,a:&Data,analytic:&super::frames::AnalyticParents,s:&AnalyticsConfiguration,inv:&owner::Invocation,out:&mut seeds::Output,b:&ResourceBudget)->Result<(),ModelError>{
     let plan = seeds::SeedPlan {
         invocation: inv.id(),
         configuration: s.id(),
@@ -151,7 +161,7 @@ pub fn complete(
         if members.next().is_some() {
             return Err(invalid("automatic public slot frame ambiguous"));
         }
-        let summary=docs.conclusions.iter().filter(|c|c.status()==analysis::policy::EvidenceStatus::Documented&&docs.sources.get(c.source).is_some_and(|source|matches!(source,documentary::DocumentarySource::Literal{member:m,..}if *m==member.id()))).min_by_key(|c|c.id());
+        let summary=summary(member.id());
         let usage = a.usage.get(
             structural::UsageScore {
                 frame: sf.id(),
@@ -237,7 +247,7 @@ pub fn complete(
             plan,
             candidate: candidate.id(),
             member: member.id(),
-            summary: summary.map(Record::id),
+            summary,
             usage: usage.map(Record::id),
             rank: rank.map(Record::id),
             community,
@@ -835,4 +845,15 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn compact_literal_identities_preserve_actual_ranking_after_documentary_grains_drop(){
+        let(b,data,docs,public,frames,parents,automatic,settings,invocation)=fixture_with(6,4,false,false,true);
+        let mut expected=seeds::configured(&data,&public,&frames,&parents,&settings,&invocation,&b).unwrap();complete(&data,&docs,&public,&frames,&parents,&automatic,&automatic.parents,&settings,&invocation,&mut expected,&b).unwrap();
+        let compact=ResourceBudget::fixed(64<<10).unwrap();let mut requests=seeds::ConfiguredRequests::new(&compact);requests.observe(&data,&settings,&compact).unwrap();let mut summaries=documentary::LiteralSummaries::new(&compact);summaries.observe(&docs).unwrap();
+        let mut members=documentary::Data::new(&compact);for row in data.member_frames.iter(){members.member_frames.insert(row.clone()).unwrap();}for row in data.core_invocations.iter(){members.core_invocations.insert(row.clone()).unwrap();}drop(data);drop(docs);
+        assert!(members.members.is_empty() && members.artifacts.is_empty() && members.literals.is_empty());
+        let mut actual=seeds::configured_indexed(&requests,&public,&frames,&parents,&settings,&invocation,&compact).unwrap();complete_indexed(&members,&summaries,&public,&frames,&parents,&automatic,&automatic.parents,&settings,&invocation,&mut actual,&compact).unwrap();actual.matches(&expected).unwrap();
+        drop(actual);drop(requests);drop(summaries);drop(members);assert_eq!(compact.reserved(),0);drop(expected);drop(public);drop(frames);drop(parents);drop(automatic);assert_eq!(b.reserved(),0);
+    }
+
 }

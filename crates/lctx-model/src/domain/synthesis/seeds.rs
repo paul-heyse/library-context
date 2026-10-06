@@ -103,39 +103,46 @@ pub fn path(
     }
     Ok((name, charge))
 }
-/// Empty authored seed lists are ordinary plans. Class/unresolved slots are never 'missing'
-/// because the earlier callable-only structural selector does not contain them.
-pub fn configured(
-    d: &documentary::Data,
-    public: &Rows<structural::PublicCandidate>,
-    structural_frames: &Rows<structural::StructuralFrame>,
-    structural_invocations: &Rows<analysis::structural::Invocation>,
-    settings: &AnalyticsConfiguration,
-    invocation: &owner::Invocation,
-    b: &ResourceBudget,
-) -> Result<Output, ModelError> {
-    settings.validate()?;
-    if invocation.definition != super::build::definition().1.id() {
-        return Err(invalid("seed plan requires canonical synthesis definition"));
+/// Exact configured request matches are prepared while one actual public member's label
+/// is present. Rich paths and documentary source payloads are not retained in the index.
+pub struct ConfiguredRequests {
+    configuration:Option<Id<AnalyticsConfiguration>>,
+    matches:charged::ChargedMap<(Id<input::InputRevision>,Id<attribution::AnalysisContext>,i64),Vec<Id<CatalogMemberInvocation>>>,
+    members:charged::ChargedMap<Id<CatalogMemberInvocation>,Id<catalog::CatalogMember>>,
+    charge:charged::StateCharge,
+}
+impl ConfiguredRequests {
+    pub fn new(b:&ResourceBudget)->Self{Self{configuration:None,matches:Default::default(),members:Default::default(),charge:charged::StateCharge::new(b,"synthesis-configured-request-matches")}}
+    pub fn observe(&mut self,data:&documentary::Data,settings:&AnalyticsConfiguration,b:&ResourceBudget)->Result<(),ModelError>{
+        settings.validate()?;
+        if self.configuration.is_some_and(|configuration|configuration!=settings.id()){return Err(invalid("configured request preparation changed selected settings"));}
+        if self.configuration.is_none(){self.charge.grow(size_of::<Id<AnalyticsConfiguration>>())?;self.configuration=Some(settings.id());}
+        for frame in data.member_frames.iter(){
+            let parent=need(&data.core_invocations,frame.invocation)?;let member=need(&data.members,frame.member)?;
+            if member.input!=parent.input{return Err(invalid("configured request member crosses input"));}
+            let(name,_reservation)=path(data,frame.id(),b)?;
+            for(ordinal,requested)in settings.configured_seeds.iter().enumerate(){if name!=*requested{continue;}
+                self.members.insert(&mut self.charge,frame.id(),frame.member)?;
+                self.matches.update(&mut self.charge,(parent.input,parent.context,ordinal as i64),|matches|{if !matches.contains(&frame.id()){matches.push(frame.id());}})?;
+            }
+        }Ok(())
     }
-    let mut out = Output::new(b);
-    let plan = out.plans.insert(SeedPlan {
-        invocation: invocation.id(),
-        configuration: settings.id(),
-    })?;
-    for (ordinal, requested) in settings.configured_seeds.iter().enumerate() {
-        let mut candidates = Rows::new(b);
-        for frame in d.member_frames.iter() {
-            let parent = need(&d.core_invocations, frame.invocation)?;
-            if (parent.input, parent.context) != (invocation.input, invocation.context) {
-                continue;
-            }
-            if path(d, frame.id(), b)?.0 == *requested {
-                candidates.insert(frame.clone())?;
-            }
-        }
+}
+/// Empty authored seed lists are ordinary plans. The finite whole-input oracle uses the same
+/// exact request kernel; production observes each physically selected member separately.
+pub fn configured(d:&documentary::Data,public:&Rows<structural::PublicCandidate>,structural_frames:&Rows<structural::StructuralFrame>,structural_invocations:&Rows<analysis::structural::Invocation>,settings:&AnalyticsConfiguration,invocation:&owner::Invocation,b:&ResourceBudget)->Result<Output,ModelError>{
+    let mut requests=ConfiguredRequests::new(b);requests.observe(d,settings,b)?;
+    configured_indexed(&requests,public,structural_frames,structural_invocations,settings,invocation,b)
+}
+pub fn configured_indexed(requests:&ConfiguredRequests,public:&Rows<structural::PublicCandidate>,structural_frames:&Rows<structural::StructuralFrame>,structural_invocations:&Rows<analysis::structural::Invocation>,settings:&AnalyticsConfiguration,invocation:&owner::Invocation,b:&ResourceBudget)->Result<Output,ModelError>{
+    settings.validate()?;
+    if requests.configuration.is_some_and(|configuration|configuration!=settings.id()){return Err(invalid("configured request index changed selected settings"));}
+    if invocation.definition!=super::build::definition().1.id(){return Err(invalid("seed plan requires canonical synthesis definition"));}
+    let mut out=Output::new(b);let plan=out.plans.insert(SeedPlan{invocation:invocation.id(),configuration:settings.id()})?;
+    for(ordinal,requested)in settings.configured_seeds.iter().enumerate(){
+        let candidates=requests.matches.get(&(invocation.input,invocation.context,ordinal as i64)).map(Vec::as_slice).unwrap_or(&[]);
         let scope = if candidates.len() == 1 {
-            let member = candidates.iter().next().unwrap().member;
+            let member = *requests.members.get(candidates.first().unwrap()).ok_or_else(||invalid("configured request member ownership absent"))?;
             let mut observed = 0;
             let mut within = 0;
             for candidate in public.iter().filter(|c| c.member == member) {
@@ -176,10 +183,10 @@ pub fn configured(
             scope,
             candidates: candidates.len() as i64,
         })?;
-        for candidate in candidates.iter() {
+        for candidate in candidates {
             out.candidates.insert(ConfiguredSeedCandidate {
                 decision,
-                member: candidate.id(),
+                member: *candidate,
             })?;
         }
         if status == RequestStatus::Selected {
@@ -189,7 +196,7 @@ pub fn configured(
             out.selected.insert(SelectedSeed {
                 plan,
                 ordinal: ordinal as i64,
-                member: candidates.iter().next().unwrap().id(),
+                member: *candidates.first().unwrap(),
                 source,
             })?;
         }
@@ -475,4 +482,14 @@ pub(super) mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn configured_request_index_preserves_exact_labels_scope_and_releases_rich_grain(){
+        let(b,data,_)=documentary::tests::fixture("\"Run.\"","Run.");let settings=settings(vec!["pkg.api.absent".into(),"pkg.api.run".into()],2);let invocation=invocation(&data);
+        let expected=configured(&data,&Rows::new(&b),&Rows::new(&b),&Rows::new(&b),&settings,&invocation,&b).unwrap();
+        let compact=ResourceBudget::fixed(64<<10).unwrap();let mut requests=ConfiguredRequests::new(&compact);requests.observe(&data,&settings,&compact).unwrap();drop(data);
+        let actual=configured_indexed(&requests,&Rows::new(&compact),&Rows::new(&compact),&Rows::new(&compact),&settings,&invocation,&compact).unwrap();actual.matches(&expected).unwrap();
+        let mut changed=settings.clone();changed.configured_seeds[1]="pkg.api.other".into();assert!(configured_indexed(&requests,&Rows::new(&compact),&Rows::new(&compact),&Rows::new(&compact),&changed,&invocation,&compact).is_err());
+        drop(actual);drop(requests);assert_eq!(compact.reserved(),0);drop(expected);assert_eq!(b.reserved(),0);
+    }
+
 }
