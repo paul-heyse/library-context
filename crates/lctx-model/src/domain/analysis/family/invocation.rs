@@ -186,4 +186,12 @@ impl InvariantCheck for InvocationCheck {
 
 include!("source_receipts.rs");
 
-pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> { vec![owner_table!("analysis_invocation_inputs")] }
+pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> {
+    let mut refs = vec![owner_table!("analysis_invocation_inputs")];
+    // This complete compact frame domain is necessary even when all Enriched rows are
+    // absent. Declared family membership selects it; lower frontiers do not own it yet.
+    if AnalysisInvocation::NAME == crate::domain::analysis::enriched_execution::AnalysisInvocation::NAME {
+        refs.push("enriched_frame_fidelity");
+    }
+    refs
+}
