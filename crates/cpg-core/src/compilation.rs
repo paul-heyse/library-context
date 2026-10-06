@@ -564,6 +564,11 @@ pub async fn compile(
         completed.insert(declaration.name);
         freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
     }
+    // Source owners are admitted once while the normalized dependency set is immutable.
+    // Prepared consumer authorities project this lifetime; upper stages do not replay owners.
+    let normalized_authority = if prepared.is_some() {
+        Some(workspace.admit_semantics(profile).await?)
+    } else { None };
     let graph_needs = schedule
         .stages()
         .iter()
@@ -588,7 +593,7 @@ pub async fn compile(
         let prepared =
             prepared.ok_or_else(|| ModelError::Invalid("missing upper configuration".into()))?;
         if !binding.graphs(profile).is_empty() && graphs.is_none() {
-            graphs = Some(PreparedGraphs::load(&access, workspace, model, &graph_needs).await?);
+            graphs = Some(PreparedGraphs::load(&access, workspace, normalized_authority.as_ref().expect("normalized authority"), model, &graph_needs).await?);
         }
         match binding {
             UpperStage::Configuration => {

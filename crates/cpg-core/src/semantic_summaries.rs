@@ -70,7 +70,7 @@ pub async fn produce(
             name: projection::ProjectionName::CallableInvocation,
         };
         let graph = if access.profile() == Profile::Behavioral {
-            Some(graphs.ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?.graph(&access, budget, key)?)
+            Some(graphs.ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?.graph(&access, runtime, key)?)
         } else { None };
         let (invocation, inputs, receipts, projections) = owner::AnalysisInvocation::admitted(
             run.input,

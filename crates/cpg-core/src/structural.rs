@@ -159,12 +159,12 @@ pub async fn produce(
         };
         let call = graphs.graph(
             &access,
-            runtime.budget(),
+            runtime,
             key(projection::ProjectionName::CallableInvocation),
         )?;
         let definition = graphs.graph(
             &access,
-            runtime.budget(),
+            runtime,
             key(projection::ProjectionName::DefinitionContainment),
         )?;
         results.extend(crate::stage_runtime::borrowed_cpu(access.name(), || {

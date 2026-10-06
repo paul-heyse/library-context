@@ -102,7 +102,7 @@ pub async fn produce(
         };
         let graph = graphs.graph(
             &access,
-            runtime.budget(),
+            runtime,
             projection::normalization::ProjectionKey {
                 input: parent.input,
                 context: parent.context,

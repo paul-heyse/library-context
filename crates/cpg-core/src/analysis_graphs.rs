@@ -2,7 +2,7 @@
 //!
 //! Each borrowing consumer still needs its own declared completed-input permits. Stored snapshots
 //! supply topology; neither preparation nor repeated algorithms rebuild edges from semantic rows.
-use crate::workspace::{CompletedInputs, Workspace};
+use crate::workspace::{CheckedInputs, CompletedInputs, Workspace};
 use futures::TryStreamExt;
 use lctx_model::domain::{
     charged::StateCharge,
@@ -28,33 +28,20 @@ struct PreparedProjection {
 /// use cpg_core::analysis_graphs::PreparedGraphs;
 /// use lctx_model::domain::{projection::{normalization::ProjectionKey, snapshot::MaterializedGraph},
 ///     resources::ResourceBudget};
-/// use cpg_core::workspace::CompletedInputs;
+/// use cpg_core::workspace::{CompletedInputs, Workspace};
 /// fn escape<'a>(graphs: &'a PreparedGraphs, access: CompletedInputs,
-///     budget: &ResourceBudget, key: ProjectionKey) -> &'a MaterializedGraph {
-///     graphs.graph(&access, budget, key).unwrap()
+///     runtime: &Workspace, key: ProjectionKey) -> &'a MaterializedGraph {
+///     graphs.graph(&access, runtime, key).unwrap()
 /// }
 /// ```
 pub struct PreparedGraphs {
-    sources: [analysis::sources::SourceSnapshot; 3],
-    profile: stages::Profile,
+    checked: CheckedInputs,
     graphs: Vec<PreparedProjection>,
     budget: resources::ResourceBudget,
     _charge: StateCharge,
 }
 fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
-}
-fn sources(access: &CompletedInputs) -> Result<[analysis::sources::SourceSnapshot; 3], ModelError> {
-    fn source<R: Record>(
-        access: &CompletedInputs,
-    ) -> Result<analysis::sources::SourceSnapshot, ModelError> {
-        Ok(access.read::<R>()?.snapshot())
-    }
-    Ok([
-        source::<ProjectionSourceAssessment>(access)?,
-        source::<ProjectionSnapshot>(access)?,
-        source::<ProjectionSnapshotChunk>(access)?,
-    ])
 }
 async fn load<R: Record>(
     session: &datafusion::prelude::SessionContext,
@@ -82,19 +69,25 @@ fn id_literal<R>(id: Id<R>) -> datafusion::logical_expr::Expr {
 }
 
 impl PreparedGraphs {
-    /// Prepare after normalized publication/checkpoint, from the first consuming stage's permits.
-    /// Its declaration must include the sources' normal invariant/reference closure, just like
-    /// other completed-input readers. Selection is explicit; missing selected snapshots refuse.
+    /// Borrow normalization-owned admission, retaining only the exact graph source descriptors.
+    /// Each consumer must still declare those immutable streams. Selection is explicit; missing
+    /// selected snapshots refuse without rerunning predecessor admission or graph construction.
     pub async fn load(
         access: &CompletedInputs,
         runtime: &Workspace,
+        checked: &CheckedInputs,
         _model: &Arc<ValidatedModel>,
         names: &BTreeSet<ProjectionName>,
     ) -> Result<Self, ModelError> {
         if names.is_empty() {
             return Err(invalid("graph preparation needs a named projection"));
         }
-        let sources = sources(access)?;
+        let checked = checked.select(&[
+            ValidationInput::of::<ProjectionSourceAssessment>(&["id"]),
+            ValidationInput::of::<ProjectionSnapshot>(&["id"]),
+            ValidationInput::of::<ProjectionSnapshotChunk>(&["id"]),
+        ])?;
+        checked.require_subset(runtime, access)?;
         let session = access.session(runtime).await?;
         let budget = runtime.budget();
         // Decode selected metadata only. The predicate is applied to the attempt scan, before
@@ -146,14 +139,15 @@ impl PreparedGraphs {
             graphs.push(PreparedProjection { assessment: assessment.clone(), graph });
         }
         graphs.sort_by_key(|p| p.graph.key());
-        Ok(Self { sources, profile: access.profile(), graphs, budget: budget.clone(), _charge: charge })
+        Ok(Self { checked, graphs, budget: budget.clone(), _charge: charge })
     }
     fn admit(
         &self,
         access: &CompletedInputs,
-        budget: &resources::ResourceBudget,
+        runtime: &Workspace,
     ) -> Result<(), ModelError> {
-        if !self.budget.shares_pool(budget) || self.profile != access.profile() || self.sources != sources(access)? {
+        self.checked.require_subset(runtime, access)?;
+        if !self.budget.shares_pool(runtime.budget()) {
             return Err(invalid(
                 "prepared graph belongs to another budget or completed source set",
             ));
@@ -163,18 +157,18 @@ impl PreparedGraphs {
     pub fn keys<'a>(
         &'a self,
         access: &'a CompletedInputs,
-        budget: &resources::ResourceBudget,
+        runtime: &Workspace,
     ) -> Result<impl Iterator<Item = ProjectionKey> + 'a, ModelError> {
-        self.admit(access, budget)?;
+        self.admit(access, runtime)?;
         Ok(self.graphs.iter().map(|p| p.graph.key()))
     }
     pub fn graph<'a>(
         &'a self,
         access: &'a CompletedInputs,
-        budget: &resources::ResourceBudget,
+        runtime: &Workspace,
         key: ProjectionKey,
     ) -> Result<&'a MaterializedGraph, ModelError> {
-        self.admit(access, budget)?;
+        self.admit(access, runtime)?;
         self.graphs
             .iter()
             .find(|p| p.graph.key() == key)
@@ -185,10 +179,10 @@ impl PreparedGraphs {
     pub fn assessment<'a>(
         &'a self,
         access: &'a CompletedInputs,
-        budget: &resources::ResourceBudget,
+        runtime: &Workspace,
         key: ProjectionKey,
     ) -> Result<&'a ProjectionSourceAssessment, ModelError> {
-        self.admit(access, budget)?;
+        self.admit(access, runtime)?;
         self.graphs
             .iter()
             .find(|p| p.graph.key() == key)
