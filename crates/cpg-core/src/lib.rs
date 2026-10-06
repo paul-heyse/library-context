@@ -63,6 +63,8 @@ pub mod semantic_summaries;
 /// Store-free attempt workspace and immutable completed inputs.
 pub mod workspace;
 
+mod ordered_stream;
+
 pub mod artifact;
 
 mod artifact_manifest;

@@ -202,7 +202,11 @@ async fn run(data:&CallableData,memory:usize,batch_rows:usize)->Arc<Workspace> {
     let facts=workspace.output("callable-fixture",stages::Profile::Catalog,ContentHash::of(b"fixture"),workspace.inputs("callable-fixture",stages::Profile::Catalog,[]).unwrap());
     macro_rules! emit {($($field:ident:$ty:ty,)*)=>{$(facts.declare::<$ty>().unwrap();for row in data.$field.iter() {facts.push(row.clone()).await.unwrap();})*};}lctx_model::normalized_callable_inputs!(emit);
     facts.finish(stages::ProviderOutcome::Complete).await.unwrap();workspace.freeze_inputs(stages::PublicationBoundary::Facts).unwrap();
-    let declaration=stage(stages::Profile::Catalog);assert_eq!(declaration.effect,stages::Effect::Pure);
+    let mut declaration=stage(stages::Profile::Catalog);assert_eq!(declaration.effect,stages::Effect::Pure);
+    // This is a pure owner-kernel fixture. Cumulative predecessor-stage setup is exercised by
+    // the real compiler journeys; retain every source this callable owner actually reads here.
+    let owner_inputs=CallableData::validation_inputs();
+    declaration.inputs.retain(|input|owner_inputs.iter().any(|owner|owner.name()==input.name()));
     let access=workspace.stage_inputs(&declaration,stages::Profile::Catalog).unwrap();let output=workspace.producer(&declaration,stages::Profile::Catalog,access.clone());
     let expected=normalize(data,workspace.budget()).unwrap();
     cpg_core::normalize::callables(access,output,&workspace,&model).await.unwrap();

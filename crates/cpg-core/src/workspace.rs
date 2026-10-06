@@ -2,10 +2,9 @@
 //!
 //! Producers write bounded batches. A completed relation is globally ordered and deduplicated
 //! before it becomes visible; interrupted writes never enter the completed-input map.
-use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch, UInt32Array};
+use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
 use datafusion::{
     arrow::{
-        compute::take,
         ipc::{reader::FileReader, writer::FileWriter},
     },
     execution::options::ArrowReadOptions,
@@ -28,6 +27,7 @@ use std::{
     any::Any,
     collections::BTreeMap,
     fs::File,
+    io::Seek,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -1083,125 +1083,21 @@ impl Workspace {
         self.cancellation.check()?;
         let name = pending.relation.name();
         let path = self.path(name, "complete");
-        let table = format!("input_{}", self.next.fetch_add(1, Ordering::Relaxed));
-        // Union only explicitly contributed vocabulary, never silently replace an owned output.
-        let mut paths = vec![pending.path.to_string_lossy().into_owned()];
-        if let Ok(previous) = self.relation(name) {
-            if pending.contribution || previous.contribution {
-                paths.push(previous.path.to_string_lossy().into_owned());
-            } else {
-                return Err(ModelError::Invalid(format!(
-                    "completed output {name} already has an owner"
-                )));
-            }
+        // Only compact identity/IPC coordinates enter external sorting. Rich original rows
+        // remain in immutable pending files and are gathered into bounded output batches.
+        let mut sources=vec![crate::ordered_stream::Source{path:pending.path.clone(),blocks:pending.blocks.clone()}];
+        if let Ok(previous)=self.relation(name) {
+            if pending.contribution||previous.contribution {
+                sources.push(crate::ordered_stream::Source{path:previous.path.clone(),blocks:previous.blocks.clone()});
+            }else{return Err(ModelError::Invalid(format!("completed output {name} already has an owner")));}
         }
-        let frame = self
-            .context
-            .read_arrow(
-                paths,
-                ArrowReadOptions::default().schema(pending.relation.schema().as_ref()),
-            )
-            .await
-            .map_err(ModelError::codec)?;
-        self.context
-            .register_table(&table, frame.into_view())
-            .map_err(ModelError::codec)?;
-        let result = async {
-            let mut stream = crate::sql::query(
-                &self.context,
-                &format!("SELECT * FROM \"{table}\" ORDER BY id"),
-            )
-            .await
-            .map_err(ModelError::codec)?
-            .execute_stream()
-            .await
-            .map_err(ModelError::codec)?;
-            let mut writer = FileWriter::try_new(
-                File::create(&path).map_err(ModelError::codec)?,
-                pending.relation.schema().as_ref(),
-            )
-            .map_err(ModelError::codec)?;
-            let mut content = pending.relation.content();
-            let mut previous: Option<RecordBatch> = None;
-            while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-                self.cancellation.check()?;
-                let _buffer = self.budget.reserve(
-                    "workspace-order-batch",
-                    lctx_model::domain::logical_batch_bytes(&batch)?.saturating_mul(3),
-                )?;
-                let ids = batch
-                    .column_by_name("id")
-                    .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
-                    .ok_or(ModelError::Schema(name))?;
-                let mut selected = Vec::with_capacity(batch.num_rows());
-                for index in 0..batch.num_rows() {
-                    let singleton = pending.relation.canonical(&batch.slice(index, 1))?;
-                    let duplicate = previous.as_ref().is_some_and(|previous| {
-                        let previous_id = previous
-                            .column(0)
-                            .as_any()
-                            .downcast_ref::<FixedSizeBinaryArray>()
-                            .expect("canonical identity");
-                        previous_id.value(0) == ids.value(index)
-                    });
-                    if duplicate {
-                        if previous.as_ref() != Some(&singleton) {
-                            return Err(ModelError::Conflict(name));
-                        }
-                    } else {
-                        selected.push(index as u32);
-                    }
-                    previous = Some(singleton);
-                }
-                if !selected.is_empty() {
-                    let indices = UInt32Array::from(selected);
-                    let columns = batch
-                        .columns()
-                        .iter()
-                        .map(|c| take(c.as_ref(), &indices, None).map_err(ModelError::codec))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let canonical =
-                        RecordBatch::try_new(pending.relation.schema().clone(), columns)
-                            .map_err(ModelError::codec)?;
-                    pending.relation.hash_rows(&canonical, &mut content)?;
-                    writer.write(&canonical).map_err(ModelError::codec)?;
-                }
-            }
-            writer.finish().map_err(ModelError::codec)?;
-            writer
-                .into_inner()
-                .map_err(ModelError::codec)?
-                .sync_all()
-                .map_err(ModelError::codec)?;
-            self.cancellation.check()?;
-            let (rows, content) = content.finish();
-            Ok(Arc::new(CompletedRelation {
-                relation: pending.relation,
-                producer,
-                implementation,
-                configuration,
-                contract: self.model.digest(),
-                content,
-                rows,
-                inputs,
-                profile,
-                contribution: pending.contribution,
-                snapshot: (pending.snapshot)(
-                    producer,
-                    self.model.digest(),
-                    implementation,
-                    content,
-                    rows,
-                )?,
-                path,
-                _files: self.files.clone(),
-            }))
-        }
-        .await;
-        self.context
-            .deregister_table(&table)
-            .map_err(ModelError::codec)?;
-        result
+        let index=self.path(name,"order-index");
+        let (rows,content,blocks)=crate::ordered_stream::order(&pending.relation,sources,&self.context,self.budget(),&self.cancellation,&index,&path,self.options.batch_rows).await?;
+        self.cancellation.check()?;
+        Ok(Arc::new(CompletedRelation{
+            relation:pending.relation,producer,implementation,configuration,contract:self.model.digest(),content,rows,inputs,profile,contribution:pending.contribution,
+            snapshot:(pending.snapshot)(producer,self.model.digest(),implementation,content,rows)?,path,blocks,_files:self.files.clone(),
+        }))
     }
 }
 fn poisoned() -> ModelError {
@@ -1210,6 +1106,7 @@ fn poisoned() -> ModelError {
 
 /// A stream descriptor, not a resident collection or a database read capability.
 pub struct CompletedRelation {
+    blocks: Arc<[usize]>,
     relation: Relation,
     producer: &'static str,
     implementation: ContentHash,
@@ -1551,6 +1448,7 @@ fn snapshot<R: Record>(
     )
 }
 struct PendingRelation {
+    blocks: Arc<[usize]>,
     relation: Relation,
     path: PathBuf,
     contribution: bool,
@@ -1565,6 +1463,7 @@ trait ErasedWriter: Send {
     ) -> Result<PendingRelation, ModelError>;
 }
 struct Writer<R: Record> {
+    blocks: Vec<usize>,
     ipc: FileWriter<File>,
     path: PathBuf,
     pending: Vec<R>,
@@ -1574,13 +1473,19 @@ struct Writer<R: Record> {
     contribution: bool,
 }
 impl<R: Record> Writer<R> {
+    fn write_arrow(&mut self,batch:&RecordBatch)->Result<(),ModelError>{
+        let before=self.ipc.get_mut().stream_position().map_err(ModelError::codec)?;
+        self.ipc.write(batch).map_err(ModelError::codec)?;
+        let after=self.ipc.get_mut().stream_position().map_err(ModelError::codec)?;
+        self.blocks.push(usize::try_from(after-before).map_err(ModelError::codec)?);Ok(())
+    }
     fn flush(&mut self, model: &ValidatedModel, budget: &ResourceBudget) -> Result<(), ModelError> {
         if !self.pending.is_empty() {
             // Transfer the existing row reservation into encoding; these are the same rows,
             // rather than an additional resident copy of the pending batch.
             let charge=std::mem::replace(&mut self.charge,budget.reserve(R::NAME,0)?);
             let batch = Batch::with_reservation(model, std::mem::take(&mut self.pending), charge)?;
-            self.ipc.write(batch.arrow()).map_err(ModelError::codec)?;
+            self.write_arrow(batch.arrow())?;
             self.bytes = 0;
         }
         Ok(())
@@ -1603,6 +1508,7 @@ impl<R: Record> ErasedWriter for Writer<R> {
             .sync_all()
             .map_err(ModelError::codec)?;
         Ok(PendingRelation {
+            blocks: self.blocks.into(),
             relation: Relation::of::<R>(),
             path: self.path,
             contribution: self.contribution,
@@ -1693,6 +1599,7 @@ impl ProducerOutput {
         writers.insert(
             R::NAME,
             Box::new(Writer::<R> {
+                blocks: Vec::new(),
                 ipc,
                 path,
                 pending: Vec::new(),
@@ -1700,6 +1607,7 @@ impl ProducerOutput {
                 charge: self.workspace.budget().reserve(R::NAME,0)?,
                 limits: TransferLimits {
                     rows: self.workspace.options.batch_rows,
+                    bytes: (self.workspace.options.memory_bytes/8).max(1).min(lctx_model::domain::resources::TRANSFER_BYTES),
                     ..Default::default()
                 },
                 contribution,
@@ -1718,7 +1626,7 @@ impl ProducerOutput {
             .and_then(|w| w.as_any_mut().downcast_mut::<Writer<R>>())
             .ok_or_else(|| ModelError::Invalid(format!("output {} was not declared", R::NAME)))?;
         writer.flush(&self.workspace.model, self.workspace.budget())?;
-        let result = writer.ipc.write(batch.arrow()).map_err(ModelError::codec);
+        let result = writer.write_arrow(batch.arrow());
         if result.is_err() {
             self.failed.store(true, Ordering::Release);
         }

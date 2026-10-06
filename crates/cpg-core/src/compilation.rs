@@ -593,6 +593,7 @@ pub async fn compile(
         .flat_map(|s| s.graphs(profile).iter().copied())
         .collect();
     let mut graphs = None;
+    let mut local = None;
     let mut evaluations = None;
     let mut completed_bodies = None;
     let mut source_calls = None;
@@ -670,14 +671,14 @@ pub async fn compile(
                 crate::catalog_selection::produce(access, output, workspace, model).await?
             }
             UpperStage::Local => {
-                crate::local_semantics::run(
+                local = crate::local_semantics::run(
                     access,
                     output,
                     workspace,
                     model,
                     prepared.definition(AnalysisMethod::LocalTransfers)?,
                 )
-                .await?
+                .await?;
             }
             UpperStage::Base => {
                 evaluations = crate::semantic_execution::evaluate_base(
@@ -686,6 +687,7 @@ pub async fn compile(
                     workspace,
                     model,
                     prepared.definition(AnalysisMethod::Execution)?,
+                    local.as_ref(),
                 )
                 .await?;
             }
@@ -748,8 +750,10 @@ pub async fn compile(
                     prepared.definition(AnalysisMethod::Summaries)?,
                     graphs.as_ref(),
                     bindings.as_ref(),
+                    local.as_ref(),
                 )
-                .await?
+                .await?;
+                local = None;
             }
             UpperStage::Structural => {
                 crate::structural::produce(
