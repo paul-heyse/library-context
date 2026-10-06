@@ -19,7 +19,6 @@ hex.workspace = true
 cpg-core = { path = "../cpg-core" }
 cpg-extract = { path = "../cpg-extract" }
 lctx-publisher = { path = "../lctx-publisher" }
-datafusion.workspace = true
 tempfile.workspace = true
 
 [lints]

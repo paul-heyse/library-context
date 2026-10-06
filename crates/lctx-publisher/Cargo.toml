@@ -12,12 +12,9 @@ cpg-core = { path = "../cpg-core" }
 serde.workspace = true
 serde_json.workspace = true
 hex.workspace = true
-futures.workspace = true
-tokio.workspace = true
 tempfile.workspace = true
 [dev-dependencies]
-cpg-extract = { path = "../cpg-extract" }
-datafusion.workspace = true
+tokio.workspace = true
 tempfile.workspace = true
 [lints]
 workspace = true

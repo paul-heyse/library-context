@@ -12,14 +12,10 @@ surrealdb = { version = "3.3", default-features = false, features = ["protocol-g
 serde.workspace = true
 serde_json.workspace = true
 arrow-array.workspace = true
-arrow-schema.workspace = true
 hex.workspace = true
-tokio.workspace = true
-futures.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

@@ -16,7 +16,6 @@ lctx-serving = { path = "../lctx-serving" }
 tempfile.workspace = true
 lctx-embed = { path = "../lctx-embed" }
 url.workspace = true
-datafusion.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
@@ -29,11 +28,9 @@ lctx-workspace-hack = { version = "0.1", path = "../lctx-workspace-hack" }
 tikv-jemallocator.workspace = true
 
 [dev-dependencies]
-futures.workspace = true
-serde.workspace = true
+datafusion.workspace = true
 base64.workspace = true
 sha2.workspace = true
-insta.workspace = true
 
 [lints]
 workspace = true

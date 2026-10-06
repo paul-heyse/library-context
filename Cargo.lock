@@ -1226,11 +1226,9 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
- "async-trait",
  "cpg-extract",
  "datafusion",
  "futures 0.3.34",
- "lctx-analytics",
  "lctx-model",
  "serde",
  "serde_json",
@@ -1239,7 +1237,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -3818,15 +3815,12 @@ dependencies = [
  "cpg-extract",
  "datafusion",
  "fs-err",
- "futures 0.3.34",
- "insta",
  "lctx-embed",
  "lctx-model",
  "lctx-publisher",
  "lctx-serving",
  "lctx-surrealdb",
  "lctx-workspace-hack",
- "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -3904,9 +3898,6 @@ name = "lctx-publisher"
 version = "0.1.0"
 dependencies = [
  "cpg-core",
- "cpg-extract",
- "datafusion",
- "futures 0.3.34",
  "hex",
  "lctx-model",
  "lctx-surrealdb",
@@ -3934,7 +3925,6 @@ version = "0.1.0"
 dependencies = [
  "cpg-core",
  "cpg-extract",
- "datafusion",
  "hex",
  "lctx-model",
  "lctx-publisher",
@@ -3951,15 +3941,11 @@ name = "lctx-surrealdb"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
- "arrow-schema",
- "futures 0.3.34",
  "hex",
  "lctx-model",
  "serde",
  "serde_json",
  "surrealdb",
- "tempfile",
- "thiserror 2.0.21",
  "tokio",
 ]
 
