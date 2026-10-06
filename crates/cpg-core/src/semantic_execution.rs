@@ -19,6 +19,10 @@ use std::sync::Arc;
 mod execution_scope;
 #[path="base_scope.rs"]
 mod base_scope;
+#[path="source_call_scope.rs"]
+mod source_call_scope;
+#[path="execution_counts.rs"]
+mod execution_counts;
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
@@ -31,6 +35,7 @@ async fn load<R: Record>(
     ) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     while let Some((input, permit)) = consumed.next::<R>(access)? {
+        if crate::consumed_rows::stream_artifact_admission(access,&input,session,admission).await? {continue;}
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
             admission.visit_if_expected(permit, batch)?;
             visit(&input, permit, batch)
@@ -44,6 +49,7 @@ pub struct Produced<T> {
     premises: CompletedInputs,
     outputs: CompletedInputs,
     value: T,
+    source_payloads:Option<source_call_scope::SourcePayloadSpool>,
 }
 impl<T> Produced<T> {
     pub(crate) fn borrow(&self, access: &CompletedInputs, runtime: &Workspace) -> Result<&T, ModelError> {
@@ -265,7 +271,7 @@ pub async fn evaluate_base(
     output.finish(ProviderOutcome::Complete).await?;
     if profile != Profile::Behavioral { return Ok(None); }
     let outputs = runtime.inputs("actual-produced-values", profile, [publication::AnalysisInvocation::NAME, ExpressionEvaluation::NAME, EvaluationSource::NAME, EvaluationMember::NAME, EvaluationOperand::NAME])?;
-    Ok(produced.map(|value| Produced { premises, outputs, value }))
+    Ok(produced.map(|value| Produced { premises, outputs, value,source_payloads:None }))
 }
 
 use lctx_model::domain::{
@@ -520,7 +526,7 @@ pub async fn complete_base(
     output.finish(ProviderOutcome::Complete).await?;
     if profile != Profile::Behavioral { return Ok(None); }
     let outputs = runtime.inputs("actual-produced-values", profile, [completion_publication::AnalysisInvocation::NAME, SourceBodyCompletion::NAME, BodySource::NAME, BodyMember::NAME, BodyReleaseInput::NAME, StatementCompletion::NAME])?;
-    Ok(produced.map(|value| Produced { premises, outputs, value }))
+    Ok(produced.map(|value| Produced { premises, outputs, value,source_payloads:None }))
 }
 
 /// Fresh source binding consumes acknowledged normalized shapes and earlier completion frames.
@@ -528,7 +534,7 @@ pub async fn prepare_source_calls(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
     bindings: Option<&crate::analysis_bindings::PreparedBindings>,
     evaluations: Option<&Produced<production::ProducedEvaluations>>,
@@ -554,10 +560,12 @@ pub async fn prepare_source_calls(
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
     let mut data = SourceCallData::new(budget);
+    let scopes=if profile==Profile::Behavioral {Some(source_call_scope::SourceCallScopes::prepare(&access,&session,model,budget).await?)}else{None};
+    let mut private_payloads=source_call_scope::SourcePayloadSpool::new(budget);
     let mut declarations = SourceCallData::consumed_inputs(profile);
     declarations.extend(analysis::expected::inputs(definition.method));
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
-    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
+    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
@@ -565,7 +573,7 @@ pub async fn prepare_source_calls(
         lctx_model::normalized_binding_outputs!(inputs);
     }
     if profile == Profile::Behavioral {
-        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
+        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
         earlier!(
             syntax::ParameterSyntaxObservation,
             EntryValueWitness,
@@ -613,7 +621,6 @@ pub async fn prepare_source_calls(
     }
     macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
-    drop(session);
     consumed.finish(access.name())?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
@@ -685,31 +692,24 @@ pub async fn prepare_source_calls(
             &admission,
             budget,
         )?;
-        let (records, owner) = prepare_all_produced(&data, &invocation, definition, profile, budget, application, evaluations, bodies)?;
-        match produced.as_mut() { Some(value) => value.append(owner)?, None => produced = Some(owner) };
-        for row in records.headers.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.members.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.boundaries.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.invocations.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.releases.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.arguments.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.call_outcomes.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.invocation_boundaries.iter() {
-            output.push(row.clone()).await?;
+        let (records,owner)=prepare_empty_produced(&data,&invocation,definition,profile,budget)?;
+        match produced.as_mut(){Some(value)=>value.append(owner)?,None=>produced=Some(owner)};
+        let mut run=records.run;let mut outcome=records.outcome;
+        if let Some(scopes)=&scopes {
+            use futures::TryStreamExt;
+            let mut roots=crate::sql::query(&session,&scopes.roots(&invocation)?).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+            while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)? {let _transfer=budget.reserve("SourceCall-root-transfer",logical_batch_bytes(&batch)?)?;
+                for row in 0..batch.num_rows(){runtime.cancellation().check()?;let event=execution_scope::nominal(&crate::scoped_admission::column(&batch,"id",row)?.ok_or(ModelError::Schema("SourceCall root ID"))?)?;
+                    let scope=scopes.scope(event,budget).await?;let selected=scopes.data(&scope,budget).await?;
+                    let (records,owner,payload)=prepare_event_produced(&selected,&invocation,definition,profile,budget,application,evaluations,bodies,event)?;
+                    private_payloads.insert(invocation.id(),event,payload.bytes())?;drop(payload);
+                    produced.as_mut().expect("actual SourceCall frame").append(owner)?;
+                    run.bound=run.bound.checked_add(records.run.bound).ok_or(ModelError::Conflict("SourceCall bound count overflow"))?;run.refused=run.refused.checked_add(records.run.refused).ok_or(ModelError::Conflict("SourceCall refused count overflow"))?;
+                    if records.outcome.status==analysis::AnalysisStatus::Partial {outcome.status=records.outcome.status;outcome.reason=records.outcome.reason;}
+                    macro_rules! write {($($field:ident),*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}write!(headers,members,boundaries,invocations,releases,arguments,call_outcomes,invocation_boundaries);
+                    drop(records);drop(selected);drop(scope);tokio::task::yield_now().await;
+                }
+            }
         }
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
@@ -723,8 +723,8 @@ pub async fn prepare_source_calls(
             let (row, premises) = owner::coverage::assess(
                 scope.expectation(),
                 scope.observations(),
-                records.outcome.status,
-                records.outcome.reason,
+                outcome.status,
+                outcome.reason,
                 budget,
             )?;
             output.push(row).await?;
@@ -732,8 +732,8 @@ pub async fn prepare_source_calls(
                 output.push(row).await?;
             }
         }
-        output.push(records.run).await?;
-        output.push(records.outcome).await?;
+        output.push(run).await?;
+        output.push(outcome).await?;
         output.push(invocation).await?;
         for row in parents.iter() {
             output.push(row.clone()).await?;
@@ -754,7 +754,7 @@ pub async fn prepare_source_calls(
     output.finish(ProviderOutcome::Complete).await?;
     if profile != Profile::Behavioral { return Ok(None); }
     let outputs = runtime.inputs("actual-produced-values", profile, [analysis::source_call::AnalysisInvocation::NAME, analysis::source_call::AnalysisOutcome::NAME, execution::source_call_records::SourceCallRun::NAME, execution::source_call_records::SourceCallHeader::NAME, execution::source_call_records::HeaderMember::NAME, execution::source_call_records::SourceCallBoundary::NAME, execution::source_call_records::SourceInvocation::NAME, execution::source_call_records::SourceFrameRelease::NAME, execution::source_call_records::SourceFrameArgument::NAME, execution::source_call_records::SourceCallOutcome::NAME, execution::source_call_records::InvocationBoundary::NAME])?;
-    Ok(produced.map(|value| Produced { premises, outputs, value }))
+    Ok(produced.map(|value| Produced { premises, outputs, value,source_payloads:Some(private_payloads) }))
 }
 
 /// Fresh source binding consumes acknowledged normalized shapes and earlier completion frames.
@@ -762,7 +762,7 @@ pub async fn enrich(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
     bindings: Option<&crate::analysis_bindings::PreparedBindings>,
     evaluations: Option<&Produced<production::ProducedEvaluations>>,
@@ -791,7 +791,7 @@ pub async fn enrich(
         ));
     }
     let evaluations = evaluations.map(|owner| owner.borrow(&access, runtime)).transpose()?;
-    let source_calls = source_calls.map(|owner| owner.borrow(&access, runtime)).transpose()?;
+    let source_values = source_calls.map(|owner| owner.borrow(&access, runtime)).transpose()?;
     let application = if access.profile() == Profile::Behavioral {
         Some(bindings.ok_or_else(|| ModelError::Invalid("normalized application authority absent".into()))?.application(&access, runtime)?)
     } else { None };
@@ -801,10 +801,11 @@ pub async fn enrich(
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
     let mut data = EnrichedData::new(budget);
+    let scopes=if profile==Profile::Behavioral {Some(source_call_scope::SourceCallScopes::prepare_enriched(&access,&session,model,budget).await?)}else{None};
     let mut declarations = EnrichedData::consumed_inputs(profile);
     declarations.extend(analysis::expected::inputs(definition.method));
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
-    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
+    macro_rules! inputs{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
@@ -813,7 +814,7 @@ pub async fn enrich(
         lctx_model::model_pin_inputs!(inputs);
     }
     if profile == Profile::Behavioral {
-        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
+        macro_rules! earlier{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
         earlier!(
             syntax::ParameterSyntaxObservation,
             EntryValueWitness,
@@ -849,14 +850,10 @@ pub async fn enrich(
         |input, _, batch| data.visit_input(input, batch),
     )
     .await?;
-    load::<models::ModelCatalog>(
-        &access,
-        &session,
-        &mut consumed,
-        &mut admission,
-        |input, _, batch| data.visit_input(input, batch),
-    )
-    .await?;
+    let catalog=data.parameters.get(definition.parameters).and_then(|row|row.model_catalog).ok_or(ModelError::Conflict("Enriched selected model catalog absent"))?;
+    while let Some((input,permit))=consumed.next::<models::ModelCatalog>(&access)? {
+        crate::consumed_rows::stream_where_at(&permit,&input,&access,&session,Some(&execution_scope::predicate(catalog)),|_,batch|data.visit_input(&input,batch)).await?;
+    }
     let mut base = Rows::<analysis::source_call::AnalysisInvocation>::new(budget);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(budget);
     load::<analysis::source_call::AnalysisInvocation>(
@@ -888,7 +885,6 @@ pub async fn enrich(
     }
     macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
-    drop(session);
     consumed.finish(access.name())?;
     macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
@@ -980,9 +976,49 @@ pub async fn enrich(
             &admission,
             budget,
         )?;
-        let records = enrich_all_produced(&data, &invocation, definition, profile, budget, application, evaluations, source_calls)?;
-        macro_rules! write{($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
+        let mut work=EnrichedWork::new(&invocation,budget)?;
+        let mut parent=base.iter().filter(|row|(row.input,row.context)==(frame.input,frame.context));
+        let parent=parent.next().ok_or(ModelError::Conflict("Enriched actual SourceCall frame absent"))?;
+        if base.iter().filter(|row|(row.input,row.context)==(frame.input,frame.context)).count()!=1 {return Err(ModelError::Conflict("Enriched actual SourceCall frame ambiguous"));}
+        let empty_values=source_values.map(|values|values.hydrate_empty(parent,budget)).transpose()?;
+        let records=enrich_empty_produced(&data,&invocation,definition,profile,budget,empty_values.as_ref(),&mut work)?;
+        let mut run=records.run;let mut outcome=records.outcome;
+        drop(empty_values);
+        if let Some(scopes)=&scopes {
+            use futures::TryStreamExt;
+            let values=source_values.ok_or(ModelError::Conflict("Enriched actual SourceCall owner absent"))?;
+            let spool=source_calls.and_then(|owner|owner.source_payloads.as_ref()).ok_or(ModelError::Conflict("Enriched private SourceCall payload owner absent"))?;
+            let mut counts=execution_counts::ExecutionCounts::new(budget)?;
+            for unowned in [false,true] {
+                let mut roots=crate::sql::query(&session,&scopes.owner_roots(&invocation,unowned)?).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)? {
+                    let _transfer=budget.reserve("Enriched-root-transfer",logical_batch_bytes(&batch)?)?;
+                    for row in 0..batch.num_rows() {
+                        runtime.cancellation().check()?;
+                        let key=crate::scoped_admission::column(&batch,"id",row)?.ok_or(ModelError::Schema("Enriched root ID"))?;
+                        let scope=if unowned {scopes.unowned_scope(execution_scope::nominal(&key)?,budget).await?}else{scopes.owner_scope(execution_scope::nominal(&key)?,budget).await?};
+                        let mut selected=scopes.enriched_data(&scope,budget).await?;
+                        source_call_scope::enriched_configuration(&data,&mut selected)?;
+                        let records=if unowned {
+                            enrich_unowned_statement(&selected,&invocation,definition,profile,budget,execution_scope::nominal(&key)?,&mut work)?
+                        }else{
+                            let hydrated=source_call_scope::hydrate_selected(values,spool,parent,&selected,budget)?;
+                            enrich_owner_produced(&selected,&invocation,definition,profile,budget,application,evaluations,Some(&hydrated),execution_scope::nominal(&key)?,&mut work)?
+                        };
+                        for row in records.executions.iter(){counts.push(0,row)?;}
+                        for row in records.boundaries.iter(){counts.push(1,row)?;}
+                        for row in records.bodies.iter(){counts.push(2,row)?;}
+                        for row in records.body_boundaries.iter(){counts.push(3,row)?;}
+            macro_rules! write{($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
         write!(modeled_calls:ModeledCallEvaluation,modeled_arguments:ModeledCallArgument,modeled_native:ModeledCallNative,fresh_calls:SourceExecutionInvocation,fresh_arguments:SourceExecutionArgument,captured_entries:lctx_model::domain::execution::capture_bridge::CapturedEntryBinding,captured_values:lctx_model::domain::execution::capture_bridge::CapturedValueSource,definition_evaluations:DefinitionEvaluation,definition_sources:DefinitionSource,definition_members:DefinitionMember,contexts:ContextExecution,context_items:ContextItem,context_sources:ContextSource,context_members:ContextMember,context_bindings:ContextEntryBinding,context_binding_sources:ContextBindingSource,context_binding_members:ContextBindingMember,executions:StatementExecution,outcomes:ExecutionOutcome,sources:ExecutionSource,members:ExecutionMember,entered:EnteredStatement,boundaries:ExecutionBoundary,bodies:BodyExecution,body_sources:BodySource,body_members:BodyMember,releases:BodyReleaseInput,body_boundaries:BodyBoundary,);
+                        drop(records);drop(selected);drop(scope);tokio::task::yield_now().await;
+                    }
+                }
+            }
+            let [executed,refused,bodied,body_refused]=counts.finish(&session).await?;
+            run.executed=executed;run.refused=refused;run.bodied=bodied;run.body_refused=body_refused;
+            if refused!=0 || body_refused!=0 {outcome.status=analysis::AnalysisStatus::Partial;outcome.reason=Some(obligation::ObligationKind::UnsupportedControlFlow);}
+        }
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
             output.push(requirement).await?;
@@ -995,8 +1031,8 @@ pub async fn enrich(
             let (row, premises) = owner::coverage::assess(
                 scope.expectation(),
                 scope.observations(),
-                records.outcome.status,
-                records.outcome.reason,
+                outcome.status,
+                outcome.reason,
                 budget,
             )?;
             output.push(row).await?;
@@ -1004,8 +1040,8 @@ pub async fn enrich(
                 output.push(row).await?;
             }
         }
-        output.push(records.run).await?;
-        output.push(records.outcome).await?;
+        output.push(run).await?;
+        output.push(outcome).await?;
         output.push(invocation).await?;
         for row in parents.iter() {
             output.push(row.clone()).await?;
@@ -1048,7 +1084,7 @@ mod produced_authority_controls {
         let artifact = SourceArtifact::from_bytes(nominal(1), "source.py".into(), b"x").unwrap();
         publish(&runtime, "first", artifact.clone()).await;
         let selected = runtime.inputs("consumer", Profile::Catalog, [SourceArtifact::NAME]).unwrap();
-        let produced = Produced {premises:selected.clone(), outputs:selected.clone(), value:7u8};
+        let produced = Produced {premises:selected.clone(), outputs:selected.clone(), value:7u8,source_payloads:None};
         assert_eq!(*produced.borrow(&selected, &runtime).unwrap(), 7);
         let other = Workspace::new(model, WorkspaceOptions::default()).unwrap();
         publish(&other, "same-content", artifact).await;
