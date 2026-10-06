@@ -488,7 +488,7 @@ pub async fn complete_base(
     drop(base);
     output.finish(ProviderOutcome::Complete).await?;
     if profile != Profile::Behavioral { return Ok(None); }
-    let outputs = runtime.inputs("actual-produced-values", profile, [completion_publication::AnalysisInvocation::NAME, SourceBodyCompletion::NAME])?;
+    let outputs = runtime.inputs("actual-produced-values", profile, [completion_publication::AnalysisInvocation::NAME, SourceBodyCompletion::NAME, BodySource::NAME, BodyMember::NAME, BodyReleaseInput::NAME, StatementCompletion::NAME])?;
     Ok(produced.map(|value| Produced { premises, outputs, value }))
 }
 
