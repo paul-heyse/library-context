@@ -83,6 +83,9 @@ impl ProjectionInput {
     pub fn gaps(&self) -> impl Iterator<Item = &ProjectionGap> {
         self.gaps.iter()
     }
+    pub fn coverage(&self) -> impl Iterator<Item = &ProjectionSourceCoverage> {
+        self.coverage.iter()
+    }
     pub fn subjects(&self) -> impl Iterator<Item = &ProjectionGapSubject> {
         self.subjects.iter()
     }

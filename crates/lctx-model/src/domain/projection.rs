@@ -216,7 +216,7 @@ impl ArcId {
     }
 }
 impl HeapSize for ArcId {}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Arc {
     pub id: ArcId,
     pub source: Id<EntityRef>,
@@ -260,7 +260,7 @@ pub struct ProjectionSourceAssessment {
     pub gaps: i64,
     pub availability: ProjectionAvailability,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "projection_gap_subjects")]
 pub enum ProjectionGapSubject {
     #[model(code = 0)]
@@ -289,7 +289,7 @@ pub enum ProjectionGapSubject {
         family: FactFamily,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "projection_gaps")]
 pub struct ProjectionGap {
     #[model(key)]
@@ -299,7 +299,7 @@ pub struct ProjectionGap {
     #[model(key)]
     pub reason: ProjectionGapReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "projection_source_coverage")]
 pub struct ProjectionSourceCoverage {
     #[model(key)]
