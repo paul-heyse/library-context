@@ -273,7 +273,7 @@ async fn order(
         .await
         .map_err(ModelError::codec)?;
     let result = async {
-        let mut stream = crate::sql::query(&context, &format!("SELECT * FROM {name} ORDER BY id"))
+        let mut stream = crate::sql::query(context, &format!("SELECT * FROM {name} ORDER BY id"))
             .await
             .map_err(ModelError::codec)?
             .execute_stream()
@@ -491,21 +491,21 @@ fn records<T: serde::de::DeserializeOwned + serde::Serialize>(
     Ok(std::iter::from_fn(move || {
         if failed { return None; }
         loop {
-            if let Some(current) = &batch {
-                if row < current.num_rows() {
-                    let payloads = current.column(2).as_any().downcast_ref::<BinaryArray>()
-                        .expect("checked graph artifact schema");
-                    let bytes = payloads.value(row);
-                    let value = serde_json::from_slice::<T>(bytes).map_err(ModelError::codec).and_then(|value| {
-                        if serde_json::to_vec(&value).map_err(ModelError::codec)? != bytes {
-                            return Err(ModelError::Conflict("artifact canonical payload"));
-                        }
-                        Ok(value)
-                    });
-                    row += 1;
-                    failed = value.is_err();
-                    return Some(value);
-                }
+            if let Some(current) = &batch
+                && row < current.num_rows()
+            {
+                let payloads = current.column(2).as_any().downcast_ref::<BinaryArray>()
+                    .expect("checked graph artifact schema");
+                let bytes = payloads.value(row);
+                let value = serde_json::from_slice::<T>(bytes).map_err(ModelError::codec).and_then(|value| {
+                    if serde_json::to_vec(&value).map_err(ModelError::codec)? != bytes {
+                        return Err(ModelError::Conflict("artifact canonical payload"));
+                    }
+                    Ok(value)
+                });
+                row += 1;
+                failed = value.is_err();
+                return Some(value);
             }
             match reader.next() {
                 Some(Ok(next)) => { batch = Some(next); row = 0; }
@@ -994,7 +994,7 @@ async fn reference_closure(
         .map_err(ModelError::codec)?;
     let result=async{
         let sql="WITH targets AS (SELECT id, 0 AS namespace, kind, subtype, source_length FROM graph_entities UNION ALL SELECT id, 1 AS namespace, NULL AS kind, NULL AS subtype, NULL AS source_length FROM graph_assertions) SELECT r.target,r.namespace,r.expected_kind,r.expected_subtype,t.kind,t.subtype,r.max_end,t.source_length FROM graph_references r LEFT JOIN targets t ON r.target=t.id AND r.namespace=t.namespace WHERE t.id IS NULL OR (r.expected_kind IS NOT NULL AND (t.kind IS NULL OR r.expected_kind<>t.kind)) OR (r.expected_subtype IS NOT NULL AND (t.subtype IS NULL OR r.expected_subtype<>t.subtype)) OR (r.max_end IS NOT NULL AND (t.source_length IS NULL OR r.max_end>t.source_length)) LIMIT 1";
-        let mut stream=crate::sql::query(&context,sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        let mut stream=crate::sql::query(context,sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
         while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
             if batch.num_rows()!=0 {
                 let target=batch.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().ok_or(ModelError::Schema("graph reference"))?;

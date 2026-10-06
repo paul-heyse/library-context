@@ -475,12 +475,12 @@ impl Workspace {
                 .iter()
                 .filter(|id| ids.contains(id))
             {
-                if let Some(previous) = checks.insert(*id, source.clone()) {
-                    if previous.producer != source.producer || previous.inputs != source.inputs {
-                        return Err(ModelError::Invalid(
-                            "publication invariant spans incompatible producer inputs".into(),
-                        ));
-                    }
+                if let Some(previous) = checks.insert(*id, source.clone())
+                    && (previous.producer != source.producer || previous.inputs != source.inputs)
+                {
+                    return Err(ModelError::Invalid(
+                        "publication invariant spans incompatible producer inputs".into(),
+                    ));
                 }
             }
         }
@@ -690,7 +690,7 @@ impl Workspace {
             )
             .await
             .map_err(ModelError::codec)?;
-        let mut stream=crate::sql::query(&session,"SELECT r.source,r.field,r.target FROM _nominal_references r LEFT JOIN _nominal_targets t ON r.target=t.relation AND r.id=t.id WHERE t.id IS NULL OR (r.subtype IS NOT NULL AND (t.subtype IS NULL OR r.subtype<>t.subtype)) LIMIT 1").await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        let mut stream=crate::sql::query(session,"SELECT r.source,r.field,r.target FROM _nominal_references r LEFT JOIN _nominal_targets t ON r.target=t.relation AND r.id=t.id WHERE t.id IS NULL OR (r.subtype IS NOT NULL AND (t.subtype IS NULL OR r.subtype<>t.subtype)) LIMIT 1").await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
         while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
             if batch.num_rows() > 0 {
                 return Err(ModelError::Invalid(format!(
@@ -1545,13 +1545,13 @@ impl ProducerOutput {
         let _completion = self.workspace.completion_gate.lock().await;
         self.workspace.writable()?;
         let writers = self.writers.into_inner().map_err(|_| poisoned())?;
-        if let Some(expected) = &self.expected {
-            if let Some(name) = expected.iter().find(|name| !writers.contains_key(**name)) {
-                return Err(ModelError::Invalid(format!(
-                    "{} omitted completed output {name}",
-                    self.name
-                )));
-            }
+        if let Some(expected) = &self.expected
+            && let Some(name) = expected.iter().find(|name| !writers.contains_key(**name))
+        {
+            return Err(ModelError::Invalid(format!(
+                "{} omitted completed output {name}",
+                self.name
+            )));
         }
         let input_snapshots: Arc<[_]> = self.inputs.snapshots().collect::<Vec<_>>().into();
         let mut completed = Vec::new();

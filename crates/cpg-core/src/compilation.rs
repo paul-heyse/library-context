@@ -487,6 +487,10 @@ fn freeze_completed_inputs(
 
 /// Execute all selected compiler owners into completed local streams. Publication is a separate
 /// consumer of the admitted graph artifact and is intentionally absent from this API.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The compiler entry point keeps capture, profile, frontier, prepared configuration and optional embedding dependencies explicit"
+)]
 pub async fn compile(
     workspace: &Arc<Workspace>,
     captured: Arc<CapturedInputs>,

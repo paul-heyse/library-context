@@ -17,7 +17,7 @@ async fn load<R: Record>(
     session: &datafusion::prelude::SessionContext,
     rows: &mut Rows<R>,
 ) -> Result<(), ModelError> {
-    let query = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", R::NAME))
+    let query = crate::sql::query(session, &format!("SELECT * FROM \"{}\"", R::NAME))
         .await
         .map_err(ModelError::codec)?;
     let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
@@ -68,26 +68,20 @@ pub async fn relations(
         charged::StateCharge::new(runtime.budget(), "relation-input-registration");
     macro_rules! read_facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
         let _permit = access.read::<$ty>()?;
-        if registered.insert(&mut registration, <$ty>::NAME)? {
-
-        }
+        registered.insert(&mut registration, <$ty>::NAME)?;
         load(&session, &mut data.facts.$field).await?;
     )* }; }
     lctx_model::normalized_entity_inputs!(read_facts);
     macro_rules! read_entities { ($($field:ident: $ty:ty,)*) => { $(
         let _permit = access.read::<$ty>()?;
-        if registered.insert(&mut registration, <$ty>::NAME)? {
-
-        }
+        registered.insert(&mut registration, <$ty>::NAME)?;
         load(&session, &mut data.entities.$field).await?;
     )* }; }
     lctx_model::normalized_entity_outputs!(read_entities);
     macro_rules! read_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
         if access.contains::<$ty>() {
             let _permit = access.read::<$ty>()?;
-            if registered.insert(&mut registration, <$ty>::NAME)? {
-
-            }
+            registered.insert(&mut registration, <$ty>::NAME)?;
             load(&session, &mut data.$field).await?;
         }
     )* }; }
