@@ -1,5 +1,6 @@
 //! Shared embedding specification and exact value contracts. Consumption has distinct owners.
 pub mod analytic;
+pub mod cache;
 pub mod configuration;
 pub mod consumption;
 pub(crate) mod spec;

@@ -20,7 +20,7 @@ pub enum Family {
     Scenario = 2,
     Source = 3,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="retrieval_definitions",validate=validate_definition)]
 pub struct RetrievalDefinition {
     #[model(key)]
@@ -152,7 +152,7 @@ pub struct OriginalAnchor {
     #[model(key)]
     pub original: Id<AnchorSource>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "retrieval_unit_roots")]
 pub struct UnitRoot {
     #[model(key)]
@@ -160,7 +160,7 @@ pub struct UnitRoot {
     #[model(key)]
     pub root: Id<c1::EvidenceRoot>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="retrieval_fragments",validate=validate_fragment)]
 pub struct Fragment {
     pub definition: Id<Definition>,

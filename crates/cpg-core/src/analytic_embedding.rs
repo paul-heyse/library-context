@@ -41,7 +41,7 @@ pub async fn produce(
     runtime: &Workspace,
     model: &Arc<ValidatedModel>,
     embedder: Option<&dyn Embedder>,
-    cache: Option<Arc<dyn embedding_realization::EmbeddingCache>>,
+    cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(
         access.profile(),

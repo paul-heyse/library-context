@@ -138,6 +138,8 @@ pub enum EntityKind {
     Definition = 150,
     SynthesisFrame = 151,
     AnalyticAttribute = 152,
+    RetrievalFragment = 153,
+    RetrievalDefinition = 154,
 }
 /// A nominal current semantic key, independent of physical family names or Arrow layout.
 fn entity_key(kind: EntityKind, domain: &str, key: &[u8; 16]) -> EntityId {
@@ -171,6 +173,8 @@ pub trait GraphEntityRecord: Record {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Entity {
+    RetrievalFragment(super::retrieval::Fragment),
+    RetrievalDefinition(super::retrieval::RetrievalDefinition),
     AnalyticAttribute(super::analytics::Attribute),
 
     AuthoredModelTargets(super::models::AuthoredTarget),
@@ -407,6 +411,8 @@ macro_rules! graph_entities {($consumer:ident;$($variant:ident:$kind:ident=>$ty:
 #[doc(hidden)]
 #[macro_export]
 macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{$consumer;
+    RetrievalFragment:RetrievalFragment=>$crate::domain::retrieval::Fragment,
+    RetrievalDefinition:RetrievalDefinition=>$crate::domain::retrieval::RetrievalDefinition,
     AnalyticAttribute:AnalyticAttribute=>$crate::domain::analytics::Attribute,
 
 
@@ -659,6 +665,10 @@ pub fn reference_target(
     reference: &super::SemanticReference,
 ) -> Result<(Target, Option<EntityKind>), ModelError> {
     match reference.target {
+    <super::retrieval::Fragment as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalFragment,reference.target,&reference.key)),Some(EntityKind::RetrievalFragment))),
+    <super::retrieval::RetrievalDefinition as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalDefinition,reference.target,&reference.key)),Some(EntityKind::RetrievalDefinition))),
+    <super::retrieval::consumption::RetrievalEmbeddingUse as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::retrieval::UnitRoot as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::transfer::local::ControlSupport as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::transfer::local::Selection as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
 
@@ -3135,6 +3145,8 @@ pub struct SemanticKey {
     key: [u8; 16],
 }
 impl SemanticKey {
+    pub fn domain(&self) -> &str { &self.domain }
+    pub fn bytes(&self) -> &[u8; 16] { &self.key }
     pub fn of<R: Record>(id: Id<R>) -> Self {
         Self {
             domain: R::NAME.into(),
@@ -4525,7 +4537,7 @@ macro_rules! graph_entity_inventory_adapter {($apply:ident;$($variant:ident:$kin
 #[macro_export]
 macro_rules! graph_entity_records {
     ($apply:ident) => {
-        $crate::graph_entity_declarations!($crate::graph_entity_inventory_adapter, $apply)
+        $crate::graph_entity_declarations!{$crate::graph_entity_inventory_adapter, $apply}
     };
 }
 
@@ -9854,6 +9866,8 @@ impl GraphAssertionRecord for super::symbols::ModuleResolutionSupport {
 // Selected analytics retain their computation universe, weights, memberships, availability and
 // provenance. QualityStep iteration traces have no semantic/serving consumer and remain private.
 macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
+    RetrievalEmbeddingUse:$crate::domain::retrieval::consumption::RetrievalEmbeddingUse,
+    RetrievalUnitRoot:$crate::domain::retrieval::UnitRoot,
     StructuralUsageSite:$crate::domain::structural::UsageSite,
     StructuralUsageEvidence:$crate::domain::structural::UsageEvidence,
     CallPolicyAssessment:$crate::domain::normalized::events::CallPolicyAssessment,
@@ -17224,4 +17238,21 @@ impl GraphAssertionRecord for super::normalized::events::CallPolicyAdmission {
             derivation: None,
         }
     }
+}
+
+macro_rules! retrieval_assertions {
+    ($($variant:ident:$ty:ty => $kind:ident),* $(,)?)=>{$(
+        impl GraphAssertionRecord for $ty {
+            const GRAPH_KIND:AssertionKind=AssertionKind::$kind;
+            fn graph_payload(row:Self)->Assertion {
+                Assertion { source:Some(SemanticKey::of(row.id())),kind:Self::GRAPH_KIND,
+                    participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],
+                    value:AssertionValue::Analysis(AnalysisValue::$variant(row)),derivation:None }
+            }
+        }
+    )*};
+}
+retrieval_assertions! {
+    RetrievalEmbeddingUse:super::retrieval::consumption::RetrievalEmbeddingUse=>EmbeddingWitness,
+    RetrievalUnitRoot:super::retrieval::UnitRoot=>EvidenceAssociation,
 }

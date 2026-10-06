@@ -495,7 +495,7 @@ pub async fn compile(
     frontier: Frontier,
     prepared: Option<&PreparedCompilation>,
     embedder: Option<&dyn Embedder>,
-    cache: Option<Arc<dyn crate::embedding_realization::EmbeddingCache>>,
+    cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
 ) -> Result<(), ModelError> {
     let model = workspace.model();
     let capture_identity = workspace.captures(&captured)?;

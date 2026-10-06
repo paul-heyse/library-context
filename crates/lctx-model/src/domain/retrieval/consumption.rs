@@ -18,7 +18,7 @@ use crate::domain::{
     obligation::ObligationKind,
     resources::ResourceBudget,
 };
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="retrieval_embedding_uses",validate=validate_use,invariant_refs=invariants_refs)]
 pub struct RetrievalEmbeddingUse {
     #[model(key)]
