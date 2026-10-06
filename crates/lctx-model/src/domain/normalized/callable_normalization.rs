@@ -392,16 +392,16 @@ fn signature_knowledge(
         Ok((Knowledge::Known, CallableReason::EvidenceAgreement))
     }
 }
-pub fn normalize(
+fn derive_assessments(
     data: &CallableData,
+    index: &Index<'_>,
+    output: &mut CallableOutput,
+    assessments: &mut ChargedMap<CallableContext, Id<EffectiveCallableAssessment>>,
+    charge: &mut StateCharge,
+    selected: Option<CallableContext>,
     budget: &ResourceBudget,
-) -> Result<CallableOutput, ModelError> {
-    let index = Index::new(data, budget)?;
-    let mut output = CallableOutput::new(budget);
-    let mut assessments: ChargedMap<CallableContext, Id<EffectiveCallableAssessment>> =
-        Default::default();
-    let mut charge = StateCharge::new(budget, "callable-assessment-map");
-    for &(callable, ctx) in index.universe.iter() {
+) -> Result<(), ModelError> {
+    for &(callable, ctx) in index.universe.iter().filter(|key| selected.is_none_or(|selected| selected == **key)) {
         let mut held = StateCharge::new(budget, "effective-callable-premises");
         let mut premises = Vec::new();
         let traits = index
@@ -663,7 +663,7 @@ pub fn normalize(
             }
         }
         let assessment = output.assessments.insert(row)?;
-        assessments.insert(&mut charge, (callable, ctx), assessment)?;
+        assessments.insert(charge, (callable, ctx), assessment)?;
         for member in members {
             output.decorators.insert(EffectiveDecoratorMember {
                 assessment,
@@ -673,9 +673,59 @@ pub fn normalize(
             })?;
         }
         for premise in premises {
-            evidence(&mut output, assessment, premise)?;
+            evidence(output, assessment, premise)?;
         }
     }
+    Ok(())
+}
+/// The owner kernel for one callable and context. Its premises must include every resolution,
+/// trait/signature alternative, decorator reference and syntax/body observation for this grain.
+/// The compiler selects those candidate families before calling this operation.
+pub fn derive_assessment(
+    data: &CallableData,
+    callable: Id<CallableEntity>,
+    context: Id<AnalysisContext>,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
+    let index = Index::new(data, budget)?;
+    if !index.universe.contains(&(callable, context)) {
+        return Err(invalid("callable assessment grain has no admitted source universe"));
+    }
+    let mut output = CallableOutput::new(budget);
+    let mut assessments = Default::default();
+    let mut charge = StateCharge::new(budget, "callable-assessment-grain");
+    derive_assessments(data, &index, &mut output, &mut assessments, &mut charge,
+        Some((callable, context)), budget)?;
+    Ok(output)
+}
+/// Check the actual source-owned descriptor/body/signature claims with the same local kernel
+/// that constructs them, without replaying any upstream entity, link or callable producer.
+pub fn admit_assessment(
+    data: &CallableData,
+    stored: &CallableOutput,
+    callable: Id<CallableEntity>,
+    context: Id<AnalysisContext>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let expected = derive_assessment(data, callable, context, budget)?;
+    stored.assessments.same(&expected.assessments).then_some(())
+        .ok_or_else(|| invalid("callable owner claims differ from selected source premises"))?;
+    if !stored.decorators.same(&expected.decorators) || !stored.premises.same(&expected.premises)
+        || !stored.evidence.same(&expected.evidence) {
+        return Err(invalid("callable owner evidence differs from selected source premises"));
+    }
+    Ok(())
+}
+pub fn normalize(
+    data: &CallableData,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
+    let index = Index::new(data, budget)?;
+    let mut output = CallableOutput::new(budget);
+    let mut assessments: ChargedMap<CallableContext, Id<EffectiveCallableAssessment>> =
+        Default::default();
+    let mut charge = StateCharge::new(budget, "callable-assessment-map");
+    derive_assessments(data, &index, &mut output, &mut assessments, &mut charge, None, budget)?;
     for signature in data.signatures.iter() {
         let resolution = index
             .resolutions
@@ -791,6 +841,13 @@ pub fn normalize(
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = CallableData::validation_inputs();
     inputs.extend(CallableOutput::validation_inputs());
+    let mut owner_inputs = CallableData::validation_inputs();
+    owner_inputs.extend([
+        ValidationInput::of::<EffectiveCallableAssessment>(&["id"]),
+        ValidationInput::of::<EffectiveDecoratorMember>(&["id"]),
+        ValidationInput::of::<EffectiveCallablePremise>(&["id"]),
+        ValidationInput::of::<EffectiveCallableEvidence>(&["id"]),
+    ]);
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
@@ -801,11 +858,22 @@ pub fn invariants() -> Vec<Invariant> {
                 data: CallableData::new(budget),
                 output: CallableOutput::new(budget),
                 budget: budget.clone(),
+                admission: false,
             })
         }),
+    }, Invariant {
+        purpose: InvariantPurpose::Admission,
+        revision: 1,
+        name: "normalized_callable_admission",
+        inputs: owner_inputs,
+        create: std::sync::Arc::new(|budget| Box::new(CallableCheck {
+            data: CallableData::new(budget), output: CallableOutput::new(budget),
+            budget: budget.clone(), admission: true,
+        })),
     }]
 }
 struct CallableCheck {
+    admission: bool,
     data: CallableData,
     output: CallableOutput,
     budget: ResourceBudget,
@@ -822,7 +890,22 @@ impl InvariantCheck for CallableCheck {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        self.output.matches(&normalize(&self.data, &self.budget)?)
+        if self.admission {
+            let index = Index::new(&self.data, &self.budget)?;
+            let mut expected = CallableOutput::new(&self.budget);
+            let mut assessments = Default::default();
+            let mut charge = StateCharge::new(&self.budget, "callable-owner-admission");
+            derive_assessments(&self.data, &index, &mut expected, &mut assessments, &mut charge, None, &self.budget)?;
+            if !self.output.assessments.same(&expected.assessments)
+                || !self.output.decorators.same(&expected.decorators)
+                || !self.output.premises.same(&expected.premises)
+                || !self.output.evidence.same(&expected.evidence) {
+                return Err(invalid("callable owner admission differs from actual source premises"));
+            }
+            Ok(())
+        } else {
+            self.output.matches(&normalize(&self.data, &self.budget)?)
+        }
     }
 }
 pub fn stage(profile: stages::Profile) -> stages::Stage {
@@ -849,5 +932,40 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
 }
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {
-    vec!["normalized_callable_closure"]
+    vec!["normalized_callable_closure", "normalized_callable_admission"]
+}
+
+#[cfg(test)]
+mod callable_grain_controls {
+    use super::*;
+    fn id<R: Record>(byte: u8) -> Id<R> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+    }
+    #[test]
+    fn selected_claims_require_actual_local_premises_and_omit_other_callable() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut data = CallableData::new(&budget);
+        let context = id(1);
+        let first = CallableEntity::External { symbol: id(2) };
+        let other = CallableEntity::External { symbol: id(3) };
+        for row in [&first, &other] {
+            data.callables.insert(row.clone()).unwrap();
+            let entity = data.refs.insert(EntityRef::Callable { callable: row.id() }).unwrap();
+            let CallableEntity::External { symbol } = row else { unreachable!() };
+            data.resolutions.insert(SymbolEntityResolution { symbol:*symbol, context,
+                policy:policy_revision(), status:ResolutionStatus::Resolved, entity:Some(entity),
+                reason:EntityReason::ProviderExternal }).unwrap();
+        }
+        let actual = derive_assessment(&data, first.id(), context, &budget).unwrap();
+        assert_eq!(actual.assessments.len(), 1);
+        assert_eq!(actual.assessments.iter().next().unwrap().callable, first.id());
+        admit_assessment(&data, &actual, first.id(), context, &budget).unwrap();
+        let mut false_claim = CallableOutput::new(&budget);
+        let mut row = actual.assessments.iter().next().unwrap().clone();
+        row.body = Knowledge::Known;
+        row.body_reason = CallableReason::EvidenceAgreement;
+        false_claim.assessments.insert(row).unwrap();
+        assert!(admit_assessment(&data, &false_claim, first.id(), context, &budget).is_err());
+        assert!(derive_assessment(&data, first.id(), id(4), &budget).is_err());
+    }
 }
