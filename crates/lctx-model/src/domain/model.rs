@@ -604,12 +604,23 @@ impl ValidatedModel {
     ) -> Result<Vec<Invariant>, ModelError> {
         self.checks_for_scope(referrers, acknowledged_premises, true)
     }
+    /// Select model-owned admission checks before an executor resolves their premises.
+    /// This grants no validity: the executor must enforce every applicable premise, allowing
+    /// omission only after an actual declared owner stream is confirmed complete-empty.
+    pub fn admission_candidates_for_scope(&self,referrers:&std::collections::BTreeSet<&str>)->Result<Vec<Invariant>,ModelError>{
+        self.select_checks_for_scope(referrers,&std::collections::BTreeSet::new(),true,false)
+    }
     fn checks_for_scope(
         &self,
         referrers: &std::collections::BTreeSet<&str>,
         acknowledged_premises: &std::collections::BTreeSet<&str>,
         admission: bool,
     ) -> Result<Vec<Invariant>, ModelError> {
+        self.select_checks_for_scope(referrers,acknowledged_premises,admission,true)
+    }
+    fn select_checks_for_scope(
+        &self,referrers:&std::collections::BTreeSet<&str>,acknowledged_premises:&std::collections::BTreeSet<&str>,admission:bool,require_premises:bool,
+    )->Result<Vec<Invariant>,ModelError>{
         for name in acknowledged_premises {
             self.relation(name).ok_or_else(|| {
                 ModelError::Invalid(format!("unknown validation premise relation {name}"))
@@ -632,7 +643,7 @@ impl ValidatedModel {
         if let Some(check) = self.generated_invariant_for_scope(referrers)? {
             checks.push(check);
         }
-        for check in &checks {
+        for check in checks.iter().filter(|_|require_premises) {
             if let Some(input) = check.inputs.iter().find(|input| {
                 !referrers.contains(input.name()) && !acknowledged_premises.contains(input.name())
             }) {

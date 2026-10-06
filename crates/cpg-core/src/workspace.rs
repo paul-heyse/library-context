@@ -394,12 +394,37 @@ impl Workspace {
             None => self.validation_views(&session).await?,
         };
         let checks = if admission {
-            self.model.admission_for_scope_with_premises(&names, &unrequested)?
+            self.model.admission_candidates_for_scope(&names)?
         } else {
             self.model.invariants_for_scope_with_premises(&names, &unrequested)?
         };
         for invariant in checks {
             let mut check = (invariant.create)(self.budget());
+            let execution_scope=check.execution_scope();
+            if let Some(scope)=&execution_scope {
+                let alias=if let Some(inputs)=selected {inputs.validation_table(&scope.root)?}
+                    else {Self::validation_table(&scope.root,&frozen_tables)?.to_owned()};
+                let sql=format!("SELECT id FROM {} LIMIT 1",crate::consumed_rows::identifier(&alias));
+                let mut roots=crate::sql::query(&session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                let mut nonempty=false;
+                while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)? {self.cancellation.check()?;nonempty|=batch.num_rows()!=0;}
+                if !nonempty {continue;}
+            }
+            if let Some(input)=invariant.inputs.iter().find(|input|!names.contains(input.name())&&!unrequested.contains(input.name())) {
+                return Err(ModelError::Invalid(format!("{} requires validation premise {} outside scope",invariant.name,input.name())));
+            }
+            if let Some(scope)=execution_scope {
+                drop(check);
+                let mut tables=Vec::with_capacity(invariant.inputs.len());
+                for input in &invariant.inputs {
+                    let alias=if unrequested.contains(input.name()){input.name().to_owned()}
+                        else if let Some(inputs)=selected{inputs.validation_table(input)?}
+                        else{Self::validation_table(input,&frozen_tables)?.to_owned()};
+                    tables.push(crate::consumed_rows::ClosureTable{relation:self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias});
+                }
+                crate::scoped_execution::validate_execution(&invariant,&scope,tables,&session,self.budget(),&self.cancellation).await?;
+                continue;
+            }
             if let Some(scope) = check.aspect_scope() {
                 drop(check);
                 let mut tables = Vec::with_capacity(invariant.inputs.len());
@@ -2192,5 +2217,21 @@ impl MemoryPool for BudgetMemoryPool {
     }
     fn memory_limit(&self) -> datafusion::execution::memory_pool::MemoryLimit {
         datafusion::execution::memory_pool::MemoryLimit::Finite(self.budget.limit())
+    }
+}
+
+#[cfg(test)]
+mod empty_execution_admission_controls {
+    use super::*;
+    use lctx_model::domain::execution::source_call_records::SourceCallHeader;
+    #[tokio::test]
+    async fn complete_empty_execution_root_needs_no_unrequested_parent_streams(){
+        let workspace=Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),WorkspaceOptions::default()).unwrap();
+        let inputs=workspace.inputs("empty-source-headers",Profile::Catalog,[]).unwrap();
+        let output=workspace.output("empty-source-headers",Profile::Catalog,ContentHash::of(b"empty-header-control"),inputs);
+        output.declare::<SourceCallHeader>().unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();
+        let selected=workspace.inputs("empty-header-consumer",Profile::Catalog,[SourceCallHeader::NAME]).unwrap();
+        workspace.checked_inputs(&selected).await.unwrap();
+        assert_eq!(workspace.completed::<SourceCallHeader>().unwrap().rows(),0);
     }
 }

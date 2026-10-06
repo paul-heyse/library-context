@@ -128,6 +128,7 @@ struct EpochProbe {
 }
 fn epoch_checks() -> Vec<Invariant> {
     vec![Invariant {
+        purpose: lctx_model::domain::InvariantPurpose::Admission,
         revision: 1,
         name: "closure_extra_epoch_and_fact_premise",
         inputs: vec![

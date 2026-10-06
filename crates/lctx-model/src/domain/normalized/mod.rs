@@ -50,7 +50,7 @@ pub(crate) fn facts_inputs(inputs: Vec<ValidationInput>) -> Vec<ValidationInput>
 pub fn policy_revision() -> ContentHash {
     // Revise this declared policy when normalization meaning changes. Rust source and dependency
     // changes belong to producer implementation provenance, not every normalized logical key.
-    ContentHash::of(b"lctx-normalization/graph-native/v1")
+    ContentHash::of(b"lctx-normalization/graph-native/v2")
 }
 
 pub fn relations() -> Vec<Relation> {

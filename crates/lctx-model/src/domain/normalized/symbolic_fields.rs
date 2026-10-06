@@ -464,7 +464,7 @@ impl<'a> ClassInventory<'a> {
             }
         }
         for field in self.data.fields.iter().filter(|field|self.data.field_syntax.get(field.declaration).is_some_and(|syntax|syntax.class==class)){
-            seed((super::links::FieldDeclarationLink::NAME,*field.id().bytes()),&mut seen,&mut pending);
+            seed((super::entities::FieldDeclarationLink::NAME,*field.id().bytes()),&mut seen,&mut pending);
         }
         while let Some(index)=pending.pop(){for &next in &self.edges[index]{enqueue(next,&mut seen,&mut pending);}}
         let mut sink=KeySink::new("source-field-class-owner-inventory-v2");class.encode(&mut sink);context.encode(&mut sink);symbol.encode(&mut sink);

@@ -163,7 +163,7 @@ mod controls {
         let artifacts=vec![a.clone(),b.clone()];
         let scopes:Vec<_>=artifacts.iter().map(|artifact|CoverageScope::Artifact {artifact:artifact.id()}).collect();
         let uses:Vec<_>=artifacts.iter().map(|artifact|ArtifactUse {artifact:artifact.id(),input:artifact.input,role:SourceRole::Example}).collect();
-        let coverage:Vec<_>=scopes.iter().map(|scope|ProviderCoverage {scope:scope.id(),provider:None,context:nominal(2),family:FactFamily::Syntax,run:None,status:CoverageStatus::Failed,reason:Some(obligation::ObligationKind::SyntaxError),diagnostic:None}).collect();
+        let coverage:Vec<_>=scopes.iter().map(|scope|ProviderCoverage {scope:scope.id(),provider:Some(nominal(3)),context:nominal(2),family:FactFamily::Syntax,run:Some(nominal(4)),status:CoverageStatus::Failed,reason:Some(obligation::ObligationKind::SyntaxError),diagnostic:None}).collect();
         install(&session,&tables,&inputs,&artifacts);install(&session,&tables,&inputs,&scopes);
         install(&session,&tables,&inputs,&uses);install(&session,&tables,&inputs,&coverage);
         let mut all=EvidenceData::new(&budget);

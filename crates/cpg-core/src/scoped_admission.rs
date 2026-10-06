@@ -97,9 +97,9 @@ fn ownership(
             invocation_inputs.push(format!("SELECT {} AS input FROM ({}) AS derived_frames", identifier(field.name()), closure.select(index)?));
         }
     }
-    invocation_inputs.push(format!("SELECT input FROM ({scopes}) AS input_scopes WHERE input IS NOT NULL"));
+    invocation_inputs.push(format!("SELECT input_input AS input FROM ({scopes}) AS input_scopes WHERE input_input IS NOT NULL"));
     let owners = union(invocation_inputs);
-    let release_ids = format!("SELECT release FROM ({scopes}) AS release_scopes WHERE release IS NOT NULL");
+    let release_ids = format!("SELECT release_release AS release FROM ({scopes}) AS release_scopes WHERE release_release IS NOT NULL");
     let artifact_inputs = format!("SELECT input FROM ({sources}) AS artifacts");
     let distributions = typed::<InputDistribution>(tables).ok_or(ModelError::Schema("support distributions"))?;
     let corpus = typed::<CorpusLibrary>(tables).ok_or(ModelError::Schema("support corpus membership"))?;

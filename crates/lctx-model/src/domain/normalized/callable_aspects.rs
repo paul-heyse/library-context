@@ -214,7 +214,7 @@ macro_rules! output {($($field:ident:$ty:ty,)*)=>{
     impl AspectOutput {pub fn new(budget:&ResourceBudget)->Self {Self {$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
         pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
-        fn matches(&self,other:&Self)->Result<(),ModelError> {$(if !self.$field.same(&other.$field) {return Err(invalid("callable metadata closure differs"));})*Ok(())}
+        pub fn matches(&self,other:&Self)->Result<(),ModelError> {$(if !self.$field.same(&other.$field) {return Err(invalid("callable metadata closure differs"));})*Ok(())}
     }
 };}
 crate::callable_aspect_outputs!(output);

@@ -995,7 +995,7 @@ mod produced_authority_controls {
     fn nominal<R>(value: u8) -> Id<R> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([value;16].into_iter())).unwrap()
     }
-    async fn publish(runtime: &Workspace, name: &'static str, artifact: SourceArtifact) {
+    async fn publish(runtime: &Arc<Workspace>, name: &'static str, artifact: SourceArtifact) {
         let output = runtime.output(name, Profile::Catalog, ContentHash::of(name.as_bytes()),
             runtime.inputs(name, Profile::Catalog, []).unwrap());
         output.declare::<SourceArtifact>().unwrap();

@@ -29,13 +29,13 @@ impl Kind {
             (ValidationInput::of::<CallBinding>(&["id"]), "attempt", ValidationInput::of::<CallBindingAttempt>(&["id"])),
         ] } else { Vec::new() };
         if matches!(self, Self::Header | Self::Release | Self::Invocation) {
-            memberships.push((ValidationInput::of::<declarations::SymbolDeclaration>(&["id"]), "declaration", ValidationInput::of::<Occurrence>(&["id"])));
+            memberships.push((ValidationInput::of::<syntax::DeclarationObservation>(&["id"]), "declaration", ValidationInput::of::<Occurrence>(&["id"])));
         }
         if matches!(self, Self::Expression | Self::Statement) {
             memberships.push((ValidationInput::of::<OccurrenceOwnership>(&["id"]), "occurrence", ValidationInput::of::<Occurrence>(&["id"])));
         }
         memberships.push((ValidationInput::of::<input::ArtifactUse>(&["id"]), "artifact", ValidationInput::of::<SourceArtifact>(&["id"])));
-        macro_rules! owned {($member:ty, $field:literal, $owner:ty) => {memberships.push((ValidationInput::of::<$member>(&["id"]), $field, ValidationInput::of::<$owner>(&["id"])));};}
+        macro_rules! owned {($member:ty, $field:literal, $owner:ty) => {{memberships.push((ValidationInput::of::<$member>(&["id"]), $field, ValidationInput::of::<$owner>(&["id"])));}};}
         match self {
             Self::Expression => {owned!(EvaluationMember, "evaluation", ExpressionEvaluation); owned!(EvaluationOperand, "evaluation", ExpressionEvaluation);}
             Self::Statement => {owned!(CompletionMember, "completion", StatementCompletion); owned!(EnteredStatement, "completion", StatementCompletion);}
@@ -43,10 +43,6 @@ impl Kind {
             Self::Header => owned!(HeaderMember, "header", SourceCallHeader),
             _ => {},
         }
-        let memberships = memberships.into_iter().map(|(member, field, owner)| {
-            let mut inputs = crate::domain::normalized::facts_inputs(vec![member, owner]).into_iter();
-            (inputs.next().expect("member"), field, inputs.next().expect("owner"))
-        }).collect();
         ExecutionScope { root: self.root(), memberships }
     }
     fn inputs(self) -> Vec<ValidationInput> {
@@ -54,7 +50,7 @@ impl Kind {
             ValidationInput::of::<CoverageScope>(&["id"]), ValidationInput::of::<Occurrence>(&["id"]),
             ValidationInput::of::<SourceArtifact>(&["id"]), ValidationInput::of::<input::ArtifactUse>(&["id"]), ValidationInput::of::<Module>(&["id"]),
             ValidationInput::of::<analysis::AnalysisDefinition>(&["id"])];
-        macro_rules! add {($($ty:ty),* $(,)?) => {$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}
+        macro_rules! add {($($ty:ty),* $(,)?) => {{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*}};}
         match self {
             Self::Expression => add!(analysis::base_evaluation::AnalysisInvocation, OccurrenceOwnership, EvaluationSource, EvaluationMember, EvaluationOperand, conditions::entry::EntryValueWitness),
             Self::Statement => add!(analysis::base_completion::AnalysisInvocation, OccurrenceOwnership, CompletionSource, CompletionMember, EnteredStatement, ExpressionEvaluation, analysis::base_evaluation::AnalysisInvocation),
@@ -62,7 +58,7 @@ impl Kind {
             Self::Header | Self::Release | Self::Invocation => {
                 add!(analysis::source_call::AnalysisInvocation, SourceCallHeader, NormalizedCallEvent,
                     OccurrenceOwnership, CallBindingAttempt, NormalizedCallAlternative, CallSyntax,
-                    EntityRef, CallableEntity, declarations::SymbolDeclaration);
+                    EntityRef, CallableEntity, syntax::DeclarationObservation);
                 if matches!(self, Self::Header) {add!(HeaderMember);}
                 if matches!(self, Self::Invocation) {add!(SourceCallOutcome, CompletionOutcome);}
                 if matches!(self, Self::Release | Self::Invocation) {
@@ -74,7 +70,6 @@ impl Kind {
                 }
             }
         }
-        inputs = crate::domain::normalized::facts_inputs(inputs);
         inputs.sort_by_key(|input| (input.name(), input.prefix()));
         inputs.dedup_by_key(|input| (input.name(), input.prefix()));
         inputs
@@ -84,7 +79,7 @@ macro_rules! fields {($apply:ident) => {$apply! {
     qualifications:AssertionQualification, scopes:CoverageScope, occurrences:Occurrence,
     artifacts:SourceArtifact, uses:input::ArtifactUse, modules:Module, definitions:analysis::AnalysisDefinition, owners:OccurrenceOwnership,
     refs:EntityRef, callables:CallableEntity, events:NormalizedCallEvent, attempts:CallBindingAttempt,
-    alternatives:NormalizedCallAlternative, syntax:CallSyntax, declarations:declarations::SymbolDeclaration, bindings:CallBinding,
+    alternatives:NormalizedCallAlternative, syntax:CallSyntax, declarations:syntax::DeclarationObservation, bindings:CallBinding,
     slots:SignatureSlot, parameters:SignatureParameter, binding_sources:BindingSource, projections:BindingProjection,
     base:analysis::base_evaluation::AnalysisInvocation, completion:analysis::base_completion::AnalysisInvocation,
     source:analysis::source_call::AnalysisInvocation, evaluations:ExpressionEvaluation,
@@ -172,7 +167,7 @@ impl Check {
         let mut declarations = self.declarations.iter().filter(|decl| decl.declaration == row.declaration
             && self.qualifications.get(decl.qualification).is_some_and(|q| q.context == frame.context));
         let declaration = declarations.next().ok_or_else(|| invalid("native source declaration absent"))?;
-        if declarations.next().is_some() || declaration.kind != declarations::DeclarationKind::Function
+        if declarations.next().is_some() || declaration.kind != syntax::DeclarationKind::Function
             || declaration.parent != Some(*caller) {return Err(invalid("native callee/caller declaration correspondence"));}
         Ok(())
     }
@@ -236,8 +231,8 @@ impl InvariantCheck for Check {
     fn visit(&mut self, name:&str, batch:&arrow_array::RecordBatch) -> Result<(), ModelError> { Check::visit(self, name, batch) }
     fn execution_scope(&self) -> Option<ExecutionScope> {Some(self.kind.scope())}
     fn visit_input(&mut self, input:&ValidationInput, batch:&arrow_array::RecordBatch) -> Result<(), ModelError> {
-        // The selected epoch is enforced by the workspace; every declared family uses Facts for vocabulary.
-        super::require_facts_view(input)?;
+        // The workspace enforces the selected immutable epoch. Admission reads the
+        // advertised final vocabulary, including qualifications authored after Facts.
         self.visit(input.name(), batch)
     }
     fn finish(self:Box<Self>) -> Result<(), ModelError> {
@@ -429,7 +424,7 @@ mod fidelity_controls {
         let callee=EntityRef::Callable {callable:callable.id()};
         let non_caller=EntityRef::Occurrence {occurrence:site.id()};
         let owner=OccurrenceOwnership {occurrence:site.id(),owner:site.id(),entity:non_caller.id()};
-        let event=NormalizedCallEvent {site:site.id(),origin:CallOrigin::explicit().id(),context:id(2),owner:owner.id()};
+        let event=NormalizedCallEvent {site:site.id(),origin:CallOrigin::explicit(),context:id(2),owner:owner.id()};
         let native=CallAlternativeSource::Native {target:id(11)};
         let alternative=NormalizedCallAlternative {event:event.id(),source:native.id(),resolution:None,
             correspondence:None,entity:Some(callee.id()),status:ResolutionStatus::Resolved,reason:LinkReason::ExplicitIdentity};

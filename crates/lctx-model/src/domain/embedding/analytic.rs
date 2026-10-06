@@ -1,6 +1,6 @@
 //! Nominal analytic vector consumption over the completed original-text owner.
 use super::{
-    EmbeddingSpec,
+    EmbeddingSpec, configuration, text,
     consumption::{ValueReceipt, Winners},
     text::{TextAvailability, TextWindow},
     value,

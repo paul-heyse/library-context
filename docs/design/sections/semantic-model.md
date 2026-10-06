@@ -486,6 +486,16 @@ coincide. This does not establish temporal heap identity. The [graph-native comp
 owns current integration and store-free controls. The earlier [Phase 4 checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
 retains the dated P4B3-F01 disposition; it is not current compiler or native-store acceptance.
 
+**Accepted target, implementation in progress, 2026-10-06 (ADR-0129).** Source-field inventory
+covers the complete applicable class-owned premise closure, including unsupported direct-body
+members, exact source/context and native support/coverage. Unrelated sibling bodies are not
+inventory premises. The model owns this meaning; compiler scope selection does not grant stronger
+runtime field or heap guarantees. The revised inventory domain and normalization policy require
+fresh artifacts and realizations. Targeted controls and current acceptance remain with the
+[graph-native coordinator §9](../../plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution).
+
+> Decision: ADR-0129
+
 **Open calls and alternatives**
 - **A value crossing an unresolved or unsummarized call** is not a transfer kind. It is an obligation
   (§15.8), so nothing is inferred through an unknown callee.

@@ -23,7 +23,7 @@ pub(crate) async fn validate_execution(
             } else {plan.follow(source, field.name(), target)?;}
         }
     }
-    plan.follow(root_namespace, "id", root)?;
+    plan.pairs(root_namespace,root,format!("SELECT id AS source_id,id AS target_id FROM {}",identifier(&tables[root].alias)))?;
     for (member, field, owner) in &scope.memberships {
         plan.own(declared(&tables, &invariant.inputs, member)?, field, declared(&tables, &invariant.inputs, owner)?)?;
     }

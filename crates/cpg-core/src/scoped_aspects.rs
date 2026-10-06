@@ -35,7 +35,7 @@ impl AspectScopes {
             plan.pairs(*virtual_root,*real_root,format!("SELECT id AS source_id,id AS target_id FROM {}",identifier(&tables[*real_root].alias)))?;
         }
         plan.pairs(body,occurrence,format!("SELECT id AS source_id,id AS target_id FROM {}",identifier(&tables[occurrence].alias)))?;
-        let table=|id|identifier(&tables[id].alias);
+        let table=|id:usize|identifier(&tables[id].alias);
         let occurrence_table=table(occurrence);
         let assessment=real_roots[0];let field=real_roots[1];let declaration=real_roots[2];
         let callable=typed::<CallableEntity>(&inputs)?;
@@ -139,7 +139,7 @@ pub(crate) async fn validate_aspects(invariant:&Invariant,scope:&AspectScope,tab
 mod controls {
     use super::*;
     use datafusion::{datasource::MemTable,prelude::SessionConfig};
-    use lctx_model::domain::{assertion::{AssertionQualification,Approximation},attribution::Modality,normalized::{callables::*,entities::*,links::*,symbolic_fields::*},source::{Occurrence,OccurrenceRole,SyntaxKind,SyntaxObservation},syntax::{ClassFieldSyntaxObservation,DeclarationDecorator}};
+    use lctx_model::domain::{assertion::{AssertionQualification,Approximation},attribution::Modality,normalized::{callables::*,entities::*,symbolic_fields::*},source::{Occurrence,OccurrenceRole,SyntaxKind,SyntaxObservation},syntax::{ClassFieldSyntaxObservation,DeclarationDecorator}};
     use std::sync::Arc;
     fn nominal<R>(byte:u8)->Id<R>{serde_json::from_value(serde_json::to_value([byte;16]).unwrap()).unwrap()}
     struct Fixture { model:ValidatedModel,invariant:Invariant,scope:AspectScope,tables:Vec<ClosureTable>,session:SessionContext,budget:ResourceBudget,data:AspectData,out:AspectOutput }
@@ -166,7 +166,7 @@ mod controls {
                 let syntax=ClassFieldSyntaxObservation {qualification:q.id(),class:owner.id(),target:target.id(),annotation:Some(target.id()),value};data.field_syntax.insert(syntax.clone()).unwrap();
                 data.fields.insert(FieldDeclarationLink {field:nominal(byte),declaration:syntax.id(),binding:nominal(byte)}).unwrap();
             }
-            let callable=CallableEntity::Source {declaration:owner.id(),kind:lctx_model::domain::calls::CallableKind::Function};data.callable_entities.insert(callable.clone()).unwrap();
+            let callable=CallableEntity::Source {declaration:owner.id(),kind:CallableKind::Function};data.callable_entities.insert(callable.clone()).unwrap();
             let decorator=DeclarationDecorator {qualification:q.id(),declaration:owner.id(),decorator:value.id(),ordinal:0};data.decorators.insert(decorator.clone()).unwrap();
             for byte in [7,8] {
                 let assessment=EffectiveCallableAssessment {callable:callable.id(),context:q.context,decorators:ContentHash::of(&[byte]),policy:ContentHash::of(b"control"),identity:Knowledge::Unknown,identity_reason:CallableReason::UnsupportedDecorator,signatures:Knowledge::Unknown,signature_reason:CallableReason::MissingSignature,descriptor:Knowledge::Unknown,descriptor_kind:None,descriptor_reason:CallableReason::MissingTraits,body:Knowledge::Unknown,body_admitted:false,body_reason:CallableReason::BodyExcluded,asynchronous:None,generator:None};

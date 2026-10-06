@@ -1,6 +1,6 @@
 //! Pure consumed-value and expected-window controls; no live service behavior is claimed.
 use lctx_model::domain::{
-    analysis::analytic_embedding::{AnalysisInvocation, AnalysisOutcome},
+    analysis::analytic_embedding::AnalysisInvocation,
     embedding::{analytic::*, text::*, value::*, *},
     normalized::Rows,
     resources::ResourceBudget,

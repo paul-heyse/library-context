@@ -59,6 +59,7 @@ impl InvariantCheck for Accept {
 fn shared(revision: u32, executions: Arc<AtomicUsize>) -> ValidationDefinitions {
     ValidationDefinitions {
         invariants: vec![Invariant {
+        purpose: lctx_model::domain::InvariantPurpose::Admission,
             name: "accepted_validation_premise",
             revision,
             inputs: vec![ValidationInput::of::<Premise>(&["id"])],
