@@ -103,8 +103,9 @@ concurrency if needed. A refusal at realistic size is not the performance object
 
 ## 4. Coherent packages and dependency order
 
-The complete compiler stage is authorized and **in_progress**. G0 adopts ADR-0128; M1/C1/C2-N/C2-U
-and compiler-side A1/A2 are being integrated. S1 supplies the agreed native operation contracts;
+The complete compiler stage is **complete / user-accepted, 2026-10-05**, with partial verification
+and the user-directed stop recorded in §8. M1/C1/C2-N/C2-U and compiler-side A1/A2 are implemented,
+including their G0/S1 interfaces. G0 adopts ADR-0128; S1 supplies the agreed native operation contracts;
 P1/P2/S2/S3, published exports, assembled Q0 and operator Q1 remain **not_started**. Supporting plans supply implementation detail and focused
 controls; this table owns current package state. Root owns shared declarations, manifests,
 architectural decisions and integration. Independent investigation may run in parallel; ordinary
@@ -194,17 +195,25 @@ performance claim follows from functional acceptance or source-level simplificat
 
 ## 7. Sole finding disposition and optional capabilities
 
-IDs below are qualified by their source review to avoid the two meanings of F01. All required
-rows are **planned/open**; this plan schedules correction and does not close a finding.
+IDs below are qualified by their source review to avoid the distinct meanings of F01. Compiler
+portions are implementation-closed at the user-accepted stage boundary; native persistence and
+serving obligations remain open. Scoped tests do not establish the later published journeys.
 
 | Source obligation | Owning package / completion evidence |
 |---|---|
-| Target GN01 — admission distinct from physical execution | M1/C1/C2 + P2: store-free compilation, bounded workspace, meaningful completeness checks and faithful stored realization |
+| Target GN01 — admission distinct from physical execution | M1/C1/C2 implemented and user-accepted: store-free compilation, bounded workspace and completed graph admission; §8 records scoped artifact controls. P2 faithful stored realization remains open. |
 | Target GN02 — efficient connected serving | S1/S2/S3 + P1: native indexed/coarse journeys, original evidence, honest missing/partial outcomes, no broad startup preparation or unrelated relation hashing |
-| Target GN03 — explicit projections | A1/A2: first actual petgraph/export preserves IDs, isolates, parallel assertions, roles and declared losses |
+| Target GN03 — explicit projections | Compiler A1/A2 implemented and user-accepted: prepared topology, semantic IDs/roles, source membership and owner-derived losses; model/analytics and selected artifact controls passed (§8). Published exports remain open. |
 | Capabilities F01 — fusion semantics | S2: contribution collapse, canonical ties and separate eligible occurrence/channel witnesses through the actual operation |
 | Capabilities F02 — API authorization/rollback | Ordinary functions selected; custom API adoption deferred to an HTTP consumer. If triggered, owning package must enforce explicit scope and actual transactional failure, with focused endpoint controls. |
 | Capabilities F03 — executable realization identity | P2 + S3: changed functions/analyzers/modules/index specs cannot silently substitute beneath a pinned handle |
+| Compiler-stage review F01 — shared embedding execution | Implementation-closed: shared actual winners and bounded independent request batches; embedding/retrieval controls passed within the compiler run (§8). Source repair independently accepted. |
+| Compiler-stage review F02 — duplicate retrieval replay | Implementation-closed: construction retained, narrow production completion, independent canonical replay retained in controls; retrieval controls passed (§8). Source repair independently accepted. |
+| Compiler-stage review F03 — duplicate projection policy | Implementation-closed: model-owned acceptance/exclusion policy feeds artifact losses; model and projection/artifact controls passed (§8). Source repair independently accepted. |
+
+The compiler-stage F01–F03 rows refer to the dated [implementation reassessment](../design_review/reviews/design_review_graph-native-compiler-stage_2026-10-05.md),
+not an additional architectural basis. Its static judgment accepts those source repairs; the user
+accepted stage completion with partial verification.
 
 Earlier F01–F14 referenced by the named reviews are not a separate PostgreSQL repair queue.
 Their surviving causes expressly carried by GN01/GN02, together with the preserved product
@@ -222,38 +231,52 @@ deployment are consumer-triggered. No canonical lightweight edges replace attrib
 
 ## 8. Current checkpoint
 
-**Complete compiler stage: in_progress, 2026-10-05.** Authorization covers M1, C1, C2-N, C2-U,
-compiler-side A1/A2 and their G0/S1 interfaces. `cpg-core` is the sole compiler; `lctx-model` owns
-finite graph types, nominal references, participant roles and semantic policies. Completed Arrow
-IPC inputs replace store reads. Ordinary output completion is atomic; declared vocabulary
-contributions merge into their assembly owner. DataFusion shares one charged spillable runtime.
+**Complete compiler stage: complete / user-accepted, 2026-10-05.** The user explicitly directed
+that tests stop and this plan scope be considered complete. This closes M1, C1, C2-N, C2-U,
+compiler-side A1/A2 and their G0/S1 interfaces as Implemented, with scoped Tested evidence below.
+It does not claim every check passed, complete-stage Tested assurance or Measured performance.
 
-The working tree contains graph artifact lowering, canonical family ordering, bulk reference/span
-closure, original-byte copying and exact manifest outcomes/configuration/projection/vector binding.
-Artifact-only CLI export is integrated. Ordinary compile reports unavailable before acquisition;
-PG backend/binding, old generation/store/query commands and obsolete serving effects are retired.
-These are implemented slices; actual all-frontier artifact acceptance is still pending.
+`cpg-core` is the sole store-free compiler; `lctx-model` owns finite graph types, nominal references,
+participant roles, semantic policies and graph admission. Immutable completed Arrow IPC inputs
+replace store reads. Ordinary output completion is atomic; explicit vocabulary contributions merge
+at their owner. One charged spillable DataFusion runtime serves workspace consumers. Canonical
+family ordering, bulk reference/span closure, original bytes and exact manifest settings/outcomes,
+projection definitions and consumed vector values are integrated. Summary preparation shares
+indexed immutable inputs and condition preparation without replaying every producer in production.
 
-Focused verification, 2026-10-05:
+`lctx compile --artifact-only --output DIR` exports admitted artifacts. Ordinary compile reports
+unavailable before acquisition until the native publisher exists. PostgreSQL backend/binding,
+generation/store/query commands and old serving effects are retired; MCP remains unavailable
+until native serving. The broad CLI model-description snapshot control and its obsolete baseline
+are retired for this hard pivot; the actual model-description tool and focused model controls remain.
 
-- `cargo check -p cpg-core --tests` with isolated build directory: **passed** at the fixture
-  migration boundary (22.18s). Later artifact/model changes require their own rerun.
-- Selected release extraction `bundle`, `acquisition`, `typed_conformance`: **passed**, 22 controls,
-  after provisional native contributions were adopted into their declared owner.
-- Selected release `typed_flow`, `typed_calls`, `native_overload_origins`, `typed_ruff_context`,
-  `harness` plus compiler embedding-configuration/runtime controls: **passed**, 27 controls.
-- First selected extraction+upper run: **failed**, 26 passed and 18 failed. The upper fixtures
-  exposed backing-capacity decode overcharges; logical-slice decode and the catalog profile's
-  explicit unrequested-flow validation premises are repaired. Upper rerun remains **in_progress**.
-- `uv run --no-sync pytest tests/scripts/test_verify.py tests/scripts/test_build_environment.py -q`:
-  **passed**, 20 controls. Verification now selects actual compiler/native boundaries; future
-  store/serving prerequisites are explicitly unavailable.
-- Artifact all-frontier/profile roundtrip, integrity/original controls, CLI controls and final
-  model/analytics controls: **not_run to completion**; source/API integration remains in progress.
-- `just qualify`, actual native persistent store/MCP, real-library/live vectors, operator activation
-  and Measured performance: **not_run**. Q0 requires later integrated publication/serving; Q1 needs
-  its separate authorization. No earlier PostgreSQL receipt is replacement acceptance.
+Current verification, 2026-10-05, on production baseline `b964e807` (later changes are documentation,
+snapshot-control retirement and the test-only unrequested-Flow repair `e9bcdd4a`):
 
-Next: finish graph mapping/reference/derivation closure and retired model-runtime consumers, pass
-all-frontier artifact and focused upper controls, then applicable leaves and root `just turn-end`.
-The remaining native publisher/serving packages consume that admitted boundary afterward.
+- `cargo check --locked -p cpg-core -p lctx-model -p lctx --tests`: **passed** (33.22s).
+- `just ready`: **passed**, native adapters synchronized before tests.
+- `just verify-model`: **passed**, 648 controls.
+- `just verify-analytics`: **passed**, 14 controls.
+- `just verify-compiler --command producer`: **failed / interrupted at the user's request**;
+  188 controls ran, 186 passed, one obsolete test premise failed and one Summary control received
+  SIGTERM. Passing controls include all 98 named native fixtures with both profiles, admitted graph
+  roundtrips at all four frontiers with both profiles, original/integrity controls, selected analytic
+  memberships/provenance/losses, embeddings and retrieval. The Catalog test incorrectly assumed
+  a precreated Flow table for explicitly NotRequested Flow; `e9bcdd4a` repairs the assertion to use
+  absent completed streams and explicit coverage. Repair verification is **not_run**, by user direction.
+  The Summary control was stopped, not an observed production failure; its final-baseline completion
+  remains unverified. Logs: `/tmp/graph-stage-{model,analytics,compiler-producer}-assembled.log`.
+- `just verify-compiler --command cli` and
+  `just verify-providers --command extract -- --test summary_consequences`: **not_run**; their queued
+  processes were stopped before execution. Subsequent `just verify-providers --command flow`,
+  `just verify-oracles` and `just verify-tooling`: **not_run**, the orchestrator was stopped before launch.
+- Scope-end non-functional leaves and `just qualify`: **not_run**, further verification waived by
+  the user's stop/completion instruction. Root `just turn-end` is final repository bookkeeping,
+  not additional functional verification; STATUS records its outcome.
+- Native persistent-store/MCP journeys, real-library/live vectors, operator activation and Measured
+  performance: **not_run**. They belong to later packages/Q0 or separately authorized Q1.
+
+Next: P1/P2 native realization/publication and S2/S3 serving consume the completed admitted-artifact
+boundary; published projection exports and remaining I1 integration follow those consumers. Q0
+owns assembled acceptance after their integration; Q1 owns separately authorized fresh operator
+adoption. No further compiler-stage test or legacy snapshot work is scheduled by this completion.

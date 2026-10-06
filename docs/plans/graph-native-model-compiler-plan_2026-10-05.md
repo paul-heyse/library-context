@@ -1,6 +1,6 @@
 # Graph-native model and store-free compiler
 
-**Accepted target / implementation in progress, 2026-10-05 (ADR-0128).** Supporting plan for the [replacement coordinator](graph-native-pivot-plan_2026-10-05.md).
+**Complete — implemented and user-accepted, 2026-10-05 (ADR-0128).** Supporting plan for the [replacement coordinator](graph-native-pivot-plan_2026-10-05.md).
 It develops M1, C1, C2-N and C2-U. The coordinator owns package state, cross-plan dependencies
 and finding disposition. The design basis is its two named reviews, not another model review.
 
@@ -11,13 +11,17 @@ correspondence, five-way verdicts, conditions, typed catalog/selection, projecti
 wire contracts. Keep these meanings and useful pure kernels. They are foundations to reshape,
 not a requirement to preserve every declaration, relation, stage, epoch or validator attachment.
 
-**Implemented; integrated functional acceptance pending, 2026-10-05:**
+**Implemented; compiler-stage completion accepted by the user, 2026-10-05:**
 `cpg-core::compilation::compile` builds immutable completed Arrow IPC streams in a private,
 spillable workspace. Explicit semantic predecessor selectors keep native Facts separate from
 Local, Model and Analytic vocabulary. Typed graph lowering and artifact admission/export are
 separate from publication. The PostgreSQL compiler, runtime grants and `MemoryGeneration` are
 retired; canonical declarations and semantic policy revisions own model compatibility.
-The coordinator's current checkpoint owns actual verification outcomes.
+The [coordinator's current checkpoint](graph-native-pivot-plan_2026-10-05.md#8-current-checkpoint)
+owns actual verification outcomes. The user explicitly stopped further tests and accepted this
+plan scope as complete. Model and analytics controls passed; compiler verification was interrupted
+with partial passing evidence and a repaired obsolete test not rerun. This is an Implemented
+completion boundary with scoped Tested evidence, not an all-checks-passed or Measured claim.
 
 The compiler instead receives explicit captured inputs, profile/method settings, semantic
 definitions, resource/runtime services and optional embedder/cache effects. It owns a private

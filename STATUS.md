@@ -2,37 +2,46 @@
 
 _Updated 2026-10-05 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Graph-native complete compiler stage: in_progress.** ADR-0128 adopts the hard pivot grounded in
-only the two named [target](docs/design_review/reviews/design_review_graph-native-target_2026-10-05.md)
-and [SurrealDB capability](docs/design_review/reviews/design_review_surrealdb-capabilities_2026-10-05.md)
+**Graph-native model/compiler stage: complete / user-accepted, 2026-10-05.** The user explicitly
+stopped further tests and accepted completion of M1/C1/C2-N/C2-U, compiler-side A1/A2 and their
+G0/S1 interfaces. The stage is Implemented with scoped Tested evidence, not an all-checks-passed
+or Measured claim. ADR-0128 grounds the hard pivot only in the named
+[target](docs/design_review/reviews/design_review_graph-native-target_2026-10-05.md) and
+[SurrealDB capability](docs/design_review/reviews/design_review_surrealdb-capabilities_2026-10-05.md)
 reviews. The [coordinator §8](docs/plans/graph-native-pivot-plan_2026-10-05.md#8-current-checkpoint)
-owns package state, commands and current limits; its §7 owns finding disposition.
+owns commands and limits; its §7 owns finding disposition.
 
-`cpg-core` now compiles store-free completed IPC inputs; `lctx-model` owns typed graph mappings,
-nominal references and explicit semantic policies. Graph artifact admission/export and all-frontier
-integration remain under verification. Native extraction/effects have focused passing controls;
-the upper suites are being rerun after logical Arrow decode and optional-profile premise repairs.
-A compile check or worker assignment is not completed compiler acceptance.
+`cpg-core` compiles store-free completed IPC inputs in a charged spillable workspace. `lctx-model`
+owns typed graph mappings, nominal references, semantic policies and completed artifact admission.
+All-frontier/profile artifact controls passed within the compiler run. Compiler-side projections,
+selected analytics, embedding reuse and independent retrieval controls are integrated. Source
+repairs from the scoped implementation review are accepted; its static judgment remains bounded.
 
-`lctx compile --artifact-only --output DIR` is the integrated artifact route. Ordinary compile
-returns unavailable before acquisition until the native publisher exists. PostgreSQL backend,
-binding, lifecycle commands and old serving effects are retired; MCP startup/dispatch are
-unavailable until native serving is implemented. Operator databases and registrations are untouched.
+`lctx compile --artifact-only --output DIR` exports admitted artifacts. Ordinary compile returns
+unavailable before acquisition until native publication exists. PostgreSQL backend/binding,
+lifecycle commands and old serving effects are retired; MCP remains unavailable until native
+serving. The broad CLI model snapshot control and its baseline are retired; model introspection
+and focused semantic controls remain. Operator databases and registrations are untouched.
 
-Native SurrealDB querying is selected. The design principles and efficient-architecture companion
-guide qualitative first-principles/library-informed choices. No detailed examined-work accounting,
-performance proof or query-adoption gate is required. No Measured performance claim is made.
+**Verification, 2026-10-05:** `cargo check --locked -p cpg-core -p lctx-model -p lctx --tests`
+**passed**; `just ready` **passed**; `just verify-model` **passed**, 648 controls;
+`just verify-analytics` **passed**, 14 controls. `just verify-compiler --command producer`
+**failed / interrupted by user direction**: 186 passed, one obsolete Catalog/Flow test premise
+failed and one Summary control received SIGTERM. The obsolete assertion is repaired (`e9bcdd4a`),
+rerun **not_run**. Summary completion on the final production baseline remains unverified.
+The coordinator records exact scope and logs; the stopped control is not an observed production failure.
 
-**Current verification boundary, 2026-10-05:** focused extraction controls passed (22), then native
-semantic/effect/runtime controls passed (27). Launcher/build-environment controls passed (20).
-The first extraction+upper selection failed:26 passed,18 failed; its upper failures are repaired
-or still being rerun, as detailed by the coordinator. Artifact/profile/frontier controls and final
-scope-end leaves are pending. Previous PostgreSQL receipts establish no graph-native acceptance.
+Queued CLI/provider checks and subsequent flow/oracle/tooling controls are **not_run**, stopped
+before execution. Scope-end leaves and assembled `just qualify` are **not_run**, waived by the
+explicit stop/completion instruction. Root `just turn-end` bookkeeping is pending final execution.
+No earlier PostgreSQL receipt establishes graph-native operational acceptance.
 
-**Next:** complete finite graph closure and model-runtime retirement, pass store-free upper/artifact
-and CLI controls, run applicable leaves, and finish root `just turn-end`. Native realization,
-publication, native serving and assembled `just qualify` follow this stage. Real-library/live-vector
-qualification and operator adoption remain separately authorized Q1 work; they are not_run.
+**Next:** P1/P2 native realization/publication, then S2/S3 native serving and published exports,
+remaining I1 integration and assembled Q0. Real-library/live-vector checks and operator adoption
+remain separately authorized Q1 work, **not_run**. The complete operational pivot is still pending.
+No further compiler-stage test or legacy snapshot work is scheduled by this completion.
 
-Gold/heldout inputs, live embedding services and client registration remain unchanged. Preserve
-concurrent edits. No broad Cargo cleanup or operator-store action is part of this stage.
+Native SurrealDB querying is selected. Efficient design follows first principles and library
+capabilities; detailed examined-work accounting, performance proofs and query-adoption gates are
+not required. No Measured performance claim is made. Gold/heldout inputs, live embedding services
+and client registrations are unchanged; preserve concurrent work and avoid broad Cargo cleanup.

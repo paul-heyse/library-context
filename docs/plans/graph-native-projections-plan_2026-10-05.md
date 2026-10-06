@@ -1,6 +1,8 @@
 # Named graph projections, analytics and export
 
-**Proposed, 2026-10-05.** Supporting plan for A1/A2 in the
+**Compiler-side A1/A2 implemented and user-accepted; published exports Proposed, 2026-10-05.**
+Compiler model/analytics and artifact controls provide scoped Tested evidence; the coordinator
+records the interrupted verification and user-directed completion boundary. Supporting plan for A1/A2 in the
 [replacement coordinator](graph-native-pivot-plan_2026-10-05.md). It consumes the
 [compiler's graph/workspace](graph-native-model-compiler-plan_2026-10-05.md) and, for published
 consumers, the [SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md).
@@ -9,10 +11,11 @@ The coordinator owns package state, combined dependencies and finding dispositio
 ## 1. Foundation assessment and target
 
 The current `domain::projection::{normalization,snapshot,native}` owns universe, directions,
-roles, multiplicity, gaps and canonical vertex/arc lineage. `cpg-core::analysis_graphs` hydrates
-stored graphs, while the pure `lctx-analytics` and model-owned kernels supply scheduling/SCC,
-ranking, concepts and exact neighbors. Preserve these semantic contracts and useful kernels;
-replace their completed-store/receipt/permit inputs and redundant persisted topology formats.
+roles, multiplicity, gaps and canonical vertex/arc lineage. `cpg-core::analysis_graphs` prepares
+graphs from explicit completed workspace inputs, while the pure `lctx-analytics` and model-owned
+kernels supply scheduling/SCC, ranking, concepts and exact neighbors. The compiler preserves these
+semantic contracts and useful kernels; completed-store/receipt/permit inputs and redundant
+persisted topology formats are retired. Published native-query/export consumers remain later work.
 
 An admitted evidence graph is not one interchangeable algorithm topology. Containment, candidate
 calls, derivations, source mentions and similarity have different meanings. A named projection

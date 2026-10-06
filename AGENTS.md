@@ -16,9 +16,10 @@ compiler-side projections and selected analysis effects. Rust owns the semantic 
 are selected target responsibilities scheduled after this compiler scope.
 
 The PostgreSQL backend and its clients are retired. No legacy readers, old-ID bridges, dual
-stores or historical runtime retention are required. Compiler integration/admission is in progress;
-compile checks alone do not establish a completed frontier or admitted artifact.
-`lctx compile --artifact-only --output DIR` is the artifact route under implementation.
+stores or historical runtime retention are required. The complete compiler stage is implemented
+and user-accepted as complete on 2026-10-05, with partial verification recorded in the coordinator.
+The user stopped further tests; this acceptance does not claim all checks passed.
+`lctx compile --artifact-only --output DIR` is the implemented artifact route.
 Ordinary compile requires the future native publisher and reports unavailable before acquisition.
 MCP startup is unavailable until native serving is implemented. Product features pause during
 this cut; STATUS and the coordinator own its current evidence and remaining work.
