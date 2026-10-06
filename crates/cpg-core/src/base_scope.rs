@@ -167,7 +167,7 @@ impl BaseScopes {
 async fn project_literals(session:&datafusion::prelude::SessionContext,sql:&str,data:&mut BaseData,budget:&resources::ResourceBudget)->Result<(),ModelError>{
     let query=format!("SELECT selected.id,selected.kind FROM ({sql}) selected WHERE selected.kind IN (3,4) ORDER BY selected.id");
     let mut stream=crate::sql::query(session,&query).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {let _transfer=budget.reserve("Base-literal-kind-transfer",batch.get_array_memory_size())?;
+    while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {let _transfer=budget.reserve("Base-literal-kind-transfer",lctx_model::domain::logical_batch_bytes(&batch)?)?;
         let kinds=batch.column_by_name("kind").and_then(|column|column.as_any().downcast_ref::<arrow_array::Int16Array>()).ok_or(ModelError::Schema("Base literal projection kind"))?;
         for row in 0..batch.num_rows(){let key=crate::scoped_admission::column(&batch,"id",row)?.ok_or(ModelError::Schema("Base literal projection ID"))?;data.data.project_opaque_literal(nominal(&key)?,kinds.value(row))?;}
         tokio::task::yield_now().await;
@@ -197,7 +197,7 @@ impl BaseScopes {
         let query=format!("SELECT n.id AS qualification_id,n.premise,p.kind,{} AS assertion_id,{} AS support_id FROM {native} n JOIN {premises} p ON p.id=n.premise ORDER BY n.id",projection("_assertion")?,projection("_support")?);
         let mut native_rows=crate::sql::query(session,&query).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
         while let Some(batch)=native_rows.try_next().await.map_err(ModelError::codec)? {
-            let _transfer=budget.reserve("Base-native-metadata-transfer",batch.get_array_memory_size())?;
+            let _transfer=budget.reserve("Base-native-metadata-transfer",lctx_model::domain::logical_batch_bytes(&batch)?)?;
             let kinds=batch.column_by_name("kind").and_then(|column|column.as_any().downcast_ref::<arrow_array::Int16Array>()).ok_or(ModelError::Schema("Base native pair kind"))?;
             for row in 0..batch.num_rows(){let id=|name|crate::scoped_admission::column(&batch,name,row)?.ok_or(ModelError::Schema("Base native pair ID"));
                 let premise=projected_native_pair(kinds.value(row),id("assertion_id")?,id("support_id")?)?;let required:Id<NativeAssertionPremise>=nominal(&id("premise")?)?;
@@ -209,7 +209,7 @@ impl BaseScopes {
         let unique_owners=format!("(SELECT m.occurrence,m.entity FROM {owners} m JOIN (SELECT occurrence FROM {owners} GROUP BY occurrence HAVING COUNT(*)=1) unique_owner ON unique_owner.occurrence=m.occurrence)");
         // A repeated child placement retains the last canonical-ID parent, exactly as the
         // finite index. The SQL window resolves that complete group before rich decoding.
-        let parameters=format!("(SELECT occurrence,parent FROM (SELECT p.occurrence,p.parent,ROW_NUMBER() OVER (PARTITION BY p.occurrence ORDER BY p.id DESC) AS rank FROM {placements} p JOIN {occurrences} o ON o.id=p.parent WHERE p.field={} AND p.ordinal=0 AND o.syntax_kind={}) ranked WHERE rank=1)",SyntaxField::Child.code(),SyntaxKind::Parameter.code());
+        let parameters=format!("(SELECT occurrence,parent FROM (SELECT p.occurrence,p.parent,ROW_NUMBER() OVER (PARTITION BY p.occurrence ORDER BY p.id DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS rank FROM {placements} p JOIN {occurrences} o ON o.id=p.parent WHERE p.field={} AND p.ordinal=0 AND o.syntax_kind={}) ranked WHERE rank=1)",SyntaxField::Child.code(),SyntaxKind::Parameter.code());
         let queries=[
             (0,format!("SELECT occurrence AS a,entity AS b FROM {owners} ORDER BY id")),
             (1,format!("SELECT u.id AS a,r.formal_declaration AS b FROM {uses} u JOIN {places} p ON p.id=u.place JOIN {roots} r ON r.id=p.root WHERE r.formal_declaration IS NOT NULL AND EXISTS (SELECT 1 FROM {use_observations} o JOIN {q} q ON q.id=o.qualification WHERE o.use_=u.id AND {context}) ORDER BY u.id")),
@@ -220,7 +220,7 @@ impl BaseScopes {
             (5,format!("SELECT m.entity AS a,m.entity AS b FROM {owners} m JOIN {occurrences} o ON o.id=m.occurrence WHERE o.syntax_kind IN ({},{}) ORDER BY m.entity",SyntaxKind::ExprYield.code(),SyntaxKind::ExprYieldFrom.code())),
         ];
         for (kind,query) in queries {let mut stream=crate::sql::query(session,&query).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-            while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {let _transfer=budget.reserve("Base-fixed-metadata-transfer",batch.get_array_memory_size())?;
+            while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {let _transfer=budget.reserve("Base-fixed-metadata-transfer",lctx_model::domain::logical_batch_bytes(&batch)?)?;
                 for row in 0..batch.num_rows(){let a=crate::scoped_admission::column(&batch,"a",row)?.ok_or(ModelError::Schema("Base metadata key"))?;let b=crate::scoped_admission::column(&batch,"b",row)?.ok_or(ModelError::Schema("Base metadata value"))?;
                     if kind==5 {evaluation.lazy_owner(nominal(&a)?)?;continue;}
                     reads.prepare(match kind {0=>ReadMetadata::Owner {occurrence:nominal(&a)?,entity:nominal(&b)?},1=>ReadMetadata::FormalUse {use_:nominal(&a)?,parameter:nominal(&b)?},2=>ReadMetadata::Nested {reaching:nominal(&a)?,owner:nominal(&b)?},3=>ReadMetadata::CallTarget {target:nominal(&a)?,site:nominal(&b)?},4=>ReadMetadata::Call {occurrence:nominal(&a)?,owner:nominal(&b)?},_=>return Err(ModelError::Schema("Base metadata kind"))})?;
@@ -239,7 +239,7 @@ impl BaseScopes {
         for kernel in [Kernel::Use,Kernel::Attribute,Kernel::DynamicCall,Kernel::DynamicAttribute,Kernel::Formal,Kernel::FieldRoot,Kernel::FieldCall,Kernel::FieldClass,Kernel::FieldStore,Kernel::FieldGlobal] {
             if matches!(kernel,Kernel::FieldCall){prepared.begin_field_candidates()?;}
             let mut stream=crate::sql::query(session,&self.roots(inv,kernel)?).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-            while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {let _transfer=budget.reserve("Base-read-root-transfer",batch.get_array_memory_size())?;
+            while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {let _transfer=budget.reserve("Base-read-root-transfer",lctx_model::domain::logical_batch_bytes(&batch)?)?;
                 for row in 0..batch.num_rows(){runtime.cancellation().check()?;let key=crate::scoped_admission::column(&batch,"id",row)?.ok_or(ModelError::Schema("Base read root ID"))?;
                     let scope=self.scope(kernel,key,budget).await?;let data=self.data(access,&scope,budget,false).await?;
                     if matches!(kernel,Kernel::FieldRoot){let _key=budget.reserve("Base-field-root-key",128)?;let roots=[nominal(&key)?].into_iter().collect();prepared.field_roots(&data.data,&data.entry,inv,&roots)?;}
