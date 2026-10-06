@@ -569,6 +569,7 @@ pub async fn publish_mandatory(
 mod controls {
     use super::*;
     use datafusion::datasource::MemTable;
+    use futures::TryStreamExt;
     fn id<R>(n: u8) -> Id<R> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
             _,

@@ -624,6 +624,16 @@ pub async fn produce(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn consumed_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
+        let mut declarations = Data::consumed_inputs(profile);
+        declarations.extend([
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+            ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+        ]);
+        declarations.extend(analysis::expected::inputs(build::definition().1.method));
+        declarations
+    }
+
     #[test]
     fn declared_views_have_profile_decoder_reachability() {
         for profile in [stages::Profile::Catalog, stages::Profile::Behavioral] {
