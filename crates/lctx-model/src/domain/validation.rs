@@ -216,6 +216,9 @@ pub fn definitions() -> ValidationDefinitions {
         .invariants
         .extend(super::structural::frames::invariants());
     definitions
+        .invariants
+        .extend(super::structural::admission::invariants());
+    definitions
         .publication_checks
         .extend(super::structural::frames::profile_checks());
     definitions

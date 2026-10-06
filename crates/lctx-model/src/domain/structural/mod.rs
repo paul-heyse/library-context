@@ -1,5 +1,6 @@
 //! Structural observations retain exact normalized/catalog lineage for synthesis and analytics.
 pub mod build;
+pub(crate) mod admission;
 pub mod conclusions;
 pub mod controls;
 pub mod frames;

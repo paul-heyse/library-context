@@ -282,7 +282,7 @@ pub(crate) fn invariants() -> Vec<Invariant> {
     inputs.sort_by_key(|i| (i.name(), i.prefix()));
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
-        purpose: crate::domain::InvariantPurpose::Admission,
+        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "structural_replay",
         inputs,
@@ -373,7 +373,7 @@ impl PublicationCheck for ProfileCheck {
 }
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {
-    vec!["structural_replay"]
+    super::admission::frame_refs()
 }
 pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
     vec!["structural_profile"]

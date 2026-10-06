@@ -74,6 +74,9 @@ impl Data {
     }
     pub fn consumed_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
         let mut inputs = Self::validation_inputs();
+        // Physical scope selection follows the native premise bridge before decoding the
+        // exact qualifications. The semantic kernel consumes those selected qualifications.
+        inputs.push(ValidationInput::of::<analysis::native::NativeAssertionPremise>(&["id"]));
         if profile == stages::Profile::Catalog {
             let inherited = ProjectionData::validation_inputs();
             let mut native = conditions::entry::EntryData::facts_inputs();
@@ -496,7 +499,6 @@ impl Data {
         inputs.extend(super::handoffs::Data::inputs());
         inputs.extend(super::controls::Data::inputs());
         inputs.extend([
-            ValidationInput::of::<analysis::native::NativeAssertionPremise>(&["id"]),
             ValidationInput::of::<input::ArtifactUse>(&["id"]),
             ValidationInput::of::<catalog::CatalogMember>(&["id"]),
             ValidationInput::of::<catalog::CatalogCallable>(&["id"]),
