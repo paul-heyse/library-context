@@ -52,7 +52,7 @@ DEFINE FUNCTION fn::lctx_library_inputs($name: option<string|null>) {
 };
 DEFINE FUNCTION fn::lctx_member_keys($name: option<string|null>, $member: option<string|null>, $path: option<array<string>|null>) {
  LET $inputs=fn::lctx_library_inputs($name);
- RETURN SELECT VALUE semantic_key FROM entity WHERE semantic_type='catalog_members' AND scope_input IN $inputs.map(|$v|<string>$v) AND ($member=NONE OR $member=NULL OR semantic_key=$member) AND ($path=NONE OR $path=NULL OR array::concat(string::split((SELECT VALUE out.body.qualified_name FROM reference WHERE in=$parent.id AND field='access')[0],'.'),body.path)=$path) ORDER BY semantic_key;
+ RETURN SELECT VALUE semantic_key FROM entity WHERE semantic_type='catalog_members' AND scope_keys CONTAINSANY $inputs.map(|$v|'catalog_members|input|'+<string>$v) AND ($member=NONE OR $member=NULL OR semantic_key=$member) AND ($path=NONE OR $path=NULL OR array::concat(string::split((SELECT VALUE out.body.qualified_name FROM reference WHERE in=$parent.id AND field='access')[0],'.'),body.path)=$path) ORDER BY semantic_key;
 };
 "#
 }
