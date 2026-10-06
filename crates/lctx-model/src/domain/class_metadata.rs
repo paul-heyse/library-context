@@ -243,7 +243,7 @@ pub enum FieldSpecifierKind {
     EnumNonmember = 8,
     DataclassField = 9,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "record_transform_field_specifiers")]
 pub struct RecordTransformFieldSpecifier {
     #[model(key)]

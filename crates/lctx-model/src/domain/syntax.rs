@@ -299,7 +299,7 @@ fn validate_field(row: &ClassFieldSyntaxObservation) -> Result<(), ModelError> {
 
 /// A stop a provider disclosed in a scope it covers: the family, the subject when one exists, the
 /// reason and a bounded detail. Its coverage of that scope is never complete.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "subject_boundaries", validate = validate_boundary, invariant_refs = boundary_invariants_refs)]
 pub struct SubjectBoundary {
     #[model(key)]
@@ -344,7 +344,7 @@ impl AttachmentKind {
     }
 }
 /// A provider event that did not attach: its coordinates and outcome, under its boundary.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "attachment_outcomes", validate = validate_outcome)]
 pub struct AttachmentOutcome {
     #[model(key)]
@@ -369,7 +369,7 @@ fn validate_outcome(row: &AttachmentOutcome) -> Result<(), ModelError> {
     Ok(())
 }
 /// A candidate occurrence of an unattached event, kept rather than chosen.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "attachment_candidates")]
 pub struct AttachmentCandidate {
     #[model(key)]

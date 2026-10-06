@@ -212,6 +212,10 @@ pub enum Entity {
     CallOrigins(super::calls::CallOrigin),
     RecordOptions(super::class_metadata::RecordOptions),
     RecordTransformDefaults(super::class_metadata::RecordTransformDefaults),
+    RecordTransformFieldSpecifiers(super::class_metadata::RecordTransformFieldSpecifier),
+    SourceSubjectBoundaries(super::syntax::SubjectBoundary),
+    SourceAttachmentOutcomes(super::syntax::AttachmentOutcome),
+    SourceAttachmentCandidates(super::syntax::AttachmentCandidate),
     LexicalScopes(super::lexical::LexicalScope),
     BindingEvents(super::lexical::BindingEvent),
     LexicalTargets(super::lexical::LexicalTarget),
@@ -453,6 +457,10 @@ macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{
     CallOrigins:CallOrigin=>$crate::domain::calls::CallOrigin,
     RecordOptions:RecordOptions=>$crate::domain::class_metadata::RecordOptions,
     RecordTransformDefaults:RecordTransformDefaults=>$crate::domain::class_metadata::RecordTransformDefaults,
+    RecordTransformFieldSpecifiers:Definition=>$crate::domain::class_metadata::RecordTransformFieldSpecifier,
+    SourceSubjectBoundaries:Outcome=>$crate::domain::syntax::SubjectBoundary,
+    SourceAttachmentOutcomes:Outcome=>$crate::domain::syntax::AttachmentOutcome,
+    SourceAttachmentCandidates:Subject=>$crate::domain::syntax::AttachmentCandidate,
     LexicalScopes:LexicalScope=>$crate::domain::lexical::LexicalScope,
     BindingEvents:BindingEvent=>$crate::domain::lexical::BindingEvent,
     LexicalTargets:LexicalTarget=>$crate::domain::lexical::LexicalTarget,
@@ -849,6 +857,10 @@ pub fn reference_target(
     <super::calls::CallOrigin as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::CallOrigin,reference.target,&reference.key)),Some(EntityKind::CallOrigin))),
     <super::class_metadata::RecordOptions as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RecordOptions,reference.target,&reference.key)),Some(EntityKind::RecordOptions))),
     <super::class_metadata::RecordTransformDefaults as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RecordTransformDefaults,reference.target,&reference.key)),Some(EntityKind::RecordTransformDefaults))),
+    <super::class_metadata::RecordTransformFieldSpecifier as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Definition,reference.target,&reference.key)),Some(EntityKind::Definition))),
+    <super::syntax::SubjectBoundary as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Outcome,reference.target,&reference.key)),Some(EntityKind::Outcome))),
+    <super::syntax::AttachmentOutcome as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Outcome,reference.target,&reference.key)),Some(EntityKind::Outcome))),
+    <super::syntax::AttachmentCandidate as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Subject,reference.target,&reference.key)),Some(EntityKind::Subject))),
     <super::lexical::LexicalScope as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::LexicalScope,reference.target,&reference.key)),Some(EntityKind::LexicalScope))),
     <super::lexical::BindingEvent as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::BindingEvent,reference.target,&reference.key)),Some(EntityKind::BindingEvent))),
     <super::lexical::LexicalTarget as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::LexicalTarget,reference.target,&reference.key)),Some(EntityKind::LexicalTarget))),
@@ -17507,5 +17519,21 @@ impl GraphAssertionRecord for super::flow_inventory::FlowUseCandidate {
             value: AssertionValue::Provenance(row.into()),
             derivation: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod remediation_canonical_inventory {
+    use super::*;
+    #[test]
+    fn every_fact_semantic_record_has_a_portable_lowering() {
+        let mut portable = std::collections::BTreeSet::new();
+        macro_rules! collect { ($($variant:ident:$ty:path),* $(,)?) => {$(portable.insert(<$ty as Record>::NAME);)*}; }
+        crate::graph_entity_records!(collect);
+        crate::graph_assertion_records!(collect);
+        let missing = super::super::facts_relations().into_iter().map(|relation| relation.name())
+            .filter(|name| *name != super::super::artifact::ArtifactChunk::NAME && !portable.contains(name)).collect::<Vec<_>>();
+        // Byte chunk framing is mechanically rebuilt from retained exact originals.
+        assert!(missing.is_empty(), "semantic facts omitted from portable graph: {missing:?}");
     }
 }
