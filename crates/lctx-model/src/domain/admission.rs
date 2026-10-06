@@ -164,7 +164,16 @@ pub enum ArtifactClass {
     PythonSource,
     Document,
 }
+impl super::HeapSize for ArtifactClass {}
 impl ArtifactClass {
+    /// A declared use requests analysis only for its admitted artifact class.
+    pub fn requested_by(self, role: SourceRole) -> bool {
+        match self {
+            Self::PythonSource => matches!(role,
+                SourceRole::Release | SourceRole::Example | SourceRole::Test | SourceRole::DocBlock),
+            Self::Document => role == SourceRole::Document,
+        }
+    }
     /// The one classification of captured artifacts for coverage; producers select their inputs by it.
     pub fn of(path: &str) -> Option<Self> {
         match path.rsplit_once('.').map(|(_, extension)| extension) {
@@ -187,14 +196,8 @@ pub fn analysis_roots(
         let artifact = by_id
             .get(&usage.artifact)
             .ok_or_else(|| refuse("an artifact use names an absent artifact"))?;
-        let requested = match ArtifactClass::of(&artifact.path) {
-            Some(ArtifactClass::PythonSource) => matches!(
-                usage.role,
-                SourceRole::Release | SourceRole::Example | SourceRole::Test | SourceRole::DocBlock
-            ),
-            Some(ArtifactClass::Document) => usage.role == SourceRole::Document,
-            None => false,
-        };
+        let requested = ArtifactClass::of(&artifact.path)
+            .is_some_and(|class| class.requested_by(usage.role));
         if requested {
             selected.insert(artifact.id());
         }

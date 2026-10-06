@@ -375,11 +375,29 @@ pub fn inputs(method: AnalysisMethod) -> Vec<ValidationInput> {
     }
     inputs
 }
+/// Retain only the artifact properties that select expected scope membership. Paths and content
+/// remain with the completed source owner; decoding a batch never retains their rich rows here.
+#[derive(Clone, Copy)]
+struct ArtifactScope {
+    input: Id<InputRevision>,
+    class: Option<admission::ArtifactClass>,
+}
+impl HeapSize for ArtifactScope {}
+impl From<SourceArtifact> for ArtifactScope {
+    fn from(row: SourceArtifact) -> Self {
+        Self { input: row.input, class: admission::ArtifactClass::of(&row.path) }
+    }
+}
+struct PreparedRoots {
+    by_grain: charged::ChargedMap<(Id<InputRevision>, admission::ArtifactClass), Vec<Id<SourceArtifact>>>,
+    _charge: charged::StateCharge,
+}
 pub(crate) struct FrontierIndex {
     charge: charged::StateCharge,
     profile: Profile,
     inputs: charged::ChargedMap<Id<InputRevision>, InputRevision>,
-    artifacts: charged::ChargedMap<Id<SourceArtifact>, SourceArtifact>,
+    artifacts: charged::ChargedMap<Id<SourceArtifact>, ArtifactScope>,
+    roots: std::sync::OnceLock<PreparedRoots>,
     uses: charged::ChargedMap<Id<ArtifactUse>, ArtifactUse>,
     scopes: charged::ChargedMap<Id<CoverageScope>, CoverageScope>,
     computations: charged::ChargedMap<Id<NormalizationComputation>, NormalizationComputation>,
@@ -401,6 +419,7 @@ impl FrontierIndex {
             profile,
             inputs: Default::default(),
             artifacts: Default::default(),
+            roots: Default::default(),
             uses: Default::default(),
             scopes: Default::default(),
             computations: Default::default(),
@@ -423,14 +442,27 @@ impl FrontierIndex {
         batch: &arrow_array::RecordBatch,
         check: impl FnOnce() -> Result<(), ModelError>,
     ) -> Result<bool, ModelError> {
+        if relation == SourceArtifact::NAME {
+            check()?;
+            self.roots.take();
+            for row in SourceArtifact::decode(batch)? {
+                if self.artifacts.insert(&mut self.charge, row.id(), row.into())?.is_some() {
+                    return Err(ModelError::Conflict(SourceArtifact::NAME));
+                }
+            }
+            return Ok(true);
+        }
         macro_rules! insert {
             ($r:ty,$field:ident) => {
                 if relation == <$r>::NAME {
                     check()?;
+                    if relation == ArtifactUse::NAME {
+                        self.roots.take();
+                    }
                     for row in <$r>::decode(batch)? {
                         if self
                             .$field
-                            .insert(&mut self.charge, row.id(), row)?
+                            .insert(&mut self.charge, row.id(), row.into())?
                             .is_some()
                         {
                             return Err(ModelError::Conflict(<$r>::NAME));
@@ -443,6 +475,32 @@ impl FrontierIndex {
         macro_rules! dispatch {($($field:ident:$ty:ty,)*)=>{$(insert!($ty,$field);)*};}
         crate::expected_domain_inputs!(dispatch);
         Ok(false)
+    }
+    fn prepared_roots(&self) -> Result<&PreparedRoots, ModelError> {
+        if let Some(roots) = self.roots.get() {
+            return Ok(roots);
+        }
+        let budget = self.charge.budget().ok_or_else(|| invalid("expected frontier budget absent"))?;
+        let mut roots = PreparedRoots {
+            by_grain: Default::default(),
+            _charge: charged::StateCharge::new(budget, "analysis_expected_membership"),
+        };
+        let mut membership = charged::ChargedSet::default();
+        let mut scratch = charged::StateCharge::new(budget, "analysis_expected_membership_sort");
+        for usage in self.uses.values() {
+            let artifact = self.artifacts.get(&usage.artifact)
+                .ok_or_else(|| invalid("an artifact use names an absent artifact"))?;
+            if let Some(class) = artifact.class.filter(|class| class.requested_by(usage.role)) {
+                membership.insert(&mut scratch, (artifact.input, class, usage.artifact))?;
+            }
+        }
+        for (input, class, artifact) in membership.iter() {
+            roots.by_grain.update(&mut roots._charge, (*input, *class), |ids| ids.push(*artifact))?;
+        }
+        // Concurrent readers may prepare equivalent compact state. Only one owns the retained
+        // reservation; a discarded candidate releases its charge immediately.
+        let _ = self.roots.set(roots);
+        Ok(self.roots.get().expect("prepared expected membership"))
     }
     pub(crate) fn domain(
         &self,
@@ -457,20 +515,13 @@ impl FrontierIndex {
             .charge
             .budget()
             .ok_or_else(|| invalid("expected frontier budget absent"))?;
-        let bytes = self
-            .artifacts
-            .values()
-            .try_fold(0usize, |n, r| {
-                n.checked_add(size_of::<SourceArtifact>() + r.heap_bytes() + 256)
+        let roots = self.prepared_roots()?;
+        let scope_count = contract.scopes.iter().try_fold(0usize, |n, scope| {
+            n.checked_add(match scope.grain {
+                admission::Grain::Input => 1,
+                admission::Grain::Artifact(class) => roots.by_grain.get(&(input, class)).map_or(0, Vec::len),
             })
-            .and_then(|n| {
-                n.checked_add(
-                    self.uses
-                        .len()
-                        .checked_mul(size_of::<ArtifactUse>() + 256)?,
-                )
-            })
-            .ok_or_else(|| invalid("expected root allocation overflow"))?;
+        }).ok_or_else(|| invalid("expected scope allocation overflow"))?;
         let source_bytes = self
             .native
             .values()
@@ -494,21 +545,15 @@ impl FrontierIndex {
             .ok_or_else(|| invalid("expected lower allocation overflow"))?;
         let reservation = budget.reserve(
             "analysis_expected_roots",
-            bytes
-                .checked_add(source_bytes)
+            Some(source_bytes)
                 .and_then(|n| {
                     n.checked_add(
-                        self.artifacts
-                            .len()
-                            .checked_mul(size_of::<ExpectedScope>() + 128)?,
+                        scope_count.checked_mul(size_of::<ExpectedScope>() + 128)?,
                     )
                 })
                 .and_then(|n| n.checked_add(size_of::<ExpectedScope>()))
                 .ok_or_else(|| invalid("expected domain allocation overflow"))?,
         )?;
-        let artifacts = self.artifacts.values().cloned().collect::<Vec<_>>();
-        let uses = self.uses.values().cloned().collect::<Vec<_>>();
-        let roots = admission::analysis_roots(&artifacts, &uses)?;
         let mut selected = charged::ChargedMap::default();
         let mut charge = charged::StateCharge::new(budget, "analysis_expected_scopes");
         for (ordinal, scope_contract) in contract.scopes.iter().enumerate() {
@@ -527,14 +572,8 @@ impl FrontierIndex {
             match scope_contract.grain {
                 admission::Grain::Input => add(CoverageScope::Input { input })?,
                 admission::Grain::Artifact(class) => {
-                    for artifact in self.artifacts.values().filter(|r| {
-                        r.input == input
-                            && roots.contains(&r.id())
-                            && admission::ArtifactClass::of(&r.path) == Some(class)
-                    }) {
-                        add(CoverageScope::Artifact {
-                            artifact: artifact.id(),
-                        })?;
+                    for artifact in roots.by_grain.get(&(input, class)).into_iter().flatten() {
+                        add(CoverageScope::Artifact { artifact: *artifact })?;
                     }
                 }
             }
@@ -913,6 +952,55 @@ mod tests {
             root: root.id(),
             budget,
         }
+    }
+    #[test]
+    fn compact_membership_matches_owner_roles_and_reuses_only_immutable_sources() {
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let mut index = FrontierIndex::new(Profile::Catalog, &budget);
+        let input = fixture().input;
+        let mut artifacts = Vec::new();
+        let mut uses = Vec::new();
+        for suffix in ["py", "pyi", "md", "mdx", "rst", "toml"] {
+            for code in 0..=8 {
+                let role = SourceRole::from_code(code).unwrap();
+                let artifact = SourceArtifact::from_bytes(input, format!("role_{code}.{suffix}"), b"x").unwrap();
+                uses.push(ArtifactUse { input, artifact: artifact.id(), role });
+                artifacts.push(artifact);
+            }
+        }
+        visit(&mut index, &artifacts);
+        visit(&mut index, &uses);
+        let roots = index.prepared_roots().unwrap();
+        let compact = roots.by_grain.values().flatten().copied().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(compact, admission::analysis_roots(&artifacts, &uses).unwrap());
+        let reservation = roots._charge.reserved();
+        assert!(std::ptr::eq(roots, index.prepared_roots().unwrap()));
+        assert_eq!(index.prepared_roots().unwrap()._charge.reserved(), reservation);
+        let absent = SourceArtifact::from_bytes(input, "absent.py".into(), b"x").unwrap();
+        visit(&mut index, &[ArtifactUse { input, artifact: absent.id(), role: SourceRole::Release }]);
+        assert!(index.prepared_roots().is_err());
+        visit(&mut index, &[absent.clone()]);
+        assert!(index.prepared_roots().unwrap().by_grain[&(input, admission::ArtifactClass::PythonSource)].contains(&absent.id()));
+    }
+    #[test]
+    fn artifact_labels_are_transient_and_failed_permits_preserve_prepared_state() {
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let input = fixture().input;
+        let retained = |path: String| {
+            let mut index = FrontierIndex::new(Profile::Catalog, &budget);
+            let artifact = SourceArtifact::from_bytes(input, path, b"x").unwrap();
+            visit(&mut index, &[artifact]);
+            index.charge.reserved()
+        };
+        assert_eq!(retained("a.py".into()), retained(format!("{}.py", "a".repeat(32768))));
+        let mut f = fixture();
+        let before = f.index.prepared_roots().unwrap()._charge.reserved();
+        let batch = SourceArtifact::encode(&[]).unwrap();
+        assert!(f.index.visit_with_check(SourceArtifact::NAME, &batch, || Err(invalid("wrong permit"))).is_err());
+        assert_eq!(f.index.roots.get().unwrap()._charge.reserved(), before);
+        let batch = ArtifactUse::encode(&[]).unwrap();
+        assert!(f.index.visit_with_check(ArtifactUse::NAME, &batch, || Err(invalid("wrong permit"))).is_err());
+        assert_eq!(f.index.roots.get().unwrap()._charge.reserved(), before);
     }
     #[test]
     fn base_execution_requires_exact_native_families_and_retains_catalog_not_requested() {
