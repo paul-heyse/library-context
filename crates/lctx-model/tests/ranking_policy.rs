@@ -44,88 +44,7 @@ fn occurrence(target: Target, family: Family, u: u8, fragment: u8) -> Occurrence
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(16 * 1024 * 1024).unwrap()
 }
-#[test]
-fn member_projection_shares_independent_evidence_frequencies_and_exact_occurrences() {
-    let u1 = occurrence(unit(1), Family::Source, 1, 1);
-    let u2 = occurrence(unit(2), Family::Source, 2, 2);
-    let source = prepare(&[unit(1), unit(2)], &[u1, u2]);
-    let corpus = std::sync::Arc::new(
-        source
-            .prepare_lexical(&[
-                TextOccurrence {
-                    occurrence: u1,
-                    text: "common tool".into(),
-                },
-                TextOccurrence {
-                    occurrence: u2,
-                    text: "common resource".into(),
-                },
-            ])
-            .unwrap(),
-    );
-    let m1 = Occurrence {
-        target: member(9),
-        ..u1
-    };
-    let service = prepare(&[member(9)], &[m1]);
-    let projection = service.project_member_lexical(corpus.clone()).unwrap();
-    assert!(std::ptr::eq(projection.documents(), corpus.documents()));
-    assert_eq!(
-        projection
-            .query_tokens(&service, Family::Source, "tool")
-            .unwrap()
-            .tokens(),
-        ["tool"]
-    );
-    let common = PreparedRanking::new(
-        snapshot(),
-        RankingPolicy::default(),
-        &bindings("common"),
-        &[member(9)],
-        &[m1],
-        &budget(),
-    )
-    .unwrap();
-    assert!(
-        projection
-            .query_tokens(&common, Family::Source, "common")
-            .unwrap()
-            .tokens()
-            .is_empty()
-    );
-    let scores = corpus
-        .documents()
-        .iter()
-        .map(|d| DocumentScore {
-            document: d.id,
-            score: Some(if d.text == "common tool" { 1.0 } else { 100.0 }),
-        })
-        .collect::<Vec<_>>();
-    let rows = projection.expand_scores(&service, &scores).unwrap();
-    assert_eq!(rows.rows().len(), 1);
-    assert_eq!(rows.rows()[0].occurrence, m1);
-    assert_eq!(rows.rows()[0].score, Some(1.0));
-    let foreign = Occurrence {
-        context: id(99),
-        ..m1
-    };
-    assert!(
-        prepare(&[member(9)], &[foreign])
-            .project_member_lexical(corpus)
-            .is_err()
-    );
-    assert!(
-        projection
-            .expand_scores(
-                &service,
-                &[DocumentScore {
-                    document: ContentHash([99; 32]),
-                    score: Some(1.0)
-                }]
-            )
-            .is_err()
-    );
-}
+
 fn bindings(query: &str) -> [ChannelBinding; 2] {
     let policy = RankingPolicy::default();
     [
@@ -133,8 +52,8 @@ fn bindings(query: &str) -> [ChannelBinding; 2] {
         ChannelBinding::vector(&policy, ContentHash([3; 32]), ContentHash([4; 32])).unwrap(),
     ]
 }
-fn prepare(targets: &[Target], occurrences: &[Occurrence]) -> PreparedRanking {
-    PreparedRanking::new(
+fn prepare(targets: &[Target], occurrences: &[Occurrence]) -> CandidateFusion {
+    CandidateFusion::new(
         snapshot(),
         RankingPolicy::default(),
         &bindings("tool"),
@@ -145,12 +64,12 @@ fn prepare(targets: &[Target], occurrences: &[Occurrence]) -> PreparedRanking {
     .unwrap()
 }
 fn score(
-    prepared: &PreparedRanking,
+    prepared: &CandidateFusion,
     occurrence: Occurrence,
     channel: Channel,
     value: Option<f64>,
-) -> NumericalScore {
-    NumericalScore {
+) -> CandidateScore {
+    CandidateScore {
         snapshot: snapshot(),
         occurrence,
         channel,
@@ -162,25 +81,7 @@ fn near(actual: f64, expected: f64) {
     assert!((actual - expected).abs() < 1e-14, "{actual} != {expected}");
 }
 
-#[test]
-fn exports_pinned_numerical_settings_and_tokenization() {
-    let policy = RankingPolicy::default();
-    assert_eq!(policy.numerical.library, NumericalLibrary::Bm25s0311);
-    assert_eq!(policy.numerical.backend, NumericalBackend::Numpy);
-    assert_eq!(policy.numerical.method, Bm25Method::Lucene);
-    assert_eq!(
-        (policy.numerical.k1, policy.numerical.b, policy.rrf_k),
-        (1.5, 0.75, 60)
-    );
-    assert_eq!(
-        tokenize("FastMCP.custom_route(v2)"),
-        ["fastmcp", "custom", "route", "v2"]
-    );
-    assert_eq!(tokenize("Kelvin İD café 🦀"), ["kelvin", "i", "d", "caf"]);
-    let mut unsupported = policy.clone();
-    unsupported.rrf_k = 59;
-    assert!(unsupported.identity().is_err());
-}
+
 
 #[test]
 fn family_normalization_has_hand_expected_scores_and_actual_witnesses() {
@@ -324,7 +225,7 @@ fn missing_and_lexical_zero_abstain_but_finite_cosine_zero_and_negative_vote() {
         result.rows().iter().map(|r| r.target).collect::<Vec<_>>(),
         [b, c]
     );
-    assert_eq!(result.rows()[0].witnesses[0].numerical_score, 0.0);
+    assert_eq!(result.rows()[0].witnesses[0].channel_score, 0.0);
     assert_eq!(
         result.statistics(),
         &[
@@ -389,7 +290,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     let a = member(1);
     let o = occurrence(a, Family::Source, 1, 1);
     let channels = bindings("tool");
-    let p = PreparedRanking::new(
+    let p = CandidateFusion::new(
         snapshot(),
         RankingPolicy::default(),
         &channels[..1],
@@ -398,7 +299,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
         &budget(),
     )
     .unwrap();
-    let row = NumericalScore {
+    let row = CandidateScore {
         snapshot: snapshot(),
         occurrence: o,
         channel: Channel::Vector,
@@ -407,7 +308,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     };
     assert!(p.rank(&[row], &[]).is_err());
     assert!(
-        PreparedRanking::new(
+        CandidateFusion::new(
             snapshot(),
             RankingPolicy::default(),
             &channels,
@@ -418,7 +319,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
         .is_err()
     );
     assert!(
-        PreparedRanking::new(
+        CandidateFusion::new(
             snapshot(),
             RankingPolicy::default(),
             &channels,
@@ -429,7 +330,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
         .is_err()
     );
     assert!(
-        PreparedRanking::new(
+        CandidateFusion::new(
             snapshot(),
             RankingPolicy::default(),
             &channels,
@@ -441,7 +342,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     );
     let foreign = occurrence(unit(1), Family::Source, 2, 2);
     assert!(
-        PreparedRanking::new(
+        CandidateFusion::new(
             snapshot(),
             RankingPolicy::default(),
             &channels,
@@ -452,7 +353,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
         .is_err()
     );
     assert!(
-        PreparedRanking::new(
+        CandidateFusion::new(
             snapshot(),
             RankingPolicy::default(),
             &[channels[0], channels[0]],
@@ -464,364 +365,13 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     );
 }
 
-#[test]
-fn lexical_documents_deduplicate_text_and_keep_every_contextual_occurrence() {
-    let a = member(1);
-    let b = member(2);
-    let c = member(3);
-    let a1 = occurrence(a, Family::Scenario, 1, 1);
-    let b1 = occurrence(b, Family::Scenario, 2, 2);
-    let c1 = occurrence(c, Family::Scenario, 3, 1);
-    let p = prepare(&[a, b, c], &[a1, b1, c1]);
-    let corpus = p
-        .prepare_lexical(&[
-            TextOccurrence {
-                occurrence: a1,
-                text: "register tool".into(),
-            },
-            TextOccurrence {
-                occurrence: b1,
-                text: "read resource".into(),
-            },
-            TextOccurrence {
-                occurrence: c1,
-                text: "register tool".into(),
-            },
-            TextOccurrence {
-                occurrence: a1,
-                text: "register tool".into(),
-            },
-        ])
-        .unwrap();
-    assert_eq!(corpus.documents().len(), 2);
-    assert_eq!(
-        corpus
-            .query_tokens(&p, Family::Scenario, "tool")
-            .unwrap()
-            .tokens(),
-        ["tool"]
-    );
-    let doc = corpus
-        .documents()
-        .iter()
-        .find(|d| d.text == "register tool")
-        .unwrap();
-    let expanded = corpus
-        .expand_scores(
-            &p,
-            &[DocumentScore {
-                document: doc.id,
-                score: Some(0.25),
-            }],
-        )
-        .unwrap();
-    assert_eq!(
-        expanded
-            .rows()
-            .iter()
-            .filter(|r| r.score == Some(0.25))
-            .map(|r| r.occurrence.target)
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from([a, c])
-    );
-    let ranks = p.rank(expanded.rows(), &[]).unwrap();
-    assert_eq!(
-        ranks.rows().iter().map(|r| r.target).collect::<Vec<_>>(),
-        [a, c]
-    );
-    assert_eq!(ranks.rows()[1].witnesses[0].occurrence, c1);
-    assert!(
-        corpus
-            .query_tokens(&p, Family::Scenario, "resource")
-            .is_err()
-    );
-}
 
-use std::collections::BTreeSet;
-#[test]
-fn shared_vocabulary_abstention_is_member_policy_not_evidence_policy() {
-    let channels = bindings("register");
-    let a = member(1);
-    let b = member(2);
-    let a1 = occurrence(a, Family::ApiOptions, 1, 1);
-    let b1 = occurrence(b, Family::ApiOptions, 2, 2);
-    let p = PreparedRanking::new(
-        snapshot(),
-        RankingPolicy::default(),
-        &channels,
-        &[a, b],
-        &[a1, b1],
-        &budget(),
-    )
-    .unwrap();
-    let corpus = p
-        .prepare_lexical(&[
-            TextOccurrence {
-                occurrence: a1,
-                text: "register tool".into(),
-            },
-            TextOccurrence {
-                occurrence: b1,
-                text: "register resource long words".into(),
-            },
-        ])
-        .unwrap();
-    assert!(
-        corpus
-            .query_tokens(&p, Family::ApiOptions, "register")
-            .unwrap()
-            .tokens()
-            .is_empty()
-    );
-    let ua = unit(1);
-    let ub = unit(2);
-    let u1 = occurrence(ua, Family::DocumentationDeployment, 1, 1);
-    let u2 = occurrence(ub, Family::DocumentationDeployment, 2, 1);
-    let p = PreparedRanking::new(
-        snapshot(),
-        RankingPolicy::default(),
-        &channels,
-        &[ua, ub],
-        &[u1, u2],
-        &budget(),
-    )
-    .unwrap();
-    let corpus = p
-        .prepare_lexical(&[
-            TextOccurrence {
-                occurrence: u1,
-                text: "register deployment".into(),
-            },
-            TextOccurrence {
-                occurrence: u2,
-                text: "register deployment".into(),
-            },
-        ])
-        .unwrap();
-    assert_eq!(corpus.documents().len(), 1);
-    assert_eq!(
-        corpus
-            .query_tokens(&p, Family::DocumentationDeployment, "register")
-            .unwrap()
-            .tokens(),
-        ["register"]
-    );
-    let scores = corpus
-        .expand_scores(
-            &p,
-            &[DocumentScore {
-                document: corpus.documents()[0].id,
-                score: Some(0.5),
-            }],
-        )
-        .unwrap();
-    assert_eq!(p.rank(scores.rows(), &[]).unwrap().rows().len(), 2);
-}
 
-#[test]
-fn lexical_adapter_refuses_foreign_nonfinite_conflicting_and_incomplete_inputs() {
-    let a = member(1);
-    let b = member(2);
-    let a1 = occurrence(a, Family::Source, 1, 1);
-    let b1 = occurrence(b, Family::Source, 2, 2);
-    let p = prepare(&[a, b], &[a1, b1]);
-    assert!(
-        p.prepare_lexical(&[TextOccurrence {
-            occurrence: a1,
-            text: "tool".into()
-        }])
-        .is_err()
-    );
-    assert!(
-        p.prepare_lexical(&[
-            TextOccurrence {
-                occurrence: a1,
-                text: "tool".into()
-            },
-            TextOccurrence {
-                occurrence: b1,
-                text: "tool".into()
-            },
-            TextOccurrence {
-                occurrence: a1,
-                text: "other".into()
-            }
-        ])
-        .is_err()
-    );
-    let corpus = p
-        .prepare_lexical(&[
-            TextOccurrence {
-                occurrence: a1,
-                text: "tool".into(),
-            },
-            TextOccurrence {
-                occurrence: b1,
-                text: "tool".into(),
-            },
-        ])
-        .unwrap();
-    let doc = corpus.documents()[0].id;
-    assert!(
-        corpus
-            .expand_scores(
-                &p,
-                &[DocumentScore {
-                    document: ContentHash([99; 32]),
-                    score: Some(1.0)
-                }]
-            )
-            .is_err()
-    );
-    for score in [f64::NAN, f64::INFINITY, -1.0] {
-        assert!(
-            corpus
-                .expand_scores(
-                    &p,
-                    &[DocumentScore {
-                        document: doc,
-                        score: Some(score)
-                    }]
-                )
-                .is_err()
-        );
-    }
-    assert!(
-        corpus
-            .expand_scores(
-                &p,
-                &[
-                    DocumentScore {
-                        document: doc,
-                        score: Some(1.0)
-                    },
-                    DocumentScore {
-                        document: doc,
-                        score: None
-                    }
-                ]
-            )
-            .is_err()
-    );
-    let missing = corpus.expand_scores(&p, &[]).unwrap();
-    assert!(missing.rows().iter().all(|r| r.score.is_none()));
-    assert!(p.rank(missing.rows(), &[]).unwrap().rows().is_empty());
-}
 
-#[test]
-fn service_wide_corpus_is_reused_and_filters_before_contiguous_request_ranks() {
-    let a = member(1);
-    let b = member(2);
-    let c = member(3);
-    let a1 = occurrence(a, Family::Source, 1, 1);
-    let b1 = occurrence(b, Family::Source, 2, 2);
-    let c1 = occurrence(c, Family::Source, 3, 3);
-    // Preparation has no request/query channel. The index and DF belong to this full corpus.
-    let service = PreparedRanking::new(
-        snapshot(),
-        RankingPolicy::default(),
-        &[],
-        &[a, b, c],
-        &[a1, b1, c1],
-        &budget(),
-    )
-    .unwrap();
-    let corpus = service
-        .prepare_lexical(&[
-            TextOccurrence {
-                occurrence: a1,
-                text: "tool source".into(),
-            },
-            TextOccurrence {
-                occurrence: b1,
-                text: "tool other".into(),
-            },
-            TextOccurrence {
-                occurrence: c1,
-                text: "resource".into(),
-            },
-        ])
-        .unwrap();
-    let request = prepare(&[b], &[b1]);
-    assert_eq!(
-        corpus
-            .query_tokens(&request, Family::Source, "tool")
-            .unwrap()
-            .tokens(),
-        ["tool"],
-        "DF must not shrink to the one eligible member"
-    );
-    let scores: Vec<_> = corpus
-        .documents()
-        .iter()
-        .map(|doc| DocumentScore {
-            document: doc.id,
-            score: Some(if doc.text == "tool source" { 10.0 } else { 1.0 }),
-        })
-        .collect();
-    let expanded = corpus.expand_scores(&request, &scores).unwrap();
-    assert_eq!(expanded.rows().len(), 1);
-    assert_eq!(expanded.rows()[0].occurrence, b1);
-    let result = request.rank(expanded.rows(), &[]).unwrap();
-    assert_eq!(result.rows()[0].target, b);
-    assert_eq!(
-        result.rows()[0].witnesses[0].rank,
-        1,
-        "ineligible numerical winners cannot leave rank gaps"
-    );
-    let mut corrupt = scores.clone();
-    corrupt.push(DocumentScore {
-        document: ContentHash([99; 32]),
-        score: Some(100.0),
-    });
-    assert!(
-        corpus.expand_scores(&request, &corrupt).is_err(),
-        "foreign scores refuse even if they would be filtered out"
-    );
-    let ineligible = corpus
-        .documents()
-        .iter()
-        .find(|d| d.text == "tool source")
-        .unwrap()
-        .id;
-    assert!(
-        corpus
-            .expand_scores(
-                &request,
-                &[DocumentScore {
-                    document: ineligible,
-                    score: Some(f64::NAN)
-                }]
-            )
-            .is_err()
-    );
-    let other_query = PreparedRanking::new(
-        snapshot(),
-        RankingPolicy::default(),
-        &bindings("resource"),
-        &[c],
-        &[c1],
-        &budget(),
-    )
-    .unwrap();
-    assert_eq!(
-        corpus
-            .query_tokens(&other_query, Family::Source, "resource")
-            .unwrap()
-            .tokens(),
-        ["resource"]
-    );
-    let foreign_snapshot = PreparedRanking::new(
-        snapshot_for(8),
-        RankingPolicy::default(),
-        &bindings("tool"),
-        &[b],
-        &[b1],
-        &budget(),
-    )
-    .unwrap();
-    assert!(corpus.expand_scores(&foreign_snapshot, &scores).is_err());
-}
+
+
+
+
 
 #[test]
 fn channel_identity_binds_policy_query_and_actual_query_vector() {
@@ -849,12 +399,12 @@ fn channel_identity_binds_policy_query_and_actual_query_vector() {
 }
 
 #[test]
-fn preparation_fusion_and_conversion_reservations_refuse_and_release() {
+fn bounded_candidate_fusion_reservations_refuse_and_release() {
     let a = member(1);
     let o = occurrence(a, Family::Source, 1, 1);
     let tiny = ResourceBudget::fixed(1).unwrap();
     assert!(matches!(
-        PreparedRanking::new(
+        CandidateFusion::new(
             snapshot(),
             RankingPolicy::default(),
             &bindings("tool"),
@@ -866,7 +416,7 @@ fn preparation_fusion_and_conversion_reservations_refuse_and_release() {
     ));
     assert_eq!(tiny.reserved(), 0);
     let budget = budget();
-    let p = PreparedRanking::new(
+    let p = CandidateFusion::new(
         snapshot(),
         RankingPolicy::default(),
         &bindings("tool"),
@@ -885,66 +435,29 @@ fn preparation_fusion_and_conversion_reservations_refuse_and_release() {
         p.rank(std::slice::from_ref(&row), &[]),
         Err(ModelError::Resource { .. })
     ));
-    assert!(matches!(
-        p.prepare_lexical(&[TextOccurrence {
-            occurrence: o,
-            text: "tool".into()
-        }]),
-        Err(ModelError::Resource { .. })
-    ));
     drop(held);
     assert_eq!(budget.reserved(), prepared_bytes);
     let result = p.rank(&[row], &[]).unwrap();
     assert!(budget.reserved() > prepared_bytes);
     drop(result);
     assert_eq!(budget.reserved(), prepared_bytes);
-    let corpus = p
-        .prepare_lexical(&[TextOccurrence {
-            occurrence: o,
-            text: "tool".into(),
-        }])
-        .unwrap();
-    let corpus_bytes = budget.reserved();
-    let held = budget
-        .reserve("test competing work", budget.limit() - budget.reserved())
-        .unwrap();
-    assert!(matches!(
-        corpus.expand_scores(&p, &[]),
-        Err(ModelError::Resource { .. })
-    ));
-    assert!(matches!(
-        corpus.query_tokens(&p, Family::Source, "tool"),
-        Err(ModelError::Resource { .. })
-    ));
-    drop(held);
-    let converted = corpus.expand_scores(&p, &[]).unwrap();
-    assert!(budget.reserved() > corpus_bytes);
-    drop(converted);
-    assert_eq!(budget.reserved(), corpus_bytes);
-    drop(corpus);
     drop(p);
     assert_eq!(budget.reserved(), 0);
 }
 
+
+
 #[test]
-fn retained_tokenizer_known_answers_use_the_single_model_owner() {
-    let answers: serde_json::Value =
-        serde_json::from_str(include_str!("../../../specs/serving/tokens.json")).unwrap();
-    for case in answers["text"].as_array().unwrap() {
-        let expected: Vec<String> = serde_json::from_value(case["tokens"].clone()).unwrap();
-        assert_eq!(tokenize(case["text"].as_str().unwrap()), expected);
-    }
-    for case in answers["names"].as_array().unwrap() {
-        let tokens: Vec<String> = serde_json::from_value(case["tokens"].clone()).unwrap();
-        assert_eq!(
-            tokens
-                .iter()
-                .collect::<std::collections::BTreeSet<_>>()
-                .len(),
-            tokens.len()
-        );
-        for token in tokens {
-            assert_eq!(tokenize(&token), vec![token]);
-        }
-    }
+fn native_analyzer_identity_is_independent_of_fusion_rules() {
+    let policy=RankingPolicy::default();
+    assert_eq!(policy.rrf_k,60);
+    assert_eq!((policy.lexical.k1,policy.lexical.b),(1.5,0.75));
+    let mut changed=policy.clone();
+    changed.lexical.definition=ContentHash::of(b"another installed analyzer");
+    assert!(changed.validate().is_ok());
+    assert_ne!(policy.identity().unwrap(),changed.identity().unwrap());
+    changed.rrf_k=59;
+    assert!(changed.validate().is_err());
+    changed=policy.clone();changed.lexical.k1=f64::NAN;
+    assert!(changed.validate().is_err());
 }
